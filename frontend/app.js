@@ -154,7 +154,9 @@ const SETTING_FIELDS = [
 async function loadSettings() {
   S.settings = await api.get('/settings');
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
+  if (typeof S.settings.enable_agent === 'number') S.agentEnabled = S.settings.enable_agent !== 0;
   renderSettings();
+  renderToolsPanel();
   updateUserBtn();
 }
 
@@ -971,9 +973,12 @@ function toggleToolsPanel() {
   if (open) renderToolsPanel();
 }
 
-function setAgentEnabled(on) {
+async function setAgentEnabled(on) {
   S.agentEnabled = on;
   $('tools-panel-btn').style.opacity = on ? '1' : '0.5';
+  try {
+    S.settings = await api.put('/settings', { enable_agent: on });
+  } catch (e) { toast('Failed to save agent state', true); }
 }
 
 async function toggleToolEnabled(id, on) {

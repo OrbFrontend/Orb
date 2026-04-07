@@ -62,6 +62,7 @@ class SettingsUpdate(BaseModel):
     user_name: Optional[str] = None
     user_description: Optional[str] = None
     enabled_tools: Optional[dict] = None
+    enable_agent: Optional[bool] = None
 
 
 class FragmentCreate(BaseModel):
@@ -392,7 +393,7 @@ async def api_edit_message(cid: str, msg_id: int, data: EditMessage, request: Re
 
     if should_stream_regen:
         return StreamingResponse(
-            _sse_stream(handle_turn(cid, data.content, data.enable_agent, skip_user_persist=True), request),
+            _sse_stream(handle_turn(cid, data.content, skip_user_persist=True), request),
             media_type="text/event-stream",
         )
 
@@ -429,10 +430,8 @@ async def api_regenerate_msg(cid: str, msg_id: int, request: Request, data: Opti
     if not conv:
         raise HTTPException(404, "Conversation not found")
 
-    enable_agent = data.enable_agent if data else True
-
     return StreamingResponse(
-        _sse_stream(handle_regenerate(cid, msg_id, enable_agent), request),
+        _sse_stream(handle_regenerate(cid, msg_id), request),
         media_type="text/event-stream",
     )
 
@@ -462,7 +461,7 @@ async def api_send_message(cid: str, data: SendMessage, request: Request):
         raise HTTPException(404, "Conversation not found")
 
     return StreamingResponse(
-        _sse_stream(handle_turn(cid, data.content, data.enable_agent), request),
+        _sse_stream(handle_turn(cid, data.content), request),
         media_type="text/event-stream",
     )
 

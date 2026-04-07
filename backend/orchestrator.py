@@ -52,13 +52,13 @@ FIX_WRITER_OUTPUT_TOOL = {
     "type": "function",
     "function": {
         "name": "fix_writer_output",
-        "description": "Audit the preceding assistant's response for: anachronisms, repeated phrases or sentence structures, sloppy/purple prose, avoidant;pretentious words like 'purr', 'predatory', 'velvety', 'ozone', 'heat', 'core', 'electric' (adj), 'primal', etc., tropes like 'low, dangerous voice'; 'voice dropping'; 'tension in the air', etc. Make only the necessary inline fixes. Do not restructure or expand. If the output is clean, keep rewritten_output empty.",
+        "description": "Audit the preceding assistant's response for: anachronisms, repeated phrases or sentence structures, sloppy/purple prose, avoidant;pretentious words like 'purr', 'predatory', 'velvety', 'ozone', 'heat', 'core', 'electric' (adj), 'primal', 'mischievous', 'conspiratorial', 'challenge', cliched writing tropes similar to 'low, dangerous voice'; 'voice dripping'; 'voice dropping'; 'tension in the air', 'a mixture of...'. Make only the necessary inline fixes by rephrasing or removing. If the output is clean, keep rewritten_output empty.",
         "parameters": {
             "type": "object",
             "properties": {
                 "rewritten_output": {
                     "type": "string",
-                    "description": "The corrected output with minimal targeted fixes applied. Leave empty or omit if no changes are needed.",
+                    "description": "The corrected output with targeted fixes applied. Leave empty or omit if no changes are needed.",
                 },
             },
             "required": [],
@@ -151,7 +151,8 @@ async def _run_writer_pass(client: LLMClient, msgs: list[dict], settings: dict, 
         tool_schemas = [v["schema"] for v in ALL_TOOL_DEFS.values()]
     else:
         tool_schemas = [ALL_TOOL_DEFS[n]["schema"] for n in ALL_TOOL_DEFS if enabled_tools.get(n, False)]
-    async for token in client.stream(messages=msgs, model=settings["model_name"], tools=tool_schemas, tool_choice="none", **params):
+    extra = {"tools": tool_schemas, "tool_choice": "none"} if tool_schemas else {}
+    async for token in client.stream(messages=msgs, model=settings["model_name"], **extra, **params):
         yield token
 
 
@@ -225,13 +226,16 @@ async def _run_writer_rewrite_pass(
 
 async def _execute_pipeline(
     client: LLMClient, settings: dict, director: dict, fragments: list[dict],
-    prefix: list[dict], user_message: str, enable_agent: bool,
+    prefix: list[dict], user_message: str,
 ) -> AsyncIterator[dict]:
     """Common logic for the LLM execution pipeline shared by handles."""
     enabled_tools = settings.get("enabled_tools") or {}
+    enable_agent = bool(settings.get("enable_agent", 1))
+    if not enable_agent:
+        enabled_tools = {}
     act_styles, agent_raw, calls, latency, rewr_msg = director["active_styles"], "", [], 0, None
     eff_msg = user_message
-    writer_rewrite_enabled = enabled_tools.get("fix_writer_output", False)
+    writer_rewrite_enabled = enable_agent and enabled_tools.get("fix_writer_output", False)
 
     if enable_agent:
         yield {"event": "director_start"}
@@ -265,7 +269,7 @@ async def _execute_pipeline(
 
 
 async def handle_turn(
-    conversation_id: str, user_message: str, enable_agent: bool = True,
+    conversation_id: str, user_message: str,
     skip_user_persist: bool = False,
 ) -> AsyncIterator[dict]:
     """Run the full two-pass pipeline for one user turn."""
@@ -304,8 +308,9 @@ async def handle_turn(
             history_for_prefix, settings.get("user_name", "User"), settings.get("user_description", "")
         )
 
+        enable_agent = bool(settings.get("enable_agent", 1))
         res = {}
-        async for event in _execute_pipeline(client, settings, director, fragments, prefix, user_message, enable_agent):
+        async for event in _execute_pipeline(client, settings, director, fragments, prefix, user_message):
             if event["event"] == "_pipeline_result": res = event["data"]
             else: yield event
 
@@ -330,7 +335,7 @@ async def handle_turn(
 
 
 async def handle_regenerate(
-    conversation_id: str, assistant_msg_id: int, enable_agent: bool = True,
+    conversation_id: str, assistant_msg_id: int,
 ) -> AsyncIterator[dict]:
     """Regenerate a specific assistant message as a new sibling branch."""
     try:
@@ -370,8 +375,9 @@ async def handle_regenerate(
             history_before, settings.get("user_name", "User"), settings.get("user_description", "")
         )
 
+        enable_agent = bool(settings.get("enable_agent", 1))
         res = {}
-        async for event in _execute_pipeline(client, settings, director, fragments, prefix, user_msg["content"], enable_agent):
+        async for event in _execute_pipeline(client, settings, director, fragments, prefix, user_msg["content"]):
             if event["event"] == "_pipeline_result": res = event["data"]
             else: yield event
 

@@ -117,6 +117,7 @@ DEFAULT_SETTINGS = {
     "system_prompt": "You are a creative roleplay partner. You have two roles:\nDirector: Analyze and guess what the user is leaning into, then use tools to influence the story intelligently and succinctly. Be responsive to the scene's evolving tone.\nWriter: The one writing the actual prose. You will write in third person using snappy prose. Keep tenses, POV consistent. Obey directions planned by Director. Keep replies compact, stop when appropriate.",
     "user_name": "User",
     "user_description": "",
+    "enable_agent": True,
 }
 
 
@@ -147,7 +148,8 @@ async def init_db():
                 system_prompt TEXT NOT NULL DEFAULT '',
                 user_name TEXT NOT NULL DEFAULT 'User',
                 user_description TEXT NOT NULL DEFAULT '',
-                enabled_tools TEXT NOT NULL DEFAULT '{}'
+                enabled_tools TEXT NOT NULL DEFAULT '{}',
+                enable_agent INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS fragments (
@@ -224,6 +226,11 @@ async def init_db():
             );
         """)
 
+        # Migrations for existing DBs
+        existing_cols = {row[1] for row in await db.execute_fetchall("PRAGMA table_info(settings)")}
+        if "enable_agent" not in existing_cols:
+            await db.execute("ALTER TABLE settings ADD COLUMN enable_agent INTEGER NOT NULL DEFAULT 1")
+
         # Seed settings if empty
         row = await db.execute_fetchall("SELECT COUNT(*) as c FROM settings")
         if row[0]["c"] == 0:
@@ -266,7 +273,7 @@ async def get_settings() -> dict:
 async def update_settings(data: dict) -> dict:
     db = await get_db()
     try:
-        allowed = ["endpoint_url", "api_key", "model_name", "temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens", "system_prompt", "user_name", "user_description", "enabled_tools"]
+        allowed = ["endpoint_url", "api_key", "model_name", "temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens", "system_prompt", "user_name", "user_description", "enabled_tools", "enable_agent"]
         sets = []
         vals = []
         for k in allowed:
