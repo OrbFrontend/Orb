@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentic Roleplay</title>
+<link id="theme-link" rel="stylesheet" href="/static/themes/dark.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-header-top"><h1>Agentic Roleplay</h1><div class="subtitle">Scene-directed narrative</div></div>
+      <div class="theme-row">
+        <label for="theme-select" class="theme-label">Theme</label>
+        <select id="theme-select" class="theme-select" onchange="applyTheme(this.value)">
+          <option value="dark">Dark</option>
+          <option value="halloween">Halloween</option>
+          <option value="dark_forest">Dark Forest</option>
+          <option value="ocean_depths">Ocean Depths</option>
+          <option value="ghostly">Ghostly Incandescence</option>
+          <option value="pastel_neon">Pastel Neon</option>
+          <option value="vintage_wood">Vintage Wood</option>
+          <option value="newspaper">Newspaper</option>
+        </select>
+      </div>
+    </div>
+    <div class="sidebar-scroll">
+      <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Characters <span class="arrow">▼</span></div>
+        <div class="sidebar-section-body" id="char-section">
+          <div class="btn-row" style="margin-bottom:8px">
+            <button class="btn btn-sm" style="flex:1" onclick="showCharCreateModal()">+ Create</button>
+            <button class="btn btn-sm" style="flex:1" onclick="triggerImport()">⬆ Import PNG</button>
+          </div>
+          <input type="file" id="import-file-input" accept=".png" style="display:none" onchange="handleImportFile(this)">
+          <div id="char-list"></div>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Style Fragments <span class="arrow">▼</span></div>
+        <div class="sidebar-section-body" id="frag-section">
+          <div id="frag-list"></div>
+          <button class="btn btn-block btn-sm" onclick="showFragmentModal()" style="margin-top:6px">+ Add Fragment</button>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Settings <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-body collapsed" id="settings-section"><div id="settings-form"></div></div>
+      </div>
+    </div>
+  </div>
+  <div id="main">
+    <div id="chat-header">
+      <div class="chat-title-area">
+        <div class="chat-avatar" id="chat-avatar">📜</div>
+        <div class="chat-title" id="chat-title-text">Select a character</div>
+      </div>
+      <div class="chat-actions">
+        <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile">👤 User</button>
+        <button class="btn btn-sm" id="tools-panel-btn" onclick="toggleToolsPanel()" title="Agent tools">🎭 Agent</button>
+        <button class="btn btn-sm" id="inspector-toggle" onclick="toggleInspector()">🔍 Inspector</button>
+      </div>
+    </div>
+    <div id="chat-messages"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
+    <div id="chat-input-area">
+      <div id="burger-dropdown">
+        <div class="burger-menu-item" onclick="closeBurger();newConvForChar(S.activeCharId)">✚ New conversation</div>
+        <div class="burger-menu-item" onclick="closeBurger();showConvHistoryModal()">📋 Conversations</div>
+      </div>
+      <div id="chat-input-wrap">
+        <button id="burger-btn" onclick="toggleBurger()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+        <textarea id="chat-input" placeholder="Write your message..." rows="1" disabled></textarea>
+        <button id="send-btn" onclick="sendMessage()" disabled title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+        <button id="stop-btn" onclick="stopGeneration()" title="Stop generation"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
+      </div>
+    </div>
+  </div>
+  <div id="tools-panel"><div class="tools-inner">
+    <div class="inspector-title">Agent Tools</div>
+    <div class="agent-master-row">
+      <span class="agent-master-label">Agent Enabled</span>
+      <label class="tog"><input type="checkbox" id="agent-enable-chk" checked onchange="setAgentEnabled(this.checked)"><span class="tog-slider"></span></label>
+    </div>
+    <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);margin-bottom:8px;">Available Tools</div>
+    <div id="tools-list"></div>
+  </div></div>
+  <div id="inspector"><div class="inspector-inner"><div class="inspector-title">Director Inspector</div><div id="inspector-content"><div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div></div></div></div>
+</div>
+<div id="modal-root"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

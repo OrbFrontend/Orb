@@ -1,0 +1,10 @@
+:root {
+  --bg-deep:#020810;--bg-primary:#05101e;--bg-surface:#08182e;--bg-elevated:#0d203c;
+  --bg-hover:#122848;--border:#1a3050;--border-light:#224060;
+  --text-primary:#b8d8ee;--text-secondary:#5888a8;--text-muted:#305870;
+  --accent:#3aaad8;--accent-dim:#1e6fa0;--accent-glow:rgba(58,170,216,0.13);
+  --red:#c45d88;--green:#5dc4a0;--blue:#5d88c4;
+  --font-prose:'Palatino Linotype',Palatino,Georgia,serif;--font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  --font-mono:'SF Mono','Menlo','Consolas',monospace;--radius:6px;
+  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
+}

@@ -1,0 +1,10 @@
+:root {
+  --bg-deep:#e8e2d4;--bg-primary:#ede8db;--bg-surface:#f5f1e8;--bg-elevated:#f0ece2;
+  --bg-hover:#e2dccf;--border:#bab3a0;--border-light:#a8a090;
+  --text-primary:#18140c;--text-secondary:#3d3828;--text-muted:#7a7060;
+  --accent:#8b1c1c;--accent-dim:#5c1010;--accent-glow:rgba(139,28,28,0.10);
+  --red:#8b1c1c;--green:#2a5a2a;--blue:#1c3a6e;
+  --font-prose:'Times New Roman',Times,serif;--font-ui:Georgia,'Times New Roman',serif;
+  --font-mono:'Courier New',Courier,monospace;--radius:2px;
+  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
+}

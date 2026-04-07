@@ -1,0 +1,10 @@
+:root {
+  --bg-deep:#16110f;--bg-primary:#1f1815;--bg-surface:#2b211d;--bg-elevated:#382c26;
+  --bg-hover:#473831;--border:#57463c;--border-light:#6e594d;
+  --text-primary:#e6d8ce;--text-secondary:#a89a90;--text-muted:#73655d;
+  --accent:#c47647;--accent-dim:#7a4628;--accent-glow:rgba(196,118,71,0.15);
+  --red:#9e4642;--green:#637a53;--blue:#54718c;
+  --font-prose:Georgia,'Palatino Linotype',Palatino,serif;--font-ui:Optima,Candara,'Segoe UI',system-ui,sans-serif;
+  --font-mono:'Courier New',Courier,monospace;--radius:4px;
+  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
+}
