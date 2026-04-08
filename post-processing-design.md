@@ -86,7 +86,7 @@ PHRASE_BANK = [
 
 Three scanners run on the draft at the start of `_refine_pass`, producing a consolidated Audit Report.
 
-### 3.1. Banned Phrase Detection (`llm_phrase_detector.py`)
+### 3.1. Banned Phrase Detection (`slop_detector.py`)
 - **Method:** Splits the draft into sentences. For each sentence, generates word-level 3-grams and computes Jaccard similarity against 3-grams of each phrase variant. Flags matches above a configurable threshold (default `0.25`).
 - **Output:** `DetectionResult` — list of flagged sentences with matched canonical phrase, matched variant, and score.
 
@@ -169,13 +169,13 @@ If `_refine_pass` errors or hits max iterations without a clean Audit Report, fa
 
 ## Library Implementations
 
-### `llm_phrase_detector.py`
+### `slop_detector.py`
 ```python
 """
-llm_phrase_detector.py — Detect overused LLM phrases via word-level trigram fuzzy matching.
+slop_detector.py — Detect overused LLM phrases via word-level trigram fuzzy matching.
 
 Usage:
-    from llm_phrase_detector import detect_cliches
+    from slop_detector import detect_cliches
 
     phrase_bank = [
         ["a mix of", "a mixture of", "a blend of"],

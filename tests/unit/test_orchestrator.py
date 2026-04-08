@@ -222,7 +222,7 @@ class TestBuildStyleInjection:
         result = build_style_injection([], deactivated)
         assert "lyrical" not in result
 
-    def test_multiple_active_styles_all_present(self, fragments):
+    def test_multiple_active_moods_all_present(self, fragments):
         result = build_style_injection(fragments)
         assert 'name="tense"' in result
         assert 'name="lyrical"' in result
@@ -232,12 +232,12 @@ class TestBuildToolPrompt:
     def test_returns_empty_string_for_unknown_tool(self):
         assert build_tool_prompt("nonexistent_tool", "msg", [], []) == ""
 
-    def test_set_writing_styles_includes_user_message(self, fragments):
-        result = build_tool_prompt("set_writing_styles", "Let's fight!", ["tense"], fragments)
+    def test_set_moods_includes_user_message(self, fragments):
+        result = build_tool_prompt("set_moods", "Let's fight!", ["tense"], fragments)
         assert "Let's fight!" in result
 
-    def test_set_writing_styles_lists_available_fragments(self, fragments):
-        result = build_tool_prompt("set_writing_styles", "msg", [], fragments)
+    def test_set_moods_lists_available_fragments(self, fragments):
+        result = build_tool_prompt("set_moods", "msg", [], fragments)
         assert "tense" in result
         assert "lyrical" in result
 
@@ -246,13 +246,13 @@ class TestBuildToolPrompt:
         assert "I nod." in result
 
     def test_contains_tool_name_in_instruction(self):
-        result = build_tool_prompt("set_writing_styles", "msg", [], [])
-        assert "set_writing_styles" in result
+        result = build_tool_prompt("set_moods", "msg", [], [])
+        assert "set_moods" in result
 
 
 class TestApplyToolCalls:
-    def test_set_writing_styles_replaces_active_list(self):
-        calls = [{"name": "set_writing_styles", "arguments": {"style_ids": ["tense", "lyrical"]}}]
+    def test_set_moods_replaces_active_list(self):
+        calls = [{"name": "set_moods", "arguments": {"mood_ids": ["tense", "lyrical"]}}]
         styles, refined = apply_tool_calls(calls, [])
         assert styles == ["tense", "lyrical"]
         assert refined is None
@@ -270,7 +270,7 @@ class TestApplyToolCalls:
 
     def test_multiple_tool_calls_applied_in_order(self):
         calls = [
-            {"name": "set_writing_styles", "arguments": {"style_ids": ["tense"]}},
+            {"name": "set_moods", "arguments": {"mood_ids": ["tense"]}},
             {"name": "rewrite_user_prompt", "arguments": {"refined_message": "Better message."}},
         ]
         styles, refined = apply_tool_calls(calls, [])
@@ -282,9 +282,9 @@ class TestApplyToolCalls:
         assert styles == ["tense"]
         assert refined is None
 
-    def test_set_writing_styles_clears_previous_styles(self):
+    def test_set_moods_clears_previous_moods(self):
         """Style list is replaced, not merged."""
-        calls = [{"name": "set_writing_styles", "arguments": {"style_ids": ["lyrical"]}}]
+        calls = [{"name": "set_moods", "arguments": {"mood_ids": ["lyrical"]}}]
         styles, _ = apply_tool_calls(calls, ["tense", "dramatic"])
         assert styles == ["lyrical"]
 
@@ -294,20 +294,20 @@ class TestApplyToolCalls:
 # ===========================================================================
 
 class TestAgentPass:
-    async def test_returns_updated_styles(self, settings, director, fragments, prefix):
+    async def test_returns_updated_moods(self, settings, director, fragments, prefix):
         response = {
             "tool_calls": [{
                 "function": {
-                    "name": "set_writing_styles",
-                    "arguments": '{"style_ids": ["tense"]}',
+                    "name": "set_moods",
+                    "arguments": '{"mood_ids": ["tense"]}',
                 }
             }]
         }
         client = make_client(complete_return=response)
-        active_styles, _, calls, _, refined = await _agent_pass(
+        active_moods, _, calls, _, refined = await _agent_pass(
             client, prefix, "Hello", settings, director, fragments
         )
-        assert "tense" in active_styles
+        assert "tense" in active_moods
         assert len(calls) == 1
 
     async def test_returns_refined_message_when_rewrite_called(self, settings, director, fragments, prefix):
@@ -329,11 +329,11 @@ class TestAgentPass:
     async def test_empty_tool_names_skips_llm(self, settings, director, fragments, prefix):
         """When all tools are disabled, no LLM call is made."""
         settings["enabled_tools"] = {
-            "set_writing_styles": False,
+            "set_moods": False,
             "rewrite_user_prompt": False,
         }
         client = make_client()
-        active_styles, raw, calls, _, _ = await _agent_pass(
+        active_moods, raw, calls, _, _ = await _agent_pass(
             client, prefix, "Hello", settings, director, fragments,
             enabled_tools=settings["enabled_tools"],
         )
@@ -345,7 +345,7 @@ class TestAgentPass:
         client = MagicMock(spec=LLMClient)
         client.complete = AsyncMock(side_effect=RuntimeError("LLM timeout"))
         # Should not raise
-        active_styles, raw, calls, _, _ = await _agent_pass(
+        active_moods, raw, calls, _, _ = await _agent_pass(
             client, prefix, "Hello", settings, director, fragments
         )
         assert "ERROR" in raw
@@ -555,19 +555,19 @@ class TestRunPipelineEventOrdering:
         events = await collect(_run_pipeline(client, settings, director, fragments, prefix, "Hi"))
         assert events[-1]["event"] == "_result"
 
-    async def test_director_done_contains_active_styles(self, settings, director, fragments, prefix):
+    async def test_director_done_contains_active_moods(self, settings, director, fragments, prefix):
         response = {
             "tool_calls": [{
                 "function": {
-                    "name": "set_writing_styles",
-                    "arguments": '{"style_ids": ["tense"]}',
+                    "name": "set_moods",
+                    "arguments": '{"mood_ids": ["tense"]}',
                 }
             }]
         }
         client = make_client(complete_return=response, stream_tokens=("x",))
         events = await collect(_run_pipeline(client, settings, director, fragments, prefix, "Hi"))
         done_evt = events_of(events, "director_done")[0]
-        assert "tense" in done_evt["data"]["active_styles"]
+        assert "tense" in done_evt["data"]["active_moods"]
 
     async def test_token_events_accumulate_full_response(self, settings, director, fragments, prefix):
         client = make_client(stream_tokens=("Hello", " world", "!"))
@@ -697,7 +697,7 @@ class TestRunPipelineKVCacheInvariant:
         prompt; sending a different set than the agent invalidates the KV cache.
         """
         settings["enabled_tools"] = {
-            "set_writing_styles": True,
+            "set_moods": True,
             "rewrite_user_prompt": False,
             "refine_assistant_output": False,
         }
@@ -712,7 +712,7 @@ class TestRunPipelineKVCacheInvariant:
         writer_tools = stream_calls[0]["kwargs"].get("tools")
         assert writer_tools is not None, "Writer must receive a tools list when agent is enabled"
         tool_names_sent = [t["function"]["name"] for t in writer_tools]
-        assert tool_names_sent == ["set_writing_styles"], (
+        assert tool_names_sent == ["set_moods"], (
             f"Writer must receive only the enabled schemas. Got: {tool_names_sent}"
         )
 
@@ -723,7 +723,7 @@ class TestRunPipelineKVCacheInvariant:
         tools list — any difference invalidates the cached prefix.
         """
         settings["enabled_tools"] = {
-            "set_writing_styles": True,
+            "set_moods": True,
             "rewrite_user_prompt": False,
             "refine_assistant_output": False,
         }
@@ -774,7 +774,7 @@ class TestRunPipelineKVCacheInvariant:
         [REFINE_OUTPUT_TOOL] while the writer passes _enabled_schemas(enabled_tools).
         """
         settings["enabled_tools"] = {
-            "set_writing_styles": True,
+            "set_moods": True,
             "rewrite_user_prompt": False,
             "refine_assistant_output": True,
         }
@@ -840,12 +840,12 @@ def make_db_mock(*, messages=None, conv=_CONV, director=None, fragments=None):
     m.get_settings = AsyncMock(return_value={
         "model_name": "test-model", "system_prompt": "Sys", "endpoint_url": "http://localhost",
         "api_key": "", "enable_agent": 1,
-        "enabled_tools": {"set_writing_styles": True, "rewrite_user_prompt": False, "refine_assistant_output": False},
+        "enabled_tools": {"set_moods": True, "rewrite_user_prompt": False, "refine_assistant_output": False},
         "user_name": "Tester", "user_description": "",
     })
     m.get_conversation = AsyncMock(return_value=conv)
     m.get_messages = AsyncMock(return_value=messages or [])
-    m.get_director_state = AsyncMock(return_value=director or {"active_styles": []})
+    m.get_director_state = AsyncMock(return_value=director or {"active_moods": []})
     m.get_fragments = AsyncMock(return_value=fragments or [])
     m.get_character_card = AsyncMock(return_value=None)
     m.update_director_state = AsyncMock()
@@ -855,7 +855,7 @@ def make_db_mock(*, messages=None, conv=_CONV, director=None, fragments=None):
     m.add_conversation_log = AsyncMock()
     m.get_message_by_id = AsyncMock(return_value=None)
     m._get_path_to_leaf = AsyncMock(return_value=[])
-    m.get_styles_before_turn = AsyncMock(return_value=[])
+    m.get_moods_before_turn = AsyncMock(return_value=[])
     return m
 
 
@@ -914,8 +914,8 @@ class TestHandleTurn:
         response = {
             "tool_calls": [{
                 "function": {
-                    "name": "set_writing_styles",
-                    "arguments": '{"style_ids": ["tense"]}',
+                    "name": "set_moods",
+                    "arguments": '{"mood_ids": ["tense"]}',
                 }
             }]
         }
@@ -925,8 +925,8 @@ class TestHandleTurn:
              patch("backend.orchestrator.LLMClient", return_value=client):
             await collect(handle_turn("conv-1", "Hello"))
         db_mock.update_director_state.assert_called_once()
-        _, saved_styles = db_mock.update_director_state.call_args[0]
-        assert "tense" in saved_styles
+        _, saved_moods = db_mock.update_director_state.call_args[0]
+        assert "tense" in saved_moods
 
     async def test_does_not_update_director_state_when_agent_disabled(self):
         db_mock = make_db_mock()
@@ -973,7 +973,7 @@ class TestHandleRegenerate:
             events = await collect(handle_regenerate("conv-1", 10))
         assert events[0]["event"] == "error"
 
-    async def test_restores_styles_from_before_original_turn(self):
+    async def test_restores_moods_from_before_original_turn(self):
         """
         Regeneration should use the styles that were active *before* the original
         turn, not the current director state — so the style context is identical
@@ -981,7 +981,7 @@ class TestHandleRegenerate:
         """
         db_mock = make_db_mock()
         db_mock.get_message_by_id = AsyncMock(side_effect=[_ASST_MSG, _USER_MSG])
-        db_mock.get_styles_before_turn = AsyncMock(return_value=["tense"])
+        db_mock.get_moods_before_turn = AsyncMock(return_value=["tense"])
         client = make_client(stream_tokens=("x",))
 
         captured_director: list[dict] = []
@@ -1001,7 +1001,7 @@ class TestHandleRegenerate:
             await collect(handle_regenerate("conv-1", 11))
 
         assert captured_director, "pipeline was not called"
-        assert captured_director[0]["active_styles"] == ["tense"]
+        assert captured_director[0]["active_moods"] == ["tense"]
 
     async def test_new_assistant_message_added_as_sibling(self):
         """Regeneration creates a new assistant message (sibling branch), not in-place edit."""

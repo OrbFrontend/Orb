@@ -19,7 +19,7 @@ def base_settings() -> dict:
         "api_key": "",
         "enable_agent": 1,
         "enabled_tools": {
-            "set_writing_styles": True,
+            "set_moods": True,
             "rewrite_user_prompt": False,
             "refine_assistant_output": False,
         },
@@ -30,7 +30,7 @@ def base_settings() -> dict:
 
 @pytest.fixture
 def base_director() -> dict:
-    return {"active_styles": []}
+    return {"active_moods": []}
 
 
 @pytest.fixture

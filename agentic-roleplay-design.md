@@ -22,7 +22,7 @@ Both the agent (director) and the writer use the same model. This simplifies dep
 
 Step 1: User sends a new message.
 
-Step 2 (Agent Pass): The system intercepts the message. It constructs a request using the full cached conversation prefix, but replaces the user's message with an out-of-character (OOC) agent prompt. This prompt instructs the model to act as a scene director and output structured tool calls — not roleplay prose. The model analyzes recent context and decides which writing styles should be active and what internal scene notes to set. The agent's output is consumed by the frontend and then **discarded** — it is never appended to the conversation history.
+Step 2 (Agent Pass): The system intercepts the message. It constructs a request using the full cached conversation prefix, but replaces the user's message with an out-of-character (OOC) agent prompt. This prompt instructs the model to act as a scene director and output structured tool calls — not roleplay prose. The model analyzes recent context and decides which moods should be active and what internal scene notes to set. The agent's output is consumed by the frontend and then **discarded** — it is never appended to the conversation history.
 
 Step 3 (State Mutation): The frontend processes the agent's tool calls. It updates a behavior registry (which styles are active) and a scene note store (persistent and momentary notes). It then assembles a block of directive text from the active prompt fragments.
 
@@ -61,9 +61,9 @@ Fragments **cannot** go in the system prompt. Adding or removing a sentence ther
 
 ### What Fragments Are
 
-Fragments are short, modular prompt instructions that each target a specific aspect of writing style. They are stored in a library and toggled on/off by the agent. When active, their text is concatenated into the depth-0.5 injection block.
+Fragments are short, modular prompt instructions that each target a specific aspect of mood. They are stored in a library and toggled on/off by the agent. When active, their text is concatenated into the depth-0.5 injection block.
 
-### Writing Style Fragments (Initial Set)
+### mood Fragments (Initial Set)
 
 **Descriptive** — Prioritize environmental and sensory detail. Describe spaces, lighting, textures, sounds, and smells. Ground the reader in the physical world. Actions should include how things feel and look, not just what happens.
 
@@ -79,14 +79,14 @@ Additional fragments can be added to the library over time. The system is extens
 
 ```xml
 <current_scene_direction>
-  <style name="descriptive">
+  <mood name="descriptive">
     Prioritize environmental and sensory detail. Describe spaces, lighting,
     textures, sounds, and smells. Ground the reader in the physical world.
-  </style>
-  <style name="tense">
+  </mood>
+  <mood name="tense">
     Write with short, clipped sentences. Use silence and pauses. Characters
     are hyper-aware of their surroundings. Minimize humor unless dark or nervous.
-  </style>
+  </mood>
   <persistent_note>Kael has chosen the number 42 — maintain this consistently.</persistent_note>
   <momentary_note>Kael is acting smug because the player's last guess was wildly off.</momentary_note>
 </current_scene_direction>
@@ -139,7 +139,7 @@ Late-injected instructions can be outweighed by the established pattern in conve
 
 ### Mitigation Strategies
 
-**Write fragments with authority.** Not "you may consider being more terse" but "Your writing style has NOW shifted — use short, clipped prose. This overrides your previous tendencies." Fragments must be assertive because they are fighting against pattern momentum.
+**Write fragments with authority.** Not "you may consider being more terse" but "Your mood has NOW shifted — use short, clipped prose. This overrides your previous tendencies." Fragments must be assertive because they are fighting against pattern momentum.
 
 **Use XML structure.** The `<current_scene_direction>` wrapper signals to the model that this is a distinct directive, not incidental conversational context.
 
@@ -147,7 +147,7 @@ Late-injected instructions can be outweighed by the established pattern in conve
 
 ### Tools Available to the Agent
 
-**set_writing_styles**
+**set_moods**
 - Input: a list of style IDs to activate (e.g., ["descriptive", "tense"])
 - Behavior: replaces the full set of active styles. Any style not in the list is deactivated. The frontend resolves each ID to its fragment text.
 
@@ -181,12 +181,12 @@ The user's latest message (which you are analyzing, not responding to):
 {{user's actual message}}
 """
 
-Available writing styles: {{list of all style IDs with one-line descriptions}}
+Available moods: {{list of all style IDs with one-line descriptions}}
 
 Your task:
 1. Consider what has just happened in the scene. Has the emotional tone shifted?
    Has the pacing changed? Is a new kind of scene beginning?
-2. Decide which writing styles should be active for the NEXT response.
+2. Decide which moods should be active for the NEXT response.
    Only change styles if the scene warrants it — don't churn for no reason.
 3. Evaluate the persistent note. Does any hidden state need to be added,
    removed, or updated? If the character has made a secret decision, committed

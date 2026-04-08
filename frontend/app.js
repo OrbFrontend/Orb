@@ -15,7 +15,7 @@ const S = {
   streamingBodyEl: null,
   streamCutoffIndex: null,
   agentEnabled: true,
-  enabledTools: { set_writing_styles: true, rewrite_user_prompt: false, refine_assistant_output: false },
+  enabledTools: { set_moods: true, rewrite_user_prompt: false, refine_apply_patch: false },
   editingMsgId: null,
   abortController: null,
 };
@@ -987,7 +987,7 @@ function renderInspector() {
 
   const ds        = S.directorState || {};
   const ld        = S.lastDirectorData || {};
-  const activeIds = ld.active_styles || ds.active_styles || [];
+  const activeIds = ld.active_moods || ds.active_moods || [];
   const stylesHtml = S.fragments
     .map(f => `<span class="style-tag ${activeIds.includes(f.id) ? 'active' : ''}">${f.id}</span>`)
     .join('');
@@ -1012,9 +1012,9 @@ function renderInspector() {
 //  AGENT TOOLS PANEL
 // ─────────────────────────────────────────────
 const TOOL_DEFS = [
-  { id: 'set_writing_styles',    name: 'Style Director',    desc: 'Selects active writing style fragments based on scene context' },
+  { id: 'set_moods',    name: 'Style Director',    desc: 'Selects active mood fragments based on scene context' },
   { id: 'rewrite_user_prompt',   name: 'Prompt Rewriter',   desc: 'Expands vague or lazy messages into richer input' },
-  { id: 'refine_assistant_output', name: 'Output Auditor',    desc: 'Post-processes the response to fix repetition, slop, and anachronisms' },
+  { id: 'refine_apply_patch',    name: 'Output Auditor',    desc: 'Scans for banned phrases, repetitive openers & templates, then surgically patches the draft' },
 ];
 
 function toggleToolsPanel() {

@@ -129,7 +129,7 @@ app/
 | turn_index | INTEGER | Matches the corresponding message turn |
 | agent_raw_output | TEXT | Full agent response (content + tool calls as JSON) |
 | tool_calls | TEXT (JSON) | Parsed tool call array |
-| active_styles_after | TEXT (JSON) | Snapshot of active styles after applying tool calls |
+| active_moods_after | TEXT (JSON) | Snapshot of active styles after applying tool calls |
 | persistent_notes_after | TEXT (JSON) | Snapshot of persistent notes after applying tool calls |
 | momentary_note_after | TEXT | Momentary note after applying tool calls, nullable |
 | injection_block | TEXT | The assembled `<current_scene_direction>` block sent to writer |
@@ -141,7 +141,7 @@ app/
 | Column | Type | Notes |
 |---|---|---|
 | conversation_id | TEXT PK FK | |
-| active_styles | TEXT (JSON) | List of active fragment IDs |
+| active_moods | TEXT (JSON) | List of active fragment IDs |
 | persistent_notes | TEXT (JSON) | Array of persistent note strings |
 | momentary_note | TEXT | Current momentary note, nullable |
 
@@ -157,12 +157,12 @@ async def handle_turn(conversation_id, user_message) -> AsyncIterator[str]:
 
 **Step 1 — Load state.** Read conversation history, current director state (active styles, notes), settings, and the conversation's character card snapshot from the DB.
 
-**Step 2 — Build the agent prompt.** Assemble the shared prefix: system prompt, then character card (persona + scenario + example messages), then full message history. Append the OOC agent prompt from the design doc, substituting in the current active styles, persistent notes, momentary note, user message, and available fragment list. Include the three tool definitions (`set_writing_styles`, `update_persistent_note`, `set_momentary_note`) as OpenAI-format function schemas.
+**Step 2 — Build the agent prompt.** Assemble the shared prefix: system prompt, then character card (persona + scenario + example messages), then full message history. Append the OOC agent prompt from the design doc, substituting in the current active styles, persistent notes, momentary note, user message, and available fragment list. Include the three tool definitions (`set_moods`, `update_persistent_note`, `set_momentary_note`) as OpenAI-format function schemas.
 
 **Step 3 — Agent pass (non-streaming).** Call `llm_client.complete()` with `tool_choice: "required"` (or `"auto"` depending on server support). Parse the response for tool calls. This call is **not** streamed to the user — it's consumed internally. Expect ~200-400 tokens output, so it's fast.
 
 **Step 4 — Apply tool calls.** Process each tool call through `state.py`:
-- `set_writing_styles` → update `active_styles` in director state
+- `set_moods` → update `active_moods` in director state
 - `update_persistent_note` → apply keep/append/remove/replace logic
 - `set_momentary_note` → overwrite momentary note
 

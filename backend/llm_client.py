@@ -47,8 +47,28 @@ class LLMClient:
             resp.raise_for_status()
             data = resp.json()
 
+        # Log raw structure before accessing keys that may not exist
+        logger.info("LLM complete: status=%d, keys=%s", resp.status_code, list(data.keys()) if isinstance(data, dict) else type(data).__name__)
+        if "choices" not in data:
+            logger.error("LLM complete: response missing 'choices' key. Full keys: %s. Body (first 1000): %s",
+                         list(data.keys()) if isinstance(data, dict) else "N/A", str(data)[:1000])
+            raise KeyError(f"LLM response missing 'choices'. Keys: {list(data.keys()) if isinstance(data, dict) else type(data).__name__}")
+        if not data["choices"]:
+            logger.error("LLM complete: 'choices' is empty. Body (first 1000): %s", str(data)[:1000])
+            raise ValueError("LLM response has empty 'choices' array")
+
         choice = data["choices"][0]
+        logger.info("LLM complete: choice keys=%s, finish_reason=%s", list(choice.keys()), choice.get("finish_reason"))
+
+        if "message" not in choice:
+            logger.error("LLM complete: choice missing 'message' key. Choice keys: %s. Choice (first 1000): %s",
+                         list(choice.keys()), str(choice)[:1000])
+            raise KeyError(f"LLM choice missing 'message'. Keys: {list(choice.keys())}")
+
         message = choice["message"]
+        logger.info("LLM complete: message keys=%s, has_tool_calls=%s, content_len=%s",
+                     list(message.keys()), "tool_calls" in message,
+                     len(message.get("content", "") or "") if message.get("content") else "null")
         return message
 
     async def stream(

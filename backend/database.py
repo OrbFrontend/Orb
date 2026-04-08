@@ -42,7 +42,7 @@ SEED_FRAGMENTS = [
         "label": "Terse",
         "description": "Short, punchy prose with no filler. To be used SPARINGLY!",
         "prompt_text": (
-            "Your writing style has NOW shifted — use short, clipped prose. Cut adjectives. "
+            "Your mood has NOW shifted — use short, clipped prose. Cut adjectives. "
             "Cut adverbs. Every sentence earns its place or gets deleted. Paragraphs are 1-3 "
             "sentences max. This overrides your previous tendencies toward longer prose."
         ),
@@ -72,9 +72,10 @@ SEED_FRAGMENTS = [
         "label": "Sensual",
         "description": "NSFW mode - descriptive, enable if the vibes of the situation call for it",
         "prompt_text": (
-            'Use vulgar, uncensored, graphic, varied vocabulary when applicable. Even words like "cunt", "cock", "anus", etc. are allowed. Avoid roundabout allegories like "heat", "core", etc. The narration is more brutal, vivid, and direct. '
-            'Describe body parts that are exposed or looked at - visually, or interacted with - tactilely. "Take initiative and actively push the scene forward, no need to ask. '
-            "Focus on staying in character even though the vibes are sensual - characters should still behave realistically and warily of strangers and have boundaries."
+            'The narration should describe body parts that are exposed or looked at - visually, or interacted with - tactilely. Take initiative and actively push the scene forward, no need to ask. '
+            'The narration can use NSFW, vulgar, uncensored, graphic, varied vocabulary where applicable. Even strong words like "cunt", "cock", "anus", etc. are allowed. Avoid roundabout allegories like "heat", "core", etc. The narration is more brutal, vivid, and direct. '
+            "Focus on staying in character even though the vibes are sensual - characters should still behave realistically and warily of strangers and have boundaries. "
+            'Only the narration changes style, characters should still talk normally like how they would.'
         ),
         "negative_prompt": (
             "Return to non-explicit writing. Keep all descriptions tasteful and non-graphic. "
@@ -83,11 +84,11 @@ SEED_FRAGMENTS = [
         "is_builtin": False,
     },
     {
-        "id": "reactive",
-        "label": "Reactive",
-        "description": "Some characters don't take kindly to insults, sexual assault, violence, non-consensual acts, and will react.",
+        "id": "defensive",
+        "label": "Defensive",
+        "description": "Some characters don't take kindly to insults, sexual assault, violence, non-consensual advances, and will react.",
         "prompt_text": (
-            "Some characters don't take kindly to insults, sexual assault, violence, non-consensual acts. They will fight back or escape (or at least try to) according to their personalities. React immediately."
+            "Some characters don't take kindly to insults, sexual assault, violence, non-consensual advances. They will fight back or escape (or at least try to) according to their personalities. React immediately."
         ),
         "negative_prompt": "",
         "is_builtin": False,
@@ -119,6 +120,25 @@ DEFAULT_SETTINGS = {
     "user_description": "",
     "enable_agent": True,
 }
+
+SEED_PHRASE_BANK = [
+    ["a mix of", "a mixture of"],
+    ["voice dripping with", "dripped with", "voice dripped with"],
+    ["tension in the air", "thick tension in the air", "the air is heavy", "the air is charged"],
+    ["dangerous voice", "dangerous tone"],
+    ["voice dropping", "voice low", "voice dangerous", "voice a dangerous", "voice a low", "low hiss", "dangerous hiss"],
+    ["a predatory smirk", "I don't bite", "they don't bite", "it doesn't bite"],
+    ["very brave or very stupid", "either very brave or very foolish", "brave or stupid"],
+    ["sending shivers", "sending a shiver"],
+    ["couldn't help but", "could not help but"],
+    ["a dance of", "a dance between"],
+    ["eyes narrowing", "eyes narrowed", "mischievous glint", "gaze sharpen"],
+    ["let out a breath", "breath hitches"],
+    ["smell of ozone"],
+    ["the air between them"],
+    ["mind races"],
+    ["stark contrast"],
+]
 
 
 async def get_db() -> aiosqlite.Connection:
@@ -210,7 +230,7 @@ async def init_db():
 
             CREATE TABLE IF NOT EXISTS director_state (
                 conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
-                active_styles TEXT NOT NULL DEFAULT '[]'
+                active_moods TEXT NOT NULL DEFAULT '[]'
             );
 
             CREATE TABLE IF NOT EXISTS conversation_logs (
@@ -219,10 +239,15 @@ async def init_db():
                 turn_index INTEGER NOT NULL,
                 agent_raw_output TEXT,
                 tool_calls TEXT,
-                active_styles_after TEXT,
+                active_moods_after TEXT,
                 injection_block TEXT,
                 agent_latency_ms INTEGER,
                 created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS phrase_bank (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                variants TEXT NOT NULL
             );
         """)
 
@@ -248,6 +273,12 @@ async def init_db():
                     "INSERT INTO fragments (id, label, description, prompt_text, negative_prompt, is_builtin) VALUES (?, ?, ?, ?, ?, ?)",
                     (f["id"], f["label"], f["description"], f["prompt_text"], f["negative_prompt"], f["is_builtin"]),
                 )
+
+        # Seed phrase_bank if empty
+        row = await db.execute_fetchall("SELECT COUNT(*) as c FROM phrase_bank")
+        if row[0]["c"] == 0:
+            for variants in SEED_PHRASE_BANK:
+                await db.execute("INSERT INTO phrase_bank (variants) VALUES (?)", (json.dumps(variants),))
 
         await db.commit()
 
@@ -394,7 +425,7 @@ async def create_conversation(
              first_mes, post_history_instructions, now, now),
         )
         await db.execute(
-            "INSERT INTO director_state (conversation_id, active_styles) VALUES (?, '[]')",
+            "INSERT INTO director_state (conversation_id, active_moods) VALUES (?, '[]')",
             (cid,),
         )
         await db.commit()
@@ -669,19 +700,19 @@ async def get_director_state(cid: str) -> dict:
         rows = await db.execute_fetchall("SELECT * FROM director_state WHERE conversation_id = ?", (cid,))
         if rows:
             r = dict(rows[0])
-            r["active_styles"] = json.loads(r["active_styles"])
+            r["active_moods"] = json.loads(r["active_moods"])
             return r
-        return {"conversation_id": cid, "active_styles": []}
+        return {"conversation_id": cid, "active_moods": []}
     finally:
         await db.close()
 
 
-async def update_director_state(cid: str, active_styles: list):
+async def update_director_state(cid: str, active_moods: list):
     db = await get_db()
     try:
         await db.execute(
-            "UPDATE director_state SET active_styles = ? WHERE conversation_id = ?",
-            (json.dumps(active_styles), cid),
+            "UPDATE director_state SET active_moods = ? WHERE conversation_id = ?",
+            (json.dumps(active_moods), cid),
         )
         await db.commit()
     finally:
@@ -695,7 +726,7 @@ async def add_conversation_log(cid: str, turn_index: int, agent_raw: str, tool_c
     try:
         now = datetime.now(timezone.utc).isoformat()
         await db.execute(
-            "INSERT INTO conversation_logs (conversation_id, turn_index, agent_raw_output, tool_calls, active_styles_after, injection_block, agent_latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO conversation_logs (conversation_id, turn_index, agent_raw_output, tool_calls, active_moods_after, injection_block, agent_latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (cid, turn_index, agent_raw, json.dumps(tool_calls), json.dumps(styles_after), injection, latency_ms, now),
         )
         await db.commit()
@@ -703,16 +734,16 @@ async def add_conversation_log(cid: str, turn_index: int, agent_raw: str, tool_c
         await db.close()
 
 
-async def get_styles_before_turn(cid: str, turn_index: int) -> list[str]:
-    """Return active_styles_after from the most recent log entry before turn_index."""
+async def get_moods_before_turn(cid: str, turn_index: int) -> list[str]:
+    """Return active_moods_after from the most recent log entry before turn_index."""
     db = await get_db()
     try:
         rows = await db.execute_fetchall(
-            "SELECT active_styles_after FROM conversation_logs WHERE conversation_id = ? AND turn_index < ? ORDER BY turn_index DESC LIMIT 1",
+            "SELECT active_moods_after FROM conversation_logs WHERE conversation_id = ? AND turn_index < ? ORDER BY turn_index DESC LIMIT 1",
             (cid, turn_index),
         )
-        if rows and rows[0]["active_styles_after"]:
-            return json.loads(rows[0]["active_styles_after"])
+        if rows and rows[0]["active_moods_after"]:
+            return json.loads(rows[0]["active_moods_after"])
         return []
     finally:
         await db.close()
@@ -729,9 +760,62 @@ async def get_conversation_logs(cid: str) -> list[dict]:
         for r in rows:
             d = dict(r)
             d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
-            d["active_styles_after"] = json.loads(d["active_styles_after"]) if d["active_styles_after"] else []
+            d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []
             result.append(d)
         return result
+    finally:
+        await db.close()
+
+
+# --- Phrase Bank ---
+
+async def get_phrase_bank() -> list[list[str]]:
+    """Return phrase bank as list of variant groups (list of lists)."""
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall("SELECT variants FROM phrase_bank ORDER BY id ASC")
+        return [json.loads(r["variants"]) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_phrase_bank_rows() -> list[dict]:
+    """Return phrase bank rows with ids for UI management."""
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall("SELECT id, variants FROM phrase_bank ORDER BY id ASC")
+        return [{"id": r["id"], "variants": json.loads(r["variants"])} for r in rows]
+    finally:
+        await db.close()
+
+
+async def add_phrase_group(variants: list[str]) -> int:
+    """Add a new phrase variant group. Returns the new row id."""
+    db = await get_db()
+    try:
+        cur = await db.execute("INSERT INTO phrase_bank (variants) VALUES (?)", (json.dumps(variants),))
+        await db.commit()
+        return cur.lastrowid
+    finally:
+        await db.close()
+
+
+async def update_phrase_group(group_id: int, variants: list[str]) -> bool:
+    db = await get_db()
+    try:
+        cur = await db.execute("UPDATE phrase_bank SET variants = ? WHERE id = ?", (json.dumps(variants), group_id))
+        await db.commit()
+        return cur.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def delete_phrase_group(group_id: int) -> bool:
+    db = await get_db()
+    try:
+        cur = await db.execute("DELETE FROM phrase_bank WHERE id = ?", (group_id,))
+        await db.commit()
+        return cur.rowcount > 0
     finally:
         await db.close()
 
@@ -930,18 +1014,18 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
             if leaf_row:
                 turn_idx = leaf_row[0]["turn_index"]
                 log_row = await db.execute_fetchall(
-                    "SELECT active_styles_after FROM conversation_logs WHERE conversation_id = ? AND turn_index = ? ORDER BY id DESC LIMIT 1",
+                    "SELECT active_moods_after FROM conversation_logs WHERE conversation_id = ? AND turn_index = ? ORDER BY id DESC LIMIT 1",
                     (cid, turn_idx),
                 )
-                restored = json.loads(log_row[0]["active_styles_after"]) if log_row and log_row[0]["active_styles_after"] else []
+                restored = json.loads(log_row[0]["active_moods_after"]) if log_row and log_row[0]["active_moods_after"] else []
                 await db.execute(
-                    "UPDATE director_state SET active_styles = ? WHERE conversation_id = ?",
+                    "UPDATE director_state SET active_moods = ? WHERE conversation_id = ?",
                     (json.dumps(restored), cid),
                 )
         else:
             # No messages left; reset styles
             await db.execute(
-                "UPDATE director_state SET active_styles = '[]' WHERE conversation_id = ?", (cid,)
+                "UPDATE director_state SET active_moods = '[]' WHERE conversation_id = ?", (cid,)
             )
 
         await db.commit()
@@ -963,4 +1047,3 @@ async def get_character_avatar(card_id: str) -> tuple[bytes, str] | None:
         return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
     finally:
         await db.close()
-
