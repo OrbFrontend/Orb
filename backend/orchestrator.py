@@ -52,7 +52,7 @@ REFINE_OUTPUT_TOOL = {
     "type": "function",
     "function": {
         "name": "refine_assistant_output",
-        "description": "Audit your previous response for: inconsistencies, anachronisms, repeated phrases or sentence structures, sloppy/purple prose, avoidant;pretentious words like 'purr', 'predatory', 'velvety', 'ozone', 'core', 'electric' (adj), 'primal', 'mischievous', 'conspiratorial', 'challenge', cliched writing tropes that are variations of 'low, dangerous voice'; 'voice dripping'; 'voice dropping'; 'very brave or very stupid'; 'tension in the air'; 'a mix of...'. Make only the necessary inline fixes by rephrasing or removing. If the output is clean, keep refined_output empty.",
+        "description": "Audit your previous response for: inconsistencies, anachronisms, repeated phrases or repetitive sentence structures, sloppy/purple prose, avoidant;pretentious words like 'purr', 'predatory', 'velvety', 'ozone', 'core', 'electric' (adj), 'primal', 'mischievous', 'conspiratorial', 'challenge', cliched writing tropes that are variations of 'low, dangerous voice'; 'voice dripping'; 'voice dropping'; 'very brave or very stupid'; 'tension in the air'; 'a mix of...'. Make only the necessary inline fixes by rephrasing or removing. If the output is clean, keep refined_output empty.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -89,7 +89,7 @@ def build_tool_prompt(tool_name: str, user_message: str, active_styles: list[str
         return ""
     desc = tool["schema"]["function"]["description"]
     parts = [
-        "[OOC] You (the AI) are now the agentic Director, use tool calls to accomplish your task. Your output will immediately affect how the scenario plays out. Be decisive.",
+        "[OOC] You (the AI) are now the agentic Director, use tool calls to accomplish your task. Your output will immediately affect how the scenario plays out. Be decisive and avoid overthinking.",
         f"Call this tool ONLY: '{tool_name}' - {desc}"
     ]
     if tool_name == "set_writing_styles":
@@ -231,11 +231,11 @@ async def _refine_pass(
         logger.error("Refine failed: %s", e)
         return None, f"ERROR: {e}", int((time.monotonic() - t0) * 1000)
 
-
 async def _run_pipeline(
     client: LLMClient, settings: dict, director: dict, fragments: list[dict],
     prefix: list[dict], user_message: str,
 ) -> AsyncIterator[dict]:
+    # Resolve enabled tools; disable all if agent is off
     enabled_tools = settings.get("enabled_tools") or {}
     agent_on = bool(settings.get("enable_agent", 1))
     if not agent_on:
@@ -245,6 +245,7 @@ async def _run_pipeline(
     effective_msg = user_message
     do_refine = agent_on and enabled_tools.get("refine_assistant_output", False)
 
+    # --- Agent pass: style selection + prompt rewrite ---
     if agent_on:
         yield {"event": "director_start"}
         active_styles, agent_raw, calls, latency, refined_msg = await _agent_pass(
@@ -254,12 +255,14 @@ async def _run_pipeline(
             effective_msg = refined_msg
             yield {"event": "prompt_rewritten", "data": {"refined_message": refined_msg}}
 
+    # Build style injection block from active + newly deactivated styles
     deactivated = [f for f in fragments if f["id"] in (set(director["active_styles"]) - set(active_styles))]
     active = [f for f in fragments if f["id"] in active_styles]
     inj_block = build_style_injection(active, deactivated) if (active or deactivated) else ""
 
     yield {"event": "director_done", "data": {"active_styles": active_styles, "injection_block": inj_block, "tool_calls": calls, "agent_latency_ms": latency}}
 
+    # --- Writer pass: stream the story response ---
     writer_msgs = prefix + ([{"role": "user", "content": inj_block}] if inj_block else []) + [
         {"role": "user", "content": effective_msg + "\n\n[OOC: Only write the story, tool calls are STRICTLY FORBIDDEN from now on!]"}
     ]
@@ -269,20 +272,24 @@ async def _run_pipeline(
         resp_text += token
         yield {"event": "token", "data": token}
 
+    # Yield base result early so caller can persist before refinement
+    yield {"event": "_result", "data": {
+        "active_styles": active_styles, "agent_raw": agent_raw, "calls": calls,
+        "latency": latency, "refined_msg": refined_msg, "effective_msg": effective_msg,
+        "resp_text": resp_text, "inj_block": inj_block
+    }}
+
+    # --- Refine pass: optional self-audit of the draft ---
     if do_refine and resp_text:
         try:
             refined_output, _, _ = await _refine_pass(client, prefix, effective_msg, resp_text, settings)
             if refined_output:
                 resp_text = refined_output
                 yield {"event": "writer_rewrite", "data": {"refined_text": resp_text}}
+                # Update caller's persisted text if refinement succeeded
+                yield {"event": "_refined_result", "data": {"resp_text": resp_text}}
         except Exception as e:
             logger.error("refine pass failed, keeping original: %s", e)
-
-    yield {"event": "_result", "data": {
-        "active_styles": active_styles, "agent_raw": agent_raw, "calls": calls,
-        "latency": latency, "refined_msg": refined_msg, "effective_msg": effective_msg,
-        "resp_text": resp_text, "inj_block": inj_block
-    }}
 
 
 async def handle_turn(conversation_id: str, user_message: str, skip_user_persist: bool = False) -> AsyncIterator[dict]:
@@ -297,13 +304,16 @@ async def handle_turn(conversation_id: str, user_message: str, skip_user_persist
         fragments = await db.get_fragments()
         client = LLMClient(settings["endpoint_url"], api_key=settings.get("api_key", ""))
 
+        # Determine history and turn indexing
         history, user_msg_id = messages, None
         user_parent_id = conv.get("active_leaf_id")
         next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
 
+        # When skipping persist, pop the last user message out of history
         if skip_user_persist and messages and messages[-1]["role"] == "user":
             history, user_msg_id = messages[:-1], messages[-1]["id"]
 
+        # Build the system + history prefix (optimised for KV cache reuse)
         system_prompt, char_persona, mes_example = await _load_char_context(conv, settings)
         prefix = build_prefix(
             system_prompt, conv["character_name"], char_persona,
@@ -311,25 +321,36 @@ async def handle_turn(conversation_id: str, user_message: str, skip_user_persist
             history, settings.get("user_name", "User"), settings.get("user_description", "")
         )
 
+        # Run the full agent → writer → refine pipeline
         res = {}
-        async for event in _run_pipeline(client, settings, director, fragments, prefix, user_message):
-            if event["event"] == "_result": res = event["data"]
-            else: yield event
+        try:
+            async for event in _run_pipeline(client, settings, director, fragments, prefix, user_message):
+                if event["event"] == "_result":
+                    res = event["data"]
+                elif event["event"] == "_refined_result":
+                    res["resp_text"] = event["data"]["resp_text"]
+                else:
+                    yield event
+        finally:
+            # Always persist whatever we have — guards against disconnect during refinement
+            if not res:
+                return
 
-        if settings.get("enable_agent", 1):
-            await db.update_director_state(conversation_id, res["active_styles"])
+            if settings.get("enable_agent", 1):
+                await db.update_director_state(conversation_id, res["active_styles"])
 
-        if not skip_user_persist:
-            user_msg_id = await db.add_message(conversation_id, "user", res["effective_msg"], next_turn, parent_id=user_parent_id)
-            await db.set_active_leaf(conversation_id, user_msg_id)
-            asst_id = await db.add_message(conversation_id, "assistant", res["resp_text"], next_turn + 1, parent_id=user_msg_id)
-        else:
-            if res["refined_msg"] and user_msg_id:
-                await db.update_message_content(user_msg_id, res["refined_msg"])
-            asst_id = await db.add_message(conversation_id, "assistant", res["resp_text"], next_turn, parent_id=user_msg_id)
+            if not skip_user_persist:
+                user_msg_id = await db.add_message(conversation_id, "user", res["effective_msg"], next_turn, parent_id=user_parent_id)
+                await db.set_active_leaf(conversation_id, user_msg_id)
+                asst_id = await db.add_message(conversation_id, "assistant", res["resp_text"], next_turn + 1, parent_id=user_msg_id)
+            else:
+                if res["refined_msg"] and user_msg_id:
+                    await db.update_message_content(user_msg_id, res["refined_msg"])
+                asst_id = await db.add_message(conversation_id, "assistant", res["resp_text"], next_turn, parent_id=user_msg_id)
 
-        await db.set_active_leaf(conversation_id, asst_id)
-        await db.add_conversation_log(conversation_id, next_turn, res["agent_raw"], res["calls"], res["active_styles"], res["inj_block"], res["latency"])
+            await db.set_active_leaf(conversation_id, asst_id)
+            await db.add_conversation_log(conversation_id, next_turn, res["agent_raw"], res["calls"], res["active_styles"], res["inj_block"], res["latency"])
+
         yield {"event": "done"}
     except Exception as e:
         logger.exception("Pipeline error")
@@ -343,22 +364,27 @@ async def handle_regenerate(conversation_id: str, assistant_msg_id: int) -> Asyn
         if not conv:
             yield {"event": "error", "data": "Conversation not found"}; return
 
+        # Validate the target assistant message
         target = await db.get_message_by_id(assistant_msg_id)
         if not target or target["conversation_id"] != conversation_id or target["role"] != "assistant":
             yield {"event": "error", "data": "Invalid target message"}; return
 
+        # Walk back to the parent user message
         user_msg_id = target["parent_id"]
         user_msg = await db.get_message_by_id(user_msg_id) if user_msg_id else None
         if not user_msg:
             yield {"event": "error", "data": "Parent user message not found"}; return
 
+        # Rebuild history up to the user message's parent (excluding that turn)
         history = await db._get_path_to_leaf(conversation_id, user_msg.get("parent_id")) if user_msg.get("parent_id") else []
         director = await db.get_director_state(conversation_id)
+        # Roll back styles to what they were before this turn
         prev_styles = await db.get_styles_before_turn(conversation_id, user_msg["turn_index"])
         director = {**director, "active_styles": prev_styles}
         fragments = await db.get_fragments()
         client = LLMClient(settings["endpoint_url"], api_key=settings.get("api_key", ""))
 
+        # Build prefix from the rolled-back history
         system_prompt, char_persona, mes_example = await _load_char_context(conv, settings)
         prefix = build_prefix(
             system_prompt, conv["character_name"], char_persona,
@@ -366,18 +392,29 @@ async def handle_regenerate(conversation_id: str, assistant_msg_id: int) -> Asyn
             history, settings.get("user_name", "User"), settings.get("user_description", "")
         )
 
+        # Re-run the pipeline with the original user message
         res = {}
-        async for event in _run_pipeline(client, settings, director, fragments, prefix, user_msg["content"]):
-            if event["event"] == "_result": res = event["data"]
-            else: yield event
+        try:
+            async for event in _run_pipeline(client, settings, director, fragments, prefix, user_msg["content"]):
+                if event["event"] == "_result":
+                    res = event["data"]
+                elif event["event"] == "_refined_result":
+                    res["resp_text"] = event["data"]["resp_text"]
+                else:
+                    yield event
+        finally:
+            # Always persist — guards against disconnect during refinement
+            if not res:
+                return
 
-        if settings.get("enable_agent", 1):
-            await db.update_director_state(conversation_id, res["active_styles"])
-            if res["refined_msg"]:
-                await db.update_message_content(user_msg_id, res["refined_msg"])
+            if settings.get("enable_agent", 1):
+                await db.update_director_state(conversation_id, res["active_styles"])
+                if res["refined_msg"]:
+                    await db.update_message_content(user_msg_id, res["refined_msg"])
 
-        new_asst_id = await db.add_message(conversation_id, "assistant", res["resp_text"], target["turn_index"], parent_id=user_msg_id)
-        await db.set_active_leaf(conversation_id, new_asst_id)
+            new_asst_id = await db.add_message(conversation_id, "assistant", res["resp_text"], target["turn_index"], parent_id=user_msg_id)
+            await db.set_active_leaf(conversation_id, new_asst_id)
+
         yield {"event": "done"}
     except Exception as e:
         logger.exception("Regenerate error")
