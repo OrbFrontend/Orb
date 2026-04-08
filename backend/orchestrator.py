@@ -76,6 +76,13 @@ POST_WRITER_TOOLS = {"refine_assistant_output"}
 ALL_SCHEMAS = [t["schema"] for t in TOOLS.values()]
 
 
+def _enabled_schemas(enabled_tools: dict | None) -> list[dict]:
+    """Compute the tool schemas list from enabled_tools. Returns [] when disabled."""
+    if enabled_tools is None:
+        return ALL_SCHEMAS
+    return [TOOLS[n]["schema"] for n in TOOLS if enabled_tools.get(n, False)]
+
+
 def build_tool_prompt(tool_name: str, user_message: str, active_styles: list[str], fragments: list[dict]) -> str:
     tool = TOOLS.get(tool_name)
     if not tool:
@@ -152,7 +159,7 @@ async def _load_char_context(conv: dict, settings: dict) -> tuple[str, str, str]
 
 async def _writer_pass(client: LLMClient, msgs: list[dict], settings: dict, enabled_tools: dict | None = None) -> AsyncIterator[dict]:
     params = {k: v for k in ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] if (v := settings.get(k)) is not None}
-    schemas = ALL_SCHEMAS if enabled_tools is None else [TOOLS[n]["schema"] for n in TOOLS if enabled_tools.get(n, False)]
+    schemas = _enabled_schemas(enabled_tools)
     extra = {"tools": schemas, "tool_choice": "none"} if schemas else {}
     async for token in client.stream(messages=msgs, model=settings["model_name"], **extra, **params):
         yield token
@@ -169,13 +176,15 @@ async def _agent_pass(
     if not tool_names:
         return active_styles, "", [], 0, None
 
+    tool_schemas = _enabled_schemas(enabled_tools)
+
     t0 = time.monotonic()
     for name in tool_names:
         msgs = prefix + [{"role": "user", "content": build_tool_prompt(name, user_message, active_styles, fragments)}]
         logger.info("Agent tool=%s prompt:\n%s", name, json.dumps(msgs, indent=2, ensure_ascii=False))
         try:
             resp = await client.complete(
-                messages=msgs, model=settings["model_name"], tools=ALL_SCHEMAS,
+                messages=msgs, model=settings["model_name"], tools=tool_schemas,
                 tool_choice=TOOLS[name]["choice"], temperature=0.25, max_tokens=2048
             )
             last_raw = json.dumps(resp, default=str)
@@ -204,9 +213,10 @@ async def _refine_pass(
         {"role": "user", "content": build_tool_prompt("refine_assistant_output", "", [], [])},
     ]
     logger.info("Refine prompt:\n%s", json.dumps(msgs, indent=2, ensure_ascii=False))
+    refine_schema = [TOOLS["refine_assistant_output"]["schema"]]
     try:
         resp = await client.complete(
-            messages=msgs, model=settings["model_name"], tools=ALL_SCHEMAS,
+            messages=msgs, model=settings["model_name"], tools=refine_schema,
             tool_choice=TOOLS["refine_assistant_output"]["choice"], temperature=0.25, max_tokens=4096
         )
         raw = json.dumps(resp, default=str)
@@ -255,7 +265,7 @@ async def _run_pipeline(
     ]
 
     resp_text = ""
-    async for token in _writer_pass(client, writer_msgs, settings, enabled_tools or None):
+    async for token in _writer_pass(client, writer_msgs, settings, enabled_tools):
         resp_text += token
         yield {"event": "token", "data": token}
 

@@ -690,6 +690,79 @@ class TestRunPipelineKVCacheInvariant:
                 f"Agent call #{i} messages did not start with the shared prefix"
             )
 
+    async def test_writer_receives_only_enabled_schemas(self, settings, director, fragments, prefix):
+        """
+        Writer stream() must receive exactly the enabled subset of tool schemas —
+        not ALL_SCHEMAS, not an empty list.  Tool schemas are serialised into the
+        prompt; sending a different set than the agent invalidates the KV cache.
+        """
+        settings["enabled_tools"] = {
+            "set_writing_styles": True,
+            "rewrite_user_prompt": False,
+            "refine_assistant_output": False,
+        }
+        stream_fn, stream_calls = capturing_stream(("x",))
+        client = MagicMock(spec=LLMClient)
+        client.complete = AsyncMock(return_value={})
+        client.stream = stream_fn
+
+        await collect(_run_pipeline(client, settings, director, fragments, prefix, "Hi"))
+
+        assert stream_calls
+        writer_tools = stream_calls[0]["kwargs"].get("tools")
+        assert writer_tools is not None, "Writer must receive a tools list when agent is enabled"
+        tool_names_sent = [t["function"]["name"] for t in writer_tools]
+        assert tool_names_sent == ["set_writing_styles"], (
+            f"Writer must receive only the enabled schemas. Got: {tool_names_sent}"
+        )
+
+    async def test_agent_and_writer_receive_same_tools_list(self, settings, director, fragments, prefix):
+        """
+        Tools are serialised into the prompt alongside messages.  For the KV cache
+        to be reusable, agent complete() and writer stream() must see an identical
+        tools list — any difference invalidates the cached prefix.
+        """
+        settings["enabled_tools"] = {
+            "set_writing_styles": True,
+            "rewrite_user_prompt": False,
+            "refine_assistant_output": False,
+        }
+        complete_fn, complete_calls = capturing_complete()
+        stream_fn, stream_calls = capturing_stream(("x",))
+        client = MagicMock(spec=LLMClient)
+        client.complete = complete_fn
+        client.stream = stream_fn
+
+        await collect(_run_pipeline(client, settings, director, fragments, prefix, "Hi"))
+
+        assert complete_calls and stream_calls
+        agent_tools = complete_calls[0]["kwargs"].get("tools")
+        writer_tools = stream_calls[0]["kwargs"].get("tools")
+        assert agent_tools == writer_tools, (
+            "Agent and writer received different tools lists — KV-cache cannot be shared.\n"
+            f"Agent tools:  {[t['function']['name'] for t in (agent_tools or [])]}\n"
+            f"Writer tools: {[t['function']['name'] for t in (writer_tools or [])]}"
+        )
+
+    async def test_no_tools_field_when_agent_disabled(self, settings, director, fragments, prefix):
+        """
+        When the agent is disabled, the writer must not receive a tools field at all.
+        Sending an empty list is not equivalent to omitting it — some servers treat
+        them differently, and it still changes the serialised prompt token sequence.
+        """
+        settings["enable_agent"] = 0
+        stream_fn, stream_calls = capturing_stream(("x",))
+        client = MagicMock(spec=LLMClient)
+        client.complete = AsyncMock(return_value={})
+        client.stream = stream_fn
+
+        await collect(_run_pipeline(client, settings, director, fragments, prefix, "Hi"))
+
+        assert stream_calls
+        assert "tools" not in stream_calls[0]["kwargs"], (
+            "No tools field must be sent to the writer when the agent is disabled"
+        )
+
 
 # ===========================================================================
 # 4. Public entry-points (DB + LLMClient mocked)
