@@ -1,162 +1,115 @@
-Okay, you're right. Automating detection is key for efficiency, and keeping the model's job to simple search and replace is more robust. Let's refine this plan.
-
----
-
-# Implementation Plan: ReAct-Style Refinement with Advanced Programmatic Detection
+# Implementation Plan: ReAct-Style Refinement with Programmatic Detection
 
 ## 1. Architecture Overview
 
-The pipeline remains: `_agent_pass` (for styles/prompt rewrite), `_writer_pass` (for core response generation), and `_refine_pass` (the new ReAct loop for post-processing).
+Pipeline: `_agent_pass` → `_writer_pass` → `_refine_pass` (new ReAct loop).
 
-The `_refine_pass` now operates as follows:
-1.  **Programmatic Detection:** An orchestrator component runs advanced scans on the initial writer's draft and relevant conversation history. It generates a comprehensive "Audit Report" detailing banned words, repetitive phrases, and structural issues. This step requires *no LLM calls*.
-2.  **Agentic Refinement (ReAct Loop):** The LLM agent receives this Audit Report. Its task is then to *act* on the report using simple `find_text` and `apply_patch` tools to surgically correct the draft. The loop iterates until the agent signals completion or a max step limit is reached.
-
-This approach ensures efficiency for detection and robustness for correction, focusing the LLM on decision-making and precise action.
+`_refine_pass` operates in two stages:
+1. **Programmatic Detection:** Runs three scanners on the writer's draft, producing an Audit Report. Zero LLM calls.
+2. **Agentic Refinement (ReAct Loop):** The LLM agent receives the Audit Report and uses `refine_apply_patch` to surgically fix the draft. Loops until done or max steps reached.
 
 ## 2. Data Foundations
 
-### 2.1. Manual Ban List
--   A configuration list (e.g., in `settings.py` or a dedicated JSON file) will hold manually curated words and phrases to avoid.
--   Example: `["purr", "velvety", "predatory", "voice dripping", "tension in the air"]`
--   This list is used directly by the programmatic detection engine.
+A **phrase bank** (configured in `settings.py` or a JSON file) holds groups of semantically equivalent banned/overused phrases. The first entry in each group is the canonical name.
+
+```python
+PHRASE_BANK = [
+    ["a mix of", "a mixture of", "a blend of"],
+    ["voice dripping", "voice dripping with"],
+    ["tension in the air", "thick tension in the air"],
+    ...
+]
+```
 
 ## 3. Programmatic Pre-Detection Engine (Zero LLM Cost)
 
-This is a new, dedicated function called at the start of `_refine_pass`. It takes the current draft and the last `N` assistant messages (e.g., 3-5) as input and outputs a structured Audit Report.
+Three scanners run on the draft at the start of `_refine_pass`, producing a consolidated Audit Report.
 
-### 3.1. Ban List Match
--   **Method:** Iterates through the manual ban list. For each entry, performs a fuzzy substring search (e.g., Python's nltk with a certain threshold.
--   **Output:** List of `{"text": "matched_banned_phrase", "location_context": "snippet of draft containing it"}`.
+### 3.1. Banned Phrase Detection (`llm_phrase_detector.py`)
+- **Method:** Splits the draft into sentences. For each sentence, generates word-level 3-grams and computes Jaccard similarity against 3-grams of each phrase variant. Flags matches above a configurable threshold (default `0.25`).
+- **Output:** `DetectionResult` — list of flagged sentences with matched canonical phrase, matched variant, and score.
 
-### 3.2. Cross-Turn Phrase Overlap (3-grams and 4-grams)
--   **Purpose:** Detects exact phrasal repetition between the *current draft* and *recent historical assistant messages*.
--   **Method:**
-    1.  **History Preprocessing:**
-        *   Take the last `lookback_messages` (configurable, default 3-5) assistant messages from the conversation history.
-        *   Tokenize each historical message into words.
-        *   Generate all 3-grams and 4-grams from these historical messages.
-        *   Store these N-grams in a **hash set** for `O(1)` average lookup time. This is done once per refinement pass.
-    2.  **Draft Scanning:**
-        *   Tokenize the current draft into words.
-        *   Generate all 3-grams and 4-grams from the current draft.
-        *   For each draft N-gram, check if it exists in the pre-computed hash set of historical N-grams.
-        *   If a match is found, record the draft N-gram and its context.
--   **Performance/Complexity:**
-    *   **History Preprocessing:** `O(L_history)` where `L_history` is the total word count across all historical messages being considered. This is very fast for 3-5 messages.
-    *   **Draft Scanning:** `O(L_draft * 1)` (average for hash set lookup) where `L_draft` is the word count of the current draft. This is linear with the draft's length, making it extremely efficient even for long drafts.
-    *   **Conclusion:** This method is highly performant and will not be an issue for typical LLM output lengths.
--   **Output:** List of `{"phrase": "repeated_phrase", "in_draft_context": "snippet from draft", "in_history_context": "snippet from history message N"}`.
+### 3.2. Sentence Opener Monotony (`opening_monotony.py`)
+- **Method:** Splits draft into sentences. Extracts the first `n_words` (default 3) of each, normalized to lowercase. Flags any opener that appears in ≥ `flag_threshold` fraction of sentences (default 15%) and at least twice.
+- **Output:** `MonotonyResult` — flagged openers with counts, fraction, and example sentences.
 
-### 3.3. Sentence Opener Analysis
--   **Purpose:** Identifies repetitive sentence beginnings within the draft and compared to history.
--   **Method:**
-    1.  Split the current draft into sentences.
-    2.  For each sentence, extract the first 2-3 words (normalized to lowercase).
-    3.  Count frequencies of these openers within the draft. Flag if any single opener appears more than `X` times (e.g., 2 or 3 times).
-    4.  Repeat steps 1-2 for the `lookback_messages` assistant messages.
-    5.  Compare draft openers to historical openers. Flag if an opener used `Y` times in the draft also appeared `Z` times in history (e.g., Y=2, Z=2).
--   **Output:** List of `{"opener": "The man", "count_in_draft": 3, "examples": ["The man walked...", "The man said...", "The man looked..."]}` and `{"opener": "She knew", "count_in_draft": 2, "appeared_in_history_n_times": 3}`.
+### 3.3. Syntactic Template Repetition (`template_repetition.py`)
+- **Method:** Reduces each sentence to a coarse POS skeleton (e.g., `"PRON VERB DET NOUN PREP NOUN"`) using a lightweight rule-based tagger (no external models). Flags any template appearing ≥ `flag_threshold` times (default 2).
+- **Output:** `TemplateResult` — flagged templates with counts, example sentences, and an overall `repetition_score`.
 
-### 3.4. Audit Report Generation
--   Consolidate all findings from 3.1, 3.2, and 3.3 into a single, structured JSON or plain text report that will be presented to the LLM agent.
--   **Example Report Structure (simplified for LLM consumption):**
-    ```
-    *** REFINEMENT AUDIT REPORT ***
+### 3.4. Audit Report Format
 
-    ISSUES FOUND IN DRAFT:
+```
+*** REFINEMENT AUDIT REPORT ***
 
-    1. Banned Phrases:
-       - "velvety touch" (found in: "...a velvety touch upon her arm...")
-       - "tension in the air" (found in: "...thick tension in the air between them...")
+1. Banned Phrases:
+   - "voice dripping" (sentence: "...his voice dripping with contempt...")
+   - "tension in the air" (sentence: "...thick tension in the air between them...")
 
-    2. Repetitive Phrases (N-grams vs. History):
-       - "took a deep breath" (found in draft: "...took a deep breath before answering...", also in history: "She took a deep breath before...")
-       - "voice dropped to a whisper" (found in draft: "...his voice dropped to a whisper...", also in history: "Her voice dropped to a whisper as...")
+2. Repetitive Openers:
+   - "he looked" (3/12 sentences, 25%): "He looked at her.", "He looked away.", "He looked up."
 
-    3. Repetitive Sentence Openers:
-       - "He looked" (used 3 times in draft: "...He looked at her...", "...He looked away...", "...He looked up.")
-       - "She felt a" (used 2 times in draft, also used in previous assistant message.)
+3. Repetitive Templates:
+   - "PRON VERB DET NOUN PREP NOUN" (4 sentences): "She crossed the room in silence.", ...
 
-    *** END OF REPORT ***
-    ```
+*** END OF REPORT ***
+```
 
-## 4. Tool Definitions (for the Refinement Agent)
+## 4. Tool Definitions
 
-These tools are designed to be simple, precise, and deterministic, empowering the LLM to *act* on the Audit Report.
-
-### 4.1. `refine_find_text`
--   **Description:** Searches the *current* version of the draft for an exact text snippet. This helps the agent locate and confirm the context of an issue reported in the audit, or verify its own hunches.
--   **Parameters:**
-    -   `text` (string): The exact text to find.
--   **Output:** A string containing the matched text with its surrounding context (e.g., `Match 1: "...snippet before [text] snippet after..."`) or `"No exact match found."`
-    *Note: This tool is for verification and context, not fuzzy matching.*
-
-### 4.2. `refine_apply_patch`
--   **Description:** Replaces a specific text segment in the current draft. Use this to fix identified banned phrases, repetitive N-grams, or to rephrase repetitive sentence openers. The `search` parameter must exactly match the text currently in the draft.
--   **Parameters:**
-    -   `search` (string): The *exact* text string to be replaced in the draft.
-    -   `replace` (string): The new text to substitute.
-    -   `reason` (string): A brief explanation for the change (helps in debugging/logging).
--   **Output:** A simple string: `"Success: Patch applied."` or `"Error: 'search' text not found in draft, or multiple matches found. Please be more specific."`
+### `refine_apply_patch`
+- **Description:** Applies one or more exact text replacements to the draft. Each `search` must exactly match current draft text.
+- **Parameters:**
+  - `patches` (array): ordered list of `{"search": str, "replace": str}`
+- **Returns:** Always return success, if failure occurs during operation then skip that item, the updated Audit Report from re-running all three scanners — giving the agent a live view of remaining issues.
 
 ## 5. The `_refine_pass` ReAct Loop
 
-### 5.1. Loop Initialization & KV Cache Reuse
-1.  The `_writer_pass` completes and provides the full `draft` content.
-2.  The Programmatic Pre-Detection Engine generates the `Audit Report`.
-3.  The message context for the ReAct loop is built on the existing prefix:
-    *   `prefix` (System + History)
-    *   `{"role": "user", "content": effective_msg}`
-    *   `{"role": "assistant", "content": draft}` (The full buffered output from the writer)
-    *   `{"role": "system", "content": refine_agent_instructions + "\n" + AuditReport}` (The instructions for the refinement agent, *plus* the fully detailed Audit Report).
-    This structure ensures maximum KV cache reuse for the `_refine_pass`, as only the new system message and subsequent ReAct turns are novel.
+### 5.1. Initialization
+1. `_writer_pass` completes and buffers the full `draft`.
+2. Pre-Detection Engine generates the `Audit Report`.
+3. Message context is built for maximum KV cache reuse:
+   - `prefix` (System + History)
+   - `{"role": "user", "content": effective_msg}`
+   - `{"role": "assistant", "content": draft}`
+   - `{"role": "system", "content": refine_agent_instructions + "\n" + AuditReport}`
 
-### 5.2. Refinement Agent Instructions
-The `refine_agent_instructions` system message guides the LLM:
--   "You are the Refinement Agent. Your goal is to review the assistant's previous response (the draft above) and improve its quality based on the `REFINEMENT AUDIT REPORT` provided below.
--   **Your Task:**
-    1.  Address each issue listed in the `REFINEMENT AUDIT REPORT`.
-    2.  Use `refine_find_text` to locate the exact phrase and its context if you need to confirm.
-    3.  Use `refine_apply_patch` to replace problematic text with improved phrasing. Ensure `search` is an exact match for the current text.
-    4.  When you believe all issues are resolved, respond with "AUDIT COMPLETE." without calling any further tools."
--   The Audit Report follows these instructions directly.
+### 5.2. Agent Instructions
+> You are the Refinement Agent. Review the draft above and address every issue in the REFINEMENT AUDIT REPORT.
+> 1. Use `refine_apply_patch` to replace problematic text with improved phrasing. `search` must exactly match the current draft text.
+> 2. After each patch, you will receive an updated Audit Report. Continue until all issues are resolved.
+> 3. When done, respond with "AUDIT COMPLETE." and nothing else.
 
-### 5.3. Step Execution (Max 5–7 iterations)
-1.  **Assistant Turn:** The LLM agent reasons about an issue from the Audit Report and decides whether to use `refine_find_text` (to confirm context) or `refine_apply_patch` (to fix).
-2.  **Tool Execution (Orchestrator):** The orchestrator executes the called tool using the rules defined in Section 4.
-3.  **Append Results:** The agent's tool call(s) and the orchestrator's plain-text tool output(s) are appended to the ReAct message thread.
-4.  **Termination Check:** If the assistant's response is exactly "AUDIT COMPLETE." or the maximum step limit is reached, the loop terminates.
+### 5.3. Loop Execution (max 5–7 iterations)
+1. Agent reasons about the Audit Report and calls `refine_apply_patch`.
+2. Orchestrator applies patches and returns the updated Audit Report (or error).
+3. Tool call + result are appended to the thread.
+4. Loop ends when agent outputs "AUDIT COMPLETE." or max steps is reached.
 
 ## 6. Patch Application Logic
 
-When the orchestrator handles `refine_apply_patch`:
-
-1.  **Exact Match:** The system attempts to find an *exact* match for the `search` string within the current, mutable `draft` buffer.
-2.  **Conflict Handling:**
-    *   If no match is found, return `"Error: 'search' text not found in draft."`
-    *   If multiple *exact* matches are found, return `"Error: Multiple exact matches found. Please provide a more specific 'search' string for unique identification."` (This nudges the LLM to make its `search` precise, perhaps by including surrounding words).
-3.  **Apply:** If a single, exact match is found, the replacement is performed in the `draft` buffer.
-4.  **Response:** The plain-text success/failure message is returned to the agent.
+1. **Exact match required.** Search for the `search` string in the current `draft` buffer.
+2. **No match:** Return `"Error: '<search>' not found in draft."`
+3. **Multiple matches:** Return `"Error: Multiple matches found. Use a more specific 'search' string."` — nudges the agent to add surrounding context.
+4. **Single match:** Apply the replacement and return the refreshed Audit Report.
 
 ## 7. Pipeline Integration
 
-### 7.1. Buffering the Draft
--   The `_writer_pass` will *not* stream tokens directly to the user. Instead, it will fully buffer its entire output.
--   The `_refine_pass` (with its ReAct loop) then operates on this buffered draft.
--   Once the `_refine_pass` completes (agent signals "AUDIT COMPLETE." or max steps reached), the *final, patched draft* is then streamed to the user. This completely eliminates jarring UI updates.
+### 7.1. Buffering
+`_writer_pass` fully buffers output before `_refine_pass` begins. The final patched draft is streamed to the user only after `_refine_pass` completes, eliminating jarring UI updates.
 
-### 7.2. Updating `handle_turn` and `handle_regenerate`
--   The calls to the old single-shot `_refine_pass` are replaced with the new orchestrator that encapsulates the programmatic detection and the ReAct loop.
--   Database persistence:
-    -   The final `resp_text` will be the version after all patches.
-    -   The `conversation_log` should store the full `Audit Report` and the sequence of tool calls and outputs from the ReAct loop for transparency and debugging.
+### 7.2. `handle_turn` / `handle_regenerate`
+Replace old single-shot `_refine_pass` calls with the new orchestrator. Persist the final patched `resp_text` and store the full Audit Report + ReAct trace in `conversation_log` for debugging.
 
 ### 7.3. Graceful Fallback
--   If the `_refine_pass` encounters an unexpected error or hits its maximum iteration limit without the agent signaling completion, the orchestrator will default to using the original, un-patched draft generated by the `_writer_pass`. This prevents broken or incomplete responses from being sent to the user.
+If `_refine_pass` errors or hits max iterations without "AUDIT COMPLETE.", fall back to the unpatched `_writer_pass` draft.
 
-fuzzy search library code:
-```
+---
+
+## Library Implementations
+
+### `llm_phrase_detector.py`
+```python
 """
 llm_phrase_detector.py — Detect overused LLM phrases via word-level trigram fuzzy matching.
 
@@ -301,5 +254,280 @@ def detect_cliches(
         unique_cliches=sorted(all_canonicals),
         total_sentences=len(sentences),
         flagged_count=len(flagged),
+    )
+```
+
+### `opening_monotony.py`
+```python
+from __future__ import annotations
+
+"""
+opening_monotony.py — Detect repetitive sentence openings in LLM output.
+
+Extracts the first N words of each sentence and flags when the same
+opening pattern appears too frequently, a common sign of LLM degradation.
+
+Usage:
+    from opening_monotony import detect_opening_monotony
+
+    result = detect_opening_monotony(text, n_words=3, flag_threshold=0.15)
+
+    result.flagged_openers     # openers exceeding threshold, with counts
+    result.all_openers         # full frequency table
+    result.total_sentences     # sentence count
+    result.monotony_score      # 0.0–1.0, higher = more repetitive
+"""
+
+import re
+from dataclasses import dataclass, field
+from collections import Counter
+
+
+@dataclass
+class FlaggedOpener:
+    opener: str
+    count: int
+    fraction: float
+    sentences: list[str] = field(default_factory=list)
+
+
+@dataclass
+class MonotonyResult:
+    flagged_openers: list[FlaggedOpener]
+    all_openers: dict[str, int]
+    total_sentences: int
+    monotony_score: float
+
+
+def _split_sentences(text: str) -> list[str]:
+    raw = re.split(r'(?<=[.!?"""])\s+', text.strip())
+    return [s.strip() for s in raw if s.strip()]
+
+
+def _normalize(word: str) -> str:
+    return re.sub(r"[^a-z0-9']", "", word.lower())
+
+
+def _get_opener(sentence: str, n_words: int) -> str | None:
+    words = sentence.split()
+    if len(words) < n_words:
+        return None
+    return " ".join(_normalize(w) for w in words[:n_words])
+
+
+def detect_opening_monotony(
+    text: str,
+    n_words: int = 3,
+    flag_threshold: float = 0.15,
+) -> MonotonyResult:
+    """
+    Detect repetitive sentence openings.
+
+    Args:
+        text:            Raw text to analyze.
+        n_words:         How many opening words to compare (default 3).
+        flag_threshold:  Fraction of sentences sharing an opener to flag it (default 0.15).
+
+    Returns:
+        MonotonyResult with flagged openers, frequency table, and a monotony score.
+    """
+    sentences = _split_sentences(text)
+    total = len(sentences)
+    if total == 0:
+        return MonotonyResult([], {}, 0, 0.0)
+
+    # Map opener -> sentences
+    opener_sentences: dict[str, list[str]] = {}
+    for sent in sentences:
+        opener = _get_opener(sent, n_words)
+        if opener:
+            opener_sentences.setdefault(opener, []).append(sent)
+
+    counts = {k: len(v) for k, v in opener_sentences.items()}
+
+    # Flag openers above threshold
+    flagged: list[FlaggedOpener] = []
+    for opener, count in sorted(counts.items(), key=lambda x: x[1], reverse=True):
+        frac = count / total
+        if frac >= flag_threshold and count >= 2:
+            flagged.append(FlaggedOpener(
+                opener=opener,
+                count=count,
+                fraction=round(frac, 4),
+                sentences=opener_sentences[opener],
+            ))
+
+    # Monotony score: what fraction of sentences use a repeated opener?
+    repeated_count = sum(c for c in counts.values() if c >= 2)
+    monotony_score = round(repeated_count / total, 4) if total else 0.0
+
+    return MonotonyResult(
+        flagged_openers=flagged,
+        all_openers=counts,
+        total_sentences=total,
+        monotony_score=monotony_score,
+    )
+```
+
+### `template_repetition.py`
+```python
+"""
+template_repetition.py — Detect repetitive syntactic structures in LLM output.
+
+Reduces each sentence to a POS skeleton (e.g. "DET NOUN VERB ADV") using a
+lightweight rule-based tagger (no external models needed), then flags when
+too many sentences share the same template.
+
+Usage:
+    from template_repetition import detect_template_repetition
+
+    result = detect_template_repetition(text, flag_threshold=2)
+
+    result.flagged_templates   # templates appearing >= threshold times
+    result.all_templates       # full frequency table
+    result.repetition_score    # 0.0–1.0, higher = more repetitive
+"""
+
+import re
+from dataclasses import dataclass, field
+from collections import Counter
+
+# ── Lightweight rule-based POS tagger ────────────────────────────────────
+
+_DETERMINERS = frozenset(
+    "a an the this that these those my your his her its our their some any no "
+    "every each all both few several many much".split()
+)
+_PRONOUNS = frozenset(
+    "i me you he him she her it we us they them myself yourself himself herself "
+    "itself ourselves themselves what which who whom whose".split()
+)
+_PREPOSITIONS = frozenset(
+    "in on at to for of from by with about into through during before after "
+    "between among above below across along around behind beyond near over "
+    "under within without against toward towards upon".split()
+)
+_CONJUNCTIONS = frozenset(
+    "and but or nor yet so because although though while if unless since "
+    "whereas whenever wherever however moreover furthermore additionally "
+    "nevertheless nonetheless meanwhile therefore thus hence".split()
+)
+_BE_VERBS = frozenset(
+    "is am are was were be been being".split()
+)
+_MODALS = frozenset(
+    "can could will would shall should may might must".split()
+)
+_COMMON_ADVERBS = frozenset(
+    "not very also just still already even now then always never often "
+    "sometimes usually really quite rather too particularly especially "
+    "increasingly rapidly significantly merely simply".split()
+)
+
+_VERB_SUFFIX_RE = re.compile(r"(ed|ing|ize|ise|ify|ate)$")
+_ADJ_SUFFIX_RE = re.compile(r"(ful|less|ous|ive|ible|able|ial|ical|ent|ant)$")
+_NOUN_SUFFIX_RE = re.compile(r"(tion|sion|ment|ness|ity|ance|ence|ism|ist|er|or|ure)$")
+
+
+def _tag_word(word: str) -> str:
+    w = word.lower()
+    if w in _DETERMINERS: return "DET"
+    if w in _PRONOUNS: return "PRON"
+    if w in _PREPOSITIONS: return "PREP"
+    if w in _CONJUNCTIONS: return "CONJ"
+    if w in _BE_VERBS: return "VERB"
+    if w in _MODALS: return "MOD"
+    if w in _COMMON_ADVERBS: return "ADV"
+    if _VERB_SUFFIX_RE.search(w): return "VERB"
+    if _ADJ_SUFFIX_RE.search(w): return "ADJ"
+    if _NOUN_SUFFIX_RE.search(w): return "NOUN"
+    return "NOUN"
+
+
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", text.lower())
+
+
+def _get_template(sentence: str, max_tags: int = 8) -> str:
+    words = _tokenize(sentence)
+    tags = [_tag_word(w) for w in words[:max_tags]]
+    return " ".join(tags)
+
+
+# ── Public data structures ───────────────────────────────────────────────
+
+@dataclass
+class FlaggedTemplate:
+    template: str
+    count: int
+    fraction: float
+    sentences: list[str] = field(default_factory=list)
+
+
+@dataclass
+class TemplateResult:
+    flagged_templates: list[FlaggedTemplate]
+    all_templates: dict[str, int]
+    total_sentences: int
+    unique_templates: int
+    repetition_score: float
+
+
+# ── Internals ────────────────────────────────────────────────────────────
+
+def _split_sentences(text: str) -> list[str]:
+    raw = re.split(r'(?<=[.!?"""])\s+', text.strip())
+    return [s.strip() for s in raw if s.strip()]
+
+
+# ── Public API ───────────────────────────────────────────────────────────
+
+def detect_template_repetition(
+    text: str,
+    max_tags: int = 8,
+    flag_threshold: int = 2,
+) -> TemplateResult:
+    """
+    Detect repetitive syntactic templates.
+
+    Args:
+        text:            Raw text to analyze.
+        max_tags:        POS tags to keep per sentence (default 8).
+        flag_threshold:  Minimum occurrences to flag a template (default 2).
+
+    Returns:
+        TemplateResult with flagged templates, counts, and repetition score.
+    """
+    sentences = _split_sentences(text)
+    total = len(sentences)
+    if total == 0:
+        return TemplateResult([], {}, 0, 0, 0.0)
+
+    template_sentences: dict[str, list[str]] = {}
+    for sent in sentences:
+        tmpl = _get_template(sent, max_tags)
+        template_sentences.setdefault(tmpl, []).append(sent)
+
+    counts = {k: len(v) for k, v in template_sentences.items()}
+
+    flagged: list[FlaggedTemplate] = []
+    for tmpl, count in sorted(counts.items(), key=lambda x: x[1], reverse=True):
+        if count >= flag_threshold:
+            flagged.append(FlaggedTemplate(
+                template=tmpl,
+                count=count,
+                fraction=round(count / total, 4),
+                sentences=template_sentences[tmpl],
+            ))
+
+    unique = len(counts)
+    rep_score = round(1.0 - (unique / total), 4) if total else 0.0
+
+    return TemplateResult(
+        flagged_templates=flagged,
+        all_templates=counts,
+        total_sentences=total,
+        unique_templates=unique,
+        repetition_score=rep_score,
     )
 ```
