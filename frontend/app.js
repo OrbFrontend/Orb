@@ -12,6 +12,8 @@ const S = {
   directorState: null,
   lastDirectorData: null,
   isStreaming: false,
+  streamingBodyEl: null,
+  streamCutoffIndex: null,
   agentEnabled: true,
   enabledTools: { set_writing_styles: true, rewrite_user_prompt: false, refine_assistant_output: false },
   editingMsgId: null,
@@ -606,52 +608,80 @@ function getCharName() {
 
 function renderMessages() {
   const ct = $('chat-messages');
+
+  let streamingEl = null;
+  let badgeEl     = null;
+  if (S.isStreaming) {
+    streamingEl = S.streamingBodyEl?.closest('.message') ?? null;
+    badgeEl     = document.getElementById('active-director-badge');
+  }
+
   if (!S.activeConvId) {
     ct.innerHTML = '<div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div>';
-    return;
-  }
-  if (!S.messages.length) {
+  } else if (!S.messages.length) {
     ct.innerHTML = '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
-    return;
-  }
-  ct.innerHTML = S.messages.map(m => {
-    const isEditing = S.editingMsgId !== null && S.editingMsgId === m.id;
-    const bc        = m.branch_count || 1;
-    const bi        = m.branch_index || 0;
+  } else {
+    // Hide messages that the current stream is replacing
+    let msgs = S.messages;
+    if (S.isStreaming && S.streamCutoffIndex != null) {
+      msgs = S.messages.slice(0, S.streamCutoffIndex);
+    }
 
-    const branchHtml = bc > 1 ? `
-      <span class="swipe-nav">
-        <button onclick="event.stopPropagation();switchBranch(${m.prev_branch_id})" ${!m.prev_branch_id ? 'disabled' : ''}>◀</button>
-        <span class="swipe-counter">${bi + 1}/${bc}</span>
-        <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? 'disabled' : ''}>▶</button>
-      </span>` : '';
+    ct.innerHTML = msgs.map(m => {
+      const isEditing = S.editingMsgId !== null && S.editingMsgId === m.id;
+      const bc        = m.branch_count || 1;
+      const bi        = m.branch_index || 0;
 
-    const toolbar = isEditing ? '' : `
-      <div class="msg-toolbar">
-        <button onclick="startEdit(${m.id})" title="Edit">✏️ Edit</button>
-        ${m.role === 'assistant' ? `<button onclick="regenerate(${m.id})" title="Regenerate">🔄 Regen</button>` : ''}
-        <button onclick="deleteMessage(${m.id})" title="Delete message and all children" style="color:var(--red)">✕ Del</button>
+      const branchHtml = bc > 1 ? `
+        <span class="swipe-nav">
+          <button onclick="event.stopPropagation();switchBranch(${m.prev_branch_id})" ${!m.prev_branch_id ? 'disabled' : ''}>◀</button>
+          <span class="swipe-counter">${bi + 1}/${bc}</span>
+          <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? 'disabled' : ''}>▶</button>
+        </span>` : '';
+
+      const toolbar = isEditing ? '' : `
+        <div class="msg-toolbar">
+          <button onclick="startEdit(${m.id})" title="Edit">✏️ Edit</button>
+          ${m.role === 'assistant' ? `<button onclick="regenerate(${m.id})" title="Regenerate">🔄 Regen</button>` : ''}
+          <button onclick="deleteMessage(${m.id})" title="Delete message and all children" style="color:var(--red)">✕ Del</button>
+        </div>`;
+
+      const body = isEditing ? `
+        <div class="msg-edit-area">
+          <textarea id="edit-textarea-${m.id}" rows="5">${esc(m.content)}</textarea>
+          <div class="msg-edit-actions">
+            <button class="btn btn-sm" onclick="cancelEdit()">Cancel</button>
+            <button class="btn btn-sm btn-accent" onclick="saveEdit(${m.id},'${m.role}')">
+              Save${m.role === 'user' ? ' & Regen' : ''}
+            </button>
+          </div>
+        </div>` : `<div class="msg-body">${formatProse(m.content)}</div>`;
+
+      return `<div class="message ${m.role}" data-msg-id="${m.id}">
+        <div class="msg-role">${m.role === 'user' ? 'You' : esc(getCharName())} ${branchHtml}</div>
+        ${body}${toolbar}
       </div>`;
+    }).join('');
+  }
 
-    const body = isEditing ? `
-      <div class="msg-edit-area">
-        <textarea id="edit-textarea-${m.id}" rows="5">${esc(m.content)}</textarea>
-        <div class="msg-edit-actions">
-          <button class="btn btn-sm" onclick="cancelEdit()">Cancel</button>
-          <button class="btn btn-sm btn-accent" onclick="saveEdit(${m.id},'${m.role}')">
-            Save${m.role === 'user' ? ' & Regen' : ''}
-          </button>
-        </div>
-      </div>` : `<div class="msg-body">${formatProse(m.content)}</div>`;
-
-    return `<div class="message ${m.role}" data-msg-id="${m.id}">
-      <div class="msg-role">${m.role === 'user' ? 'You' : esc(getCharName())} ${branchHtml}</div>
-      ${body}${toolbar}
-    </div>`;
-  }).join('');
+  if (badgeEl)     ct.appendChild(badgeEl);
+  if (streamingEl) ct.appendChild(streamingEl);
 }
 
-function startEdit(msgId)  { S.editingMsgId = msgId; renderMessages(); scrollToBottom(); }
+function startEdit(msgId) {
+  S.editingMsgId = msgId;
+  renderMessages();
+  scrollToBottom();
+  const ta = $('edit-textarea-' + msgId);
+  if (ta) {
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = ta.value.length;
+    // Size to content, minimum 3 lines
+    ta.style.height = 'auto';
+    const lineH = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+    ta.style.height = Math.max(lineH * 3, ta.scrollHeight) + 'px';
+  }
+}
 function cancelEdit()      { S.editingMsgId = null;  renderMessages(); }
 
 async function deleteMessage(msgId) {
@@ -672,6 +702,75 @@ async function switchBranch(msgId) {
     S.lastDirectorData = null;
     renderMessages(); renderInspector(); scrollToBottom();
   } catch (e) { toast(e.message, true); }
+}
+
+// ─────────────────────────────────────────────
+//  EDIT MESSAGE
+// ─────────────────────────────────────────────
+async function saveEdit(msgId, role) {
+  const ta = $('edit-textarea-' + msgId);
+  if (!ta) return;
+  const content = ta.value.trim();
+  if (!content) { toast('Message cannot be empty', true); return; }
+
+  if (S.isStreaming) {
+    toast('Wait for generation to finish', true);
+    return;
+  }
+
+  S.editingMsgId = null;
+
+  if (role === 'assistant') {
+    try {
+      await api.post(convUrl(S.activeConvId, 'messages', msgId, 'edit'), { content, regenerate: false });
+      S.messages = await api.get(convUrl(S.activeConvId, 'messages'));
+      renderMessages();
+      toast('Message edited');
+    } catch (e) { toast(e.message, true); }
+    return;
+  }
+
+  // User edit → create sibling branch + regenerate via SSE
+  const msg = S.messages.find(m => m.id === msgId);
+  if (msg) msg.content = content;
+
+  // Hide all messages after the edited user message during streaming
+  const idx = S.messages.findIndex(m => m.id === msgId);
+  S.streamCutoffIndex = idx >= 0 ? idx + 1 : S.messages.length;
+
+  setStreaming(true);
+  $('send-btn').disabled = true;
+  renderMessages();
+
+  const ct = $('chat-messages');
+  const editedEl = ct.querySelector(`[data-msg-id="${msgId}"]`);
+  if (editedEl) {
+    let next = editedEl.nextElementSibling;
+    while (next) { const n = next.nextElementSibling; next.remove(); next = n; }
+  }
+
+  createDirectorBadge(ct);
+  const msgDiv = createStreamingDiv();
+
+  S.abortController = new AbortController();
+  try {
+    const resp = await fetch('/api' + convUrl(S.activeConvId, 'messages', msgId, 'edit'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, regenerate: true, ...agentPayload() }),
+      signal: S.abortController.signal,
+    });
+    if (resp.headers.get('content-type')?.includes('text/event-stream')) {
+      await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
+    } else {
+      S.messages = await api.get(convUrl(S.activeConvId, 'messages'));
+      renderMessages();
+    }
+  } catch (e) {
+    const b = $('active-director-badge'); if (b) b.remove();
+    if (e.name !== 'AbortError') toast('Error: ' + e.message, true);
+  }
+  await afterStream();
 }
 
 // ─────────────────────────────────────────────
@@ -705,12 +804,15 @@ function createStreamingDiv() {
     <div class="msg-body" id="streaming-body">
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>`;
+  S.streamingBodyEl = div.querySelector('.msg-body');   // ← store direct reference
   return div;
 }
 
 /** Refreshes state and re-renders everything after a stream completes. */
 async function afterStream() {
-  S.abortController = null;
+  S.abortController    = null;
+  S.streamingBodyEl    = null;
+  S.streamCutoffIndex  = null;          // ← clear cutoff
   setStreaming(false);
   $('send-btn').disabled = false;
   S.messages      = await api.get(convUrl(S.activeConvId, 'messages'));
@@ -741,14 +843,18 @@ async function processSSEStream(resp, container, msgDiv, signal) {
         const data = line.slice(6);
         handleSSEEvent(currentEvent, data, container, msgDiv,
           () => {
-            if (firstToken) { firstToken = false; container.appendChild(msgDiv); $('streaming-body').innerHTML = ''; }
+            if (firstToken) {
+              firstToken = false;
+              container.appendChild(msgDiv);
+              if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = '';    // ← use ref
+            }
             fullResponse += data.replace(/\\n/g, '\n');
-            $('streaming-body').innerHTML = formatProse(fullResponse);
+            if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = formatProse(fullResponse);  // ← use ref
             scrollToBottom();
           },
           (text) => {
             rewrittenResponse = text;
-            $('streaming-body').innerHTML = formatProse(text);
+            if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = formatProse(text);          // ← use ref
             scrollToBottom();
           }
         );
@@ -838,6 +944,10 @@ async function regenerate(msgId) {
   setStreaming(true);
   $('send-btn').disabled = true;
 
+  // Hide the old assistant message (and anything after it) during streaming
+  const idx = S.messages.findIndex(m => m.id === msgId);
+  S.streamCutoffIndex = idx >= 0 ? idx : S.messages.length;
+
   const ct = $('chat-messages');
   const el = ct.querySelector(`[data-msg-id="${msgId}"]`);
   if (el) el.remove();
@@ -854,67 +964,6 @@ async function regenerate(msgId) {
       signal: S.abortController.signal,
     });
     await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
-  } catch (e) {
-    const b = $('active-director-badge'); if (b) b.remove();
-    if (e.name !== 'AbortError') toast('Error: ' + e.message, true);
-  }
-  await afterStream();
-}
-
-// ─────────────────────────────────────────────
-//  EDIT MESSAGE
-// ─────────────────────────────────────────────
-async function saveEdit(msgId, role) {
-  const ta = $('edit-textarea-' + msgId);
-  if (!ta) return;
-  const content = ta.value.trim();
-  if (!content) { toast('Message cannot be empty', true); return; }
-
-  S.editingMsgId = null;
-
-  if (role === 'assistant') {
-    try {
-      await api.post(convUrl(S.activeConvId, 'messages', msgId, 'edit'), { content, regenerate: false });
-      S.messages = await api.get(convUrl(S.activeConvId, 'messages'));
-      renderMessages();
-      toast('Message edited');
-    } catch (e) { toast(e.message, true); }
-    return;
-  }
-
-  // User edit → create sibling branch + regenerate via SSE
-  const msg = S.messages.find(m => m.id === msgId);
-  if (msg) msg.content = content;
-
-  setStreaming(true);
-  $('send-btn').disabled = true;
-  renderMessages();
-
-  const ct = $('chat-messages');
-  // Remove all messages after the edited one so generation starts fresh
-  const editedEl = ct.querySelector(`[data-msg-id="${msgId}"]`);
-  if (editedEl) {
-    let next = editedEl.nextElementSibling;
-    while (next) { const n = next.nextElementSibling; next.remove(); next = n; }
-  }
-
-  createDirectorBadge(ct);
-  const msgDiv = createStreamingDiv();
-
-  S.abortController = new AbortController();
-  try {
-    const resp = await fetch('/api' + convUrl(S.activeConvId, 'messages', msgId, 'edit'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, regenerate: true, ...agentPayload() }),
-      signal: S.abortController.signal,
-    });
-    if (resp.headers.get('content-type')?.includes('text/event-stream')) {
-      await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
-    } else {
-      S.messages = await api.get(convUrl(S.activeConvId, 'messages'));
-      renderMessages();
-    }
   } catch (e) {
     const b = $('active-director-badge'); if (b) b.remove();
     if (e.name !== 'AbortError') toast('Error: ' + e.message, true);
