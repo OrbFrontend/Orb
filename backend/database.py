@@ -134,7 +134,7 @@ SEED_PHRASE_BANK = [
     ["a dance of", "a dance between"],
     ["eyes narrowing", "eyes narrowed", "mischievous glint", "gaze sharpen", "eyes never leaving his", "eyes never leaving hers", "eyes never leave his", "eyes never leave hers"],
     ["breath hitches"],
-    ["smell of ozone"],
+    ["ozone", "predatory", "electric"],
     ["the air between them"],
     ["mind races"],
     ["stark contrast"],

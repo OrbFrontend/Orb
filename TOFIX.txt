@@ -1,6 +1,8 @@
 - Explore using logit bias in writer pass to force assistant content to never output tool call token.
 - Refine pass should also show up in Inspector UI. Let's also rework this, no need to show too much info.
 - Bug: If writer pass returns null or aborted while in progress, we should still save user's message.
+- Bug: New conversation and Conversations history burger items doesn't do anything when you click on them.
+- Bug: {{user}} and {{char}} are still not replaced. They should be rendered in messages, replaced when user inputs them in chat box, database should save post-replacement names. In summary, {{user}} and {{char}} must always show up in character cards only.
 - Models tend to write longer and longer. During post-processing, if too long then tell it to rewrite compactly.
 - Edit button should snap the chat scroll to the message being edited.
 - When the user clicks on "Save and Regen" and the current message is the only child with no siblings in the convo branch structure and it also has no children, don't duplicate it as its own sibling.
