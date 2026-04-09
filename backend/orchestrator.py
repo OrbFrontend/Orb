@@ -502,14 +502,19 @@ async def _run_pipeline(
     if do_refine and resp_text:
         logger.info("Refine pass starting (draft=%d chars, phrase_bank=%d groups)", len(resp_text), len(phrase_bank))
         try:
-            refined_output, refine_debug, refine_latency = await _refine_pass(
-                client, prefix, effective_msg, resp_text, settings, phrase_bank, enabled_tools
-            )
-            logger.info("Refine pass complete: changed=%s, latency=%dms", refined_output is not None, refine_latency)
-            if refined_output:
-                resp_text = refined_output
-                yield {"event": "writer_rewrite", "data": {"refined_text": resp_text}}
-                yield {"event": "_refined_result", "data": {"resp_text": resp_text}}
+            last_refined = None
+            async for refine_event in _refine_pass(client, prefix, effective_msg, resp_text, settings, phrase_bank, enabled_tools):
+                if refine_event["type"] == "checkpoint" and refine_event["draft"]:
+                    if refine_event["draft"] != last_refined:
+                        last_refined = refine_event["draft"]
+                        resp_text = refine_event["draft"]
+                        yield {"event": "writer_rewrite", "data": {"refined_text": resp_text}}
+                        yield {"event": "_refined_result", "data": {"resp_text": resp_text}}
+                elif refine_event["type"] == "done":
+                    if refine_event["draft"] and refine_event["draft"] != last_refined:
+                        resp_text = refine_event["draft"]
+                        yield {"event": "writer_rewrite", "data": {"refined_text": resp_text}}
+                        yield {"event": "_refined_result", "data": {"resp_text": resp_text}}
         except Exception as e:
             logger.error("refine pass failed, keeping original: %s", e, exc_info=True)
     elif not do_refine:
