@@ -157,12 +157,12 @@ async def handle_turn(conversation_id, user_message) -> AsyncIterator[str]:
 
 **Step 1 — Load state.** Read conversation history, current director state (active styles, notes), settings, and the conversation's character card snapshot from the DB.
 
-**Step 2 — Build the agent prompt.** Assemble the shared prefix: system prompt, then character card (persona + scenario + example messages), then full message history. Append the OOC agent prompt from the design doc, substituting in the current active styles, persistent notes, momentary note, user message, and available fragment list. Include the three tool definitions (`set_direction`, `update_persistent_note`, `set_momentary_note`) as OpenAI-format function schemas.
+**Step 2 — Build the agent prompt.** Assemble the shared prefix: system prompt, then character card (persona + scenario + example messages), then full message history. Append the OOC agent prompt from the design doc, substituting in the current active styles, persistent notes, momentary note, user message, and available fragment list. Include the three tool definitions (`direct_scene`, `update_persistent_note`, `set_momentary_note`) as OpenAI-format function schemas.
 
 **Step 3 — Agent pass (non-streaming).** Call `llm_client.complete()` with `tool_choice: "required"` (or `"auto"` depending on server support). Parse the response for tool calls. This call is **not** streamed to the user — it's consumed internally. Expect ~200-400 tokens output, so it's fast.
 
 **Step 4 — Apply tool calls.** Process each tool call through `state.py`:
-- `set_direction` → update `active_moods` in director state
+- `direct_scene` → update `active_moods` in director state
 - `update_persistent_note` → apply keep/append/remove/replace logic
 - `set_momentary_note` → overwrite momentary note
 

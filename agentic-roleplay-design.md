@@ -147,7 +147,7 @@ Late-injected instructions can be outweighed by the established pattern in conve
 
 ### Tools Available to the Agent
 
-**set_direction**
+**direct_scene**
 - Input: a list of style IDs to activate (e.g., ["descriptive", "tense"])
 - Behavior: replaces the full set of active styles. Any style not in the list is deactivated. The frontend resolves each ID to its fragment text.
 

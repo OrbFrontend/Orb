@@ -232,12 +232,12 @@ class TestBuildToolPrompt:
     def test_returns_empty_string_for_unknown_tool(self):
         assert build_tool_prompt("nonexistent_tool", "msg", [], []) == ""
 
-    def test_set_direction_includes_user_message(self, fragments):
-        result = build_tool_prompt("set_direction", "Let's fight!", ["tense"], fragments)
+    def test_direct_scene_includes_user_message(self, fragments):
+        result = build_tool_prompt("direct_scene", "Let's fight!", ["tense"], fragments)
         assert "Let's fight!" in result
 
-    def test_set_direction_lists_available_fragments(self, fragments):
-        result = build_tool_prompt("set_direction", "msg", [], fragments)
+    def test_direct_scene_lists_available_fragments(self, fragments):
+        result = build_tool_prompt("direct_scene", "msg", [], fragments)
         assert "tense" in result
         assert "lyrical" in result
 
@@ -246,13 +246,13 @@ class TestBuildToolPrompt:
         assert "I nod." in result
 
     def test_contains_tool_name_in_instruction(self):
-        result = build_tool_prompt("set_direction", "msg", [], [])
-        assert "set_direction" in result
+        result = build_tool_prompt("direct_scene", "msg", [], [])
+        assert "direct_scene" in result
 
 
 class TestApplyToolCalls:
-    def test_set_direction_replaces_active_list(self):
-        calls = [{"name": "set_direction", "arguments": {"mood_ids": ["tense", "lyrical"]}}]
+    def test_direct_scene_replaces_active_list(self):
+        calls = [{"name": "direct_scene", "arguments": {"moods": ["tense", "lyrical"]}}]
         styles, refined = apply_tool_calls(calls, [])
         assert styles == ["tense", "lyrical"]
         assert refined is None
@@ -270,7 +270,7 @@ class TestApplyToolCalls:
 
     def test_multiple_tool_calls_applied_in_order(self):
         calls = [
-            {"name": "set_direction", "arguments": {"mood_ids": ["tense"]}},
+            {"name": "direct_scene", "arguments": {"moods": ["tense"]}},
             {"name": "rewrite_user_prompt", "arguments": {"refined_message": "Better message."}},
         ]
         styles, refined = apply_tool_calls(calls, [])
@@ -282,9 +282,9 @@ class TestApplyToolCalls:
         assert styles == ["tense"]
         assert refined is None
 
-    def test_set_direction_clears_previous_moods(self):
+    def test_direct_scene_clears_previous_moods(self):
         """Style list is replaced, not merged."""
-        calls = [{"name": "set_direction", "arguments": {"mood_ids": ["lyrical"]}}]
+        calls = [{"name": "direct_scene", "arguments": {"moods": ["lyrical"]}}]
         styles, _ = apply_tool_calls(calls, ["tense", "dramatic"])
         assert styles == ["lyrical"]
 
@@ -298,8 +298,8 @@ class TestAgentPass:
         response = {
             "tool_calls": [{
                 "function": {
-                    "name": "set_direction",
-                    "arguments": '{"mood_ids": ["tense"]}',
+                    "name": "direct_scene",
+                    "arguments": '{"moods": ["tense"]}',
                 }
             }]
         }
@@ -329,7 +329,7 @@ class TestAgentPass:
     async def test_empty_tool_names_skips_llm(self, settings, director, fragments, prefix):
         """When all tools are disabled, no LLM call is made."""
         settings["enabled_tools"] = {
-            "set_direction": False,
+            "direct_scene": False,
             "rewrite_user_prompt": False,
         }
         client = make_client()
@@ -559,8 +559,8 @@ class TestRunPipelineEventOrdering:
         response = {
             "tool_calls": [{
                 "function": {
-                    "name": "set_direction",
-                    "arguments": '{"mood_ids": ["tense"]}',
+                    "name": "direct_scene",
+                    "arguments": '{"moods": ["tense"]}',
                 }
             }]
         }
@@ -697,7 +697,7 @@ class TestRunPipelineKVCacheInvariant:
         prompt; sending a different set than the agent invalidates the KV cache.
         """
         settings["enabled_tools"] = {
-            "set_direction": True,
+            "direct_scene": True,
             "rewrite_user_prompt": False,
             "refine_assistant_output": False,
         }
@@ -712,7 +712,7 @@ class TestRunPipelineKVCacheInvariant:
         writer_tools = stream_calls[0]["kwargs"].get("tools")
         assert writer_tools is not None, "Writer must receive a tools list when agent is enabled"
         tool_names_sent = [t["function"]["name"] for t in writer_tools]
-        assert tool_names_sent == ["set_direction"], (
+        assert tool_names_sent == ["direct_scene"], (
             f"Writer must receive only the enabled schemas. Got: {tool_names_sent}"
         )
 
@@ -723,7 +723,7 @@ class TestRunPipelineKVCacheInvariant:
         tools list — any difference invalidates the cached prefix.
         """
         settings["enabled_tools"] = {
-            "set_direction": True,
+            "direct_scene": True,
             "rewrite_user_prompt": False,
             "refine_assistant_output": False,
         }
@@ -774,7 +774,7 @@ class TestRunPipelineKVCacheInvariant:
         [REFINE_OUTPUT_TOOL] while the writer passes _enabled_schemas(enabled_tools).
         """
         settings["enabled_tools"] = {
-            "set_direction": True,
+            "direct_scene": True,
             "rewrite_user_prompt": False,
             "refine_assistant_output": True,
         }
@@ -840,7 +840,7 @@ def make_db_mock(*, messages=None, conv=_CONV, director=None, fragments=None):
     m.get_settings = AsyncMock(return_value={
         "model_name": "test-model", "system_prompt": "Sys", "endpoint_url": "http://localhost",
         "api_key": "", "enable_agent": 1,
-        "enabled_tools": {"set_direction": True, "rewrite_user_prompt": False, "refine_assistant_output": False},
+        "enabled_tools": {"direct_scene": True, "rewrite_user_prompt": False, "refine_assistant_output": False},
         "user_name": "Tester", "user_description": "",
     })
     m.get_conversation = AsyncMock(return_value=conv)
@@ -914,8 +914,8 @@ class TestHandleTurn:
         response = {
             "tool_calls": [{
                 "function": {
-                    "name": "set_direction",
-                    "arguments": '{"mood_ids": ["tense"]}',
+                    "name": "direct_scene",
+                    "arguments": '{"moods": ["tense"]}',
                 }
             }]
         }

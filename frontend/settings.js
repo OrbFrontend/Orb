@@ -100,7 +100,7 @@ export async function saveUserProfile() {
 
 // ── Agent Tools Panel ────────────────────────
 const TOOL_DEFS = [
-  { id: 'set_directions',        name: 'Director',   desc: 'Gives written direction and selects active mood fragments based on scene context' },
+  { id: 'direct_scenes',        name: 'Director',   desc: 'Gives written direction and selects active mood fragments based on scene context' },
   { id: 'rewrite_user_prompt',   name: 'Prompt Rewriter',  desc: 'Expands vague or lazy messages into richer input' },
   { id: 'refine_apply_patch',    name: 'Output Auditor',   desc: 'Scans for banned phrases, repetitive openers & templates, then surgically patches the draft' },
 ];

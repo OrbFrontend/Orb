@@ -12,25 +12,36 @@ logger = logging.getLogger(__name__)
 
 # --- Agent tool definitions (OpenAI function-calling format) ---
 
+# --- Agent tool definitions (OpenAI function-calling format) ---
+
 AGENT_TOOLS = [{
     "type": "function",
     "function": {
-        "name": "set_direction",
-        "description": "Set the active moods for the next response and optionally provide a succinct narrative direction. Replaces the full set of moods — any style not listed is deactivated. Aim to keep things fresh — consider shifting and combining moods that fit the current mood or scene. May churn. If a style has been used too much, just switch. Use 'direction' to briefly steer the narrative (e.g. escalate tension, introduce a twist, shift to introspection).",
+        "name": "direct_scene",
+        "description": "Call this to direct the scene. Deduce what the user wants to see and show them. Combine and configure the moods, specify the direction the scene should take, detect and report repetitive tropes, phrases, subjects, and narrative patterns to avoid. Be very specific with the direction.",
         "parameters": {
             "type": "object",
             "properties": {
-                "mood_ids": {
+                "moods": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of style fragment IDs to activate (e.g. ['tense']).",
+                    "description": "List of moods to activate.",
                 },
-                "direction": {
+                "plot_direction": {
                     "type": "string",
-                    "description": "A succinct direction for how the story should proceed (e.g. 'escalate tension', 'introduce an unexpected twist', 'shift to quiet introspection'). Keep to one short sentence.",
+                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'his dad knows he's lying and snaps', 'the attack tears off a piece of her clothing', 'he makes a rude gesture the teacher doesn't see'). Keep to one short sentence.",
+                },
+                "narration_direction": {
+                    "type": "string",
+                    "description": "How the scene should be written — focus, emphasis, descriptive lens, internal state (e.g. 'describe his anxious tics in detail', 'narrate her spiraling thoughts on why it went wrong', 'describe her exposed body parts vividly', 'narrate what would happen if she saw it'). Keep to one short sentence.",
+                },
+                "detected_repetitions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration. Fine if they're not recent.",
                 },
             },
-            "required": ["mood_ids"],
+            "required": ["moods", "plot_direction"],
         },
     },
 }]
@@ -95,7 +106,7 @@ REFINE_AGENT_INSTRUCTIONS = (
 _MAX_REFINE_ITERATIONS = 3
 
 TOOLS: dict[str, dict] = {
-    "set_direction": {"choice": {"type": "function", "function": {"name": "set_direction"}}, "schema": AGENT_TOOLS[0]},
+    "direct_scene": {"choice": {"type": "function", "function": {"name": "direct_scene"}}, "schema": AGENT_TOOLS[0]},
     "rewrite_user_prompt": {"choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}}, "schema": REWRITE_PROMPT_TOOL},
     "refine_apply_patch": {"choice": {"type": "function", "function": {"name": "refine_apply_patch"}}, "schema": REFINE_APPLY_PATCH_TOOL},
 }
@@ -120,9 +131,9 @@ def build_tool_prompt(tool_name: str, user_message: str, active_moods: list[str]
         "[OOC] Pause to improve the roleplay. Use tool calls to accomplish your task. Your output will immediately affect how the scenario plays out. Be decisive and avoid overthinking.",
         f"ONLY call this tool with extreme focus: '{tool_name}' - {desc}"
     ]
-    if tool_name == "set_direction":
+    if tool_name == "direct_scene":
         moods = ", ".join(active_moods) or "none"
-        frags = "\n".join(f"- {f['id']}: {f['description']}" for f in fragments)
+        frags = "\n".join(f"- [{f['id']}] - use in case: {f['description']}" for f in fragments)
         parts.append(f"Currently active moods: {moods}\n\nAvailable writing moods:\n{frags}")
         parts.append(f"User's latest message (for context only — do not respond to it):\n\"\"\"{user_message}\"\"\"")
     elif tool_name == "rewrite_user_prompt":
@@ -130,10 +141,21 @@ def build_tool_prompt(tool_name: str, user_message: str, active_moods: list[str]
     return "\n\n".join(parts)
 
 
-def build_style_injection(active: list[dict], deactivated: list[dict] | None = None, direction: str | None = None) -> str:
+def build_style_injection(
+    active: list[dict], deactivated: list[dict] | None = None,
+    plot_direction: str | None = None, narration_direction: str | None = None,
+    detected_repetitions: list[str] | None = None,
+) -> str:
     parts = ["<current_scene_direction>"]
-    if direction:
-        parts.append(f"  <direction>{direction}</direction>")
+    if plot_direction:
+        parts.append(f"  <plot>{plot_direction}</plot>")
+    if narration_direction:
+        parts.append(f"  <narration>{narration_direction}</narration>")
+    if detected_repetitions:
+        parts.append("  <avoid>")
+        for phrase in detected_repetitions:
+            parts.append(f"    - {phrase}")
+        parts.append("  </avoid>")
     for f in active:
         parts += [f'  <mood name="{f["id"]}">', f'    {f["prompt_text"]}', "  </mood>"]
     for f in (deactivated or []):
@@ -163,16 +185,18 @@ def build_prefix(
     return [{"role": "system", "content": "".join(parts)}] + [{"role": m["role"], "content": m["content"]} for m in (messages or [])]
 
 
-def apply_tool_calls(tool_calls: list[dict], current_moods: list[str]) -> tuple[list[str], str | None, str | None]:
-    moods, refined, direction = list(current_moods), None, None
+def apply_tool_calls(tool_calls: list[dict], current_moods: list[str]) -> tuple[list[str], str | None, str | None, str | None, list[str] | None]:
+    moods, refined, plot_direction, narration_direction, detected_repetitions = list(current_moods), None, None, None, None
     for tc in tool_calls:
         args = tc.get("arguments", {})
-        if tc["name"] == "set_direction":
-            moods = args.get("mood_ids", [])
-            direction = args.get("direction") or None
+        if tc["name"] == "direct_scene":
+            moods = args.get("moods", [])
+            plot_direction = args.get("plot_direction") or None
+            narration_direction = args.get("narration_direction") or None
+            detected_repetitions = args.get("detected_repetitions") or None
         elif tc["name"] == "rewrite_user_prompt":
             refined = args.get("refined_message") or None
-    return moods, refined, direction
+    return moods, refined, plot_direction, narration_direction, detected_repetitions
 
 
 async def _load_char_context(conv: dict, settings: dict) -> tuple[str, str, str]:
@@ -199,13 +223,13 @@ async def _writer_pass(client: LLMClient, msgs: list[dict], settings: dict, enab
 async def _agent_pass(
     client: LLMClient, prefix: list[dict], user_message: str, settings: dict,
     director: dict, fragments: list[dict], enabled_tools: dict | None = None
-) -> tuple[list[str], str, list, int, str | None, str | None]:
-    active_moods, refined_msg, direction, all_calls, last_raw = director["active_moods"], None, None, [], ""
-    tool_names = ["set_direction"] if enabled_tools is None else [
+) -> tuple[list[str], str, list, int, str | None, str | None, str | None, list[str] | None]:
+    active_moods, refined_msg, plot_direction, narration_direction, detected_repetitions, all_calls, last_raw = director["active_moods"], None, None, None, None, [], ""
+    tool_names = ["direct_scene"] if enabled_tools is None else [
         n for n, on in enabled_tools.items() if on and n in TOOLS and n not in POST_WRITER_TOOLS
     ]
     if not tool_names:
-        return active_moods, "", [], 0, None, None
+        return active_moods, "", [], 0, None, None, None, None
 
     tool_schemas = _enabled_schemas(enabled_tools)
 
@@ -222,18 +246,22 @@ async def _agent_pass(
             logger.info("Agent tool=%s output:\n%s", name, last_raw)
             if parsed := parse_tool_calls(resp):
                 all_calls.extend(parsed)
-                active_moods, new_refined, new_direction = apply_tool_calls(parsed, active_moods)
+                active_moods, new_refined, new_plot, new_narration, new_detected_repetitions = apply_tool_calls(parsed, active_moods)
                 if new_refined:
                     refined_msg = new_refined
-                if new_direction:
-                    direction = new_direction
+                if new_plot:
+                    plot_direction = new_plot
+                if new_narration:
+                    narration_direction = new_narration
+                if new_detected_repetitions:
+                    detected_repetitions = new_detected_repetitions
             else:
                 logger.info("Agent tool=%s: model skipped", name)
         except Exception as e:
             logger.error("Agent tool=%s failed: %s", name, e)
             last_raw = f"ERROR: {e}"
 
-    return active_moods, last_raw, all_calls, int((time.monotonic() - t0) * 1000), refined_msg, direction
+    return active_moods, last_raw, all_calls, int((time.monotonic() - t0) * 1000), refined_msg, plot_direction, narration_direction, detected_repetitions
 
 
 _QUOTE_MAP = str.maketrans({
@@ -469,14 +497,16 @@ async def _run_pipeline(
     if not agent_on:
         enabled_tools = {}
 
-    active_moods, agent_raw, calls, latency, refined_msg, direction = director["active_moods"], "", [], 0, None, None
+    active_moods, agent_raw, calls, latency, refined_msg, plot_direction, narration_direction, detected_repetitions = (
+        director["active_moods"], "", [], 0, None, None, None, None
+    )
     effective_msg = user_message
     do_refine = agent_on and enabled_tools.get("refine_apply_patch", False) and phrase_bank is not None
 
     # --- Agent pass: style selection + prompt rewrite ---
     if agent_on:
         yield {"event": "director_start"}
-        active_moods, agent_raw, calls, latency, refined_msg, direction = await _agent_pass(
+        active_moods, agent_raw, calls, latency, refined_msg, plot_direction, narration_direction, detected_repetitions = await _agent_pass(
             client, prefix, user_message, settings, director, fragments, enabled_tools
         )
         if refined_msg:
@@ -486,9 +516,12 @@ async def _run_pipeline(
     # Build style injection block from active + newly deactivated moods
     deactivated = [f for f in fragments if f["id"] in (set(director["active_moods"]) - set(active_moods))]
     active = [f for f in fragments if f["id"] in active_moods]
-    inj_block = build_style_injection(active, deactivated, direction) if (active or deactivated or direction) else ""
+    inj_block = build_style_injection(active, deactivated, plot_direction, narration_direction, detected_repetitions) if (active or deactivated or plot_direction or narration_direction or detected_repetitions) else ""
 
-    yield {"event": "director_done", "data": {"active_moods": active_moods, "injection_block": inj_block, "tool_calls": calls, "agent_latency_ms": latency, "direction": direction}}
+    yield {"event": "director_done", "data": {
+        "active_moods": active_moods, "injection_block": inj_block, "tool_calls": calls,
+        "agent_latency_ms": latency, "plot_direction": plot_direction, "narration_direction": narration_direction, "detected_repetitions": detected_repetitions,
+    }}
 
     # --- Writer pass: stream the story response ---
     writer_msgs = prefix + ([{"role": "user", "content": inj_block}] if inj_block else []) + [
@@ -504,7 +537,8 @@ async def _run_pipeline(
     yield {"event": "_result", "data": {
         "active_moods": active_moods, "agent_raw": agent_raw, "calls": calls,
         "latency": latency, "refined_msg": refined_msg, "effective_msg": effective_msg,
-        "resp_text": resp_text, "inj_block": inj_block, "direction": direction
+        "resp_text": resp_text, "inj_block": inj_block, "plot_direction": plot_direction,
+        "narration_direction": narration_direction, "detected_repetitions": detected_repetitions,
     }}
 
     # --- Refine pass: optional self-audit of the draft ---

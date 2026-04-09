@@ -74,7 +74,7 @@ SEED_FRAGMENTS = [
         "prompt_text": (
             'The narration may describe body parts that are exposed or looked at - visually, or interacted with - tactilely, but sparingly in order to avoid repetition. Take initiative and actively push the scene forward, no need to ask. '
             'The narration can use NSFW, vulgar, uncensored, graphic, varied vocabulary where applicable. Even strong words like "cunt", "cock", "anus", etc. are allowed. Avoid roundabout allegories like "heat", "core", etc. The narration is more brutal, vivid, and direct. '
-            "Focus on staying in character even though the vibes are sensual - characters should still behave realistically and warily of strangers and have boundaries. "
+            "Focus on staying in character even though the vibes are sensual - characters should still behave realistically and warily of strangers and have their own boundaries. "
             'Only the narration changes style, characters should still talk normally like how they would.'
         ),
         "negative_prompt": (
@@ -115,7 +115,7 @@ DEFAULT_SETTINGS = {
     "top_p": 0.95,
     "repetition_penalty": 1.0,
     "max_tokens": 4096,
-    "system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nKeep tenses (past, present) and POV consistent.\nObey OOC commands.",
+    "system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nKeep tenses (past, present) and POV consistent. Avoid repetition.\nObey OOC commands.",
     "user_name": "User",
     "user_description": "",
     "enable_agent": True,
@@ -126,13 +126,13 @@ SEED_PHRASE_BANK = [
     ["voice dripping with", "dripped with", "voice dripped with"],
     ["tension in the air", "thick tension in the air", "the air is heavy", "the air is charged", "the air is thick"],
     ["dangerous voice", "dangerous tone"],
-    ["voice dropping", "voice low", "voice dangerous", "voice a dangerous", "voice a low", "low hiss", "dangerous hiss"],
+    ["voice dropping", "voice low", "voice dangerous", "voice a dangerous", "voice a low", "low hiss", "dangerous hiss", "barely a whisper", "barely above a whisper"],
     ["a predatory smirk", "I don't bite", "they don't bite", "it doesn't bite"],
     ["very brave or very stupid", "either very brave or very foolish", "brave or stupid"],
     ["sending shivers", "sending a shiver"],
     ["couldn't help but", "could not help but"],
     ["a dance of", "a dance between"],
-    ["eyes narrowing", "eyes narrowed", "mischievous glint", "gaze sharpen"],
+    ["eyes narrowing", "eyes narrowed", "mischievous glint", "gaze sharpen", "eyes never leaving his", "eyes never leaving hers", "eyes never leave his", "eyes never leave hers"],
     ["breath hitches"],
     ["smell of ozone"],
     ["the air between them"],
