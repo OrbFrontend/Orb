@@ -1,0 +1,3 @@
+.venv
+backend/data
+__pycache__
