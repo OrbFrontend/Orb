@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Agentic Roleplay", lifespan=lifespan)
+app = FastAPI(title="Orb", lifespan=lifespan)
 
 
 # ── Pydantic models ──

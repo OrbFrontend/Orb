@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "═══════════════════════════════════════════"
-echo "  Agentic Roleplay — Scene-Directed RP"
+echo "  Orb - Agentic"
 echo "═══════════════════════════════════════════"
 echo ""
 
