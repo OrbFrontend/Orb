@@ -6,7 +6,7 @@ Usage:
 
     SEED_PHRASE_BANK = [
         ["a mix of", "a mixture of"],
-        ["tension in the air", "thick tension in the air"],
+        ["tension in the air", "the air is thick"],
     ]
 
     result = detect_cliches(text, phrase_bank)
