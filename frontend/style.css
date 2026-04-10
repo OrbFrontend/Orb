@@ -17,6 +17,10 @@ body{font-family:var(--font-ui);background:var(--bg-deep);color:var(--text-prima
 .tool-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
 .tool-card-name{font-size:12px;font-weight:500;color:var(--text-primary);}
 .tool-card-desc{font-size:11px;color:var(--text-muted);line-height:1.45;}
+.lg-config{display:flex;gap:10px;margin-top:8px;}
+.lg-field{display:flex;flex-direction:column;gap:3px;flex:1;}
+.lg-field label{font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.4px;}
+.lg-field input{width:100%;padding:4px 6px;font-size:12px;background:var(--bg-base);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);}
 /* Toggle switch */
 .tog{position:relative;display:inline-block;width:32px;height:18px;flex-shrink:0;}
 .tog input{opacity:0;width:0;height:0;}

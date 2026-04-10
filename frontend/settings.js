@@ -36,6 +36,9 @@ export async function loadSettings() {
   S.settings = await api.get('/settings');
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === 'number') S.agentEnabled = S.settings.enable_agent !== 0;
+  if (typeof S.settings.length_guard_enabled === 'number') S.lengthGuardEnabled = S.settings.length_guard_enabled !== 0;
+  if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
+  if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
   renderSettings();
   renderToolsPanel();
   updateUserBtn();
@@ -129,10 +132,30 @@ export async function toggleToolEnabled(id, on) {
   } catch (e) { toast('Failed to save tool state', true); }
 }
 
+export async function toggleLengthGuard(on) {
+  S.lengthGuardEnabled = on;
+  renderToolsPanel();
+  try {
+    S.settings = await api.put('/settings', { length_guard_enabled: on });
+  } catch (e) { toast('Failed to save length guard state', true); }
+}
+
+export async function saveLengthGuardConfig() {
+  const words = parseInt($('lg-max-words').value, 10);
+  const paras = parseInt($('lg-max-paragraphs').value, 10);
+  if (!words || !paras || words < 50 || paras < 1) { toast('Invalid length guard values', true); return; }
+  S.lengthGuardMaxWords = words;
+  S.lengthGuardMaxParagraphs = paras;
+  try {
+    S.settings = await api.put('/settings', { length_guard_max_words: words, length_guard_max_paragraphs: paras });
+    toast('Length guard saved');
+  } catch (e) { toast('Failed to save length guard config', true); }
+}
+
 export function renderToolsPanel() {
   $('agent-enable-chk').checked = S.agentEnabled;
   $('tools-panel-btn').style.opacity = S.agentEnabled ? '1' : '0.5';
-  $('tools-list').innerHTML = TOOL_DEFS.map(t => {
+  const toolCards = TOOL_DEFS.map(t => {
     const on = !!S.enabledTools[t.id];
     return `<div class="tool-card ${on ? 'tool-on' : ''}">
       <div class="tool-card-header">
@@ -145,4 +168,31 @@ export function renderToolsPanel() {
       <div class="tool-card-desc">${t.desc}</div>
     </div>`;
   }).join('');
+
+  const lgOn = S.lengthGuardEnabled;
+  const lgConfig = lgOn ? `
+    <div class="lg-config">
+      <div class="lg-field">
+        <label>Max words</label>
+        <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" onchange="saveLengthGuardConfig()">
+      </div>
+      <div class="lg-field">
+        <label>Max paragraphs</label>
+        <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" onchange="saveLengthGuardConfig()">
+      </div>
+    </div>` : '';
+
+  const lengthGuardCard = `<div class="tool-card ${lgOn ? 'tool-on' : ''}">
+    <div class="tool-card-header">
+      <span class="tool-card-name">Length Guard</span>
+      <label class="tog" onclick="event.stopPropagation()">
+        <input type="checkbox" ${lgOn ? 'checked' : ''} onchange="toggleLengthGuard(this.checked)">
+        <span class="tog-slider"></span>
+      </label>
+    </div>
+    <div class="tool-card-desc">Detects over-long responses by word count and instructs the model to rewrite more concisely during the refine pass.</div>
+    ${lgConfig}
+  </div>`;
+
+  $('tools-list').innerHTML = toolCards + lengthGuardCard;
 }
