@@ -31,7 +31,7 @@ AGENT_TOOLS = [{
     "type": "function",
     "function": {
         "name": "direct_scene",
-        "description": "Call this to direct the scene. Deduce what the user wants to see and show them. Combine and configure the moods, specify the direction the scene should take, detect and report repetitive tropes, phrases, subjects, and narrative patterns to avoid. Be very specific with the direction.",
+        "description": "Call this to direct the scene. Deduce what the user wants to see and show them. Combine and configure the moods, extract keywords, summarize the plot, specify the direction the scene should take, detect and report repetitive tropes, phrases, subjects, and narrative patterns to avoid. Be very specific with the direction.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -40,9 +40,14 @@ AGENT_TOOLS = [{
                     "items": {"type": "string"},
                     "description": "List of moods to activate.",
                 },
+                "keywords": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of nouns (keywords) to remind the important concepts and subjects in the roleplay so far. This list shouldn't grow too long (keep under 10 items). Extract from recent messages and plot summary. Examples: 'Excalibur', 'handjob', 'park', 'tungsten', 'kids'.",
+                },
                 "plot_summary": {
                     "type": "string",
-                    "description": "A brief and specific summary of what has happened so far in the story. Call things for what they are, avoid being generic, avoid adjectives. 3 sentences max (e.g. Professor Rob met his colleague Jane at the park. He asked about some 'tungsten rod'. Then he changed the subject and is currently asking her out.).",
+                    "description": "A brief and specific summary of what has happened so far in the story. Call things for what they are, avoid being generic, avoid adjectives. 3 sentences max (e.g. Professor Rob coincidentally met his colleague Jane at the park. He asked about some 'tungsten rod'. She changed the subject and they're now talking about his kids.).",
                 },
                 "plot_direction": {
                     "type": "string",
@@ -187,6 +192,7 @@ def build_style_injection(
     plot_direction: str | None = None, narration_direction: str | None = None,
     detected_repetitions: list[str] | None = None,
     plot_summary: str | None = None,
+    keywords: list[str] | None = None,
 ) -> str:
     parts = ["<current_scene_direction>"]
     if plot_summary:
@@ -200,6 +206,11 @@ def build_style_injection(
         for phrase in detected_repetitions:
             parts.append(f"    - {phrase}")
         parts.append("  </avoid>")
+    if keywords:
+        parts.append("  <keywords>")
+        for kw in keywords:
+            parts.append(f"    - {kw}")
+        parts.append("  </keywords>")
     for f in active:
         parts += [f'  <mood name="{f["id"]}">', f'    {f["prompt_text"]}', "  </mood>"]
     for f in (deactivated or []):
@@ -238,8 +249,8 @@ def build_prefix(
     return [{"role": "system", "content": "".join(parts)}] + processed_messages
 
 
-def apply_tool_calls(tool_calls: list[dict], current_moods: list[str]) -> tuple[list[str], str | None, str | None, str | None, list[str] | None, str | None]:
-    moods, refined, plot_direction, narration_direction, detected_repetitions, plot_summary = list(current_moods), None, None, None, None, None
+def apply_tool_calls(tool_calls: list[dict], current_moods: list[str]) -> tuple[list[str], str | None, str | None, str | None, list[str] | None, str | None, list[str] | None]:
+    moods, refined, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords = list(current_moods), None, None, None, None, None, None
     for tc in tool_calls:
         args = tc.get("arguments", {})
         if tc["name"] == "direct_scene":
@@ -248,9 +259,10 @@ def apply_tool_calls(tool_calls: list[dict], current_moods: list[str]) -> tuple[
             narration_direction = args.get("narration_direction") or None
             detected_repetitions = args.get("detected_repetitions") or None
             plot_summary = args.get("plot_summary") or None
+            keywords = args.get("keywords") or None
         elif tc["name"] == "rewrite_user_prompt":
             refined = args.get("refined_message") or None
-    return moods, refined, plot_direction, narration_direction, detected_repetitions, plot_summary
+    return moods, refined, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords
 
 
 async def _load_char_context(conv: dict, settings: dict) -> tuple[str, str, str]:
@@ -278,13 +290,13 @@ async def _writer_pass(client: LLMClient, msgs: list[dict], settings: dict, enab
 async def _agent_pass(
     client: LLMClient, prefix: list[dict], user_message: str, settings: dict,
     director: dict, fragments: list[dict], enabled_tools: dict | None = None
-) -> tuple[list[str], str, list, int, str | None, str | None, str | None, list[str] | None, str | None]:
-    active_moods, refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary, all_calls, last_raw = director["active_moods"], None, None, None, None, None, [], ""
+) -> tuple[list[str], str, list, int, str | None, str | None, str | None, list[str] | None, str | None, list[str] | None]:
+    active_moods, refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords, all_calls, last_raw = director["active_moods"], None, None, None, None, None, director.get("keywords", []), [], ""
     tool_names = ["direct_scene"] if enabled_tools is None else [
         n for n, on in enabled_tools.items() if on and n in TOOLS and n not in POST_WRITER_TOOLS
     ]
     if not tool_names:
-        return active_moods, "", [], 0, None, None, None, None, None
+        return active_moods, "", [], 0, None, None, None, None, None, None
 
     tool_schemas = _enabled_schemas(enabled_tools)
     logger.info("Director pass: tools included=%s", json.dumps([s["function"]["name"] for s in tool_schemas]) if tool_schemas else "[]")
@@ -302,7 +314,7 @@ async def _agent_pass(
             logger.info("Agent tool=%s output:\n%s", name, last_raw)
             if parsed := parse_tool_calls(resp):
                 all_calls.extend(parsed)
-                active_moods, new_refined, new_plot, new_narration, new_detected_repetitions, new_plot_summary = apply_tool_calls(parsed, active_moods)
+                active_moods, new_refined, new_plot, new_narration, new_detected_repetitions, new_plot_summary, new_keywords = apply_tool_calls(parsed, active_moods)
                 if new_refined:
                     refined_msg = new_refined
                 if new_plot:
@@ -313,13 +325,16 @@ async def _agent_pass(
                     detected_repetitions = new_detected_repetitions
                 if new_plot_summary:
                     plot_summary = new_plot_summary
+                if new_keywords:
+                    # Limit keywords to 10 items
+                    keywords = new_keywords[:10]
             else:
                 logger.info("Agent tool=%s: model skipped", name)
         except Exception as e:
             logger.error("Agent tool=%s failed: %s", name, e)
             last_raw = f"ERROR: {e}"
 
-    return active_moods, last_raw, all_calls, int((time.monotonic() - t0) * 1000), refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary
+    return active_moods, last_raw, all_calls, int((time.monotonic() - t0) * 1000), refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords
 
 
 _QUOTE_MAP = str.maketrans({
@@ -663,7 +678,7 @@ async def _run_pipeline(
     has_pre_writer_tools = any(enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
     if agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
-        active_moods, agent_raw, calls, latency, refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary = await _agent_pass(
+        active_moods, agent_raw, calls, latency, refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords = await _agent_pass(
             client, prefix, user_message, settings, director, fragments, enabled_tools
         )
         if refined_msg:
@@ -673,11 +688,11 @@ async def _run_pipeline(
     # Build style injection block from active + newly deactivated moods
     deactivated = [f for f in fragments if f["id"] in (set(director["active_moods"]) - set(active_moods))]
     active = [f for f in fragments if f["id"] in active_moods]
-    inj_block = build_style_injection(active, deactivated, plot_direction, narration_direction, detected_repetitions, plot_summary) if (active or deactivated or plot_direction or narration_direction or detected_repetitions or plot_summary) else ""
+    inj_block = build_style_injection(active, deactivated, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords) if (active or deactivated or plot_direction or narration_direction or detected_repetitions or plot_summary or keywords) else ""
 
     yield {"event": "director_done", "data": {
         "active_moods": active_moods, "injection_block": inj_block, "tool_calls": calls,
-        "agent_latency_ms": latency, "plot_direction": plot_direction, "narration_direction": narration_direction, "detected_repetitions": detected_repetitions, "plot_summary": plot_summary,
+        "agent_latency_ms": latency, "plot_direction": plot_direction, "narration_direction": narration_direction, "detected_repetitions": detected_repetitions, "plot_summary": plot_summary, "keywords": keywords,
     }}
 
     # --- Writer pass: stream the story response ---
@@ -709,6 +724,7 @@ async def _run_pipeline(
         "latency": latency, "refined_msg": refined_msg, "effective_msg": effective_msg,
         "resp_text": resp_text, "inj_block": inj_block, "plot_direction": plot_direction,
         "narration_direction": narration_direction, "detected_repetitions": detected_repetitions, "plot_summary": plot_summary,
+        "keywords": keywords,
     }}
 
     # --- Refine pass: optional self-audit of the draft ---
@@ -772,7 +788,7 @@ async def handle_turn(conversation_id: str, user_message: str, skip_user_persist
                     res = event["data"]
                     # ── Persist assistant message after writer pass ──
                     if settings.get("enable_agent", 1):
-                        await db.update_director_state(conversation_id, res["active_moods"])
+                        await db.update_director_state(conversation_id, res["active_moods"], res.get("keywords"))
 
                     # Update user message if agent refined it (user msg already saved before pipeline)
                     if res["refined_msg"] and user_msg_id:
@@ -802,7 +818,7 @@ async def handle_turn(conversation_id: str, user_message: str, skip_user_persist
                 async def _fallback_persist():
                     try:
                         if res.get("active_moods") and settings.get("enable_agent", 1):
-                            await db.update_director_state(conversation_id, res["active_moods"])
+                            await db.update_director_state(conversation_id, res["active_moods"], res.get("keywords"))
                         if res.get("refined_msg") and user_msg_id:
                             await db.update_message_content(user_msg_id, res["effective_msg"])
                         resp_text = res.get("resp_text", "") or accumulated_text
@@ -873,7 +889,7 @@ async def handle_regenerate(conversation_id: str, assistant_msg_id: int) -> Asyn
                     res = event["data"]
                     # ── Persist immediately after writer pass ──
                     if settings.get("enable_agent", 1):
-                        await db.update_director_state(conversation_id, res["active_moods"])
+                        await db.update_director_state(conversation_id, res["active_moods"], res.get("keywords"))
                         if res["refined_msg"]:
                             await db.update_message_content(user_msg_id, res["refined_msg"])
                     new_asst_id = await db.add_message(conversation_id, "assistant", res["resp_text"], target["turn_index"], parent_id=user_msg_id)

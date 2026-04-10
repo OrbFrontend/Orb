@@ -236,7 +236,8 @@ async def init_db():
 
             CREATE TABLE IF NOT EXISTS director_state (
                 conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
-                active_moods TEXT NOT NULL DEFAULT '[]'
+                active_moods TEXT NOT NULL DEFAULT '[]',
+                keywords TEXT NOT NULL DEFAULT '[]'
             );
 
             CREATE TABLE IF NOT EXISTS conversation_logs (
@@ -267,6 +268,11 @@ async def init_db():
             await db.execute("ALTER TABLE settings ADD COLUMN length_guard_max_words INTEGER NOT NULL DEFAULT 400")
         if "length_guard_max_paragraphs" not in existing_cols:
             await db.execute("ALTER TABLE settings ADD COLUMN length_guard_max_paragraphs INTEGER NOT NULL DEFAULT 5")
+
+        # Migration for director_state keywords column
+        director_cols = {row[1] for row in await db.execute_fetchall("PRAGMA table_info(director_state)")}
+        if "keywords" not in director_cols:
+            await db.execute("ALTER TABLE director_state ADD COLUMN keywords TEXT NOT NULL DEFAULT '[]'")
 
         # Seed settings if empty
         row = await db.execute_fetchall("SELECT COUNT(*) as c FROM settings")
@@ -437,7 +443,7 @@ async def create_conversation(
              first_mes, post_history_instructions, now, now),
         )
         await db.execute(
-            "INSERT INTO director_state (conversation_id, active_moods) VALUES (?, '[]')",
+            "INSERT INTO director_state (conversation_id, active_moods, keywords) VALUES (?, '[]', '[]')",
             (cid,),
         )
         await db.commit()
@@ -713,19 +719,30 @@ async def get_director_state(cid: str) -> dict:
         if rows:
             r = dict(rows[0])
             r["active_moods"] = json.loads(r["active_moods"])
+            # Handle keywords column (may be missing in older DBs)
+            if "keywords" in r and r["keywords"]:
+                r["keywords"] = json.loads(r["keywords"])
+            else:
+                r["keywords"] = []
             return r
-        return {"conversation_id": cid, "active_moods": []}
+        return {"conversation_id": cid, "active_moods": [], "keywords": []}
     finally:
         await db.close()
 
 
-async def update_director_state(cid: str, active_moods: list):
+async def update_director_state(cid: str, active_moods: list, keywords: list | None = None):
     db = await get_db()
     try:
-        await db.execute(
-            "UPDATE director_state SET active_moods = ? WHERE conversation_id = ?",
-            (json.dumps(active_moods), cid),
-        )
+        if keywords is not None:
+            await db.execute(
+                "UPDATE director_state SET active_moods = ?, keywords = ? WHERE conversation_id = ?",
+                (json.dumps(active_moods), json.dumps(keywords), cid),
+            )
+        else:
+            await db.execute(
+                "UPDATE director_state SET active_moods = ? WHERE conversation_id = ?",
+                (json.dumps(active_moods), cid),
+            )
         await db.commit()
     finally:
         await db.close()
