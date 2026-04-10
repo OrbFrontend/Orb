@@ -43,7 +43,7 @@ AGENT_TOOLS = [{
                 "keywords": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of nouns (keywords) to remind the important concepts and subjects in the roleplay so far. This list shouldn't grow too long (keep under 6 items). Extract from recent messages and plot summary. Avoid obvious things like main characters names. Examples: 'Excalibur', 'handjob', 'monetary deal', 'squatting position', 'winter night', 'bench'.",
+                    "description": "List of nouns (keywords) to remind the important concepts and subjects in the roleplay so far. This list shouldn't grow too long (keep under 6 items). Extract from recent messages and plot summary. Ignore obvious things like names of the characters. Examples: 'ancient Egypt', 'headlock', 'monetary deal', 'language/accent', 'desert night', 'six-sided dice'.",
                 },
                 "plot_summary": {
                     "type": "string",
@@ -51,16 +51,16 @@ AGENT_TOOLS = [{
                 },
                 "plot_direction": {
                     "type": "string",
-                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'his dad knows he's lying and snaps', 'the attack tears off a piece of her clothing', 'he makes a rude gesture the teacher doesn't see', 'she's leaning on his shoulder'). Keep to one short sentence.",
+                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'his dad knows he's lying and snaps', 'the attack tears off a piece of her clothing', 'he makes a rude gesture the teacher doesn't see', 'she pretends not to know what tunsgten is'). Keep to one short sentence.",
                 },
-                "narration_direction": {
+                "writing_direction": {
                     "type": "string",
-                    "description": "How the scene should be written — focus, emphasis, descriptive lens, internal state (e.g. 'describe his anxious tics in detail', 'narrate her spiraling thoughts on why it went wrong', 'describe her exposed stomach vividly', 'narrate what would happen if she saw it', 'describe her warmth and how stray strands of hair feel against his cheek'). Keep to one short sentence.",
+                    "description": "How the scene should be written — focus, emphasis, descriptive lens, internal state (e.g. 'focus on his anxious tics in detail', 'narrate her spiraling thoughts on why it went wrong', 'describe her exposed stomach vividly', 'narrate the effects of the rain against the fading tombstone and weave this into the mood', 'emphasize her speech quirks'). Keep to one short sentence.",
                 },
                 "detected_repetitions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration. Only report the ones that are recent (e.g. 'repeated description of hair', 'shivering', 'murderous rage', 'mentions of eyes gazing').",
+                    "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration. Only report the ones that are recent (e.g. 'repeated description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'mentions of jaw tightening', 'condescending dialogue patterns').",
                 },
             },
             "required": ["moods", "plot_direction"],
@@ -90,7 +90,7 @@ MINIMIZE_TOOL = {
     "type": "function",
     "function": {
         "name": "minimize",
-        "description": "Replace the entire draft with a shorter, more concise rewrite that respects the maximum paragraph count. Preserve the author's voice, vocabulary, and all key story beats.",
+        "description": "Replace the entire draft with a shorter, more concise rewrite that respects the maximum paragraph count. Preserve the author's voice, vocabulary, all key story beats, and any special formatting or code.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -189,7 +189,7 @@ def build_tool_prompt(tool_name: str, user_message: str, active_moods: list[str]
 
 def build_style_injection(
     active: list[dict], deactivated: list[dict] | None = None,
-    plot_direction: str | None = None, narration_direction: str | None = None,
+    plot_direction: str | None = None, writing_direction: str | None = None,
     detected_repetitions: list[str] | None = None,
     plot_summary: str | None = None,
     keywords: list[str] | None = None,
@@ -199,8 +199,8 @@ def build_style_injection(
         parts.append(f"  <plot_summary>{plot_summary}</plot_summary>")
     if plot_direction:
         parts.append(f"  <plot>{plot_direction}</plot>")
-    if narration_direction:
-        parts.append(f"  <narration>{narration_direction}</narration>")
+    if writing_direction:
+        parts.append(f"  <narration>{writing_direction}</narration>")
     if detected_repetitions:
         parts.append("  <avoid>")
         for phrase in detected_repetitions:
@@ -250,19 +250,19 @@ def build_prefix(
 
 
 def apply_tool_calls(tool_calls: list[dict], current_moods: list[str]) -> tuple[list[str], str | None, str | None, str | None, list[str] | None, str | None, list[str] | None]:
-    moods, refined, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords = list(current_moods), None, None, None, None, None, None
+    moods, refined, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords = list(current_moods), None, None, None, None, None, None
     for tc in tool_calls:
         args = tc.get("arguments", {})
         if tc["name"] == "direct_scene":
             moods = args.get("moods", [])
             plot_direction = args.get("plot_direction") or None
-            narration_direction = args.get("narration_direction") or None
+            writing_direction = args.get("writing_direction") or None
             detected_repetitions = args.get("detected_repetitions") or None
             plot_summary = args.get("plot_summary") or None
             keywords = args.get("keywords") or None
         elif tc["name"] == "rewrite_user_prompt":
             refined = args.get("refined_message") or None
-    return moods, refined, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords
+    return moods, refined, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords
 
 
 async def _load_char_context(conv: dict, settings: dict) -> tuple[str, str, str]:
@@ -291,7 +291,7 @@ async def _agent_pass(
     client: LLMClient, prefix: list[dict], user_message: str, settings: dict,
     director: dict, fragments: list[dict], enabled_tools: dict | None = None
 ) -> tuple[list[str], str, list, int, str | None, str | None, str | None, list[str] | None, str | None, list[str] | None]:
-    active_moods, refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords, all_calls, last_raw = director["active_moods"], None, None, None, None, None, director.get("keywords", []), [], ""
+    active_moods, refined_msg, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords, all_calls, last_raw = director["active_moods"], None, None, None, None, None, director.get("keywords", []), [], ""
     tool_names = ["direct_scene"] if enabled_tools is None else [
         n for n, on in enabled_tools.items() if on and n in TOOLS and n not in POST_WRITER_TOOLS
     ]
@@ -320,7 +320,7 @@ async def _agent_pass(
                 if new_plot:
                     plot_direction = new_plot
                 if new_narration:
-                    narration_direction = new_narration
+                    writing_direction = new_narration
                 if new_detected_repetitions:
                     detected_repetitions = new_detected_repetitions
                 if new_plot_summary:
@@ -334,7 +334,7 @@ async def _agent_pass(
             logger.error("Agent tool=%s failed: %s", name, e)
             last_raw = f"ERROR: {e}"
 
-    return active_moods, last_raw, all_calls, int((time.monotonic() - t0) * 1000), refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords
+    return active_moods, last_raw, all_calls, int((time.monotonic() - t0) * 1000), refined_msg, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords
 
 
 _QUOTE_MAP = str.maketrans({
@@ -442,8 +442,8 @@ async def _refine_pass(
         refine_tools.append(REFINE_APPLY_PATCH_TOOL)
     if length_guard and length_guard.get("enabled"):
         word_count = len(draft.split())
-        max_words = length_guard.get("max_words", 400)
-        max_paragraphs = length_guard.get("max_paragraphs", 5)
+        max_words = length_guard.get("max_words", 280)
+        max_paragraphs = length_guard.get("max_paragraphs", 3)
         if word_count > max_words:
             length_guard_triggered = True
             length_guard_instruction = LENGTH_GUARD_INSTRUCTIONS.format(
@@ -656,7 +656,7 @@ async def _run_pipeline(
     if not agent_on:
         enabled_tools = {}
 
-    active_moods, agent_raw, calls, latency, refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary = (
+    active_moods, agent_raw, calls, latency, refined_msg, plot_direction, writing_direction, detected_repetitions, plot_summary = (
         director["active_moods"], "", [], 0, None, None, None, None, None
     )
     effective_msg = user_message
@@ -666,8 +666,8 @@ async def _run_pipeline(
     length_guard_enabled = bool(settings.get("length_guard_enabled", False))
     length_guard = {
         "enabled": length_guard_enabled,
-        "max_words": int(settings.get("length_guard_max_words", 400)),
-        "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 5)),
+        "max_words": int(settings.get("length_guard_max_words", 240)),
+        "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
     } if length_guard_enabled else None
 
     # Refine pass runs if *any* refine sub-pass is active
@@ -678,7 +678,7 @@ async def _run_pipeline(
     has_pre_writer_tools = any(enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
     if agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
-        active_moods, agent_raw, calls, latency, refined_msg, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords = await _agent_pass(
+        active_moods, agent_raw, calls, latency, refined_msg, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords = await _agent_pass(
             client, prefix, user_message, settings, director, fragments, enabled_tools
         )
         if refined_msg:
@@ -688,11 +688,11 @@ async def _run_pipeline(
     # Build style injection block from active + newly deactivated moods
     deactivated = [f for f in fragments if f["id"] in (set(director["active_moods"]) - set(active_moods))]
     active = [f for f in fragments if f["id"] in active_moods]
-    inj_block = build_style_injection(active, deactivated, plot_direction, narration_direction, detected_repetitions, plot_summary, keywords) if (active or deactivated or plot_direction or narration_direction or detected_repetitions or plot_summary or keywords) else ""
+    inj_block = build_style_injection(active, deactivated, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords) if (active or deactivated or plot_direction or writing_direction or detected_repetitions or plot_summary or keywords) else ""
 
     yield {"event": "director_done", "data": {
         "active_moods": active_moods, "injection_block": inj_block, "tool_calls": calls,
-        "agent_latency_ms": latency, "plot_direction": plot_direction, "narration_direction": narration_direction, "detected_repetitions": detected_repetitions, "plot_summary": plot_summary, "keywords": keywords,
+        "agent_latency_ms": latency, "plot_direction": plot_direction, "writing_direction": writing_direction, "detected_repetitions": detected_repetitions, "plot_summary": plot_summary, "keywords": keywords,
     }}
 
     # --- Writer pass: stream the story response ---
@@ -723,7 +723,7 @@ async def _run_pipeline(
         "active_moods": active_moods, "agent_raw": agent_raw, "calls": calls,
         "latency": latency, "refined_msg": refined_msg, "effective_msg": effective_msg,
         "resp_text": resp_text, "inj_block": inj_block, "plot_direction": plot_direction,
-        "narration_direction": narration_direction, "detected_repetitions": detected_repetitions, "plot_summary": plot_summary,
+        "writing_direction": writing_direction, "detected_repetitions": detected_repetitions, "plot_summary": plot_summary,
         "keywords": keywords,
     }}
 

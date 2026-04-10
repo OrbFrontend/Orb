@@ -115,7 +115,7 @@ DEFAULT_SETTINGS = {
     "top_p": 0.95,
     "repetition_penalty": 1.0,
     "max_tokens": 4096,
-    "system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nKeep tenses (past, present) and POV consistent. Avoid repetition.\nObey OOC commands.",
+    "system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nBased on their personalities, characters have their own convictions and ideas and may disagree.\nKeep tenses (past, present) and POV consistent. Avoid repetition.\nObey OOC commands.",
     "user_name": "User",
     "user_description": "",
     "enable_agent": True,
@@ -135,12 +135,12 @@ SEED_PHRASE_BANK = [
     ["sending shivers", "sending a shiver"],
     ["couldn't help but", "could not help but"],
     ["a dance of", "a dance between"],
-    ["eyes narrowing", "eyes narrowed", "mischievous glint", "gaze sharpen", "eyes never leaving his", "eyes never leaving hers", "eyes never leave his", "eyes never leave hers"],
+    ["eyes narrowing", "eyes narrowed", "mischievous glint", "gaze sharpen", "eyes never leaving his", "eyes never leaving hers", "eyes never leave his", "eyes never leave hers", "eyes widen"],
     ["breath hitches"],
     ["ozone", "predatory", "electric"],
     ["the air between them"],
     ["mind races"],
-    ["stark contrast"],
+    ["stark contrast", "pure, unadulterated"],
 ]
 
 

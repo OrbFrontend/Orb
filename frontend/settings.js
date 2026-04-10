@@ -190,7 +190,7 @@ export function renderToolsPanel() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Detects over-long responses by word count and instructs the model to rewrite more concisely during the refine pass.</div>
+    <div class="tool-card-desc">Reigns the model's response length by word count. MAX PARAGRAPHS is suggested to the AI in rewrite pass.</div>
     ${lgConfig}
   </div>`;
 
