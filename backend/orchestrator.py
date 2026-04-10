@@ -631,7 +631,9 @@ async def _run_pipeline(
         do_refine = True
 
     # --- Agent pass: style selection + prompt rewrite ---
-    if agent_on:
+    # Only run if agent is on AND at least one pre-writer tool is enabled
+    has_pre_writer_tools = any(enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
+    if agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
         active_moods, agent_raw, calls, latency, refined_msg, plot_direction, narration_direction, detected_repetitions = await _agent_pass(
             client, prefix, user_message, settings, director, fragments, enabled_tools
@@ -816,8 +818,6 @@ async def handle_regenerate(conversation_id: str, assistant_msg_id: int) -> Asyn
 
         history = await db._get_path_to_leaf(conversation_id, user_msg.get("parent_id")) if user_msg.get("parent_id") else []
         director = await db.get_director_state(conversation_id)
-        prev_moods = await db.get_moods_before_turn(conversation_id, user_msg["turn_index"])
-        director = {**director, "active_moods": prev_moods}
         fragments = await db.get_fragments()
         phrase_bank = await db.get_phrase_bank()
         client = LLMClient(settings["endpoint_url"], api_key=settings.get("api_key", ""))
