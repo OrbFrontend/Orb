@@ -52,7 +52,14 @@ export function formatRelativeDate(iso) {
 
 export function formatProse(text) {
   if (!text) return '';
-  return esc(text).replace(/\n/g, '<br>');
+  let escaped = esc(text);
+  // Convert markdown-like formatting
+  // Handle **bold** -> <strong>
+  escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Handle *italic* -> <em>
+  escaped = escaped.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+  // Replace newlines with <br>
+  return escaped.replace(/\n/g, '<br>');
 }
 
 /**

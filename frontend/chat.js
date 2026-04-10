@@ -279,6 +279,7 @@ export async function saveEdit(msgId, role) {
       const idx = S.messages.findIndex(m => m.id === msgId);
       const nextAssistant = S.messages.slice(idx + 1).find(m => m.role === 'assistant' && m.id);
       if (nextAssistant) {
+        renderMessages();
         return regenerate(nextAssistant.id);
       }
       // No assistant message after this user message; fall through to normal edit+regen
