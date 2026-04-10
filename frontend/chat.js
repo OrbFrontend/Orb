@@ -1,5 +1,5 @@
 import { S } from './state.js';
-import { $, esc, formatProse, toast, scrollToBottom, avatarUrl, convUrl, formatRelativeDate } from './utils.js';
+import { $, esc, formatProse, toast, scrollToBottom, scrollToMessage, avatarUrl, convUrl, formatRelativeDate } from './utils.js';
 import { api } from './api.js';
 import { showModal, closeModal } from './modal.js';
 import { renderCharacters, loadCharacters } from './library.js';
@@ -226,7 +226,7 @@ export function renderMessages() {
 export function startEdit(msgId) {
   S.editingMsgId = msgId;
   renderMessages();
-  scrollToBottom();
+  scrollToMessage(msgId);
   const ta = $('edit-textarea-' + msgId);
   if (ta) {
     ta.focus();

@@ -1,6 +1,6 @@
 - Bug: {{user}} and {{char}} are still not replaced. They should be rendered in first message (greeting), example messages, replaced when user inputs them in chat box. In summary, {{user}} and {{char}} must always show up in character cards only. Consider if orchestrator.py should also be updated. Ideally the backend should NEVER see {{user}} or {{char}}.
 
-- [Post-process] Models tend to write longer and longer. During post-processing, if too long then tell it to rewrite compactly. The number of paragraphs is manually configured. Give the agent model a minimize tool on top of search and replace.
+- [Post-process] Models tend to write longer and longer. During post-processing, if too long then tell it to rewrite compactly. The number of paragraphs and max number of words is manually configured. Give the agent model a minimize tool on top of search and replace in refine pass.
 - [Post-process] Refine pass should also show up in Inspector UI. Let's also rework this, no need to show too much info.
 - [Post-process] When doing repetition detection, scan the last 3 assistant messages, not just the current one.
 - [Post-process] Structure repetition detection across many paragraphs, not just sentences.

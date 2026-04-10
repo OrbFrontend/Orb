@@ -31,6 +31,15 @@ export function scrollToBottom() {
   setTimeout(() => el.scrollTop = el.scrollHeight, 50);
 }
 
+export function scrollToMessage(msgId) {
+  const el = $('chat-messages');
+  const msgEl = el.querySelector(`[data-msg-id="${msgId}"]`);
+  if (msgEl) {
+    // Scroll the message into view with smooth behavior
+    msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
 export function avatarUrl(id) {
   return '/api/characters/' + id + '/avatar';
 }
