@@ -661,12 +661,14 @@ async def _run_pipeline(
     writer_tail += "[OOC: Only write the continuation of the story, tool/function calling is STRICTLY FORBIDDEN now!]\n\n" + effective_msg + "\n\n"
 
     # Inject length constraint into system message for writer pass
-    writer_prefix = prefix
-    if length_guard and prefix and prefix[0]["role"] == "system":
-        lg_sys = f"\n\n[Length constraint: Write at most {length_guard['max_paragraphs']} paragraphs, {length_guard['max_words']} words or fewer per response.]"
-        writer_prefix = [{"role": "system", "content": prefix[0]["content"] + lg_sys}] + list(prefix[1:])
+    # writer_prefix = prefix
+    # if length_guard and prefix and prefix[0]["role"] == "system":
+    #     lg_sys = f"\n\n[Length constraint: Write at most {length_guard['max_paragraphs']} paragraphs, {length_guard['max_words']} words or fewer per response.]"
+    #     writer_prefix = [{"role": "system", "content": prefix[0]["content"] + lg_sys}] + list(prefix[1:])
 
-    writer_msgs = writer_prefix + [{"role": "user", "content": writer_tail}]
+    # writer_msgs = writer_prefix + [{"role": "user", "content": writer_tail}]
+
+    writer_msgs = prefix + [{"role": "user", "content": writer_tail}]
 
     resp_text = ""
     async for token in _writer_pass(client, writer_msgs, settings, enabled_tools):
