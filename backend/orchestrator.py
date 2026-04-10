@@ -137,7 +137,7 @@ REFINE_AGENT_INSTRUCTIONS = (
 LENGTH_GUARD_INSTRUCTIONS = (
     "LENGTH GUARD: The draft is too long ({word_count} words). "
     "Rewrite the entire response using the `minimize` tool so it is at most {max_paragraphs} paragraphs. "
-    "Preserve the author's voice and all key story beats. Be concise."
+    "Preserve the author's voice, vocabulary, and all key story beats. Be more concise."
 )
 
 _MAX_REFINE_ITERATIONS = 3
@@ -658,7 +658,7 @@ async def _run_pipeline(
         writer_tail += inj_block + "\n\n"
     if length_guard:
         writer_tail += f"[Length constraint: {length_guard['max_paragraphs']} paragraphs max, {length_guard['max_words']} words or fewer]\n"
-    writer_tail += "[OOC: Only write the continuation of the story, tool/function calling is STRICTLY FORBIDDEN now!]\n" + effective_msg + "\n\n"
+    writer_tail += "[OOC: Only write the continuation of the story, tool/function calling is STRICTLY FORBIDDEN now!]\n\n" + effective_msg + "\n\n"
 
     # Inject length constraint into system message for writer pass
     writer_prefix = prefix
