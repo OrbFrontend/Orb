@@ -166,22 +166,17 @@ def build_style_injection(
     return "\n".join(parts)
 
 
-def _sub(t: str, user_name: str, char_name: str) -> str:
-    return (t or "").replace("{{user}}", user_name or "User").replace("{{char}}", char_name or "Character")
-
-
 def build_prefix(
     system_prompt: str, char_name: str, char_persona: str, char_scenario: str,
     mes_example: str = "", post_history_instructions: str = "", messages: list[dict] = None,
     user_name: str = "User", user_description: str = "",
 ) -> list[dict]:
-    s = lambda t: _sub(t, user_name, char_name)
-    parts = [s(system_prompt)]
+    parts = [system_prompt]
     if char_name: parts.append(f"\n\n## Character: {char_name}")
-    if char_persona: parts.append(f"\n{s(char_persona)}")
-    if char_scenario: parts.append(f"\n\n## Scenario\n{s(char_scenario)}")
-    if mes_example: parts.append(f"\n\n## Example Dialogue\n{s(mes_example)}")
-    if post_history_instructions: parts.append(f"\n\n## Additional Instructions\n{s(post_history_instructions)}")
+    if char_persona: parts.append(f"\n{char_persona}")
+    if char_scenario: parts.append(f"\n\n## Scenario\n{char_scenario}")
+    if mes_example: parts.append(f"\n\n## Example Dialogue\n{mes_example}")
+    if post_history_instructions: parts.append(f"\n\n## Additional Instructions\n{post_history_instructions}")
     if user_description: parts.append(f"\n\n## User: {user_name or 'User'}\n{user_description}")
     return [{"role": "system", "content": "".join(parts)}] + [{"role": m["role"], "content": m["content"]} for m in (messages or [])]
 

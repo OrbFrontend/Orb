@@ -1,6 +1,6 @@
-- Bug: {{user}} and {{char}} are still not replaced. They should be rendered in first message (greeting), example messages, replaced when user inputs them in chat box. In summary, {{user}} and {{char}} must always show up in character cards only. Consider if orchestrator.py should also be updated.
+- Bug: {{user}} and {{char}} are still not replaced. They should be rendered in first message (greeting), example messages, replaced when user inputs them in chat box. In summary, {{user}} and {{char}} must always show up in character cards only. Consider if orchestrator.py should also be updated. Ideally the backend should NEVER see {{user}} or {{char}}.
 
-- [Post-process] Models tend to write longer and longer. During post-processing, if too long then tell it to rewrite compactly. The number of paragraphs is manually configured. Give the agent model another tool on top of search and replace.
+- [Post-process] Models tend to write longer and longer. During post-processing, if too long then tell it to rewrite compactly. The number of paragraphs is manually configured. Give the agent model a minimize tool on top of search and replace.
 - [Post-process] Refine pass should also show up in Inspector UI. Let's also rework this, no need to show too much info.
 - [Post-process] When doing repetition detection, scan the last 3 assistant messages, not just the current one.
 - [Post-process] Structure repetition detection across many paragraphs, not just sentences.
@@ -8,7 +8,8 @@
 
 - Improve: Edit button should snap the chat scroll to the message being edited.
 - Improve: injecting <current_scene_direction> seems to make the model dumber because the flow stops being natural.
-- Improve: Explore using logit bias in writer pass to force assistant content to never output tool call token. Have a button to "test" for tool_call token that we can use to de-bias later.
 
+- Feature: Explore using logit bias in writer pass to force assistant content to never output tool call token. Have a button to "test" for tool_call token that we can use to de-bias later.
 - Feature: AI's message has a magic button - rewrite with custom direction, click on it and a small input box appears for direction input.
 - Feature: During and after refine pass, the latest AI message box should reflect which phrases were changed. This is done by high-lighting the changed sentences and having a pop-up that shows the old sentences the when the cursor is hovered on them.
+- Feature: Hash prefix to guarantee kv cache reuse.

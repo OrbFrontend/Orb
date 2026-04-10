@@ -14,7 +14,7 @@ def base_settings() -> dict:
     """Minimal settings dict that satisfies the orchestrator pipeline."""
     return {
         "model_name": "test-model",
-        "system_prompt": "You are {{char}}, a helpful assistant.",
+        "system_prompt": "You are a helpful assistant.",
         "endpoint_url": "http://localhost:8080",
         "api_key": "",
         "enable_agent": 1,

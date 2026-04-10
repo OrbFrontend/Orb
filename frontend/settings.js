@@ -74,7 +74,7 @@ export function showUserModal() {
   showModal(`
     <h2>User Profile</h2>
     <div class="field">
-      <label>Name <span style="font-size:10px;color:var(--text-muted)">(replaces {{user}} in character cards)</span></label>
+      <label>Name</label>
       <input id="user-name-input" value="${esc(S.settings.user_name || '')}" placeholder="e.g. Alex">
     </div>
     <div class="field">
