@@ -81,7 +81,7 @@ MINIMIZE_TOOL = {
     "type": "function",
     "function": {
         "name": "minimize",
-        "description": "Replace the entire draft with a shorter, more concise rewrite that respects the maximum paragraph count. Preserve the author's voice and all key story beats.",
+        "description": "Replace the entire draft with a shorter, more concise rewrite that respects the maximum paragraph count. Preserve the author's voice, vocabulary, and all key story beats.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -137,7 +137,7 @@ REFINE_AGENT_INSTRUCTIONS = (
 LENGTH_GUARD_INSTRUCTIONS = (
     "LENGTH GUARD: The draft is too long ({word_count} words). "
     "Rewrite the entire response using the `minimize` tool so it is at most {max_paragraphs} paragraphs. "
-    "Preserve the author's voice, vocabulary, and all key story beats. Be more concise."
+    "Preserve the author's voice, word choices, and all key story beats. Be more concise."
 )
 
 _MAX_REFINE_ITERATIONS = 3
