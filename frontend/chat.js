@@ -47,11 +47,14 @@ export function resetChatUI() {
   S.activeCharId = null;
   S.activeConvId = null;
   S.messages = [];
+  S.lastDirectorData = null;
+  S.directorState = null;
   $('chat-title-text').textContent = 'Select a character';
   $('chat-avatar').textContent = '📜';
   $('chat-input').disabled = true;
   $('send-btn').disabled = true;
   renderMessages();
+  renderInspector();
 }
 
 export async function selectChar(id) {
@@ -85,6 +88,7 @@ export async function newConvForChar(id) {
 
 export async function selectConversation(id) {
   S.activeConvId = id;
+  S.lastDirectorData = null;
   const conv = S.conversations.find(c => c.id === id);
   if (conv?.character_card_id && S.activeCharId !== conv.character_card_id) {
     S.activeCharId = conv.character_card_id;
@@ -591,6 +595,21 @@ export function renderInspector() {
        </div>`;
     return;
   }
+  
+  // Check if we have any director data to display
+  const hasDirectorData =
+    (S.directorState && Object.keys(S.directorState).length > 0) ||
+    (S.lastDirectorData && Object.keys(S.lastDirectorData).length > 0);
+  
+  if (!hasDirectorData) {
+    // Show default message for new/empty conversations
+    $('inspector-content').innerHTML =
+      `<div style="color:var(--text-muted);font-size:12px;">
+         Send a message to see director output
+       </div>`;
+    return;
+  }
+  
   const ds        = S.directorState || {};
   const ld        = S.lastDirectorData || {};
   const activeIds = ld.active_moods || ds.active_moods || [];

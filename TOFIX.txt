@@ -4,8 +4,6 @@
 - [Post-process] Detect structural repetition across multiple paragraphs, not just individual sentences.
 - [Post-process] Implement phrase repetition detection as well, not just anti-slop detection.
 
-- Bug: New Conversation should reset the Director Inspector panel.
-
 - Improvement: Each agent tool will have its own field whether or not to enable reasoning when called, this is hard-coded.
 
 - Feature: Alternating Enable/Disable toggle for Mood Fragments next to their names on the list. These buttons effectively ban/unban the fragment(s) for the next turn.
