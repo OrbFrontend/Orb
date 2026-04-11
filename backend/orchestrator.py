@@ -130,7 +130,7 @@ AGENT_TOOLS = [{
                 },
                 "plot_direction": {
                     "type": "string",
-                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'her dad guesses wrong so he loses this turn', 'the attack tears off a piece of her clothing', 'Jack can tell she's lying and calls her out it', 'she pretends not to know what Vodka is'). Keep to one short sentence.",
+                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'his dad can't see what he was doing because it's very dark', 'the attack tears off a piece of her clothing', 'Jack can tell she's lying and calls her out it because they have been friends forever', 'she pretends not to know what Vodka is to keep up the innocent act'). Keep to one short sentence.",
                 },
                 "writing_direction": {
                     "type": "string",
@@ -139,7 +139,7 @@ AGENT_TOOLS = [{
                 "detected_repetitions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration. Only report the ones that are recent (e.g. 'repeated description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'mentions of jaw tightening', 'condescending dialogue patterns').",
+                    "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration. Only report the ones that are recent (e.g. 'repeated description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'mentions of jaw tightening', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it').",
                 },
             },
             "required": ["moods", "keywords", "plot_summary", "plot_direction", "writing_direction"],
