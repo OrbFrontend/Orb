@@ -63,7 +63,7 @@ AGENT_TOOLS = [{
                     "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration. Only report the ones that are recent (e.g. 'repeated description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'mentions of jaw tightening', 'condescending dialogue patterns').",
                 },
             },
-            "required": ["moods", "plot_direction"],
+            "required": ["moods", "plot_summary", "plot_direction", "writing_direction", "keywords"],
         },
     },
 }]
@@ -152,9 +152,10 @@ LENGTH_GUARD_INSTRUCTIONS = (
 _MAX_REFINE_ITERATIONS = 3
 
 TOOLS: dict[str, dict] = {
-    "direct_scene": {"choice": {"type": "function", "function": {"name": "direct_scene"}}, "schema": AGENT_TOOLS[0]},
-    "rewrite_user_prompt": {"choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}}, "schema": REWRITE_PROMPT_TOOL},
-    "refine_apply_patch": {"choice": {"type": "function", "function": {"name": "refine_apply_patch"}}, "schema": REFINE_APPLY_PATCH_TOOL},
+    "direct_scene": {"choice": {"type": "function", "function": {"name": "direct_scene"}}, "schema": AGENT_TOOLS[0], "reasoning_enabled": True},
+    "rewrite_user_prompt": {"choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}}, "schema": REWRITE_PROMPT_TOOL, "reasoning_enabled": True},
+    "refine_apply_patch": {"choice": {"type": "function", "function": {"name": "refine_apply_patch"}}, "schema": REFINE_APPLY_PATCH_TOOL, "reasoning_enabled": False},
+    "minimize": {"choice": {"type": "function", "function": {"name": "minimize"}}, "schema": MINIMIZE_TOOL, "reasoning_enabled": True},
 }
 
 POST_WRITER_TOOLS = {"refine_apply_patch"}
@@ -306,9 +307,16 @@ async def _agent_pass(
         msgs = prefix + [{"role": "user", "content": build_tool_prompt(name, user_message, active_moods, fragments)}]
         logger.info("Agent tool=%s prompt:\n%s", name, json.dumps(msgs, indent=2, ensure_ascii=False))
         try:
+            # Check if reasoning should be enabled for this tool
+            reasoning_config = None
+            tool_config = TOOLS.get(name, {})
+            if not tool_config.get("reasoning_enabled", True):
+                reasoning_config = {"enabled": False}
+            
             resp = await client.complete(
                 messages=msgs, model=settings["model_name"], tools=tool_schemas,
-                tool_choice=TOOLS[name]["choice"], temperature=0.25, max_tokens=8192
+                tool_choice=TOOLS[name]["choice"], temperature=0.25, max_tokens=8192,
+                **({"reasoning": reasoning_config} if reasoning_config else {}),
             )
             last_raw = json.dumps(resp, default=str)
             logger.info("Agent tool=%s output:\n%s", name, last_raw)
@@ -492,6 +500,19 @@ async def _refine_pass(
                          iteration + 1, settings["model_name"],
                          json.dumps([t["function"]["name"] for t in refine_tools]))
             try:
+                # Determine if we should disable reasoning based on tool configuration
+                reasoning_config = None
+                # Check all tools in refine_tools for reasoning_enabled=False
+                # If any tool has reasoning disabled, disable reasoning for the LLM call
+                for tool_schema in refine_tools:
+                    tool_name = tool_schema["function"]["name"]
+                    tool_config = TOOLS.get(tool_name, {})
+                    if not tool_config.get("reasoning_enabled", True):
+                        reasoning_config = {"enabled": False}
+                        logger.info("Refine iteration %d: disabling reasoning for tool=%s",
+                                   iteration + 1, tool_name)
+                        break
+                
                 resp = await client.complete(
                     messages=msgs,
                     model=settings["model_name"],
@@ -504,6 +525,7 @@ async def _refine_pass(
                     ),
                     temperature=0.25,
                     max_tokens=8192,
+                    **({"reasoning": reasoning_config} if reasoning_config else {}),
                 )
             except Exception as llm_err:
                 logger.error("Refine iteration %d: client.complete() raised %s: %s",
@@ -617,11 +639,27 @@ async def _refine_pass(
             # Append assistant reasoning + tool result as plain assistant/user turns
             # (avoids role:tool and tool_calls which many models don't support in history)
             reasoning = resp.get("content", "") or ""
+            reasoning_content = resp.get("reasoning_content", "") or ""
+            # Check if reasoning should be included based on tool configuration
+            tool_name = "refine_apply_patch"  # This is the only tool that reaches this point in refine pass
+            reasoning_enabled = TOOLS.get(tool_name, {}).get("reasoning_enabled", True)
+            
+            logger.info("Refine iteration %d: reasoning fields - content=%d chars, reasoning_content=%d chars, reasoning_enabled=%s",
+                        iteration + 1, len(reasoning), len(reasoning_content), reasoning_enabled)
+            
             # Summarize what the model did so it has context on the next iteration
             patch_summary = "; ".join(
                 f"replaced \"{p.get('search', '')[:40]}…\"" for p in patches if p.get("search") != p.get("replace")
             ) or "no effective changes"
-            assistant_recap = (reasoning + "\n\n" if reasoning else "") + f"[Applied patches: {patch_summary}]"
+            
+            # Only include reasoning if enabled for this tool
+            # Note: Some models return reasoning in 'reasoning_content' field instead of 'content'
+            if reasoning_enabled and (reasoning or reasoning_content):
+                combined_reasoning = (reasoning + "\n" + reasoning_content).strip()
+                assistant_recap = combined_reasoning + "\n\n" + f"[Applied patches: {patch_summary}]"
+            else:
+                assistant_recap = f"[Applied patches: {patch_summary}]"
+                
             msgs.append({"role": "assistant", "content": assistant_recap})
 
             # Feed back the updated audit report as a user turn
