@@ -63,7 +63,7 @@ AGENT_TOOLS = [{
                     "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration. Only report the ones that are recent (e.g. 'repeated description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'mentions of jaw tightening', 'condescending dialogue patterns').",
                 },
             },
-            "required": ["moods", "plot_summary", "plot_direction", "writing_direction", "keywords"],
+            "required": ["moods", "keywords", "plot_summary", "plot_direction", "writing_direction"],
         },
     },
 }]
@@ -175,7 +175,7 @@ def build_tool_prompt(tool_name: str, user_message: str, active_moods: list[str]
         return ""
     desc = tool["schema"]["function"]["description"]
     parts = [
-        "[OOC] Pause to improve the roleplay. Use tool calls to accomplish your task. Your output will immediately affect how the scenario plays out. Be decisive and avoid overthinking.",
+        "[OOC] Let's pause to improve the roleplay. Use tool calls to accomplish your task accurately and creatively. Your output will immediately affect how the scenario plays out. Be decisive and avoid overthinking. Think outside the box.",
         f"ONLY call this tool with extreme focus: '{tool_name}' - {desc}"
     ]
     if tool_name == "direct_scene":

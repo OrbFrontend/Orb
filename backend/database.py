@@ -127,7 +127,7 @@ DEFAULT_SETTINGS = {
 SEED_PHRASE_BANK = [
     ["a mix of", "a mixture of"],
     ["voice dripping with", "dripped with", "voice dripped with"],
-    ["tension in the air", "thick tension in the air", "the air is heavy", "the air is charged", "the air is thick"],
+    ["the tension in the air", "thick tension in the air", "the air is heavy", "the air is charged", "the air is thick"],
     ["dangerous voice", "dangerous tone"],
     ["voice dropping", "voice low", "voice dangerous", "voice a dangerous", "voice a low", "low hiss", "dangerous hiss", "barely a whisper", "barely above a whisper"],
     ["a predatory smirk", "I don't bite", "they don't bite", "it doesn't bite"],
