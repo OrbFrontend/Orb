@@ -267,7 +267,7 @@ export function showAddPhraseGroupModal(editId = null, initialVariants = []) {
 
 // Helper functions exposed to window
 window.addVariantRow = function() {
-  const container = $('#variant-list');
+  const container = document.getElementById('variant-list');
   const row = document.createElement('div');
   row.className = 'variant-row';
   row.innerHTML = `
@@ -275,6 +275,11 @@ window.addVariantRow = function() {
     <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
   `;
   container.appendChild(row);
+  // Focus the new input and scroll it into view
+  const input = row.querySelector('.variant-input');
+  input.focus();
+  // Scroll the modal to show the new row
+  row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 };
 
 window.removeVariantRow = function(btn) {

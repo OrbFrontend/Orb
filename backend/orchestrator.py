@@ -130,7 +130,7 @@ AGENT_TOOLS = [{
                 },
                 "plot_direction": {
                     "type": "string",
-                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'his dad knows he's lying and snaps', 'the attack tears off a piece of her clothing', 'he makes a rude gesture the teacher doesn't see', 'she pretends not to know what Vodka is'). Keep to one short sentence.",
+                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'her dad guesses wrong so he loses this turn', 'the attack tears off a piece of her clothing', 'Jack can tell she's lying and calls her out it', 'she pretends not to know what Vodka is'). Keep to one short sentence.",
                 },
                 "writing_direction": {
                     "type": "string",
