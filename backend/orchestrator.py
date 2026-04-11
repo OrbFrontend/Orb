@@ -217,7 +217,7 @@ REFINE_AGENT_INSTRUCTIONS = (
     "- Each patch must target a DIFFERENT, non-overlapping piece of text.\n"
     "- Do NOT send a patch where `search` and `replace` are identical.\n"
     "- Keep replacements close in length to the original. Preserve the author's voice.\n"
-    "- For banned phrases: rewrite the sentence to remove the phrase entirely.\n"
+    "- For banned phrases: rewrite the sentence to remove the banned phrase entirely. Note: The audit report may show the canonical phrase name (e.g., 'ozone'), but you need to remove the actual variant that appears in the sentence (e.g., 'electric').\n"
     "- For repetitive openers: change how the sentence begins.\n"
     "- For repetitive templates: restructure the sentence (reorder clauses, combine, vary syntax)."
 )
@@ -446,7 +446,9 @@ def _apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
             logger.info("Patch %d: empty search string, skipping", i)
             continue
         if search == replace:
-            logger.info("Patch %d: no-op (search === replace), skipping", i)
+            err = f"Error: Patch {i} is a no-op (search === replace). You must provide different replacement text."
+            logger.info("Patch %d: no-op (search === replace), error: %s", i, err)
+            errors.append(err)
             continue
 
         count = draft.count(search)

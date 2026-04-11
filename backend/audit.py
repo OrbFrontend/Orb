@@ -84,7 +84,10 @@ def format_report(report: AuditReport) -> str:
         ]
         for fs in cr.flagged_sentences:
             for hit in fs.cliches:
-                lines.append(f'   - "{hit.canonical}" in sentence: {fs.sentence}')
+                if hit.canonical != hit.variant:
+                    lines.append(f'   - "{hit.canonical}" (variant "{hit.variant}") in sentence: {fs.sentence}')
+                else:
+                    lines.append(f'   - "{hit.canonical}" in sentence: {fs.sentence}')
         sections.append("\n".join(lines))
     else:
         sections.append("1. Banned Phrases — CLEAN")

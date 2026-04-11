@@ -3,6 +3,7 @@
 - [Post-process] Detect structural repetition across multiple paragraphs, not just individual sentences.
 - [Post-process] Implement phrase repetition detection as well, not just anti-slop detection.
 
+- Feature: CRUD modal to edit phrase bank, this should be in Agent panel.
 - Feature: Implement min_words for length_guard in refine pass.
 - Feature: Explore using logit bias during the writer pass to prevent the assistant from outputting the tool call token. Add a "test" button to identify the `tool_call` token. Save this token keyed by the model+endpoint combination, so it can be banned in subsequent writer passes for that same combination.
 
