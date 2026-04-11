@@ -620,7 +620,7 @@ export function renderInspector() {
   const tc  = ld.tool_calls || [];
   const inj = ld.injection_block || '';
   $('inspector-content').innerHTML = `
-    <div class="inspector-block"><h4>Active Styles</h4>
+    <div class="inspector-block"><h4>Active Moods</h4>
       <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
     </div>
     ${lat ? `<div class="inspector-block"><h4>Agent Latency</h4>

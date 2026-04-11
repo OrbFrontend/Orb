@@ -6,6 +6,7 @@ import logging
 import base64
 import tempfile
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
@@ -23,7 +24,7 @@ from .database import (
     list_character_cards, get_character_card, create_character_card,
     update_character_card, delete_character_card, get_character_avatar,
     add_message, set_active_leaf, get_message_by_id, switch_to_branch,
-    delete_message_with_descendants,
+    delete_message_with_descendants, get_db,
 )
 import asyncio
 from .orchestrator import handle_turn, handle_regenerate
@@ -232,6 +233,29 @@ async def api_create_conversation(data: ConversationCreate):
     if first_mes.strip():
         msg_id = await add_message(cid, "assistant", first_mes.strip(), 0)
         await set_active_leaf(cid, msg_id)
+        
+        # If we have a character card with alternate greetings, create swipe versions for them
+        if card_id:
+            card = await get_character_card(card_id)
+            if card and "alternate_greetings" in card:
+                alternate_greetings = card.get("alternate_greetings", [])
+                logger.info(f"Creating {len(alternate_greetings)} alternate greeting swipes for conversation {cid}")
+                for i, greeting in enumerate(alternate_greetings):
+                    if greeting and greeting.strip():
+                        # Create swipe with increasing swipe_index (starting from 1 since 0 is the first_mes)
+                        swipe_index = i + 1
+                        # Create inactive swipe (is_active=0)
+                        db = await get_db()
+                        try:
+                            now = datetime.now(timezone.utc).isoformat()
+                            await db.execute(
+                                "INSERT INTO messages (conversation_id, role, content, turn_index, swipe_index, is_active, parent_id, created_at) VALUES (?, ?, ?, ?, ?, 0, NULL, ?)",
+                                (cid, "assistant", greeting.strip(), 0, swipe_index, now),
+                            )
+                            await db.commit()
+                            logger.info(f"Created alternate greeting swipe {swipe_index}: {greeting[:50]}...")
+                        finally:
+                            await db.close()
 
     return conv
 

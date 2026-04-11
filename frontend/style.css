@@ -91,7 +91,7 @@ label{display:block;font-size:11px;font-weight:500;color:var(--text-secondary);m
 .message.user{margin-left:auto;}
 .message .msg-role{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:.8px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:8px;}
 .message.user .msg-role{justify-content:flex-end;color:var(--accent-dim);}
-.message .msg-body{font-family:var(--font-prose);font-size:16px;line-height:1.65;color:var(--text-primary);padding:12px 16px;border-radius:var(--radius);background:var(--bg-surface);border:1px solid var(--border);white-space:pre-wrap;word-wrap:break-word;}
+.message .msg-body{font-family:var(--font-prose);font-size:16px;line-height:1.65;color:var(--text-primary);padding:12px 16px;border-radius:var(--radius);background:var(--bg-surface);border:1px solid var(--border);word-wrap:break-word;}
 .message.user .msg-body{background:var(--accent-glow);border-color:var(--accent-dim);}
 .message .msg-body p{margin-bottom:.6em;}
 .message .msg-body p:last-child{margin-bottom:0;}

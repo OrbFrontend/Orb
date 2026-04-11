@@ -1010,23 +1010,29 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
         if conv_rows and conv_rows[0]["active_leaf_id"] in deleted_ids:
             new_leaf = parent_id
             # Prefer a surviving sibling branch over stopping at the bare parent
+            # Handle both cases: parent_id is None (root messages) and parent_id is not None
             if parent_id is not None:
-                sibling_rows = await db.execute_fetchall(
-                    "SELECT id FROM messages WHERE conversation_id = ? AND parent_id = ? AND id != ? ORDER BY id ASC LIMIT 1",
-                    (cid, parent_id, msg_id),
-                )
-                if sibling_rows:
-                    # Walk to the deepest descendant of that sibling
-                    candidate = sibling_rows[0]["id"]
-                    while True:
-                        child_rows = await db.execute_fetchall(
-                            "SELECT id FROM messages WHERE conversation_id = ? AND parent_id = ? ORDER BY id DESC LIMIT 1",
-                            (cid, candidate),
-                        )
-                        if not child_rows:
-                            break
-                        candidate = child_rows[0]["id"]
-                    new_leaf = candidate
+                sibling_query = "SELECT id FROM messages WHERE conversation_id = ? AND parent_id = ? AND id != ? ORDER BY id ASC LIMIT 1"
+                sibling_params = (cid, parent_id, msg_id)
+            else:
+                # For root messages, look for other root messages (parent_id IS NULL)
+                sibling_query = "SELECT id FROM messages WHERE conversation_id = ? AND parent_id IS NULL AND id != ? ORDER BY id ASC LIMIT 1"
+                sibling_params = (cid, msg_id)
+            
+            sibling_rows = await db.execute_fetchall(sibling_query, sibling_params)
+            if sibling_rows:
+                # Walk to the deepest descendant of that sibling
+                candidate = sibling_rows[0]["id"]
+                while True:
+                    child_rows = await db.execute_fetchall(
+                        "SELECT id FROM messages WHERE conversation_id = ? AND parent_id = ? ORDER BY id DESC LIMIT 1",
+                        (cid, candidate),
+                    )
+                    if not child_rows:
+                        break
+                    candidate = child_rows[0]["id"]
+                new_leaf = candidate
+            
             await db.execute(
                 "UPDATE conversations SET active_leaf_id = ? WHERE id = ?",
                 (new_leaf, cid),
