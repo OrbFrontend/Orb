@@ -116,13 +116,13 @@ DEFAULT_SETTINGS = {
     "top_p": 0.95,
     "repetition_penalty": 1.0,
     "max_tokens": 4096,
-    "system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nBased on their personalities, characters have their own convictions and ideas and may disagree.\nKeep tenses (past, present) and POV consistent. Avoid repetition.\nObey OOC commands.",
+    "system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nCharacters have their own conviction and ideas, they may disagree with each other.\nKeep tenses (past, present) and POV consistent.\nAvoid repetition of word choices and sentence structures.\nObey OOC commands.",
     "user_name": "User",
     "user_description": "",
     "enable_agent": True,
     "length_guard_enabled": False,
-    "length_guard_max_words": 400,
-    "length_guard_max_paragraphs": 5,
+    "length_guard_max_words": 240,
+    "length_guard_max_paragraphs": 4,
 }
 
 SEED_PHRASE_BANK = [
