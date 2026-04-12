@@ -62,7 +62,7 @@ export function showFragmentModal(fragId = null) {
     <div class="field"><label>Prompt Text</label>
       <textarea id="frag-text" rows="4">${esc(d.prompt_text)}</textarea></div>
     <div class="field">
-      <label>Negative Prompt <span style="font-size:10px;color:var(--text-muted)">(injected when deactivated)</span></label>
+      <label>Negative Prompt <span style="font-size:10px;color:var(--text-muted)">(injected if this fragment is removed next turn)</span></label>
       <textarea id="frag-neg" rows="3">${esc(d.negative_prompt || '')}</textarea>
     </div>
     <div class="modal-actions">
