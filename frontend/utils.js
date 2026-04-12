@@ -58,6 +58,8 @@ export function formatProse(text) {
   escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   // Handle *italic* -> <em>
   escaped = escaped.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+  // Handle quoted text "..." -> <span class="quoted">
+  escaped = escaped.replace(/"([^"]+)"/g, '<span class="quoted">"$1"</span>');
   // Replace newlines with <br>
   return escaped.replace(/\n/g, '<br>');
 }

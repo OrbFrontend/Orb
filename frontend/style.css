@@ -535,6 +535,7 @@ body {
 .message .msg-body p:last-child { margin-bottom: 0; }
 .message .msg-body em { font-style: italic; color: var(--text-secondary); }
 .message .msg-body strong { font-weight: 600; }
+.message .msg-body .quoted { color: var(--accent); }
 
 /* Message toolbar */
 .msg-toolbar {

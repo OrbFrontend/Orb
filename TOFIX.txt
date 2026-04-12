@@ -1,12 +1,11 @@
 - [Post-process] Display the refine pass in the Inspector UI. Rework this view to avoid displaying excessive information.
-- [Post-process] For repetition detection, scan the last 3 assistant messages instead of just the current one.
 - [Post-process] Detect structural repetition across multiple paragraphs, not just individual sentences.
-- [Post-process] Implement phrase repetition detection as well, not just anti-slop detection.
-
-- Bug: Editing an assistant message should only edit that singular message in the database and do NOTHING else. Don't create a new branch from there.
+- [Post-process] Implement phrase repetition detection as well, not just anti-slop detection. Tell the model to write about something else entirely for this sentence.
 
 - Improvement: Consider always sending lengths if length_guard is enabled? => No need to send refine_rewrite tool. Or considering always sending refine_rewrite tool?
+=> Have a checkbox for this in Length Guard
 
+- Feature: Support reasoning for all passes (director, writer, refiner).
 - Feature: User-defined fields for the director to consider (e.g. physicality).
 - Feature: Reasoning toggle for writer pass - for when endpoint supports alternating reasoning.
 - Feature: Implement min_words for length_guard in refine pass.
