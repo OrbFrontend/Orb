@@ -46,6 +46,8 @@ class LLMClient:
                      model,
                      json.dumps([t["function"]["name"] for t in tools]) if tools else "None",
                      tool_choice)
+        
+        logger.info(messages)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(self._url(), json=body, headers=self._headers())
@@ -214,8 +216,7 @@ class LLMClient:
             "max_tokens": 150,
             "logprobs": True,
             "top_logprobs": 1,
-            # Item 1: disable reasoning so thinking tokens don't consume the budget
-            # before the model reaches the tool-call control token.
+            # Item 1: disable reasoning so thinking tokens don't consume the budget before the model reaches the tool-call control token.
             "reasoning": {"enabled": False},
         }
 
@@ -264,8 +265,7 @@ class LLMClient:
                     if ts in KNOWN_TOOL_STARTS:
                         return ts, _entry_id(candidate)
 
-            # Pass 2: structural heuristic — control-token regex immediately followed
-            # by "call" or "{" in the next chosen token (item 4: tightened is_special)
+            # Pass 2: structural heuristic — control-token regex immediately followed by "call" or "{" in the next chosen token (item 4: tightened is_special)
             for i, entry in enumerate(entries[:-1]):
                 ts = entry.get("token", "")
                 next_ts = entries[i + 1].get("token", "")
@@ -311,8 +311,7 @@ class LLMClient:
                         return tid
 
         # ── Streaming probe fallback (item 2) ───────────────────────────────────
-        # Some backends emit raw control tokens as content deltas in streaming mode
-        # even when non-streaming collapses them into the tool_calls structure.
+        # Some backends emit raw control tokens as content deltas in streaming mode even when non-streaming collapses them into the tool_calls structure.
         logger.info("discover_tool_start_token: falling back to streaming probe model=%s", model)
         try:
             async with httpx.AsyncClient(timeout=60.0) as http:
@@ -350,8 +349,7 @@ class LLMClient:
                         except (json.JSONDecodeError, KeyError, IndexError):
                             continue
 
-                    # After streaming completes, run the same two-pass scan over
-                    # all accumulated logprob entries from the stream.
+                    # After streaming completes, run the same two-pass scan over all accumulated logprob entries from the stream.
                     hit = _scan_entries(stream_entries)
                     if hit:
                         ts, lp_id = hit

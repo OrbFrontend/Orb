@@ -10,7 +10,7 @@ AGENT_TOOLS = [{
     "type": "function",
     "function": {
         "name": "direct_scene",
-        "description": "Call this to direct the scene. Deduce what the user wants to see and show them. Combine and configure the moods, extract keywords, summarize the plot, specify the direction the scene should take, detect and report repetitive tropes, phrases, subjects, and narrative patterns to avoid. Be very specific with the directions.",
+        "description": "Call this to direct the scene. Deduce what the user wants to see and show them. Combine and configure the moods, extract keywords, summarize the plot, specify the direction the scene should take, detect and report repetitive tropes, phrases, subjects, plot points, narrative patterns to avoid. Be very specific and intentional with the directions.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -30,7 +30,7 @@ AGENT_TOOLS = [{
                 },
                 "plot_direction": {
                     "type": "string",
-                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'she continues to bear down in a squatting position', 'the attack tears off a piece of her clothing', 'Jack can tell she's lying and calls her out it because they have been friends forever', 'she pretends not to know what Vodka is to keep up the innocent act'). Keep to one short sentence.",
+                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'she continues to bear down in a squatting position', 'the attack tears off a chunk of her clothing and she frantically tries to cover herself', 'Jack can tell she's lying and calls her out it because they have been friends forever', 'she pretends not to know what Vodka is to keep up the innocent act but he sees right through it', 'he makes fun of the Batman's dead parents and it does not go well for him'). Keep to one short sentence.",
                 },
                 "writing_direction": {
                     "type": "string",
@@ -39,7 +39,7 @@ AGENT_TOOLS = [{
                 "detected_repetitions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration (e.g. 'repeated description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'mentions of jaw tightening', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it'). Maybe have up 8 items.",
+                    "description": "Specific tropes, phrases, subjects, plot points, narrative patterns that are recently overused in the narration (e.g. 'banal description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it', 'constant focus on the tree'). This list have up to 8 items.",
                 },
             },
             "required": ["moods", "keywords", "plot_summary", "plot_direction", "writing_direction"],
@@ -69,7 +69,7 @@ REFINE_REWRITE_TOOL = {
     "type": "function",
     "function": {
         "name": "refine_rewrite",
-        "description": "Replace the entire draft with a refined rewrite. Use when length guard is triggered or when audit issues require a complete rewrite. Preserve all key story beats, the author's voice, and any special formatting or code.",
+        "description": "Replace the entire draft with a refined rewrite. Use when length guard is triggered or when audit issues require a complete rewrite. Preserve all key story beats, the author's vocabulary, and any special formatting or code.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -135,14 +135,14 @@ REFINE_AUDIT_INSTRUCTIONS = (
     "- The `search` field must be copied EXACTLY from the draft text above — including all punctuation and quotes.\n"
     "- Each patch must target a DIFFERENT, non-overlapping piece of text.\n"
     "- Do NOT send a patch where `search` and `replace` are identical.\n"
-    "- Keep replacements close in length to the original. Preserve the author's voice.\n"
+    "- Keep replacements close in length to the original.\n"
     "- For banned phrases: rewrite the sentence to remove the banned phrase entirely. Note: The audit report may show the canonical phrase name (e.g., 'ozone'), but you need to remove the actual variant that appears in the sentence (e.g., 'electric').\n"
     "- For repetitive openers: change how the sentence begins.\n"
     "- For repetitive templates: restructure the sentence (reorder clauses, combine, vary syntax).\n\n"
     "REWRITING RULES (when using `refine_rewrite`):\n"
     "- Send ONE `refine_rewrite` call with the complete rewritten text.\n"
     "- Address all audit issues (if any) while also respecting length constraints.\n"
-    "- Preserve the author's word choices, and all key story beats.\n"
+    "- Preserve the author's vocabulary and creative word choices and all key story beats.\n"
     "- First priority is to get rid of repetitiveness.\n"
     "- Be more concise but maintain coherence and narrative flow.\n\n"
     "GENERAL NOTES:\n"

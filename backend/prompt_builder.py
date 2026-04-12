@@ -78,7 +78,7 @@ def build_tool_prompt(tool_name: str, user_message: str, active_moods: list[str]
         moods = ", ".join(active_moods) or "none"
         frags = "\n".join(f"- [{f['id']}] - use in case: {f['description']}" for f in fragments)
         parts.append(f"Currently active moods: {moods}\n\nAvailable writing moods:\n{frags}")
-        parts.append(f"User's latest message (for context only — do not respond to it):\n\"\"\"{user_message}\"\"\"")
+        parts.append(f"User's latest message (for context, take this into account when directing):\n\"\"\"{user_message}\"\"\"")
     elif tool_name == "rewrite_user_prompt":
         parts.append(f"User's latest message:\n\"\"\"[{user_message}]\"\"\"")
     return "\n\n".join(parts)

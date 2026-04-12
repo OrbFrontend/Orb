@@ -75,14 +75,18 @@ _WRITER_LEAK_MARKERS = {
 async def _writer_pass(client: LLMClient, msgs: list[dict], settings: dict, enabled_tools: dict | None = None, tool_start_token_id: int | None = None) -> AsyncIterator[str]:
     params = {k: v for k in ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] if (v := settings.get(k)) is not None}
     schemas = enabled_schemas(enabled_tools)
+    # Only include tool schemas when we have a confirmed suppression token.
+    # Without logit_bias, small models ignore tool_choice:"none" and emit tool-call tokens anyway, causing hallucinated output.
+    if schemas and tool_start_token_id is None:
+        logger.info("Writer pass: skipping tools (no suppression token discovered) to prevent hallucination")
+        schemas = []
     logger.info("Writer pass: tools included=%s", json.dumps([s["function"]["name"] for s in schemas]) if schemas else "[]")
     extra = {"tools": schemas, "tool_choice": "none"} if schemas else {}
     if tool_start_token_id is not None:
         extra["logit_bias"] = {tool_start_token_id: -100}
         logger.info("Writer pass: logit_bias {%d: -100} applied", tool_start_token_id)
 
-    # Rolling tail buffer: most control tokens arrive as a single delta, but we
-    # keep the last 50 chars to catch any that straddle a token boundary.
+    # Rolling tail buffer: most control tokens arrive as a single delta, but we keep the last 50 chars to catch any that straddle a token boundary.
     tail = ""
     async for token in client.stream(messages=msgs, model=settings["model_name"], **extra, **params):
         tail = (tail + token)[-50:]
@@ -246,6 +250,7 @@ async def _run_pipeline(
     if inj_block:
         writer_tail += inj_block + "\n\n"
     writer_tail += "<banned>Tool/Function calling</banned>\n\n" + effective_msg + "\n\n"
+    # writer_tail += "[OOC: Tool/Function calling is STRICTLY FORBIDDEN now!]\n\n" + effective_msg + "\n\n"
     # writer_tail += effective_msg + "\n\n"
 
     writer_msgs = prefix + [{"role": "user", "content": writer_tail}]
