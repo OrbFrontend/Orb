@@ -267,6 +267,11 @@ async def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 variants TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS model_token_cache (
+                model_key TEXT PRIMARY KEY,
+                tool_start_token_id INTEGER  -- NULL = probed but no usable token found
+            );
         """)
 
         # Migrations for existing DBs
@@ -348,6 +353,45 @@ async def update_settings(data: dict) -> dict:
             await db.execute(f"UPDATE settings SET {', '.join(sets)} WHERE id = 1", vals)
             await db.commit()
         return await get_settings()
+    finally:
+        await db.close()
+
+
+# --- Model token cache ---
+
+async def get_tool_start_token(model_key: str) -> tuple[bool, int | None]:
+    """Return (was_cached, token_id).
+
+    was_cached=True means the model has been probed before (token_id may be
+    None if the probe found no usable control token).
+    was_cached=False means this model has never been probed.
+    """
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT tool_start_token_id FROM model_token_cache WHERE model_key = ?", (model_key,)
+        )
+        if not rows:
+            return False, None
+        raw = rows[0]["tool_start_token_id"]
+        return True, int(raw) if raw is not None else None
+    finally:
+        await db.close()
+
+
+async def set_tool_start_token(model_key: str, token_id: int | None) -> None:
+    """Cache the tool-start token ID for a model key.
+
+    Pass token_id=None to record that the model was probed but has no
+    usable control token (suppresses future re-probing).
+    """
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT OR REPLACE INTO model_token_cache (model_key, tool_start_token_id) VALUES (?, ?)",
+            (model_key, token_id),
+        )
+        await db.commit()
     finally:
         await db.close()
 

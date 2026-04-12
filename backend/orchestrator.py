@@ -57,11 +57,14 @@ async def _load_char_context(conv: dict, settings: dict) -> tuple[str, str, str]
 
 # ── Writer pass
 
-async def _writer_pass(client: LLMClient, msgs: list[dict], settings: dict, enabled_tools: dict | None = None) -> AsyncIterator[dict]:
+async def _writer_pass(client: LLMClient, msgs: list[dict], settings: dict, enabled_tools: dict | None = None, tool_start_token_id: int | None = None) -> AsyncIterator[dict]:
     params = {k: v for k in ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] if (v := settings.get(k)) is not None}
     schemas = enabled_schemas(enabled_tools)
     logger.info("Writer pass: tools included=%s", json.dumps([s["function"]["name"] for s in schemas]) if schemas else "[]")
     extra = {"tools": schemas, "tool_choice": "none"} if schemas else {}
+    if tool_start_token_id is not None:
+        extra["logit_bias"] = {tool_start_token_id: -100}
+        logger.info("Writer pass: logit_bias {%d: -100} applied", tool_start_token_id)
     async for token in client.stream(messages=msgs, model=settings["model_name"], **extra, **params):
         yield token
 
@@ -199,16 +202,29 @@ async def _run_pipeline(
         "detected_repetitions": detected_repetitions, "plot_summary": plot_summary, "keywords": keywords,
     }}
 
+    # --- Resolve tool-start token for writer logit bias ---
+    # Only needed when tool schemas are sent during the writer pass (for KV cache).
+    tool_start_token_id: int | None = None
+    if enabled_schemas(enabled_tools):
+        model_key = f"{settings['endpoint_url']}||{settings['model_name']}"
+        cached, cached_id = await db.get_tool_start_token(model_key)
+        if cached:
+            tool_start_token_id = cached_id
+        else:
+            tool_start_token_id = await client.discover_tool_start_token(settings["model_name"])
+            await db.set_tool_start_token(model_key, tool_start_token_id)
+
     # --- Writer pass ---
     writer_tail = ""
     if inj_block:
         writer_tail += inj_block + "\n\n"
-    writer_tail += "[OOC: Only write the continuation of the story, tool/function calling is STRICTLY FORBIDDEN now!]\n\n" + effective_msg + "\n\n"
+    # writer_tail += "[OOC: Tool/Function calling is STRICTLY FORBIDDEN now!]\n\n" + effective_msg + "\n\n"
+    writer_tail += effective_msg + "\n\n"
 
     writer_msgs = prefix + [{"role": "user", "content": writer_tail}]
 
     resp_text = ""
-    async for token in _writer_pass(client, writer_msgs, settings, enabled_tools):
+    async for token in _writer_pass(client, writer_msgs, settings, enabled_tools, tool_start_token_id):
         resp_text += token
         yield {"event": "token", "data": token}
 

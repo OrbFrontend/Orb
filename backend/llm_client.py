@@ -82,6 +82,7 @@ class LLMClient:
         model: str,
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
+        logit_bias: dict | None = None,
         **params,
     ) -> AsyncIterator[str]:
         """Streaming completion. Yields content deltas."""
@@ -96,6 +97,8 @@ class LLMClient:
             body["tools"] = tools
         if tool_choice:
             body["tool_choice"] = tool_choice
+        if logit_bias:
+            body["logit_bias"] = logit_bias
 
         logger.info("LLM stream: model=%s, tools=%s, tool_choice=%s",
                      model,
@@ -121,6 +124,175 @@ class LLMClient:
                             yield content
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
+
+
+    async def _tokenize_string(self, model: str, text: str) -> int | None:
+        """Call the /tokenize endpoint to resolve a token string to its integer ID.
+
+        Tries both /{api_prefix}/tokenize and the server-root /tokenize (used by
+        llama.cpp and similar servers). Sends both 'content' and 'prompt' keys to
+        handle differing server conventions.
+
+        Returns the single token ID if the text maps to exactly one token, or
+        None if the endpoint is unavailable or the text spans multiple tokens.
+        """
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.base_url)
+        server_root = f"{parsed.scheme}://{parsed.netloc}"
+
+        candidates = []
+        if server_root != self.base_url.rstrip("/"):
+            candidates.append(f"{server_root}/tokenize")
+        candidates.append(f"{self.base_url}/tokenize")
+
+        for url in candidates:
+            body = {"model": model, "content": text, "prompt": text, "add_special_tokens": False}
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.post(url, json=body, headers=self._headers())
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                    tokens = data.get("tokens") or data.get("token_ids") or []
+                    if len(tokens) == 1:
+                        logger.debug("_tokenize_string: '%s' -> %d via %s", text, tokens[0], url)
+                        return int(tokens[0])
+                    if len(tokens) > 1:
+                        logger.debug("_tokenize_string: '%s' spans %d tokens at %s", text, len(tokens), url)
+                        return None
+            except Exception as e:
+                logger.debug("_tokenize_string: %s failed: %s", url, e)
+        return None
+
+    async def discover_tool_start_token(self, model: str) -> int | None:
+        """Probe the API to discover the integer token ID that starts a tool call.
+
+        Strategy:
+        1. Force a tool call with a dummy tool, generating enough tokens to get
+           past any thinking preamble and into the actual tool call.
+        2. Scan all generated logprob tokens for a known tool-call start pattern
+           OR for a special token immediately followed by "call" / "{".
+        3. Resolve to an integer ID from the logprobs "id" field or via /tokenize.
+
+        Returns the token ID, or None if discovery fails or the model doesn't use
+        a dedicated control token (e.g. it emits raw JSON without a special marker).
+        """
+        # Known tool-call start token strings across common model families.
+        # Checked by exact match against the logprobs token strings.
+        KNOWN_TOOL_STARTS = {
+            "<|tool_call>",       # Gemma 4 (stc_token)
+            "<|python_tag|>",     # Llama / Code-Llama family
+            "[TOOL_CALL]",        # Mistral
+            "<tool_call>",        # Various open models
+            "<function_calls>",   # Some fine-tunes
+            "<|tool_calls|>",
+            "<|function_calls|>",
+        }
+
+        dummy_tool = {
+            "type": "function",
+            "function": {
+                "name": "dummy",
+                "description": "Dummy tool for probing.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        # Use enough tokens to get through a thinking preamble before the tool call.
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": "Call the dummy tool now."}],
+            "tools": [dummy_tool],
+            "tool_choice": "required",
+            "max_tokens": 150,
+            "stream": False,
+            "logprobs": True,
+            "top_logprobs": 1,
+        }
+
+        logger.info("discover_tool_start_token: probing model=%s", model)
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(self._url(), json=body, headers=self._headers())
+                if resp.status_code != 200:
+                    logger.warning("discover_tool_start_token: probe returned HTTP %d", resp.status_code)
+                    return None
+                data = resp.json()
+        except Exception as e:
+            logger.warning("discover_tool_start_token: probe request failed: %s", e)
+            return None
+
+        entries: list[dict] = []
+        try:
+            lp = data["choices"][0].get("logprobs") or {}
+            entries = lp.get("content") or []
+        except (KeyError, IndexError, TypeError):
+            pass
+
+        if not entries:
+            logger.info("discover_tool_start_token: no logprobs content in response")
+            return None
+
+        def _entry_id(entry: dict) -> int | None:
+            # llama.cpp uses "id"; others use "token_id" or "token_ids"
+            raw = entry.get("id") or entry.get("token_id") or (entry.get("token_ids") or [None])[0]
+            return int(raw) if raw is not None else None
+
+        # Pass 1: exact match against known tool-call start tokens
+        for entry in entries:
+            if entry.get("token") in KNOWN_TOOL_STARTS:
+                tid = _entry_id(entry)
+                if tid is not None:
+                    logger.info(
+                        "discover_tool_start_token: matched known pattern '%s' -> %d",
+                        entry["token"], tid,
+                    )
+                    return tid
+                # ID missing from logprobs; try /tokenize
+                tid = await self._tokenize_string(model, entry["token"])
+                if tid is not None:
+                    logger.info(
+                        "discover_tool_start_token: matched known pattern '%s' -> %d (via /tokenize)",
+                        entry["token"], tid,
+                    )
+                    return tid
+
+        # Pass 2: structural heuristic — special token immediately followed by
+        # "call" or "{" (covers formats we don't have in the known list yet)
+        import string as _string
+        for i, entry in enumerate(entries[:-1]):
+            token_str = entry.get("token", "")
+            next_str = entries[i + 1].get("token", "")
+            is_special = token_str and not (len(token_str) == 1 and (token_str.isalnum() or token_str in _string.punctuation))
+            follows_call = next_str.lstrip().startswith(("call", "{"))
+            if is_special and follows_call:
+                tid = _entry_id(entry)
+                if tid is None:
+                    tid = await self._tokenize_string(model, token_str)
+                if tid is not None:
+                    logger.info(
+                        "discover_tool_start_token: heuristic match '%s' -> %d",
+                        token_str, tid,
+                    )
+                    return tid
+
+        # Pass 3: fallback — the very first non-generic special token, for
+        # models that don't think before calling tools
+        for entry in entries:
+            token_str = entry.get("token", "")
+            if not token_str:
+                continue
+            if len(token_str) == 1 and (token_str.isalnum() or token_str in _string.punctuation):
+                continue
+            tid = _entry_id(entry) or await self._tokenize_string(model, token_str)
+            if tid is not None:
+                logger.info(
+                    "discover_tool_start_token: fallback first special token '%s' -> %d",
+                    token_str, tid,
+                )
+                return tid
+
+        logger.info("discover_tool_start_token: no usable tool-call token found in %d logprob entries", len(entries))
+        return None
 
 
 def _sanitize_args(obj):
