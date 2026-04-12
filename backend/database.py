@@ -29,7 +29,8 @@ SEED_FRAGMENTS = [
         "prompt_text": (
             "Foreground the character's inner thoughts. Show the gap between what they think "
             "and what they say. Stream of consciousness is acceptable. The reader should feel "
-            "like they're inside the character's head."
+            "like they're inside the character's head. "
+            "The narrator should share the character's world view, inject the character's opinion in the prose."
         ),
         "negative_prompt": (
             "Stop foregrounding inner thoughts. Return to external action and dialogue. "

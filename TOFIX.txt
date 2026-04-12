@@ -3,8 +3,9 @@
 - [Post-process] Detect structural repetition across multiple paragraphs, not just individual sentences.
 - [Post-process] Implement phrase repetition detection as well, not just anti-slop detection.
 
-- Bug: After refine pass is done, the UI refreshes briefly, the scroll bar scrolls up a little before settling down at the latest message again. This is a choppy user experience.
+- Bug: Scroll up and click Regen on a random assistant message -> the targeted message is deleted, making the UI looks ugly with double user turns and the rest of the old branch still inact -> Fix: When clicking Regen on a message, clear all messages from then on from the UI.
 
+- Feature: Physicality field support in agent direct_scene tool.
 - Feature: Reasoning toggle for writer pass - for when endpoint supports alternating reasoning.
 - Feature: Implement min_words for length_guard in refine pass.
 - Feature: Explore using logit bias during the writer pass to prevent the assistant from outputting the tool call token. Add a "test" button to identify the `tool_call` token. Save this token keyed by the model+endpoint combination, so it can be banned in subsequent writer passes for that same combination.
