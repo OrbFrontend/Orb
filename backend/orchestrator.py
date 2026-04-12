@@ -833,8 +833,8 @@ async def _run_pipeline(
     effective_msg = user_message
     audit_enabled = agent_on and bool(enabled_tools.get("refine_apply_patch", False)) and phrase_bank is not None
 
-    # Length guard settings
-    length_guard_enabled = bool(settings.get("length_guard_enabled", False))
+    # Length guard settings - now stored in enabled_tools
+    length_guard_enabled = bool(enabled_tools.get("length_guard", False)) if agent_on else False
     length_guard = {
         "enabled": length_guard_enabled,
         "max_words": int(settings.get("length_guard_max_words", 240)),

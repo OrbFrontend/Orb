@@ -120,7 +120,6 @@ DEFAULT_SETTINGS = {
     "user_name": "User",
     "user_description": "",
     "enable_agent": True,
-    "length_guard_enabled": False,
     "length_guard_max_words": 240,
     "length_guard_max_paragraphs": 4,
 }
@@ -184,7 +183,6 @@ async def init_db():
                 user_description TEXT NOT NULL DEFAULT '',
                 enabled_tools TEXT NOT NULL DEFAULT '{}',
                 enable_agent INTEGER NOT NULL DEFAULT 1,
-                length_guard_enabled INTEGER NOT NULL DEFAULT 0,
                 length_guard_max_words INTEGER NOT NULL DEFAULT 240,
                 length_guard_max_paragraphs INTEGER NOT NULL DEFAULT 4
             );
@@ -274,8 +272,6 @@ async def init_db():
         existing_cols = {row[1] for row in await db.execute_fetchall("PRAGMA table_info(settings)")}
         if "enable_agent" not in existing_cols:
             await db.execute("ALTER TABLE settings ADD COLUMN enable_agent INTEGER NOT NULL DEFAULT 1")
-        if "length_guard_enabled" not in existing_cols:
-            await db.execute("ALTER TABLE settings ADD COLUMN length_guard_enabled INTEGER NOT NULL DEFAULT 0")
         if "length_guard_max_words" not in existing_cols:
             await db.execute("ALTER TABLE settings ADD COLUMN length_guard_max_words INTEGER NOT NULL DEFAULT 400")
         if "length_guard_max_paragraphs" not in existing_cols:
@@ -339,9 +335,10 @@ async def get_settings() -> dict:
 async def update_settings(data: dict) -> dict:
     db = await get_db()
     try:
-        allowed = ["endpoint_url", "api_key", "model_name", "temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens", "system_prompt", "user_name", "user_description", "enabled_tools", "enable_agent", "length_guard_enabled", "length_guard_max_words", "length_guard_max_paragraphs"]
+        allowed = ["endpoint_url", "api_key", "model_name", "temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens", "system_prompt", "user_name", "user_description", "enabled_tools", "enable_agent", "length_guard_max_words", "length_guard_max_paragraphs"]
         sets = []
         vals = []
+        
         for k in allowed:
             if k in data:
                 sets.append(f"{k} = ?")

@@ -36,7 +36,13 @@ export async function loadSettings() {
   S.settings = await api.get('/settings');
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === 'number') S.agentEnabled = S.settings.enable_agent !== 0;
-  if (typeof S.settings.length_guard_enabled === 'number') S.lengthGuardEnabled = S.settings.length_guard_enabled !== 0;
+  
+  if (S.settings.enabled_tools && 'length_guard' in S.settings.enabled_tools) {
+    S.lengthGuardEnabled = Boolean(S.settings.enabled_tools.length_guard);
+  } else {
+    S.lengthGuardEnabled = false;
+  }
+  
   if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
   renderSettings();
@@ -134,9 +140,10 @@ export async function toggleToolEnabled(id, on) {
 
 export async function toggleLengthGuard(on) {
   S.lengthGuardEnabled = on;
+  S.enabledTools.length_guard = on;
   renderToolsPanel();
   try {
-    S.settings = await api.put('/settings', { length_guard_enabled: on });
+    S.settings = await api.put('/settings', { enabled_tools: S.enabledTools });
   } catch (e) { toast('Failed to save length guard state', true); }
 }
 
