@@ -51,13 +51,13 @@ REWRITE_PROMPT_TOOL = {
     "type": "function",
     "function": {
         "name": "rewrite_user_prompt",
-        "description": "Rewrite the user's message into a more detailed, immersive, action or dialogue. Use ONLY when the input is too short or vague (e.g. \"I laugh\", \"Sure.\", \"I nod\") to generate a compelling response. Write 2 sentences max, be direct and succinct. If the message is already detailed enough, keep refined_message empty.",
+        "description": "Rewrite the user's message into a more detailed action or dialogue. Use ONLY when the input is too short or vague (e.g. \"I laugh\", \"Sure.\", \"I nod\") to generate a compelling response. Write 2 sentences max, be direct and succinct. If the message is already detailed enough, leave empty.",
         "parameters": {
             "type": "object",
             "properties": {
                 "refined_message": {
                     "type": "string",
-                    "description": "An improved, more detailed version of the user's message, written in first person from the user's perspective. Leave empty or omit if no changes are needed.",
+                    "description": "An improved, more detailed version of the user's message, keep the same perspective. Leave empty or omit if already rich enough.",
                 },
             },
             "required": [],
@@ -166,7 +166,7 @@ MAX_REFINE_ITERATIONS = 3
 
 TOOLS: dict[str, dict] = {
     "direct_scene": {"choice": {"type": "function", "function": {"name": "direct_scene"}}, "schema": AGENT_TOOLS[0], "reasoning_enabled": True},
-    "rewrite_user_prompt": {"choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}}, "schema": REWRITE_PROMPT_TOOL, "reasoning_enabled": True},
+    "rewrite_user_prompt": {"choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}}, "schema": REWRITE_PROMPT_TOOL, "reasoning_enabled": False},
     "refine_apply_patch": {"choice": {"type": "function", "function": {"name": "refine_apply_patch"}}, "schema": REFINE_APPLY_PATCH_TOOL, "reasoning_enabled": False},
     "refine_rewrite": {"choice": {"type": "function", "function": {"name": "refine_rewrite"}}, "schema": REFINE_REWRITE_TOOL, "reasoning_enabled": False},
 }

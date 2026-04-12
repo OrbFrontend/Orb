@@ -5,7 +5,7 @@
 - Improvement: Consider always sending lengths if length_guard is enabled? => No need to send refine_rewrite tool. Or considering always sending refine_rewrite tool?
 => Have a checkbox for this in Length Guard
 
-- Feature: Support reasoning for all passes (director, writer, refiner).
+- Feature: Support showing reasoning in the UI for all passes (director, writer, refiner). It should be its own collapsable arrow section in the Inspector panel. It is a box, and the height is fixed new reasoning tokens will be streamed to it and the box will automatically scroll down as new tokens arrive.
 - Feature: User-defined fields for the director to consider (e.g. physicality).
 - Feature: Reasoning toggle for writer pass - for when endpoint supports alternating reasoning.
 - Feature: Implement min_words for length_guard in refine pass.
