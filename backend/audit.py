@@ -8,7 +8,7 @@ from .opening_monotony import detect_opening_monotony, MonotonyResult
 from .template_repetition import detect_template_repetition, TemplateResult
 
 
-# ── Data container ───────────────────────────────────────────────────────
+# Data container
 
 class AuditReport:
     __slots__ = ("cliche_result", "monotony_result", "template_result")
@@ -49,7 +49,7 @@ class AuditReport:
         )
 
 
-# ── Run all scanners ─────────────────────────────────────────────────────
+# Run all scanners
 
 def run_audit(
     text: str,
@@ -67,7 +67,7 @@ def run_audit(
     )
 
 
-# ── Format into text report ──────────────────────────────────────────────
+# Format into text report
 
 def format_report(report: AuditReport) -> str:
     if report.is_clean:

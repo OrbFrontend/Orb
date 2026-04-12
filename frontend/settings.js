@@ -3,7 +3,7 @@ import { $, esc, toast } from './utils.js';
 import { api } from './api.js';
 import { showModal, closeModal } from './modal.js';
 
-// ── Theme ────────────────────────────────────
+// ── Theme
 const THEMES = ['dark','halloween','dark_forest','ocean_depths','ghostly','pastel_neon','vintage_wood','newspaper'];
 
 export function applyTheme(name) {
@@ -18,7 +18,7 @@ export function initTheme() {
   applyTheme(localStorage.getItem('ar-theme') || 'dark');
 }
 
-// ── Settings ─────────────────────────────────
+// ── Settings
 const SETTING_FIELDS = [
   { k: 'endpoint_url',       l: 'Endpoint URL',    t: 'text'     },
   { k: 'api_key',            l: 'API Key',          t: 'password' },
@@ -74,7 +74,7 @@ export async function saveSetting(el) {
   } catch (e) { toast('Failed: ' + e.message, true); }
 }
 
-// ── User Profile ─────────────────────────────
+// ── User Profile
 export function updateUserBtn() {
   $('user-profile-btn').textContent = '👤 ' + (S.settings.user_name || 'User');
 }
@@ -107,7 +107,7 @@ export async function saveUserProfile() {
   } catch (e) { toast('Failed: ' + e.message, true); }
 }
 
-// ── Agent Tools Panel ────────────────────────
+// ── Agent Tools Panel
 const TOOL_DEFS = [
   { id: 'direct_scene',          name: 'Director',   desc: 'Gives written direction and selects active mood fragments based on scene context' },
   { id: 'rewrite_user_prompt',   name: 'Prompt Rewriter',  desc: 'Expands vague or lazy messages into richer input' },
@@ -204,7 +204,7 @@ export function renderToolsPanel() {
   $('tools-list').innerHTML = toolCards + lengthGuardCard;
 }
 
-// ── Phrase Bank ─────────────────────────────
+// ── Phrase Bank
 
 export async function showPhraseBankModal() {
   const groups = await api.get('/phrase-bank');

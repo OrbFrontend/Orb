@@ -42,6 +42,8 @@ class LLMClient:
         if tool_choice:
             body["tool_choice"] = tool_choice
 
+        logger.info(messages)
+
         logger.info("LLM complete: model=%s, tools=%s, tool_choice=%s",
                      model,
                      json.dumps([t["function"]["name"] for t in tools]) if tools else "None",

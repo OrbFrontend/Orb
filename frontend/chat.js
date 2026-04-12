@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { showModal, closeModal } from './modal.js';
 import { renderCharacters, loadCharacters } from './library.js';
 
-// ── Generation Phase ─────────────────────────
+// ── Generation Phase
 const PHASE_ORDER  = { pending: 0, directing: 0, generating: 1, refining: 2 };
 const PHASE_LABELS = {
   pending:    'Waiting for response…',
@@ -91,7 +91,7 @@ function scheduleRefineTimer() {
 
 function clearRefineTimer() { clearTimeout(_refineTimer); _refineTimer = null; }
 
-// ── Conversations ────────────────────────────
+// ── Conversations
 export async function loadConversations() {
   S.conversations = await api.get('/conversations');
 }
@@ -221,7 +221,7 @@ export async function showConvHistoryModal() {
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`);
 }
 
-// ── Messages ─────────────────────────────────
+// ── Messages
 function getCharName() {
   const c = S.conversations.find(c => c.id === S.activeConvId);
   return c?.character_name || 'Assistant';
@@ -336,7 +336,7 @@ export async function switchBranch(msgId) {
   } catch (e) { toast(e.message, true); }
 }
 
-// ── Edit Message ─────────────────────────────
+// ── Edit Message
 export async function saveEdit(msgId, role) {
   const ta = $('edit-textarea-' + msgId);
   if (!ta) return;
@@ -412,7 +412,7 @@ export async function saveEdit(msgId, role) {
   await afterStream();
 }
 
-// ── Streaming Helpers ────────────────────────
+// ── Streaming Helpers
 function setStreaming(active) {
   S.isStreaming = active;
   $('send-btn').style.display = active ? 'none' : 'flex';
@@ -586,7 +586,7 @@ function agentPayload() {
   return { enable_agent: S.agentEnabled };
 }
 
-// ── Send Message ─────────────────────────────
+// ── Send Message
 export async function sendMessage() {
   const inp     = $('chat-input');
   let content = inp.value.trim();
@@ -627,7 +627,7 @@ export async function sendMessage() {
   await afterStream();
 }
 
-// ── Regenerate ───────────────────────────────
+// ── Regenerate
 export async function regenerate(msgId) {
   if (S.isStreaming || !S.activeConvId) return;
   setStreaming(true);
@@ -661,7 +661,7 @@ export async function regenerate(msgId) {
   await afterStream();
 }
 
-// ── Inspector ────────────────────────────────
+// ── Inspector
 export function toggleInspector() { $('inspector').classList.toggle('open'); }
 
 export function renderInspector() {

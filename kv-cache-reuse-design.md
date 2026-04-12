@@ -80,15 +80,15 @@ There's an important distinction between:
    - **Purpose**: Generate the actual roleplay response
 
 3. **Refine Pass**:
-   - **API tools**: All enabled tools PLUS conditional `minimize` tool
+   - **API tools**: All enabled tools PLUS conditional `refine_rewrite` tool
    - **Base tools**: `["direct_scene", "rewrite_user_prompt", "refine_apply_patch"]`
-   - **Conditional addition**: `"minimize"` (only when length guard triggered)
+   - **Conditional addition**: `"refine_rewrite"` (only when length guard triggered)
    - **Tool choice**: `auto` or specific refine tool based on context
    - **Purpose**: Self-audit and length optimization
 
 ### Conditional Tool Addition
 
-The `minimize` tool is special:
+The `refine_rewrite` tool is special:
 - Not included in the base enabled tools set
 - Added dynamically only when length guard is triggered (output exceeds word limit)
 - This is a design choice because length guard rarely triggers
@@ -114,7 +114,7 @@ INFO:backend.llm_client:LLM stream: model=default,
 
 # Refine pass (with length guard triggered)
 INFO:backend.llm_client:LLM complete: model=default,
-  tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch", "minimize"],
+  tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch", "refine_rewrite"],
   tool_choice=auto
 ```
 
@@ -128,7 +128,7 @@ INFO:backend.llm_client:LLM complete: model=default,
 ## Edge Cases and Considerations
 
 ### Dynamic Tool Addition
-- The `minimize` tool is added conditionally in refine pass
+- The `refine_rewrite` tool is added conditionally in refine pass
 - This is acceptable because:
   a) Length guard rarely triggers
   b) When it does, the cache miss penalty is acceptable
@@ -137,10 +137,3 @@ INFO:backend.llm_client:LLM complete: model=default,
 ### Disabled Tools
 - When tools are disabled via settings, they're excluded from all passes
 - Empty tool list (`[]`) is valid and consistent across passes
-
-## Implementation Code Reference
-
-Key functions in `backend/orchestrator.py`:
-- `_enabled_schemas()` - Returns consistent tool schemas
-- `_refine_pass()` - Includes `enabled_tools` parameter
-- `_run_pipeline()` - Ensures same tools passed to all passes

@@ -13,27 +13,27 @@ Pipeline: `_agent_pass` → `_writer_pass` → `_refine_pass` (new ReAct loop).
 The refine pass reuses the existing conversation prefix (system prompt + history) to maximise KV cache hits, then appends turns that frame the draft as the assistant's own output and inject the audit as a refinement task. Below is the full turn sequence in practice:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
+┌┐
 │ TURN 1 — system                                                 │
 │ Role: system                                                    │
 │ Content: <existing system prompt / persona / instructions>      │
 │ (Identical to what _agent_pass and _writer_pass already saw.    │
 │  Kept in place so the KV cache prefix is reusable.)             │
-├─────────────────────────────────────────────────────────────────┤
+├┤
 │ TURN 2‥N — history  (multi-turn, as-is from conversation)       │
 │ Alternating user / assistant pairs from prior exchanges.        │
 │ These are passed through unchanged from the existing context.   │
-├─────────────────────────────────────────────────────────────────┤
+├┤
 │ TURN N+1 — user                                                 │
 │ Role: user                                                      │
 │ Content: <the effective user message for this generation>       │
 │ (The latest prompt that triggered _writer_pass.)                │
-├─────────────────────────────────────────────────────────────────┤
+├┤
 │ TURN N+2 — assistant  (pre-filled)                              │
 │ Role: assistant                                                 │
 │ Content: <full buffered draft from _writer_pass>                │
 │ (Injected verbatim so the model treats it as its own output.)   │
-├─────────────────────────────────────────────────────────────────┤
+├┤
 │ TURN N+3 — system  (refinement injection)                       │
 │ Role: system                                                    │
 │ Content:                                                        │
@@ -41,26 +41,26 @@ The refine pass reuses the existing conversation prefix (system prompt + history
 │   + "\n"                                                        │
 │   + Audit Report (from programmatic scanners)                   │
 │   + tool definitions (refine_apply_patch)                       │
-├─────────────────────────────────────────────────────────────────┤
-│ ── ReAct loop starts here ──────────────────────────────────────│
-├─────────────────────────────────────────────────────────────────┤
+├┤
+│ ── ReAct loop starts here│
+├┤
 │ TURN N+4 — assistant  (model generation, iteration 1)           │
 │ Role: assistant                                                 │
 │ Content: <chain-of-thought reasoning>                           │
 │ Tool call: refine_apply_patch({ patches: [...] })               │
-├─────────────────────────────────────────────────────────────────┤
+├┤
 │ TURN N+5 — tool response  (iteration 1)                         │
 │ Role: tool                                                      │
 │ Content: <updated Audit Report after patches applied>           │
 │ (If report is clean → loop breaks, this turn is not appended.)  │
-├─────────────────────────────────────────────────────────────────┤
+├┤
 │ TURN N+6 — assistant  (model generation, iteration 2)           │
 │ Role: assistant                                                 │
 │ Tool call: refine_apply_patch({ patches: [...] })               │
-├─────────────────────────────────────────────────────────────────┤
+├┤
 │ TURN N+7 — tool response  (iteration 2)                         │
 │ ...repeats until audit is clean or max iterations reached...    │
-└─────────────────────────────────────────────────────────────────┘
+└┘
 ```
 
 **Key points:**
@@ -199,7 +199,7 @@ _N = 3
 _DEFAULT_THRESHOLD = 0.25
 
 
-# ── Public data structures ───────────────────────────────────────────────
+# Public data structures─
 
 @dataclass
 class ClicheHit:
@@ -220,7 +220,7 @@ class DetectionResult:
     flagged_count: int
 
 
-# ── Internals ────────────────────────────────────────────────────────────
+# Internals
 
 def _tokenize(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+(?:'[a-z]+)?", text.lower())
@@ -279,7 +279,7 @@ def _match_sentence(
     return hits
 
 
-# ── Public API ───────────────────────────────────────────────────────────
+# Public API
 
 def detect_cliches(
     text: str,
@@ -453,7 +453,7 @@ import re
 from dataclasses import dataclass, field
 from collections import Counter
 
-# ── Lightweight rule-based POS tagger ────────────────────────────────────
+# Lightweight rule-based POS tagger
 
 _DETERMINERS = frozenset(
     "a an the this that these those my your his her its our their some any no "
@@ -515,7 +515,7 @@ def _get_template(sentence: str, max_tags: int = 8) -> str:
     return " ".join(tags)
 
 
-# ── Public data structures ───────────────────────────────────────────────
+# Public data structures─
 
 @dataclass
 class FlaggedTemplate:
@@ -534,14 +534,14 @@ class TemplateResult:
     repetition_score: float
 
 
-# ── Internals ────────────────────────────────────────────────────────────
+# Internals
 
 def _split_sentences(text: str) -> list[str]:
     raw = re.split(r'(?<=[.!?"""])\s+', text.strip())
     return [s.strip() for s in raw if s.strip()]
 
 
-# ── Public API ───────────────────────────────────────────────────────────
+# Public API
 
 def detect_template_repetition(
     text: str,

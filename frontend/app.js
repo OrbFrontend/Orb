@@ -14,13 +14,13 @@ import { loadConversations, resetChatUI, selectChar, newConvForChar,
          toggleInspector } from './chat.js';
 import { closeModal, switchTab } from './modal.js';
 
-// ── Sidebar toggle ───────────────────────────
+// ── Sidebar toggle
 function toggleSection(header) {
   header.querySelector('.arrow').classList.toggle('collapsed');
   header.nextElementSibling.classList.toggle('collapsed');
 }
 
-// ── Burger menu ──────────────────────────────
+// ── Burger menu
 function toggleBurger() { $('burger-dropdown').classList.toggle('open'); }
 function closeBurger()  { $('burger-dropdown').classList.remove('open'); }
 
@@ -28,7 +28,7 @@ document.addEventListener('click', e => {
   if (!e.target.closest('#burger-btn') && !e.target.closest('#burger-dropdown')) closeBurger();
 });
 
-// ── Input events ─────────────────────────────
+// ── Input events
 $('chat-input').addEventListener('input', function () {
   this.style.height = 'auto';
   this.style.height = Math.min(this.scrollHeight, 150) + 'px';
@@ -37,7 +37,7 @@ $('chat-input').addEventListener('keydown', function (e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
-// ── Expose to inline handlers ────────────────
+// ── Expose to inline handlers
 Object.assign(window, {
   // modal
   closeModal, switchTab,
@@ -68,7 +68,7 @@ Object.assign(window, {
   S,
 });
 
-// ── Init ─────────────────────────────────────
+// ── Init
 initTheme();
 
 // Load data independently to prevent failures from blocking other loads

@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { showModal, closeModal, switchTab } from './modal.js';
 import { resetChatUI, loadConversations } from './chat.js';
 
-// ── Fragments ────────────────────────────────
+// ── Fragments
 export async function loadFragments() {
   try {
     S.fragments = await api.get('/fragments');
@@ -113,7 +113,7 @@ export async function toggleFragmentEnabled(id, newEnabled) {
   }
 }
 
-// ── Characters ───────────────────────────────
+// ── Characters
 export async function loadCharacters() {
   S.characters = await api.get('/characters');
   renderCharacters();

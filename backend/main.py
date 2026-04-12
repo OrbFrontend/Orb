@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Orb", lifespan=lifespan)
 
 
-# ── Pydantic models ──
+# Pydantic models ──
 
 class SettingsUpdate(BaseModel):
     model_config = {"protected_namespaces": ()}
@@ -156,7 +156,7 @@ class PhraseGroupUpdate(BaseModel):
     variants: list[str]
 
 
-# ── Settings ──
+# Settings ──
 
 @app.get("/api/settings")
 async def api_get_settings():
@@ -168,7 +168,7 @@ async def api_update_settings(data: SettingsUpdate):
     return await update_settings(data.model_dump(exclude_none=True))
 
 
-# ── Fragments ──
+# Fragments ──
 
 @app.get("/api/fragments")
 async def api_list_fragments():
@@ -198,7 +198,7 @@ async def api_delete_fragment(fid: str):
     return {"ok": True}
 
 
-# ── Phrase Bank ──
+# Phrase Bank ──
 
 @app.get("/api/phrase-bank")
 async def api_get_phrase_bank():
@@ -243,7 +243,7 @@ async def api_delete_phrase_group(group_id: int):
     return {"ok": True}
 
 
-# ── Conversations ──
+# Conversations ──
 
 @app.get("/api/conversations")
 async def api_list_conversations():
@@ -322,7 +322,7 @@ async def api_delete_conversation(cid: str):
     return {"ok": True}
 
 
-# ── Character Cards ──
+# Character Cards ──
 
 def _slugify(name: str) -> str:
     slug = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
@@ -579,7 +579,7 @@ async def api_get_logs(cid: str):
     return await get_conversation_logs(cid)
 
 
-# ── Chat (SSE streaming) ──
+# Chat (SSE streaming) ──
 
 @app.post("/api/conversations/{cid}/send")
 async def api_send_message(cid: str, data: SendMessage, request: Request):
@@ -593,7 +593,7 @@ async def api_send_message(cid: str, data: SendMessage, request: Request):
     )
 
 
-# ── Frontend serving ──
+# Frontend serving ──
 
 @app.get("/")
 async def serve_frontend():
