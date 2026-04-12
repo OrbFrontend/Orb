@@ -39,7 +39,7 @@ AGENT_TOOLS = [{
                 "detected_repetitions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration. Only report the ones that are recent (e.g. 'repeated description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'mentions of jaw tightening', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it').",
+                    "description": "Specific tropes, phrases, subjects, or narrative patterns that are recently overused in the narration (e.g. 'repeated description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'mentions of jaw tightening', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it'). Maybe have up 8 items.",
                 },
             },
             "required": ["moods", "keywords", "plot_summary", "plot_direction", "writing_direction"],
@@ -69,7 +69,7 @@ REFINE_REWRITE_TOOL = {
     "type": "function",
     "function": {
         "name": "refine_rewrite",
-        "description": "Replace the entire draft with a refined rewrite. Use when length guard is triggered or when audit issues require a complete rewrite. Preserve all key story beats, the author's voice, and any special formatting or code. First priority is to get rid of repetitiveness and mundane narration.",
+        "description": "Replace the entire draft with a refined rewrite. Use when length guard is triggered or when audit issues require a complete rewrite. Preserve all key story beats, the author's voice, and any special formatting or code.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -142,7 +142,8 @@ REFINE_AUDIT_INSTRUCTIONS = (
     "REWRITING RULES (when using `refine_rewrite`):\n"
     "- Send ONE `refine_rewrite` call with the complete rewritten text.\n"
     "- Address all audit issues (if any) while also respecting length constraints.\n"
-    "- Preserve the author's voice, word choices, and all key story beats.\n"
+    "- Preserve the author's word choices, and all key story beats.\n"
+    "- First priority is to get rid of repetitiveness.\n"
     "- Be more concise but maintain coherence and narrative flow.\n\n"
     "GENERAL NOTES:\n"
     "- If the audit report seems incorrect or makes no sense, you may skip fixing those specific issues.\n"
