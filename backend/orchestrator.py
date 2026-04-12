@@ -165,17 +165,17 @@ REWRITE_PROMPT_TOOL = {
     },
 }
 
-MINIMIZE_TOOL = {
+REFINE_REWRITE_TOOL = {
     "type": "function",
     "function": {
-        "name": "minimize",
-        "description": "Replace the entire draft with a shorter, more concise rewrite that respects the maximum paragraph count. Preserve all key story beats, and any special formatting or code.",
+        "name": "refine_rewrite",
+        "description": "Replace the entire draft with a refined rewrite. Use when length guard is triggered or when audit issues require a complete rewrite. Preserve all key story beats, the author's voice, and any special formatting or code.",
         "parameters": {
             "type": "object",
             "properties": {
                 "rewritten_text": {
                     "type": "string",
-                    "description": "The condensed rewrite of the entire draft. Must be within the required paragraph limit.",
+                    "description": "The refined rewrite of the entire draft. Should address length constraints and/or audit issues while preserving the original intent.",
                 },
             },
             "required": ["rewritten_text"],
@@ -210,8 +210,12 @@ REFINE_APPLY_PATCH_TOOL = {
 }
 
 REFINE_AGENT_INSTRUCTIONS = (
-    "You are the Refinement Agent. Fix every issue listed in the AUDIT REPORT below.\n\n"
-    "RULES:\n"
+    "You are the Refinement Agent. Your task is to improve the draft text based on the issues identified below.\n\n"
+    "TOOL SELECTION RULES:\n"
+    "1. If there are AUDIT ISSUES (banned phrases, repetitive openers, or repetitive templates) AND NO LENGTH GUARD: Use `refine_apply_patch` to fix each issue with surgical patches.\n"
+    "2. If there is a LENGTH GUARD (draft too long) AND NO AUDIT ISSUES: Use `refine_rewrite` to produce a concise rewrite within the specified limits.\n"
+    "3. If there are BOTH AUDIT ISSUES AND LENGTH GUARD: Use `refine_rewrite` to address both concerns in a single comprehensive rewrite.\n\n"
+    "PATCHING RULES (when using `refine_apply_patch`):\n"
     "- Send ONE `refine_apply_patch` call with one patch per flagged issue.\n"
     "- The `search` field must be copied EXACTLY from the draft text above — including all punctuation and quotes.\n"
     "- Each patch must target a DIFFERENT, non-overlapping piece of text.\n"
@@ -219,13 +223,20 @@ REFINE_AGENT_INSTRUCTIONS = (
     "- Keep replacements close in length to the original. Preserve the author's voice.\n"
     "- For banned phrases: rewrite the sentence to remove the banned phrase entirely. Note: The audit report may show the canonical phrase name (e.g., 'ozone'), but you need to remove the actual variant that appears in the sentence (e.g., 'electric').\n"
     "- For repetitive openers: change how the sentence begins.\n"
-    "- For repetitive templates: restructure the sentence (reorder clauses, combine, vary syntax)."
-    "- If request makes no sense then just skip because sometimes the report has issues due do its probabilistic nature."
+    "- For repetitive templates: restructure the sentence (reorder clauses, combine, vary syntax).\n\n"
+    "REWRITING RULES (when using `refine_rewrite`):\n"
+    "- Send ONE `refine_rewrite` call with the complete rewritten text.\n"
+    "- Address all audit issues (if any) while also respecting length constraints.\n"
+    "- Preserve the author's voice, word choices, and all key story beats.\n"
+    "- Be more concise but maintain coherence and narrative flow.\n\n"
+    "GENERAL NOTES:\n"
+    "- If the audit report seems incorrect or makes no sense, you may skip fixing those specific issues.\n"
+    "- Always choose the most appropriate tool based on the combination of issues presented."
 )
 
 LENGTH_GUARD_INSTRUCTIONS = (
     "LENGTH GUARD: The draft is too long ({word_count} words). "
-    "Rewrite the entire response using the `minimize` tool so it is at most {max_paragraphs} paragraphs. "
+    "Rewrite the entire response using the `refine_rewrite` tool so it is at most {max_paragraphs} paragraphs and {max_words} words long. "
     "Preserve the author's voice, word choices, and all key story beats. Be more concise."
 )
 
@@ -235,7 +246,7 @@ TOOLS: dict[str, dict] = {
     "direct_scene": {"choice": {"type": "function", "function": {"name": "direct_scene"}}, "schema": AGENT_TOOLS[0], "reasoning_enabled": True},
     "rewrite_user_prompt": {"choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}}, "schema": REWRITE_PROMPT_TOOL, "reasoning_enabled": True},
     "refine_apply_patch": {"choice": {"type": "function", "function": {"name": "refine_apply_patch"}}, "schema": REFINE_APPLY_PATCH_TOOL, "reasoning_enabled": False},
-    "minimize": {"choice": {"type": "function", "function": {"name": "minimize"}}, "schema": MINIMIZE_TOOL, "reasoning_enabled": True},
+    "refine_rewrite": {"choice": {"type": "function", "function": {"name": "refine_rewrite"}}, "schema": REFINE_REWRITE_TOOL, "reasoning_enabled": False},
 }
 
 POST_WRITER_TOOLS = {"refine_apply_patch"}
@@ -567,10 +578,10 @@ async def _refine_pass(
         if word_count > max_words:
             length_guard_triggered = True
             length_guard_instruction = LENGTH_GUARD_INSTRUCTIONS.format(
-                word_count=word_count, max_paragraphs=max_paragraphs
+                word_count=word_count, max_paragraphs=max_paragraphs, max_words=max_words
             )
-            if MINIMIZE_TOOL not in refine_tools:
-                refine_tools.append(MINIMIZE_TOOL)
+            if REFINE_REWRITE_TOOL not in refine_tools:
+                refine_tools.append(REFINE_REWRITE_TOOL)
             logger.info("Refine: length guard triggered (word_count=%d > max_words=%d, max_paragraphs=%d)",
                         word_count, max_words, max_paragraphs)
             debug_parts.append(f"Length guard triggered: {word_count} words (max {max_words}), target {max_paragraphs} paragraphs")
@@ -591,6 +602,9 @@ async def _refine_pass(
         refine_instruction_parts.append(REFINE_AGENT_INSTRUCTIONS)
         refine_instruction_parts.append(report_text)
     if length_guard_triggered:
+        # Add a visual separator if we already have audit instructions
+        if audit_enabled and not report.is_clean:
+            refine_instruction_parts.append("\n" + "="*60 + "\n")
         refine_instruction_parts.append(length_guard_instruction)
     final_prompt = "\n\n".join(refine_instruction_parts)
     msgs = prefix + [
@@ -630,7 +644,7 @@ async def _refine_pass(
                     model=settings["model_name"],
                     tools=refine_tools,
                     tool_choice=(
-                        {"type": "function", "function": {"name": "minimize"}}
+                        {"type": "function", "function": {"name": "refine_rewrite"}}
                         if (length_guard_triggered and report.is_clean)
                         else ("auto" if length_guard_triggered
                               else (TOOLS["refine_apply_patch"]["choice"] if audit_enabled else "auto"))
@@ -660,34 +674,34 @@ async def _refine_pass(
                 logger.info("Refine iteration %d: model produced no tool call, stopping", iteration + 1)
                 break
 
-            # Handle minimize tool call (full rewrite for length guard)
-            minimize_call = next((tc for tc in parsed if tc["name"] == "minimize"), None)
-            if minimize_call:
-                rewritten = minimize_call.get("arguments", {}).get("rewritten_text", "").strip()
+            # Handle refine_rewrite tool call (full rewrite for length guard and/or audit issues)
+            rewrite_call = next((tc for tc in parsed if tc["name"] == "refine_rewrite"), None)
+            if rewrite_call:
+                rewritten = rewrite_call.get("arguments", {}).get("rewritten_text", "").strip()
                 if rewritten:
                     pre_len = len(current_draft)
                     current_draft = rewritten
-                    length_guard_triggered = False  # satisfied after minimize
-                    logger.info("Refine iteration %d: minimize applied, draft %d→%d chars",
+                    length_guard_triggered = False  # satisfied after rewrite
+                    logger.info("Refine iteration %d: refine_rewrite applied, draft %d→%d chars",
                                 iteration + 1, pre_len, len(current_draft))
-                    debug_parts.append(f"Iteration {iteration + 1}: minimize applied ({pre_len}→{len(current_draft)} chars)")
+                    debug_parts.append(f"Iteration {iteration + 1}: refine_rewrite applied ({pre_len}→{len(current_draft)} chars)")
                 else:
-                    logger.info("Refine iteration %d: minimize call had empty rewritten_text, stopping", iteration + 1)
+                    logger.info("Refine iteration %d: refine_rewrite call had empty rewritten_text, stopping", iteration + 1)
                     break
-                # Re-run audit after minimize (only if audit is enabled)
+                # Re-run audit after rewrite (only if audit is enabled)
                 if audit_enabled:
                     # Use same context as initial audit (previous assistant messages)
                     text_for_audit = current_draft
                     if assistant_messages:
                         context_text = "\n\n".join(reversed(assistant_messages))
                         text_for_audit = context_text + "\n\n" + current_draft
-                    logger.info("Refine iteration %d: post-minimize audit with %d previous assistant messages, text length=%d",
+                    logger.info("Refine iteration %d: post-rewrite audit with %d previous assistant messages, text length=%d",
                                iteration + 1, len(assistant_messages) if assistant_messages else 0, len(text_for_audit))
                     report = run_audit(text_for_audit, phrase_bank)
                     # Filter to only include issues in current draft
                     report = _filter_audit_report_to_text(report, current_draft)
                     report_text = format_report(report)
-                    debug_parts.append(f"Post-minimize audit ({report.total_issues} issues):\n{report_text}")
+                    debug_parts.append(f"Post-rewrite audit ({report.total_issues} issues):\n{report_text}")
                 else:
                     report = AuditReport.clean()
                     report_text = ""
@@ -697,7 +711,7 @@ async def _refine_pass(
                 refine_tools = [REFINE_APPLY_PATCH_TOOL] if audit_enabled else []
                 prev_issues = report.total_issues
                 # Update both the assistant draft and the refine instruction so the
-                # patch model sees the minimized text, not the original.
+                # patch model sees the rewritten text, not the original.
                 msgs[-2] = {"role": "assistant", "content": current_draft}
                 msgs[-1] = {"role": "user", "content": (REFINE_AGENT_INSTRUCTIONS + "\n\n" + report_text) if audit_enabled else length_guard_instruction}
                 continue
@@ -746,11 +760,11 @@ async def _refine_pass(
                 if not length_guard_triggered:
                     logger.info("Refine: audit clean after iteration %d", iteration + 1)
                     break
-                # Audit is clean but length guard still pending — switch to minimize-only
+                # Audit is clean but length guard still pending — switch to rewrite-only
                 # for the next iteration rather than breaking.
-                logger.info("Refine: audit clean after iteration %d, length guard still pending — queuing minimize",
+                logger.info("Refine: audit clean after iteration %d, length guard still pending — queuing rewrite",
                             iteration + 1)
-                refine_tools = [MINIMIZE_TOOL]
+                refine_tools = [REFINE_REWRITE_TOOL]
                 # No need for patch tool anymore since audit is clean
 
             # Stall detection: if issues didn't decrease, the model can't fix what's left

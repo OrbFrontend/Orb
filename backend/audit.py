@@ -123,7 +123,6 @@ def format_report(report: AuditReport) -> str:
         sections.append("3. Repetitive Templates — CLEAN")
 
     sections.append("\n*** END OF REPORT ***")
-    sections.append("\nUse the refine_apply_patch tool to replace the old sentence(s).")
     return "\n\n".join(sections)
 
 
