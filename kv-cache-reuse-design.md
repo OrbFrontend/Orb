@@ -70,9 +70,9 @@ There's an important distinction between:
    - **API tools**: All enabled tools (`["direct_scene", "rewrite_user_prompt", "refine_apply_patch"]`)
    - **Agent-called tools**: Only tools not in `POST_WRITER_TOOLS` (excludes `refine_apply_patch`)
    - **Tool choice**: Sequential calls with specific `tool_choice`:
-     - First: `{'type': 'function', 'function': {'name': 'direct_scene'}}`
-     - Second: `{'type': 'function', 'function': {'name': 'rewrite_user_prompt'}}` (if enabled)
-   - **Purpose**: Scene direction and optional prompt rewriting
+     - First: `{'type': 'function', 'function': {'name': 'rewrite_user_prompt'}}` (if enabled)
+     - Second: `{'type': 'function', 'function': {'name': 'direct_scene'}}`
+   - **Purpose**: Scene direction and optional prompt rewriting (rewrite runs first so users can stop early if they don't like the rewritten message)
 
 2. **Writer Pass**:
    - **API tools**: All enabled tools (`["direct_scene", "rewrite_user_prompt", "refine_apply_patch"]`)
@@ -98,14 +98,14 @@ The `refine_rewrite` tool is special:
 
 ```
 # Director pass (first tool)
-INFO:backend.llm_client:LLM complete: model=default, 
-  tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch"], 
-  tool_choice={'type': 'function', 'function': {'name': 'direct_scene'}}
-
-# Director pass (second tool)  
 INFO:backend.llm_client:LLM complete: model=default,
   tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch"],
   tool_choice={'type': 'function', 'function': {'name': 'rewrite_user_prompt'}}
+
+# Director pass (second tool)
+INFO:backend.llm_client:LLM complete: model=default,
+  tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch"],
+  tool_choice={'type': 'function', 'function': {'name': 'direct_scene'}}
 
 # Writer pass
 INFO:backend.llm_client:LLM stream: model=default,

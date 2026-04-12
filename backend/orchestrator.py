@@ -81,6 +81,11 @@ async def _agent_pass(
     tool_names = ["direct_scene"] if enabled_tools is None else [
         n for n, on in enabled_tools.items() if on and n in TOOLS and n not in POST_WRITER_TOOLS
     ]
+
+    # Define priority order: rewrite_user_prompt first, then direct_scene
+    if len(tool_names) > 1:
+        priority_order = ["rewrite_user_prompt", "direct_scene"]
+        tool_names.sort(key=lambda x: priority_order.index(x) if x in priority_order else len(priority_order))
     if not tool_names:
         return active_moods, "", [], 0, None, None, None, None, None, None
 
