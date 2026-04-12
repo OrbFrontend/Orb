@@ -839,7 +839,7 @@ async def _run_pipeline(
         "enabled": length_guard_enabled,
         "max_words": int(settings.get("length_guard_max_words", 240)),
         "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
-    } if length_guard_enabled else None
+    } if (length_guard_enabled and agent_on) else None
 
     # Refine pass runs if *any* refine sub-pass is active
     do_refine = audit_enabled or (length_guard_enabled and agent_on)
@@ -870,8 +870,6 @@ async def _run_pipeline(
     writer_tail = ""
     if inj_block:
         writer_tail += inj_block + "\n\n"
-    if length_guard:
-        writer_tail += f"[Length constraint: {length_guard['max_paragraphs']} paragraphs max, {length_guard['max_words']} words or fewer]\n"
     writer_tail += "[OOC: Only write the continuation of the story, tool/function calling is STRICTLY FORBIDDEN now!]\n\n" + effective_msg + "\n\n"
 
     # Inject length constraint into system message for writer pass
