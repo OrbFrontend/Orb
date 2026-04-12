@@ -42,8 +42,6 @@ class LLMClient:
         if tool_choice:
             body["tool_choice"] = tool_choice
 
-        logger.info(messages)
-
         logger.info("LLM complete: model=%s, tools=%s, tool_choice=%s",
                      model,
                      json.dumps([t["function"]["name"] for t in tools]) if tools else "None",
@@ -103,6 +101,8 @@ class LLMClient:
                      model,
                      json.dumps([t["function"]["name"] for t in tools]) if tools else "None",
                      tool_choice)
+
+        logger.info(messages)
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:

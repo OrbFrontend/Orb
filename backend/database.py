@@ -30,7 +30,7 @@ SEED_FRAGMENTS = [
             "Foreground the character's inner thoughts. Show the gap between what they think "
             "and what they say. Stream of consciousness is acceptable. The reader should feel "
             "like they're inside the character's head. "
-            "The narrator should share the character's world view, inject the character's opinion in the prose."
+            "The narration should share the character's world view, inject the character's opinion and use their vocabulary in the prose."
         ),
         "negative_prompt": (
             "Stop foregrounding inner thoughts. Return to external action and dialogue. "
@@ -76,7 +76,7 @@ SEED_FRAGMENTS = [
             'The narration may describe body parts that are exposed or looked at - visually, or interacted with - tactilely, but sparingly in order to avoid repetition. Take initiative and actively push the scene forward, no need to ask. '
             'The narration can use NSFW, vulgar, uncensored, explicit vocabulary where applicable. Avoid roundabout allegories like "heat", "core", etc. The prose is now more brutal, vivid, and direct. '
             'Consider positions and clothing states of the characters - what are they wearing, and where are they in relation to each other?. ',
-            "Focus on staying in character even though the vibes are sensual - characters should still behave realistically and warily of strangers and have their own boundaries."
+            "Focus on staying in character even though the vibes are sensual - characters still have their own boundaries and will behave realistically and warily of strangers."
         ),
         "negative_prompt": (
             "Return to non-explicit writing. Keep all descriptions tasteful and non-graphic. "
