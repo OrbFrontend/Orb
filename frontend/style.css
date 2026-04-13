@@ -1016,8 +1016,14 @@ body {
 
 .lg-config {
   display: flex;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   margin-top: 8px;
+}
+
+.lg-config-row {
+  display: flex;
+  gap: 10px;
 }
 
 .lg-field {
@@ -1042,6 +1048,18 @@ body {
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-primary);
+}
+
+.lg-enforce-label {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  cursor: pointer;
 }
 
 /* ═══════════════════════════════════════════

@@ -193,6 +193,7 @@ async def _run_pipeline(
 
     # Length guard
     length_guard_enabled = bool(enabled_tools.get("length_guard", False)) if agent_on else False
+    length_guard_enforce = bool(enabled_tools.get("length_guard_enforce", False)) if agent_on else False
     length_guard = {
         "enabled": length_guard_enabled,
         "max_words": int(settings.get("length_guard_max_words", 240)),
@@ -249,7 +250,12 @@ async def _run_pipeline(
     writer_tail = ""
     if inj_block:
         writer_tail += inj_block + "\n\n"
-    writer_tail += "<banned>Tool/Function calling</banned>\n\n" + effective_msg + "\n\n"
+    writer_tail += "<banned>Tool/Function calling</banned>\n\n"
+    if length_guard_enforce and length_guard and length_guard.get("enabled"):
+        max_words = length_guard.get("max_words", 240)
+        max_paragraphs = length_guard.get("max_paragraphs", 4)
+        writer_tail += f"[Keep your response under {max_words} words and {max_paragraphs} paragraphs.]\n\n"
+    writer_tail += effective_msg + "\n\n"
     # writer_tail += "[OOC: Tool/Function calling is STRICTLY FORBIDDEN now!]\n\n" + effective_msg + "\n\n"
     # writer_tail += effective_msg + "\n\n"
 

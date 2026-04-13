@@ -16,6 +16,7 @@ export const S = {
   lengthGuardEnabled: false,
   lengthGuardMaxWords: 240,
   lengthGuardMaxParagraphs: 4,
+  lengthGuardEnforce: false,
   editingMsgId: null,
   abortController: null,
   streamingContent: null,

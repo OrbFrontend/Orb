@@ -2,7 +2,7 @@ import { $ } from './utils.js';
 import { S } from './state.js';
 import { initTheme, loadSettings, saveSetting, showUserModal, saveUserProfile, applyTheme,
          toggleToolsPanel, setAgentEnabled, toggleToolEnabled,
-         toggleLengthGuard, saveLengthGuardConfig, showPhraseBankModal } from './settings.js';
+         toggleLengthGuard, saveLengthGuardConfig, toggleLengthGuardEnforce, showPhraseBankModal } from './settings.js';
 import { loadFragments, showFragmentModal, saveFragment, deleteFragment, toggleFragmentEnabled,
          loadCharacters, renderCharacters, triggerImport, handleImportFile,
          deleteCharacter, showCharCreateModal, createCharacter,
@@ -47,7 +47,7 @@ Object.assign(window, {
   saveSetting, showUserModal, saveUserProfile,
   // tools
   toggleToolsPanel, setAgentEnabled, toggleToolEnabled,
-  toggleLengthGuard, saveLengthGuardConfig,
+  toggleLengthGuard, saveLengthGuardConfig, toggleLengthGuardEnforce,
   // phrase bank
   showPhraseBankModal,
   // fragments

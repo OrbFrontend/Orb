@@ -42,7 +42,13 @@ export async function loadSettings() {
   } else {
     S.lengthGuardEnabled = false;
   }
-  
+
+  if (S.settings.enabled_tools && 'length_guard_enforce' in S.settings.enabled_tools) {
+    S.lengthGuardEnforce = Boolean(S.settings.enabled_tools.length_guard_enforce);
+  } else {
+    S.lengthGuardEnforce = false;
+  }
+
   if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
   renderSettings();
@@ -147,6 +153,15 @@ export async function toggleLengthGuard(on) {
   } catch (e) { toast('Failed to save length guard state', true); }
 }
 
+export async function toggleLengthGuardEnforce(on) {
+  S.lengthGuardEnforce = on;
+  S.enabledTools.length_guard_enforce = on;
+  renderToolsPanel();
+  try {
+    S.settings = await api.put('/settings', { enabled_tools: S.enabledTools });
+  } catch (e) { toast('Failed to save length guard enforce state', true); }
+}
+
 export async function saveLengthGuardConfig() {
   const words = parseInt($('lg-max-words').value, 10);
   const paras = parseInt($('lg-max-paragraphs').value, 10);
@@ -177,16 +192,23 @@ export function renderToolsPanel() {
   }).join('');
 
   const lgOn = S.lengthGuardEnabled;
+  const lgEnforce = S.lengthGuardEnforce;
   const lgConfig = lgOn ? `
     <div class="lg-config">
-      <div class="lg-field">
-        <label>Max words</label>
-        <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" onchange="saveLengthGuardConfig()">
+      <div class="lg-config-row">
+        <div class="lg-field">
+          <label>Max words</label>
+          <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" onchange="saveLengthGuardConfig()">
+        </div>
+        <div class="lg-field">
+          <label>Max sections</label>
+          <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" onchange="saveLengthGuardConfig()">
+        </div>
       </div>
-      <div class="lg-field">
-        <label>Max paragraphs</label>
-        <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" onchange="saveLengthGuardConfig()">
-      </div>
+      <label class="lg-enforce-label" title="Always suggest max length and paragraphs to the writer.">
+        <input type="checkbox" ${lgEnforce ? 'checked' : ''} onchange="toggleLengthGuardEnforce(this.checked)">
+        Enforce
+      </label>
     </div>` : '';
 
   const lengthGuardCard = `<div class="tool-card ${lgOn ? 'tool-on' : ''}">
@@ -197,7 +219,7 @@ export function renderToolsPanel() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Reigns the model's response length by word count. MAX PARAGRAPHS is suggested to the AI in rewrite pass.</div>
+    <div class="tool-card-desc">Reigns the model's response length by word count. MAX SECTIONS is suggested to the AI in rewrite pass.</div>
     ${lgConfig}
   </div>`;
 
