@@ -505,7 +505,9 @@ async function processSSEStream(resp, container, msgDiv, signal) {
   S.reasoningDirector = "";
   S.reasoningWriter   = "";
   S.reasoningRefiner  = "";
-  S.reasoningPassActive = 0;
+  S.reasoningPassActive   = 0; // tracks streaming progress (for dot lighting)
+  S.reasoningPassSelected = 0; // tracks what the user is viewing
+  S.reasoningUserOverride = false; // true when user has manually clicked a dot
 
   if (signal) signal.addEventListener('abort', () => reader.cancel());
 
@@ -593,16 +595,19 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
         const stateKey = 'reasoning' + passKey.charAt(0).toUpperCase() + passKey.slice(1);
         S[stateKey] = (S[stateKey] || '') + delta;
 
-        // Advance the dot if this token is from a later pass than currently shown
-        _advanceReasoningPass(REASONING_PASSES.findIndex(p => p.key === passKey));
+        const passIdx = REASONING_PASSES.findIndex(p => p.key === passKey);
+        // Advance the streaming-progress dot if this token is from a later pass
+        _advanceReasoningPass(passIdx);
 
+        const viewingThisPass = S.reasoningPassSelected === passIdx;
         let box = document.getElementById('reasoning-box');
         if (!box) {
           // Box not in DOM yet — bootstrap via renderInspector, then write full accumulated text
           renderInspector();
           box = document.getElementById('reasoning-box');
           if (box) { box.textContent = S[stateKey]; box.scrollTop = box.scrollHeight; }
-        } else {
+        } else if (viewingThisPass) {
+          // Only append to the visible box when the user is viewing this pass
           box.textContent += delta;
           box.scrollTop = box.scrollHeight;
         }
@@ -702,12 +707,14 @@ const REASONING_PASSES = [
   { key: 'refiner',  label: 'Refiner',  color: 'var(--accent-dim)' },
 ];
 
-// Advance the active stepper dot to `targetIdx` only if it's further ahead.
-// Updates the DOM if the section already exists; renderInspector() handles it
-// when the section is being built fresh.
+// Advance the streaming-progress dot to `targetIdx` only if it's further ahead.
+// Always auto-switches the selected view when a new pass begins (once per transition),
+// but within a pass the user's manual selection is respected.
 function _advanceReasoningPass(targetIdx) {
   if (targetIdx <= S.reasoningPassActive) return;
-  S.reasoningPassActive = targetIdx;
+  S.reasoningPassActive   = targetIdx;
+  S.reasoningPassSelected = targetIdx; // auto-switch view to the new pass
+  S.reasoningUserOverride = false;     // reset so in-pass tokens don't fight the user
   const existing = document.getElementById('reasoning-section');
   if (existing) _refreshReasoningSection();
 }
@@ -716,23 +723,28 @@ function _buildReasoningHtml() {
   const hasAny = S.reasoningDirector || S.reasoningWriter || S.reasoningRefiner;
   if (!hasAny) return '';
 
-  const activeIdx = S.reasoningPassActive;
+  // reasoningPassActive tracks streaming progress (for dot lighting/lines).
+  // reasoningPassSelected tracks what the user is viewing.
+  const streamIdx   = S.reasoningPassActive;
+  const selectedIdx = S.reasoningPassSelected;
   const dotsHtml = REASONING_PASSES.map((p, i) => {
     const hasText = !!S['reasoning' + p.key.charAt(0).toUpperCase() + p.key.slice(1)];
-    const isActive = i === activeIdx;
-    const lit = hasText || isActive;
+    const isStreaming = i === streamIdx;
+    const isSelected = i === selectedIdx;
+    const lit = hasText || isStreaming;
     const dotStyle = [
       `background:${lit ? p.color : 'var(--bg-elevated)'}`,
       `color:${lit ? '#fff' : 'var(--text-muted)'}`,
-      `border:2px solid ${lit ? p.color : 'var(--border)'}`,
-    ].join(';');
-    const lineColor = i < activeIdx ? REASONING_PASSES[i + 1].color : 'var(--border)';
+      `border:2px solid ${isSelected ? 'var(--accent)' : (lit ? p.color : 'var(--border)')}`,
+      isSelected ? 'box-shadow:0 0 0 2px var(--accent)' : '',
+    ].filter(Boolean).join(';');
+    const lineColor = i < streamIdx ? REASONING_PASSES[i + 1].color : 'var(--border)';
     return `<button class="reasoning-dot" onclick="selectReasoningPass(${i})" style="${dotStyle}">${i + 1}</button>`
       + (i < 2 ? `<div class="reasoning-rail-line" style="background:${lineColor}"></div>` : '');
   }).join('');
 
-  const activePass = REASONING_PASSES[activeIdx];
-  const currentText = S['reasoning' + activePass.key.charAt(0).toUpperCase() + activePass.key.slice(1)] || '';
+  const selectedPass = REASONING_PASSES[selectedIdx];
+  const currentText = S['reasoning' + selectedPass.key.charAt(0).toUpperCase() + selectedPass.key.slice(1)] || '';
   const openAttr = S.reasoningOpen ? ' open' : '';
 
   return `<details class="inspector-block reasoning-section" id="reasoning-section"${openAttr} ontoggle="S.reasoningOpen=this.open">
@@ -743,7 +755,7 @@ function _buildReasoningHtml() {
     <div style="margin-top:8px">
       <div class="reasoning-stepper">
         ${dotsHtml}
-        <span class="reasoning-pass-label">${esc(activePass.label)}</span>
+        <span class="reasoning-pass-label">${esc(selectedPass.label)}</span>
       </div>
       <div class="reasoning-box" id="reasoning-box">${esc(currentText)}</div>
     </div>
@@ -756,13 +768,17 @@ function _refreshReasoningSection() {
   const html = _buildReasoningHtml();
   if (!html) { existing.remove(); return; }
   existing.outerHTML = html;
-  // Auto-scroll the newly rendered box to bottom
-  const box = document.getElementById('reasoning-box');
-  if (box) box.scrollTop = box.scrollHeight;
+  // Auto-scroll the newly rendered box to bottom only when viewing the streaming pass
+  if (!S.reasoningUserOverride) {
+    const box = document.getElementById('reasoning-box');
+    if (box) box.scrollTop = box.scrollHeight;
+  }
 }
 
+
 export function selectReasoningPass(idx) {
-  S.reasoningPassActive = idx;
+  S.reasoningPassSelected = idx;
+  S.reasoningUserOverride = true;
   _refreshReasoningSection();
 }
 

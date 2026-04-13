@@ -29,5 +29,7 @@ export const S = {
   reasoningWriter: "",
   reasoningRefiner: "",
   reasoningPassActive: 0,
+  reasoningPassSelected: 0,
+  reasoningUserOverride: false,
   reasoningOpen: true,
 };
