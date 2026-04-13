@@ -697,9 +697,9 @@ export async function regenerate(msgId) {
 // ── Inspector — Reasoning stepper rail
 
 const REASONING_PASSES = [
-  { key: 'director', label: 'Director', color: '#E8712A' },
-  { key: 'writer',   label: 'Writer',   color: '#2A8FE8' },
-  { key: 'refiner',  label: 'Refiner',  color: '#2ABE6C' },
+  { key: 'director', label: 'Director', color: 'var(--accent-dim)' },
+  { key: 'writer',   label: 'Writer',   color: 'var(--accent-dim)' },
+  { key: 'refiner',  label: 'Refiner',  color: 'var(--accent-dim)' },
 ];
 
 // Advance the active stepper dot to `targetIdx` only if it's further ahead.
