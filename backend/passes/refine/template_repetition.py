@@ -1,10 +1,9 @@
 """
 template_repetition.py — Stub module kept for backward compatibility.
 
-The live contrastive-negation detector has moved to contrastive_negation.py.
 Template-repetition detection (POS-tag pattern matching) was removed; these
 dataclasses and the no-op function remain so that audit.py and refine.py
-continue to work without changes.
+continue to compile without changes.
 """
 
 from dataclasses import dataclass, field

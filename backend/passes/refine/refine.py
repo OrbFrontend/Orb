@@ -14,8 +14,8 @@ from .audit import run_audit, format_report, AuditReport
 from .slop_detector import FlaggedSentence, DetectionResult
 from .opening_monotony import FlaggedOpener, MonotonyResult
 from .template_repetition import FlaggedTemplate, TemplateResult
-from .llm_client import LLMClient, parse_tool_calls
-from .tool_defs import (
+from ...llm_client import LLMClient, parse_tool_calls
+from ...tool_defs import (
     TOOLS, REFINE_APPLY_PATCH_TOOL, REFINE_REWRITE_TOOL,
     REFINE_PREAMBLE, REFINE_AUDIT_INSTRUCTIONS,
     LENGTH_GUARD_INSTRUCTIONS,
@@ -25,7 +25,7 @@ from .tool_defs import (
 logger = logging.getLogger(__name__)
 
 
-# ── Audit-report filtering
+# ── Audit-report filtering ────────────────────────────────────────────────────
 
 def _split_target_sentences(target_text: str) -> set[str]:
     """Split *target_text* into a sentence set using the same heuristic as the detectors."""
@@ -107,7 +107,7 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
     )
 
 
-# ── Audit with multi-message context
+# ── Audit with multi-message context ─────────────────────────────────────────
 
 def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
     """Concatenate previous assistant messages (oldest→newest) with the current
@@ -129,7 +129,7 @@ def _run_contextual_audit(
     return filtered, format_report(filtered)
 
 
-# ── Quote normalisation & patching
+# ── Quote normalisation & patching ────────────────────────────────────────────
 
 _QUOTE_MAP = str.maketrans({
     "\u201c": '"', "\u201d": '"',
@@ -187,7 +187,7 @@ def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
     return draft, errors
 
 
-# ── Refine pass (ReAct loop)
+# ── Refine pass (ReAct loop) ──────────────────────────────────────────────────
 
 async def refine_pass(
     client: LLMClient, prefix: list[dict], effective_msg: str, draft: str,
@@ -400,7 +400,7 @@ async def refine_pass(
     yield {"type": "done", "draft": current_draft if changed else None, "debug": "\n---\n".join(debug_parts), "elapsed": elapsed}
 
 
-# ── Helpers (private)
+# ── Helpers (private) ─────────────────────────────────────────────────────────
 
 def _build_refine_prompt(
     has_audit_issues: bool, report_text: str,

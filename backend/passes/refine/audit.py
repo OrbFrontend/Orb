@@ -1,5 +1,5 @@
 """
-audit.py — Run all three programmatic scanners and produce a consolidated Audit Report.
+audit.py — Run all programmatic scanners and produce a consolidated AuditReport.
 """
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 """
-orchestrator.py — Main pipeline: agent pass → writer pass → refine pass,
+orchestrator.py — Pipeline coordinator: director → writer → refine,
 plus the public entry points handle_turn() and handle_regenerate().
 """
 from __future__ import annotations
@@ -11,36 +11,17 @@ import time
 from typing import AsyncIterator
 
 from . import database as db
-from .llm_client import LLMClient, parse_tool_calls
-from .tool_defs import (
-    TOOLS, POST_WRITER_TOOLS, enabled_schemas,
-    reasoning_config_for_tool,
-)
-from .prompt_builder import build_prefix, build_tool_prompt, build_style_injection
-from .refine import refine_pass
+from .llm_client import LLMClient
+from .tool_defs import TOOLS, POST_WRITER_TOOLS, enabled_schemas
+from .prompt_builder import build_prefix, build_style_injection
+from .passes.director import apply_tool_calls, _agent_pass
+from .passes.writer import _writer_pass
+from .passes.refine import refine_pass
 
 logger = logging.getLogger(__name__)
 
 
-# ── Tool-call result unpacking
-
-def apply_tool_calls(tool_calls: list[dict], current_moods: list[str]) -> tuple[list[str], str | None, str | None, str | None, list[str] | None, str | None, list[str] | None]:
-    moods, refined, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords = list(current_moods), None, None, None, None, None, None
-    for tc in tool_calls:
-        args = tc.get("arguments", {})
-        if tc["name"] == "direct_scene":
-            moods = args.get("moods", [])
-            plot_direction = args.get("plot_direction") or None
-            writing_direction = args.get("writing_direction") or None
-            detected_repetitions = args.get("detected_repetitions") or None
-            plot_summary = args.get("plot_summary") or None
-            keywords = args.get("keywords") or None
-        elif tc["name"] == "rewrite_user_prompt":
-            refined = args.get("refined_message") or None
-    return moods, refined, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords
-
-
-# ── Character context loader
+# ── Character context loader ──────────────────────────────────────────────────
 
 async def _load_char_context(conv: dict, settings: dict) -> tuple[str, str, str]:
     system_prompt = settings["system_prompt"]
@@ -55,130 +36,7 @@ async def _load_char_context(conv: dict, settings: dict) -> tuple[str, str, str]
     return system_prompt, char_persona, mes_example
 
 
-# ── Writer pass
-
-# Token strings that signal the start of a tool-call block.  If logit_bias
-# suppression fails (wrong ID, unsupported by backend, etc.) and one of these
-# leaks into the writer's output stream, we truncate immediately so the user
-# never sees the raw markup.
-_WRITER_LEAK_MARKERS = {
-    "<|tool_call>",
-    "<|python_tag|>",
-    "[TOOL_CALL]",
-    "<tool_call>",
-    "<function_calls>",
-    "<|tool_calls|>",
-    "<|function_calls|>",
-}
-
-
-async def _writer_pass(client: LLMClient, msgs: list[dict], settings: dict, enabled_tools: dict | None = None, tool_start_token_id: int | None = None) -> AsyncIterator[dict]:
-    """Yields {"type": "content"|"reasoning", "delta": str} dicts."""
-    params = {k: v for k in ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] if (v := settings.get(k)) is not None}
-    schemas = enabled_schemas(enabled_tools)
-    # Only include tool schemas when we have a confirmed suppression token.
-    # Without logit_bias, small models ignore tool_choice:"none" and emit tool-call tokens anyway, causing hallucinated output.
-    if schemas and tool_start_token_id is None:
-        logger.info("Writer pass: skipping tools (no suppression token discovered) to prevent hallucination")
-        schemas = []
-    logger.info("Writer pass: tools included=%s", json.dumps([s["function"]["name"] for s in schemas]) if schemas else "[]")
-    extra: dict = {"tools": schemas, "tool_choice": "none"} if schemas else {}
-    extra["reasoning"] = {"effort": "low", "enabled": True}
-    if tool_start_token_id is not None:
-        extra["logit_bias"] = {tool_start_token_id: -100}
-        logger.info("Writer pass: logit_bias {%d: -100} applied", tool_start_token_id)
-
-    # Rolling tail buffer: most control tokens arrive as a single delta, but we keep the last 50 chars to catch any that straddle a token boundary.
-    tail = ""
-    async for item in client.stream(messages=msgs, model=settings["model_name"], **extra, **params):
-        if item["type"] == "content":
-            tail = (tail + item["delta"])[-50:]
-            for marker in _WRITER_LEAK_MARKERS:
-                if marker in tail:
-                    logger.warning(
-                        "Writer pass: tool-call marker '%s' leaked through suppression — truncating output",
-                        marker,
-                    )
-                    return
-        yield item
-
-
-# ── Agent pass
-
-async def _agent_pass(
-    client: LLMClient, prefix: list[dict], user_message: str, settings: dict,
-    director: dict, fragments: list[dict], enabled_tools: dict | None = None
-) -> AsyncIterator[dict]:
-    """Yields reasoning dicts during each tool call, then a single done dict.
-
-    Yields:
-        {"type": "reasoning", "delta": str}   — zero or more reasoning chunks
-        {"type": "done", "result": tuple}     — final (moods, raw, calls, latency, ...)
-    """
-    active_moods = director["active_moods"]
-    refined_msg, plot_direction, writing_direction, detected_repetitions, plot_summary = None, None, None, None, None
-    keywords = director.get("keywords", [])
-    all_calls: list[dict] = []
-    last_raw = ""
-
-    tool_names = ["direct_scene"] if enabled_tools is None else [
-        n for n, on in enabled_tools.items() if on and n in TOOLS and n not in POST_WRITER_TOOLS
-    ]
-
-    # Define priority order: rewrite_user_prompt first, then direct_scene
-    if len(tool_names) > 1:
-        priority_order = ["rewrite_user_prompt", "direct_scene"]
-        tool_names.sort(key=lambda x: priority_order.index(x) if x in priority_order else len(priority_order))
-    if not tool_names:
-        yield {"type": "done", "result": (active_moods, "", [], 0, None, None, None, None, None, None)}
-        return
-
-    tool_schemas = enabled_schemas(enabled_tools)
-    logger.info("Director pass: tools included=%s", json.dumps([s["function"]["name"] for s in tool_schemas]) if tool_schemas else "[]")
-
-    t0 = time.monotonic()
-    for name in tool_names:
-        msgs = prefix + [{"role": "user", "content": build_tool_prompt(name, user_message, active_moods, fragments)}]
-        logger.info("Agent tool=%s prompt:\n%s", name, json.dumps(msgs, indent=2, ensure_ascii=False))
-        resp: dict = {}
-        try:
-            reasoning_config = reasoning_config_for_tool(name) or {"effort": "low", "enabled": True}
-            async for event in client.complete(
-                messages=msgs, model=settings["model_name"], tools=tool_schemas,
-                tool_choice=TOOLS[name]["choice"], temperature=0.25, max_tokens=8192,
-                reasoning=reasoning_config,
-            ):
-                if event["type"] == "reasoning":
-                    yield {"type": "reasoning", "delta": event["delta"]}
-                elif event["type"] == "done":
-                    resp = event["message"]
-            last_raw = json.dumps(resp, default=str)
-            logger.info("Agent tool=%s output:\n%s", name, last_raw)
-            if parsed := parse_tool_calls(resp):
-                all_calls.extend(parsed)
-                active_moods, new_refined, new_plot, new_narration, new_reps, new_summary, new_kw = apply_tool_calls(parsed, active_moods)
-                if new_refined:
-                    refined_msg = new_refined
-                if new_plot:
-                    plot_direction = new_plot
-                if new_narration:
-                    writing_direction = new_narration
-                if new_reps:
-                    detected_repetitions = new_reps
-                if new_summary:
-                    plot_summary = new_summary
-                if new_kw:
-                    keywords = new_kw[:6]
-            else:
-                logger.info("Agent tool=%s: model skipped", name)
-        except Exception as e:
-            logger.error("Agent tool=%s failed: %s", name, e)
-            last_raw = f"ERROR: {e}"
-
-    yield {"type": "done", "result": (active_moods, last_raw, all_calls, int((time.monotonic() - t0) * 1000), refined_msg, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords)}
-
-
-# ── Core pipeline
+# ── Core pipeline ─────────────────────────────────────────────────────────────
 
 async def _run_pipeline(
     client: LLMClient, settings: dict, director: dict, fragments: list[dict],
@@ -217,7 +75,7 @@ async def _run_pipeline(
 
     do_refine = audit_enabled or (length_guard_enabled and agent_on)
 
-    # --- Agent pass ---
+    # --- Director pass ---
     has_pre_writer_tools = any(enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
     if agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
@@ -273,8 +131,6 @@ async def _run_pipeline(
         max_paragraphs = length_guard.get("max_paragraphs", 4)
         writer_tail += f"**Keep your response under {max_words} words and {max_paragraphs} paragraphs.**\n\n"
     writer_tail += "___\n\n" + effective_msg + "\n\n"
-    # writer_tail += "[OOC: Tool/Function calling is STRICTLY FORBIDDEN now!]\n\n" + effective_msg + "\n\n"
-    # writer_tail += effective_msg + "\n\n"
 
     writer_msgs = prefix + [{"role": "user", "content": writer_tail}]
 
@@ -313,9 +169,9 @@ async def _run_pipeline(
         logger.info("Refine pass skipped (do_refine=%s)", do_refine)
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 # Shared infrastructure for handle_turn / handle_regenerate
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 
 async def _load_pipeline_context(conversation_id: str) -> dict | None:
     """Load everything the pipeline needs: settings, conversation, director,
@@ -459,9 +315,9 @@ async def _consume_pipeline(
     yield {"event": "done"}
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 # Public entry points
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 
 async def handle_turn(conversation_id: str, user_message: str, skip_user_persist: bool = False) -> AsyncIterator[dict]:
     try:
