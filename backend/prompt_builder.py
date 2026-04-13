@@ -93,27 +93,20 @@ def build_style_injection(
     plot_summary: str | None = None,
     keywords: list[str] | None = None,
 ) -> str:
-    parts = ["<current_scene_direction>"]
+    parts = ["**Scene Direction**"]
     if plot_summary:
-        parts.append(f"  <plot_summary>{plot_summary}</plot_summary>")
+        parts.append(f"Plot summary: {plot_summary}")
     if plot_direction:
-        parts.append(f"  <plot>{plot_direction}</plot>")
+        parts.append(f"Plot: {plot_direction}")
     if writing_direction:
-        parts.append(f"  <narration>{writing_direction}</narration>")
+        parts.append(f"Narration: {writing_direction}")
     if detected_repetitions:
-        parts.append("  <avoid>")
-        for phrase in detected_repetitions:
-            parts.append(f"    - {phrase}")
-        parts.append("  </avoid>")
+        parts.append("Avoid repeating:\n" + "\n".join(f"- {phrase}" for phrase in detected_repetitions))
     if keywords:
-        parts.append("  <keywords>")
-        for kw in keywords:
-            parts.append(f"    - {kw}")
-        parts.append("  </keywords>")
+        parts.append("Keywords: " + ", ".join(keywords))
     for f in active:
-        parts += [f'  <mood name="{f["id"]}">', f'    {f["prompt_text"]}', "  </mood>"]
+        parts.append(f'Mood [{f["id"]}]: {f["prompt_text"]}')
     for f in (deactivated or []):
         if neg := f.get("negative_prompt", "").strip():
-            parts += [f'  <mood name="{f["id"]}" deactivated="true">', f'    {neg}', "  </mood>"]
-    parts.append("</current_scene_direction>")
-    return "\n".join(parts)
+            parts.append(f'Deactivated [{f["id"]}]: {neg}')
+    return "\n\n".join(parts)

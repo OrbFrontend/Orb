@@ -250,7 +250,7 @@ async def _run_pipeline(
     writer_tail = ""
     if inj_block:
         writer_tail += inj_block + "\n\n"
-    writer_tail += "<banned>Tool/Function calling</banned>\n\n"
+    writer_tail += "**Do not use tool or function calls.**\n\n"
     if length_guard_enforce and length_guard and length_guard.get("enabled"):
         max_words = length_guard.get("max_words", 240)
         max_paragraphs = length_guard.get("max_paragraphs", 4)
