@@ -96,10 +96,14 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
         repetition_score=report.template_result.repetition_score,
     )
 
+    # Not-but results
+    filtered_not_but = [nb for nb in report.not_but_result if nb.get("sentence", "") in target_sents]
+
     return AuditReport(
         cliche_result=filtered_cliche,
         monotony_result=filtered_monotony,
         template_result=filtered_template,
+        not_but_result=filtered_not_but,
     )
 
 
@@ -265,6 +269,8 @@ async def refine_pass(
         audit_enabled and not report.is_clean, report_text,
         length_guard_triggered, length_guard_instruction,
     )
+
+    logger.info(final_prompt)
 
     msgs = prefix + [
         {"role": "user", "content": effective_msg},

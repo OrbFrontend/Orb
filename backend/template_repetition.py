@@ -124,3 +124,41 @@ def detect_template_repetition(
         unique_templates=unique,
         repetition_score=rep_score,
     )
+
+def detect_not_but_pattern(text: str) -> list[dict]:
+    """Find sentences matching 'Not X, but Y' rhetorical construction."""
+    sentences = _split_sentences(text)
+    results = []
+
+    for sent in sentences:
+        words = _tokenize(sent)
+        if len(words) < 4:
+            continue
+
+        # Look for "not ... but ..." span
+        tags = [_tag_word(w) for w in words]
+        lowers = [w.lower() for w in words]
+
+        not_idx = None
+        but_idx = None
+
+        for i, w in enumerate(lowers):
+            if w == "not" and not_idx is None:
+                not_idx = i
+            if w == "but" and not_idx is not None and i > not_idx + 1:
+                but_idx = i
+                break  # first "but" after "not"
+
+        if not_idx is not None and but_idx is not None:
+            x_tags = tags[not_idx + 1 : but_idx]
+            y_tags = tags[but_idx + 1 :]
+
+            if x_tags and y_tags:  # both sides non-empty
+                results.append({
+                    "sentence": sent,
+                    "x_template": " ".join(x_tags),
+                    "y_template": " ".join(y_tags),
+                    "is_parallel": x_tags == y_tags,  # same structure both sides
+                })
+
+    return results

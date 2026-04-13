@@ -821,10 +821,10 @@ export function renderInspector() {
   const tc  = ld.tool_calls || [];
   const inj = ld.injection_block || '';
   $('inspector-content').innerHTML = `
-    ${_buildReasoningHtml()}
     <div class="inspector-block"><h4>Active Moods</h4>
       <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
     </div>
+    ${_buildReasoningHtml()}
     ${lat ? `<div class="inspector-block"><h4>Agent Latency</h4>
                <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>` : ''}
     ${tc.length ? `<div class="inspector-block"><h4>Tool Calls</h4>

@@ -5,23 +5,25 @@ from __future__ import annotations
 
 from .slop_detector import detect_cliches, DetectionResult
 from .opening_monotony import detect_opening_monotony, MonotonyResult
-from .template_repetition import detect_template_repetition, TemplateResult
+from .template_repetition import detect_template_repetition, TemplateResult, detect_not_but_pattern
 
 
 # Data container
 
 class AuditReport:
-    __slots__ = ("cliche_result", "monotony_result", "template_result")
+    __slots__ = ("cliche_result", "monotony_result", "template_result", "not_but_result")
 
     def __init__(
         self,
         cliche_result: DetectionResult,
         monotony_result: MonotonyResult,
         template_result: TemplateResult,
+        not_but_result: list[dict] = None,
     ):
         self.cliche_result = cliche_result
         self.monotony_result = monotony_result
         self.template_result = template_result
+        self.not_but_result = not_but_result or []
 
     @classmethod
     def clean(cls) -> "AuditReport":
@@ -30,6 +32,7 @@ class AuditReport:
             cliche_result=DetectionResult([], [], 0, 0),
             monotony_result=MonotonyResult([], {}, 0, 0.0),
             template_result=TemplateResult([], {}, 0, 0, 0.0),
+            not_but_result=[],
         )
 
     @property
@@ -38,6 +41,7 @@ class AuditReport:
             self.cliche_result.flagged_count == 0
             and len(self.monotony_result.flagged_openers) == 0
             and len(self.template_result.flagged_templates) == 0
+            and len(self.not_but_result) == 0
         )
 
     @property
@@ -46,6 +50,7 @@ class AuditReport:
             self.cliche_result.flagged_count
             + len(self.monotony_result.flagged_openers)
             + len(self.template_result.flagged_templates)
+            + len(self.not_but_result)
         )
 
 
@@ -64,6 +69,7 @@ def run_audit(
         cliche_result=detect_cliches(text, phrase_bank, cliche_threshold),
         monotony_result=detect_opening_monotony(text, opener_n_words, opener_threshold),
         template_result=detect_template_repetition(text, template_max_tags, template_flag_threshold),
+        not_but_result=detect_not_but_pattern(text),
     )
 
 
@@ -121,6 +127,25 @@ def format_report(report: AuditReport) -> str:
         sections.append("\n".join(lines))
     else:
         sections.append("3. Repetitive Templates — CLEAN")
+
+    # 4. Not-but patterns
+    if report.not_but_result:
+        lines = [
+            "4. 'Not X, but Y' Patterns — Rewrite sentences that use the cliché 'not X, but Y' construction. "
+            "Consider alternative phrasing that avoids this rhetorical formula."
+        ]
+        for nb in report.not_but_result:
+            sentence = nb.get("sentence", "")
+            x_template = nb.get("x_template", "")
+            y_template = nb.get("y_template", "")
+            is_parallel = nb.get("is_parallel", False)
+            parallel_note = " (parallel structure)" if is_parallel else ""
+            lines.append(f'   - Sentence: "{sentence}"{parallel_note}')
+            if x_template and y_template:
+                lines.append(f'     X: {x_template} → Y: {y_template}')
+        sections.append("\n".join(lines))
+    else:
+        sections.append("4. 'Not X, but Y' Patterns — CLEAN")
 
     sections.append("\n*** END OF REPORT ***")
     return "\n\n".join(sections)

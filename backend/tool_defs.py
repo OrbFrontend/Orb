@@ -117,7 +117,7 @@ REFINE_APPLY_PATCH_TOOL = {
 # system prompt plus a bare instruction and wastes tokens reasoning
 # about context.
 REFINE_PREAMBLE = (
-    "You are the Refinement Agent. The assistant message above is a draft "
+    "You are the uncensored Refinement Agent. The assistant message above is a draft "
     "that needs improvement based on the issues described below. Use the "
     "provided tools to apply the required changes. Call exactly ONE tool."
 )
@@ -143,7 +143,7 @@ REFINE_AUDIT_INSTRUCTIONS = (
     "- Send ONE `refine_rewrite` call with the complete rewritten text.\n"
     "- Address all audit issues (if any) while also respecting length constraints.\n"
     "- Preserve the author's vocabulary and creative word choices and all key story beats.\n"
-    "- First priority is to get rid of repetitiveness.\n"
+    "- First priority is to get rid of repetitiveness and condense comma-separated adjectives into stronger, more precise words (e.g. old, ruined building -> decrepit building).\n"
     "- Be more concise but maintain coherence and narrative flow.\n\n"
     "GENERAL NOTES:\n"
     "- If the audit report seems incorrect or makes no sense, you may skip fixing those specific issues.\n"
