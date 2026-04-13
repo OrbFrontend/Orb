@@ -141,6 +141,7 @@ SEED_PHRASE_BANK = [
     ["eyes never leaving his", "eyes never leaving hers", "eyes never leave his", "eyes never leave hers"],
     ["breath hitches", "breath hitched", "breath hitching", "breath catching"],
     ["ozone"],
+    ["testament to"],
     ["honeyed", "velvet", "porcelain", "intoxicating"],
     ["like a vice", "like a vise"],
     ["void", "shadowed"],

@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from .slop_detector import detect_cliches, DetectionResult
 from .opening_monotony import detect_opening_monotony, MonotonyResult
-from .template_repetition import detect_template_repetition, TemplateResult, detect_not_but_pattern
+from .template_repetition import detect_template_repetition, TemplateResult
+from .contrastive_negation import detect_contrastive_negation
 
 
 # Data container
@@ -69,7 +70,7 @@ def run_audit(
         cliche_result=detect_cliches(text, phrase_bank, cliche_threshold),
         monotony_result=detect_opening_monotony(text, opener_n_words, opener_threshold),
         template_result=detect_template_repetition(text, template_max_tags, template_flag_threshold),
-        not_but_result=detect_not_but_pattern(text),
+        not_but_result=detect_contrastive_negation(text),
     )
 
 
@@ -131,7 +132,7 @@ def format_report(report: AuditReport) -> str:
     # 4. Not-but patterns
     if report.not_but_result:
         lines = [
-            "4. 'Not X, but Y' Patterns — Rewrite sentences that use the cliché 'not X, but Y' construction. "
+            "4. Contrastive Negation Patterns — Rewrite sentences that use the cliché 'not X, but Y' construction. "
             "Consider alternative phrasing that avoids this rhetorical formula."
         ]
         for nb in report.not_but_result:
