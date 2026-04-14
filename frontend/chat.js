@@ -257,6 +257,7 @@ export function renderMessages() {
           <span class="swipe-counter">${bi + 1}/${bc}</span>
           <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? 'disabled' : ''}>▶</button>
         </span>` : '';
+      const isLastAssistant = m.role === 'assistant' && m === msgs[msgs.length - 1];
       const toolbar = isEditing ? '' : `
         <div class="msg-toolbar">
           ${m.id ? `<button onclick="startEdit(${m.id})" title="Edit">✏️ Edit</button>` : ''}
@@ -264,7 +265,6 @@ export function renderMessages() {
           ${m.id ? `<button onclick="deleteMessage(${m.id})" title="Delete message and all children" style="color:var(--red)">✕ Del</button>` : ''}
           ${isLastAssistant && S.pendingRefineDiff ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">✕ Diff</button>` : ''}
         </div>`;
-      const isLastAssistant = m.role === 'assistant' && m === msgs[msgs.length - 1];
       const body = isEditing ? `
         <div class="msg-edit-area">
           <textarea id="edit-textarea-${m.id}" rows="5">${esc(m.content)}</textarea>
