@@ -137,7 +137,7 @@ SEED_PHRASE_BANK = [
     ["very brave or very stupid", "either very brave or very foolish", "brave or stupid"],
     ["sending shivers", "sending a shiver"],
     ["a dance of", "a dance between", "dancing with"],
-    ["eyes narrowing", "eyes narrowed", "mischievous glint", "gaze sharpen", "eyes widen", "glint with mischief"],
+    ["eyes narrowing", "eyes narrowed", "mischievous glint", "gaze sharpen", "eyes widen", "glint with mischief", "eyes wide"],
     ["eyes never leaving his", "eyes never leaving hers", "eyes never leave his", "eyes never leave hers"],
     ["breath hitches", "breath hitched", "breath hitching", "breath catching"],
     ["ozone"],
