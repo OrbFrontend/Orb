@@ -262,6 +262,7 @@ export function renderMessages() {
           ${m.id ? `<button onclick="startEdit(${m.id})" title="Edit">✏️ Edit</button>` : ''}
           ${m.role === 'assistant' && m.id ? `<button onclick="regenerate(${m.id})" title="Regenerate">🔄 Regen</button>` : ''}
           ${m.id ? `<button onclick="deleteMessage(${m.id})" title="Delete message and all children" style="color:var(--red)">✕ Del</button>` : ''}
+          ${isLastAssistant && S.pendingRefineDiff ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">✕ Diff</button>` : ''}
         </div>`;
       const isLastAssistant = m.role === 'assistant' && m === msgs[msgs.length - 1];
       const body = isEditing ? `
@@ -806,6 +807,8 @@ export function selectReasoningPass(idx) {
 }
 
 // ── Inspector
+export function clearRefineDiff() { S.pendingRefineDiff = null; renderMessages(); }
+
 export function toggleInspector() { $('inspector').classList.toggle('open'); }
 
 export function renderInspector() {
