@@ -74,6 +74,8 @@ def _match_sentence(
     threshold: float,
 ) -> list[ClicheHit]:
     hits: list[ClicheHit] = []
+    # Precompute normalised sentence for comma-insensitive short matches
+    sent_normalised = " ".join(sent_tokens)
 
     for variant_group in phrase_bank:
         best: ClicheHit | None = None
@@ -82,15 +84,28 @@ def _match_sentence(
         for variant in variant_group:
             var_tokens = _tokenize(variant)
 
-            # --- Short phrases: exact substring match ---
+            # --- Short phrases: exact match (comma-insensitive) ---
             if len(var_tokens) <= _EXACT_MATCH_MAX_LEN:
-                if variant.lower() in sent_lower and 1.0 > best_score:
-                    best_score = 1.0
-                    best = ClicheHit(
-                        canonical=variant_group[0],
-                        variant=variant,
-                        score=1.0,
-                    )
+                if len(var_tokens) == 1:
+                    # Single word: word-boundary check to avoid substrings
+                    pattern = rf"\b{re.escape(variant)}\b"
+                    if re.search(pattern, sent_lower) and 1.0 > best_score:
+                        best_score = 1.0
+                        best = ClicheHit(
+                            canonical=variant_group[0],
+                            variant=variant,
+                            score=1.0,
+                        )
+                else:
+                    # 2–3 tokens: compare normalised forms (strips commas)
+                    normalised_variant = " ".join(var_tokens)
+                    if normalised_variant in sent_normalised and 1.0 > best_score:
+                        best_score = 1.0
+                        best = ClicheHit(
+                            canonical=variant_group[0],
+                            variant=variant,
+                            score=1.0,
+                        )
                 continue
 
             # --- Longer phrases: trigram containment ---
