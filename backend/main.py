@@ -48,6 +48,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Orb", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def no_cache_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 # Pydantic models ──
 
 class SettingsUpdate(BaseModel):

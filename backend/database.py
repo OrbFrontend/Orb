@@ -129,6 +129,7 @@ SEED_PHRASE_BANK = [
     ["voice dripping with", "dripped with", "voice dripped with"],
     ["the tension in the air", "thick tension in the air", "the air is heavy", "the air is charged", "the air is thick"],
     ["filling the air", "fills the air", "filled the air"],
+    ["hang in the air", "hung in the air", "hangs in the air", "hanging in the air"],
     ["dangerous voice", "dangerous tone"],
     ["voice dropping", "voice low", "voice dangerous", "voice a dangerous", "voice a low", "voice is a low", "voice is a dangerous"],
     ["low hiss", "dangerous hiss", "barely a whisper", "barely above a whisper", "voice crack"],
