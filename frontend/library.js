@@ -161,10 +161,12 @@ export async function deleteCharacter(id) {
   showModal(`
     <h2>Delete Character</h2>
     <p>Are you sure you want to delete this character card?</p>
-    <label style="display: flex; align-items: center; gap: 8px; margin: 16px 0;">
-      <input type="checkbox" id="delete-conversations-checkbox">
-      Also delete all conversations associated with this character
-    </label>
+    <div class="field">
+      <label class="modal-checkbox-label">
+        <input type="checkbox" id="delete-conversations-checkbox">
+        Also delete all conversations associated with this character
+      </label>
+    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-danger" onclick="performDeleteCharacter('${id}')">Delete</button>
