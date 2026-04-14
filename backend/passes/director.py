@@ -10,7 +10,7 @@ import logging
 import time
 from typing import AsyncIterator
 
-from ..llm_client import LLMClient, parse_tool_calls
+from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ..tool_defs import TOOLS, POST_WRITER_TOOLS, enabled_schemas, reasoning_config_for_tool
 from ..prompt_builder import build_tool_prompt
 
@@ -89,11 +89,11 @@ async def _agent_pass(
             kv_tracker.record(f"director:{name}", msgs, tool_schemas)
         resp: dict = {}
         try:
-            reasoning_config = {"enabled": False} if not reasoning_on else (reasoning_config_for_tool(name) or {"effort": "low", "enabled": True})
+            reasoning_params = reasoning_cfg(False) if not reasoning_on else (reasoning_config_for_tool(name) or reasoning_cfg(True))
             async for event in client.complete(
                 messages=msgs, model=settings["model_name"], tools=tool_schemas,
                 tool_choice=TOOLS[name]["choice"], temperature=0.25, max_tokens=8192,
-                reasoning=reasoning_config,
+                **reasoning_params,
             ):
                 if event["type"] == "reasoning":
                     yield {"type": "reasoning", "delta": event["delta"]}

@@ -7,6 +7,22 @@ from typing import AsyncIterator
 logger = logging.getLogger(__name__)
 
 
+def reasoning_cfg(on: bool) -> dict:
+    """Complete reasoning params for a client.complete() call, spread with **.
+
+    Covers all API standards in one place:
+      - reasoning.effort / reasoning.enabled  — OpenAI-style servers
+      - chat_template_kwargs.enable_thinking  — llama.cpp servers
+    """
+    return {
+        "reasoning": {"effort": "low",  "enabled": True},
+        "chat_template_kwargs": {"enable_thinking": True},
+    } if on else {
+        "reasoning": {"effort": "none", "enabled": False},
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+
+
 class LLMClient:
     def __init__(self, base_url: str, api_key: str = "", timeout: float = 120.0):
         self.base_url = base_url.rstrip("/")
@@ -36,15 +52,6 @@ class LLMClient:
             {"type": "reasoning", "delta": str}  — zero or more reasoning chunks
             {"type": "done", "message": dict}    — assembled message with content/tool_calls
         """
-        # Keep chat_template_kwargs.enable_thinking in sync with reasoning.enabled
-        # so callers only need to set `reasoning` and never touch chat_template_kwargs
-        # for this purpose.  An explicit caller-supplied enable_thinking wins.
-        reasoning = params.get("reasoning")
-        if reasoning is not None:
-            ctk = dict(params.get("chat_template_kwargs") or {})
-            ctk.setdefault("enable_thinking", bool(reasoning.get("enabled", True)))
-            params = {**params, "chat_template_kwargs": ctk}
-
         body = {
             "model": model,
             "messages": messages,
@@ -232,8 +239,8 @@ class LLMClient:
             "max_tokens": 150,
             "logprobs": True,
             "top_logprobs": 1,
-            # Item 1: disable reasoning so thinking tokens don't consume the budget before the model reaches the tool-call control token.
-            "reasoning": {"effort": "none", "enabled": False},
+            # Disable reasoning so thinking tokens don't consume the budget before the model reaches the tool-call control token.
+            **reasoning_cfg(False),
         }
 
         def _entry_id(entry: dict) -> int | None:

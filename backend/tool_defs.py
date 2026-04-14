@@ -3,6 +3,8 @@ tool_defs.py — Tool schemas, constants, and helper lookups for the orchestrato
 """
 from __future__ import annotations
 
+from .llm_client import reasoning_cfg
+
 
 # ── Agent tool definitions (OpenAI function-calling format)
 
@@ -183,18 +185,17 @@ def enabled_schemas(enabled_tools: dict | None) -> list[dict]:
 
 
 def reasoning_config_for_tool(tool_name: str) -> dict | None:
-    """Return {"enabled": False} if reasoning is disabled for *tool_name*, else None."""
+    """Return reasoning_cfg(False) if reasoning is disabled for *tool_name*, else None."""
     cfg = TOOLS.get(tool_name, {})
     if not cfg.get("reasoning_enabled", True):
-        return {"enabled": False}
+        return reasoning_cfg(False)
     return None
 
 
 def reasoning_config_for_schemas(schemas: list[dict]) -> dict | None:
-    """If *any* schema in the list has reasoning disabled, return {"enabled": False}."""
+    """If *any* schema in the list has reasoning disabled, return reasoning_cfg(False), else None."""
     for schema in schemas:
         name = schema["function"]["name"]
-        rc = reasoning_config_for_tool(name)
-        if rc is not None:
-            return rc
+        if reasoning_config_for_tool(name) is not None:
+            return reasoning_cfg(False)
     return None

@@ -8,7 +8,7 @@ import json
 import logging
 from typing import AsyncIterator
 
-from ..llm_client import LLMClient
+from ..llm_client import LLMClient, reasoning_cfg
 from ..tool_defs import enabled_schemas
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ async def _writer_pass(
         json.dumps([s["function"]["name"] for s in schemas]) if schemas else "[]",
     )
     extra: dict = {"tools": schemas, "tool_choice": "none"} if schemas else {}
-    extra["reasoning"] = {"effort": "low", "enabled": True} if reasoning_on else {"enabled": False}
+    extra.update(reasoning_cfg(reasoning_on))
     if tool_start_token_id is not None:
         extra["logit_bias"] = {tool_start_token_id: -100}
         logger.info("Writer pass: logit_bias {%d: -100} applied", tool_start_token_id)

@@ -14,7 +14,7 @@ from .audit import run_audit, format_report, AuditReport
 from .slop_detector import FlaggedSentence, DetectionResult
 from .opening_monotony import FlaggedOpener, MonotonyResult
 from .template_repetition import FlaggedTemplate, TemplateResult
-from ...llm_client import LLMClient, parse_tool_calls
+from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...tool_defs import (
     TOOLS, REFINE_APPLY_PATCH_TOOL, REFINE_REWRITE_TOOL,
     REFINE_PREAMBLE, REFINE_AUDIT_INSTRUCTIONS,
@@ -289,8 +289,8 @@ async def refine_pass(
         if kv_tracker is not None and iteration == 0:
             kv_tracker.record("refine", msgs, refine_tools)
         try:
-            reasoning_config = {"enabled": False} if not reasoning_on else (reasoning_config_for_schemas(refine_tools) or {"effort": "low", "enabled": True})
-            if not reasoning_config.get("enabled", True):
+            reasoning_params = reasoning_cfg(False) if not reasoning_on else (reasoning_config_for_schemas(refine_tools) or reasoning_cfg(True))
+            if not reasoning_params["reasoning"].get("enabled", True):
                 logger.info("Refine iteration %d: reasoning disabled", iteration + 1)
 
             resp: dict = {}
@@ -302,7 +302,7 @@ async def refine_pass(
                     tool_choice=_pick_tool_choice(length_guard_triggered, report, audit_enabled),
                     temperature=0.25,
                     max_tokens=8192,
-                    reasoning=reasoning_config,
+                    **reasoning_params,
                 ):
                     if event["type"] == "reasoning":
                         yield {"type": "reasoning", "delta": event["delta"]}
