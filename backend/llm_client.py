@@ -27,6 +27,7 @@ class LLMClient:
         model: str,
         tools: list[dict] | None = None,
         tool_choice: str | None = None,
+        logit_bias: dict | None = None,
         **params,
     ) -> AsyncIterator[dict]:
         """Streaming completion. Yields reasoning deltas then the assembled message.
@@ -45,6 +46,8 @@ class LLMClient:
             body["tools"] = tools
         if tool_choice:
             body["tool_choice"] = tool_choice
+        if logit_bias:
+            body["logit_bias"] = logit_bias
 
         logger.info("LLM complete: model=%s, tools=%s, tool_choice=%s",
                      model,
@@ -81,6 +84,7 @@ class LLMClient:
                         c = delta.get("content")
                         if c:
                             content_parts.append(c)
+                            yield {"type": "content", "delta": c}
 
                         # Tool call argument deltas — accumulate by index
                         for tc_delta in (delta.get("tool_calls") or []):
@@ -129,61 +133,6 @@ class LLMClient:
                      list(message.keys()), "tool_calls" in message,
                      len(message.get("content", "") or "") if message.get("content") else "null")
         yield {"type": "done", "message": message}
-
-    async def stream(
-        self,
-        messages: list[dict],
-        model: str,
-        tools: list[dict] | None = None,
-        tool_choice: str | None = None,
-        logit_bias: dict | None = None,
-        **params,
-    ) -> AsyncIterator[dict]:
-        """Streaming completion. Yields content and reasoning dicts.
-
-        Yields:
-            {"type": "content",   "delta": str}
-            {"type": "reasoning", "delta": str}
-        """
-        body = {
-            "model": model,
-            "messages": messages,
-            "stream": True,
-            **params,
-        }
-        if tools:
-            body["tools"] = tools
-        if tool_choice:
-            body["tool_choice"] = tool_choice
-        if logit_bias:
-            body["logit_bias"] = logit_bias
-
-        logger.info("LLM stream: model=%s, tools=%s, tool_choice=%s",
-                     model,
-                     json.dumps([t["function"]["name"] for t in tools]) if tools else "None",
-                     tool_choice)
-        logger.info(messages)
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    payload = line[6:].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(payload)
-                        delta = chunk["choices"][0].get("delta", {})
-                        rc = delta.get("reasoning_content") or delta.get("reasoning")
-                        if rc:
-                            yield {"type": "reasoning", "delta": rc}
-                        content = delta.get("content")
-                        if content:
-                            yield {"type": "content", "delta": content}
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        continue
 
 
     async def _tokenize_string(self, model: str, text: str) -> int | None:

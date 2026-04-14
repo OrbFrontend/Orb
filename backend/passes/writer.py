@@ -59,7 +59,9 @@ async def _writer_pass(
     # Rolling tail buffer: most control tokens arrive as a single delta, but
     # we keep the last 50 chars to catch any that straddle a token boundary.
     tail = ""
-    async for item in client.stream(messages=msgs, model=settings["model_name"], **extra, **params):
+    async for item in client.complete(messages=msgs, model=settings["model_name"], **extra, **params):
+        if item["type"] == "done":
+            return
         if item["type"] == "content":
             tail = (tail + item["delta"])[-50:]
             for marker in _WRITER_LEAK_MARKERS:

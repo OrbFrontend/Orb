@@ -14,6 +14,7 @@ Avoids common false positives:
     - different-subject switches ("He isn't X, she is Y")
 """
 
+from __future__ import annotations
 import re
 
 # ── helpers ───────────────────────────────────────────────────────────────────
