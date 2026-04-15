@@ -3,8 +3,6 @@ tool_defs.py — Tool schemas, constants, and helper lookups for the orchestrato
 """
 from __future__ import annotations
 
-from .llm_client import reasoning_cfg
-
 
 # ── Agent tool definitions (OpenAI function-calling format)
 
@@ -167,10 +165,10 @@ MAX_REFINE_ITERATIONS = 3
 # ── Tool registry & helpers
 
 TOOLS: dict[str, dict] = {
-    "direct_scene": {"choice": {"type": "function", "function": {"name": "direct_scene"}}, "schema": AGENT_TOOLS[0], "reasoning_enabled": True},
-    "rewrite_user_prompt": {"choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}}, "schema": REWRITE_PROMPT_TOOL, "reasoning_enabled": False},
-    "refine_apply_patch": {"choice": {"type": "function", "function": {"name": "refine_apply_patch"}}, "schema": REFINE_APPLY_PATCH_TOOL, "reasoning_enabled": False},
-    "refine_rewrite": {"choice": {"type": "function", "function": {"name": "refine_rewrite"}}, "schema": REFINE_REWRITE_TOOL, "reasoning_enabled": False},
+    "direct_scene": {"choice": {"type": "function", "function": {"name": "direct_scene"}}, "schema": AGENT_TOOLS[0]},
+    "rewrite_user_prompt": {"choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}}, "schema": REWRITE_PROMPT_TOOL},
+    "refine_apply_patch": {"choice": {"type": "function", "function": {"name": "refine_apply_patch"}}, "schema": REFINE_APPLY_PATCH_TOOL},
+    "refine_rewrite": {"choice": {"type": "function", "function": {"name": "refine_rewrite"}}, "schema": REFINE_REWRITE_TOOL},
 }
 
 POST_WRITER_TOOLS = {"refine_apply_patch"}
@@ -184,18 +182,3 @@ def enabled_schemas(enabled_tools: dict | None) -> list[dict]:
     return [TOOLS[n]["schema"] for n in TOOLS if enabled_tools.get(n, False)]
 
 
-def reasoning_config_for_tool(tool_name: str) -> dict | None:
-    """Return reasoning_cfg(False) if reasoning is disabled for *tool_name*, else None."""
-    cfg = TOOLS.get(tool_name, {})
-    if not cfg.get("reasoning_enabled", True):
-        return reasoning_cfg(False)
-    return None
-
-
-def reasoning_config_for_schemas(schemas: list[dict]) -> dict | None:
-    """If *any* schema in the list has reasoning disabled, return reasoning_cfg(False), else None."""
-    for schema in schemas:
-        name = schema["function"]["name"]
-        if reasoning_config_for_tool(name) is not None:
-            return reasoning_cfg(False)
-    return None

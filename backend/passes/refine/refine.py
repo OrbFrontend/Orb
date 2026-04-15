@@ -19,7 +19,7 @@ from ...tool_defs import (
     TOOLS, REFINE_APPLY_PATCH_TOOL, REFINE_REWRITE_TOOL,
     REFINE_PREAMBLE, REFINE_AUDIT_INSTRUCTIONS,
     LENGTH_GUARD_INSTRUCTIONS,
-    MAX_REFINE_ITERATIONS, enabled_schemas, reasoning_config_for_schemas,
+    MAX_REFINE_ITERATIONS, enabled_schemas,
 )
 
 logger = logging.getLogger(__name__)
@@ -293,7 +293,7 @@ async def refine_pass(
         if kv_tracker is not None and iteration == 0:
             kv_tracker.record("refine", msgs, refine_tools)
         try:
-            reasoning_params = reasoning_cfg(False) if not reasoning_on else (reasoning_config_for_schemas(refine_tools) or reasoning_cfg(True))
+            reasoning_params = reasoning_cfg(False) if not reasoning_on else reasoning_cfg(True)
             if not reasoning_params["reasoning"].get("enabled", True):
                 logger.info("Refine iteration %d: reasoning disabled", iteration + 1)
 
@@ -445,14 +445,11 @@ def _append_iteration_context(msgs: list[dict], resp: dict, patches: list[dict],
     reasoning = resp.get("content", "") or ""
     reasoning_content = resp.get("reasoning_content", "") or ""
 
-    tool_name = "refine_apply_patch"
-    reasoning_enabled = TOOLS.get(tool_name, {}).get("reasoning_enabled", True)
-
     patch_summary = "; ".join(
         f"replaced \"{p.get('search', '')[:40]}…\"" for p in patches if p.get("search") != p.get("replace")
     ) or "no effective changes"
 
-    if reasoning_enabled and (reasoning or reasoning_content):
+    if reasoning or reasoning_content:
         combined = (reasoning + "\n" + reasoning_content).strip()
         assistant_recap = combined + "\n\n" + f"[Applied patches: {patch_summary}]"
     else:
