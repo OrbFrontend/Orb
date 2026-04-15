@@ -653,6 +653,20 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
       } catch (_) {}
       break;
     }
+    case 'refine_done': {
+      try {
+        const d = JSON.parse(data);
+        if (d.tool_calls?.length) {
+          if (!S.lastDirectorData) S.lastDirectorData = {};
+          S.lastDirectorData.tool_calls = [
+            ...(S.lastDirectorData.tool_calls || []),
+            ...d.tool_calls,
+          ];
+          renderInspector();
+        }
+      } catch (_) {}
+      break;
+    }
     case 'error':
       toast('Error: ' + data, true);
       break;
@@ -879,7 +893,7 @@ export function renderInspector() {
     ${lat ? `<div class="inspector-block"><h4>Agent Latency</h4>
                <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>` : ''}
     ${tc.length ? `<div class="inspector-block"><h4>Tool Calls</h4>
-                    <div class="injection-box">${esc(JSON.stringify(tc, null, 2))}</div></div>` : ''}
+                    <div class="injection-box">${esc(tc.map(c => JSON.stringify(c)).join('\n\n'))}</div></div>` : ''}
     ${inj ? `<div class="inspector-block"><h4>Injection Block</h4>
                <div class="injection-box">${esc(inj)}</div></div>` : ''}`;
   // Scroll the freshly rendered reasoning box to bottom

@@ -284,6 +284,7 @@ async def refine_pass(
 
     current_draft = draft
     prev_issues = report.total_issues
+    all_calls: list[dict] = []
 
     # ── ReAct loop
     for iteration in range(MAX_REFINE_ITERATIONS):
@@ -326,6 +327,7 @@ async def refine_pass(
             if not parsed:
                 logger.info("Refine iteration %d: no tool call, stopping", iteration + 1)
                 break
+            all_calls.extend(parsed)
 
             # ── Handle refine_rewrite
             rewrite_call = next((tc for tc in parsed if tc["name"] == "refine_rewrite"), None)
@@ -403,7 +405,7 @@ async def refine_pass(
     elapsed = int((time.monotonic() - t0) * 1000)
     changed = current_draft != draft
     logger.info("Refine: done in %dms, changed=%s, final_draft=%d chars", elapsed, changed, len(current_draft))
-    yield {"type": "done", "draft": current_draft if changed else None, "debug": "\n---\n".join(debug_parts), "elapsed": elapsed}
+    yield {"type": "done", "draft": current_draft if changed else None, "debug": "\n---\n".join(debug_parts), "elapsed": elapsed, "tool_calls": all_calls}
 
 
 # ── Helpers (private) ─────────────────────────────────────────────────────────

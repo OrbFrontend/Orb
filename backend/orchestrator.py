@@ -152,6 +152,8 @@ async def _run_pipeline(
                         resp_text = refined_draft
                         yield {"event": "writer_rewrite", "data": {"refined_text": resp_text}}
                         yield {"event": "_refined_result", "data": {"resp_text": resp_text}}
+                    if event.get("tool_calls"):
+                        yield {"event": "refine_done", "data": {"tool_calls": event["tool_calls"]}}
         except Exception as e:
             logger.error("refine pass failed, keeping original: %s", e, exc_info=True)
     elif not do_refine:
