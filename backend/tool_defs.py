@@ -17,7 +17,7 @@ AGENT_TOOLS = [{
                 "moods": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of moods to activate.",
+                    "description": "List of moods to activate. Leave empty for a neutral tone.",
                 },
                 "keywords": {
                     "type": "array",
@@ -30,7 +30,7 @@ AGENT_TOOLS = [{
                 },
                 "plot_direction": {
                     "type": "string",
-                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'she continues to bear down in a squatting position', 'the attack tears off a chunk of her clothing and she frantically tries to cover herself', 'Jack can tell she's lying and calls her out it because they have been friends forever', 'she pretends not to know what Vodka is to keep up the innocent act but he sees right through it', 'he shifts focus to something else entirely while deciding to be more physical'). Keep to one short sentence.",
+                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'she continues to bear down in a squatting position', 'the attack tears off a chunk of her clothing and she frantically tries to cover herself', 'Jack can tell she's lying and calls her out it because they have been friends forever', 'she pretends not to know what Vodka is to keep up the innocent act', 'he shifts focus to something else entirely and gets more physical'). Keep to one short sentence.",
                 },
                 "writing_direction": {
                     "type": "string",
@@ -39,10 +39,10 @@ AGENT_TOOLS = [{
                 "detected_repetitions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Specific tropes, phrases, subjects, plot points, narrative patterns that are recently overused in the narration (e.g. 'banal description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it', 'constant focus on the tree'). This list have up to 8 items.",
+                    "description": "Specific tropes, phrases, subjects, plot points, narrative patterns that are recently overused in the narration (e.g. 'banal description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it', 'constant focus on the tree'). This list may have up to 8 items.",
                 },
             },
-            "required": ["moods", "keywords", "plot_summary", "plot_direction", "writing_direction"],
+            "required": ["keywords", "plot_summary", "plot_direction", "writing_direction"],
         },
     },
 }]

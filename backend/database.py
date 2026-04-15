@@ -150,7 +150,7 @@ SEED_PHRASE_BANK = [
     ["like a vice", "like a vise"],
     ["void", "shadowed"],
     ["incredulous"],
-    ["predatory"],
+    ["predatory", "primal"],
     ["vulnerability", "vulnerable"],
     ["don't you dare stop"],
     ["electric", "electrifying"],
