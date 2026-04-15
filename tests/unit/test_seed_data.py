@@ -21,12 +21,6 @@ class TestSeedFragments:
                 f"Fragment '{fragment.get('id')}': '{field}' must be str, got {type(value).__name__!r}"
             )
 
-    @pytest.mark.parametrize("fragment", SEED_FRAGMENTS, ids=lambda f: f.get("id", "?"))
-    def test_is_builtin_is_bool(self, fragment):
-        value = fragment["is_builtin"]
-        assert isinstance(value, bool), (
-            f"Fragment '{fragment.get('id')}': 'is_builtin' must be bool, got {type(value).__name__!r}"
-        )
 
 
 class TestSeedPhraseBank:

@@ -82,7 +82,6 @@ app/
 | label | TEXT | Human-readable name |
 | description | TEXT | One-line summary (shown to agent) |
 | prompt_text | TEXT | The actual directive injected at depth 0.5 |
-| is_builtin | BOOLEAN | Seed fragments can't be deleted, only edited |
 
 **`character_cards`** — Character definitions. Each card describes one character the AI can play.
 
@@ -202,7 +201,7 @@ Both methods accept the full hyperparam set. Non-standard params (`min_p`, `top_
 
 **CharacterManager** — Character card CRUD panel. Lists all character cards with create/edit/delete. Each card form has fields for name, persona (large textarea), scenario, and example messages. Users select a character card when creating a new conversation.
 
-**FragmentManager** — List of all fragments with inline editing. Each fragment shows its ID, label, description, and the full prompt text. Users can add custom fragments, edit builtins, or soft-delete customs.
+**FragmentManager** — List of all fragments with inline editing. Each fragment shows its ID, label, description, and the full prompt text. Users can add, edit, or delete fragments.
 
 **DirectorInspector** — A collapsible debug panel (hidden by default). Reads from `conversation_logs` to show the agent's raw tool call output for any turn, the active styles (highlighted in the fragment list), the injection block that was sent, and the current persistent + momentary notes. This is essential during development and useful for power users who want to understand why the model's style shifted.
 

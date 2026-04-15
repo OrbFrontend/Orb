@@ -20,7 +20,6 @@ SEED_FRAGMENTS = [
             "Pull back from heavy dialogue. Return to a balanced mix of prose and speech. "
             "Do not prioritize dialogue over action and description."
         ),
-        "is_builtin": True,
     },
     {
         "id": "inner-thoughts",
@@ -36,7 +35,6 @@ SEED_FRAGMENTS = [
             "Stop foregrounding inner thoughts. Return to external action and dialogue. "
             "Keep interiority brief and grounded."
         ),
-        "is_builtin": False,
     },
     {
         "id": "terse",
@@ -51,7 +49,6 @@ SEED_FRAGMENTS = [
             "Return to normal prose length. You may use full sentences, adjectives, and longer "
             "paragraphs again. Do not keep clipping sentences artificially."
         ),
-        "is_builtin": False,
     },
     {
         "id": "tense",
@@ -66,7 +63,6 @@ SEED_FRAGMENTS = [
             "Release the tension. The scene no longer needs to feel high-stakes or ominous. "
             "Allow the tone to relax and breathe."
         ),
-        "is_builtin": False,
     },
     {
         "id": "sensual",
@@ -74,7 +70,7 @@ SEED_FRAGMENTS = [
         "description": "NSFW mode - descriptive, enable if the vibes of the situation call for it",
         "prompt_text": (
             'The narration may describe body parts that are exposed or looked at - visually, or interacted with - tactilely, but sparingly in order to avoid repetition. Take initiative and actively push the scene forward, no need to ask. '
-            'The narration can use NSFW, vulgar, uncensored, explicit vocabulary where applicable. Avoid roundabout allegories like "heat", "core", etc. The prose is now more brutal, vivid, and direct. '
+            'The narration can use NSFW, vulgar, uncensored, explicit vocabulary where applicable. Avoid roundabout euphemisms like "heat", "core", etc. The prose is now more brutal, vivid, and direct. '
             'Consider positions and clothing states of the characters - what are they wearing, and where are they in relation to each other?. '
             "Focus on staying in character even though the vibes are sensual - characters still have their own boundaries and will behave realistically and warily of strangers."
         ),
@@ -82,7 +78,6 @@ SEED_FRAGMENTS = [
             "Return to non-explicit writing. Keep all descriptions tasteful and non-graphic. "
             "Do not use vulgar sexual vocabulary or describe exposed body parts explicitly."
         ),
-        "is_builtin": False,
     },
     {
         "id": "defensive",
@@ -92,7 +87,6 @@ SEED_FRAGMENTS = [
             "Some characters don't take kindly to insults, sexual assault, violence, non-consensual advances. They will fight back or escape (or at least try to) according to their personalities. React immediately."
         ),
         "negative_prompt": "",
-        "is_builtin": False,
     },
     {
         "id": "grounded",
@@ -102,7 +96,6 @@ SEED_FRAGMENTS = [
             "The scenario is getting far-fetched and characters are behaving irrationally/illogically. Focus on being realistic and grounded now, the characters should act like how real people act, talk like how real people talk. That means less monologue, more wariness of strangers, balanced power-scaling, etc."
         ),
         "negative_prompt": "",
-        "is_builtin": False,
     },
 ]
 
@@ -201,7 +194,6 @@ async def init_db():
                 description TEXT NOT NULL,
                 prompt_text TEXT NOT NULL,
                 negative_prompt TEXT NOT NULL DEFAULT '',
-                is_builtin BOOLEAN NOT NULL DEFAULT 0,
                 enabled BOOLEAN NOT NULL DEFAULT 1
             );
 
@@ -316,8 +308,8 @@ async def init_db():
         if row[0]["c"] == 0:
             for f in SEED_FRAGMENTS:
                 await db.execute(
-                    "INSERT INTO fragments (id, label, description, prompt_text, negative_prompt, is_builtin) VALUES (?, ?, ?, ?, ?, ?)",
-                    (f["id"], f["label"], f["description"], f["prompt_text"], f["negative_prompt"], f["is_builtin"]),
+                    "INSERT INTO fragments (id, label, description, prompt_text, negative_prompt) VALUES (?, ?, ?, ?, ?)",
+                    (f["id"], f["label"], f["description"], f["prompt_text"], f["negative_prompt"]),
                 )
 
         # Seed phrase_bank if empty
@@ -412,7 +404,7 @@ async def set_tool_start_token(model_key: str, token_id: int | None) -> None:
 async def get_fragments() -> list[dict]:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall("SELECT * FROM fragments ORDER BY is_builtin DESC, label ASC")
+        rows = await db.execute_fetchall("SELECT * FROM fragments ORDER BY label ASC")
         return [dict(r) for r in rows]
     finally:
         await db.close()
@@ -432,7 +424,7 @@ async def create_fragment(data: dict) -> dict:
     try:
         enabled = data.get("enabled", 1)
         await db.execute(
-            "INSERT INTO fragments (id, label, description, prompt_text, negative_prompt, is_builtin, enabled) VALUES (?, ?, ?, ?, ?, 0, ?)",
+            "INSERT INTO fragments (id, label, description, prompt_text, negative_prompt, enabled) VALUES (?, ?, ?, ?, ?, ?)",
             (data["id"], data["label"], data["description"], data["prompt_text"], data.get("negative_prompt", ""), enabled),
         )
         await db.commit()
@@ -463,7 +455,7 @@ async def update_fragment(fid: str, data: dict) -> dict | None:
 async def delete_fragment(fid: str) -> bool:
     db = await get_db()
     try:
-        cur = await db.execute("DELETE FROM fragments WHERE id = ? AND is_builtin = 0", (fid,))
+        cur = await db.execute("DELETE FROM fragments WHERE id = ?", (fid,))
         await db.commit()
         return cur.rowcount > 0
     finally:
