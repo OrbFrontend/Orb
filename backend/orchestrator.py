@@ -64,7 +64,7 @@ async def _run_pipeline(
 
     active_moods = director["active_moods"]
     agent_raw, calls, latency = "", [], 0
-    refined_msg, plot_direction, writing_direction, detected_repetitions, plot_summary = None, None, None, None, None
+    refined_msg, next_action, writing_direction, detected_repetitions, plot_summary = None, None, None, None, None
     keywords = director.get("keywords", [])
     effective_msg = user_message
 
@@ -97,7 +97,7 @@ async def _run_pipeline(
             if event["type"] == "reasoning":
                 yield {"event": "reasoning", "data": {"pass": "director", "delta": event["delta"]}}
             elif event["type"] == "done":
-                active_moods, agent_raw, calls, latency, refined_msg, plot_direction, writing_direction, detected_repetitions, plot_summary, keywords = event["result"]
+                active_moods, agent_raw, calls, latency, refined_msg, next_action, writing_direction, detected_repetitions, plot_summary, keywords = event["result"]
         if refined_msg:
             effective_msg = refined_msg
             yield {"event": "prompt_rewritten", "data": {"refined_message": refined_msg}}
@@ -106,12 +106,12 @@ async def _run_pipeline(
     direct_scene_enabled = agent_on and bool(enabled_tools.get("direct_scene", False))
     inj_block = compute_style_injection_block(
         active_moods, director["active_moods"], fragments, direct_scene_enabled,
-        plot_direction, writing_direction, detected_repetitions, plot_summary, keywords,
+        next_action, writing_direction, detected_repetitions, plot_summary, keywords,
     )
 
     yield {"event": "director_done", "data": {
         "active_moods": active_moods, "injection_block": inj_block, "tool_calls": calls,
-        "agent_latency_ms": latency, "plot_direction": plot_direction, "writing_direction": writing_direction,
+        "agent_latency_ms": latency, "next_action": next_action, "writing_direction": writing_direction,
         "detected_repetitions": detected_repetitions, "plot_summary": plot_summary, "keywords": keywords,
     }}
 
@@ -134,7 +134,7 @@ async def _run_pipeline(
     yield {"event": "_result", "data": {
         "active_moods": active_moods, "agent_raw": agent_raw, "calls": calls,
         "latency": latency, "refined_msg": refined_msg, "effective_msg": effective_msg,
-        "resp_text": resp_text, "inj_block": inj_block, "plot_direction": plot_direction,
+        "resp_text": resp_text, "inj_block": inj_block, "next_action": next_action,
         "writing_direction": writing_direction, "detected_repetitions": detected_repetitions,
         "plot_summary": plot_summary, "keywords": keywords,
     }}

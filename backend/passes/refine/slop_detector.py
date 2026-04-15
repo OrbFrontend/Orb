@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 _N = 3
 _EXACT_MATCH_MAX_LEN = 3
-_DEFAULT_THRESHOLD = 0.6
+_DEFAULT_THRESHOLD = 0.4
 _WINDOW_PADDING = 2
 
 

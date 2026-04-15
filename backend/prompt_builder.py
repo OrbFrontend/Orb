@@ -91,7 +91,7 @@ def compute_style_injection_block(
     prior_moods: list[str],
     fragments: list[dict],
     direct_scene_enabled: bool,
-    plot_direction: str | None = None,
+    next_action: str | None = None,
     writing_direction: str | None = None,
     detected_repetitions: list[str] | None = None,
     plot_summary: str | None = None,
@@ -101,7 +101,7 @@ def compute_style_injection_block(
 
     When *direct_scene_enabled* is False the active-mood and keyword signals are
     suppressed so the previous turn's director state cannot bleed into the writer.
-    Only the unconditional fields (plot_direction, etc.) are still forwarded in
+    Only the unconditional fields (next_action, etc.) are still forwarded in
     that case, though in practice they are also None when direct_scene is off.
     """
     if direct_scene_enabled:
@@ -117,19 +117,19 @@ def compute_style_injection_block(
     )
     active = [f for f in fragments if f["id"] in inj_active_moods]
 
-    if not (active or deactivated or plot_direction or writing_direction
+    if not (active or deactivated or next_action or writing_direction
             or detected_repetitions or plot_summary or inj_keywords):
         return ""
 
     return build_style_injection(
-        active, deactivated, plot_direction, writing_direction,
+        active, deactivated, next_action, writing_direction,
         detected_repetitions, plot_summary, inj_keywords,
     )
 
 
 def build_style_injection(
     active: list[dict], deactivated: list[dict] | None = None,
-    plot_direction: str | None = None, writing_direction: str | None = None,
+    next_action: str | None = None, writing_direction: str | None = None,
     detected_repetitions: list[str] | None = None,
     plot_summary: str | None = None,
     keywords: list[str] | None = None,
@@ -137,8 +137,8 @@ def build_style_injection(
     parts = ["**Scene Direction**"]
     if plot_summary:
         parts.append(f"Plot summary: {plot_summary}")
-    if plot_direction:
-        parts.append(f"Plot: {plot_direction}")
+    if next_action:
+        parts.append(f"Next action: {next_action}")
     if writing_direction:
         parts.append(f"Narration: {writing_direction}")
     if detected_repetitions:

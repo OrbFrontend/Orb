@@ -10,7 +10,7 @@ AGENT_TOOLS = [{
     "type": "function",
     "function": {
         "name": "direct_scene",
-        "description": "Call this to direct the scene. Deduce what the user wants to see and show them. Combine and configure the moods, extract keywords, summarize the plot, specify the direction the scene should take, detect and report repetitive tropes, phrases, subjects, plot points, narrative patterns to avoid. Be very specific and intentional with the directions.",
+        "description": "Call this to direct the scene. Deduce what the user wants to see and show them. Combine and configure the moods; extract keywords; summarize the plot; specify the direction the scene should take; detect and report repetitive tropes, phrases, subjects, plot points, narrative patterns to avoid. Be very specific and intentional with the directions.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -28,9 +28,9 @@ AGENT_TOOLS = [{
                     "type": "string",
                     "description": "A brief and specific summary of what has happened so far in the story. Call things for what they are, avoid being generic, avoid adjectives. 3 sentences max (e.g. Rob was working on his lake house when his wife called for him to help moving some furnitue. The weather was hot so he took off his shirt. Then the couch fell on his leg, eliciting his pain receptors.).",
                 },
-                "plot_direction": {
+                "next_action": {
                     "type": "string",
-                    "description": "What happens next in the story — events, actions, reveals, turns of fate (e.g. 'she continues to bear down in a squatting position', 'the attack tears off a chunk of her clothing and she frantically tries to cover herself', 'Jack can tell she's lying and calls her out it because they have been friends forever', 'she pretends not to know what Vodka is to keep up the innocent act', 'he shifts focus to something else entirely and gets more physical'). Keep to one short sentence.",
+                    "description": "What happens immediately next in the story — the next event, action, reveal, or turn of fate (e.g. 'she continues to bear down in a squatting position', 'the attack tears off a chunk of her clothing and she frantically tries to cover herself', 'Jack can tell she's lying and calls her out it because they have been friends forever', 'she pretends not to know what Vodka is to keep up the innocent act', 'he shifts focus to something else entirely and gets more physical'). Keep to two short sentences.",
                 },
                 "writing_direction": {
                     "type": "string",
@@ -42,7 +42,7 @@ AGENT_TOOLS = [{
                     "description": "Specific tropes, phrases, subjects, plot points, narrative patterns that are recently overused in the narration (e.g. 'banal description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it', 'constant focus on the tree'). This list may have up to 8 items.",
                 },
             },
-            "required": ["keywords", "plot_summary", "plot_direction", "writing_direction"],
+            "required": ["keywords", "plot_summary", "next_action", "writing_direction"],
         },
     },
 }]
