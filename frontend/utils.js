@@ -100,7 +100,8 @@ export function wordDiff(oldText, newText) {
 function _applyInlineFormatting(escaped) {
   escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   escaped = escaped.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
-  return escaped.replace(/"([^"]+)"/g, '<span class="quoted">"$1"</span>');
+  escaped = escaped.replace(/"([^"]+)"/g, '<span class="quoted">"$1"</span>');
+  return escaped.replace(/\u201c([^\u201d]+)\u201d/g, '<span class="quoted">\u201c$1\u201d</span>');
 }
 
 // Renders diff ops as HTML with change highlights and tooltips for original text.
@@ -154,6 +155,7 @@ export function formatProse(text) {
     escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     escaped = escaped.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
     escaped = escaped.replace(/"([^"]+)"/g, '<span class="quoted">"$1"</span>');
+    escaped = escaped.replace(/\u201c([^\u201d]+)\u201d/g, '<span class="quoted">\u201c$1\u201d</span>');
     escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
     // Headers applied last so prior patterns don't corrupt the injected HTML attributes
     escaped = escaped.replace(/^(#{1,6}) (.+)$/gm, (_, hashes, content) =>
