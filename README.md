@@ -46,7 +46,7 @@ For optimal KV cache reuse, the following will remain consistent across passes:
 
 1. **Clear direction for Writer**: Grounding the story + actively steering the writing style = better output
 2. **Customizability**: Customizable prompt injection that's automatically used by Director model
-3. **Anti-slop**: Get rid of overused words and phrases often seen in LLM outputs
+3. **Anti-slop**: Get rid of overused words, phrases, and patterns often seen in LLM outputs
 4. **Length Guard**: Actively or passively protect from length degradation as context grows
 
 ## Drawbacks

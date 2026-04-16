@@ -1,6 +1,6 @@
 - [Post-process] Implement phrase repetition detection as well, not just anti-slop detection. Tell the model to write about something else entirely for this sentence.
 
-- Check: Handle many chars with the same name.
+- Database: Handle many chars with the same name.
 
 - Feature: Image attachments => Save b64 encoded images as is in DB, render them in chat always.
 - Feature: User-defined fields for the director to consider (e.g. physicality).
@@ -8,5 +8,3 @@
 
 -- Not yet --
 - Feature: Add a magic button to the AI's message for "rewrite with custom direction." Clicking it opens a small input box where the user can specify the rewrite direction.
-- Feature: During and after the refine pass, the latest AI message box should indicate which phrases were changed. Highlight the changed sentences and display a tooltip showing the original text when the cursor hovers over them.
-- Feature: Add a hash prefix to guarantee KV cache reuse.
