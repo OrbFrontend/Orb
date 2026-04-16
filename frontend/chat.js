@@ -267,13 +267,12 @@ export function renderMessages() {
           <span class="swipe-counter">${bi + 1}/${bc}</span>
           <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? 'disabled' : ''}>▶</button>
         </span>` : '';
-      const isLastAssistant = m.role === 'assistant' && m === msgs[msgs.length - 1];
       const toolbar = isEditing ? '' : `
         <div class="msg-toolbar">
           ${m.id ? `<button onclick="startEdit(${m.id})" title="Edit">✏️ Edit</button>` : ''}
           ${m.role === 'assistant' && m.id ? `<button onclick="regenerate(${m.id})" title="Regenerate">🔄 Regen</button>` : ''}
           ${m.id ? `<button onclick="deleteMessage(${m.id})" title="Delete message and all children" style="color:var(--red)">✕ Del</button>` : ''}
-          ${isLastAssistant && S.pendingRefineDiff ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">✕ Diff</button>` : ''}
+          ${S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">✕ Diff</button>` : ''}
         </div>`;
       const body = isEditing ? `
         <div class="msg-edit-area">
@@ -285,7 +284,7 @@ export function renderMessages() {
             </button>
           </div>
         </div>` : `<div class="msg-body">${
-          (isLastAssistant && S.pendingRefineDiff)
+          (S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId)
             ? formatProseWithDiff(S.pendingRefineDiff.ops)
             : formatProse(resolvePlaceholders(m.content))
         }</div>`;
@@ -507,6 +506,13 @@ async function afterStream() {
   setGenerationPhase(null);
   setStreaming(false);
   $('send-btn').disabled = false;
+
+  // Anchor the pending diff to the specific message ID it was generated for,
+  // so branch navigation doesn't show stale diffs on the wrong message.
+  if (S.pendingRefineDiff) {
+    const lastAssistant = [...S.messages].reverse().find(m => m.role === 'assistant' && m.id);
+    S.pendingRefineDiff.msgId = lastAssistant?.id ?? null;
+  }
 
   // Finalize the streaming div in-place — no DOM destruction, no flash
   const lastMsg = S.messages[S.messages.length - 1];
