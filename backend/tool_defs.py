@@ -122,15 +122,11 @@ REFINE_PREAMBLE = (
     "provided tools to apply the required changes. Call exactly ONE tool."
 )
 
-# Sent only when the audit flagged issues (banned phrases, repetitive
-# openers/templates).  Contains tool-selection logic, patching rules,
-# and rewriting rules.
-REFINE_AUDIT_INSTRUCTIONS = (
-    "TOOL SELECTION RULES:\n"
-    "1. If there are AUDIT ISSUES (banned phrases, repetitive openers, or repetitive templates) AND NO LENGTH GUARD: Use `refine_apply_patch` to fix each issue with surgical patches.\n"
-    "2. If there is a LENGTH GUARD (draft too long) AND NO AUDIT ISSUES: Use `refine_rewrite` to produce a concise rewrite within the specified limits.\n"
-    "3. If there are BOTH AUDIT ISSUES AND LENGTH GUARD: Use `refine_rewrite` to address both concerns in a single comprehensive rewrite.\n\n"
-    "PATCHING RULES (when using `refine_apply_patch`):\n"
+# Sent when only audit issues are flagged (banned phrases, repetitive
+# openers/templates) — no length guard.  Directs the model to patch only.
+REFINE_PATCH_INSTRUCTIONS = (
+    "Use `refine_apply_patch` to fix each flagged issue with a surgical patch.\n\n"
+    "PATCHING RULES:\n"
     "- Send ONE `refine_apply_patch` call with one patch per flagged issue.\n"
     "- The `search` field must be copied EXACTLY from the draft text above — including all punctuation and quotes.\n"
     "- Each patch must target a DIFFERENT, non-overlapping piece of text.\n"
@@ -139,19 +135,28 @@ REFINE_AUDIT_INSTRUCTIONS = (
     "- For banned phrases: rewrite the sentence to remove the banned phrase entirely. Note: The audit report may show the canonical phrase name (e.g., 'ozone'), but you need to remove the actual variant that appears in the sentence (e.g., 'electric').\n"
     "- For repetitive openers: change how the sentence begins.\n"
     "- For repetitive templates: restructure the sentence (reorder clauses, combine, vary syntax).\n\n"
-    "REWRITING RULES (when using `refine_rewrite`):\n"
-    "- Send ONE `refine_rewrite` call with the complete rewritten text.\n"
-    "- Address all audit issues (if any) while also respecting length constraints.\n"
-    "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied - avoid repetitive 'she, she, she'.\n"
-    "- First priority is to get rid of repetitiveness and condense comma-separated adjectives into stronger, more precise words (e.g. old, ruined building -> decrepit building).\n"
-    "- Be more concise but maintain coherence and narrative flow.\n\n"
-    "GENERAL NOTES:\n"
-    "- If the audit report seems incorrect or makes no sense, you may skip fixing those specific issues.\n"
-    "- Always choose the most appropriate tool based on the combination of issues presented."
+    "If the audit report seems incorrect or makes no sense, you may skip fixing those specific issues."
 )
 
-# Keep for backward compat — full instructions = preamble + audit rules.
-REFINE_AGENT_INSTRUCTIONS = REFINE_PREAMBLE + "\n\n" + REFINE_AUDIT_INSTRUCTIONS
+# Sent when only the length guard is triggered — no audit issues.
+# Directs the model to rewrite only.
+REFINE_REWRITE_INSTRUCTIONS = (
+    "Use `refine_rewrite` to produce a condensed rewrite within the specified limits.\n\n"
+    "REWRITING RULES:\n"
+    "- Send ONE `refine_rewrite` call with the complete rewritten text.\n"
+    "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied - avoid repetitive 'she, she, she'.\n"
+    "- First priority is to get rid of repetitiveness and condense comma-separated adjectives into stronger, more precise words (e.g. old, ruined building -> decrepit building).\n"
+    "- Be more concise but maintain coherence and narrative flow."
+)
+
+# Sent when both audit issues AND length guard are triggered.
+# Minimal directive — the model already receives the full audit report
+# and the length-guard instruction with concrete word/paragraph limits.
+REFINE_BOTH_INSTRUCTIONS = (
+    "Use `refine_rewrite` to address both concerns in a single comprehensive rewrite.\n"
+    "- Address all audit issues (if any) while also respecting length constraints.\n"
+    "- If the audit report seems incorrect or makes no sense, you may skip fixing those specific issues."
+)
 
 LENGTH_GUARD_INSTRUCTIONS = (
     "LENGTH GUARD: The draft is {word_count} words — too long. "

@@ -17,7 +17,7 @@ from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...tool_defs import (
     TOOLS, REFINE_APPLY_PATCH_TOOL, REFINE_REWRITE_TOOL,
-    REFINE_PREAMBLE, REFINE_AUDIT_INSTRUCTIONS,
+    REFINE_PREAMBLE, REFINE_PATCH_INSTRUCTIONS, REFINE_REWRITE_INSTRUCTIONS, REFINE_BOTH_INSTRUCTIONS,
     LENGTH_GUARD_INSTRUCTIONS,
     MAX_REFINE_ITERATIONS, enabled_schemas,
 )
@@ -421,10 +421,15 @@ def _build_refine_prompt(
     Audit rules and/or length-guard instructions are appended as needed.
     """
     parts = [REFINE_PREAMBLE]
-    if has_audit_issues:
-        parts.append(REFINE_AUDIT_INSTRUCTIONS)
+    if has_audit_issues and length_guard_triggered:
+        parts.append(REFINE_BOTH_INSTRUCTIONS)
         parts.append(report_text)
-    if length_guard_triggered:
+        parts.append(length_guard_instruction)
+    elif has_audit_issues:
+        parts.append(REFINE_PATCH_INSTRUCTIONS)
+        parts.append(report_text)
+    elif length_guard_triggered:
+        parts.append(REFINE_REWRITE_INSTRUCTIONS)
         parts.append(length_guard_instruction)
     return "\n\n".join(parts)
 
