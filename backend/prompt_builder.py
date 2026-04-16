@@ -138,7 +138,7 @@ def build_style_injection(
     if plot_summary:
         parts.append(f"Plot summary: {plot_summary}")
     if next_event:
-        parts.append(f"Next action: {next_event}")
+        parts.append(f"Next event: {next_event}")
     if writing_direction:
         parts.append(f"Narration: {writing_direction}")
     if detected_repetitions:
