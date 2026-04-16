@@ -72,10 +72,16 @@ function _tokenizeSentences(text) {
 
 function _lcs(a, b) {
   const m = a.length, n = b.length;
+  // Restrict matches to a diagonal band to prevent greedy long-distance anchoring.
+  // A sentence at position i in `a` can only match a sentence at position j in `b`
+  // if they're within `band` slots of each other. Without this, a short sentence that
+  // appears in both texts but far apart in relative position would anchor the LCS and
+  // cause everything between the two occurrences to show as changed.
+  const band = Math.max(2, Math.ceil(Math.max(m, n) * 0.4));
   const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      dp[i][j] = a[i - 1] === b[j - 1]
+      dp[i][j] = (a[i - 1] === b[j - 1] && Math.abs(i - j) <= band)
         ? dp[i - 1][j - 1] + 1
         : Math.max(dp[i - 1][j], dp[i][j - 1]);
     }
@@ -83,7 +89,7 @@ function _lcs(a, b) {
   const ops = [];
   let i = m, j = n;
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && a[i - 1] === b[j - 1]) {
+    if (i > 0 && j > 0 && a[i - 1] === b[j - 1] && Math.abs(i - j) <= band) {
       ops.push({ type: 'equal', text: a[i - 1] }); i--; j--;
     } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
       ops.push({ type: 'insert', text: b[j - 1] }); j--;
