@@ -1,5 +1,6 @@
 - [Post-process] Implement phrase repetition detection as well, not just anti-slop detection. Tell the model to write about something else entirely for this sentence.
 
+- Feature: Multiple user personas.
 - Feature: Image attachments => Save b64 encoded images as is in DB, render them in chat always.
 - Feature: User-defined fields for the director to consider (e.g. physicality).
 - Feature: Implement min_words for length_guard in refine pass.
