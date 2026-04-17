@@ -32,6 +32,6 @@ export const S = {
   reasoningPassSelected: 0,
   reasoningUserOverride: false,
   reasoningOpen: true,
-  reasoningEnabled: { director: true, writer: true, editor: true },
+  reasoningEnabled: { director: true, writer: false, editor: false },
   pendingRefineDiff: null,  // {original, ops} set on writer_rewrite, cleared on next stream
 };

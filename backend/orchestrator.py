@@ -49,8 +49,8 @@ async def _run_pipeline(
 
     reasoning_passes = settings.get("reasoning_enabled_passes") or {}
     director_reasoning_on = bool(reasoning_passes.get("director", True))
-    writer_reasoning_on = bool(reasoning_passes.get("writer", True))
-    editor_reasoning_on = bool(reasoning_passes.get("editor", True))
+    writer_reasoning_on = bool(reasoning_passes.get("writer", False))
+    editor_reasoning_on = bool(reasoning_passes.get("editor", False))
 
     active_moods = director["active_moods"]
     agent_raw, calls, latency = "", [], 0
