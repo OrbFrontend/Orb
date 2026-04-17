@@ -321,7 +321,6 @@ export async function createCharacter() {
     closeModal();
     await loadCharacters();
     toast('Created');
-    showCharEditModal(created.id);
   } catch (e) { toast(e.message, true); }
 }
 
