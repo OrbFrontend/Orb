@@ -537,7 +537,7 @@ async function processSSEStream(resp, container, msgDiv, signal) {
   // Reset reasoning state for this generation turn
   S.reasoningDirector = "";
   S.reasoningWriter   = "";
-  S.reasoningRefiner  = "";
+  S.reasoningEditor  = "";
   S.reasoningPassActive   = 0; // tracks streaming progress (for dot lighting)
   S.reasoningPassSelected = 0; // tracks what the user is viewing
   S.reasoningUserOverride = false; // true when user has manually clicked a dot
@@ -622,7 +622,7 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
     case 'writer_rewrite':
       clearRefineTimer();
       setGenerationPhase('refining');
-      _advanceReasoningPass(2); // writer done, refiner starting → move to Refiner dot
+      _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
       try {
         const refined = JSON.parse(data).refined_text;
         // S.streamingContent still holds the writer's unrefined text at this point
@@ -635,7 +635,7 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
     case 'reasoning': {
       try {
         const d = JSON.parse(data);
-        const passKey  = d.pass; // "director" | "writer" | "refiner"
+        const passKey  = d.pass; // "director" | "writer" | "editor"
         const delta    = d.delta;
         const stateKey = 'reasoning' + passKey.charAt(0).toUpperCase() + passKey.slice(1);
         S[stateKey] = (S[stateKey] || '') + delta;
@@ -763,7 +763,7 @@ export async function regenerate(msgId) {
 const REASONING_PASSES = [
   { key: 'director', label: 'Director', color: 'var(--accent-dim)' },
   { key: 'writer',   label: 'Writer',   color: 'var(--accent-dim)' },
-  { key: 'refiner',  label: 'Refiner',  color: 'var(--accent-dim)' },
+  { key: 'editor',  label: 'Editor',  color: 'var(--accent-dim)' },
 ];
 
 // Advance the streaming-progress dot to `targetIdx` only if it's further ahead.

@@ -50,7 +50,7 @@ async def _run_pipeline(
     reasoning_passes = settings.get("reasoning_enabled_passes") or {}
     director_reasoning_on = bool(reasoning_passes.get("director", True))
     writer_reasoning_on = bool(reasoning_passes.get("writer", True))
-    refiner_reasoning_on = bool(reasoning_passes.get("refiner", True))
+    editor_reasoning_on = bool(reasoning_passes.get("editor", True))
 
     active_moods = director["active_moods"]
     agent_raw, calls, latency = "", [], 0
@@ -233,12 +233,12 @@ async def _run_pipeline(
                 length_guard,
                 enabled_tools,
                 kv_tracker=kv_tracker,
-                reasoning_on=refiner_reasoning_on,
+                reasoning_on=editor_reasoning_on,
             ):
                 if event["type"] == "reasoning":
                     yield {
                         "event": "reasoning",
-                        "data": {"pass": "refiner", "delta": event["delta"]},
+                        "data": {"pass": "editor", "delta": event["delta"]},
                     }
                 elif event["type"] == "done":
                     refined_draft = event["draft"]

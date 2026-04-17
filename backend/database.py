@@ -226,7 +226,7 @@ async def init_db():
                 enable_agent INTEGER NOT NULL DEFAULT 1,
                 length_guard_max_words INTEGER NOT NULL DEFAULT 240,
                 length_guard_max_paragraphs INTEGER NOT NULL DEFAULT 4,
-                reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":true,"refiner":true}'
+                reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":true,"editor":true}'
             );
 
             CREATE TABLE IF NOT EXISTS fragments (
@@ -328,7 +328,7 @@ async def init_db():
             )
         if "reasoning_enabled_passes" not in existing_cols:
             await db.execute(
-                'ALTER TABLE settings ADD COLUMN reasoning_enabled_passes TEXT NOT NULL DEFAULT \'{"director":true,"writer":true,"refiner":true}\''
+                'ALTER TABLE settings ADD COLUMN reasoning_enabled_passes TEXT NOT NULL DEFAULT \'{"director":true,"writer":true,"editor":true}\''
             )
 
         # Migration for director_state keywords column
@@ -418,7 +418,7 @@ async def get_settings() -> dict:
         s["enabled_tools"] = json.loads(s.get("enabled_tools") or "{}")
         s["reasoning_enabled_passes"] = json.loads(
             s.get("reasoning_enabled_passes")
-            or '{"director":true,"writer":true,"refiner":true}'
+            or '{"director":true,"writer":true,"editor":true}'
         )
         return s
     finally:

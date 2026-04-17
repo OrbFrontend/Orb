@@ -149,6 +149,7 @@ class CharacterCardCreate(BaseModel):
         if not stripped:
             raise ValueError("name must not be empty or whitespace-only")
         return stripped
+
     personality: str = ""
     scenario: str = ""
     first_mes: str = ""
@@ -176,6 +177,7 @@ class CharacterCardUpdate(BaseModel):
                 raise ValueError("name must not be empty or whitespace-only")
             return stripped
         return v
+
     personality: Optional[str] = None
     scenario: Optional[str] = None
     first_mes: Optional[str] = None
@@ -386,7 +388,9 @@ async def api_list_characters():
 @app.post("/api/characters")
 async def api_create_character(data: CharacterCardCreate):
     card_data = data.model_dump()
-    card_data["id"] = card_data.get("id") or str(uuid.uuid4())  # see CharacterCardCreate
+    card_data["id"] = card_data.get("id") or str(
+        uuid.uuid4()
+    )  # see CharacterCardCreate
     card_data["source_format"] = card_data.get("source_format") or "manual"
     return await create_character_card(card_data)
 

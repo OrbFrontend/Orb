@@ -559,7 +559,7 @@ body {
   padding: .1em .4em;
 }
 
-/* Refiner diff highlights */
+/* Editor diff highlights */
 .diff-change {
   background: var(--accent-glow);
   border-bottom: 1.5px solid var(--accent-dim);
