@@ -220,7 +220,7 @@ function _readAltGreetings(prefix) {
 
 // ── Avatar crop helpers
 
-export function triggerAvatarCrop(prefix) {
+export function triggerAvatarCrop(prefix, cardId) {
   showCropModal(({ b64, mime }) => {
     _pendingAvatar = { b64, mime };
     const el = $(`${prefix}-avatar-preview`);
