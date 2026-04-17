@@ -1,3 +1,3 @@
-from .refine import refine_pass
+from .refine import editor_pass
 
-__all__ = ["refine_pass"]
+__all__ = ["editor_pass"]

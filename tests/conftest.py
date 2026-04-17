@@ -22,7 +22,7 @@ def base_settings() -> dict:
         "enabled_tools": {
             "direct_scene": True,
             "rewrite_user_prompt": False,
-            "refine_assistant_output": False,
+            "editor_apply_patch": False,
         },
         "user_name": "Tester",
         "user_description": "",

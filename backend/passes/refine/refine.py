@@ -1,5 +1,5 @@
 """
-refine.py — Refinement pass: audit filtering, text patching, and the
+refine.py — Editor pass: audit filtering, text patching, and the
 ReAct-style LLM loop that fixes audit issues and/or enforces length guards.
 """
 
@@ -18,14 +18,14 @@ from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...tool_defs import (
     TOOLS,
-    REFINE_APPLY_PATCH_TOOL,
-    REFINE_REWRITE_TOOL,
-    REFINE_PREAMBLE,
-    REFINE_PATCH_INSTRUCTIONS,
-    REFINE_REWRITE_INSTRUCTIONS,
-    REFINE_BOTH_INSTRUCTIONS,
+    editor_apply_patch_TOOL,
+    editor_rewrite_TOOL,
+    EDITOR_PREAMBLE,
+    EDITOR_PATCH_INSTRUCTIONS,
+    editor_rewrite_INSTRUCTIONS,
+    EDITOR_BOTH_INSTRUCTIONS,
     LENGTH_GUARD_INSTRUCTIONS,
-    MAX_REFINE_ITERATIONS,
+    MAX_EDITOR_ITERATIONS,
     enabled_schemas,
 )
 
@@ -232,10 +232,10 @@ def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
     return draft, errors
 
 
-# ── Refine pass (ReAct loop) ──────────────────────────────────────────────────
+# ── Editor pass (ReAct loop) ─────────────────────────────────────────────────
 
 
-async def refine_pass(
+async def editor_pass(
     client: LLMClient,
     prefix: list[dict],
     effective_msg: str,
@@ -269,7 +269,7 @@ async def refine_pass(
     # ── Initial audit
     if audit_enabled:
         logger.info(
-            "Refine: audit on draft (%d chars), %d previous messages, %d phrase groups",
+            "Editor: audit on draft (%d chars), %d previous messages, %d phrase groups",
             len(draft),
             len(assistant_messages),
             len(phrase_bank),
@@ -278,7 +278,7 @@ async def refine_pass(
             draft, phrase_bank, assistant_messages
         )
         logger.info(
-            "Refine: initial audit — %d issues (cliches=%d, openers=%d, templates=%d)",
+            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d)",
             report.total_issues,
             report.cliche_result.flagged_count,
             len(report.monotony_result.flagged_openers),
@@ -290,18 +290,18 @@ async def refine_pass(
     else:
         report = AuditReport.clean()
         report_text = ""
-        logger.info("Refine: audit disabled, skipping scanners")
+        logger.info("Editor: audit disabled, skipping scanners")
 
     # ── Length guard
     length_guard_triggered = False
     length_guard_instruction = ""
 
     # Start from the same enabled-tool set used by the director and writer
-    # passes so the KV-cache prefix stays aligned.  REFINE_APPLY_PATCH_TOOL
-    # is included when audit_enabled is True; REFINE_REWRITE_TOOL is included
+    # passes so the KV-cache prefix stays aligned.  editor_apply_patch_TOOL
+    # is included when audit_enabled is True; editor_rewrite_TOOL is included
     # when length_guard is enabled — both injected by the orchestrator into
     # enabled_tools before reaching this pass.
-    refine_tools: list[dict] = enabled_schemas(enabled_tools)
+    editor_tools: list[dict] = enabled_schemas(enabled_tools)
 
     if length_guard and length_guard.get("enabled"):
         word_count = len(draft.split())
@@ -315,7 +315,7 @@ async def refine_pass(
                 max_words=max_words,
             )
             logger.info(
-                "Refine: length guard triggered (word_count=%d > max_words=%d)",
+                "Editor: length guard triggered (word_count=%d > max_words=%d)",
                 word_count,
                 max_words,
             )
@@ -324,7 +324,7 @@ async def refine_pass(
             )
 
     if report.is_clean and not length_guard_triggered:
-        logger.info("Refine: audit clean and no length guard, skipping LLM loop")
+        logger.info("Editor: audit clean and no length guard, skipping LLM loop")
         yield {
             "type": "done",
             "draft": None,
@@ -333,8 +333,8 @@ async def refine_pass(
         }
         return
 
-    if not refine_tools:
-        logger.info("Refine: no refine tools applicable, skipping LLM loop")
+    if not editor_tools:
+        logger.info("Editor: no editor tools applicable, skipping LLM loop")
         yield {
             "type": "done",
             "draft": None,
@@ -344,7 +344,7 @@ async def refine_pass(
         return
 
     # ── Build message context
-    final_prompt = _build_refine_prompt(
+    final_prompt = _build_editor_prompt(
         audit_enabled and not report.is_clean,
         report_text,
         length_guard_triggered,
@@ -364,28 +364,28 @@ async def refine_pass(
     all_calls: list[dict] = []
 
     # ── ReAct loop
-    for iteration in range(MAX_REFINE_ITERATIONS):
+    for iteration in range(MAX_EDITOR_ITERATIONS):
         logger.info(
-            "Refine iteration %d/%d, %d issues remaining",
+            "Editor iteration %d/%d, %d issues remaining",
             iteration + 1,
-            MAX_REFINE_ITERATIONS,
+            MAX_EDITOR_ITERATIONS,
             report.total_issues,
         )
         if kv_tracker is not None and iteration == 0:
-            kv_tracker.record("refine", msgs, refine_tools)
+            kv_tracker.record("editor", msgs, editor_tools)
         try:
             reasoning_params = (
                 reasoning_cfg(False) if not reasoning_on else reasoning_cfg(True)
             )
             if not reasoning_params["reasoning"].get("enabled", True):
-                logger.info("Refine iteration %d: reasoning disabled", iteration + 1)
+                logger.info("Editor iteration %d: reasoning disabled", iteration + 1)
 
             resp: dict = {}
             try:
                 async for event in client.complete(
                     messages=msgs,
                     model=settings["model_name"],
-                    tools=refine_tools,
+                    tools=editor_tools,
                     tool_choice=_pick_tool_choice(
                         length_guard_triggered, report, audit_enabled
                     ),
@@ -399,7 +399,7 @@ async def refine_pass(
                         resp = event["message"]
             except Exception as llm_err:
                 logger.error(
-                    "Refine iteration %d: client.complete() raised %s: %s",
+                    "Editor iteration %d: client.complete() raised %s: %s",
                     iteration + 1,
                     type(llm_err).__name__,
                     llm_err,
@@ -413,7 +413,7 @@ async def refine_pass(
             finish_reason = resp.get("finish_reason") or resp.get("stop_reason")
             if finish_reason:
                 logger.info(
-                    "Refine iteration %d: finish_reason=%s",
+                    "Editor iteration %d: finish_reason=%s",
                     iteration + 1,
                     finish_reason,
                 )
@@ -421,14 +421,14 @@ async def refine_pass(
             parsed = parse_tool_calls(resp)
             if not parsed:
                 logger.info(
-                    "Refine iteration %d: no tool call, stopping", iteration + 1
+                    "Editor iteration %d: no tool call, stopping", iteration + 1
                 )
                 break
             all_calls.extend(parsed)
 
-            # ── Handle refine_rewrite
+            # ── Handle editor_rewrite
             rewrite_call = next(
-                (tc for tc in parsed if tc["name"] == "refine_rewrite"), None
+                (tc for tc in parsed if tc["name"] == "editor_rewrite"), None
             )
             if rewrite_call:
                 rewritten = (
@@ -436,14 +436,14 @@ async def refine_pass(
                 )
                 if not rewritten:
                     logger.info(
-                        "Refine iteration %d: empty rewrite, stopping", iteration + 1
+                        "Editor iteration %d: empty rewrite, stopping", iteration + 1
                     )
                     break
                 pre_len = len(current_draft)
                 current_draft = rewritten
                 length_guard_triggered = False
                 logger.info(
-                    "Refine iteration %d: rewrite applied, draft %d→%d chars",
+                    "Editor iteration %d: rewrite applied, draft %d→%d chars",
                     iteration + 1,
                     pre_len,
                     len(current_draft),
@@ -465,12 +465,12 @@ async def refine_pass(
 
                 if report.is_clean:
                     break
-                refine_tools = [REFINE_APPLY_PATCH_TOOL] if audit_enabled else []
+                editor_tools = [editor_apply_patch_TOOL] if audit_enabled else []
                 prev_issues = report.total_issues
                 msgs[-2] = {"role": "assistant", "content": current_draft}
                 msgs[-1] = {
                     "role": "user",
-                    "content": _build_refine_prompt(
+                    "content": _build_editor_prompt(
                         audit_enabled,
                         report_text,
                         length_guard_triggered,
@@ -479,13 +479,13 @@ async def refine_pass(
                 }
                 continue
 
-            # ── Handle refine_apply_patch
+            # ── Handle editor_apply_patch
             patch_call = next(
-                (tc for tc in parsed if tc["name"] == "refine_apply_patch"), None
+                (tc for tc in parsed if tc["name"] == "editor_apply_patch"), None
             )
             if not patch_call:
                 logger.info(
-                    "Refine iteration %d: unrecognised tool call, stopping",
+                    "Editor iteration %d: unrecognised tool call, stopping",
                     iteration + 1,
                 )
                 break
@@ -493,27 +493,27 @@ async def refine_pass(
             patches = patch_call.get("arguments", {}).get("patches", [])
             if not patches:
                 logger.info(
-                    "Refine iteration %d: empty patches, stopping", iteration + 1
+                    "Editor iteration %d: empty patches, stopping", iteration + 1
                 )
                 break
 
             pre_len = len(current_draft)
             current_draft, errors = apply_patches(current_draft, patches)
             logger.info(
-                "Refine iteration %d: applied %d patches, draft %d→%d chars",
+                "Editor iteration %d: applied %d patches, draft %d→%d chars",
                 iteration + 1,
                 len(patches),
                 pre_len,
                 len(current_draft),
             )
             for e in errors:
-                logger.warning("Refine iteration %d patch error: %s", iteration + 1, e)
+                logger.warning("Editor iteration %d patch error: %s", iteration + 1, e)
 
             report, report_text = _run_contextual_audit(
                 current_draft, phrase_bank, assistant_messages
             )
             logger.info(
-                "Refine iteration %d: post-audit — %d issues",
+                "Editor iteration %d: post-audit — %d issues",
                 iteration + 1,
                 report.total_issues,
             )
@@ -525,13 +525,13 @@ async def refine_pass(
                 if not length_guard_triggered:
                     break
                 logger.info(
-                    "Refine: audit clean, length guard still pending — queuing rewrite"
+                    "Editor: audit clean, length guard still pending — queuing rewrite"
                 )
-                refine_tools = [REFINE_REWRITE_TOOL]
+                editor_tools = [editor_rewrite_TOOL]
 
             if report.total_issues >= prev_issues:
                 logger.info(
-                    "Refine: no progress (%d → %d issues), stopping",
+                    "Editor: no progress (%d → %d issues), stopping",
                     prev_issues,
                     report.total_issues,
                 )
@@ -543,21 +543,21 @@ async def refine_pass(
 
         except Exception as e:
             logger.error(
-                "Refine iteration %d failed: %s", iteration + 1, e, exc_info=True
+                "Editor iteration %d failed: %s", iteration + 1, e, exc_info=True
             )
             debug_parts.append(f"Iteration {iteration + 1} error: {e}")
             break
     else:
         logger.warning(
-            "Refine: hit max iterations (%d) with %d issues remaining",
-            MAX_REFINE_ITERATIONS,
+            "Editor: hit max iterations (%d) with %d issues remaining",
+            MAX_EDITOR_ITERATIONS,
             report.total_issues,
         )
 
     elapsed = int((time.monotonic() - t0) * 1000)
     changed = current_draft != draft
     logger.info(
-        "Refine: done in %dms, changed=%s, final_draft=%d chars",
+        "Editor: done in %dms, changed=%s, final_draft=%d chars",
         elapsed,
         changed,
         len(current_draft),
@@ -574,28 +574,28 @@ async def refine_pass(
 # ── Helpers (private) ─────────────────────────────────────────────────────────
 
 
-def _build_refine_prompt(
+def _build_editor_prompt(
     has_audit_issues: bool,
     report_text: str,
     length_guard_triggered: bool,
     length_guard_instruction: str,
 ) -> str:
-    """Assemble the refinement instruction sent as the final user message.
+    """Assemble the editor instruction sent as the final user message.
 
     The preamble is *always* included so the model knows it is the
-    Refinement Agent and that the assistant message above is the draft.
+    Editor Agent and that the assistant message above is the draft.
     Audit rules and/or length-guard instructions are appended as needed.
     """
-    parts = [REFINE_PREAMBLE]
+    parts = [EDITOR_PREAMBLE]
     if has_audit_issues and length_guard_triggered:
-        parts.append(REFINE_BOTH_INSTRUCTIONS)
+        parts.append(EDITOR_BOTH_INSTRUCTIONS)
         parts.append(report_text)
         parts.append(length_guard_instruction)
     elif has_audit_issues:
-        parts.append(REFINE_PATCH_INSTRUCTIONS)
+        parts.append(EDITOR_PATCH_INSTRUCTIONS)
         parts.append(report_text)
     elif length_guard_triggered:
-        parts.append(REFINE_REWRITE_INSTRUCTIONS)
+        parts.append(editor_rewrite_INSTRUCTIONS)
         parts.append(length_guard_instruction)
     return "\n\n".join(parts)
 
@@ -603,13 +603,13 @@ def _build_refine_prompt(
 def _pick_tool_choice(
     length_guard_triggered: bool, report: AuditReport, audit_enabled: bool
 ):
-    """Determine the tool_choice parameter for the refine LLM call."""
+    """Determine the tool_choice parameter for the editor LLM call."""
     if length_guard_triggered and report.is_clean:
-        return {"type": "function", "function": {"name": "refine_rewrite"}}
+        return {"type": "function", "function": {"name": "editor_rewrite"}}
     if length_guard_triggered:
         return "auto"
     if audit_enabled:
-        return TOOLS["refine_apply_patch"]["choice"]
+        return TOOLS["editor_apply_patch"]["choice"]
     return "auto"
 
 

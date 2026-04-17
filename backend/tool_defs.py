@@ -77,10 +77,10 @@ REWRITE_PROMPT_TOOL = {
     },
 }
 
-REFINE_REWRITE_TOOL = {
+editor_rewrite_TOOL = {
     "type": "function",
     "function": {
-        "name": "refine_rewrite",
+        "name": "editor_rewrite",
         "description": "Replace the entire draft with a refined rewrite. Use when length guard is triggered or when audit issues require a complete rewrite. Preserve all key story beats, the author's vocabulary, and any special formatting or code.",
         "parameters": {
             "type": "object",
@@ -95,10 +95,10 @@ REFINE_REWRITE_TOOL = {
     },
 }
 
-REFINE_APPLY_PATCH_TOOL = {
+editor_apply_patch_TOOL = {
     "type": "function",
     "function": {
-        "name": "refine_apply_patch",
+        "name": "editor_apply_patch",
         "description": "Apply one or more exact text replacements to the draft. Each 'search' must exactly match current draft text (case-sensitive, including punctuation). Returns an updated Audit Report.",
         "parameters": {
             "type": "object",
@@ -134,18 +134,18 @@ REFINE_APPLY_PATCH_TOOL = {
 # message above represents.  Without this, the model sees the roleplay
 # system prompt plus a bare instruction and wastes tokens reasoning
 # about context.
-REFINE_PREAMBLE = (
-    "You are the uncensored Refinement Agent. The assistant message above is a draft "
+EDITOR_PREAMBLE = (
+    "You are the uncensored editor. The assistant message above is a draft "
     "that needs improvement based on the issues described below. Use the "
     "provided tools to apply the required changes. Call exactly ONE tool."
 )
 
 # Sent when only audit issues are flagged (banned phrases, repetitive
 # openers/templates) — no length guard.  Directs the model to patch only.
-REFINE_PATCH_INSTRUCTIONS = (
-    "Use `refine_apply_patch` to fix each flagged issue with a surgical patch.\n\n"
+EDITOR_PATCH_INSTRUCTIONS = (
+    "Use `editor_apply_patch` to fix each flagged issue with a surgical patch.\n\n"
     "PATCHING RULES:\n"
-    "- Send ONE `refine_apply_patch` call with one patch per flagged issue.\n"
+    "- Send ONE `editor_apply_patch` call with one patch per flagged issue.\n"
     "- The `search` field must be copied EXACTLY from the draft text above — including all punctuation and quotes.\n"
     "- Each patch must target a DIFFERENT, non-overlapping piece of text.\n"
     "- Do NOT send a patch where `search` and `replace` are identical.\n"
@@ -158,10 +158,10 @@ REFINE_PATCH_INSTRUCTIONS = (
 
 # Sent when only the length guard is triggered — no audit issues.
 # Directs the model to rewrite only.
-REFINE_REWRITE_INSTRUCTIONS = (
-    "Use `refine_rewrite` to produce a condensed rewrite within the specified limits.\n\n"
+editor_rewrite_INSTRUCTIONS = (
+    "Use `editor_rewrite` to produce a condensed rewrite within the specified limits.\n\n"
     "REWRITING RULES:\n"
-    "- Send ONE `refine_rewrite` call with the complete rewritten text.\n"
+    "- Send ONE `editor_rewrite` call with the complete rewritten text.\n"
     "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied - avoid repetitive 'she, she, she'.\n"
     "- First priority is to get rid of repetitiveness and condense comma-separated adjectives into stronger, more precise words (e.g. old, ruined building -> decrepit building).\n"
     "- Be more concise but maintain coherence and narrative flow."
@@ -170,19 +170,19 @@ REFINE_REWRITE_INSTRUCTIONS = (
 # Sent when both audit issues AND length guard are triggered.
 # Minimal directive — the model already receives the full audit report
 # and the length-guard instruction with concrete word/paragraph limits.
-REFINE_BOTH_INSTRUCTIONS = (
-    "Use `refine_rewrite` to address both concerns in a single comprehensive rewrite.\n"
+EDITOR_BOTH_INSTRUCTIONS = (
+    "Use `editor_rewrite` to address both concerns in a single comprehensive rewrite.\n"
     "- Address all audit issues (if any) while also respecting length constraints.\n"
     "- If the audit report seems incorrect or makes no sense, you may skip fixing those specific issues."
 )
 
 LENGTH_GUARD_INSTRUCTIONS = (
     "LENGTH GUARD: The draft is {word_count} words — too long. "
-    "Call `refine_rewrite` with a condensed version: at most {max_paragraphs} paragraphs "
+    "Call `editor_rewrite` with a condensed version: at most {max_paragraphs} paragraphs "
     "and {max_words} words. Preserve the author's voice and all key story beats."
 )
 
-MAX_REFINE_ITERATIONS = 3
+MAX_EDITOR_ITERATIONS = 3
 
 
 # ── Tool registry & helpers
@@ -196,18 +196,18 @@ TOOLS: dict[str, dict] = {
         "choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}},
         "schema": REWRITE_PROMPT_TOOL,
     },
-    "refine_apply_patch": {
-        "choice": {"type": "function", "function": {"name": "refine_apply_patch"}},
-        "schema": REFINE_APPLY_PATCH_TOOL,
+    "editor_apply_patch": {
+        "choice": {"type": "function", "function": {"name": "editor_apply_patch"}},
+        "schema": editor_apply_patch_TOOL,
     },
-    "refine_rewrite": {
-        "choice": {"type": "function", "function": {"name": "refine_rewrite"}},
-        "schema": REFINE_REWRITE_TOOL,
+    "editor_rewrite": {
+        "choice": {"type": "function", "function": {"name": "editor_rewrite"}},
+        "schema": editor_rewrite_TOOL,
     },
 }
 
 PRE_WRITER_TOOLS = {"rewrite_user_prompt"}
-POST_WRITER_TOOLS = {"refine_apply_patch", "refine_rewrite"}
+POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite"}
 ALL_SCHEMAS = [t["schema"] for t in TOOLS.values()]
 
 

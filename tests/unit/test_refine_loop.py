@@ -1,10 +1,10 @@
 """
-test_refine_loop.py — Tests for the ReAct loop in refine_pass.
+test_refine_loop.py — Tests for the ReAct loop in editor_pass.
 
 Verifies that:
   1. The loop terminates early when all issues are fixed (audit clean).
   2. The updated audit report is sent back to the model each iteration.
-  3. The loop runs exactly MAX_REFINE_ITERATIONS when issues decrease but never clear.
+  3. The loop runs exactly MAX_EDITOR_ITERATIONS when issues decrease but never clear.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from backend.passes.refine.slop_detector import (
 )
 from backend.passes.refine.opening_monotony import MonotonyResult
 from backend.passes.refine.template_repetition import TemplateResult
-from backend.passes.refine.refine import refine_pass
-from backend.tool_defs import MAX_REFINE_ITERATIONS
+from backend.passes.refine.refine import editor_pass
+from backend.tool_defs import MAX_EDITOR_ITERATIONS
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -63,14 +63,14 @@ def _dirty_report(n_issues: int, label: str = "") -> AuditReport:
 
 
 def _patch_message(search: str, replace: str) -> dict:
-    """Build a fake LLM message that calls refine_apply_patch."""
+    """Build a fake LLM message that calls editor_apply_patch."""
     return {
         "tool_calls": [
             {
                 "id": "tc1",
                 "type": "function",
                 "function": {
-                    "name": "refine_apply_patch",
+                    "name": "editor_apply_patch",
                     "arguments": json.dumps(
                         {"patches": [{"search": search, "replace": replace}]}
                     ),
@@ -102,11 +102,11 @@ def _make_client(messages_per_call: list[dict]) -> MagicMock:
 # Draft chosen so each word can be patched individually across iterations.
 DRAFT = "alpha bravo charlie delta."
 SETTINGS = {"model_name": "test-model"}
-ENABLED = {"refine_apply_patch": True}
+ENABLED = {"editor_apply_patch": True}
 
 
 async def _run(client, audit_side_effects):
-    """Run refine_pass with mocked _run_contextual_audit and collect all events."""
+    """Run editor_pass with mocked _run_contextual_audit and collect all events."""
     audit_iter = iter(audit_side_effects)
     with patch(
         "backend.passes.refine.refine._run_contextual_audit",
@@ -114,7 +114,7 @@ async def _run(client, audit_side_effects):
     ):
         return [
             event
-            async for event in refine_pass(
+            async for event in editor_pass(
                 client=client,
                 prefix=[],
                 effective_msg="Write something.",
@@ -200,8 +200,8 @@ class TestRefineLoopTermination:
         assert "REPORT_LABEL_1" in captured_msgs[2][-1]["content"]
 
     async def test_hits_max_iterations_when_issues_persist(self):
-        """Loop runs exactly MAX_REFINE_ITERATIONS when issues decrease but never reach zero."""
-        n = MAX_REFINE_ITERATIONS
+        """Loop runs exactly MAX_EDITOR_ITERATIONS when issues decrease but never reach zero."""
+        n = MAX_EDITOR_ITERATIONS
         # Audit results: initial count then one per iteration, always decreasing but never clean.
         audit_side_effects = [
             (_dirty_report(n + 1), f"{n + 1} issues"),  # initial
@@ -231,8 +231,8 @@ class TestRefineLoopTermination:
 
         done = next(e for e in events if e["type"] == "done")
         assert (
-            client.complete.call_count == MAX_REFINE_ITERATIONS
-        ), f"Expected exactly {MAX_REFINE_ITERATIONS} LLM calls when the turn limit is reached"
+            client.complete.call_count == MAX_EDITOR_ITERATIONS
+        ), f"Expected exactly {MAX_EDITOR_ITERATIONS} LLM calls when the turn limit is reached"
         assert (
             done["draft"] is not None
         ), "Draft should be changed after patches were applied"

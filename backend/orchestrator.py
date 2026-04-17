@@ -1,5 +1,5 @@
 """
-orchestrator.py — Pipeline coordinator: director → writer → refine,
+orchestrator.py — Pipeline coordinator: director → writer → editor,
 plus the public entry points handle_turn() and handle_regenerate().
 """
 
@@ -16,7 +16,7 @@ from .prompt_builder import build_prefix, compute_style_injection_block
 from .kv_tracker import _KVCacheTracker
 from .passes.director import _agent_pass
 from .passes.writer import _writer_pass
-from .passes.refine import refine_pass
+from .passes.refine import editor_pass
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +33,14 @@ async def _run_pipeline(
     user_message: str,
     phrase_bank: list[list[str]] | None = None,
 ) -> AsyncIterator[dict]:
-    """Three-pass pipeline: director → writer → refine.
+    """Three-pass pipeline: director → writer → editor.
 
     KV cache strategy: *prefix* (system prompt + chat history) and the tool
     schema list returned by ``enabled_schemas(enabled_tools)`` are kept
     identical across all three passes so the LLM can reuse cached KV entries.
     Only ``tool_choice`` and the trailing user message differ per pass.
-    ``refine_rewrite`` is included in the schema set whenever the length guard
-    is enabled (mirroring how ``refine_apply_patch`` tracks ``audit_enabled``).
+    ``editor_rewrite`` is included in the schema set whenever the length guard
+    is enabled (mirroring how ``editor_apply_patch`` tracks ``audit_enabled``).
     """
     enabled_tools = settings.get("enabled_tools") or {}
     agent_on = bool(settings.get("enable_agent", 1))
@@ -67,7 +67,7 @@ async def _run_pipeline(
 
     audit_enabled = (
         agent_on
-        and bool(enabled_tools.get("refine_apply_patch", False))
+        and bool(enabled_tools.get("editor_apply_patch", False))
         and phrase_bank is not None
     )
 
@@ -75,10 +75,10 @@ async def _run_pipeline(
     length_guard_enabled = (
         bool(enabled_tools.get("length_guard", False)) if agent_on else False
     )
-    # Mirror refine_rewrite into enabled_tools so enabled_schemas() includes its schema in all
-    # three passes — same KV-cache consistency approach as refine_apply_patch.
+    # Mirror editor_rewrite into enabled_tools so enabled_schemas() includes its schema in all
+    # three passes — same KV-cache consistency approach as editor_apply_patch.
     if length_guard_enabled:
-        enabled_tools = {**enabled_tools, "refine_rewrite": True}
+        enabled_tools = {**enabled_tools, "editor_rewrite": True}
     length_guard_enforce = (
         bool(enabled_tools.get("length_guard_enforce", False)) if agent_on else False
     )
@@ -214,15 +214,15 @@ async def _run_pipeline(
         },
     }
 
-    # --- Refine pass ---
+    # --- Editor pass ---
     if do_refine and resp_text:
         logger.info(
-            "Refine pass starting (draft=%d chars, phrase_bank=%d groups)",
+            "Editor pass starting (draft=%d chars, phrase_bank=%d groups)",
             len(resp_text),
             len(phrase_bank) if phrase_bank else 0,
         )
         try:
-            async for event in refine_pass(
+            async for event in editor_pass(
                 client,
                 prefix,
                 effective_msg,
@@ -254,13 +254,13 @@ async def _run_pipeline(
                         }
                     if event.get("tool_calls"):
                         yield {
-                            "event": "refine_done",
+                            "event": "editor_done",
                             "data": {"tool_calls": event["tool_calls"]},
                         }
         except Exception as e:
-            logger.error("refine pass failed, keeping original: %s", e, exc_info=True)
+            logger.error("editor pass failed, keeping original: %s", e, exc_info=True)
     elif not do_refine:
-        logger.info("Refine pass skipped (do_refine=%s)", do_refine)
+        logger.info("Editor pass skipped (do_refine=%s)", do_refine)
 
     kv_tracker.log_summary()
 

@@ -2,11 +2,11 @@
 
 ## 1. Architecture Overview
 
-Pipeline: `_agent_pass` → `_writer_pass` → `_refine_pass` (new ReAct loop).
+Pipeline: `_agent_pass` → `_writer_pass` → `_editor_pass` (new ReAct loop).
 
-`_refine_pass` operates in two stages:
+`_editor_pass` operates in two stages:
 1. **Programmatic Detection:** Runs three scanners on the writer's draft, producing an Audit Report. Zero LLM calls.
-2. **Agentic Refinement (ReAct Loop):** The LLM agent receives the Audit Report and uses `refine_apply_patch` to surgically fix the draft. Loops until done or max steps reached.
+2. **Agentic Refinement (ReAct Loop):** The LLM agent receives the Audit Report and uses `editor_apply_patch` to surgically fix the draft. Loops until done or max steps reached.
 
 ### 1.1. Message Turn Layout
 
@@ -37,17 +37,17 @@ The refine pass reuses the existing conversation prefix (system prompt + history
 │ TURN N+3 — system  (refinement injection)                       │
 │ Role: system                                                    │
 │ Content:                                                        │
-│   refine_agent_instructions                                     │
+│   editor_agent_instructions                                     │
 │   + "\n"                                                        │
 │   + Audit Report (from programmatic scanners)                   │
-│   + tool definitions (refine_apply_patch)                       │
+│   + tool definitions (editor_apply_patch)                       │
 ├┤
 │ ── ReAct loop starts here│
 ├┤
 │ TURN N+4 — assistant  (model generation, iteration 1)           │
 │ Role: assistant                                                 │
 │ Content: <chain-of-thought reasoning>                           │
-│ Tool call: refine_apply_patch({ patches: [...] })               │
+│ Tool call: editor_apply_patch({ patches: [...] })               │
 ├┤
 │ TURN N+5 — tool response  (iteration 1)                         │
 │ Role: tool                                                      │
@@ -56,7 +56,7 @@ The refine pass reuses the existing conversation prefix (system prompt + history
 ├┤
 │ TURN N+6 — assistant  (model generation, iteration 2)           │
 │ Role: assistant                                                 │
-│ Tool call: refine_apply_patch({ patches: [...] })               │
+│ Tool call: editor_apply_patch({ patches: [...] })               │
 ├┤
 │ TURN N+7 — tool response  (iteration 2)                         │
 │ ...repeats until audit is clean or max iterations reached...    │
@@ -84,7 +84,7 @@ PHRASE_BANK = [
 
 ## 3. Programmatic Pre-Detection Engine (Zero LLM Cost)
 
-Three scanners run on the draft at the start of `_refine_pass`, producing a consolidated Audit Report.
+Three scanners run on the draft at the start of `_editor_pass`, producing a consolidated Audit Report.
 
 ### 3.1. Banned Phrase Detection (`slop_detector.py`)
 - **Method:** Splits the draft into sentences. For each sentence, generates word-level 3-grams and computes Jaccard similarity against 3-grams of each phrase variant. Flags matches above a configurable threshold (default `0.25`).
@@ -118,13 +118,13 @@ Three scanners run on the draft at the start of `_refine_pass`, producing a cons
 
 ## 4. Tool Definitions
 
-### `refine_apply_patch`
+### `editor_apply_patch`
 - **Description:** Applies one or more exact text replacements to the draft. Each `search` must exactly match current draft text.
 - **Parameters:**
   - `patches` (array): ordered list of `{"search": str, "replace": str}`
 - **Returns:** Always return success, if failure occurs during operation then skip that item. Return the updated Audit Report from re-running all three scanners — giving the agent a live view of remaining issues.
 
-## 5. The `_refine_pass` ReAct Loop
+## 5. The `_editor_pass` ReAct Loop
 
 ### 5.1. Initialization
 1. `_writer_pass` completes and buffers the full `draft`.
@@ -133,15 +133,15 @@ Three scanners run on the draft at the start of `_refine_pass`, producing a cons
    - `prefix` (System + History)
    - `{"role": "user", "content": effective_msg}`
    - `{"role": "assistant", "content": draft}`
-   - `{"role": "system", "content": refine_agent_instructions + "\n" + AuditReport}`
+   - `{"role": "system", "content": editor_agent_instructions + "\n" + AuditReport}`
 
 ### 5.2. Agent Instructions
-> You are the Refinement Agent. Review the draft above and address every issue in the REFINEMENT AUDIT REPORT.
-> 1. Use `refine_apply_patch` to replace problematic text with improved phrasing. `search` must exactly match the current draft text.
+> You are the Editor Agent. Review the draft above and address every issue in the AUDIT REPORT.
+> 1. Use `editor_apply_patch` to replace problematic text with improved phrasing. `search` must exactly match the current draft text.
 > 2. After each patch, you will receive an updated Audit Report. Continue until all issues are resolved.
 
 ### 5.3. Loop Execution (max 5–7 iterations)
-1. Agent reasons about the Audit Report and calls `refine_apply_patch`.
+1. Agent reasons about the Audit Report and calls `editor_apply_patch`.
 2. Orchestrator applies patches and re-runs all three scanners.
 3. If the updated Audit Report is clean (zero flagged items), break — do **not** send it back to the LLM.
 4. Otherwise, append the tool call + updated Audit Report to the thread and continue.
@@ -157,13 +157,13 @@ Three scanners run on the draft at the start of `_refine_pass`, producing a cons
 ## 7. Pipeline Integration
 
 ### 7.1. Buffering
-`_writer_pass` fully buffers output before `_refine_pass` begins. The final patched draft is streamed to the user only after `_refine_pass` completes, eliminating jarring UI updates.
+`_writer_pass` fully buffers output before `_editor_pass` begins. The final patched draft is streamed to the user only after `_editor_pass` completes, eliminating jarring UI updates.
 
 ### 7.2. `handle_turn` / `handle_regenerate`
-Replace old single-shot `_refine_pass` calls with the new orchestrator. Persist the final patched `resp_text` and store the full Audit Report + ReAct trace in `conversation_log` for debugging.
+Replace old single-shot `_editor_pass` calls with the new orchestrator. Persist the final patched `resp_text` and store the full Audit Report + ReAct trace in `conversation_log` for debugging.
 
 ### 7.3. Graceful Fallback
-If `_refine_pass` errors or hits max iterations without a clean Audit Report, fall back to the unpatched `_writer_pass` draft.
+If `_editor_pass` errors or hits max iterations without a clean Audit Report, fall back to the unpatched `_writer_pass` draft.
 
 ---
 

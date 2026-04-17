@@ -42,7 +42,7 @@ The system maintains a consistent set of enabled tools across all passes for KV 
 Two sets classify tools by which pass owns them. Both sets are sent in **all three API calls** (identical schemas = KV cache reuse); the sets only control which tools are actually *called*:
 
 - **`PRE_WRITER_TOOLS`** (`rewrite_user_prompt`): Called only in the director pass. Writer suppresses all tool calls via `tool_choice=none`; refine forces its own tool choice, so `rewrite_user_prompt` is never invoked there.
-- **`POST_WRITER_TOOLS`** (`refine_apply_patch`, `refine_rewrite`): Called only in the refine pass. The director filters them out of the tools it can actually call; writer uses `tool_choice=none`.
+- **`POST_WRITER_TOOLS`** (`editor_apply_patch`, `editor_rewrite`): Called only in the refine pass. The director filters them out of the tools it can actually call; writer uses `tool_choice=none`.
 
 ### Critical Distinction: Tools in API vs Tools Called
 
@@ -53,15 +53,15 @@ There's an important distinction between:
 ### Three-Pass Tool Consistency
 
 1. **Director Pass (Agent Pass)**:
-   - **API tools**: All enabled tools (`["direct_scene", "rewrite_user_prompt", "refine_apply_patch", "refine_rewrite"]`)
-   - **Agent-called tools**: Only tools not in `POST_WRITER_TOOLS` (excludes `refine_apply_patch`, `refine_rewrite`)
+   - **API tools**: All enabled tools (`["direct_scene", "rewrite_user_prompt", "editor_apply_patch", "editor_rewrite"]`)
+   - **Agent-called tools**: Only tools not in `POST_WRITER_TOOLS` (excludes `editor_apply_patch`, `editor_rewrite`)
    - **Tool choice**: Sequential calls with specific `tool_choice`:
      - First: `{'type': 'function', 'function': {'name': 'rewrite_user_prompt'}}` (if enabled)
      - Second: `{'type': 'function', 'function': {'name': 'direct_scene'}}`
    - **Purpose**: Scene direction and optional prompt rewriting (rewrite runs first so users can stop early if they don't like the rewritten message)
 
 2. **Writer Pass**:
-   - **API tools**: All enabled tools — identical to director (`["direct_scene", "rewrite_user_prompt", "refine_apply_patch", "refine_rewrite"]`)
+   - **API tools**: All enabled tools — identical to director (`["direct_scene", "rewrite_user_prompt", "editor_apply_patch", "editor_rewrite"]`)
    - **Tool choice**: `none` (prevents all tool calling during story generation)
    - **Purpose**: Generate the actual roleplay response
 
@@ -72,9 +72,9 @@ There's an important distinction between:
 
 ### Conditional Prompt Instruction (not tool schema)
 
-The `refine_rewrite` tool follows the same design as `refine_apply_patch`:
-- Always included in the schema set when its feature is enabled (length guard → `refine_rewrite`, audit → `refine_apply_patch`)
-- The orchestrator sets `enabled_tools["refine_rewrite"] = True` whenever `length_guard` is enabled, so `enabled_schemas()` includes it for all three passes
+The `editor_rewrite` tool follows the same design as `editor_apply_patch`:
+- Always included in the schema set when its feature is enabled (length guard → `editor_rewrite`, audit → `editor_apply_patch`)
+- The orchestrator sets `enabled_tools["editor_rewrite"] = True` whenever `length_guard` is enabled, so `enabled_schemas()` includes it for all three passes
 - The only conditional is whether the length guard instruction is appended to the refine pass prompt — it is only appended when the draft actually exceeds the word limit
 
 ## Log Examples
@@ -82,22 +82,22 @@ The `refine_rewrite` tool follows the same design as `refine_apply_patch`:
 ```
 # Director pass (first tool)
 INFO:backend.llm_client:LLM complete: model=default,
-  tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch", "refine_rewrite"],
+  tools=["direct_scene", "rewrite_user_prompt", "editor_apply_patch", "editor_rewrite"],
   tool_choice={'type': 'function', 'function': {'name': 'rewrite_user_prompt'}}
 
 # Director pass (second tool)
 INFO:backend.llm_client:LLM complete: model=default,
-  tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch", "refine_rewrite"],
+  tools=["direct_scene", "rewrite_user_prompt", "editor_apply_patch", "editor_rewrite"],
   tool_choice={'type': 'function', 'function': {'name': 'direct_scene'}}
 
 # Writer pass — identical schema to director for KV cache reuse
 INFO:backend.llm_client:LLM stream: model=default,
-  tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch", "refine_rewrite"],
+  tools=["direct_scene", "rewrite_user_prompt", "editor_apply_patch", "editor_rewrite"],
   tool_choice=none
 
 # Refine pass — identical schema to writer for KV cache reuse
 INFO:backend.llm_client:LLM complete: model=default,
-  tools=["direct_scene", "rewrite_user_prompt", "refine_apply_patch", "refine_rewrite"],
+  tools=["direct_scene", "rewrite_user_prompt", "editor_apply_patch", "editor_rewrite"],
   tool_choice=auto
 ```
 

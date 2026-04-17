@@ -1,8 +1,11 @@
 from __future__ import annotations
+import asyncio
 import aiosqlite
 import json
 import os
 from datetime import datetime, timezone
+
+from backend.migrations import run_pending as _run_migrations
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "app.db")
 
@@ -398,6 +401,8 @@ async def init_db():
 
     finally:
         await db.close()
+
+    await asyncio.to_thread(_run_migrations, DB_PATH)
 
 
 # --- Settings ---

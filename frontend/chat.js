@@ -659,7 +659,7 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
       } catch (_) {}
       break;
     }
-    case 'refine_done': {
+    case 'editor_done': {
       try {
         const d = JSON.parse(data);
         if (d.tool_calls?.length) {
