@@ -6,6 +6,9 @@ import { resetChatUI, loadConversations } from './chat.js';
 
 // Pending avatar for the character create modal (cleared on submit or cancel)
 let _pendingAvatar = null;
+// Stable ID and source format carried over from an imported card (cleared on submit)
+let _pendingImportId = null;
+let _pendingImportSourceFormat = null;
 // Per-card cache-bust timestamps so the browser re-fetches updated avatars
 const _avatarBust = new Map();
 
@@ -162,12 +165,9 @@ export async function handleImportFile(inp) {
   try {
     toast('Importing...');
     const r = await api.upload('/characters/import', f);
-    await loadCharacters();
-    toast(`Imported "${r.name}"`);
-    showCharEditModal(r.id);
+    showCharEditModal(r);
   } catch (e) {
-    if (e.status === 409) toast('Character already in your library', true);
-    else toast('Import failed: ' + e.message, true);
+    toast('Import failed: ' + e.message, true);
   }
 }
 
@@ -325,11 +325,22 @@ export async function createCharacter() {
   } catch (e) { toast(e.message, true); }
 }
 
-export async function showCharEditModal(id) {
+export async function showCharEditModal(idOrData) {
   _pendingAvatar = null;
-  const c    = await api.get('/characters/' + id);
-  const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : '';
-  const av   = c.has_avatar ? `<img src="${avatarUrl(c.id)}${bust}">` : '👤';
+  const isNew = typeof idOrData === 'object';
+  const c = isNew ? idOrData : await api.get('/characters/' + idOrData);
+
+  let av;
+  if (isNew && c.avatar_b64) {
+    _pendingAvatar = { b64: c.avatar_b64, mime: c.avatar_mime || 'image/png' };
+    _pendingImportId = c.id || null;
+    _pendingImportSourceFormat = c.source_format || null;
+    av = `<img src="data:${_pendingAvatar.mime};base64,${_pendingAvatar.b64}">`;
+  } else {
+    const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : '';
+    av = c.has_avatar ? `<img src="${avatarUrl(c.id)}${bust}">` : '👤';
+  }
+
   const tags = (c.tags || []).map(t => `<span class="char-tag">${esc(t)}</span>`).join('');
 
   showModal(`
@@ -346,11 +357,13 @@ export async function showCharEditModal(id) {
     </div>
     ${charFormTabs('ce', c, true)}
     <div class="modal-actions">
-      <button class="btn btn-danger btn-sm" onclick="deleteCharacter('${c.id}')">Delete</button>
+      ${!isNew ? `<button class="btn btn-danger btn-sm" onclick="deleteCharacter('${c.id}')">Delete</button>` : ''}
       <div style="flex:1"></div>
-      <button class="btn btn-sm" onclick="exportCharacter('${c.id}','${esc(c.name)}')">Export PNG</button>
+      ${!isNew ? `<button class="btn btn-sm" onclick="exportCharacter('${c.id}','${esc(c.name)}')">Export PNG</button>` : ''}
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="saveCharEdit('${c.id}')">Save</button>
+      ${isNew
+        ? `<button class="btn btn-accent" onclick="saveImportedChar()">Save</button>`
+        : `<button class="btn btn-accent" onclick="saveCharEdit('${c.id}')">Save</button>`}
     </div>`);
 }
 
@@ -386,4 +399,37 @@ export async function saveCharEdit(id) {
     await loadCharacters();
     toast('Saved');
   } catch (e) { toast(e.message, true); }
+}
+
+export async function saveImportedChar() {
+  const d = {
+    name:                      $('ce-name').value.trim(),
+    description:               $('ce-desc').value.trim(),
+    personality:               $('ce-personality').value.trim(),
+    scenario:                  $('ce-scenario').value.trim(),
+    first_mes:                 $('ce-first-mes').value.trim(),
+    mes_example:               $('ce-mes-example').value.trim(),
+    system_prompt:             $('ce-sysprompt').value.trim(),
+    post_history_instructions: $('ce-posthist').value.trim(),
+    alternate_greetings:       _readAltGreetings('ce'),
+  };
+  if (_pendingAvatar) {
+    d.avatar_b64  = _pendingAvatar.b64;
+    d.avatar_mime = _pendingAvatar.mime;
+  }
+  if (_pendingImportId)           d.id            = _pendingImportId;
+  if (_pendingImportSourceFormat) d.source_format = _pendingImportSourceFormat;
+  _pendingAvatar = null;
+  _pendingImportId = null;
+  _pendingImportSourceFormat = null;
+  if (!d.name) { toast('Name required', true); return; }
+  try {
+    const created = await api.post('/characters', d);
+    closeModal();
+    await loadCharacters();
+    toast(`Imported "${created.name}"`);
+  } catch (e) {
+    if (e.status === 409) toast('Character already in your library', true);
+    else toast(e.message, true);
+  }
 }

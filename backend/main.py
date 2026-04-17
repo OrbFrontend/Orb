@@ -131,6 +131,8 @@ class ConversationCreate(BaseModel):
 
 
 class CharacterCardCreate(BaseModel):
+    id: Optional[str] = None
+    source_format: Optional[str] = None
     name: str
     description: str = ""
 
@@ -378,8 +380,8 @@ async def api_list_characters():
 @app.post("/api/characters")
 async def api_create_character(data: CharacterCardCreate):
     card_data = data.model_dump()
-    card_data["id"] = str(uuid.uuid4())
-    card_data["source_format"] = "manual"
+    card_data["id"] = card_data.get("id") or str(uuid.uuid4())
+    card_data["source_format"] = card_data.get("source_format") or "manual"
     return await create_character_card(card_data)
 
 
@@ -424,10 +426,7 @@ async def api_import_character(file: Annotated[UploadFile, File(...)]):
     card_dict["avatar_b64"] = avatar_b64
     card_dict["avatar_mime"] = avatar_mime
 
-    try:
-        return await create_character_card(card_dict)
-    except ValueError:
-        raise HTTPException(409, "This character is already in your library")
+    return card_dict
 
 
 @app.get("/api/characters/{card_id}")

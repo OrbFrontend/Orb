@@ -7,7 +7,7 @@ import { initTheme, loadSettings, saveSetting, showUserModal, saveUserProfile, a
 import { loadFragments, showFragmentModal, saveFragment, deleteFragment, toggleFragmentEnabled,
          loadCharacters, renderCharacters, triggerImport, handleImportFile,
          deleteCharacter, showCharCreateModal, createCharacter,
-         showCharEditModal, saveCharEdit,
+         showCharEditModal, saveCharEdit, saveImportedChar,
          addAltGreeting, triggerAvatarCrop, exportCharacter } from './library.js';
 import { loadConversations, resetChatUI, selectChar, newConvForChar,
          selectConversation, deleteConversationFromModal, showConvHistoryModal,
@@ -56,7 +56,7 @@ Object.assign(window, {
   showFragmentModal, saveFragment, deleteFragment, toggleFragmentEnabled,
   // characters
   selectChar, triggerImport, handleImportFile, deleteCharacter,
-  showCharCreateModal, createCharacter, showCharEditModal, saveCharEdit,
+  showCharCreateModal, createCharacter, showCharEditModal, saveCharEdit, saveImportedChar,
   addAltGreeting, triggerAvatarCrop, exportCharacter,
   // crop modal
   closeCropModal,
