@@ -13,7 +13,7 @@ from typing import AsyncIterator
 
 from .audit import run_audit, format_report, AuditReport
 from .slop_detector import DetectionResult
-from .opening_monotony import FlaggedOpener, MonotonyResult
+from .opening_monotony import FlaggedOpener, MonotonyResult, _split_sentences
 from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...tool_defs import (
@@ -37,8 +37,7 @@ logger = logging.getLogger(__name__)
 
 def _split_target_sentences(target_text: str) -> set[str]:
     """Split *target_text* into a sentence set using the same heuristic as the detectors."""
-    parts = re.split(r'(?<=[.!?"""\'])\s+', target_text.strip())
-    return {s.strip() for s in parts if s.strip()}
+    return set(_split_sentences(target_text))
 
 
 def _filter_flagged_items(
@@ -53,12 +52,17 @@ def _filter_flagged_items(
     for item in items:
         kept = [s for s in item.sentences if s in sentences]
         if kept:
+            extra = {
+                k: v for k, v in vars(item).items()
+                if k not in (label_field, "count", "fraction", "sentences")
+            }
             filtered.append(
                 cls(
                     **{label_field: getattr(item, label_field)},
                     count=len(kept),
                     fraction=len(kept) / total if total > 0 else 0.0,
                     sentences=kept,
+                    **extra,
                 )
             )
     return filtered

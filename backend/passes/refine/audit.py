@@ -70,13 +70,13 @@ def run_audit(
     phrase_bank: list[list[str]],
     cliche_threshold: float = 0.25,
     opener_n_words: int = 1,
-    opener_threshold: float = 0.15,
+    opener_min_consecutive: int = 3,
     template_max_tags: int = 8,
     template_flag_threshold: int = 2,
 ) -> AuditReport:
     return AuditReport(
         cliche_result=detect_cliches(text, phrase_bank, cliche_threshold),
-        monotony_result=detect_opening_monotony(text, opener_n_words, opener_threshold),
+        monotony_result=detect_opening_monotony(text, opener_n_words, opener_min_consecutive),
         template_result=detect_template_repetition(
             text, template_max_tags, template_flag_threshold
         ),
@@ -120,7 +120,7 @@ def format_report(report: AuditReport) -> str:
             "begin with the same opening words. Vary the sentence structure."
         ]
         for fo in mr.flagged_openers:
-            lines.append(f'   - "{fo.opener}" (appeared {fo.count} times):')
+            lines.append(f'   - "{fo.opener}" ({fo.max_run} consecutive sentences):')
             for s in fo.sentences[:4]:
                 lines.append(f"     • {s}")
         sections.append("\n".join(lines))

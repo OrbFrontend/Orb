@@ -153,13 +153,15 @@ def _x_looks_like_clause(x_tokens: list[str]) -> bool:
     return len(content) > 5
 
 
-def _y_looks_like_clause(y_tokens: list[str]) -> bool:
-    """True if Y after 'but' opens with its own subject, making it an
-    independent clause rather than a bare complement."""
+def _y_looks_like_clause(y_tokens: list[str], exclude_it: bool = False) -> bool:
+    """True if Y opens with its own subject, making it an independent clause
+    rather than a bare complement.  Pass exclude_it=True when Y is a verb
+    complement (do-support context), where 'it' is unambiguously an object."""
     if not y_tokens:
         return False
     first = y_tokens[0].lower()
-    return first in _CLAUSE_SIGNALS and first not in ("this", "that")
+    exclusions = ("this", "that", "it") if exclude_it else ("this", "that")
+    return first in _CLAUSE_SIGNALS and first not in exclusions
 
 
 # ── Strategy 2: negated be-verb … affirmative be-verb ────────────────────────
@@ -335,7 +337,7 @@ def _find_do_support_pattern(
         return None
     if _x_looks_like_clause(x_tokens):
         return None
-    if _y_looks_like_clause(y_tokens):
+    if _y_looks_like_clause(y_tokens, exclude_it=True):
         return None
 
     return {

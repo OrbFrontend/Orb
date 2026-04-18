@@ -151,7 +151,7 @@ EDITOR_PATCH_INSTRUCTIONS = (
     "- Do NOT send a patch where `search` and `replace` are identical.\n"
     "- Keep replacements close in length to the original.\n"
     "- For banned phrases: rewrite the sentence to remove the banned phrase entirely. Note: The audit report may show the canonical phrase name (e.g., 'ozone'), but you need to remove the actual variant that appears in the sentence (e.g., 'electric').\n"
-    "- For repetitive openers: change how the sentence begins.\n"
+    "- For repetitive openers: change how the sentence begins (these are consecutive sentences starting with the same word).\n"
     "- For repetitive templates: restructure the sentence (reorder clauses, combine, vary syntax).\n\n"
     "If the audit report seems incorrect or makes no sense, you may skip fixing those specific issues."
 )
@@ -162,7 +162,7 @@ editor_rewrite_INSTRUCTIONS = (
     "Use `editor_rewrite` to produce a condensed rewrite within the specified limits.\n\n"
     "REWRITING RULES:\n"
     "- Send ONE `editor_rewrite` call with the complete rewritten text.\n"
-    "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied - avoid repetitive 'she, she, she'.\n"
+    "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied - avoid 3+ consecutive sentences starting with the same word (e.g. 'she, she, she').\n"
     "- First priority is to get rid of repetitiveness and condense comma-separated adjectives into stronger, more precise words (e.g. old, ruined building -> decrepit building).\n"
     "- Be more concise but maintain coherence and narrative flow."
 )

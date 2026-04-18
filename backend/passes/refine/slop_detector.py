@@ -63,7 +63,7 @@ def _containment(phrase_grams: set, window_grams: set) -> float:
 
 
 def _split_sentences(text: str) -> list[str]:
-    raw = re.split(r"(?<=[.!?])\s+", text.strip())
+    raw = re.split(r"(?<=[.!?])\s+|\n+", text.strip())
     return [s.strip() for s in raw if s.strip()]
 
 

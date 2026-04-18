@@ -72,6 +72,12 @@ class TestTruePositives:
         )
         assert len(hits) >= 1
 
+    def test_didnt_just_dash_had(self):
+        """'didn't just X—she had it practically Y' contrastive pattern."""
+        hits = detect_contrastive_negation(
+            "she didn't just suggest—she had it practically curated"
+        )
+        assert len(hits) >= 1
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FALSE POSITIVES – legitimate English that should NOT trigger

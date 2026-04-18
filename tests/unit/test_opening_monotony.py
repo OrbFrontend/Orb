@@ -2,8 +2,8 @@
 Tests for opening_monotony detection.
 
 Organised into:
-  - TRUE POSITIVES  – repetitive sentence openings we *want* to catch
-  - FALSE POSITIVES – legitimate variation that should *ignore*
+  - TRUE POSITIVES  – repetitive consecutive sentence openings we *want* to catch
+  - FALSE POSITIVES – legitimate variation that should *not* trigger
   - EDGE CASES      – boundary inputs
 """
 
@@ -13,7 +13,7 @@ from backend.passes.refine.opening_monotony import detect_opening_monotony
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TRUE POSITIVES – repetitive openings that should be flagged
+# TRUE POSITIVES – repetitive consecutive openings that should be flagged
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -28,6 +28,7 @@ class TestTruePositives:
         flagged = result.flagged_openers[0]
         assert flagged.opener == "he"
         assert flagged.count == 3
+        assert flagged.max_run == 3
         assert flagged.fraction == 1.0
 
     def test_four_consecutive_same_first_word(self):
@@ -38,6 +39,7 @@ class TestTruePositives:
         flagged = result.flagged_openers[0]
         assert flagged.opener == "she"
         assert flagged.count == 4
+        assert flagged.max_run == 4
         assert flagged.fraction == 1.0
 
     def test_three_consecutive_same_two_words(self):
@@ -47,8 +49,7 @@ class TestTruePositives:
         assert len(result.flagged_openers) >= 1
         flagged = result.flagged_openers[0]
         assert flagged.opener == "he is"
-        assert flagged.count == 3
-        assert flagged.fraction == 1.0
+        assert flagged.max_run == 3
 
     def test_mixed_case_and_punctuation(self):
         """Normalization should treat 'He', 'he', 'He!' as same."""
@@ -57,28 +58,25 @@ class TestTruePositives:
         assert len(result.flagged_openers) >= 1
         flagged = result.flagged_openers[0]
         assert flagged.opener == "he"
-        assert flagged.count == 3
+        assert flagged.max_run == 3
 
     def test_repetition_within_longer_text(self):
-        """Three repeated openers surrounded by other sentences."""
+        """Three consecutive repeated openers surrounded by other sentences."""
         text = (
             "The sky is blue. He walked. He ran. He jumped. "
             "The grass is green. She sang."
         )
         result = detect_opening_monotony(text, n_words=1)
-        # Should flag 'he' with count 3
         he_flag = [f for f in result.flagged_openers if f.opener == "he"]
         assert len(he_flag) == 1
-        assert he_flag[0].count == 3
-        # fraction 3/6 = 0.5
-        assert he_flag[0].fraction == 0.5
+        assert he_flag[0].max_run == 3
 
     def test_repetition_across_paragraphs(self):
-        """Sentences split by newlines."""
+        """Consecutive sentences split by newlines."""
         text = "He walked.\n\nHe ran.\n\nHe jumped."
         result = detect_opening_monotony(text, n_words=1)
         assert len(result.flagged_openers) >= 1
-        assert result.flagged_openers[0].count == 3
+        assert result.flagged_openers[0].max_run == 3
 
     def test_long_sentences_same_first_three_words(self):
         """Longer sentences with identical first three words."""
@@ -91,8 +89,7 @@ class TestTruePositives:
         assert len(result.flagged_openers) >= 1
         flagged = result.flagged_openers[0]
         assert flagged.opener == "the quick brown"
-        assert flagged.count == 3
-        assert flagged.fraction == 1.0
+        assert flagged.max_run == 3
 
     def test_long_sentences_same_first_four_words(self):
         """Longer sentences with identical first four words."""
@@ -105,22 +102,20 @@ class TestTruePositives:
         assert len(result.flagged_openers) >= 1
         flagged = result.flagged_openers[0]
         assert flagged.opener == "in the beginning god"
-        assert flagged.count == 3
-        assert flagged.fraction == 1.0
+        assert flagged.max_run == 3
 
-    def test_default_n_words_with_long_sentences(self):
-        """Default n_words=3 should detect repetition if sentences have enough words."""
+    def test_default_n_words_detects_consecutive_first_word(self):
+        """Default n_words=1 detects consecutive first-word repetition."""
         text = (
             "She is a very talented artist. "
             "She is a very skilled musician. "
             "She is a very dedicated teacher."
         )
-        # First three words: "she is a"
-        result = detect_opening_monotony(text)  # default n_words=3
+        result = detect_opening_monotony(text)  # default n_words=1
         assert len(result.flagged_openers) >= 1
         flagged = result.flagged_openers[0]
-        assert flagged.opener == "she is a"
-        assert flagged.count == 3
+        assert flagged.opener == "she"
+        assert flagged.max_run == 3
 
     def test_line_breaks_and_quotes(self):
         """Sentences with quotes, commas, extra spaces and newlines."""
@@ -128,36 +123,18 @@ class TestTruePositives:
 
 He Z something."""
         result = detect_opening_monotony(text, n_words=1)
-        # Should detect three 'he' openers
         assert len(result.flagged_openers) >= 1
         flagged = result.flagged_openers[0]
         assert flagged.opener == "he"
-        assert flagged.count == 3
-        assert flagged.fraction == 1.0
+        assert flagged.max_run == 3
 
-    def test_realistic_narrative_repetitive_he(self):
-        """Realistic narrative with multiple 'He' sentences (true positive)."""
-        text = (
-            "Henderson sighs, a long, rattling sound that suggests he’s been "
-            "fighting the bureaucracy of the school district for far too long. "
-            "He doesn't look at you with any particular interest, just stares "
-            "off toward the parking lot, leaning back against the concrete "
-            "planter with his clipboard tucked under one arm.\n\n"
-            '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
-            'and drained of all emotion. "Probably that transfer student '
-            "back in '19. Kid from out of state. He presents his ID, right? "
-            'The card says..."\n\n'
-            "He shifts his weight, his tone remaining as boring as a weather "
-            "report while he describes a sensory nightmare."
-        )
+    def test_run_in_middle_of_longer_sequence(self):
+        """Flag when the 3-in-a-row run is in the middle, not the start."""
+        text = "The cat slept. He walked. He ran. He jumped. The dog barked."
         result = detect_opening_monotony(text, n_words=1)
-        # Should flag 'he' with count 4 (sentences 1,3,6,8)
-        assert len(result.flagged_openers) >= 1
-        flagged = result.flagged_openers[0]
-        assert flagged.opener == "he"
-        assert flagged.count == 4
-        # fraction 4/9 ≈ 0.4444
-        assert abs(flagged.fraction - 0.4444) < 0.0001
+        he_flag = [f for f in result.flagged_openers if f.opener == "he"]
+        assert len(he_flag) == 1
+        assert he_flag[0].max_run == 3
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -168,29 +145,39 @@ He Z something."""
 class TestFalsePositives:
     """These should NOT be flagged."""
 
-    def test_only_two_repetitions(self):
-        """Two identical openers out of many should not flag (count < 3)."""
+    def test_only_two_consecutive(self):
+        """Two identical openers in a row — below the threshold of 3."""
         text = "He walked. He ran. The cat slept."
-        detect_opening_monotony(text, n_words=1, flag_threshold=0.15)
-        # count=2, fraction=2/3 ≈ 0.667 > threshold, but count >=2, so it WILL flag.
-        # This is a known limitation: detector flags any count >=2 if fraction >= threshold.
-        # For the purpose of this test, we'll accept that it flags (since it's not a bug).
-        # We'll instead adjust flag_threshold to 0.7 to avoid flagging.
-        result2 = detect_opening_monotony(text, n_words=1, flag_threshold=0.7)
-        assert len(result2.flagged_openers) == 0
+        result = detect_opening_monotony(text, n_words=1)
+        assert len(result.flagged_openers) == 0
 
     def test_non_consecutive_repetition(self):
-        """Same opener spread apart with different sentences in between."""
+        """Same opener appears 3+ times but never 3 in a row — should not flag."""
         text = "He walked. The cat slept. He ran. The dog barked. He jumped."
-        detect_opening_monotony(text, n_words=1)
-        # With default flag_threshold=0.15, fraction = 3/5 = 0.6 > 0.15, count >=2, so flags.
-        # This is a bug: detector should consider consecutiveness.
-        # We'll mark this as expected to flag (since current implementation does).
-        # We'll still run the test to ensure it doesn't crash.
-        # For false positive we need to adjust threshold high enough.
-        result2 = detect_opening_monotony(text, n_words=1, flag_threshold=0.7)
-        # fraction 0.6 < 0.7, so no flag
-        assert len(result2.flagged_openers) == 0
+        result = detect_opening_monotony(text, n_words=1)
+        assert len(result.flagged_openers) == 0
+
+    def test_realistic_narrative_dialogue_does_not_protect_run(self):
+        """Dialogue between 'He' sentences is ignored — the run is still detected."""
+        text = (
+            "Henderson sighs, a long, rattling sound that suggests he's been "
+            "fighting the bureaucracy of the school district for far too long. "
+            "He doesn't look at you with any particular interest, just stares "
+            "off toward the parking lot, leaning back against the concrete "
+            "planter with his clipboard tucked under one arm.\n\n"
+            "\"Worst, huh?\" He rubs the bridge of his nose, his voice flat "
+            "and drained of all emotion. \"Probably that transfer student "
+            "back in '19. Kid from out of state. He presents his ID, right? "
+            "The card says...\"\n\n"
+            "He shifts his weight, his tone remaining as boring as a weather "
+            "report while he describes a sensory nightmare."
+        )
+        result = detect_opening_monotony(text, n_words=1)
+        # After stripping dialogue, narration is: Henderson..., He doesn't look...,
+        # He rubs (attribution), He shifts — 3 consecutive 'he' sentences.
+        assert len(result.flagged_openers) >= 1
+        assert result.flagged_openers[0].opener == "he"
+        assert result.flagged_openers[0].max_run >= 3
 
     def test_different_openers(self):
         """No repetition at all."""
@@ -205,12 +192,10 @@ class TestFalsePositives:
         assert len(result.flagged_openers) == 0
         assert result.all_openers == {}
 
-    def test_varied_openers_with_same_first_word_but_different_second(self):
-        """He X. He Y. He Z but with different second word -> same opener for n_words=1."""
-        # This is actually a true positive for n_words=1, but for n_words=2 it's false.
+    def test_varied_openers_same_first_word_different_second(self):
+        """He walked. He ran. He jumped — different 2-word openers, not flagged."""
         text = "He walked slowly. He ran fast. He jumped high."
         result = detect_opening_monotony(text, n_words=2)
-        # opener 'he walked' vs 'he ran' vs 'he jumped' all different
         assert len(result.flagged_openers) == 0
 
 
@@ -236,7 +221,6 @@ class TestEdgeCases:
     def test_only_punctuation(self):
         text = "! ? ."
         result = detect_opening_monotony(text, n_words=1)
-        # Punctuation‑only sentences are counted as sentences but have no openers
         assert result.total_sentences == 3
         assert result.all_openers == {}
         assert len(result.flagged_openers) == 0
@@ -245,87 +229,39 @@ class TestEdgeCases:
         """Some sentences shorter than n_words, some longer."""
         text = "He. He is. He was."
         result = detect_opening_monotony(text, n_words=2)
-        # Only sentences with >=2 words have openers
         assert result.all_openers == {"he is": 1, "he was": 1}
         assert len(result.flagged_openers) == 0
 
-    def test_flag_threshold_zero(self):
-        """If threshold is 0, any repetition of count >=2 should flag."""
+    def test_min_consecutive_two(self):
+        """min_consecutive=2 flags any two in a row."""
         text = "He walked. He ran. The cat slept."
-        result = detect_opening_monotony(text, n_words=1, flag_threshold=0.0)
+        result = detect_opening_monotony(text, n_words=1, min_consecutive=2)
         assert len(result.flagged_openers) >= 1
         flagged = result.flagged_openers[0]
         assert flagged.opener == "he"
-        assert flagged.count == 2
+        assert flagged.max_run == 2
 
-    def test_flag_threshold_one(self):
-        """If threshold is 1, only opener that appears in all sentences."""
-        text = "He walked. He ran. He jumped."
-        result = detect_opening_monotony(text, n_words=1, flag_threshold=1.0)
-        assert len(result.flagged_openers) >= 1
-        flagged = result.flagged_openers[0]
-        assert flagged.fraction == 1.0
+    def test_min_consecutive_four(self):
+        """min_consecutive=4: three in a row is not enough."""
+        text = "He walked. He ran. He jumped. The cat slept."
+        result = detect_opening_monotony(text, n_words=1, min_consecutive=4)
+        assert len(result.flagged_openers) == 0
 
     def test_n_words_zero(self):
-        """n_words=0 is invalid; expect maybe empty opener."""
-        # The function will treat n_words=0 as split with zero words? It will cause opener to be empty string.
-        # We'll just ensure it doesn't crash.
+        """n_words=0 should not crash."""
         text = "He walked."
         detect_opening_monotony(text, n_words=0)
-        # No assertion, just checking it runs
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BUG REGRESSION TESTS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-class TestBugRegression:
-    """Tests for known bugs."""
-
-    def test_default_n_words_too_large(self):
-        """With default n_words=3, two‑word sentences produce no openers."""
-        text = "He walked. He ran. He jumped."
-        result = detect_opening_monotony(text)  # default n_words=3
-        # Bug: all_openers is empty because each sentence has <3 words
-        assert result.all_openers == {}
-        assert len(result.flagged_openers) == 0
-        # This is the bug that makes the detector never trigger.
-        # We'll keep this test to document the issue.
-
-    def test_consecutive_requirement_missing(self):
-        """Detector currently does not require consecutiveness."""
-        text = "He walked. The cat slept. He ran. The dog barked. He jumped."
+    def test_flagged_sentences_are_the_run(self):
+        """FlaggedOpener.sentences holds the consecutive run, not all occurrences."""
+        text = "He walked. The cat slept. He ran. He jumped. He tripped."
         result = detect_opening_monotony(text, n_words=1)
-        # It flags 'he' because count=3, fraction=0.6 > 0.15
-        # That's a bug if consecutiveness is required.
-        # We'll assert that it does flag (current behavior).
-        assert len(result.flagged_openers) >= 1
-        # This test will fail if the bug is fixed (i.e., detector ignores non‑consecutive).
-        # We'll mark it as expected to pass for now.
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# DESIRED BEHAVIOR (currently not implemented)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-class TestDesiredBehavior:
-    """Tests that reflect the ideal behavior (skipped because not yet implemented)."""
-
-    @pytest.mark.skip(reason="Consecutiveness requirement not yet implemented")
-    def test_non_consecutive_repetition_should_not_flag(self):
-        """Same opener appears three times but not consecutively → should NOT flag."""
-        text = "He walked. The cat slept. He ran. The dog barked. He jumped."
-        result = detect_opening_monotony(text, n_words=1)
-        assert len(result.flagged_openers) == 0
-
-    @pytest.mark.skip(reason="Default n_words should detect single‑word repetition")
-    def test_default_n_words_should_detect_he(self):
-        """With default parameters, 'He X. He Y. He Z' should be flagged."""
-        text = "He walked. He ran. He jumped."
-        result = detect_opening_monotony(text)  # default n_words=3
-        assert len(result.flagged_openers) >= 1
+        he_flag = [f for f in result.flagged_openers if f.opener == "he"]
+        assert len(he_flag) == 1
+        assert he_flag[0].max_run == 3
+        assert len(he_flag[0].sentences) == 3
+        # Total count includes the first "He walked." too
+        assert he_flag[0].count == 4
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -334,55 +270,40 @@ class TestDesiredBehavior:
 
 
 class TestAuditIntegration:
-    """Tests that verify the detector works within the full audit pipeline."""
-
-    def test_audit_default_params_miss_narrative(self):
-        """With default audit parameters (n_words=3), the narrative paragraph is NOT flagged."""
+    def test_audit_flags_narrative_with_dialogue_between_he_sentences(self):
+        """Audit correctly flags 'He' run even when dialogue appears between sentences."""
         from backend.passes.refine.audit import run_audit
-
         text = (
-            "Henderson sighs, a long, rattling sound that suggests he’s been "
+            "Henderson sighs, a long, rattling sound that suggests he's been "
             "fighting the bureaucracy of the school district for far too long. "
             "He doesn't look at you with any particular interest, just stares "
             "off toward the parking lot, leaning back against the concrete "
             "planter with his clipboard tucked under one arm.\n\n"
-            '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
-            'and drained of all emotion. "Probably that transfer student '
+            "\"Worst, huh?\" He rubs the bridge of his nose, his voice flat "
+            "and drained of all emotion. \"Probably that transfer student "
             "back in '19. Kid from out of state. He presents his ID, right? "
-            'The card says..."\n\n'
+            "The card says...\"\n\n"
             "He shifts his weight, his tone remaining as boring as a weather "
             "report while he describes a sensory nightmare."
         )
         report = run_audit(text, [])
-        # Because n_words=3, each 'He' sentence has a different three‑word opener,
-        # so no repetition is detected.
-        assert len(report.monotony_result.flagged_openers) == 0
-        # This test documents the current buggy behavior.
+        assert len(report.monotony_result.flagged_openers) >= 1
+        assert report.monotony_result.flagged_openers[0].opener == "he"
 
-    @pytest.mark.skip(reason="Audit should detect repetitive first‑word openings")
-    def test_audit_should_detect_narrative_with_n_words_1(self):
-        """If audit used n_words=1, the narrative paragraph would be flagged."""
+    def test_audit_flags_consecutive_narrative(self):
+        """Audit with default params: 3 consecutive 'He' sentences ARE flagged."""
         from backend.passes.refine.audit import run_audit
-
         text = (
-            "Henderson sighs, a long, rattling sound that suggests he’s been "
-            "fighting the bureaucracy of the school district for far too long. "
-            "He doesn't look at you with any particular interest, just stares "
-            "off toward the parking lot, leaning back against the concrete "
-            "planter with his clipboard tucked under one arm.\n\n"
-            '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
-            'and drained of all emotion. "Probably that transfer student '
-            "back in '19. Kid from out of state. He presents his ID, right? "
-            'The card says..."\n\n'
-            "He shifts his weight, his tone remaining as boring as a weather "
-            "report while he describes a sensory nightmare."
+            "Henderson sighs, a long rattling sound. "
+            "He walks to the window. "
+            "He stares at the parking lot. "
+            "He says nothing for a long time."
         )
-        # Override opener_n_words to 1 (not the default).
-        report = run_audit(text, [], opener_n_words=1)
+        report = run_audit(text, [])
         assert len(report.monotony_result.flagged_openers) >= 1
         flagged = report.monotony_result.flagged_openers[0]
         assert flagged.opener == "he"
-        assert flagged.count == 4
+        assert flagged.max_run == 3
 
 
 if __name__ == "__main__":
