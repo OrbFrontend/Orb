@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import List, Optional
 import asyncio
 import aiosqlite
+import sqlite3
 import json
 import os
 from datetime import datetime, timezone
@@ -744,10 +745,15 @@ async def add_message(
     db = await get_db()
     try:
         now = datetime.now(timezone.utc).isoformat()
-        cur = await db.execute(
-            "INSERT INTO messages (conversation_id, role, content, turn_index, swipe_index, is_active, parent_id, created_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
-            (cid, role, content, turn_index, swipe_index, parent_id, now),
-        )
+        try:
+            cur = await db.execute(
+                "INSERT INTO messages (conversation_id, role, content, turn_index, swipe_index, is_active, parent_id, created_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (cid, role, content, turn_index, swipe_index, parent_id, now),
+            )
+        except sqlite3.IntegrityError as e:
+            raise ValueError(
+                f"Foreign key constraint failed for conversation={cid}, parent={parent_id}: {e}"
+            ) from e
         message_id = cur.lastrowid
         if attachments:
             for att in attachments:

@@ -18,6 +18,7 @@ from pathlib import Path
 # Ordered list of migration module names. Append new entries at the bottom.
 MIGRATIONS: list[str] = [
     "0001_editor_rename",
+    "0002_cleanup_orphaned_messages",
 ]
 
 
