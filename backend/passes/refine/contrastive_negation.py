@@ -35,7 +35,33 @@ _PRONOUNS = frozenset(
 )
 _BE_VERBS = frozenset("is am are was were be been being 's 're 'm".split())
 _DO_VERBS = frozenset("do does did".split())
+_HAVE_VERBS = frozenset("have has had".split())
 _CONJUNCTIONS = frozenset("but and or yet so".split())
+_COMMON_VERBS = frozenset(
+    "go goes went gone come comes came take takes took taken "
+    "see sees saw seen look looks looked make makes made "
+    "give gives gave given get gets got gotten have has had "
+    "do does did done say says said tell tells told "
+    "know knows knew known think thinks thought feel feels felt "
+    "find finds found leave leaves left keep keeps kept "
+    "let lets lose loses lost run runs ran "
+    "sit sits sat stand stands stood understand understands understood "
+    "begin begins began begun drink drinks drank drunk "
+    "write writes wrote written speak speaks spoke spoken "
+    "break breaks broke broken choose chooses chose chosen "
+    "want wants wanted use uses used work works worked "
+    "call calls called try tries tried ask asks asked "
+    "need needs needed seem seems seemed help helps helped "
+    "show shows showed turn turns turned start starts started "
+    "play plays played move moves moved live lives lived "
+    "believe believes believed bring brings brought "
+    "happen happens happened hear hears heard "
+    "buy buys bought catch catches caught teach teaches taught "
+    "spend spends spent build builds built send sends sent "
+    "mean means meant pay pays paid hold holds held "
+    "fall falls fell meet meets met lead leads led "
+    "win wins won".split()
+)
 _CLAUSE_SIGNALS = (
     frozenset(
         "i he she we they you who which what where when why how if because "
@@ -66,8 +92,12 @@ def _tag_word(word: str) -> str:
         return "NOUN"
     if low.endswith(("ing", "ed")):
         return "VERB"
+    if low.endswith(("s", "es")) and not low.endswith(("ss", "us", "is", "as", "os")):
+        return "VERB"
     if low.endswith(("ful", "ous", "ive", "ble", "al", "ent", "ant")):
         return "ADJ"
+    if low in _COMMON_VERBS:
+        return "VERB"
     return "NOUN"
 
 
@@ -90,6 +120,7 @@ _NEGATED_BE = frozenset(
     }
 )
 _NEGATED_DO_CONTRACTIONS = frozenset({"doesn't", "don't", "didn't"})
+_NEGATED_HAVE_CONTRACTIONS = frozenset({"hasn't", "haven't", "hadn't"})
 _SAME_SUBJECT_PRONOUNS = frozenset("it this that".split())
 _PERSONAL_PRONOUNS = frozenset("i me he him she her we us they them you".split())
 
@@ -208,19 +239,20 @@ def _find_negated_be_pattern(tokens: list[str], tags: list[str]) -> dict | None:
 def _find_do_support_pattern(
     tokens: list[str], tags: list[str], lowers: list[str]
 ) -> dict | None:
-    """Match 'doesn't X, ... [it] Ys' but only when the affirmative clause
+    """Match 'doesn't/hasn't X, ... [it] Ys' but only when the affirmative clause
     shares the same subject and opens with a verb."""
 
     neg_idx = None
     neg_width = 1
     for i, t in enumerate(tokens):
-        if t.lower() in _NEGATED_DO_CONTRACTIONS:
+        low = t.lower()
+        if low in _NEGATED_DO_CONTRACTIONS or low in _NEGATED_HAVE_CONTRACTIONS:
             neg_idx = i
             break
         if (
             i + 1 < len(tokens)
             and tags[i] == "VERB"
-            and t.lower() in _DO_VERBS
+            and (low in _DO_VERBS or low in _HAVE_VERBS)
             and tokens[i + 1].lower() == "not"
         ):
             neg_idx = i
@@ -250,7 +282,14 @@ def _find_do_support_pattern(
     if aff_verb_idx is None:
         return None
 
-    # Subject-continuity check for do-support
+    # A conjunction between the boundary and the verb signals an independent clause
+    # ("do not like rain, but I brought …"), not a bare complement.
+    if any(
+        tokens[j].lower() in _CONJUNCTIONS for j in range(boundary + 1, aff_verb_idx)
+    ):
+        return None
+
+    # Subject-continuity check
     same_subject = False
 
     # 1. Explicit subject right before the verb
@@ -264,25 +303,34 @@ def _find_do_support_pattern(
     # 2. Elided subject (verb immediately after boundary, or boundary + conjunction)
     if not same_subject:
         if aff_verb_idx == boundary + 1:
-            same_subject = True  # Verb right after boundary
+            same_subject = True
         elif (
             aff_verb_idx == boundary + 2
             and tokens[boundary + 1].lower() in _CONJUNCTIONS
         ):
-            same_subject = True  # Verb right after "but"/"yet"
+            same_subject = True
 
     if not same_subject:
         return None
 
     x_tokens = tokens[neg_idx + neg_width : boundary]
     x_tags = tags[neg_idx + neg_width : boundary]
-    y_tokens = tokens[aff_verb_idx + 1 :]
-    y_tags = tags[aff_verb_idx + 1 :]
+
+    # For "has/have/had + participle", skip the auxiliary so y spans the complement only.
+    y_start = aff_verb_idx + 1
+    if (
+        lowers[aff_verb_idx] in _HAVE_VERBS
+        and y_start < len(tags)
+        and tags[y_start] == "VERB"
+    ):
+        y_start += 1
+
+    y_tokens = tokens[y_start:]
+    y_tags = tags[y_start:]
 
     _strip_trailing_punct(x_tokens, x_tags)
     _strip_trailing_punct(y_tokens, y_tags)
 
-    # Allow intransitive Y (e.g. "doesn't break, it bends") by only requiring x_tags
     if not x_tags:
         return None
     if _x_looks_like_clause(x_tokens):
