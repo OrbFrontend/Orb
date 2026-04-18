@@ -1866,7 +1866,7 @@ select {
   font-size: 13px;
   outline: none;
   width: 100%;
-  transition: border-color .15s;
+  transition: border-color .15s, box-shadow .15s;
 }
 
 input[type="checkbox"],
@@ -1875,11 +1875,22 @@ input[type="radio"] {
   padding: 0;
   border: none;
   background: none;
+  box-shadow: none;
 }
 
-input:focus,
+input:not([type="checkbox"]):not([type="radio"]):hover,
+textarea:hover,
+select:hover {
+  border-color: var(--border-light);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
 textarea:focus,
-select:focus { border-color: var(--accent-dim); }
+select:focus {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 14px var(--accent-glow);
+}
 
 textarea {
   resize: vertical;
