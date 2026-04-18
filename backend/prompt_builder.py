@@ -25,9 +25,11 @@ def replace_placeholders(text: str, user_name: str, char_name: str) -> str:
     return result
 
 
-def format_message_with_attachments(message: dict, user_name: str, char_name: str) -> dict:
+def format_message_with_attachments(
+    message: dict, user_name: str, char_name: str
+) -> dict:
     """Convert a message dict with optional attachments to OpenAI vision format.
-    
+
     Input message dict expects keys: 'role', 'content' (str), 'attachments' (list of dicts).
     Each attachment dict must have 'mime_type' and 'data_b64'.
     Returns a dict with 'role' and 'content' (string or list of parts).
@@ -35,11 +37,11 @@ def format_message_with_attachments(message: dict, user_name: str, char_name: st
     role = message["role"]
     text = replace_placeholders(message.get("content", ""), user_name, char_name)
     attachments = message.get("attachments") or []
-    
+
     if not attachments:
         # Simple text message
         return {"role": role, "content": text}
-    
+
     # Build multimodal content array
     parts = []
     if text:

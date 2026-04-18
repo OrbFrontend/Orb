@@ -199,22 +199,23 @@ class AttachmentIn(BaseModel):
     filename: Optional[str] = None
     size: Optional[int] = None
 
-    @field_validator('size')
+    @field_validator("size")
     @classmethod
     def validate_size(cls, v):
         if v is not None and v > 10 * 1024 * 1024:  # 10 MB
-            raise ValueError('Attachment size exceeds 10 MB limit')
+            raise ValueError("Attachment size exceeds 10 MB limit")
         return v
 
-    @field_validator('b64')
+    @field_validator("b64")
     @classmethod
     def validate_b64(cls, v):
         # Ensure it's valid base64 (optional)
         import base64
+
         try:
             base64.b64decode(v, validate=True)
         except Exception:
-            raise ValueError('Invalid base64 string')
+            raise ValueError("Invalid base64 string")
         return v
 
 
@@ -381,7 +382,9 @@ async def api_create_conversation(data: ConversationCreate):
 
     # If there's a first message, auto-add it as the first assistant turn
     if first_mes.strip():
-        msg_id = await add_message(cid, "assistant", first_mes.strip(), 0, attachments=None)
+        msg_id = await add_message(
+            cid, "assistant", first_mes.strip(), 0, attachments=None
+        )
         await set_active_leaf(cid, msg_id)
 
         # If we have a character card with alternate greetings, create swipe versions
@@ -626,12 +629,14 @@ async def api_edit_message(cid: str, msg_id: int, data: EditMessage, request: Re
     original_attachments = await get_attachments_for_message(msg_id)
     attachments = []
     for att in original_attachments:
-        attachments.append({
-            "mime_type": att["mime_type"],
-            "data_b64": att["data_b64"],
-            "filename": att["filename"],
-            "size": att["size"],
-        })
+        attachments.append(
+            {
+                "mime_type": att["mime_type"],
+                "data_b64": att["data_b64"],
+                "filename": att["filename"],
+                "size": att["size"],
+            }
+        )
 
     # Create sibling (same parent_id as original)
     new_msg_id = await add_message(
@@ -649,7 +654,10 @@ async def api_edit_message(cid: str, msg_id: int, data: EditMessage, request: Re
     if should_stream_regen:
         return _CleanupStreamingResponse(
             _sse_stream(
-                handle_turn(cid, data.content, skip_user_persist=True, attachments=attachments), request
+                handle_turn(
+                    cid, data.content, skip_user_persist=True, attachments=attachments
+                ),
+                request,
             ),
             media_type="text/event-stream",
         )

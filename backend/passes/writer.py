@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import AsyncIterator, List
+from typing import AsyncIterator, List, Optional
 
 from ..llm_client import LLMClient, reasoning_cfg
 from ..tool_defs import enabled_schemas
@@ -22,7 +22,7 @@ async def _writer_pass(
     *,
     inj_block: str = "",
     effective_msg: str,
-    attachments: List[dict] = [],
+    attachments: Optional[List[dict]] = None,
     length_guard_enforce: bool = False,
     length_guard: dict | None = None,
     kv_tracker=None,

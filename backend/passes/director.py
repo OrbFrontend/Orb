@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import AsyncIterator, List
+from typing import AsyncIterator
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ..tool_defs import TOOLS, POST_WRITER_TOOLS, enabled_schemas

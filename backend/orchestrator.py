@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import AsyncIterator, List
+from typing import AsyncIterator, List, Optional
 
 from . import database as db
 from .llm_client import LLMClient
@@ -31,7 +31,7 @@ async def _run_pipeline(
     fragments: list[dict],
     prefix: list[dict],
     user_message: str,
-    attachments: List[dict] = [],
+    attachments: Optional[List[dict]] = None,
     phrase_bank: list[list[str]] | None = None,
 ) -> AsyncIterator[dict]:
     """Three-pass pipeline: director → writer → editor.
@@ -43,6 +43,8 @@ async def _run_pipeline(
     ``editor_rewrite`` is included in the schema set whenever the length guard
     is enabled (mirroring how ``editor_apply_patch`` tracks ``audit_enabled``).
     """
+    if attachments is None:
+        attachments = []
     enabled_tools = settings.get("enabled_tools") or {}
     agent_on = bool(settings.get("enable_agent", 1))
     if not agent_on:
@@ -487,9 +489,11 @@ async def handle_turn(
     conversation_id: str,
     user_message: str,
     skip_user_persist: bool = False,
-    attachments: List[dict] = [],
+    attachments: Optional[List[dict]] = None,
 ) -> AsyncIterator[dict]:
     try:
+        if attachments is None:
+            attachments = []
         ctx = await _load_pipeline_context(conversation_id)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
@@ -511,12 +515,16 @@ async def handle_turn(
             # Convert frontend attachment format to database format
             db_attachments = []
             for att in attachments:
-                db_attachments.append({
-                    "mime_type": att.get("mime", att.get("mime_type", "image/jpeg")),
-                    "data_b64": att.get("b64", att.get("data_b64", "")),
-                    "filename": att.get("filename"),
-                    "size": att.get("size"),
-                })
+                db_attachments.append(
+                    {
+                        "mime_type": att.get(
+                            "mime", att.get("mime_type", "image/jpeg")
+                        ),
+                        "data_b64": att.get("b64", att.get("data_b64", "")),
+                        "filename": att.get("filename"),
+                        "size": att.get("size"),
+                    }
+                )
             user_msg_id = await db.add_message(
                 conversation_id,
                 "user",
@@ -598,7 +606,9 @@ async def handle_regenerate(
         )
         prefix = _build_prefix_from_ctx(ctx, history)
 
-        attachments = await db.get_attachments_for_message(user_msg_id) if user_msg_id else []
+        attachments = (
+            await db.get_attachments_for_message(user_msg_id) if user_msg_id else []
+        )
         pipeline = _run_pipeline(
             ctx["client"],
             settings,

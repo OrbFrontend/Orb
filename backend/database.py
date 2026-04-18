@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List
+from typing import List, Optional
 import asyncio
 import aiosqlite
 import json
@@ -752,8 +752,15 @@ async def add_message(
         if attachments:
             for att in attachments:
                 await db.execute(
-                    'INSERT INTO message_attachments (message_id, mime_type, data_b64, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                    (message_id, att['mime_type'], att['data_b64'], att.get('filename'), att.get('size'), now),
+                    "INSERT INTO message_attachments (message_id, mime_type, data_b64, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        message_id,
+                        att["mime_type"],
+                        att["data_b64"],
+                        att.get("filename"),
+                        att.get("size"),
+                        now,
+                    ),
                 )
         await db.execute(
             "UPDATE conversations SET updated_at = ? WHERE id = ?", (now, cid)
@@ -765,7 +772,7 @@ async def add_message(
 
 
 async def add_attachments(message_id: int, attachments: List[dict]) -> None:
-    '''Insert multiple attachments for a given message.'''
+    """Insert multiple attachments for a given message."""
     if not attachments:
         return
     db = await get_db()
@@ -773,19 +780,27 @@ async def add_attachments(message_id: int, attachments: List[dict]) -> None:
         now = datetime.now(timezone.utc).isoformat()
         for att in attachments:
             await db.execute(
-                'INSERT INTO message_attachments (message_id, mime_type, data_b64, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                (message_id, att['mime_type'], att['data_b64'], att.get('filename'), att.get('size'), now),
+                "INSERT INTO message_attachments (message_id, mime_type, data_b64, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    message_id,
+                    att["mime_type"],
+                    att["data_b64"],
+                    att.get("filename"),
+                    att.get("size"),
+                    now,
+                ),
             )
         await db.commit()
     finally:
         await db.close()
 
+
 async def get_attachments_for_message(message_id: int) -> List[dict]:
-    '''Retrieve all attachments for a message.'''
+    """Retrieve all attachments for a message."""
     db = await get_db()
     try:
         rows = await db.execute_fetchall(
-            'SELECT id, mime_type, data_b64, filename, size, created_at FROM message_attachments WHERE message_id = ? ORDER BY id',
+            "SELECT id, mime_type, data_b64, filename, size, created_at FROM message_attachments WHERE message_id = ? ORDER BY id",
             (message_id,),
         )
         return [dict(r) for r in rows]
