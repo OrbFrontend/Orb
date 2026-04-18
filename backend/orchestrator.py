@@ -16,7 +16,7 @@ from .prompt_builder import build_prefix, compute_style_injection_block
 from .kv_tracker import _KVCacheTracker
 from .passes.director import _agent_pass
 from .passes.writer import _writer_pass
-from .passes.refine import editor_pass
+from .passes.editor import editor_pass
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ async def _run_pipeline(
     active_moods = director["active_moods"]
     agent_raw, calls, latency = "", [], 0
     (
-        refined_msg,
+        rewritten_msg,
         next_event,
         writing_direction,
         detected_repetitions,
@@ -96,7 +96,7 @@ async def _run_pipeline(
         else None
     )
 
-    do_refine = audit_enabled or (length_guard_enabled and agent_on)
+    do_edit = audit_enabled or (length_guard_enabled and agent_on)
 
     prefix_chars = sum(len(m.get("content") or "") for m in prefix)
     kv_tracker = _KVCacheTracker(prefix_chars)
@@ -130,7 +130,7 @@ async def _run_pipeline(
                     agent_raw,
                     calls,
                     latency,
-                    refined_msg,
+                    rewritten_msg,
                     next_event,
                     writing_direction,
                     detected_repetitions,
@@ -138,11 +138,11 @@ async def _run_pipeline(
                     keywords,
                     user_intent,
                 ) = event["result"]
-        if refined_msg:
-            effective_msg = refined_msg
+        if rewritten_msg:
+            effective_msg = rewritten_msg
             yield {
                 "event": "prompt_rewritten",
-                "data": {"refined_message": refined_msg},
+                "data": {"refined_message": rewritten_msg},
             }
 
     # Style injection
@@ -207,7 +207,7 @@ async def _run_pipeline(
             "agent_raw": agent_raw,
             "calls": calls,
             "latency": latency,
-            "refined_msg": refined_msg,
+            "rewritten_msg": rewritten_msg,
             "effective_msg": effective_msg,
             "resp_text": resp_text,
             "inj_block": inj_block,
@@ -220,7 +220,7 @@ async def _run_pipeline(
     }
 
     # --- Editor pass ---
-    if do_refine and resp_text:
+    if do_edit and resp_text:
         logger.info(
             "Editor pass starting (draft=%d chars, phrase_bank=%d groups)",
             len(resp_text),
@@ -264,8 +264,8 @@ async def _run_pipeline(
                         }
         except Exception as e:
             logger.error("editor pass failed, keeping original: %s", e, exc_info=True)
-    elif not do_refine:
-        logger.info("Editor pass skipped (do_refine=%s)", do_refine)
+    elif not do_edit:
+        logger.info("Editor pass skipped (do_edit=%s)", do_edit)
 
     kv_tracker.log_summary()
 
@@ -361,7 +361,7 @@ async def _persist_result(
         await db.update_director_state(
             conversation_id, res["active_moods"], res.get("keywords")
         )
-    if res.get("refined_msg") and user_msg_id:
+    if res.get("rewritten_msg") and user_msg_id:
         await db.update_message_content(user_msg_id, res["effective_msg"])
 
     asst_id = await db.add_message(
@@ -389,7 +389,7 @@ async def _fallback_persist(
             await db.update_director_state(
                 conversation_id, res["active_moods"], res.get("keywords")
             )
-        if res.get("refined_msg") and user_msg_id:
+        if res.get("rewritten_msg") and user_msg_id:
             await db.update_message_content(user_msg_id, res["effective_msg"])
         resp_text = res.get("resp_text", "") or accumulated_text
         if resp_text.strip():

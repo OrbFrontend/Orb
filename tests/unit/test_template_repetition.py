@@ -9,7 +9,7 @@ Organised into:
 
 import pytest
 
-from backend.passes.refine.contrastive_negation import detect_contrastive_negation
+from backend.passes.editor.contrastive_negation import detect_contrastive_negation
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

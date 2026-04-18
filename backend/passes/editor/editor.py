@@ -1,5 +1,5 @@
 """
-refine.py — Editor pass: audit filtering, text patching, and the
+editor.py — Editor pass: audit filtering, text patching, and the
 ReAct-style LLM loop that fixes audit issues and/or enforces length guards.
 """
 

@@ -1,5 +1,5 @@
 """
-test_refine_loop.py — Tests for the ReAct loop in editor_pass.
+test_editor_loop.py — Tests for the ReAct loop in editor_pass.
 
 Verifies that:
   1. The loop terminates early when all issues are fixed (audit clean).
@@ -12,15 +12,15 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from backend.passes.refine.audit import AuditReport
-from backend.passes.refine.slop_detector import (
+from backend.passes.editor.audit import AuditReport
+from backend.passes.editor.slop_detector import (
     DetectionResult,
     FlaggedSentence,
     ClicheHit,
 )
-from backend.passes.refine.opening_monotony import MonotonyResult
-from backend.passes.refine.template_repetition import TemplateResult
-from backend.passes.refine.refine import editor_pass
+from backend.passes.editor.opening_monotony import MonotonyResult
+from backend.passes.editor.template_repetition import TemplateResult
+from backend.passes.editor.editor import editor_pass
 from backend.tool_defs import MAX_EDITOR_ITERATIONS
 
 
@@ -109,7 +109,7 @@ async def _run(client, audit_side_effects):
     """Run editor_pass with mocked _run_contextual_audit and collect all events."""
     audit_iter = iter(audit_side_effects)
     with patch(
-        "backend.passes.refine.refine._run_contextual_audit",
+        "backend.passes.editor.editor._run_contextual_audit",
         side_effect=lambda *a, **kw: next(audit_iter),
     ):
         return [
@@ -131,7 +131,7 @@ async def _run(client, audit_side_effects):
 # ── Tests ─────────────────────────────────────────────────────────────────────
 
 
-class TestRefineLoopTermination:
+class TesteditorLoopTermination:
 
     async def test_stops_early_when_all_issues_fixed(self):
         """Loop exits after one iteration when the post-patch audit is clean."""
@@ -190,7 +190,7 @@ class TestRefineLoopTermination:
             client.complete.call_count == 3
         ), "Expected 3 iterations before audit cleared"
 
-        # Iteration 0 — last user message is the initial refine prompt (contains REPORT_LABEL_3)
+        # Iteration 0 — last user message is the initial editor prompt (contains REPORT_LABEL_3)
         assert "REPORT_LABEL_3" in captured_msgs[0][-1]["content"]
 
         # Iteration 1 — last user message is the tool-result turn (contains REPORT_LABEL_2)

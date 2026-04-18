@@ -9,7 +9,7 @@ Organised into:
 
 import pytest
 
-from backend.passes.refine.opening_monotony import detect_opening_monotony
+from backend.passes.editor.opening_monotony import detect_opening_monotony
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -272,7 +272,7 @@ class TestEdgeCases:
 class TestAuditIntegration:
     def test_audit_flags_narrative_with_dialogue_between_he_sentences(self):
         """Audit correctly flags 'He' run even when dialogue appears between sentences."""
-        from backend.passes.refine.audit import run_audit
+        from backend.passes.editor.audit import run_audit
 
         text = (
             "Henderson sighs, a long, rattling sound that suggests he's been "
@@ -293,7 +293,7 @@ class TestAuditIntegration:
 
     def test_audit_flags_consecutive_narrative(self):
         """Audit with default params: 3 consecutive 'He' sentences ARE flagged."""
-        from backend.passes.refine.audit import run_audit
+        from backend.passes.editor.audit import run_audit
 
         text = (
             "Henderson sighs, a long rattling sound. "

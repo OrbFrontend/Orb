@@ -2,7 +2,7 @@
 template_repetition.py — Stub module kept for backward compatibility.
 
 Template-repetition detection (POS-tag pattern matching) was removed; these
-dataclasses and the no-op function remain so that audit.py and refine.py
+dataclasses and the no-op function remain so that audit.py and editor.py
 continue to compile without changes.
 """
 
