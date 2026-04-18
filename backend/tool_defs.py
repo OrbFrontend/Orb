@@ -22,7 +22,7 @@ AGENT_TOOLS = [
                     },
                     "user_intent": {
                         "type": "string",
-                        "description": "Deduced intention of user based on their input, what they want to see. Be extremely literal and specific (e.g. 'The user wants the character to clarify what they meant by \"the pain\"', 'The user wants to know what's in the picture', 'The user is confessing his love in a roundabout way', 'The user wants to push the scenario forward already').",
+                        "description": "Hidden/subtle intention of the user based on their input - what they want to see. Be extremely literal and specific (e.g. 'This crosses the line, the user wants to find out what happens when the boundaries are crossed', 'The user clearly wants his friend to get mad and fight back', 'The user is confessing his love in a roundabout way', 'The user wants to push the scenario forward already').",
                     },
                     "keywords": {
                         "type": "array",
@@ -31,7 +31,7 @@ AGENT_TOOLS = [
                     },
                     "next_event": {
                         "type": "string",
-                        "description": "What happens immediately next in the story — the next event, action, reveal, or turn of fate (e.g. 'She continues to bear down in a squatting position. Somebody in the gym asks if she's okay', 'The attack tears off a chunk of her clothing. She frantically tries to cover herself', 'Jack can tell she's lying. He calls her out it because they have been friends forever', 'She pretends not to know what Vodka is to keep up the innocent act', 'He gets bored and shifts focus to something else entirely'). Keep to two short sentences.",
+                        "description": "What happens immediately next in the story — the next event, action, reveal, or turn of fate (e.g. 'This act crosses personal boundaries. The character snaps and fights back.', 'The attack tears off a chunk of her clothing. She frantically tries to cover herself', 'Jack can tell she's lying. He calls her out on it because they have been friends forever', 'She pretends not to know what Vodka is to keep up the innocent act', 'He gets bored and shifts focus to something else entirely'). Keep to two short sentences.",
                     },
                     "moods": {
                         "type": "array",
