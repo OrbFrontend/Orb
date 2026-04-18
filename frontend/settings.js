@@ -34,6 +34,7 @@ const SETTING_FIELDS = [
 
 export async function loadSettings() {
   S.settings = await api.get('/settings');
+  S.activePersonaId = S.settings.active_persona_id || null;
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === 'number') S.agentEnabled = S.settings.enable_agent !== 0;
   
@@ -55,7 +56,17 @@ export async function loadSettings() {
     S.reasoningEnabled = { ...S.reasoningEnabled, ...S.settings.reasoning_enabled_passes };
   renderSettings();
   renderToolsPanel();
+  await loadPersonas();
   updateUserBtn();
+}
+
+export async function loadPersonas() {
+  try {
+    S.personas = await api.get('/user-personas');
+  } catch (e) {
+    console.error('Failed to load personas:', e);
+    S.personas = [];
+  }
 }
 
 export function renderSettings() {
@@ -84,24 +95,50 @@ export async function saveSetting(el) {
 
 // ── User Profile
 export function updateUserBtn() {
-  $('user-profile-btn').textContent = '👤 ' + (S.settings.user_name || 'User');
+  let displayName = 'User';
+  if (S.activePersonaId && S.personas.length) {
+    const activePersona = S.personas.find(p => p.id === S.activePersonaId);
+    if (activePersona) displayName = activePersona.name;
+  }
+  $('user-profile-btn').textContent = '👤 ' + displayName;
 }
 
 export function showUserModal() {
+  const personaItems = S.personas.map(p => {
+    const isActive = p.id === S.activePersonaId;
+    const avatarColor = p.avatar_color || '#E1F5EE';
+    const avatarTextColor = isActive ? 'var(--accent)' : '#085041';
+    const avatarBg = isActive ? 'var(--accent-glow)' : avatarColor;
+    const initials = p.name.charAt(0).toUpperCase();
+    return `
+      <div class="persona-item${isActive ? ' persona-item-active' : ''}" onclick="activatePersona(${p.id})">
+        <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${initials}</div>
+        <div class="persona-info">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span class="persona-name">${esc(p.name)}</span>
+            ${isActive ? '<span class="persona-active-badge">Active</span>' : ''}
+          </div>
+          <span class="persona-desc">${esc(p.description || '')}</span>
+        </div>
+        <button class="btn btn-sm" onclick="event.stopPropagation();editPersona(${p.id})">Edit</button>
+      </div>
+    `;
+  }).join('');
+
   showModal(`
-    <h2>User Profile</h2>
-    <div class="field">
-      <label>Name</label>
-      <input id="user-name-input" value="${esc(S.settings.user_name || '')}" placeholder="e.g. Alex">
+    <div class="modal-title-row">
+      <div>
+        <h2>User personas</h2>
+        <p class="modal-subtitle">Click a persona to activate it.</p>
+      </div>
+      <div class="modal-title-actions">
+        <button class="btn" onclick="showPersonaEditModal(null)">+ New persona</button>
+      </div>
     </div>
-    <div class="field">
-      <label>Description <span style="font-size:10px;color:var(--text-muted)">(injected into system prompt)</span></label>
-      <textarea id="user-desc-input" rows="5" placeholder="Describe yourself — appearance, personality, background...">${esc(S.settings.user_description || '')}</textarea>
+    <div class="persona-list">
+      ${personaItems.length ? personaItems : '<p class="modal-subtitle" style="text-align:center;padding:1rem 0">No personas yet. Create one to get started.</p>'}
     </div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="saveUserProfile()">Save</button>
-    </div>`);
+  `);
 }
 
 export async function saveUserProfile() {
@@ -113,6 +150,99 @@ export async function saveUserProfile() {
     closeModal();
     toast('User profile saved');
   } catch (e) { toast('Failed: ' + e.message, true); }
+}
+
+export function showPersonaEditModal(personaId) {
+  const persona = personaId ? S.personas.find(p => p.id === personaId) : null;
+  const isEdit = persona !== null;
+  showModal(`
+    <h2>${isEdit ? 'Edit persona' : 'New persona'}</h2>
+    <div class="field">
+      <label>Name</label>
+      <input id="persona-name-input" type="text" placeholder="e.g. Kai" value="${esc(persona?.name || '')}">
+    </div>
+    <div class="field">
+      <label>Description <span style="font-weight:400;text-transform:none;letter-spacing:0">(injected into system prompt)</span></label>
+      <textarea id="persona-desc-input" placeholder="Describe yourself — appearance, personality, background…" rows="4" style="resize:vertical;min-height:90px">${esc(persona?.description || '')}</textarea>
+    </div>
+    <label class="modal-checkbox-label" style="margin-bottom:1.25rem">
+      <input type="checkbox" id="persona-active-checkbox" ${!personaId || personaId === S.activePersonaId ? 'checked' : ''} style="width:14px;height:14px;margin:0;flex-shrink:0">
+      <span style="font-size:13px;text-transform:none;letter-spacing:0;font-weight:400">Set as active persona after saving</span>
+    </label>
+    <div class="modal-actions">
+      ${isEdit ? `<button class="btn btn-danger" onclick="deletePersona(${personaId})">Delete</button>` : ''}
+      <button class="btn" onclick="showUserModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="savePersona(${personaId || 'null'})">${isEdit ? 'Update' : 'Create'}</button>
+    </div>
+  `);
+}
+
+export async function savePersona(personaId) {
+  const name = $('persona-name-input').value.trim();
+  const description = $('persona-desc-input').value.trim();
+  const setActive = $('persona-active-checkbox').checked;
+  if (!name) {
+    toast('Name is required', true);
+    return;
+  }
+  try {
+    let newId;
+    if (personaId && personaId !== 'null') {
+      await api.put('/user-personas/' + personaId, { name, description });
+      newId = parseInt(personaId, 10);
+    } else {
+      const result = await api.post('/user-personas', { name, description });
+      newId = result.id;
+    }
+    await loadPersonas();
+    if (setActive) {
+      await api.put('/settings', { active_persona_id: newId });
+      S.activePersonaId = newId;
+      updateUserBtn();
+    }
+    showUserModal();
+    toast('Persona saved');
+  } catch (e) {
+    toast('Failed: ' + e.message, true);
+  }
+}
+
+export async function deletePersona(personaId) {
+  showConfirmModal({
+    title: 'Delete Persona',
+    message: 'Are you sure you want to delete this persona?',
+    confirmText: 'Delete',
+  }, async () => {
+    try {
+      await api.del('/user-personas/' + personaId);
+      if (S.activePersonaId === personaId) {
+        await api.put('/settings', { active_persona_id: null });
+        S.activePersonaId = null;
+        updateUserBtn();
+      }
+      await loadPersonas();
+      showUserModal();
+      toast('Persona deleted');
+    } catch (e) {
+      toast('Failed: ' + e.message, true);
+    }
+  });
+}
+
+export async function activatePersona(personaId) {
+  if (S.activePersonaId === personaId) return;
+  try {
+    await api.put('/settings', { active_persona_id: personaId });
+    S.activePersonaId = personaId;
+    updateUserBtn();
+    showUserModal();
+  } catch (e) {
+    toast('Failed: ' + e.message, true);
+  }
+}
+
+export async function editPersona(personaId) {
+  showPersonaEditModal(personaId);
 }
 
 // ── Agent Tools Panel

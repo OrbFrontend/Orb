@@ -19,6 +19,7 @@ from pathlib import Path
 MIGRATIONS: list[str] = [
     "0001_editor_rename",
     "0002_cleanup_orphaned_messages",
+    "0003_create_default_persona",
 ]
 
 

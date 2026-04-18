@@ -3,7 +3,8 @@ import { S } from './state.js';
 import { initTheme, loadSettings, saveSetting, showUserModal, saveUserProfile, applyTheme,
          toggleToolsPanel, setAgentEnabled, toggleToolEnabled,
          toggleLengthGuard, saveLengthGuardConfig, toggleLengthGuardEnforce,
-         showPhraseBankModal, showAddPhraseGroupModal } from './settings.js';
+         showPhraseBankModal, showAddPhraseGroupModal,
+         showPersonaEditModal, savePersona, deletePersona, editPersona, activatePersona } from './settings.js';
 import { loadFragments, showFragmentModal, saveFragment, deleteFragment, toggleFragmentEnabled,
          loadCharacters, renderCharacters, triggerImport, handleImportFile,
          deleteCharacter, showCharCreateModal, createCharacter,
@@ -123,6 +124,7 @@ Object.assign(window, {
   applyTheme,
   // settings / user
   saveSetting, showUserModal, saveUserProfile,
+  showPersonaEditModal, savePersona, deletePersona, editPersona, activatePersona,
   // tools
   toggleToolsPanel, setAgentEnabled, toggleToolEnabled,
   toggleLengthGuard, saveLengthGuardConfig, toggleLengthGuardEnforce,

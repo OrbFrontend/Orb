@@ -228,7 +228,8 @@ async def init_db():
                 enable_agent INTEGER NOT NULL DEFAULT 1,
                 length_guard_max_words INTEGER NOT NULL DEFAULT 240,
                 length_guard_max_paragraphs INTEGER NOT NULL DEFAULT 4,
-                reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":false,"editor":false}'
+                reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":false,"editor":false}',
+                active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS fragments (
@@ -310,6 +311,15 @@ async def init_db():
                 variants TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS user_personas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                avatar_color TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS message_attachments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -341,6 +351,11 @@ async def init_db():
         if "reasoning_enabled_passes" not in existing_cols:
             await db.execute(
                 'ALTER TABLE settings ADD COLUMN reasoning_enabled_passes TEXT NOT NULL DEFAULT \'{"director":true,"writer":false,"editor":false}\''
+            )
+
+        if "active_persona_id" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL"
             )
 
         # Migration for director_state keywords column
@@ -458,6 +473,7 @@ async def update_settings(data: dict) -> dict:
             "length_guard_max_words",
             "length_guard_max_paragraphs",
             "reasoning_enabled_passes",
+            "active_persona_id",
         ]
         json_fields = {"enabled_tools", "reasoning_enabled_passes"}
         sets = []
@@ -1146,6 +1162,87 @@ async def delete_phrase_group(group_id: int) -> bool:
     db = await get_db()
     try:
         cur = await db.execute("DELETE FROM phrase_bank WHERE id = ?", (group_id,))
+        await db.commit()
+        return cur.rowcount > 0
+    finally:
+        await db.close()
+
+
+# --- User Personas ---
+
+
+async def get_user_personas() -> list[dict]:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT id, name, description, avatar_color, created_at, updated_at FROM user_personas ORDER BY name ASC"
+        )
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_user_persona(persona_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT id, name, description, avatar_color, created_at, updated_at FROM user_personas WHERE id = ?",
+            (persona_id,),
+        )
+        return dict(rows[0]) if rows else None
+    finally:
+        await db.close()
+
+
+async def create_user_persona(data: dict) -> dict:
+    db = await get_db()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        cur = await db.execute(
+            "INSERT INTO user_personas (name, description, avatar_color, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                data["name"],
+                data.get("description", ""),
+                data.get("avatar_color"),
+                now,
+                now,
+            ),
+        )
+        persona_id = cur.lastrowid
+        await db.commit()
+        return await get_user_persona(persona_id)
+    finally:
+        await db.close()
+
+
+async def update_user_persona(persona_id: int, data: dict) -> dict | None:
+    db = await get_db()
+    try:
+        allowed = ["name", "description", "avatar_color"]
+        sets = []
+        vals = []
+        for k in allowed:
+            if k in data:
+                sets.append(f"{k} = ?")
+                vals.append(data[k])
+        if sets:
+            sets.append("updated_at = ?")
+            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(persona_id)
+            await db.execute(
+                f"UPDATE user_personas SET {', '.join(sets)} WHERE id = ?",
+                vals,
+            )
+            await db.commit()
+        return await get_user_persona(persona_id)
+    finally:
+        await db.close()
+
+
+async def delete_user_persona(persona_id: int) -> bool:
+    db = await get_db()
+    try:
+        cur = await db.execute("DELETE FROM user_personas WHERE id = ?", (persona_id,))
         await db.commit()
         return cur.rowcount > 0
     finally:

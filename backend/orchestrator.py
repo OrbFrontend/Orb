@@ -303,6 +303,12 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
         conv, settings
     )
 
+    # Load active persona if set
+    active_persona = None
+    active_persona_id = settings.get("active_persona_id")
+    if active_persona_id:
+        active_persona = await db.get_user_persona(active_persona_id)
+
     return {
         "settings": settings,
         "conv": conv,
@@ -313,6 +319,7 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
         "system_prompt": system_prompt,
         "char_persona": char_persona,
         "mes_example": mes_example,
+        "active_persona": active_persona,
     }
 
 
@@ -320,6 +327,15 @@ def _build_prefix_from_ctx(ctx: dict, history: list[dict]) -> list[dict]:
     """Build the LLM prefix from a pipeline-context dict."""
     conv = ctx["conv"]
     settings = ctx["settings"]
+    active_persona = ctx.get("active_persona")
+    
+    if active_persona:
+        user_name = active_persona.get("name", "User")
+        user_description = active_persona.get("description", "")
+    else:
+        user_name = settings.get("user_name", "User")
+        user_description = settings.get("user_description", "")
+    
     return build_prefix(
         ctx["system_prompt"],
         conv["character_name"],
@@ -328,8 +344,8 @@ def _build_prefix_from_ctx(ctx: dict, history: list[dict]) -> list[dict]:
         ctx["mes_example"],
         conv.get("post_history_instructions", ""),
         history,
-        settings.get("user_name", "User"),
-        settings.get("user_description", ""),
+        user_name,
+        user_description,
     )
 
 

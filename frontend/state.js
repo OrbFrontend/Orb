@@ -5,6 +5,8 @@ export const S = {
   messages: [],
   fragments: [],
   characters: [],
+  personas: [],
+  activePersonaId: null,
   settings: {},
   directorState: null,
   lastDirectorData: null,

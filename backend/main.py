@@ -49,6 +49,11 @@ from .database import (
     add_phrase_group,
     update_phrase_group,
     delete_phrase_group,
+    get_user_personas,
+    get_user_persona,
+    create_user_persona,
+    update_user_persona,
+    delete_user_persona,
 )
 import asyncio
 from .orchestrator import handle_turn, handle_regenerate
@@ -103,6 +108,7 @@ class SettingsUpdate(BaseModel):
     length_guard_max_words: Optional[int] = None
     length_guard_max_paragraphs: Optional[int] = None
     reasoning_enabled_passes: Optional[dict] = None
+    active_persona_id: Optional[int] = None
 
 
 class FragmentCreate(BaseModel):
@@ -249,6 +255,18 @@ class PhraseGroupUpdate(BaseModel):
     variants: list[str]
 
 
+class UserPersonaCreate(BaseModel):
+    name: str
+    description: str = ""
+    avatar_color: Optional[str] = None
+
+
+class UserPersonaUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    avatar_color: Optional[str] = None
+
+
 # Settings ──
 
 
@@ -259,7 +277,7 @@ async def api_get_settings():
 
 @app.put("/api/settings")
 async def api_update_settings(data: SettingsUpdate):
-    return await update_settings(data.model_dump(exclude_none=True))
+    return await update_settings(data.model_dump(exclude_unset=True))
 
 
 # Fragments ──
@@ -336,6 +354,35 @@ async def api_delete_phrase_group(group_id: int):
     success = await delete_phrase_group(group_id)
     if not success:
         raise HTTPException(404, "Phrase group not found")
+    return {"ok": True}
+
+
+# User Personas ──
+
+
+@app.get("/api/user-personas")
+async def api_list_user_personas():
+    return await get_user_personas()
+
+
+@app.post("/api/user-personas")
+async def api_create_user_persona(data: UserPersonaCreate):
+    return await create_user_persona(data.model_dump())
+
+
+@app.put("/api/user-personas/{persona_id}")
+async def api_update_user_persona(persona_id: int, data: UserPersonaUpdate):
+    result = await update_user_persona(persona_id, data.model_dump(exclude_none=True))
+    if not result:
+        raise HTTPException(404, "User persona not found")
+    return result
+
+
+@app.delete("/api/user-personas/{persona_id}")
+async def api_delete_user_persona(persona_id: int):
+    success = await delete_user_persona(persona_id)
+    if not success:
+        raise HTTPException(404, "User persona not found")
     return {"ok": True}
 
 
