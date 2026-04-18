@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 DEBUG = "DEBUG_OPENING_MONOTONY" in os.environ
 # ---------- public dataclasses (unchanged) ----------
 
+
 @dataclass
 class FlaggedOpener:
     opener: str
@@ -45,8 +46,8 @@ _PARA_SPLIT = re.compile(r"\n\s*\n")
 _SENT_SPLIT = re.compile(r"(?<=[.!?\u2026])[\"\u201d]?\s+")
 
 # Curly directional quotes are unambiguous: left opens, right closes.
-_OPEN_QUOTES = {"\u201c"}          # "
-_CLOSE_QUOTES = {"\u201d"}         # "
+_OPEN_QUOTES = {"\u201c"}  # "
+_CLOSE_QUOTES = {"\u201d"}  # "
 # Straight double quote has no direction; we toggle on each occurrence.
 _TOGGLE_QUOTES = {'"'}
 
@@ -96,6 +97,7 @@ def _split_sentences(text: str) -> list[str]:
 
 
 # ---------- opener analysis (unchanged logic) ----------
+
 
 def _normalize(word: str) -> str:
     return re.sub(r"[^a-z0-9']", "", word.lower())

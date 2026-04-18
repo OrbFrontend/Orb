@@ -50,7 +50,6 @@ from .database import (
     update_phrase_group,
     delete_phrase_group,
     get_user_personas,
-    get_user_persona,
     create_user_persona,
     update_user_persona,
     delete_user_persona,

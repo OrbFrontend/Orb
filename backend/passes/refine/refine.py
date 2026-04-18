@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from typing import AsyncIterator
 
@@ -53,7 +52,8 @@ def _filter_flagged_items(
         kept = [s for s in item.sentences if s in sentences]
         if kept:
             extra = {
-                k: v for k, v in vars(item).items()
+                k: v
+                for k, v in vars(item).items()
                 if k not in (label_field, "count", "fraction", "sentences")
             }
             filtered.append(

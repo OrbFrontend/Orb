@@ -135,7 +135,13 @@ SEED_PHRASE_BANK = [
     ],
     ["tension in the air"],
     ["filling the air", "fills the air", "filled the air"],
-    ["hang in the air", "hung in the air", "hangs in the air", "hanging in the air", "the air between them"],
+    [
+        "hang in the air",
+        "hung in the air",
+        "hangs in the air",
+        "hanging in the air",
+        "the air between them",
+    ],
     ["dangerous voice", "dangerous tone"],
     [
         "voice dropping",

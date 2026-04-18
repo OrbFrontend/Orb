@@ -76,7 +76,9 @@ def run_audit(
 ) -> AuditReport:
     return AuditReport(
         cliche_result=detect_cliches(text, phrase_bank, cliche_threshold),
-        monotony_result=detect_opening_monotony(text, opener_n_words, opener_min_consecutive),
+        monotony_result=detect_opening_monotony(
+            text, opener_n_words, opener_min_consecutive
+        ),
         template_result=detect_template_repetition(
             text, template_max_tags, template_flag_threshold
         ),

@@ -328,14 +328,14 @@ def _build_prefix_from_ctx(ctx: dict, history: list[dict]) -> list[dict]:
     conv = ctx["conv"]
     settings = ctx["settings"]
     active_persona = ctx.get("active_persona")
-    
+
     if active_persona:
         user_name = active_persona.get("name", "User")
         user_description = active_persona.get("description", "")
     else:
         user_name = settings.get("user_name", "User")
         user_description = settings.get("user_description", "")
-    
+
     return build_prefix(
         ctx["system_prompt"],
         conv["character_name"],

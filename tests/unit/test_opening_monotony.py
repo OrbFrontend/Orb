@@ -165,10 +165,10 @@ class TestFalsePositives:
             "He doesn't look at you with any particular interest, just stares "
             "off toward the parking lot, leaning back against the concrete "
             "planter with his clipboard tucked under one arm.\n\n"
-            "\"Worst, huh?\" He rubs the bridge of his nose, his voice flat "
-            "and drained of all emotion. \"Probably that transfer student "
+            '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
+            'and drained of all emotion. "Probably that transfer student '
             "back in '19. Kid from out of state. He presents his ID, right? "
-            "The card says...\"\n\n"
+            'The card says..."\n\n'
             "He shifts his weight, his tone remaining as boring as a weather "
             "report while he describes a sensory nightmare."
         )
@@ -273,16 +273,17 @@ class TestAuditIntegration:
     def test_audit_flags_narrative_with_dialogue_between_he_sentences(self):
         """Audit correctly flags 'He' run even when dialogue appears between sentences."""
         from backend.passes.refine.audit import run_audit
+
         text = (
             "Henderson sighs, a long, rattling sound that suggests he's been "
             "fighting the bureaucracy of the school district for far too long. "
             "He doesn't look at you with any particular interest, just stares "
             "off toward the parking lot, leaning back against the concrete "
             "planter with his clipboard tucked under one arm.\n\n"
-            "\"Worst, huh?\" He rubs the bridge of his nose, his voice flat "
-            "and drained of all emotion. \"Probably that transfer student "
+            '"Worst, huh?" He rubs the bridge of his nose, his voice flat '
+            'and drained of all emotion. "Probably that transfer student '
             "back in '19. Kid from out of state. He presents his ID, right? "
-            "The card says...\"\n\n"
+            'The card says..."\n\n'
             "He shifts his weight, his tone remaining as boring as a weather "
             "report while he describes a sensory nightmare."
         )
@@ -293,6 +294,7 @@ class TestAuditIntegration:
     def test_audit_flags_consecutive_narrative(self):
         """Audit with default params: 3 consecutive 'He' sentences ARE flagged."""
         from backend.passes.refine.audit import run_audit
+
         text = (
             "Henderson sighs, a long rattling sound. "
             "He walks to the window. "
