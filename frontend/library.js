@@ -12,6 +12,11 @@ let _pendingImportSourceFormat = null;
 // Per-card cache-bust timestamps so the browser re-fetches updated avatars
 const _avatarBust = new Map();
 
+// Character browser modal state
+let _browserViewMode = 'grid'; // 'grid' or 'list'
+let _browserSearchQuery = '';
+let _browserCharacters = [];
+
 // ── Fragments
 export async function loadFragments() {
   try {
@@ -127,8 +132,46 @@ export async function toggleFragmentEnabled(id, newEnabled) {
 }
 
 // ── Characters
+
+/**
+ * Build a sorted list of characters showing only the top N most recently
+ * talked-to characters (ordered by most recent conversation time).
+ * Characters without conversations are sorted by their last update time
+ * and included only if there are fewer than `limit` characters total.
+ */
+function filterRecentCharacters(characters, conversations, limit = 5) {
+  // Map each character_card_id to its most recent conversation timestamp
+  const recentMap = new Map();
+  for (const conv of conversations) {
+    const cardId = conv.character_card_id;
+    if (!cardId) continue;
+    const ts = conv.updated_at || conv.created_at;
+    const existing = recentMap.get(cardId);
+    if (!existing || ts > existing) {
+      recentMap.set(cardId, ts);
+    }
+  }
+
+  // Tag each character with its "activity" timestamp for sorting
+  const tagged = characters.map(char => {
+    const convTime = recentMap.get(char.id);
+    const activityTime = convTime || (char.updated_at || char.created_at || '');
+    return { char, activityTime, hasConversation: !!convTime };
+  });
+
+  // Sort by activity time descending (conversations beat updates)
+  tagged.sort((a, b) => b.activityTime.localeCompare(a.activityTime));
+
+  // Return only the top N
+  return tagged.slice(0, limit).map(t => t.char);
+}
+
 export async function loadCharacters() {
-  S.characters = await api.get('/characters');
+  const [characters, conversations] = await Promise.all([
+    api.get('/characters'),
+    S.conversations || api.get('/conversations'),
+  ]);
+  S.characters = filterRecentCharacters(characters, conversations || []);
   renderCharacters();
 }
 
@@ -431,4 +474,110 @@ export async function saveImportedChar() {
     if (e.status === 409) toast('Character already in your library', true);
     else toast(e.message, true);
   }
+}
+
+// ── Character Browser Modal
+
+export async function showCharacterBrowserModal() {
+  try {
+    _browserCharacters = await api.get('/characters');
+  } catch (e) {
+    _browserCharacters = S.characters || [];
+    console.error('Failed to load characters for browser:', e);
+  }
+  _browserViewMode = S.characterBrowserView || 'grid';
+  _browserSearchQuery = '';
+  renderCharacterBrowser();
+  showModal(`
+    <div class="modal-title-row">
+      <div>
+        <h2>Character Library</h2>
+        <div style="font-size:11px;color:var(--text-muted)">${_browserCharacters.length} character${_browserCharacters.length !== 1 ? 's' : ''}</div>
+      </div>
+      <div class="modal-title-actions">
+        <div class="view-toggle" id="char-browser-view-toggle">
+          <button class="view-toggle-btn active" data-view="grid" onclick="setCharBrowserView('grid')">⊞ Grid</button>
+          <button class="view-toggle-btn" data-view="list" onclick="setCharBrowserView('list')">☰ List</button>
+        </div>
+        <button class="btn btn-sm" onclick="closeModal()">✕</button>
+      </div>
+    </div>
+    <div class="char-browser-search">
+      <input type="text" id="char-browser-search" placeholder="Search characters by name..." oninput="onCharBrowserSearch()">
+      <span class="search-icon">🔍</span>
+    </div>
+    <div id="char-browser-content"></div>
+    <div class="modal-actions">
+      <div style="flex:1"></div>
+      <button class="btn" onclick="closeModal()">Close</button>
+    </div>`);
+}
+
+export function setCharBrowserView(mode) {
+  _browserViewMode = mode;
+  S.characterBrowserView = mode;
+  document.querySelectorAll('#char-browser-view-toggle .view-toggle-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === mode);
+  });
+  renderCharBrowserItems();
+}
+
+export function onCharBrowserSearch() {
+  const input = $('char-browser-search');
+  _browserSearchQuery = input.value.trim().toLowerCase();
+  renderCharBrowserItems();
+}
+
+function getFilteredCharacters() {
+  if (!_browserSearchQuery) return _browserCharacters;
+  return _browserCharacters.filter(c =>
+    c.name.toLowerCase().includes(_browserSearchQuery)
+  );
+}
+
+function renderCharBrowserItems() {
+  const container = $('char-browser-content');
+  if (!container) return;
+  
+  const filtered = getFilteredCharacters();
+  
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="char-browser-empty">${_browserSearchQuery ? 'No characters match your search' : 'No characters available'}</div>`;
+    return;
+  }
+  
+  if (_browserViewMode === 'grid') {
+    container.innerHTML = `<div class="char-browser-grid">${filtered.map(c => renderCharBrowserCard(c)).join('')}</div>`;
+  } else {
+    container.innerHTML = `<div class="char-browser-list">${filtered.map(c => renderCharBrowserListItem(c)).join('')}</div>`;
+  }
+}
+
+function renderCharBrowserCard(c) {
+  const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : '';
+  const av = c.has_avatar
+    ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">`
+    : '👤';
+  return `
+    <div class="char-browser-card" onclick="selectChar('${c.id}');closeModal()">
+      <div class="char-browser-avatar">${av}</div>
+      <div class="char-browser-card-name">${esc(c.name)}</div>
+    </div>`;
+}
+
+function renderCharBrowserListItem(c) {
+  const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : '';
+  const av = c.has_avatar
+    ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">`
+    : '👤';
+  return `
+    <div class="char-browser-list-item" onclick="selectChar('${c.id}');closeModal()">
+      <div class="char-browser-list-avatar">${av}</div>
+      <div class="char-browser-list-name">${esc(c.name)}</div>
+    </div>`;
+}
+
+function renderCharacterBrowser() {
+  // Initial render happens after modal is shown
+  setTimeout(() => renderCharBrowserItems(), 0);
 }

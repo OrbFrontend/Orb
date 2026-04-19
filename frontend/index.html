@@ -31,10 +31,11 @@
       <div class="sidebar-section">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Characters <span class="arrow">▼</span></div>
         <div class="sidebar-section-body" id="char-section">
-          <div class="btn-row" style="margin-bottom:8px">
-            <button class="btn btn-sm" style="flex:1" onclick="showCharCreateModal()">+ Create</button>
-            <button class="btn btn-sm" style="flex:1" onclick="triggerImport()">⬆ Import PNG</button>
+          <div class="btn-row" style="margin-bottom:8px;gap:8px">
+            <button class="btn btn-sm" style="flex:1;justify-content:center" onclick="showCharCreateModal()">+ Create</button>
+            <button class="btn btn-sm" style="flex:1;justify-content:center" onclick="triggerImport()">⬆ Import PNG</button>
           </div>
+          <button class="btn btn-block" style="margin-bottom:8px;padding:6px 0;font-size:12px;font-weight:600;" onclick="showCharacterBrowserModal()">Browse</button>
           <input type="file" id="import-file-input" accept=".png" style="display:none" onchange="handleImportFile(this)">
           <div id="char-list"></div>
         </div>

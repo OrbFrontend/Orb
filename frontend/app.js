@@ -9,7 +9,8 @@ import { loadFragments, showFragmentModal, saveFragment, deleteFragment, toggleF
          loadCharacters, renderCharacters, triggerImport, handleImportFile,
          deleteCharacter, showCharCreateModal, createCharacter,
          showCharEditModal, saveCharEdit, saveImportedChar,
-         addAltGreeting, triggerAvatarCrop, exportCharacter } from './library.js';
+         addAltGreeting, triggerAvatarCrop, exportCharacter,
+         showCharacterBrowserModal, setCharBrowserView, onCharBrowserSearch } from './library.js';
 import { loadConversations, resetChatUI, selectChar, newConvForChar,
          selectConversation, deleteConversationFromModal, showConvHistoryModal,
          renderMessages, startEdit, cancelEdit, saveEdit, deleteMessage,
@@ -136,6 +137,7 @@ Object.assign(window, {
   selectChar, triggerImport, handleImportFile, deleteCharacter,
   showCharCreateModal, createCharacter, showCharEditModal, saveCharEdit, saveImportedChar,
   addAltGreeting, triggerAvatarCrop, exportCharacter,
+  showCharacterBrowserModal, setCharBrowserView, onCharBrowserSearch,
   // crop modal
   closeCropModal,
   // conversations
@@ -170,16 +172,17 @@ async function initAll() {
     $('frag-list').innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">Failed to load fragments</div>';
   }
   
-  try {
-    await loadCharacters();
-  } catch (e) {
-    console.error('Failed to load characters:', e);
-  }
-  
+  // Load conversations before characters so we can filter by recent activity
   try {
     await loadConversations();
   } catch (e) {
     console.error('Failed to load conversations:', e);
+  }
+  
+  try {
+    await loadCharacters();
+  } catch (e) {
+    console.error('Failed to load characters:', e);
   }
 }
 

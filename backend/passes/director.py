@@ -193,7 +193,9 @@ async def _agent_pass(
         try:
             reasoning_params = (
                 # Always disable reasoning for user prompt rewrite because this task is super simple.
-                reasoning_cfg(False) if not reasoning_on or name == "rewrite_user_prompt" else reasoning_cfg(True)
+                reasoning_cfg(False)
+                if not reasoning_on or name == "rewrite_user_prompt"
+                else reasoning_cfg(True)
             )
             async for event in client.complete(
                 messages=msgs,

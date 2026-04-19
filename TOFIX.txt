@@ -4,9 +4,9 @@
   + Button to show a searchable modal that displays all characters under Create and Import.
   + Current characte list only shows most recent ones.
   + Tag-based search.
-- Improvement: Deleting a message should delete all its sibling nodes.
+  + Handle importing characters with the same name => List the chars with that name, ask user whether to make a new one or replace, and which one.
 
-- Handle importing characters with the same name => List the chars with that name, ask user whether to make a new one or replace, and which one.
+
 - Feature: User-defined fields for the director to consider (e.g. physicality).
 - Feature: Implement min_words for length_guard in editor pass.
 
