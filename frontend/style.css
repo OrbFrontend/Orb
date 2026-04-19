@@ -2034,7 +2034,7 @@ label {
 
 .char-browser-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
   gap: 12px;
   max-height: 50vh;
   overflow-y: auto;
@@ -2060,8 +2060,8 @@ label {
 }
 
 .char-browser-avatar {
-  width: 72px;
-  height: 72px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
   background: var(--bg-elevated);
   border: 2px solid var(--border);
@@ -2069,7 +2069,7 @@ label {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
+  font-size: 24px;
   color: var(--text-muted);
   transition: border-color .15s;
 }
