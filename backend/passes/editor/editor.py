@@ -17,8 +17,8 @@ from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...tool_defs import (
     TOOLS,
-    editor_apply_patch_TOOL,
-    editor_rewrite_TOOL,
+    EDITOR_APPLY_PATCH_TOOL,
+    EDITOR_REWRITE_TOOL,
     EDITOR_PREAMBLE,
     EDITOR_PATCH_INSTRUCTIONS,
     EDITOR_REWRITE_INSTRUCTIONS,
@@ -302,8 +302,8 @@ async def editor_pass(
     length_guard_instruction = ""
 
     # Start from the same enabled-tool set used by the director and writer
-    # passes so the KV-cache prefix stays aligned.  editor_apply_patch_TOOL
-    # is included when audit_enabled is True; editor_rewrite_TOOL is included
+    # passes so the KV-cache prefix stays aligned.  EDITOR_APPLY_PATCH_TOOL
+    # is included when audit_enabled is True; EDITOR_REWRITE_TOOL is included
     # when length_guard is enabled — both injected by the orchestrator into
     # enabled_tools before reaching this pass.
     editor_tools: list[dict] = enabled_schemas(enabled_tools)
@@ -470,7 +470,7 @@ async def editor_pass(
 
                 if report.is_clean:
                     break
-                editor_tools = [editor_apply_patch_TOOL] if audit_enabled else []
+                editor_tools = [EDITOR_APPLY_PATCH_TOOL] if audit_enabled else []
                 prev_issues = report.total_issues
                 msgs[-2] = {"role": "assistant", "content": current_draft}
                 msgs[-1] = {
@@ -532,7 +532,7 @@ async def editor_pass(
                 logger.info(
                     "Editor: audit clean, length guard still pending — queuing rewrite"
                 )
-                editor_tools = [editor_rewrite_TOOL]
+                editor_tools = [EDITOR_REWRITE_TOOL]
 
             if report.total_issues >= prev_issues:
                 logger.info(

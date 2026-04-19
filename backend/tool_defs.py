@@ -77,7 +77,7 @@ REWRITE_PROMPT_TOOL = {
     },
 }
 
-editor_rewrite_TOOL = {
+EDITOR_REWRITE_TOOL = {
     "type": "function",
     "function": {
         "name": "editor_rewrite",
@@ -95,7 +95,7 @@ editor_rewrite_TOOL = {
     },
 }
 
-editor_apply_patch_TOOL = {
+EDITOR_APPLY_PATCH_TOOL = {
     "type": "function",
     "function": {
         "name": "editor_apply_patch",
@@ -201,11 +201,11 @@ TOOLS: dict[str, dict] = {
     },
     "editor_apply_patch": {
         "choice": {"type": "function", "function": {"name": "editor_apply_patch"}},
-        "schema": editor_apply_patch_TOOL,
+        "schema": EDITOR_APPLY_PATCH_TOOL,
     },
     "editor_rewrite": {
         "choice": {"type": "function", "function": {"name": "editor_rewrite"}},
-        "schema": editor_rewrite_TOOL,
+        "schema": EDITOR_REWRITE_TOOL,
     },
 }
 
