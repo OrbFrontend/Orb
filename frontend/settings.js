@@ -35,6 +35,8 @@ const SETTING_FIELDS = [
 export async function loadSettings() {
   S.settings = await api.get('/settings');
   S.activePersonaId = S.settings.active_persona_id || null;
+  S.characterBrowserView = S.settings.character_library_view || 'grid';
+  S.characterBrowserSort = S.settings.character_library_sort || 'time-added';
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === 'number') S.agentEnabled = S.settings.enable_agent !== 0;
   

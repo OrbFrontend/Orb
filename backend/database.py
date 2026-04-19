@@ -120,6 +120,8 @@ DEFAULT_SETTINGS = {
     "enable_agent": True,
     "length_guard_max_words": 240,
     "length_guard_max_paragraphs": 4,
+    "character_library_view": "grid",
+    "character_library_sort": "time-added",
 }
 
 SEED_PHRASE_BANK = [
@@ -238,7 +240,9 @@ async def init_db():
                 length_guard_max_words INTEGER NOT NULL DEFAULT 240,
                 length_guard_max_paragraphs INTEGER NOT NULL DEFAULT 4,
                 reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":false,"editor":false}',
-                active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
+                active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
+                character_library_view TEXT NOT NULL DEFAULT 'grid',
+                character_library_sort TEXT NOT NULL DEFAULT 'time-added'
             );
 
             CREATE TABLE IF NOT EXISTS fragments (
@@ -366,6 +370,14 @@ async def init_db():
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL"
             )
+        if "character_library_view" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN character_library_view TEXT NOT NULL DEFAULT 'grid'"
+            )
+        if "character_library_sort" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN character_library_sort TEXT NOT NULL DEFAULT 'time-added'"
+            )
 
         # Migration for director_state keywords column
         director_cols = {
@@ -483,6 +495,8 @@ async def update_settings(data: dict) -> dict:
             "length_guard_max_paragraphs",
             "reasoning_enabled_passes",
             "active_persona_id",
+            "character_library_view",
+            "character_library_sort",
         ]
         json_fields = {"enabled_tools", "reasoning_enabled_passes"}
         sets = []

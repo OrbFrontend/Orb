@@ -525,7 +525,7 @@ export async function showCharacterBrowserModal() {
     _browserConversations = [];
     console.error('Failed to load conversations for browser:', e);
   }
-  _browserSortBy = 'time-added';
+  _browserSortBy = S.characterBrowserSort || 'time-added';
   _browserViewMode = S.characterBrowserView || 'grid';
   _browserSearchQuery = '';
   renderCharacterBrowser();
@@ -537,8 +537,8 @@ export async function showCharacterBrowserModal() {
       </div>
       <div class="modal-title-actions">
         <div class="view-toggle" id="char-browser-view-toggle">
-          <button class="view-toggle-btn active" data-view="grid" onclick="setCharBrowserView('grid')">⊞ Grid</button>
-          <button class="view-toggle-btn" data-view="list" onclick="setCharBrowserView('list')">☰ List</button>
+          <button class="view-toggle-btn${_browserViewMode === 'grid' ? ' active' : ''}" data-view="grid" onclick="setCharBrowserView('grid')">⊞ Grid</button>
+          <button class="view-toggle-btn${_browserViewMode === 'list' ? ' active' : ''}" data-view="list" onclick="setCharBrowserView('list')">☰ List</button>
         </div>
       </div>
     </div>
@@ -560,6 +560,7 @@ export async function showCharacterBrowserModal() {
 export function setCharBrowserView(mode) {
   _browserViewMode = mode;
   S.characterBrowserView = mode;
+  api.put('/settings', { character_library_view: mode }).catch(e => console.error('Failed to save view mode', e));
   document.querySelectorAll('#char-browser-view-toggle .view-toggle-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.view === mode);
   });
@@ -574,6 +575,8 @@ export function onCharBrowserSearch() {
 
 export function setCharBrowserSort(sortBy) {
   _browserSortBy = sortBy;
+  S.characterBrowserSort = sortBy;
+  api.put('/settings', { character_library_sort: sortBy }).catch(e => console.error('Failed to save sort mode', e));
   // Update dropdown UI
   const select = document.getElementById('char-browser-sort');
   if (select) select.value = sortBy;
