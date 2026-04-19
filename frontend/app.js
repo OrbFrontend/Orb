@@ -16,7 +16,7 @@ import { loadConversations, resetChatUI, selectChar, newConvForChar,
          selectConversation, deleteConversationFromModal, showConvHistoryModal,
          renderMessages, startEdit, cancelEdit, saveEdit, deleteMessage,
          switchBranch, regenerate, sendMessage, stopGeneration,
-         toggleInspector, selectReasoningPass, toggleReasoningPass, clearRefineDiff } from './chat.js';
+         toggleInspector, selectReasoningPass, toggleReasoningPass, clearRefineDiff, showAvatarPopup, hideAvatarPopup } from './chat.js';
 import { closeModal, switchTab, showConfirmModal, runConfirmCb, closeCropModal } from './modal.js';
 
 // ── Sidebar toggle
@@ -150,7 +150,7 @@ Object.assign(window, {
   // inspector
   toggleInspector, selectReasoningPass, toggleReasoningPass, clearRefineDiff,
   // ui
-  toggleSection, toggleBurger, closeBurger, triggerAttachImage, updateAttachmentPreview,
+  toggleSection, toggleBurger, closeBurger, triggerAttachImage, updateAttachmentPreview, showAvatarPopup, hideAvatarPopup,
   // state
   S,
 });

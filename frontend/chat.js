@@ -194,7 +194,7 @@ export async function selectConversation(id) {
   $('chat-title-text').textContent = conv ? (conv.title || conv.character_name) : '';
   const av = $('chat-avatar');
   if (conv?.character_card_id) {
-    av.innerHTML = `<img src="${avatarUrl(conv.character_card_id)}?t=${Date.now()}" onerror="this.parentElement.textContent='📜'">`;
+    av.innerHTML = `<img src="${avatarUrl(conv.character_card_id)}?t=${Date.now()}" onerror="this.parentElement.textContent='📜'" onclick="showAvatarPopup()" style="cursor:pointer">`;
   } else { av.textContent = '📜'; }
   $('chat-input').disabled = false;
   $('send-btn').disabled = false;
@@ -961,4 +961,18 @@ export function renderInspector() {
   // Scroll the freshly rendered reasoning box to bottom
   const _rb = document.getElementById('reasoning-box');
   if (_rb) _rb.scrollTop = _rb.scrollHeight;
+}
+
+export function showAvatarPopup() {
+  if (!S.activeCharId) return;
+  const popup = document.getElementById('avatar-popup');
+  if (!popup) return;
+  const img = document.getElementById('avatar-popup-image');
+  if (img) img.src = `/api/characters/${S.activeCharId}/avatar?t=${Date.now()}`;
+  popup.classList.remove('hidden');
+}
+
+export function hideAvatarPopup() {
+  const popup = document.getElementById('avatar-popup');
+  if (popup) popup.classList.add('hidden');
 }
