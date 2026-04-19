@@ -3,7 +3,7 @@
 - Improvement: Character management UI
 [Done]  + Button to show a searchable modal that displays all characters under Create and Import.
 [Done]  + Current characte list to show most recent ones.
-  + Tag-based search.
+[Done]  + Tag-based search.
   + Handle importing characters with the same name => List the chars with that name, ask user whether to make a new one or replace, and which one.
 
 - Feature: User-defined fields for the director to consider (e.g. physicality).

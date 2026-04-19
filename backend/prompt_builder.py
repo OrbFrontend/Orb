@@ -91,7 +91,7 @@ def build_prefix(
         mes = resolved["mes_example"]
         if "<START>" in mes:
             # Replace each <START> with header, no outer header
-            processed_example = mes.replace('<START>', '## Example Dialogue')
+            processed_example = mes.replace("<START>", "## Example Dialogue")
             parts.append(f"\n\n{processed_example}")
         else:
             # No <START> – add a single header as outer wrapper
