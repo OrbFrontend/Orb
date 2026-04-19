@@ -141,7 +141,7 @@ export function resetChatUI() {
   renderInspector();
 }
 
-export async function selectChar(id) {
+export async function selectChar(id, source = 'recent') {
   if (S.activeCharId === id || S._selectCharLock) return;
   S._selectCharLock = true;
   try {
@@ -149,6 +149,17 @@ export async function selectChar(id) {
     renderCharacters();
     const existing = S.conversations.find(c => c.character_card_id === id);
     if (existing) {
+      // If selecting from library modal, bump conversation's updated_at
+      if (source === 'library') {
+        try {
+          await api.post(`/conversations/${existing.id}/touch`);
+          // Update local conversation's updated_at to now
+          existing.updated_at = new Date().toISOString();
+        } catch (e) {
+          // silently fail, not critical
+          console.warn('Failed to touch conversation:', e);
+        }
+      }
       await selectConversation(existing.id);
     } else {
       try {
@@ -157,6 +168,8 @@ export async function selectChar(id) {
         await selectConversation(conv.id);
       } catch (e) { toast(e.message, true); }
     }
+    // Refresh the recent characters panel to reflect updated timestamps
+    refreshCharacters();
   } finally { S._selectCharLock = false; }
 }
 

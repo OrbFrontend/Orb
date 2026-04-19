@@ -27,6 +27,7 @@ from .database import (
     get_conversation,
     create_conversation,
     delete_conversation,
+    touch_conversation,
     get_messages_with_branch_info,
     get_director_state,
     get_conversation_logs,
@@ -457,6 +458,11 @@ async def api_delete_conversation(cid: str):
         raise HTTPException(404, "Conversation not found")
     return {"ok": True}
 
+@app.post("/api/conversations/{cid}/touch")
+async def api_touch_conversation(cid: str):
+    if not await touch_conversation(cid):
+        raise HTTPException(404, "Conversation not found")
+    return {"ok": True}
 
 # Character Cards ──
 

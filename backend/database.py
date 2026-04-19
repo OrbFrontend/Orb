@@ -657,6 +657,20 @@ async def delete_conversation(cid: str) -> bool:
     finally:
         await db.close()
 
+async def touch_conversation(cid: str) -> bool:
+    """Update conversation's updated_at to current time."""
+    db = await get_db()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        cur = await db.execute(
+            "UPDATE conversations SET updated_at = ? WHERE id = ?",
+            (now, cid)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+    finally:
+        await db.close()
+
 
 # --- Messages ---
 

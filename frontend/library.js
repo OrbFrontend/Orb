@@ -201,7 +201,7 @@ export function renderCharacters() {
     const av   = c.has_avatar ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">` : '👤';
     const meta    = esc((c.tags || []).slice(0, 2).join(', ') || c.source_format || '');
     const isActive = S.activeCharId === c.id;
-    return `<div class="char-item${isActive ? ' active' : ''}" onclick="selectChar('${c.id}')">
+    return `<div class="char-item${isActive ? ' active' : ''}" onclick="selectChar('${c.id}', 'recent')">
       <div class="char-avatar-sm">${av}</div>
       <div class="char-item-info">
         <div class="char-item-name">${esc(c.name)}</div>
@@ -640,7 +640,7 @@ function renderCharBrowserCard(c) {
     ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">`
     : '👤';
   return `
-    <div class="char-browser-card" onclick="selectChar('${c.id}');closeModal()">
+    <div class="char-browser-card" onclick="selectChar('${c.id}', 'library');closeModal()">
       <div class="char-browser-avatar">${av}</div>
       <div class="char-browser-card-name">${esc(c.name)}</div>
     </div>`;
@@ -652,7 +652,7 @@ function renderCharBrowserListItem(c) {
     ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">`
     : '👤';
   return `
-    <div class="char-browser-list-item" onclick="selectChar('${c.id}');closeModal()">
+    <div class="char-browser-list-item" onclick="selectChar('${c.id}', 'library');closeModal()">
       <div class="char-browser-list-avatar">${av}</div>
       <div class="char-browser-list-name">${esc(c.name)}</div>
     </div>`;
