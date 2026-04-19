@@ -967,6 +967,10 @@ export function showAvatarPopup() {
   if (!S.activeCharId) return;
   const popup = document.getElementById('avatar-popup');
   if (!popup) return;
+  if (!popup.classList.contains('hidden')) {
+    hideAvatarPopup();
+    return;
+  }
   const img = document.getElementById('avatar-popup-image');
   if (img) img.src = `/api/characters/${S.activeCharId}/avatar?t=${Date.now()}`;
   popup.classList.remove('hidden');

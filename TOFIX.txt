@@ -1,11 +1,10 @@
 - [Post-process] Implement phrase repetition detection as well, not just anti-slop detection. Tell the model to write about something else entirely for this sentence.
 
 - Improvement: Character management UI
-  + Button to show a searchable modal that displays all characters under Create and Import.
-  + Current characte list only shows most recent ones.
+[Done]  + Button to show a searchable modal that displays all characters under Create and Import.
+[Done]  + Current characte list to show most recent ones.
   + Tag-based search.
   + Handle importing characters with the same name => List the chars with that name, ask user whether to make a new one or replace, and which one.
-
 
 - Feature: User-defined fields for the director to consider (e.g. physicality).
 - Feature: Implement min_words for length_guard in editor pass.
