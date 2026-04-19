@@ -393,31 +393,6 @@ body {
   margin-left: 6px;
 }
 
-.fragment-item .frag-actions {
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity .15s;
-}
-
-.fragment-item:hover .frag-actions { opacity: 1; }
-
-.fragment-item .frag-actions button {
-  font-size: 11px;
-  padding: 2px 4px;
-  color: var(--text-muted);
-  background: none;
-  border: none;
-  cursor: pointer;
-  border-radius: 3px;
-}
-
-.fragment-item .frag-actions button:hover {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-}
-
-.fragment-item .frag-actions .del-btn:hover { color: var(--red); }
 
 /* Fragment toggle */
 .frag-toggle-wrapper {
@@ -642,26 +617,7 @@ body {
   transition: background 0.15s, border-color 0.15s;
 }
 .diff-change:hover { border-bottom-color: var(--accent); }
-.diff-change[data-original]:hover::after {
-  content: "was: " attr(data-original);
-  position: absolute;
-  bottom: calc(100% + 7px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-light);
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-family: var(--font-prose);
-  white-space: pre-wrap;
-  max-width: 280px;
-  min-width: 60px;
-  padding: 5px 10px;
-  border-radius: var(--radius);
-  z-index: 100;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
-  pointer-events: none;
-}
+
 .diff-deleted {
   color: var(--text-muted);
   text-decoration: line-through;
@@ -783,6 +739,7 @@ body {
 }
 
 /* Director badge */
+/* Class .director-badge not referenced in JS/HTML, but ID #active-director-badge is used. Keep for now. */
 .director-badge {
   display: inline-flex;
   align-items: center;
@@ -1127,18 +1084,7 @@ body {
   color: var(--accent);
 }
 
-.note-box {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 8px 10px;
-  background: var(--bg-deep);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-}
+
 
 .injection-box {
   font-family: var(--font-mono);
@@ -1941,8 +1887,7 @@ select {
   transition: border-color .15s, box-shadow .15s;
 }
 
-input[type="checkbox"],
-input[type="radio"] {
+input[type="checkbox"] {
   width: auto;
   padding: 0;
   border: none;
