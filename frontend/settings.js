@@ -56,6 +56,18 @@ export async function loadSettings() {
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
   if (S.settings.reasoning_enabled_passes)
     S.reasoningEnabled = { ...S.reasoningEnabled, ...S.settings.reasoning_enabled_passes };
+
+  // Expand Settings section if endpoint_url is empty
+  const settingsSection = $('settings-section');
+  if (settingsSection && (!S.settings.endpoint_url || S.settings.endpoint_url.trim() === '')) {
+    const header = settingsSection.previousElementSibling;
+    if (header) {
+      const arrow = header.querySelector('.arrow');
+      if (arrow) arrow.classList.remove('collapsed');
+    }
+    settingsSection.classList.remove('collapsed');
+  }
+
   renderSettings();
   renderToolsPanel();
   await loadPersonas();
