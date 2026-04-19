@@ -270,7 +270,7 @@ function initAutoscroll() {
   if (!ct) return;
   const THRESHOLD = 20; // pixels from bottom to be considered "at the bottom" (increased from 5 to prevent false negatives)
   ct.addEventListener("scroll", () => {
-    if (!S.isStreaming) return;
+    if (!S.isStreaming || S._programmaticScroll) return;
     const atBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight <= THRESHOLD;
     S.autoscrollEnabled = atBottom;
   });

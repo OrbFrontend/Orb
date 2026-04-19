@@ -38,4 +38,5 @@ export const S = {
   reasoningEnabled: { director: true, writer: false, editor: false },
   pendingRefineDiff: null, // {original, ops} set on writer_rewrite, cleared on next stream
   autoscrollEnabled: true, // whether to auto-scroll chat to bottom during streaming
+  _programmaticScroll: false, // true while scrollToBottom() is executing — suppresses scroll listener
 };

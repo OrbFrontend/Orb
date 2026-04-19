@@ -22,8 +22,10 @@ export function toast(msg, isError = false) {
 export function scrollToBottom() {
   const ct = $("chat-messages");
   if (!ct || !S.autoscrollEnabled) return;
+  S._programmaticScroll = true;
   requestAnimationFrame(() => {
     ct.scrollTop = ct.scrollHeight;
+    S._programmaticScroll = false;
   });
 }
 
