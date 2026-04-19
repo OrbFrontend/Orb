@@ -88,7 +88,14 @@ def build_prefix(
     if resolved["scenario"]:
         parts.append(f"\n\n## Scenario\n{resolved['scenario']}")
     if resolved["mes_example"]:
-        parts.append(f"\n\n## Example Dialogue\n{resolved['mes_example']}")
+        mes = resolved["mes_example"]
+        if "<START>" in mes:
+            # Replace each <START> with header, no outer header
+            processed_example = mes.replace('<START>', '## Example Dialogue')
+            parts.append(f"\n\n{processed_example}")
+        else:
+            # No <START> – add a single header as outer wrapper
+            parts.append(f"\n\n## Example Dialogue\n{mes}")
     if resolved["post_history"]:
         parts.append(f"\n\n## Additional Instructions\n{resolved['post_history']}")
     if resolved["user_desc"]:
