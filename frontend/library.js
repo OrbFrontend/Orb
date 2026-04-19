@@ -668,10 +668,16 @@ function renderCharBrowserListItem(c) {
   const av = c.has_avatar
     ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">`
     : '👤';
+  const tags = c.tags && c.tags.length
+    ? `<div class="char-browser-list-tags">${esc(c.tags.slice(0, 6).join(', '))}</div>`
+    : '';
   return `
     <div class="char-browser-list-item" onclick="selectChar('${c.id}', 'library');closeModal()">
       <div class="char-browser-list-avatar">${av}</div>
-      <div class="char-browser-list-name">${esc(c.name)}</div>
+      <div class="char-browser-list-info">
+        <div class="char-browser-list-name">${esc(c.name)}</div>
+        ${tags}
+      </div>
     </div>`;
 }
 
