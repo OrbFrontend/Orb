@@ -1,4 +1,5 @@
 """Migration 0006: rename fragments table to mood_fragments."""
+
 import sqlite3
 
 

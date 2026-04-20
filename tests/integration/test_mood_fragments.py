@@ -51,11 +51,15 @@ async def test_update_mood_fragment_persists_to_db(client, db):
     }
     await client.post("/api/fragments", json=payload)
 
-    resp = await client.put("/api/fragments/upd-frag", json={"label": "Updated", "prompt_text": "new text"})
+    resp = await client.put(
+        "/api/fragments/upd-frag", json={"label": "Updated", "prompt_text": "new text"}
+    )
     assert resp.status_code == 200
     assert resp.json()["label"] == "Updated"
 
-    async with db.execute("SELECT label, prompt_text FROM mood_fragments WHERE id = 'upd-frag'") as cur:
+    async with db.execute(
+        "SELECT label, prompt_text FROM mood_fragments WHERE id = 'upd-frag'"
+    ) as cur:
         row = await cur.fetchone()
     assert row["label"] == "Updated"
     assert row["prompt_text"] == "new text"

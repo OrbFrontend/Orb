@@ -34,6 +34,10 @@ def migrate(conn: sqlite3.Connection) -> None:
     )
     # Shift sort_order of the fragments that follow keywords.
     conn.execute("UPDATE director_fragments SET sort_order = 3 WHERE id = 'next_event'")
-    conn.execute("UPDATE director_fragments SET sort_order = 4 WHERE id = 'writing_direction'")
-    conn.execute("UPDATE director_fragments SET sort_order = 5 WHERE id = 'detected_repetitions'")
+    conn.execute(
+        "UPDATE director_fragments SET sort_order = 4 WHERE id = 'writing_direction'"
+    )
+    conn.execute(
+        "UPDATE director_fragments SET sort_order = 5 WHERE id = 'detected_repetitions'"
+    )
     conn.commit()

@@ -37,7 +37,9 @@ async def test_create_director_fragment_persists_to_db(client, db):
     assert body["injection_label"] == "Pacing"
     assert body["field_type"] == "string"
 
-    async with db.execute("SELECT * FROM director_fragments WHERE id = 'pacing'") as cur:
+    async with db.execute(
+        "SELECT * FROM director_fragments WHERE id = 'pacing'"
+    ) as cur:
         row = await cur.fetchone()
     assert row is not None
     assert row["label"] == "Pacing"
@@ -68,7 +70,9 @@ async def test_update_director_fragment_persists_to_db(client, db):
     assert resp.json()["label"] == "Scene Pacing"
     assert resp.json()["injection_label"] == "Scene pacing"
 
-    async with db.execute("SELECT label, injection_label FROM director_fragments WHERE id = 'pacing'") as cur:
+    async with db.execute(
+        "SELECT label, injection_label FROM director_fragments WHERE id = 'pacing'"
+    ) as cur:
         row = await cur.fetchone()
     assert row["label"] == "Scene Pacing"
     assert row["injection_label"] == "Scene pacing"
@@ -91,7 +95,9 @@ async def test_delete_director_fragment_removes_from_db(client, db):
     resp = await client.delete("/api/director-fragments/pacing")
     assert resp.status_code == 200
 
-    async with db.execute("SELECT id FROM director_fragments WHERE id = 'pacing'") as cur:
+    async with db.execute(
+        "SELECT id FROM director_fragments WHERE id = 'pacing'"
+    ) as cur:
         row = await cur.fetchone()
     assert row is None
 

@@ -504,7 +504,8 @@ async def init_db():
 
         # Migration for mood fragments enabled column
         fragment_cols = {
-            row[1] for row in await db.execute_fetchall("PRAGMA table_info(mood_fragments)")
+            row[1]
+            for row in await db.execute_fetchall("PRAGMA table_info(mood_fragments)")
         }
         if "enabled" not in fragment_cols:
             await db.execute(
@@ -650,7 +651,9 @@ async def update_settings(data: dict) -> dict:
 async def get_mood_fragments() -> list[dict]:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall("SELECT * FROM mood_fragments ORDER BY label ASC")
+        rows = await db.execute_fetchall(
+            "SELECT * FROM mood_fragments ORDER BY label ASC"
+        )
         return [dict(r) for r in rows]
     finally:
         await db.close()
@@ -659,7 +662,9 @@ async def get_mood_fragments() -> list[dict]:
 async def get_mood_fragment(fid: str) -> dict | None:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall("SELECT * FROM mood_fragments WHERE id = ?", (fid,))
+        rows = await db.execute_fetchall(
+            "SELECT * FROM mood_fragments WHERE id = ?", (fid,)
+        )
         return dict(rows[0]) if rows else None
     finally:
         await db.close()
@@ -975,8 +980,6 @@ async def get_messages_with_branch_info(cid: str) -> list[dict]:
         await db.close()
 
 
-
-
 async def add_message(
     cid: str,
     role: str,
@@ -1026,7 +1029,6 @@ async def add_message(
         return message_id
     finally:
         await db.close()
-
 
 
 async def get_attachments_for_message(message_id: int) -> List[dict]:

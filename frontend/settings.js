@@ -2,6 +2,7 @@ import { S } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { api } from "./api.js";
 import { showModal, closeModal, showConfirmModal } from "./modal.js";
+import { validate } from "./validate.js";
 
 // ── Theme
 const THEMES = [
@@ -116,6 +117,11 @@ export function renderSettings() {
 export async function saveSetting(el) {
   let v = el.value;
   if (el.type === "number") v = parseFloat(v);
+  const validation = validate.validateSetting(el.dataset.key, v);
+  if (!validation.valid) {
+    toast(validation.error, true);
+    return;
+  }
   try {
     S.settings = await api.put("/settings", { [el.dataset.key]: v });
     toast("Settings saved");
@@ -177,6 +183,11 @@ export function showUserModal() {
 export async function saveUserProfile() {
   const name = $("user-name-input").value.trim();
   const desc = $("user-desc-input").value.trim();
+  const validation = validate.validateUserProfile(name, desc);
+  if (!validation.valid) {
+    toast(validation.error, true);
+    return;
+  }
   try {
     S.settings = await api.put("/settings", { user_name: name || "User", user_description: desc });
     updateUserBtn();
@@ -216,8 +227,9 @@ export async function savePersona(personaId) {
   const name = $("persona-name-input").value.trim();
   const description = $("persona-desc-input").value.trim();
   const setActive = $("persona-active-checkbox").checked;
-  if (!name) {
-    toast("Name is required", true);
+  const validation = validate.validatePersona(name, description);
+  if (!validation.valid) {
+    toast(validation.error, true);
     return;
   }
   try {
@@ -365,8 +377,14 @@ export async function toggleLengthGuardEnforce(on) {
 export async function saveLengthGuardConfig() {
   const words = parseInt($("lg-max-words").value, 10);
   const paras = parseInt($("lg-max-paragraphs").value, 10);
-  if (!words || !paras || words < 50 || paras < 1) {
-    toast("Invalid length guard values", true);
+  const wordsValidation = validate.validateSetting("length_guard_max_words", words);
+  if (!wordsValidation.valid) {
+    toast(wordsValidation.error, true);
+    return;
+  }
+  const parasValidation = validate.validateSetting("length_guard_max_paragraphs", paras);
+  if (!parasValidation.valid) {
+    toast(parasValidation.error, true);
     return;
   }
   S.lengthGuardMaxWords = words;
@@ -566,9 +584,14 @@ window.deletePhraseGroup = async function (groupId) {
 
 window.savePhraseGroup = async function (editId) {
   const variantInputs = document.querySelectorAll(".variant-input");
-  const variants = Array.from(variantInputs)
-    .map((input) => input.value.trim())
-    .filter((v) => v.length > 0);
+  const rawVariants = Array.from(variantInputs).map((input) => input.value);
+  const variants = rawVariants.map((v) => v.trim()).filter((v) => v.length > 0);
+
+  const validation = validate.validatePhraseVariants(rawVariants);
+  if (!validation.valid) {
+    toast(validation.error, true);
+    return;
+  }
 
   if (variants.length === 0) {
     toast("At least one variant is required", true);

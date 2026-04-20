@@ -16,6 +16,7 @@ import {
 import { api } from "./api.js";
 import { showModal, closeModal, showConfirmModal } from "./modal.js";
 import { renderCharacters, loadCharacters, refreshCharacters } from "./library.js";
+import { validate } from "./validate.js";
 
 // ── Attachments rendering
 function formatBytes(bytes) {
@@ -482,15 +483,17 @@ export async function switchBranch(msgId) {
 export async function saveEdit(msgId, role) {
   const ta = $("edit-textarea-" + msgId);
   if (!ta) return;
-  const content = ta.value.trim();
-  if (!content) {
-    toast("Message cannot be empty", true);
+  const content = ta.value;
+  const validation = validate.validateEditMessage(content);
+  if (!validation.valid) {
+    toast(validation.error, true);
     return;
   }
   if (S.isStreaming) {
     toast("Wait for generation to finish", true);
     return;
   }
+  const trimmed = content.trim();
   S.editingMsgId = null;
 
   // If "Save & Regen" was clicked but the user message wasn't changed,

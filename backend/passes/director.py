@@ -12,7 +12,12 @@ import time
 from typing import AsyncIterator, List, Optional
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ..tool_defs import TOOLS, POST_WRITER_TOOLS, enabled_schemas, build_direct_scene_tool
+from ..tool_defs import (
+    TOOLS,
+    POST_WRITER_TOOLS,
+    enabled_schemas,
+    build_direct_scene_tool,
+)
 from ..prompt_builder import build_tool_prompt
 
 logger = logging.getLogger(__name__)
@@ -169,7 +174,9 @@ async def _director_pass(
             logger.info("Agent tool=%s output:\n%s", name, last_raw)
             if parsed := parse_tool_calls(resp):
                 all_calls.extend(parsed)
-                active_moods, new_refined, new_extra = apply_tool_calls(parsed, active_moods)
+                active_moods, new_refined, new_extra = apply_tool_calls(
+                    parsed, active_moods
+                )
                 if new_refined:
                     refined_msg = new_refined
                 if new_extra:

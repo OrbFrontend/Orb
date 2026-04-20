@@ -21,7 +21,9 @@ async def test_update_settings_persists_to_db(client, db):
     assert resp.json()["model_name"] == "my-model"
 
     # Verify directly in the DB
-    async with db.execute("SELECT model_name, temperature, max_tokens FROM settings WHERE id = 1") as cur:
+    async with db.execute(
+        "SELECT model_name, temperature, max_tokens FROM settings WHERE id = 1"
+    ) as cur:
         row = await cur.fetchone()
     assert row["model_name"] == "my-model"
     assert row["temperature"] == 0.5

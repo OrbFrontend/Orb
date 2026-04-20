@@ -339,7 +339,9 @@ async def _persist_result(
     """Persist the assistant message after _result.  Returns the new assistant message id."""
     if settings.get("enable_agent", 1):
         await db.update_director_state(
-            conversation_id, res["active_moods"], res.get("extra_fields", {}).get("keywords")
+            conversation_id,
+            res["active_moods"],
+            res.get("extra_fields", {}).get("keywords"),
         )
     if res.get("rewritten_msg") and user_msg_id:
         await db.update_message_content(user_msg_id, res["effective_msg"])
@@ -383,7 +385,9 @@ async def _fallback_persist(
     try:
         if res.get("active_moods") and settings.get("enable_agent", 1):
             await db.update_director_state(
-                conversation_id, res["active_moods"], res.get("extra_fields", {}).get("keywords")
+                conversation_id,
+                res["active_moods"],
+                res.get("extra_fields", {}).get("keywords"),
             )
         if res.get("rewritten_msg") and user_msg_id:
             await db.update_message_content(user_msg_id, res["effective_msg"])

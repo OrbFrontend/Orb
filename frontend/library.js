@@ -3,6 +3,7 @@ import { $, esc, toast, avatarUrl } from "./utils.js";
 import { api } from "./api.js";
 import { showModal, closeModal, switchTab, showConfirmModal, showCropModal } from "./modal.js";
 import { resetChatUI, loadConversations } from "./chat.js";
+import { validate } from "./validate.js";
 
 // Pending avatar for the character create modal (cleared on submit or cancel)
 let _pendingAvatar = null;
@@ -35,7 +36,8 @@ export async function loadMoodFragments() {
 
 export function renderMoodFragments() {
   if (!S.moodFragments || S.moodFragments.length === 0) {
-    $("frag-list").innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No mood fragments</div>';
+    $("frag-list").innerHTML =
+      '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No mood fragments</div>';
     return;
   }
 
@@ -69,7 +71,7 @@ export function showMoodFragmentModal(fragId = null) {
   const d = f || { id: "", label: "", description: "", prompt_text: "", negative_prompt: "" };
 
   showModal(`
-    <h2>${isEdit ? "Edit" : "New"} Fragment</h2>
+    <h2>${isEdit ? "Edit Mood Fragment" : "New Mood Fragment"}</h2>
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. dramatic"></div>
@@ -100,8 +102,9 @@ export async function saveMoodFragment(isEdit) {
     prompt_text: $("frag-text").value.trim(),
     negative_prompt: $("frag-neg").value.trim(),
   };
-  if (!d.id || !d.label || !d.prompt_text) {
-    toast("Fill in required fields", true);
+  const validation = validate.validateMoodFragment(d);
+  if (!validation.valid) {
+    toast(validation.error, true);
     return;
   }
   try {
@@ -202,20 +205,20 @@ export function renderDirectorFragments() {
 function setupDragAndDrop(container) {
   let dragged = null;
 
-  container.addEventListener('dragstart', (e) => {
-    if (!e.target.classList.contains('fragment-item') && !e.target.closest('.fragment-item')) return;
-    const item = e.target.classList.contains('fragment-item') ? e.target : e.target.closest('.fragment-item');
+  container.addEventListener("dragstart", (e) => {
+    if (!e.target.classList.contains("fragment-item") && !e.target.closest(".fragment-item")) return;
+    const item = e.target.classList.contains("fragment-item") ? e.target : e.target.closest(".fragment-item");
     dragged = item;
-    item.classList.add('dragging');
-    e.dataTransfer.setData('text/plain', item.dataset.id);
-    e.dataTransfer.effectAllowed = 'move';
+    item.classList.add("dragging");
+    e.dataTransfer.setData("text/plain", item.dataset.id);
+    e.dataTransfer.effectAllowed = "move";
   });
 
-  container.addEventListener('dragover', (e) => {
+  container.addEventListener("dragover", (e) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = "move";
     const afterElement = getDragAfterElement(container, e.clientY);
-    const draggable = document.querySelector('.dragging');
+    const draggable = document.querySelector(".dragging");
     if (draggable) {
       if (afterElement == null) {
         container.appendChild(draggable);
@@ -225,62 +228,73 @@ function setupDragAndDrop(container) {
     }
   });
 
-  container.addEventListener('drop', (e) => {
+  container.addEventListener("drop", (e) => {
     e.preventDefault();
     if (dragged) {
-      dragged.classList.remove('dragging');
+      dragged.classList.remove("dragging");
       dragged = null;
       updateFragmentOrder(container);
     }
   });
 
-  container.addEventListener('dragend', (e) => {
+  container.addEventListener("dragend", (e) => {
     if (dragged) {
-      dragged.classList.remove('dragging');
+      dragged.classList.remove("dragging");
       dragged = null;
     }
   });
 
   function getDragAfterElement(container, y) {
-    const draggableElements = [...container.querySelectorAll('.fragment-item:not(.dragging)')];
-    return draggableElements.reduce((closest, child) => {
-      const box = child.getBoundingClientRect();
-      const offset = y - box.top - box.height / 2;
-      if (offset < 0 && offset > closest.offset) {
-        return { offset: offset, element: child };
-      } else {
-        return closest;
-      }
-    }, { offset: Number.NEGATIVE_INFINITY }).element;
+    const draggableElements = [...container.querySelectorAll(".fragment-item:not(.dragging)")];
+    return draggableElements.reduce(
+      (closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) {
+          return { offset: offset, element: child };
+        } else {
+          return closest;
+        }
+      },
+      { offset: Number.NEGATIVE_INFINITY },
+    ).element;
   }
 
   function updateFragmentOrder(container) {
-    const items = container.querySelectorAll('.fragment-item');
+    const items = container.querySelectorAll(".fragment-item");
     const updatedOrder = Array.from(items).map((item, index) => ({
       id: item.dataset.id,
-      sort_order: index
+      sort_order: index,
     }));
     // Update local state
     updatedOrder.forEach(({ id, sort_order }) => {
-      const frag = S.directorFragments.find(f => f.id === id);
+      const frag = S.directorFragments.find((f) => f.id === id);
       if (frag) frag.sort_order = sort_order;
     });
     // Update each fragment individually
-    Promise.all(updatedOrder.map(({ id, sort_order }) =>
-      api.put(`/director-fragments/${id}`, { sort_order })
-    )).then(() => {
-      toast('Director fragments reordered');
-    }).catch(e => {
-      console.error('Reorder failed', e);
-      toast('Failed to save order', true);
-    });
+    Promise.all(updatedOrder.map(({ id, sort_order }) => api.put(`/director-fragments/${id}`, { sort_order })))
+      .then(() => {
+        toast("Director fragments reordered");
+      })
+      .catch((e) => {
+        console.error("Reorder failed", e);
+        toast("Failed to save order", true);
+      });
   }
 }
 
 export function showDirectorFragmentModal(fragId = null) {
   const f = fragId ? S.directorFragments.find((x) => x.id === fragId) : null;
   const isEdit = !!f;
-  const d = f || { id: "", label: "", description: "", field_type: "string", required: false, injection_label: "", sort_order: 0 };
+  const d = f || {
+    id: "",
+    label: "",
+    description: "",
+    field_type: "string",
+    required: false,
+    injection_label: "",
+    sort_order: 0,
+  };
 
   showModal(`
     <h2>${isEdit ? "Edit" : "New"} Director Fragment</h2>
@@ -326,8 +340,9 @@ export async function saveDirectorFragment(isEdit) {
     required: document.getElementById("dir-frag-required").checked,
     injection_label: document.getElementById("dir-frag-inj-label").value.trim(),
   };
-  if (!d.id || !d.label || !d.injection_label) {
-    toast("Fill in required fields (ID, Label, Injection Label)", true);
+  const validation = validate.validateDirectorFragment(d);
+  if (!validation.valid) {
+    toast(validation.error, true);
     return;
   }
   try {
@@ -528,7 +543,8 @@ function _readAltGreetings(prefix) {
 
 // ── Avatar crop helpers
 
-export function triggerAvatarCrop(prefix, cardId) { // TODO: unused param cardId
+export function triggerAvatarCrop(prefix, cardId) {
+  // TODO: unused param cardId
   showCropModal(({ b64, mime }) => {
     _pendingAvatar = { b64, mime };
     const el = $(`${prefix}-avatar-preview`);
@@ -616,14 +632,47 @@ export function showCharCreateModal() {
 }
 
 export async function createCharacter() {
-  const n = $("cc-name").value.trim();
-  if (!n) {
-    toast("Name required", true);
+  const name = $("cc-name").value.trim();
+  const validation = validate.validateCharacterName(name);
+  if (!validation.valid) {
+    toast(validation.error, true);
     return;
   }
+
+  const descValidation = validate.validateCharacterField($("cc-desc").value, "Description");
+  if (!descValidation.valid) {
+    toast(descValidation.error, true);
+    return;
+  }
+  const personalityValidation = validate.validateCharacterField($("cc-personality").value, "Personality");
+  if (!personalityValidation.valid) {
+    toast(personalityValidation.error, true);
+    return;
+  }
+  const scenarioValidation = validate.validateCharacterField($("cc-scenario").value, "Scenario");
+  if (!scenarioValidation.valid) {
+    toast(scenarioValidation.error, true);
+    return;
+  }
+  const firstMesValidation = validate.validateCharacterField($("cc-first-mes").value, "First message");
+  if (!firstMesValidation.valid) {
+    toast(firstMesValidation.error, true);
+    return;
+  }
+  const mesExampleValidation = validate.validateCharacterField($("cc-mes-example").value, "Example messages");
+  if (!mesExampleValidation.valid) {
+    toast(mesExampleValidation.error, true);
+    return;
+  }
+  const greetingsValidation = validate.validateAlternateGreetings(_readAltGreetings("cc"));
+  if (!greetingsValidation.valid) {
+    toast(greetingsValidation.error, true);
+    return;
+  }
+
   try {
     const payload = {
-      name: n,
+      name: name,
       description: $("cc-desc").value.trim(),
       personality: $("cc-personality").value.trim(),
       scenario: $("cc-scenario").value.trim(),
@@ -698,8 +747,59 @@ export async function showCharEditModal(idOrData) {
 }
 
 export async function saveCharEdit(id) {
+  const name = $("ce-name").value.trim();
+  const nameValidation = validate.validateCharacterName(name);
+  if (!nameValidation.valid) {
+    toast(nameValidation.error, true);
+    return;
+  }
+
+  const descValidation = validate.validateCharacterField($("ce-desc").value, "Description");
+  if (!descValidation.valid) {
+    toast(descValidation.error, true);
+    return;
+  }
+  const personalityValidation = validate.validateCharacterField($("ce-personality").value, "Personality");
+  if (!personalityValidation.valid) {
+    toast(personalityValidation.error, true);
+    return;
+  }
+  const scenarioValidation = validate.validateCharacterField($("ce-scenario").value, "Scenario");
+  if (!scenarioValidation.valid) {
+    toast(scenarioValidation.error, true);
+    return;
+  }
+  const firstMesValidation = validate.validateCharacterField($("ce-first-mes").value, "First message");
+  if (!firstMesValidation.valid) {
+    toast(firstMesValidation.error, true);
+    return;
+  }
+  const mesExampleValidation = validate.validateCharacterField($("ce-mes-example").value, "Example messages");
+  if (!mesExampleValidation.valid) {
+    toast(mesExampleValidation.error, true);
+    return;
+  }
+  const syspromptValidation = validate.validateCharacterAdvancedField($("ce-sysprompt").value, "System prompt");
+  if (!syspromptValidation.valid) {
+    toast(syspromptValidation.error, true);
+    return;
+  }
+  const posthistValidation = validate.validateCharacterAdvancedField(
+    $("ce-posthist").value,
+    "Post-history instructions",
+  );
+  if (!posthistValidation.valid) {
+    toast(posthistValidation.error, true);
+    return;
+  }
+  const greetingsValidation = validate.validateAlternateGreetings(_readAltGreetings("ce"));
+  if (!greetingsValidation.valid) {
+    toast(greetingsValidation.error, true);
+    return;
+  }
+
   const d = {
-    name: $("ce-name").value.trim(),
+    name,
     description: $("ce-desc").value.trim(),
     personality: $("ce-personality").value.trim(),
     scenario: $("ce-scenario").value.trim(),
@@ -720,10 +820,6 @@ export async function saveCharEdit(id) {
   }
   const avatarChanged = !!_pendingAvatar;
   _pendingAvatar = null;
-  if (!d.name) {
-    toast("Name required", true);
-    return;
-  }
   try {
     await api.put("/characters/" + id, d);
     if (avatarChanged) {
@@ -744,8 +840,59 @@ export async function saveCharEdit(id) {
 
 export async function saveImportedChar() {
   console.log("saveImportedChar pendingTags:", _pendingTags);
+  const name = $("ce-name").value.trim();
+  const nameValidation = validate.validateCharacterName(name);
+  if (!nameValidation.valid) {
+    toast(nameValidation.error, true);
+    return;
+  }
+
+  const descValidation = validate.validateCharacterField($("ce-desc").value, "Description");
+  if (!descValidation.valid) {
+    toast(descValidation.error, true);
+    return;
+  }
+  const personalityValidation = validate.validateCharacterField($("ce-personality").value, "Personality");
+  if (!personalityValidation.valid) {
+    toast(personalityValidation.error, true);
+    return;
+  }
+  const scenarioValidation = validate.validateCharacterField($("ce-scenario").value, "Scenario");
+  if (!scenarioValidation.valid) {
+    toast(scenarioValidation.error, true);
+    return;
+  }
+  const firstMesValidation = validate.validateCharacterField($("ce-first-mes").value, "First message");
+  if (!firstMesValidation.valid) {
+    toast(firstMesValidation.error, true);
+    return;
+  }
+  const mesExampleValidation = validate.validateCharacterField($("ce-mes-example").value, "Example messages");
+  if (!mesExampleValidation.valid) {
+    toast(mesExampleValidation.error, true);
+    return;
+  }
+  const syspromptValidation = validate.validateCharacterAdvancedField($("ce-sysprompt").value, "System prompt");
+  if (!syspromptValidation.valid) {
+    toast(syspromptValidation.error, true);
+    return;
+  }
+  const posthistValidation = validate.validateCharacterAdvancedField(
+    $("ce-posthist").value,
+    "Post-history instructions",
+  );
+  if (!posthistValidation.valid) {
+    toast(posthistValidation.error, true);
+    return;
+  }
+  const greetingsValidation = validate.validateAlternateGreetings(_readAltGreetings("ce"));
+  if (!greetingsValidation.valid) {
+    toast(greetingsValidation.error, true);
+    return;
+  }
+
   const d = {
-    name: $("ce-name").value.trim(),
+    name,
     description: $("ce-desc").value.trim(),
     personality: $("ce-personality").value.trim(),
     scenario: $("ce-scenario").value.trim(),
@@ -766,10 +913,6 @@ export async function saveImportedChar() {
   _pendingImportId = null;
   _pendingImportSourceFormat = null;
   _pendingTags = null;
-  if (!d.name) {
-    toast("Name required", true);
-    return;
-  }
   try {
     const created = await api.post("/characters", d);
     closeModal();
@@ -859,7 +1002,13 @@ export function setCharBrowserView(mode) {
 
 export function onCharBrowserSearch() {
   const input = $("char-browser-search");
-  _browserSearchQuery = input.value.trim().toLowerCase();
+  const query = input.value.trim().toLowerCase();
+  const validation = validate.validateBrowseSearch(query);
+  if (!validation.valid) {
+    toast(validation.error, true);
+    return;
+  }
+  _browserSearchQuery = query;
   renderCharBrowserItems();
 }
 

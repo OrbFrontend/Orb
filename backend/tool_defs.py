@@ -37,7 +37,11 @@ def build_direct_scene_tool(director_fragments: list[dict]) -> dict:
     for df in director_fragments:
         fid = df["id"]
         if df["field_type"] == "array":
-            prop = {"type": "array", "items": {"type": "string"}, "description": df["description"]}
+            prop = {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": df["description"],
+            }
         else:
             prop = {"type": "string", "description": df["description"]}
         properties[fid] = prop

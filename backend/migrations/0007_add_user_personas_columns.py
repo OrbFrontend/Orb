@@ -13,8 +13,7 @@ from datetime import datetime, timezone
 def migrate(conn: sqlite3.Connection) -> None:
     # Check if the columns already exist (safety for manual runs)
     columns = [
-        row[1]
-        for row in conn.execute("PRAGMA table_info(user_personas)").fetchall()
+        row[1] for row in conn.execute("PRAGMA table_info(user_personas)").fetchall()
     ]
 
     if "avatar_color" not in columns:
@@ -25,5 +24,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         now = datetime.now(timezone.utc).isoformat()
         conn.execute("ALTER TABLE user_personas ADD COLUMN updated_at TEXT")
         # Backfill existing rows with current timestamp
-        conn.execute("UPDATE user_personas SET updated_at = ? WHERE updated_at IS NULL", (now,))
+        conn.execute(
+            "UPDATE user_personas SET updated_at = ? WHERE updated_at IS NULL", (now,)
+        )
         print("[migrations] 0007: added updated_at column to user_personas")

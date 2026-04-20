@@ -14,7 +14,9 @@ STR_FIELDS = ("id", "label", "description", "prompt_text", "negative_prompt")
 
 
 class TestSeedMoodFragments:
-    @pytest.mark.parametrize("fragment", SEED_MOOD_FRAGMENTS, ids=lambda f: f.get("id", "?"))
+    @pytest.mark.parametrize(
+        "fragment", SEED_MOOD_FRAGMENTS, ids=lambda f: f.get("id", "?")
+    )
     def test_string_fields_are_str(self, fragment):
         for field in STR_FIELDS:
             value = fragment[field]

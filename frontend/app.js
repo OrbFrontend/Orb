@@ -1,5 +1,6 @@
 import { $ } from "./utils.js";
 import { S } from "./state.js";
+import { validate } from "./validate.js";
 import {
   initTheme,
   loadSettings,
@@ -103,13 +104,23 @@ document.addEventListener("click", (e) => {
 function handleAttachmentSelect(e) {
   const files = Array.from(e.target.files);
   if (files.length === 0) return;
+
+  const validation = validate.validateImageFiles(files, 10, 10 * 1024 * 1024, 20 * 1024 * 1024);
+  if (!validation.valid) {
+    toast(validation.error, true);
+    e.target.value = "";
+    return;
+  }
+
   for (const file of files) {
-    if (!file.type.startsWith("image/")) {
-      alert("Only image files are allowed.");
-      continue;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      alert("File size exceeds 10 MB limit.");
+    const fileValidation = validate.validateImageFile(file, 10 * 1024 * 1024, [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+      "image/gif",
+    ]);
+    if (!fileValidation.valid) {
+      toast(fileValidation.error, true);
       continue;
     }
     const reader = new FileReader();
@@ -180,6 +191,11 @@ $("chat-input").addEventListener("input", function () {
 $("chat-input").addEventListener("keydown", function (e) {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
+    const validation = validate.validateChatInput(this.value);
+    if (!validation.valid) {
+      toast(validation.error, true);
+      return;
+    }
     sendMessage();
   }
 });

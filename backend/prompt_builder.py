@@ -113,7 +113,10 @@ def build_prefix(
 
 
 def build_tool_prompt(
-    tool_name: str, user_message: str, active_moods: list[str], mood_fragments: list[dict]
+    tool_name: str,
+    user_message: str,
+    active_moods: list[str],
+    mood_fragments: list[dict],
 ) -> str:
     tool = TOOLS.get(tool_name)
     if not tool:
@@ -168,7 +171,11 @@ def compute_style_injection_block(
         inj_extra = {}
 
     deactivated = (
-        [f for f in mood_fragments if f["id"] in (set(prior_moods) - set(inj_active_moods))]
+        [
+            f
+            for f in mood_fragments
+            if f["id"] in (set(prior_moods) - set(inj_active_moods))
+        ]
         if direct_scene_enabled and inj_active_moods
         else []
     )

@@ -4,13 +4,18 @@ from __future__ import annotations
 async def test_create_persona_persists_to_db(client, db):
     resp = await client.post(
         "/api/user-personas",
-        json={"name": "Alice", "description": "The main player.", "avatar_color": "#ff0000"},
+        json={
+            "name": "Alice",
+            "description": "The main player.",
+            "avatar_color": "#ff0000",
+        },
     )
     assert resp.status_code == 200
     persona_id = resp.json()["id"]
 
     async with db.execute(
-        "SELECT name, description, avatar_color FROM user_personas WHERE id = ?", (persona_id,)
+        "SELECT name, description, avatar_color FROM user_personas WHERE id = ?",
+        (persona_id,),
     ) as cur:
         row = await cur.fetchone()
     assert row["name"] == "Alice"
@@ -30,7 +35,10 @@ async def test_update_persona_persists_to_db(client, db):
     create_resp = await client.post("/api/user-personas", json={"name": "OldName"})
     persona_id = create_resp.json()["id"]
 
-    resp = await client.put(f"/api/user-personas/{persona_id}", json={"name": "NewName", "description": "Updated."})
+    resp = await client.put(
+        f"/api/user-personas/{persona_id}",
+        json={"name": "NewName", "description": "Updated."},
+    )
     assert resp.status_code == 200
     assert resp.json()["name"] == "NewName"
 
@@ -49,7 +57,9 @@ async def test_delete_persona_removes_from_db(client, db):
     resp = await client.delete(f"/api/user-personas/{persona_id}")
     assert resp.status_code == 200
 
-    async with db.execute("SELECT id FROM user_personas WHERE id = ?", (persona_id,)) as cur:
+    async with db.execute(
+        "SELECT id FROM user_personas WHERE id = ?", (persona_id,)
+    ) as cur:
         row = await cur.fetchone()
     assert row is None
 

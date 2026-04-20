@@ -7,7 +7,9 @@ async def test_create_conversation_persists_to_db(client, db):
     cid = resp.json()["id"]
     assert cid
 
-    async with db.execute("SELECT title FROM conversations WHERE id = ?", (cid,)) as cur:
+    async with db.execute(
+        "SELECT title FROM conversations WHERE id = ?", (cid,)
+    ) as cur:
         row = await cur.fetchone()
     assert row is not None
     assert row["title"] == "My Chat"
@@ -87,16 +89,21 @@ async def test_touch_conversation_updates_timestamp(client, db):
     resp = await client.post("/api/conversations", json={})
     cid = resp.json()["id"]
 
-    async with db.execute("SELECT updated_at FROM conversations WHERE id = ?", (cid,)) as cur:
+    async with db.execute(
+        "SELECT updated_at FROM conversations WHERE id = ?", (cid,)
+    ) as cur:
         before = (await cur.fetchone())["updated_at"]
 
     import asyncio
+
     await asyncio.sleep(0.01)  # ensure clock advances
 
     touch = await client.post(f"/api/conversations/{cid}/touch")
     assert touch.status_code == 200
 
-    async with db.execute("SELECT updated_at FROM conversations WHERE id = ?", (cid,)) as cur:
+    async with db.execute(
+        "SELECT updated_at FROM conversations WHERE id = ?", (cid,)
+    ) as cur:
         after = (await cur.fetchone())["updated_at"]
 
     assert after >= before
