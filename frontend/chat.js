@@ -414,7 +414,15 @@ export function renderMessages() {
 export function startEdit(msgId) {
   S.editingMsgId = msgId;
   renderMessages();
-  scrollToMessage(msgId);
+  // If editing the latest message, scroll to bottom so it's at the bottom of view.
+  // Otherwise, center-focus on the message being edited.
+  const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+  const isLatest = msgEl && !msgEl.nextElementSibling;
+  if (isLatest) {
+    scrollToBottom(true);
+  } else {
+    scrollToMessage(msgId);
+  }
   const ta = $("edit-textarea-" + msgId);
   if (ta) {
     ta.focus();
