@@ -21,9 +21,7 @@ _DIRECT_SCENE_FIXED_REQUIRED: list[str] = []
 
 _DIRECT_SCENE_DESCRIPTION = (
     "Call this to direct the scene. Deduce what the user wants to see and show them. "
-    "Combine and configure the moods; extract keywords; summarize the plot; specify the direction "
-    "the scene should take; detect and report repetitive tropes, phrases, subjects, plot points, "
-    "narrative patterns to avoid. Be very specific and intentional with the directions."
+    "Be very specific and intentional with the direction."
 )
 
 

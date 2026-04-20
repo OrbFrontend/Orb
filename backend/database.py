@@ -124,7 +124,7 @@ SEED_DIRECTOR_FRAGMENTS = [
         "label": "User Intent",
         "description": (
             "Hidden/subtle intention of the user based on their input — what they want to see. "
-            "Be extremely literal and specific (e.g. 'This crosses the line, the user wants to find out what happens when the boundaries are crossed', "
+            "Be extremely literal and specific (e.g. 'This crosses the line, the user wants to find out what happens when boundaries are crossed', "
             "'The user clearly wants his friend to get mad and fight back', "
             "'The user is confessing his love in a roundabout way', "
             "'The user wants to push the scenario forward already')."
