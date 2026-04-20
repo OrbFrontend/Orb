@@ -408,15 +408,6 @@ body {
   font-weight: 500;
   padding-right: 8px;
 }
-
-.fragment-item .frag-id {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-left: 6px;
-}
-
-
 /* Fragment toggle */
 .frag-toggle-wrapper {
   display: flex;

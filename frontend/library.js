@@ -48,7 +48,6 @@ export function renderMoodFragments() {
     <div class="fragment-item" style="cursor:pointer" title="${esc(f.description)}" onclick="showMoodFragmentModal('${f.id}')">
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>
-        <span class="frag-id">${esc(f.id)}</span>
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="frag-toggle" for="${toggleId}">
@@ -72,7 +71,7 @@ export function showMoodFragmentModal(fragId = null) {
   showModal(`
     <h2>${isEdit ? "Edit" : "New"} Fragment</h2>
     <div class="field-row">
-      <div class="field"><label>ID</label>
+      <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. dramatic"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
         <input id="frag-label" value="${esc(d.label)}"></div>
@@ -184,7 +183,6 @@ export function renderDirectorFragments() {
       <div class="frag-drag-handle" onclick="event.stopPropagation()">⋮⋮</div>
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>
-        <span class="frag-id">${esc(f.id)}</span>
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="frag-toggle" for="${toggleId}">
@@ -287,7 +285,7 @@ export function showDirectorFragmentModal(fragId = null) {
   showModal(`
     <h2>${isEdit ? "Edit" : "New"} Director Fragment</h2>
     <div class="field-row">
-      <div class="field"><label>ID</label>
+      <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="dir-frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. pacing"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
         <input id="dir-frag-label" value="${esc(d.label)}"></div>
