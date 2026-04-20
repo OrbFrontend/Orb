@@ -380,6 +380,29 @@ body {
 
 .fragment-item:hover { background: var(--bg-hover); }
 
+.fragment-item.dragging {
+  opacity: 0.5;
+  border: 1px dashed var(--accent);
+}
+
+.frag-drag-handle {
+  cursor: grab;
+  user-select: none;
+  margin-right: 8px;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+.frag-drag-handle:hover {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.frag-drag-handle:active {
+  cursor: grabbing;
+}
+
 .fragment-item .frag-label {
   flex: 1;
   font-weight: 500;

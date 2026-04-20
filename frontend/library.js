@@ -167,12 +167,21 @@ export function renderDirectorFragments() {
     return;
   }
 
-  const html = S.directorFragments
+  // Sort by sort_order then by id
+  const sorted = [...S.directorFragments].sort((a, b) => {
+    const orderA = a.sort_order || 0;
+    const orderB = b.sort_order || 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return a.id.localeCompare(b.id);
+  });
+
+  const html = sorted
     .map((f) => {
       const enabled = f.enabled === true || f.enabled === 1;
       const toggleId = `director-frag-toggle-${f.id}`;
       return `
-    <div class="fragment-item" style="cursor:pointer" title="${esc(f.description)}" onclick="showDirectorFragmentModal('${f.id}')">
+    <div class="fragment-item" draggable="true" data-id="${esc(f.id)}" title="${esc(f.description)}" onclick="showDirectorFragmentModal('${f.id}')">
+      <div class="frag-drag-handle" onclick="event.stopPropagation()">⋮⋮</div>
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>
         <span class="frag-id">${esc(f.id)}</span>
@@ -189,6 +198,85 @@ export function renderDirectorFragments() {
     .join("");
 
   el.innerHTML = html;
+  setupDragAndDrop(el);
+}
+
+function setupDragAndDrop(container) {
+  let dragged = null;
+
+  container.addEventListener('dragstart', (e) => {
+    if (!e.target.classList.contains('fragment-item') && !e.target.closest('.fragment-item')) return;
+    const item = e.target.classList.contains('fragment-item') ? e.target : e.target.closest('.fragment-item');
+    dragged = item;
+    item.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', item.dataset.id);
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  container.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const afterElement = getDragAfterElement(container, e.clientY);
+    const draggable = document.querySelector('.dragging');
+    if (draggable) {
+      if (afterElement == null) {
+        container.appendChild(draggable);
+      } else {
+        container.insertBefore(draggable, afterElement);
+      }
+    }
+  });
+
+  container.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (dragged) {
+      dragged.classList.remove('dragging');
+      dragged = null;
+      updateFragmentOrder(container);
+    }
+  });
+
+  container.addEventListener('dragend', (e) => {
+    if (dragged) {
+      dragged.classList.remove('dragging');
+      dragged = null;
+    }
+  });
+
+  function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.fragment-item:not(.dragging)')];
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  function updateFragmentOrder(container) {
+    const items = container.querySelectorAll('.fragment-item');
+    const updatedOrder = Array.from(items).map((item, index) => ({
+      id: item.dataset.id,
+      sort_order: index
+    }));
+    // Update local state
+    updatedOrder.forEach(({ id, sort_order }) => {
+      const frag = S.directorFragments.find(f => f.id === id);
+      if (frag) frag.sort_order = sort_order;
+    });
+    // Update each fragment individually
+    Promise.all(updatedOrder.map(({ id, sort_order }) =>
+      api.put(`/director-fragments/${id}`, { sort_order })
+    )).then(() => {
+      toast('Director fragments reordered');
+    }).catch(e => {
+      console.error('Reorder failed', e);
+      toast('Failed to save order', true);
+    });
+  }
 }
 
 export function showDirectorFragmentModal(fragId = null) {
