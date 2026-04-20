@@ -116,6 +116,12 @@ def position_converter(data: Any) -> Any:
     return data
 
 
+def float_converter(value: Any) -> float:
+    if isinstance(value, str):
+        return float(value)
+    return value
+
+
 def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
     """
     Parses Tavern Card data from an image file's metadata.
@@ -166,7 +172,10 @@ def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
 
     if is_v2:
         config = dacite.Config(
-            type_hooks={PositionType: position_converter},
+            type_hooks={
+                PositionType: position_converter,
+                float: float_converter,
+            },
             strict=False,
         )
         try:
@@ -185,7 +194,10 @@ def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
             )
 
     try:
-        config = dacite.Config(strict=False)
+        config = dacite.Config(
+            strict=False,
+            type_hooks={float: float_converter},
+        )
         card = dacite.from_dict(data_class=TavernCardV1, data=jobj, config=config)
         logger.info(f"Successfully parsed V1 card: {card.name}")
         logger.info(
