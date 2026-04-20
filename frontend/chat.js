@@ -449,6 +449,8 @@ export async function deleteMessage(msgId) {
       try {
         S.messages = await api.del(convUrl(S.activeConvId, "messages", msgId));
         S.lastDirectorData = null;
+        // Re-fetch director state so active moods are correct after deletion
+        S.directorState = await api.get(convUrl(S.activeConvId, "director"));
         renderMessages();
         renderInspector();
         scrollToBottom();
@@ -469,6 +471,8 @@ export async function switchBranch(msgId) {
 
     S.messages = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
     S.lastDirectorData = null;
+    // Re-fetch director state so active moods are correct for this branch
+    S.directorState = await api.get(convUrl(S.activeConvId, "director"));
     renderMessages();
     renderInspector();
 
