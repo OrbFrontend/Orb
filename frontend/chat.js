@@ -114,9 +114,12 @@ function finalizeStreamingDiv(lastMsg) {
 
   const tb = div.querySelector(".msg-toolbar");
   if (tb) {
+    const diffBtn = S.pendingRefineDiff?.msgId && lastMsg.id === S.pendingRefineDiff.msgId
+      ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">✕ Diff</button>`
+      : "";
     tb.innerHTML = `<button onclick="startEdit(${lastMsg.id})" title="Edit">✏️ Edit</button>
       <button onclick="regenerate(${lastMsg.id})" title="Regenerate">🔄 Regen</button>
-      <button onclick="deleteMessage(${lastMsg.id})" title="Delete message, siblings, and all children" style="color:var(--red)">✕ Del</button>`;
+      <button onclick="deleteMessage(${lastMsg.id})" title="Delete message, siblings, and all children" style="color:var(--red)">✕ Del</button>${diffBtn}`;
   }
 
   const bc = lastMsg.branch_count || 1;
