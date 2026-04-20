@@ -297,16 +297,14 @@ export function showDirectorFragmentModal(fragId = null) {
         <input id="dir-frag-inj-label" value="${esc(d.injection_label)}" placeholder="e.g. Pacing"></div>
       <div class="field"><label>Field Type</label>
         <select id="dir-frag-type">
-          <option value="string" ${d.field_type === "string" ? "selected" : ""}>string</option>
-          <option value="array" ${d.field_type === "array" ? "selected" : ""}>array</option>
+          <option value="string" ${d.field_type === "string" ? "selected" : ""}>single</option>
+          <option value="array" ${d.field_type === "array" ? "selected" : ""}>list</option>
         </select>
       </div>
     </div>
     <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(shown to the LLM in the tool schema)</span></label>
       <textarea id="dir-frag-desc" rows="4">${esc(d.description)}</textarea></div>
     <div class="field-row">
-      <div class="field"><label>Sort Order</label>
-        <input id="dir-frag-sort" type="number" value="${d.sort_order}" style="width:80px"></div>
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
           <input type="checkbox" id="dir-frag-required" ${d.required ? "checked" : ""}> Required
@@ -329,7 +327,6 @@ export async function saveDirectorFragment(isEdit) {
     field_type: document.getElementById("dir-frag-type").value,
     required: document.getElementById("dir-frag-required").checked,
     injection_label: document.getElementById("dir-frag-inj-label").value.trim(),
-    sort_order: parseInt(document.getElementById("dir-frag-sort").value, 10) || 0,
   };
   if (!d.id || !d.label || !d.injection_label) {
     toast("Fill in required fields (ID, Label, Injection Label)", true);
