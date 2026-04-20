@@ -20,6 +20,8 @@ MIGRATIONS: list[str] = [
     "0001_editor_rename",
     "0002_cleanup_orphaned_messages",
     "0003_create_default_persona",
+    "0004_director_fragments",
+    "0005_keywords_director_fragment",
 ]
 
 

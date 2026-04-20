@@ -104,6 +104,97 @@ SEED_FRAGMENTS = [
     },
 ]
 
+SEED_DIRECTOR_FRAGMENTS = [
+    {
+        "id": "plot_summary",
+        "label": "Plot Summary",
+        "description": (
+            "A brief and specific summary of what has happened so far in the story. "
+            "Call things for what they are, avoid being generic, avoid adjectives. "
+            "3 sentences max (e.g. Rob was working on his lake house when his wife called for him to help moving some furniture. "
+            "The weather was hot so he took off his shirt. Then the couch fell on his leg, eliciting his pain receptors.)."
+        ),
+        "field_type": "string",
+        "required": True,
+        "injection_label": "Plot summary",
+        "sort_order": 0,
+    },
+    {
+        "id": "user_intent",
+        "label": "User Intent",
+        "description": (
+            "Hidden/subtle intention of the user based on their input — what they want to see. "
+            "Be extremely literal and specific (e.g. 'This crosses the line, the user wants to find out what happens when the boundaries are crossed', "
+            "'The user clearly wants his friend to get mad and fight back', "
+            "'The user is confessing his love in a roundabout way', "
+            "'The user wants to push the scenario forward already')."
+        ),
+        "field_type": "string",
+        "required": False,
+        "injection_label": "User intent",
+        "sort_order": 1,
+    },
+    {
+        "id": "keywords",
+        "label": "Keywords",
+        "description": (
+            "List of nouns (keywords) to remind the important subjects in the roleplay so far. "
+            "This list shouldn't grow too long (keep under 6 items). Extract from the messages and plot summary. "
+            "Ignore obvious things like names of the characters. "
+            "Examples: 'ancient Egypt', 'headlock', 'monetary deal', 'language/accent', 'desert night', "
+            "'six-sided dice', 'discarded belt'. Avoid generic concepts (e.g. 'anger', 'ruin', etc.)"
+        ),
+        "field_type": "array",
+        "required": True,
+        "injection_label": "Keywords",
+        "sort_order": 2,
+    },
+    {
+        "id": "next_event",
+        "label": "Next Event",
+        "description": (
+            "What happens immediately next in the story — the next event, action, reveal, or turn of fate "
+            "(e.g. 'This act crosses personal boundaries. The character snaps and fights back.', "
+            "'The attack tears off a chunk of her clothing. She frantically tries to cover herself', "
+            "'Jack can tell she\\'s lying. He calls her out on it because they have been friends forever', "
+            "'She pretends not to know what Vodka is to keep up the innocent act', "
+            "'He gets bored and shifts focus to something else entirely'). Keep to two short sentences."
+        ),
+        "field_type": "string",
+        "required": True,
+        "injection_label": "Next event",
+        "sort_order": 3,
+    },
+    {
+        "id": "writing_direction",
+        "label": "Writing Direction",
+        "description": (
+            "How the scene should be written — focus, emphasis, descriptive lens, internal state "
+            "(e.g. 'focus on his anxious tics in detail', 'narrate her spiraling thoughts on why it went wrong', "
+            "'describe her exposed stomach vividly', 'describe what he sees in the picture', "
+            "'emphasize her speech quirks'). Keep to one short sentence. Show don't tell."
+        ),
+        "field_type": "string",
+        "required": True,
+        "injection_label": "Narration",
+        "sort_order": 4,
+    },
+    {
+        "id": "detected_repetitions",
+        "label": "Detected Repetitions",
+        "description": (
+            "Specific tropes, phrases, subjects, plot points, narrative patterns that are recently overused in the narration "
+            "(e.g. 'banal description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', "
+            "'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it', "
+            "'constant focus on the tree'). This list may have up to 8 items."
+        ),
+        "field_type": "array",
+        "required": False,
+        "injection_label": "Avoid repeating",
+        "sort_order": 5,
+    },
+]
+
 DEFAULT_SETTINGS = {
     "endpoint_url": "http://localhost:5000/v1",
     "api_key": "",
@@ -307,6 +398,17 @@ async def init_db():
                 keywords TEXT NOT NULL DEFAULT '[]'
             );
 
+            CREATE TABLE IF NOT EXISTS director_fragments (
+                id TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                description TEXT NOT NULL,
+                field_type TEXT NOT NULL DEFAULT 'string',
+                required BOOLEAN NOT NULL DEFAULT 0,
+                enabled BOOLEAN NOT NULL DEFAULT 1,
+                injection_label TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE TABLE IF NOT EXISTS conversation_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -433,6 +535,23 @@ async def init_db():
                         f["description"],
                         f["prompt_text"],
                         f["negative_prompt"],
+                    ),
+                )
+
+        # Seed director_fragments if empty
+        row = await db.execute_fetchall("SELECT COUNT(*) as c FROM director_fragments")
+        if row[0]["c"] == 0:
+            for df in SEED_DIRECTOR_FRAGMENTS:
+                await db.execute(
+                    "INSERT INTO director_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                    (
+                        df["id"],
+                        df["label"],
+                        df["description"],
+                        df["field_type"],
+                        1 if df["required"] else 0,
+                        df["injection_label"],
+                        df["sort_order"],
                     ),
                 )
 
@@ -585,6 +704,93 @@ async def delete_fragment(fid: str) -> bool:
     db = await get_db()
     try:
         cur = await db.execute("DELETE FROM fragments WHERE id = ?", (fid,))
+        await db.commit()
+        return cur.rowcount > 0
+    finally:
+        await db.close()
+
+
+# --- Director Fragments ---
+
+
+async def get_director_fragments() -> list[dict]:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM director_fragments ORDER BY sort_order ASC, label ASC"
+        )
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_director_fragment(fid: str) -> dict | None:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM director_fragments WHERE id = ?", (fid,)
+        )
+        return dict(rows[0]) if rows else None
+    finally:
+        await db.close()
+
+
+async def create_director_fragment(data: dict) -> dict | None:
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT INTO director_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                data["id"],
+                data["label"],
+                data["description"],
+                data.get("field_type", "string"),
+                1 if data.get("required", False) else 0,
+                1 if data.get("enabled", True) else 0,
+                data["injection_label"],
+                data.get("sort_order", 0),
+            ),
+        )
+        await db.commit()
+        return await get_director_fragment(data["id"])
+    finally:
+        await db.close()
+
+
+async def update_director_fragment(fid: str, data: dict) -> dict | None:
+    db = await get_db()
+    try:
+        allowed = [
+            "label",
+            "description",
+            "field_type",
+            "required",
+            "enabled",
+            "injection_label",
+            "sort_order",
+        ]
+        sets = []
+        vals = []
+        for k in allowed:
+            if k in data:
+                sets.append(f"{k} = ?")
+                vals.append(data[k])
+        if sets:
+            vals.append(fid)
+            await db.execute(
+                f"UPDATE director_fragments SET {', '.join(sets)} WHERE id = ?",
+                vals,  # nosec B608 — cols from hardcoded allowlist, values parameterised
+            )
+            await db.commit()
+        return await get_director_fragment(fid)
+    finally:
+        await db.close()
+
+
+async def delete_director_fragment(fid: str) -> bool:
+    db = await get_db()
+    try:
+        cur = await db.execute("DELETE FROM director_fragments WHERE id = ?", (fid,))
         await db.commit()
         return cur.rowcount > 0
     finally:

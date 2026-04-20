@@ -41,6 +41,13 @@
         </div>
       </div>
       <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Director Fragments <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-body collapsed" id="director-frag-section">
+          <div id="director-frag-list"></div>
+          <button class="btn btn-block btn-sm" onclick="showDirectorFragmentModal()" style="margin-top:6px">+ Add Director Fragment</button>
+        </div>
+      </div>
+      <div class="sidebar-section">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Mood Fragments <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="frag-section">
           <div id="frag-list"></div>

@@ -7,56 +7,102 @@ from __future__ import annotations
 
 # ── Agent tool definitions (OpenAI function-calling format)
 
-AGENT_TOOLS = [
-    {
+# Fixed parameters always present in direct_scene regardless of director fragments.
+# Only moods is fixed; all other parameters come from director fragments.
+_DIRECT_SCENE_FIXED_PROPERTIES = {
+    "moods": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "List of moods to activate. Leave empty for a neutral tone.",
+    },
+}
+
+_DIRECT_SCENE_FIXED_REQUIRED: list[str] = []
+
+_DIRECT_SCENE_DESCRIPTION = (
+    "Call this to direct the scene. Deduce what the user wants to see and show them. "
+    "Combine and configure the moods; extract keywords; summarize the plot; specify the direction "
+    "the scene should take; detect and report repetitive tropes, phrases, subjects, plot points, "
+    "narrative patterns to avoid. Be very specific and intentional with the directions."
+)
+
+
+def build_direct_scene_tool(director_fragments: list[dict]) -> dict:
+    """Build the direct_scene tool schema from enabled director fragments.
+
+    Director fragments provide dynamic string/array parameters beyond the fixed
+    moods and keywords fields. The returned dict is in OpenAI function-calling format.
+    """
+    properties: dict = dict(_DIRECT_SCENE_FIXED_PROPERTIES)
+    required: list[str] = list(_DIRECT_SCENE_FIXED_REQUIRED)
+
+    for df in director_fragments:
+        fid = df["id"]
+        if df["field_type"] == "array":
+            prop = {"type": "array", "items": {"type": "string"}, "description": df["description"]}
+        else:
+            prop = {"type": "string", "description": df["description"]}
+        properties[fid] = prop
+        if df.get("required"):
+            required.append(fid)
+
+    return {
         "type": "function",
         "function": {
             "name": "direct_scene",
-            "description": "Call this to direct the scene. Deduce what the user wants to see and show them. Combine and configure the moods; extract keywords; summarize the plot; specify the direction the scene should take; detect and report repetitive tropes, phrases, subjects, plot points, narrative patterns to avoid. Be very specific and intentional with the directions.",
+            "description": _DIRECT_SCENE_DESCRIPTION,
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "plot_summary": {
-                        "type": "string",
-                        "description": "A brief and specific summary of what has happened so far in the story. Call things for what they are, avoid being generic, avoid adjectives. 3 sentences max (e.g. Rob was working on his lake house when his wife called for him to help moving some furnitue. The weather was hot so he took off his shirt. Then the couch fell on his leg, eliciting his pain receptors.).",
-                    },
-                    "user_intent": {
-                        "type": "string",
-                        "description": "Hidden/subtle intention of the user based on their input - what they want to see. Be extremely literal and specific (e.g. 'This crosses the line, the user wants to find out what happens when the boundaries are crossed', 'The user clearly wants his friend to get mad and fight back', 'The user is confessing his love in a roundabout way', 'The user wants to push the scenario forward already').",
-                    },
-                    "keywords": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of nouns (keywords) to remind the important subjects in the roleplay so far. This list shouldn't grow too long (keep under 6 items). Extract from the messages and plot summary. Ignore obvious things like names of the characters. Examples: 'ancient Egypt', 'headlock', 'monetary deal', 'language/accent', 'desert night', 'six-sided dice', 'discarded belt'. Avoid generic concepts (e.g. 'anger', 'ruin', etc.)",
-                    },
-                    "next_event": {
-                        "type": "string",
-                        "description": "What happens immediately next in the story — the next event, action, reveal, or turn of fate (e.g. 'This act crosses personal boundaries. The character snaps and fights back.', 'The attack tears off a chunk of her clothing. She frantically tries to cover herself', 'Jack can tell she's lying. He calls her out on it because they have been friends forever', 'She pretends not to know what Vodka is to keep up the innocent act', 'He gets bored and shifts focus to something else entirely'). Keep to two short sentences.",
-                    },
-                    "moods": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "List of moods to activate. Leave empty for a neutral tone.",
-                    },
-                    "writing_direction": {
-                        "type": "string",
-                        "description": "How the scene should be written — focus, emphasis, descriptive lens, internal state (e.g. 'focus on his anxious tics in detail', 'narrate her spiraling thoughts on why it went wrong', 'describe her exposed stomach vividly', 'describe what he sees in the picture', 'emphasize her speech quirks'). Keep to one short sentence. Show don't tell.",
-                    },
-                    "detected_repetitions": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Specific tropes, phrases, subjects, plot points, narrative patterns that are recently overused in the narration (e.g. 'banal description of eyes', 'mundane narration of internal struggles', 'overuse of murderous rage', 'repeated trope of the user getting away with everything', 'constant narration of his accent without showing it', 'constant focus on the tree'). This list may have up to 8 items.",
-                    },
-                },
-                "required": [
-                    "keywords",
-                    "plot_summary",
-                    "next_event",
-                    "writing_direction",
-                ],
+                "properties": properties,
+                "required": required,
             },
         },
     }
+
+
+# Default tool schema using the seeded director fragments (kept for static reference/fallback).
+# At runtime the schema is always built dynamically via build_direct_scene_tool().
+AGENT_TOOLS = [
+    build_direct_scene_tool(
+        [
+            {
+                "id": "plot_summary",
+                "field_type": "string",
+                "required": True,
+                "description": "A brief and specific summary of what has happened so far. 3 sentences max.",
+            },
+            {
+                "id": "user_intent",
+                "field_type": "string",
+                "required": False,
+                "description": "Hidden/subtle intention of the user — what they want to see.",
+            },
+            {
+                "id": "keywords",
+                "field_type": "array",
+                "required": True,
+                "description": "Key nouns from the scene. Keep under 6 items.",
+            },
+            {
+                "id": "next_event",
+                "field_type": "string",
+                "required": True,
+                "description": "What happens immediately next in the story. Two short sentences.",
+            },
+            {
+                "id": "writing_direction",
+                "field_type": "string",
+                "required": True,
+                "description": "How the scene should be written. One short sentence.",
+            },
+            {
+                "id": "detected_repetitions",
+                "field_type": "array",
+                "required": False,
+                "description": "Specific tropes/phrases/patterns recently overused. Up to 8 items.",
+            },
+        ]
+    )
 ]
 
 REWRITE_PROMPT_TOOL = {

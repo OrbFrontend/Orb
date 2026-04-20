@@ -27,6 +27,11 @@ import {
   saveFragment,
   deleteFragment,
   toggleFragmentEnabled,
+  loadDirectorFragments,
+  showDirectorFragmentModal,
+  saveDirectorFragment,
+  deleteDirectorFragment,
+  toggleDirectorFragmentEnabled,
   loadCharacters,
   renderCharacters,
   triggerImport,
@@ -212,6 +217,11 @@ Object.assign(window, {
   saveFragment,
   deleteFragment,
   toggleFragmentEnabled,
+  // director fragments
+  showDirectorFragmentModal,
+  saveDirectorFragment,
+  deleteDirectorFragment,
+  toggleDirectorFragmentEnabled,
   // characters
   selectChar,
   triggerImport,
@@ -286,6 +296,12 @@ async function initAll() {
     await loadSettings();
   } catch (e) {
     console.error("Failed to load settings:", e);
+  }
+
+  try {
+    await loadDirectorFragments();
+  } catch (e) {
+    console.error("Failed to load director fragments:", e);
   }
 
   try {

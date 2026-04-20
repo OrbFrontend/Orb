@@ -148,6 +148,147 @@ export async function toggleFragmentEnabled(id, newEnabled) {
   }
 }
 
+// ── Director Fragments
+export async function loadDirectorFragments() {
+  try {
+    S.directorFragments = await api.get("/director-fragments");
+    renderDirectorFragments();
+  } catch (error) {
+    console.error("Failed to load director fragments:", error);
+    throw error;
+  }
+}
+
+export function renderDirectorFragments() {
+  const el = document.getElementById("director-frag-list");
+  if (!el) return;
+  if (!S.directorFragments || S.directorFragments.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No director fragments</div>';
+    return;
+  }
+
+  const html = S.directorFragments
+    .map((f) => {
+      const enabled = f.enabled === true || f.enabled === 1;
+      const toggleId = `director-frag-toggle-${f.id}`;
+      return `
+    <div class="fragment-item" style="cursor:pointer" title="${esc(f.description)}" onclick="showDirectorFragmentModal('${f.id}')">
+      <div style="flex:1; min-width:0;">
+        <span class="frag-label">${esc(f.label)}</span>
+        <span class="frag-id">${esc(f.id)}</span>
+      </div>
+      <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
+        <label class="frag-toggle" for="${toggleId}">
+          <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
+                 onchange="toggleDirectorFragmentEnabled('${f.id}', this.checked)">
+          <span class="frag-toggle-slider"></span>
+        </label>
+      </div>
+    </div>`;
+    })
+    .join("");
+
+  el.innerHTML = html;
+}
+
+export function showDirectorFragmentModal(fragId = null) {
+  const f = fragId ? S.directorFragments.find((x) => x.id === fragId) : null;
+  const isEdit = !!f;
+  const d = f || { id: "", label: "", description: "", field_type: "string", required: false, injection_label: "", sort_order: 0 };
+
+  showModal(`
+    <h2>${isEdit ? "Edit" : "New"} Director Fragment</h2>
+    <div class="field-row">
+      <div class="field"><label>ID</label>
+        <input id="dir-frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. pacing"></div>
+      <div class="field"><label>Label</label>
+        <input id="dir-frag-label" value="${esc(d.label)}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Injection Label</label>
+        <input id="dir-frag-inj-label" value="${esc(d.injection_label)}" placeholder="e.g. Pacing"></div>
+      <div class="field"><label>Field Type</label>
+        <select id="dir-frag-type">
+          <option value="string" ${d.field_type === "string" ? "selected" : ""}>string</option>
+          <option value="array" ${d.field_type === "array" ? "selected" : ""}>array</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(shown to the LLM in the tool schema)</span></label>
+      <textarea id="dir-frag-desc" rows="4">${esc(d.description)}</textarea></div>
+    <div class="field-row">
+      <div class="field"><label>Sort Order</label>
+        <input id="dir-frag-sort" type="number" value="${d.sort_order}" style="width:80px"></div>
+      <div class="field" style="align-self:flex-end;padding-bottom:4px">
+        <label class="modal-checkbox-label">
+          <input type="checkbox" id="dir-frag-required" ${d.required ? "checked" : ""}> Required
+        </label>
+      </div>
+    </div>
+    <div class="modal-actions">
+      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteDirectorFragment('${esc(d.id)}')">Delete</button>` : ""}
+      <div style="flex:1"></div>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="saveDirectorFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
+    </div>`);
+}
+
+export async function saveDirectorFragment(isEdit) {
+  const d = {
+    id: document.getElementById("dir-frag-id").value.trim(),
+    label: document.getElementById("dir-frag-label").value.trim(),
+    description: document.getElementById("dir-frag-desc").value.trim(),
+    field_type: document.getElementById("dir-frag-type").value,
+    required: document.getElementById("dir-frag-required").checked,
+    injection_label: document.getElementById("dir-frag-inj-label").value.trim(),
+    sort_order: parseInt(document.getElementById("dir-frag-sort").value, 10) || 0,
+  };
+  if (!d.id || !d.label || !d.injection_label) {
+    toast("Fill in required fields (ID, Label, Injection Label)", true);
+    return;
+  }
+  try {
+    if (isEdit) await api.put("/director-fragments/" + d.id, d);
+    else await api.post("/director-fragments", d);
+    closeModal();
+    await loadDirectorFragments();
+    toast("Director fragment saved");
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+export async function deleteDirectorFragment(id) {
+  showConfirmModal(
+    {
+      title: "Delete Director Fragment",
+      message: "Are you sure you want to delete this director fragment?",
+      confirmText: "Delete",
+    },
+    async () => {
+      try {
+        await api.del("/director-fragments/" + id);
+        await loadDirectorFragments();
+        toast("Director fragment deleted");
+      } catch (e) {
+        toast(e.message, true);
+      }
+    },
+  );
+}
+
+export async function toggleDirectorFragmentEnabled(id, newEnabled) {
+  try {
+    await api.put("/director-fragments/" + id, { enabled: newEnabled });
+    const frag = S.directorFragments.find((f) => f.id === id);
+    if (frag) frag.enabled = newEnabled;
+    renderDirectorFragments();
+    toast(newEnabled ? "Director fragment enabled" : "Director fragment disabled");
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 // ── Characters
 
 /**

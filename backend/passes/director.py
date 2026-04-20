@@ -12,7 +12,7 @@ import time
 from typing import AsyncIterator, List, Optional
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ..tool_defs import TOOLS, POST_WRITER_TOOLS, enabled_schemas
+from ..tool_defs import TOOLS, POST_WRITER_TOOLS, enabled_schemas, build_direct_scene_tool
 from ..prompt_builder import build_tool_prompt
 
 logger = logging.getLogger(__name__)
@@ -24,56 +24,29 @@ logger = logging.getLogger(__name__)
 def apply_tool_calls(
     tool_calls: list[dict],
     current_moods: list[str],
-) -> tuple[
-    list[str],
-    str | None,
-    str | None,
-    str | None,
-    list[str] | None,
-    str | None,
-    list[str] | None,
-    str | None,
-]:
+) -> tuple[list[str], str | None, dict]:
+    """Extract values from tool calls.
+
+    Returns (moods, refined_message, extra_fields).
+    extra_fields contains all direct_scene args except moods.
+    """
     moods = list(current_moods)
-    (
-        refined,
-        next_event,
-        writing_direction,
-        detected_repetitions,
-        plot_summary,
-        keywords,
-        user_intent,
-    ) = (
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
+    refined: str | None = None
+    extra_fields: dict = {}
+
     for tc in tool_calls:
         args = tc.get("arguments", {})
         if tc["name"] == "direct_scene":
             moods = args.get("moods", [])
-            next_event = args.get("next_event") or None
-            writing_direction = args.get("writing_direction") or None
-            detected_repetitions = args.get("detected_repetitions") or None
-            plot_summary = args.get("plot_summary") or None
-            keywords = args.get("keywords") or None
-            user_intent = args.get("user_intent") or None
+            extra_fields = {
+                k: v
+                for k, v in args.items()
+                if k != "moods" and v not in (None, "", [])
+            }
         elif tc["name"] == "rewrite_user_prompt":
             refined = args.get("refined_message") or None
-    return (
-        moods,
-        refined,
-        next_event,
-        writing_direction,
-        detected_repetitions,
-        plot_summary,
-        keywords,
-        user_intent,
-    )
+
+    return (moods, refined, extra_fields)
 
 
 # ── Agent pass ────────────────────────────────────────────────────────────────
@@ -86,6 +59,7 @@ async def _agent_pass(
     settings: dict,
     director: dict,
     fragments: list[dict],
+    director_fragments: list[dict],
     enabled_tools: dict | None = None,
     attachments: Optional[List[dict]] = None,
     kv_tracker=None,
@@ -95,27 +69,14 @@ async def _agent_pass(
 
     Yields:
         {"type": "reasoning", "delta": str}   — zero or more reasoning chunks
-        {"type": "done", "result": tuple}     — final (moods, raw, calls, latency, ...)
+        {"type": "done", "result": tuple}     — final (moods, raw, calls, latency, refined, extra_fields)
     """
     active_moods = director["active_moods"]
     if attachments is None:
         attachments = []
-    (
-        refined_msg,
-        next_event,
-        writing_direction,
-        detected_repetitions,
-        plot_summary,
-        user_intent,
-    ) = (
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    keywords = director.get("keywords", [])
+
+    refined_msg: str | None = None
+    extra_fields: dict = {}
     all_calls: list[dict] = []
     last_raw = ""
 
@@ -140,23 +101,18 @@ async def _agent_pass(
     if not tool_names:
         yield {
             "type": "done",
-            "result": (
-                active_moods,
-                "",
-                [],
-                0,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
+            "result": (active_moods, "", [], 0, None, {}),
         }
         return
 
-    tool_schemas = enabled_schemas(enabled_tools)
+    # Build base schemas, replacing the static direct_scene with the dynamic one.
+    base_schemas = enabled_schemas(enabled_tools)
+    dynamic_direct_scene = build_direct_scene_tool(director_fragments)
+    tool_schemas = [
+        dynamic_direct_scene if s["function"]["name"] == "direct_scene" else s
+        for s in base_schemas
+    ]
+
     logger.info(
         "Director pass: tools included=%s",
         (
@@ -192,7 +148,6 @@ async def _agent_pass(
         resp: dict = {}
         try:
             reasoning_params = (
-                # Always disable reasoning for user prompt rewrite because this task is super simple.
                 reasoning_cfg(False)
                 if not reasoning_on or name == "rewrite_user_prompt"
                 else reasoning_cfg(True)
@@ -214,30 +169,11 @@ async def _agent_pass(
             logger.info("Agent tool=%s output:\n%s", name, last_raw)
             if parsed := parse_tool_calls(resp):
                 all_calls.extend(parsed)
-                (
-                    active_moods,
-                    new_refined,
-                    new_plot,
-                    new_narration,
-                    new_reps,
-                    new_summary,
-                    new_kw,
-                    new_intent,
-                ) = apply_tool_calls(parsed, active_moods)
+                active_moods, new_refined, new_extra = apply_tool_calls(parsed, active_moods)
                 if new_refined:
                     refined_msg = new_refined
-                if new_plot:
-                    next_event = new_plot
-                if new_narration:
-                    writing_direction = new_narration
-                if new_reps:
-                    detected_repetitions = new_reps
-                if new_summary:
-                    plot_summary = new_summary
-                if new_kw:
-                    keywords = new_kw[:6]
-                if new_intent:
-                    user_intent = new_intent
+                if new_extra:
+                    extra_fields.update(new_extra)
             else:
                 logger.info("Agent tool=%s: model skipped", name)
         except Exception as e:
@@ -252,11 +188,6 @@ async def _agent_pass(
             all_calls,
             int((time.monotonic() - t0) * 1000),
             refined_msg,
-            next_event,
-            writing_direction,
-            detected_repetitions,
-            plot_summary,
-            keywords,
-            user_intent,
+            extra_fields,
         ),
     }

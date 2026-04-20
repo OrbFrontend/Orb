@@ -29,6 +29,7 @@ async def _run_pipeline(
     settings: dict,
     director: dict,
     fragments: list[dict],
+    director_fragments: list[dict],
     prefix: list[dict],
     user_message: str,
     attachments: Optional[List[dict]] = None,
@@ -57,15 +58,8 @@ async def _run_pipeline(
 
     active_moods = director["active_moods"]
     agent_raw, calls, latency = "", [], 0
-    (
-        rewritten_msg,
-        next_event,
-        writing_direction,
-        detected_repetitions,
-        plot_summary,
-        user_intent,
-    ) = (None, None, None, None, None, None)
-    keywords = director.get("keywords", [])
+    rewritten_msg: str | None = None
+    extra_fields: dict = {}
     effective_msg = user_message
 
     audit_enabled = (
@@ -114,6 +108,7 @@ async def _run_pipeline(
             settings,
             director,
             fragments,
+            director_fragments,
             enabled_tools,
             attachments=attachments,
             kv_tracker=kv_tracker,
@@ -131,12 +126,7 @@ async def _run_pipeline(
                     calls,
                     latency,
                     rewritten_msg,
-                    next_event,
-                    writing_direction,
-                    detected_repetitions,
-                    plot_summary,
-                    keywords,
-                    user_intent,
+                    extra_fields,
                 ) = event["result"]
         if rewritten_msg:
             effective_msg = rewritten_msg
@@ -151,13 +141,9 @@ async def _run_pipeline(
         active_moods,
         director["active_moods"],
         fragments,
+        director_fragments,
         direct_scene_enabled,
-        next_event,
-        writing_direction,
-        detected_repetitions,
-        plot_summary,
-        keywords,
-        user_intent,
+        extra_fields,
     )
 
     yield {
@@ -167,12 +153,7 @@ async def _run_pipeline(
             "injection_block": inj_block,
             "tool_calls": calls,
             "agent_latency_ms": latency,
-            "next_event": next_event,
-            "writing_direction": writing_direction,
-            "detected_repetitions": detected_repetitions,
-            "plot_summary": plot_summary,
-            "keywords": keywords,
-            "user_intent": user_intent,
+            "extra_fields": extra_fields,
         },
     }
 
@@ -211,11 +192,7 @@ async def _run_pipeline(
             "effective_msg": effective_msg,
             "resp_text": resp_text,
             "inj_block": inj_block,
-            "next_event": next_event,
-            "writing_direction": writing_direction,
-            "detected_repetitions": detected_repetitions,
-            "plot_summary": plot_summary,
-            "keywords": keywords,
+            "extra_fields": extra_fields,
         },
     }
 
@@ -296,6 +273,8 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
         director["active_moods"] = [
             mood for mood in director["active_moods"] if mood in enabled_ids
         ]
+    director_fragments = await db.get_director_fragments()
+    director_fragments = [df for df in director_fragments if df.get("enabled", True)]
     phrase_bank = await db.get_phrase_bank()
     client = LLMClient(settings["endpoint_url"], api_key=settings.get("api_key", ""))
 
@@ -314,6 +293,7 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
         "conv": conv,
         "director": director,
         "fragments": fragments,
+        "director_fragments": director_fragments,
         "phrase_bank": phrase_bank,
         "client": client,
         "system_prompt": system_prompt,
@@ -359,7 +339,7 @@ async def _persist_result(
     """Persist the assistant message after _result.  Returns the new assistant message id."""
     if settings.get("enable_agent", 1):
         await db.update_director_state(
-            conversation_id, res["active_moods"], res.get("keywords")
+            conversation_id, res["active_moods"], res.get("extra_fields", {}).get("keywords")
         )
     if res.get("rewritten_msg") and user_msg_id:
         await db.update_message_content(user_msg_id, res["effective_msg"])
@@ -403,7 +383,7 @@ async def _fallback_persist(
     try:
         if res.get("active_moods") and settings.get("enable_agent", 1):
             await db.update_director_state(
-                conversation_id, res["active_moods"], res.get("keywords")
+                conversation_id, res["active_moods"], res.get("extra_fields", {}).get("keywords")
             )
         if res.get("rewritten_msg") and user_msg_id:
             await db.update_message_content(user_msg_id, res["effective_msg"])
@@ -596,6 +576,7 @@ async def handle_turn(
             settings,
             ctx["director"],
             ctx["fragments"],
+            ctx["director_fragments"],
             prefix,
             user_message,
             attachments=attachments,
@@ -661,6 +642,7 @@ async def handle_regenerate(
             settings,
             ctx["director"],
             ctx["fragments"],
+            ctx["director_fragments"],
             prefix,
             user_msg["content"],
             attachments,

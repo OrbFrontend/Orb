@@ -4,6 +4,7 @@ export const S = {
   activeCharId: null,
   messages: [],
   fragments: [],
+  directorFragments: [],
   characters: [],
   personas: [],
   activePersonaId: null,

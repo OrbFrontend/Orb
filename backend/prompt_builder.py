@@ -146,27 +146,26 @@ def compute_style_injection_block(
     active_moods: list[str],
     prior_moods: list[str],
     fragments: list[dict],
+    director_fragments: list[dict],
     direct_scene_enabled: bool,
-    next_event: str | None = None,
-    writing_direction: str | None = None,
-    detected_repetitions: list[str] | None = None,
-    plot_summary: str | None = None,
-    keywords: list[str] | None = None,
-    user_intent: str | None = None,
+    extra_fields: dict | None = None,
 ) -> str:
     """Compute the style injection block from director-pass outputs.
 
-    When *direct_scene_enabled* is False the active-mood and keyword signals are
-    suppressed so the previous turn's director state cannot bleed into the writer.
-    Only the unconditional fields (next_event, etc.) are still forwarded in
-    that case, though in practice they are also None when direct_scene is off.
+    When *direct_scene_enabled* is False, mood signals are suppressed so the
+    previous turn's director state cannot bleed into the writer. extra_fields
+    are also cleared since all fields (including keywords) now come fresh from
+    the current director pass and are empty when it did not run.
     """
+    if extra_fields is None:
+        extra_fields = {}
+
     if direct_scene_enabled:
         inj_active_moods = active_moods
-        inj_keywords = keywords
+        inj_extra = extra_fields
     else:
         inj_active_moods = []
-        inj_keywords = []
+        inj_extra = {}
 
     deactivated = (
         [f for f in fragments if f["id"] in (set(prior_moods) - set(inj_active_moods))]
@@ -175,59 +174,39 @@ def compute_style_injection_block(
     )
     active = [f for f in fragments if f["id"] in inj_active_moods]
 
-    if not (
-        active
-        or deactivated
-        or next_event
-        or writing_direction
-        or detected_repetitions
-        or plot_summary
-        or inj_keywords
-        or user_intent
-    ):
+    if not (active or deactivated or inj_extra):
         return ""
 
-    return build_style_injection(
-        active,
-        deactivated,
-        next_event,
-        writing_direction,
-        detected_repetitions,
-        plot_summary,
-        inj_keywords,
-        user_intent,
-    )
+    return build_style_injection(active, deactivated, director_fragments, inj_extra)
 
 
 def build_style_injection(
     active: list[dict],
     deactivated: list[dict] | None = None,
-    next_event: str | None = None,
-    writing_direction: str | None = None,
-    detected_repetitions: list[str] | None = None,
-    plot_summary: str | None = None,
-    keywords: list[str] | None = None,
-    user_intent: str | None = None,
+    director_fragments: list[dict] | None = None,
+    extra_fields: dict | None = None,
 ) -> str:
+    """Render the Scene Direction injection block for the writer pass.
+
+    Director fragment values are rendered in sort_order, each using the
+    fragment's injection_label.  Arrays are rendered as bullet lists.
+    """
     parts = ["**Scene Direction**"]
-    if plot_summary:
-        parts.append(f"Plot summary: {plot_summary}")
-    if user_intent:
-        parts.append(f"User intent: {user_intent}")
-    if keywords:
-        parts.append("Keywords: " + ", ".join(keywords))
-    if next_event:
-        parts.append(f"Next event: {next_event}")
+
+    for df in sorted(director_fragments or [], key=lambda x: x.get("sort_order", 0)):
+        val = (extra_fields or {}).get(df["id"])
+        if not val:
+            continue
+        label = df["injection_label"]
+        if df["field_type"] == "array" and isinstance(val, list):
+            parts.append(label + ":\n" + "\n".join(f"- {item}" for item in val))
+        else:
+            parts.append(f"{label}: {val}")
+
     for f in active:
         parts.append(f'Mood [{f["id"]}]: {f["prompt_text"]}')
     for f in deactivated or []:
         if neg := f.get("negative_prompt", "").strip():
             parts.append(f'Deactivated [{f["id"]}]: {neg}')
-    if writing_direction:
-        parts.append(f"Narration: {writing_direction}")
-    if detected_repetitions:
-        parts.append(
-            "Avoid repeating:\n"
-            + "\n".join(f"- {phrase}" for phrase in detected_repetitions)
-        )
+
     return "\n\n".join(parts)

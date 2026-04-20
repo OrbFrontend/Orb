@@ -54,6 +54,11 @@ from .database import (
     create_user_persona,
     update_user_persona,
     delete_user_persona,
+    get_director_fragments,
+    get_director_fragment,
+    create_director_fragment,
+    update_director_fragment,
+    delete_director_fragment,
 )
 import asyncio
 from .orchestrator import handle_turn, handle_regenerate
@@ -132,6 +137,27 @@ class FragmentUpdate(BaseModel):
     prompt_text: Optional[str] = None
     negative_prompt: Optional[str] = None
     enabled: Optional[bool] = None
+
+
+class DirectorFragmentCreate(BaseModel):
+    id: str
+    label: str
+    description: str
+    field_type: str = "string"
+    required: bool = False
+    enabled: bool = True
+    injection_label: str
+    sort_order: int = 0
+
+
+class DirectorFragmentUpdate(BaseModel):
+    label: Optional[str] = None
+    description: Optional[str] = None
+    field_type: Optional[str] = None
+    required: Optional[bool] = None
+    enabled: Optional[bool] = None
+    injection_label: Optional[str] = None
+    sort_order: Optional[int] = None
 
 
 class ConversationCreate(BaseModel):
@@ -314,6 +340,40 @@ async def api_update_fragment(fid: str, data: FragmentUpdate):
 async def api_delete_fragment(fid: str):
     if not await delete_fragment(fid):
         raise HTTPException(404, "Fragment not found or is built-in")
+    return {"ok": True}
+
+
+# Director Fragments ──
+
+
+@app.get("/api/director-fragments")
+async def api_list_director_fragments():
+    return await get_director_fragments()
+
+
+@app.post("/api/director-fragments")
+async def api_create_director_fragment(data: DirectorFragmentCreate):
+    existing = await get_director_fragment(data.id)
+    if existing:
+        raise HTTPException(400, "Director fragment with this ID already exists")
+    result = await create_director_fragment(data.model_dump())
+    if not result:
+        raise HTTPException(500, "Failed to create director fragment")
+    return result
+
+
+@app.put("/api/director-fragments/{fid}")
+async def api_update_director_fragment(fid: str, data: DirectorFragmentUpdate):
+    result = await update_director_fragment(fid, data.model_dump(exclude_none=True))
+    if not result:
+        raise HTTPException(404, "Director fragment not found")
+    return result
+
+
+@app.delete("/api/director-fragments/{fid}")
+async def api_delete_director_fragment(fid: str):
+    if not await delete_director_fragment(fid):
+        raise HTTPException(404, "Director fragment not found")
     return {"ok": True}
 
 
