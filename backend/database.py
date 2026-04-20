@@ -1814,3 +1814,73 @@ async def get_character_avatar(card_id: str) -> tuple[bytes, str] | None:
         return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
     finally:
         await db.close()
+
+
+# --- Reset to Defaults ---
+
+
+async def reset_to_defaults() -> None:
+    """Delete all user-modified data and re-seed tables to defaults."""
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM settings WHERE id = 1")
+        await db.execute("DELETE FROM mood_fragments")
+        await db.execute("DELETE FROM director_fragments")
+        await db.execute("DELETE FROM phrase_bank")
+
+        # Re-seed settings
+        s = DEFAULT_SETTINGS
+        await db.execute(
+            "INSERT INTO settings (id, endpoint_url, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, system_prompt, enabled_tools) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                s["endpoint_url"],
+                s["model_name"],
+                s["temperature"],
+                s["min_p"],
+                s["top_k"],
+                s["top_p"],
+                s["repetition_penalty"],
+                s["max_tokens"],
+                s["system_prompt"],
+                json.dumps(DEFAULT_ENABLED_TOOLS),
+            ),
+        )
+
+        # Re-seed mood fragments
+        for f in SEED_MOOD_FRAGMENTS:
+            await db.execute(
+                "INSERT INTO mood_fragments (id, label, description, prompt_text, negative_prompt) VALUES (?, ?, ?, ?, ?)",
+                (
+                    f["id"],
+                    f["label"],
+                    f["description"],
+                    f["prompt_text"],
+                    f["negative_prompt"],
+                ),
+            )
+
+        # Re-seed director fragments
+        for df in SEED_DIRECTOR_FRAGMENTS:
+            await db.execute(
+                "INSERT INTO director_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                (
+                    df["id"],
+                    df["label"],
+                    df["description"],
+                    df["field_type"],
+                    1 if df["required"] else 0,
+                    df["injection_label"],
+                    df["sort_order"],
+                ),
+            )
+
+        # Re-seed phrase bank
+        for variants in SEED_PHRASE_BANK:
+            await db.execute(
+                "INSERT INTO phrase_bank (variants) VALUES (?)",
+                (json.dumps(variants),),
+            )
+
+        await db.commit()
+    finally:
+        await db.close()

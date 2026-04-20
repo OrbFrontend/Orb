@@ -105,6 +105,12 @@ export function renderSettings() {
               <input type="${f.t}" value="${v}" data-key="${f.k}" ${attrs} onchange="saveSetting(this)">
             </div>`;
   }).join("");
+  // Append reset button after the fields
+  $("settings-form").innerHTML += `
+    <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
+      <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">Reset to Defaults</button>
+    </div>
+  `;
 }
 
 export async function saveSetting(el) {
@@ -582,3 +588,28 @@ window.savePhraseGroup = async function (editId) {
     toast("Failed to save: " + e.message, true);
   }
 };
+
+// ── Reset to Defaults ──
+
+export async function showResetConfirmModal() {
+  showConfirmModal(
+    {
+      title: "Reset to Defaults",
+      message:
+        "This will reset Mood Fragments, Director Fragments, Phrase Bank, and all Settings to their original default values. All custom data will be lost.<br><br>The following will be retained: Characters, Conversations.",
+      confirmText: "Reset Everything",
+    },
+    async () => {
+      try {
+        await api.post("/reset", { confirm: true });
+        toast("Reset successful — reloading…");
+        window.location.reload();
+      } catch (e) {
+        toast("Failed to reset: " + e.message, true);
+      }
+    },
+  );
+}
+
+// Expose to global scope for inline onclick handlers
+window.showResetConfirmModal = showResetConfirmModal;

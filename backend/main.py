@@ -59,6 +59,7 @@ from .database import (
     create_director_fragment,
     update_director_fragment,
     delete_director_fragment,
+    reset_to_defaults,
 )
 import asyncio
 from .orchestrator import handle_turn, handle_regenerate
@@ -449,6 +450,22 @@ async def api_delete_user_persona(persona_id: int):
     success = await delete_user_persona(persona_id)
     if not success:
         raise HTTPException(404, "User persona not found")
+    return {"ok": True}
+
+
+# Reset ──
+
+
+class ResetConfirm(BaseModel):
+    confirm: bool
+
+
+@app.post("/api/reset")
+async def api_reset(data: ResetConfirm):
+    """Reset mood_fragments, director_fragments, phrase_bank, and settings to defaults."""
+    if not data.confirm:
+        raise HTTPException(400, "Confirmation required")
+    await reset_to_defaults()
     return {"ok": True}
 
 
