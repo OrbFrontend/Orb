@@ -195,6 +195,13 @@ SEED_DIRECTOR_FRAGMENTS = [
     },
 ]
 
+DEFAULT_ENABLED_TOOLS = {
+    "direct_scene": True,
+    "rewrite_user_prompt": False,
+    "editor_apply_patch": False,
+    "editor_rewrite": False,
+}
+
 DEFAULT_SETTINGS = {
     "endpoint_url": "http://localhost:5000/v1",
     "api_key": "",
@@ -509,7 +516,7 @@ async def init_db():
         if row[0]["c"] == 0:
             s = DEFAULT_SETTINGS
             await db.execute(
-                "INSERT INTO settings (id, endpoint_url, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, system_prompt) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO settings (id, endpoint_url, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, system_prompt, enabled_tools) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     s["endpoint_url"],
                     s["model_name"],
@@ -520,6 +527,7 @@ async def init_db():
                     s["repetition_penalty"],
                     s["max_tokens"],
                     s["system_prompt"],
+                    json.dumps(DEFAULT_ENABLED_TOOLS),
                 ),
             )
 

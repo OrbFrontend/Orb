@@ -15,7 +15,7 @@ export const S = {
   streamingBodyEl: null,
   streamCutoffIndex: null,
   agentEnabled: true,
-  enabledTools: { direct_scene: true },
+  enabledTools: {},
   lengthGuardEnabled: false,
   lengthGuardMaxWords: 240,
   lengthGuardMaxParagraphs: 4,

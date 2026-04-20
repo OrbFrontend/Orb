@@ -23,6 +23,7 @@ MIGRATIONS: list[str] = [
     "0004_director_fragments",
     "0005_keywords_director_fragment",
     "0006_rename_fragments_to_mood_fragments",
+    "0007_add_user_personas_columns",
 ]
 
 
