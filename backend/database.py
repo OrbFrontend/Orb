@@ -761,22 +761,6 @@ async def get_messages_with_branch_info(cid: str) -> list[dict]:
         await db.close()
 
 
-async def get_messages_with_swipe_info(cid: str) -> list[dict]:
-    """Backward-compat alias for get_messages_with_branch_info."""
-    return await get_messages_with_branch_info(cid)
-
-
-async def get_swipes_at_turn(cid: str, turn_index: int) -> list[dict]:
-    """Get all swipes at a specific turn_index."""
-    db = await get_db()
-    try:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM messages WHERE conversation_id = ? AND turn_index = ? ORDER BY swipe_index ASC",
-            (cid, turn_index),
-        )
-        return [dict(r) for r in rows]
-    finally:
-        await db.close()
 
 
 async def add_message(
@@ -829,29 +813,6 @@ async def add_message(
     finally:
         await db.close()
 
-
-async def add_attachments(message_id: int, attachments: List[dict]) -> None:
-    """Insert multiple attachments for a given message."""
-    if not attachments:
-        return
-    db = await get_db()
-    try:
-        now = datetime.now(timezone.utc).isoformat()
-        for att in attachments:
-            await db.execute(
-                "INSERT INTO message_attachments (message_id, mime_type, data_b64, filename, size, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    message_id,
-                    att["mime_type"],
-                    att["data_b64"],
-                    att.get("filename"),
-                    att.get("size"),
-                    now,
-                ),
-            )
-        await db.commit()
-    finally:
-        await db.close()
 
 
 async def get_attachments_for_message(message_id: int) -> List[dict]:
