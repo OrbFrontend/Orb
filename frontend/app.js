@@ -290,15 +290,36 @@ Object.assign(window, {
   S,
 });
 
-// ── Smart autoscroll: only autoscroll during streaming if user is at the bottom
+// ── Smart autoscroll: disable on upward scroll, re-enable when back at bottom
 function initAutoscroll() {
   const ct = $("chat-messages");
   if (!ct) return;
-  const THRESHOLD = 20; // pixels from bottom to be considered "at the bottom" (increased from 5 to prevent false negatives)
+  const THRESHOLD = 20;
+  let scrollDebounce = null;
+
+  // Wheel: immediately cut autoscroll on any upward scroll intent
+  ct.addEventListener("wheel", (e) => {
+    if (e.deltaY < 0) S.autoscrollEnabled = false;
+  }, { passive: true });
+
+  // Touch: disable on upward swipe
+  let touchStartY = 0;
+  ct.addEventListener("touchstart", (e) => {
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+  ct.addEventListener("touchmove", (e) => {
+    if (e.touches[0].clientY > touchStartY) S.autoscrollEnabled = false;
+  }, { passive: true });
+
+  // Re-enable only once the user has scrolled back to the bottom (debounced to
+  // avoid false positives from rapid programmatic scroll events during streaming)
   ct.addEventListener("scroll", () => {
-    if (!S.isStreaming || S._programmaticScroll) return;
-    const atBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight <= THRESHOLD;
-    S.autoscrollEnabled = atBottom;
+    if (S._programmaticScroll) return;
+    clearTimeout(scrollDebounce);
+    scrollDebounce = setTimeout(() => {
+      const atBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight <= THRESHOLD;
+      if (atBottom) S.autoscrollEnabled = true;
+    }, 100);
   });
 }
 
