@@ -169,7 +169,7 @@ def compute_style_injection_block(
 
     deactivated = (
         [f for f in fragments if f["id"] in (set(prior_moods) - set(inj_active_moods))]
-        if direct_scene_enabled
+        if direct_scene_enabled and inj_active_moods
         else []
     )
     active = [f for f in fragments if f["id"] in inj_active_moods]
