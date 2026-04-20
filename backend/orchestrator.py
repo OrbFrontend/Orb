@@ -14,7 +14,7 @@ from .llm_client import LLMClient
 from .tool_defs import TOOLS, POST_WRITER_TOOLS
 from .prompt_builder import build_prefix, compute_style_injection_block
 from .kv_tracker import _KVCacheTracker
-from .passes.director import _agent_pass
+from .passes.director import _director_pass
 from .passes.writer import _writer_pass
 from .passes.editor import editor_pass
 
@@ -101,7 +101,7 @@ async def _run_pipeline(
     )
     if agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
-        async for event in _agent_pass(
+        async for event in _director_pass(
             client,
             prefix,
             user_message,

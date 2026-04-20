@@ -52,7 +52,7 @@ def apply_tool_calls(
 # ── Agent pass ────────────────────────────────────────────────────────────────
 
 
-async def _agent_pass(
+async def _director_pass(
     client: LLMClient,
     prefix: list[dict],
     user_message: str,
