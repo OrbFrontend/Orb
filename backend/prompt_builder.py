@@ -122,9 +122,11 @@ def build_tool_prompt(
     if not tool:
         return ""
     desc = tool["schema"]["function"]["description"]
+    params = tool["schema"]["function"]["parameters"].get("properties", {})
+    param_order = ", ".join(params.keys()) if params else "N/A"
     parts = [
-        "[OOC: Let's pause to improve the roleplay. Use tool calls to accomplish your task accurately and creatively. Your output will immediately affect how the scenario plays out.  Think outside the box. Be decisive and avoid overthinking.",
-        f"ONLY call this tool with extreme focus: {tool_name} - {desc}]",
+        "[OOC: Let's pause to enhance the roleplay. Use tool calls to accomplish your task accurately and creatively. Your output will directly influence the scenario. Think outside the box, be decisive, and avoid overthinking.",
+        f"Call ONLY this tool, ensuring parameters follow the schema order: {tool_name} - {desc}\nParameter order: ({param_order})",
     ]
     if tool_name == "direct_scene":
         moods = ", ".join(active_moods) or "none"
