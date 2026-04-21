@@ -102,7 +102,7 @@ function finalizeStreamingDiv(lastMsg) {
   const body = S.streamingBodyEl;
   if (!body) return false;
   const div = body.closest(".message");
-  if (!div || !lastMsg || lastMsg.role !== "assistant" || !lastMsg.id) return false;
+  if (!div || !div.isConnected || !lastMsg || lastMsg.role !== "assistant" || !lastMsg.id) return false;
 
   div.setAttribute("data-msg-id", lastMsg.id);
   body.removeAttribute("id");
