@@ -300,18 +300,30 @@ function initAutoscroll() {
   let scrollDebounce = null;
 
   // Wheel: immediately cut autoscroll on any upward scroll intent
-  ct.addEventListener("wheel", (e) => {
-    if (e.deltaY < 0) S.autoscrollEnabled = false;
-  }, { passive: true });
+  ct.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.deltaY < 0) S.autoscrollEnabled = false;
+    },
+    { passive: true },
+  );
 
   // Touch: disable on upward swipe
   let touchStartY = 0;
-  ct.addEventListener("touchstart", (e) => {
-    touchStartY = e.touches[0].clientY;
-  }, { passive: true });
-  ct.addEventListener("touchmove", (e) => {
-    if (e.touches[0].clientY > touchStartY) S.autoscrollEnabled = false;
-  }, { passive: true });
+  ct.addEventListener(
+    "touchstart",
+    (e) => {
+      touchStartY = e.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  ct.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches[0].clientY > touchStartY) S.autoscrollEnabled = false;
+    },
+    { passive: true },
+  );
 
   // Re-enable only once the user has scrolled back to the bottom (debounced to
   // avoid false positives from rapid programmatic scroll events during streaming)

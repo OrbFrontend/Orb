@@ -5,10 +5,7 @@ async def test_create_endpoint_persists_to_db(client, db):
     """Test creating an endpoint via POST /api/endpoints"""
     resp = await client.post(
         "/api/endpoints",
-        json={
-            "url": "https://api.example.com/v1",
-            "api_key": "test-key-123"
-        },
+        json={"url": "https://api.example.com/v1", "api_key": "test-key-123"},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -130,9 +127,9 @@ async def test_list_model_configs_for_endpoint(client, db):
     resp = await client.get(f"/api/endpoints/{endpoint_id}/models")
     assert resp.status_code == 200
     configs = resp.json()
-    
+
     assert len(configs) >= 2  # Could have default configs
-    
+
     # Check our created configs exist
     model_names = [c["model_name"] for c in configs]
     assert "model-a" in model_names
@@ -197,13 +194,13 @@ async def test_endpoint_crud_workflow(client, db):
     )
     assert create_resp.status_code == 200
     endpoint_id = create_resp.json()["id"]
-    
+
     # 2. Verify in list
     list_resp = await client.get("/api/endpoints")
     assert list_resp.status_code == 200
     endpoints = list_resp.json()
     assert any(e["id"] == endpoint_id for e in endpoints)
-    
+
     # 3. Create model config for endpoint
     model_resp = await client.post(
         f"/api/endpoints/{endpoint_id}/models",
@@ -211,27 +208,27 @@ async def test_endpoint_crud_workflow(client, db):
     )
     assert model_resp.status_code == 200
     config_id = model_resp.json()["id"]
-    
+
     # 4. Verify model config in list
     models_resp = await client.get(f"/api/endpoints/{endpoint_id}/models")
     assert models_resp.status_code == 200
     models = models_resp.json()
     assert any(m["id"] == config_id for m in models)
-    
+
     # 5. Delete model config
     delete_model_resp = await client.delete(f"/api/models/{config_id}")
     assert delete_model_resp.status_code == 200
-    
+
     # 6. Verify model config deleted
     models_resp2 = await client.get(f"/api/endpoints/{endpoint_id}/models")
     assert models_resp2.status_code == 200
     models2 = models_resp2.json()
     assert not any(m["id"] == config_id for m in models2)
-    
+
     # 7. Delete endpoint
     delete_endpoint_resp = await client.delete(f"/api/endpoints/{endpoint_id}")
     assert delete_endpoint_resp.status_code == 200
-    
+
     # 8. Verify endpoint deleted
     list_resp2 = await client.get("/api/endpoints")
     assert list_resp2.status_code == 200

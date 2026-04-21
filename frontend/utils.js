@@ -26,7 +26,9 @@ export function scrollToBottom(smooth = false) {
   requestAnimationFrame(() => {
     if (smooth) {
       ct.scrollTo({ top: ct.scrollHeight, behavior: "smooth" });
-      setTimeout(() => { S._programmaticScroll = false; }, 400);
+      setTimeout(() => {
+        S._programmaticScroll = false;
+      }, 400);
     } else {
       ct.scrollTop = ct.scrollHeight;
       S._programmaticScroll = false;

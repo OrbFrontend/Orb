@@ -567,7 +567,10 @@ async def init_db():
                 s = dict(s_rows[0])
                 cur = await db.execute(
                     "INSERT INTO endpoints (url, api_key) VALUES (?, ?)",
-                    (s.get("endpoint_url", "http://localhost:5000/v1"), s.get("api_key", "")),
+                    (
+                        s.get("endpoint_url", "http://localhost:5000/v1"),
+                        s.get("api_key", ""),
+                    ),
                 )
                 endpoint_id = cur.lastrowid
                 cur2 = await db.execute(
@@ -711,7 +714,9 @@ async def update_settings(data: dict) -> dict:
 async def get_endpoints() -> list[dict]:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall("SELECT id, url, api_key FROM endpoints ORDER BY id ASC")
+        rows = await db.execute_fetchall(
+            "SELECT id, url, api_key FROM endpoints ORDER BY id ASC"
+        )
         return [dict(r) for r in rows]
     finally:
         await db.close()
@@ -720,7 +725,9 @@ async def get_endpoints() -> list[dict]:
 async def get_endpoint(endpoint_id: int) -> dict | None:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall("SELECT id, url, api_key FROM endpoints WHERE id = ?", (endpoint_id,))
+        rows = await db.execute_fetchall(
+            "SELECT id, url, api_key FROM endpoints WHERE id = ?", (endpoint_id,)
+        )
         return dict(rows[0]) if rows else None
     finally:
         await db.close()
@@ -729,9 +736,13 @@ async def get_endpoint(endpoint_id: int) -> dict | None:
 async def create_endpoint(url: str, api_key: str = "") -> dict:
     db = await get_db()
     try:
-        cur = await db.execute("INSERT INTO endpoints (url, api_key) VALUES (?, ?)", (url, api_key))
+        cur = await db.execute(
+            "INSERT INTO endpoints (url, api_key) VALUES (?, ?)", (url, api_key)
+        )
         await db.commit()
-        rows = await db.execute_fetchall("SELECT id, url FROM endpoints WHERE id = ?", (cur.lastrowid,))
+        rows = await db.execute_fetchall(
+            "SELECT id, url FROM endpoints WHERE id = ?", (cur.lastrowid,)
+        )
         return dict(rows[0])
     finally:
         await db.close()
@@ -753,7 +764,9 @@ async def update_endpoint(endpoint_id: int, data: dict) -> dict | None:
                 vals,
             )
             await db.commit()
-        rows = await db.execute_fetchall("SELECT id, url FROM endpoints WHERE id = ?", (endpoint_id,))
+        rows = await db.execute_fetchall(
+            "SELECT id, url FROM endpoints WHERE id = ?", (endpoint_id,)
+        )
         return dict(rows[0]) if rows else None
     finally:
         await db.close()
@@ -776,7 +789,8 @@ async def get_model_configs(endpoint_id: int) -> list[dict]:
     db = await get_db()
     try:
         rows = await db.execute_fetchall(
-            "SELECT * FROM model_configs WHERE endpoint_id = ? ORDER BY id ASC", (endpoint_id,)
+            "SELECT * FROM model_configs WHERE endpoint_id = ? ORDER BY id ASC",
+            (endpoint_id,),
         )
         return [dict(r) for r in rows]
     finally:
@@ -801,7 +815,9 @@ async def create_model_config(endpoint_id: int, data: dict) -> dict:
             ),
         )
         await db.commit()
-        rows = await db.execute_fetchall("SELECT * FROM model_configs WHERE id = ?", (cur.lastrowid,))
+        rows = await db.execute_fetchall(
+            "SELECT * FROM model_configs WHERE id = ?", (cur.lastrowid,)
+        )
         return dict(rows[0])
     finally:
         await db.close()
@@ -810,7 +826,16 @@ async def create_model_config(endpoint_id: int, data: dict) -> dict:
 async def update_model_config(config_id: int, data: dict) -> dict | None:
     db = await get_db()
     try:
-        allowed = ["model_name", "system_prompt", "temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens"]
+        allowed = [
+            "model_name",
+            "system_prompt",
+            "temperature",
+            "min_p",
+            "top_k",
+            "top_p",
+            "repetition_penalty",
+            "max_tokens",
+        ]
         sets, vals = [], []
         for k in allowed:
             if k in data:
@@ -823,7 +848,9 @@ async def update_model_config(config_id: int, data: dict) -> dict | None:
                 vals,
             )
             await db.commit()
-        rows = await db.execute_fetchall("SELECT * FROM model_configs WHERE id = ?", (config_id,))
+        rows = await db.execute_fetchall(
+            "SELECT * FROM model_configs WHERE id = ?", (config_id,)
+        )
         return dict(rows[0]) if rows else None
     finally:
         await db.close()
@@ -2052,7 +2079,17 @@ async def reset_to_defaults() -> None:
         endpoint_id = cur_ep.lastrowid
         cur_mc = await db.execute(
             "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (endpoint_id, s["model_name"], s["system_prompt"], s["temperature"], s["min_p"], s["top_k"], s["top_p"], s["repetition_penalty"], s["max_tokens"]),
+            (
+                endpoint_id,
+                s["model_name"],
+                s["system_prompt"],
+                s["temperature"],
+                s["min_p"],
+                s["top_k"],
+                s["top_p"],
+                s["repetition_penalty"],
+                s["max_tokens"],
+            ),
         )
         model_config_id = cur_mc.lastrowid
         await db.execute(

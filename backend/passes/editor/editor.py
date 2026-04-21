@@ -425,14 +425,17 @@ async def editor_pass(
             parsed = parse_tool_calls(resp)
             if not parsed:
                 logger.info(
-                    "Editor iteration %d: no tool call, nudging model to use a tool", iteration + 1
+                    "Editor iteration %d: no tool call, nudging model to use a tool",
+                    iteration + 1,
                 )
                 # Nudge the model with a tool-role message encouraging it to call a tool
-                msgs.append({
-                    "role": "tool",
-                    "tool_call_id": "nudge",
-                    "content": "Please call one of the available editor tools (editor_apply_patch or editor_rewrite) to fix the issues. Do not respond without calling a tool.",
-                })
+                msgs.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": "nudge",
+                        "content": "Please call one of the available editor tools (editor_apply_patch or editor_rewrite) to fix the issues. Do not respond without calling a tool.",
+                    }
+                )
                 continue
             all_calls.extend(parsed)
 

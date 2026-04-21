@@ -3,20 +3,24 @@
 add active_endpoint_id / active_model_config_id columns to settings,
 and seed one endpoint+model from the existing flat settings row.
 """
+
 from __future__ import annotations
 
 import sqlite3
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS endpoints (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             url TEXT NOT NULL,
             api_key TEXT NOT NULL DEFAULT ''
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS model_configs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
@@ -29,9 +33,12 @@ def migrate(conn: sqlite3.Connection) -> None:
             repetition_penalty REAL NOT NULL DEFAULT 1.0,
             max_tokens INTEGER NOT NULL DEFAULT 4096
         )
-    """)
+    """
+    )
 
-    settings_cols = [row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()]
+    settings_cols = [
+        row[1] for row in conn.execute("PRAGMA table_info(settings)").fetchall()
+    ]
     if "active_endpoint_id" not in settings_cols:
         conn.execute(
             "ALTER TABLE settings ADD COLUMN active_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL"
@@ -51,7 +58,10 @@ def migrate(conn: sqlite3.Connection) -> None:
             s = dict(zip(cols, row))
             cur_ep = conn.execute(
                 "INSERT INTO endpoints (url, api_key) VALUES (?, ?)",
-                (s.get("endpoint_url", "http://localhost:5000/v1"), s.get("api_key", "")),
+                (
+                    s.get("endpoint_url", "http://localhost:5000/v1"),
+                    s.get("api_key", ""),
+                ),
             )
             endpoint_id = cur_ep.lastrowid
             cur_mc = conn.execute(
@@ -73,4 +83,6 @@ def migrate(conn: sqlite3.Connection) -> None:
                 "UPDATE settings SET active_endpoint_id = ?, active_model_config_id = ? WHERE id = 1",
                 (endpoint_id, model_config_id),
             )
-            print(f"[migrations] 0008: seeded endpoint id={endpoint_id}, model_config id={model_config_id}")
+            print(
+                f"[migrations] 0008: seeded endpoint id={endpoint_id}, model_config id={model_config_id}"
+            )

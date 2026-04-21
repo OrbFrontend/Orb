@@ -1043,7 +1043,9 @@ async def api_send_message(cid: str, data: SendMessage, request: Request):
 
 
 @app.post("/api/conversations/{cid}/continue")
-async def api_continue_from_user(cid: str, request: Request, data: Optional[RegenerateMsg] = None):
+async def api_continue_from_user(
+    cid: str, request: Request, data: Optional[RegenerateMsg] = None
+):
     """Generate an assistant response for the current user turn without creating a new message."""
     conv = await get_conversation(cid)
     if not conv:
@@ -1055,7 +1057,9 @@ async def api_continue_from_user(cid: str, request: Request, data: Optional[Rege
     client_ref: list = []
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_turn(cid, user_content, skip_user_persist=True, client_ref=client_ref),
+            handle_turn(
+                cid, user_content, skip_user_persist=True, client_ref=client_ref
+            ),
             request,
             client_ref=client_ref,
             cid=cid,

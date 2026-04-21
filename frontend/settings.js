@@ -29,7 +29,15 @@ export function initTheme() {
 }
 
 // ── Settings
-const MODEL_HYPERPARAM_KEYS = ["system_prompt", "temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"];
+const MODEL_HYPERPARAM_KEYS = [
+  "system_prompt",
+  "temperature",
+  "max_tokens",
+  "top_p",
+  "min_p",
+  "top_k",
+  "repetition_penalty",
+];
 
 const SETTING_FIELDS = [
   { k: "endpoint_url", l: "Endpoint URL", t: "text" },
@@ -208,28 +216,28 @@ function initComboboxes() {
   _comboboxCleanups.forEach((fn) => fn());
   _comboboxCleanups = [];
   const epRoot = document.querySelector('[data-combobox="endpoint_url"]');
-  if (epRoot) initCombobox(epRoot, () => S.endpoints.map(e => ({ value: e.url, id: e.id, type: 'endpoint' })));
+  if (epRoot) initCombobox(epRoot, () => S.endpoints.map((e) => ({ value: e.url, id: e.id, type: "endpoint" })));
   const mdRoot = document.querySelector('[data-combobox="model_name"]');
-  if (mdRoot) initCombobox(mdRoot, () => S.modelConfigs.map(m => ({ value: m.model_name, id: m.id, type: 'model' })));
+  if (mdRoot) initCombobox(mdRoot, () => S.modelConfigs.map((m) => ({ value: m.model_name, id: m.id, type: "model" })));
 }
 
 // Global delete function for combobox items
-window.deleteComboboxItem = function(btn, type, id) {
-  const typeName = type === 'endpoint' ? 'endpoint' : 'model configuration';
+window.deleteComboboxItem = function (btn, type, id) {
+  const typeName = type === "endpoint" ? "endpoint" : "model configuration";
   showConfirmModal(
     {
       title: `Delete ${typeName}?`,
       message: `Are you sure you want to delete this ${typeName}? This action cannot be undone.`,
       confirmText: "Delete",
-      confirmClass: "btn-danger"
+      confirmClass: "btn-danger",
     },
     async () => {
       try {
         let wasActive = false;
-        if (type === 'endpoint') {
+        if (type === "endpoint") {
           await api.del(`/endpoints/${id}`);
           // Remove from S.endpoints
-          const index = S.endpoints.findIndex(e => e.id === id);
+          const index = S.endpoints.findIndex((e) => e.id === id);
           if (index > -1) S.endpoints.splice(index, 1);
           // If this was the active endpoint, clear active
           if (S.activeEndpointId === id) {
@@ -238,10 +246,10 @@ window.deleteComboboxItem = function(btn, type, id) {
             S.modelConfigs = [];
             wasActive = true;
           }
-        } else if (type === 'model') {
+        } else if (type === "model") {
           await api.del(`/models/${id}`);
           // Remove from S.modelConfigs
-          const index = S.modelConfigs.findIndex(m => m.id === id);
+          const index = S.modelConfigs.findIndex((m) => m.id === id);
           if (index > -1) S.modelConfigs.splice(index, 1);
           // If this was the active model config, clear active
           if (S.activeModelConfigId === id) {
@@ -249,18 +257,18 @@ window.deleteComboboxItem = function(btn, type, id) {
             wasActive = true;
           }
         }
-        
+
         // If the deleted item was active, clear the corresponding combobox input
         if (wasActive) {
-          const inputSelector = type === 'endpoint' ? '[data-key="endpoint_url"]' : '[data-key="model_name"]';
+          const inputSelector = type === "endpoint" ? '[data-key="endpoint_url"]' : '[data-key="model_name"]';
           const input = document.querySelector(inputSelector);
           if (input) {
-            input.value = '';
+            input.value = "";
             // Trigger change event to save empty value
-            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
           }
         }
-        
+
         // Re-render both comboboxes
         initComboboxes();
         // Update datalists
@@ -270,7 +278,7 @@ window.deleteComboboxItem = function(btn, type, id) {
       } catch (e) {
         toast("Failed to delete: " + e.message, true);
       }
-    }
+    },
   );
 };
 
@@ -296,27 +304,28 @@ function initCombobox(rootEl, getItems) {
       list.innerHTML = '<div class="cb-empty">No saved options</div>';
     } else {
       list.innerHTML = items
-        .map(
-          (item, i) => {
-            const value = item.value;
-            const id = item.id;
-            const type = item.type;
-            return `
+        .map((item, i) => {
+          const value = item.value;
+          const id = item.id;
+          const type = item.type;
+          return `
               <div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${esc(value)}" data-id="${id}" data-type="${type}">
                 <span class="cb-option-text">${highlightMatch(value, q)}</span>
                 <button class="cb-delete-btn" title="Delete" onclick="event.stopPropagation(); deleteComboboxItem(this, '${type}', ${id})">×</button>
               </div>`;
-          }
-        )
+        })
         .join("");
     }
     list.querySelectorAll(".cb-option").forEach((el, i) => {
       el.onmousedown = (e) => {
-        if (e.target.classList.contains('cb-delete-btn')) return;
+        if (e.target.classList.contains("cb-delete-btn")) return;
         e.preventDefault();
         selectVal(el.dataset.value);
       };
-      el.onmouseenter = () => { activeIdx = i; render(); };
+      el.onmouseenter = () => {
+        activeIdx = i;
+        render();
+      };
     });
   }
 
@@ -345,7 +354,10 @@ function initCombobox(rootEl, getItems) {
 
   input.addEventListener("keydown", (e) => {
     // Only handle Escape to close dropdown - mouse-only navigation
-    if (e.key === "Escape") { closeDropdown(); return; }
+    if (e.key === "Escape") {
+      closeDropdown();
+      return;
+    }
     // Allow typing, tab navigation, etc. but no arrow key or Enter navigation
   });
   control.addEventListener("mousedown", (e) => {
@@ -353,11 +365,14 @@ function initCombobox(rootEl, getItems) {
     if (!e.target.closest(".cb-arrow")) return;
     e.preventDefault();
     // Toggle dropdown
-    if (isOpen) closeDropdown(); else openDropdown();
+    if (isOpen) closeDropdown();
+    else openDropdown();
     // Focus input
     input.focus();
   });
-  const onDocDown = (e) => { if (!rootEl.contains(e.target)) closeDropdown(); };
+  const onDocDown = (e) => {
+    if (!rootEl.contains(e.target)) closeDropdown();
+  };
   document.addEventListener("mousedown", onDocDown);
   _comboboxCleanups.push(() => document.removeEventListener("mousedown", onDocDown));
 }
@@ -491,8 +506,7 @@ export async function onHybridInput(el) {
     // Auto-select: prefer the stored active model config, fall back to first
     const modelEl = document.querySelector('[data-key="model_name"]');
     if (!modelEl || !S.modelConfigs.length) return;
-    const activeModel =
-      S.modelConfigs.find((m) => m.id === S.activeModelConfigId) || S.modelConfigs[0];
+    const activeModel = S.modelConfigs.find((m) => m.id === S.activeModelConfigId) || S.modelConfigs[0];
     modelEl.value = activeModel.model_name;
     fillModelConfigFields(activeModel);
     // Persist the chosen model config
@@ -1029,7 +1043,7 @@ export async function showResetConfirmModal() {
 // Expose to global scope for inline onclick handlers
 window.showResetConfirmModal = showResetConfirmModal;
 
-window.toggleApiKeyVisibility = function(btn) {
+window.toggleApiKeyVisibility = function (btn) {
   const input = btn.closest(".api-key-wrap").querySelector(".api-key-input");
   const visible = btn.dataset.visible === "1";
   if (!visible) {

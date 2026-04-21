@@ -216,9 +216,7 @@ EDITOR_REWRITE_INSTRUCTIONS = (
 # Sent when both audit issues AND length guard are triggered.
 # The model already receives the full audit report and length-guard
 # instruction with concrete word/paragraph limits.
-EDITOR_BOTH_INSTRUCTIONS = (
-    "Call `editor_rewrite` to address both concerns in a single rewrite. Address all audit issues while also respecting length constraints."
-)
+EDITOR_BOTH_INSTRUCTIONS = "Call `editor_rewrite` to address both concerns in a single rewrite. Address all audit issues while also respecting length constraints."
 
 LENGTH_GUARD_INSTRUCTIONS = (
     "LENGTH GUARD: The draft is {word_count} words — too long. "
