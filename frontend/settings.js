@@ -503,8 +503,22 @@ export async function onHybridInput(el) {
       console.error("Failed to save active model config:", e);
     }
   } else if (key === "model_name") {
+    if (S.activeEndpointId) {
+      try {
+        await loadModelConfigs(S.activeEndpointId);
+      } catch (e) {
+        console.error("Failed to refresh model configs:", e);
+      }
+    }
     const match = S.modelConfigs.find((m) => m.model_name === el.value);
-    if (match) fillModelConfigFields(match);
+    if (!match) return;
+    fillModelConfigFields(match);
+    S.activeModelConfigId = match.id;
+    try {
+      await api.put("/settings", { active_model_config_id: match.id });
+    } catch (e) {
+      console.error("Failed to save active model config:", e);
+    }
   }
 }
 
