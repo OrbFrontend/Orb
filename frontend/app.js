@@ -5,6 +5,7 @@ import {
   initTheme,
   loadSettings,
   saveSetting,
+  onHybridInput,
   showUserModal,
   saveUserProfile,
   applyTheme,
@@ -211,6 +212,7 @@ Object.assign(window, {
   applyTheme,
   // settings / user
   saveSetting,
+  onHybridInput,
   showUserModal,
   saveUserProfile,
   showPersonaEditModal,

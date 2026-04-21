@@ -13,7 +13,6 @@
   + System prompt, hyperparams go with the model name
   + Tree struct
 - Feature: Condense history and make a new conversation from there.
-- Feature: User-defined fields for the director to consider (e.g. physicality).
 - Feature: Implement min_words for length_guard in editor pass.
 
 -- Not yet --

@@ -18,6 +18,14 @@ from .database import (
     init_db,
     get_settings,
     update_settings,
+    get_endpoints,
+    create_endpoint,
+    update_endpoint,
+    delete_endpoint,
+    get_model_configs,
+    create_model_config,
+    update_model_config,
+    delete_model_config,
     get_mood_fragments,
     get_mood_fragment,
     create_mood_fragment,
@@ -121,6 +129,44 @@ class SettingsUpdate(BaseModel):
     active_persona_id: Optional[int] = None
     character_library_view: Optional[str] = None
     character_library_sort: Optional[str] = None
+    active_endpoint_id: Optional[int] = None
+    active_model_config_id: Optional[int] = None
+
+
+class EndpointCreate(BaseModel):
+    url: str
+    api_key: str = ""
+
+
+class EndpointUpdate(BaseModel):
+    url: Optional[str] = None
+    api_key: Optional[str] = None
+
+
+class ModelConfigCreate(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    model_name: str
+    system_prompt: str = ""
+    temperature: float = 0.8
+    min_p: float = 0.0
+    top_k: int = 40
+    top_p: float = 0.95
+    repetition_penalty: float = 1.0
+    max_tokens: int = 4096
+
+
+class ModelConfigUpdate(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    model_name: Optional[str] = None
+    system_prompt: Optional[str] = None
+    temperature: Optional[float] = None
+    min_p: Optional[float] = None
+    top_k: Optional[int] = None
+    top_p: Optional[float] = None
+    repetition_penalty: Optional[float] = None
+    max_tokens: Optional[int] = None
 
 
 class MoodFragmentCreate(BaseModel):
@@ -311,6 +357,59 @@ async def api_get_settings():
 @app.put("/api/settings")
 async def api_update_settings(data: SettingsUpdate):
     return await update_settings(data.model_dump(exclude_unset=True))
+
+
+# Endpoints ──
+
+
+@app.get("/api/endpoints")
+async def api_get_endpoints():
+    return await get_endpoints()
+
+
+@app.post("/api/endpoints")
+async def api_create_endpoint(data: EndpointCreate):
+    return await create_endpoint(data.url, data.api_key)
+
+
+@app.put("/api/endpoints/{endpoint_id}")
+async def api_update_endpoint(endpoint_id: int, data: EndpointUpdate):
+    result = await update_endpoint(endpoint_id, data.model_dump(exclude_unset=True))
+    if not result:
+        raise HTTPException(404, "Endpoint not found")
+    return result
+
+
+@app.delete("/api/endpoints/{endpoint_id}")
+async def api_delete_endpoint(endpoint_id: int):
+    if not await delete_endpoint(endpoint_id):
+        raise HTTPException(404, "Endpoint not found")
+    return {"ok": True}
+
+
+@app.get("/api/endpoints/{endpoint_id}/models")
+async def api_get_model_configs(endpoint_id: int):
+    return await get_model_configs(endpoint_id)
+
+
+@app.post("/api/endpoints/{endpoint_id}/models")
+async def api_create_model_config(endpoint_id: int, data: ModelConfigCreate):
+    return await create_model_config(endpoint_id, data.model_dump())
+
+
+@app.put("/api/models/{config_id}")
+async def api_update_model_config(config_id: int, data: ModelConfigUpdate):
+    result = await update_model_config(config_id, data.model_dump(exclude_unset=True))
+    if not result:
+        raise HTTPException(404, "Model config not found")
+    return result
+
+
+@app.delete("/api/models/{config_id}")
+async def api_delete_model_config(config_id: int):
+    if not await delete_model_config(config_id):
+        raise HTTPException(404, "Model config not found")
+    return {"ok": True}
 
 
 # Mood Fragments ──

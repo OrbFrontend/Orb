@@ -451,6 +451,25 @@ async def init_db():
                 size INTEGER,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS endpoints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                api_key TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS model_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                endpoint_id INTEGER NOT NULL REFERENCES endpoints(id) ON DELETE CASCADE,
+                model_name TEXT NOT NULL,
+                system_prompt TEXT NOT NULL DEFAULT '',
+                temperature REAL NOT NULL DEFAULT 0.8,
+                min_p REAL NOT NULL DEFAULT 0.0,
+                top_k INTEGER NOT NULL DEFAULT 40,
+                top_p REAL NOT NULL DEFAULT 0.95,
+                repetition_penalty REAL NOT NULL DEFAULT 1.0,
+                max_tokens INTEGER NOT NULL DEFAULT 4096
+            );
         """
         )
 
@@ -486,6 +505,14 @@ async def init_db():
         if "character_library_sort" not in existing_cols:
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN character_library_sort TEXT NOT NULL DEFAULT 'time-added'"
+            )
+        if "active_endpoint_id" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN active_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL"
+            )
+        if "active_model_config_id" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL"
             )
 
         # Migration for director_state keywords column
@@ -531,6 +558,37 @@ async def init_db():
                     json.dumps(DEFAULT_ENABLED_TOOLS),
                 ),
             )
+
+        # Seed endpoints from existing settings if endpoints table is empty
+        ep_row = await db.execute_fetchall("SELECT COUNT(*) as c FROM endpoints")
+        if ep_row[0]["c"] == 0:
+            s_rows = await db.execute_fetchall("SELECT * FROM settings WHERE id = 1")
+            if s_rows:
+                s = dict(s_rows[0])
+                cur = await db.execute(
+                    "INSERT INTO endpoints (url, api_key) VALUES (?, ?)",
+                    (s.get("endpoint_url", "http://localhost:5000/v1"), s.get("api_key", "")),
+                )
+                endpoint_id = cur.lastrowid
+                cur2 = await db.execute(
+                    "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        endpoint_id,
+                        s.get("model_name", "default"),
+                        s.get("system_prompt", ""),
+                        s.get("temperature", 0.8),
+                        s.get("min_p", 0.0),
+                        s.get("top_k", 40),
+                        s.get("top_p", 0.95),
+                        s.get("repetition_penalty", 1.0),
+                        s.get("max_tokens", 4096),
+                    ),
+                )
+                model_config_id = cur2.lastrowid
+                await db.execute(
+                    "UPDATE settings SET active_endpoint_id = ?, active_model_config_id = ? WHERE id = 1",
+                    (endpoint_id, model_config_id),
+                )
 
         # Seed mood fragments if empty
         row = await db.execute_fetchall("SELECT COUNT(*) as c FROM mood_fragments")
@@ -625,6 +683,8 @@ async def update_settings(data: dict) -> dict:
             "active_persona_id",
             "character_library_view",
             "character_library_sort",
+            "active_endpoint_id",
+            "active_model_config_id",
         ]
         json_fields = {"enabled_tools", "reasoning_enabled_passes"}
         sets = []
@@ -641,6 +701,131 @@ async def update_settings(data: dict) -> dict:
             )
             await db.commit()
         return await get_settings()
+    finally:
+        await db.close()
+
+
+# --- Endpoints ---
+
+
+async def get_endpoints() -> list[dict]:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall("SELECT * FROM endpoints ORDER BY id ASC")
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def create_endpoint(url: str, api_key: str = "") -> dict:
+    db = await get_db()
+    try:
+        cur = await db.execute("INSERT INTO endpoints (url, api_key) VALUES (?, ?)", (url, api_key))
+        await db.commit()
+        rows = await db.execute_fetchall("SELECT * FROM endpoints WHERE id = ?", (cur.lastrowid,))
+        return dict(rows[0])
+    finally:
+        await db.close()
+
+
+async def update_endpoint(endpoint_id: int, data: dict) -> dict | None:
+    db = await get_db()
+    try:
+        allowed = ["url", "api_key"]
+        sets, vals = [], []
+        for k in allowed:
+            if k in data:
+                sets.append(f"{k} = ?")
+                vals.append(data[k])
+        if sets:
+            vals.append(endpoint_id)
+            await db.execute(
+                f"UPDATE endpoints SET {', '.join(sets)} WHERE id = ?",  # nosec B608
+                vals,
+            )
+            await db.commit()
+        rows = await db.execute_fetchall("SELECT * FROM endpoints WHERE id = ?", (endpoint_id,))
+        return dict(rows[0]) if rows else None
+    finally:
+        await db.close()
+
+
+async def delete_endpoint(endpoint_id: int) -> bool:
+    db = await get_db()
+    try:
+        cur = await db.execute("DELETE FROM endpoints WHERE id = ?", (endpoint_id,))
+        await db.commit()
+        return cur.rowcount > 0
+    finally:
+        await db.close()
+
+
+# --- Model Configs ---
+
+
+async def get_model_configs(endpoint_id: int) -> list[dict]:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM model_configs WHERE endpoint_id = ? ORDER BY id ASC", (endpoint_id,)
+        )
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def create_model_config(endpoint_id: int, data: dict) -> dict:
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                endpoint_id,
+                data.get("model_name", "default"),
+                data.get("system_prompt", ""),
+                data.get("temperature", 0.8),
+                data.get("min_p", 0.0),
+                data.get("top_k", 40),
+                data.get("top_p", 0.95),
+                data.get("repetition_penalty", 1.0),
+                data.get("max_tokens", 4096),
+            ),
+        )
+        await db.commit()
+        rows = await db.execute_fetchall("SELECT * FROM model_configs WHERE id = ?", (cur.lastrowid,))
+        return dict(rows[0])
+    finally:
+        await db.close()
+
+
+async def update_model_config(config_id: int, data: dict) -> dict | None:
+    db = await get_db()
+    try:
+        allowed = ["model_name", "system_prompt", "temperature", "min_p", "top_k", "top_p", "repetition_penalty", "max_tokens"]
+        sets, vals = [], []
+        for k in allowed:
+            if k in data:
+                sets.append(f"{k} = ?")
+                vals.append(data[k])
+        if sets:
+            vals.append(config_id)
+            await db.execute(
+                f"UPDATE model_configs SET {', '.join(sets)} WHERE id = ?",  # nosec B608
+                vals,
+            )
+            await db.commit()
+        rows = await db.execute_fetchall("SELECT * FROM model_configs WHERE id = ?", (config_id,))
+        return dict(rows[0]) if rows else None
+    finally:
+        await db.close()
+
+
+async def delete_model_config(config_id: int) -> bool:
+    db = await get_db()
+    try:
+        cur = await db.execute("DELETE FROM model_configs WHERE id = ?", (config_id,))
+        await db.commit()
+        return cur.rowcount > 0
     finally:
         await db.close()
 
@@ -1829,6 +2014,8 @@ async def reset_to_defaults() -> None:
         await db.execute("DELETE FROM mood_fragments")
         await db.execute("DELETE FROM director_fragments")
         await db.execute("DELETE FROM phrase_bank")
+        await db.execute("DELETE FROM model_configs")
+        await db.execute("DELETE FROM endpoints")
 
         # Re-seed settings
         s = DEFAULT_SETTINGS
@@ -1846,6 +2033,22 @@ async def reset_to_defaults() -> None:
                 s["system_prompt"],
                 json.dumps(DEFAULT_ENABLED_TOOLS),
             ),
+        )
+
+        # Re-seed endpoint from default settings
+        cur_ep = await db.execute(
+            "INSERT INTO endpoints (url, api_key) VALUES (?, ?)",
+            (s["endpoint_url"], ""),
+        )
+        endpoint_id = cur_ep.lastrowid
+        cur_mc = await db.execute(
+            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (endpoint_id, s["model_name"], s["system_prompt"], s["temperature"], s["min_p"], s["top_k"], s["top_p"], s["repetition_penalty"], s["max_tokens"]),
+        )
+        model_config_id = cur_mc.lastrowid
+        await db.execute(
+            "UPDATE settings SET active_endpoint_id = ?, active_model_config_id = ? WHERE id = 1",
+            (endpoint_id, model_config_id),
         )
 
         # Re-seed mood fragments

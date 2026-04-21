@@ -29,6 +29,8 @@ export function initTheme() {
 }
 
 // ── Settings
+const MODEL_HYPERPARAM_KEYS = ["system_prompt", "temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"];
+
 const SETTING_FIELDS = [
   { k: "endpoint_url", l: "Endpoint URL", t: "text" },
   { k: "api_key", l: "API Key", t: "password" },
@@ -79,6 +81,8 @@ export async function loadSettings() {
   }
 
   renderSettings();
+  await loadEndpoints();
+  initComboboxes(); // Re-initialize comboboxes with loaded endpoints
   renderToolsPanel();
   await loadPersonas();
   updateUserBtn();
@@ -101,32 +105,338 @@ export function renderSettings() {
                 <textarea data-key="${f.k}" onchange="saveSetting(this)">${v}</textarea>
               </div>`;
     }
+    if (f.k === "endpoint_url" || f.k === "model_name") {
+      const ph = f.k === "endpoint_url" ? "URL or select saved…" : "Model or select saved…";
+      return `<div class="field"><label>${f.l}</label>
+        <div class="cb-root" data-combobox="${f.k}">
+          <div class="cb-control">
+            <input type="text" class="cb-input" value="${v}" data-key="${f.k}" placeholder="${ph}" onchange="saveSetting(this)">
+            <span class="cb-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"/></svg></span>
+          </div>
+          <div class="cb-dropdown" hidden><div class="cb-list"></div></div>
+        </div>
+      </div>`;
+    }
     const attrs = f.s ? `step="${f.s}" min="${f.mn}" max="${f.mx}"` : "";
     return `<div class="field"><label>${f.l}</label>
               <input type="${f.t}" value="${v}" data-key="${f.k}" ${attrs} onchange="saveSetting(this)">
             </div>`;
   }).join("");
-  // Append reset button after the fields
   $("settings-form").innerHTML += `
     <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
       <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">Reset to Defaults</button>
     </div>
   `;
+  initComboboxes();
 }
 
 export async function saveSetting(el) {
   let v = el.value;
   if (el.type === "number") v = parseFloat(v);
-  const validation = validate.validateSetting(el.dataset.key, v);
+  const key = el.dataset.key;
+  const validation = validate.validateSetting(key, v);
   if (!validation.valid) {
     toast(validation.error, true);
     return;
   }
+
+  // Build payload — include cascaded fields for endpoint_url and model_name
+  const payload = { [key]: v };
+  if (key === "endpoint_url") {
+    const apiKeyEl = document.querySelector('[data-key="api_key"]');
+    if (apiKeyEl) payload.api_key = apiKeyEl.value;
+  } else if (key === "model_name") {
+    MODEL_HYPERPARAM_KEYS.forEach((k) => {
+      const fieldEl = document.querySelector(`[data-key="${k}"]`);
+      if (fieldEl) payload[k] = fieldEl.type === "number" ? parseFloat(fieldEl.value) : fieldEl.value;
+    });
+  }
+
   try {
-    S.settings = await api.put("/settings", { [el.dataset.key]: v });
+    S.settings = await api.put("/settings", payload);
     toast("Settings saved");
   } catch (e) {
     toast("Failed: " + e.message, true);
+    return;
+  }
+
+  // Secondary: sync endpoint/model_config records
+  try {
+    if (key === "endpoint_url") {
+      await syncEndpointRecord(v, payload.api_key || "");
+    } else if (key === "api_key" && S.activeEndpointId) {
+      await api.put(`/endpoints/${S.activeEndpointId}`, { api_key: v });
+    } else if (key === "model_name") {
+      await syncModelConfigRecord(v, payload);
+    } else if (MODEL_HYPERPARAM_KEYS.includes(key) && S.activeModelConfigId) {
+      await api.put(`/models/${S.activeModelConfigId}`, { [key]: v });
+    }
+  } catch (e) {
+    console.error("Endpoint/model sync error:", e);
+  }
+}
+
+// ── Combobox engine
+
+let _comboboxCleanups = [];
+
+function highlightMatch(text, query) {
+  if (!query) return esc(text);
+  const lText = text.toLowerCase();
+  const lQuery = query.toLowerCase();
+  const idx = lText.indexOf(lQuery);
+  if (idx === -1) return esc(text);
+  return (
+    esc(text.slice(0, idx)) +
+    `<mark class="cb-hl">${esc(text.slice(idx, idx + query.length))}</mark>` +
+    esc(text.slice(idx + query.length))
+  );
+}
+
+function initComboboxes() {
+  _comboboxCleanups.forEach((fn) => fn());
+  _comboboxCleanups = [];
+  const epRoot = document.querySelector('[data-combobox="endpoint_url"]');
+  if (epRoot) initCombobox(epRoot, () => S.endpoints.map((e) => e.url));
+  const mdRoot = document.querySelector('[data-combobox="model_name"]');
+  if (mdRoot) initCombobox(mdRoot, () => S.modelConfigs.map((m) => m.model_name));
+}
+
+function initCombobox(rootEl, getOptions) {
+  const input = rootEl.querySelector(".cb-input");
+  const control = rootEl.querySelector(".cb-control");
+  const dropdown = rootEl.querySelector(".cb-dropdown");
+  const list = rootEl.querySelector(".cb-list");
+  let activeIdx = -1;
+  let isOpen = false;
+
+  function getFiltered() {
+    // Always return all options, no filtering (for creating new records)
+    return getOptions();
+  }
+
+  function needsCreate() {
+    const q = input.value.trim();
+    if (!q) return false;
+    // Don't show Create option if input exactly matches an existing option
+    return !getOptions().some((o) => o.toLowerCase() === q.toLowerCase());
+  }
+
+  function render() {
+    const filtered = getFiltered();
+    const create = needsCreate();
+    const total = filtered.length + (create ? 1 : 0);
+    activeIdx = Math.max(-1, Math.min(activeIdx, total - 1));
+    const q = input.value.trim();
+    if (!total) {
+      list.innerHTML = '<div class="cb-empty">No saved options</div>';
+    } else {
+      list.innerHTML =
+        filtered
+          .map(
+            (opt, i) =>
+              `<div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${esc(opt)}">${highlightMatch(opt, q)}</div>`,
+          )
+          .join("") +
+        (create
+          ? `<div class="cb-create-row${activeIdx === filtered.length ? " active" : ""}" data-create>
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5.5" y1="1" x2="5.5" y2="10"/><line x1="1" y1="5.5" x2="10" y2="5.5"/></svg>
+              Create <strong style="margin-left:2px">"${esc(q)}"</strong>
+            </div>`
+          : "");
+    }
+    list.querySelectorAll(".cb-option").forEach((el, i) => {
+      el.onmousedown = (e) => { e.preventDefault(); selectVal(el.dataset.value); };
+      el.onmouseenter = () => { activeIdx = i; render(); };
+    });
+    const createEl = list.querySelector("[data-create]");
+    if (createEl) {
+      createEl.onmousedown = (e) => { e.preventDefault(); selectCreate(); };
+      createEl.onmouseenter = () => { activeIdx = filtered.length; render(); };
+    }
+  }
+
+  function openDropdown() {
+    if (isOpen) return;
+    isOpen = true;
+    activeIdx = -1;
+    control.classList.add("open");
+    dropdown.hidden = false;
+    render(); // Show all options + Create option
+  }
+
+  function closeDropdown() {
+    if (!isOpen) return;
+    isOpen = false;
+    control.classList.remove("open");
+    dropdown.hidden = true;
+  }
+
+  function selectVal(val) {
+    input.value = val;
+    closeDropdown();
+    onHybridInput(input);
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function selectCreate() {
+    closeDropdown();
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  input.addEventListener("focus", openDropdown);
+  input.addEventListener("input", () => { if (!isOpen) openDropdown(); else render(); });
+  input.addEventListener("keydown", (e) => {
+    const filtered = getFiltered();
+    const create = needsCreate();
+    const total = filtered.length + (create ? 1 : 0);
+    if (!isOpen && (e.key === "ArrowDown" || e.key === "Enter")) { openDropdown(); return; }
+    if (e.key === "Escape") { closeDropdown(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); activeIdx = Math.min(activeIdx + 1, total - 1); render(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, -1); render(); }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (activeIdx >= 0 && activeIdx < filtered.length) selectVal(filtered[activeIdx]);
+      else if (create) selectCreate();
+    }
+  });
+  control.addEventListener("mousedown", (e) => {
+    if (e.target === input) return;
+    e.preventDefault();
+    input.focus();
+    if (isOpen) closeDropdown(); else openDropdown();
+  });
+  const onDocDown = (e) => { if (!rootEl.contains(e.target)) closeDropdown(); };
+  document.addEventListener("mousedown", onDocDown);
+  _comboboxCleanups.push(() => document.removeEventListener("mousedown", onDocDown));
+}
+
+// ── Endpoint / Model Config helpers
+
+export async function loadEndpoints() {
+  try {
+    S.endpoints = await api.get("/endpoints");
+    S.activeEndpointId = S.settings.active_endpoint_id || null;
+    S.activeModelConfigId = S.settings.active_model_config_id || null;
+    populateEndpointDatalist();
+    if (S.activeEndpointId) {
+      await loadModelConfigs(S.activeEndpointId);
+    }
+  } catch (e) {
+    console.error("Failed to load endpoints:", e);
+    S.endpoints = [];
+  }
+}
+
+export async function loadModelConfigs(endpointId) {
+  if (!endpointId) {
+    S.modelConfigs = [];
+    populateModelDatalist();
+    return;
+  }
+  try {
+    S.modelConfigs = await api.get(`/endpoints/${endpointId}/models`);
+    populateModelDatalist();
+  } catch (e) {
+    S.modelConfigs = [];
+  }
+}
+
+function populateEndpointDatalist() {
+  const dl = document.getElementById("endpoint-datalist");
+  if (!dl) return;
+  dl.innerHTML = S.endpoints.map((e) => `<option value="${esc(e.url)}"></option>`).join("");
+}
+
+function populateModelDatalist() {
+  const dl = document.getElementById("model-datalist");
+  if (!dl) return;
+  dl.innerHTML = S.modelConfigs.map((m) => `<option value="${esc(m.model_name)}"></option>`).join("");
+}
+
+function fillModelConfigFields(config) {
+  MODEL_HYPERPARAM_KEYS.forEach((k) => {
+    const el = document.querySelector(`[data-key="${k}"]`);
+    if (el && config[k] !== undefined) el.value = config[k];
+  });
+}
+
+async function syncEndpointRecord(url, apiKey) {
+  const existing = S.endpoints.find((e) => e.url === url);
+  if (existing) {
+    S.activeEndpointId = existing.id;
+    if (existing.api_key !== apiKey) {
+      await api.put(`/endpoints/${existing.id}`, { api_key: apiKey });
+      existing.api_key = apiKey;
+    }
+    await api.put("/settings", { active_endpoint_id: existing.id });
+    if (!S.modelConfigs.length || S.modelConfigs[0]?.endpoint_id !== existing.id) {
+      await loadModelConfigs(existing.id);
+    }
+  } else if (url) {
+    const ep = await api.post("/endpoints", { url, api_key: apiKey });
+    S.endpoints.push(ep);
+    S.activeEndpointId = ep.id;
+    S.activeModelConfigId = null;
+    await api.put("/settings", { active_endpoint_id: ep.id, active_model_config_id: null });
+    populateEndpointDatalist();
+    await loadModelConfigs(ep.id);
+  }
+}
+
+async function syncModelConfigRecord(modelName, hyperparams) {
+  if (!S.activeEndpointId || !modelName) return;
+  const existing = S.modelConfigs.find((m) => m.model_name === modelName);
+  if (existing) {
+    S.activeModelConfigId = existing.id;
+    const update = {};
+    MODEL_HYPERPARAM_KEYS.forEach((k) => {
+      if (hyperparams[k] !== undefined) update[k] = hyperparams[k];
+    });
+    if (Object.keys(update).length) {
+      await api.put(`/models/${existing.id}`, update);
+      Object.assign(existing, update);
+    }
+    await api.put("/settings", { active_model_config_id: existing.id });
+  } else {
+    const mc = await api.post(`/endpoints/${S.activeEndpointId}/models`, {
+      model_name: modelName,
+      system_prompt: hyperparams.system_prompt || "",
+      temperature: hyperparams.temperature || 0.8,
+      min_p: hyperparams.min_p || 0,
+      top_k: hyperparams.top_k || 40,
+      top_p: hyperparams.top_p || 0.95,
+      repetition_penalty: hyperparams.repetition_penalty || 1.0,
+      max_tokens: hyperparams.max_tokens || 4096,
+    });
+    S.modelConfigs.push(mc);
+    S.activeModelConfigId = mc.id;
+    await api.put("/settings", { active_model_config_id: mc.id });
+    populateModelDatalist();
+  }
+}
+
+export function onHybridInput(el) {
+  const key = el.dataset.key;
+  if (key === "endpoint_url") {
+    const match = S.endpoints.find((e) => e.url === el.value);
+    if (!match) return;
+    const apiKeyEl = document.querySelector('[data-key="api_key"]');
+    if (apiKeyEl) apiKeyEl.value = match.api_key;
+    loadModelConfigs(match.id).then(() => {
+      const modelEl = document.querySelector('[data-key="model_name"]');
+      if (!modelEl) return;
+      const matchModel = S.modelConfigs.find((m) => m.model_name === modelEl.value);
+      if (matchModel) {
+        fillModelConfigFields(matchModel);
+      } else if (S.modelConfigs.length > 0) {
+        modelEl.value = S.modelConfigs[0].model_name;
+        fillModelConfigFields(S.modelConfigs[0]);
+      }
+    });
+  } else if (key === "model_name") {
+    const match = S.modelConfigs.find((m) => m.model_name === el.value);
+    if (match) fillModelConfigFields(match);
   }
 }
 
