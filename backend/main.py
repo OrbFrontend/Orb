@@ -394,7 +394,12 @@ async def api_get_model_configs(endpoint_id: int):
 
 @app.post("/api/endpoints/{endpoint_id}/models")
 async def api_create_model_config(endpoint_id: int, data: ModelConfigCreate):
-    return await create_model_config(endpoint_id, data.model_dump())
+    try:
+        return await create_model_config(endpoint_id, data.model_dump())
+    except Exception as e:
+        if "FOREIGN KEY constraint failed" in str(e):
+            raise HTTPException(404, "Endpoint not found")
+        raise
 
 
 @app.put("/api/models/{config_id}")

@@ -711,7 +711,7 @@ async def update_settings(data: dict) -> dict:
 async def get_endpoints() -> list[dict]:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall("SELECT * FROM endpoints ORDER BY id ASC")
+        rows = await db.execute_fetchall("SELECT id, url FROM endpoints ORDER BY id ASC")
         return [dict(r) for r in rows]
     finally:
         await db.close()
@@ -722,7 +722,7 @@ async def create_endpoint(url: str, api_key: str = "") -> dict:
     try:
         cur = await db.execute("INSERT INTO endpoints (url, api_key) VALUES (?, ?)", (url, api_key))
         await db.commit()
-        rows = await db.execute_fetchall("SELECT * FROM endpoints WHERE id = ?", (cur.lastrowid,))
+        rows = await db.execute_fetchall("SELECT id, url FROM endpoints WHERE id = ?", (cur.lastrowid,))
         return dict(rows[0])
     finally:
         await db.close()
@@ -744,7 +744,7 @@ async def update_endpoint(endpoint_id: int, data: dict) -> dict | None:
                 vals,
             )
             await db.commit()
-        rows = await db.execute_fetchall("SELECT * FROM endpoints WHERE id = ?", (endpoint_id,))
+        rows = await db.execute_fetchall("SELECT id, url FROM endpoints WHERE id = ?", (endpoint_id,))
         return dict(rows[0]) if rows else None
     finally:
         await db.close()
