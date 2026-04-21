@@ -209,7 +209,6 @@ function initCombobox(rootEl, getOptions) {
   const list = rootEl.querySelector(".cb-list");
   let activeIdx = -1;
   let isOpen = false;
-  let ignoreNextFocus = false;
 
   function getFiltered() {
     // Always return all options, no filtering (for creating new records)
@@ -217,44 +216,29 @@ function initCombobox(rootEl, getOptions) {
   }
 
   function needsCreate() {
-    const q = input.value.trim();
-    if (!q) return false;
-    // Don't show Create option if input exactly matches an existing option
-    return !getOptions().some((o) => o.toLowerCase() === q.toLowerCase());
+    // Create button removed - clicking outside/create on blur handles record creation
+    return false;
   }
 
   function render() {
     const filtered = getFiltered();
-    const create = needsCreate();
-    const total = filtered.length + (create ? 1 : 0);
+    const total = filtered.length;
     activeIdx = Math.max(-1, Math.min(activeIdx, total - 1));
     const q = input.value.trim();
     if (!total) {
       list.innerHTML = '<div class="cb-empty">No saved options</div>';
     } else {
-      list.innerHTML =
-        filtered
-          .map(
-            (opt, i) =>
-              `<div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${esc(opt)}">${highlightMatch(opt, q)}</div>`,
-          )
-          .join("") +
-        (create
-          ? `<div class="cb-create-row${activeIdx === filtered.length ? " active" : ""}" data-create>
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5.5" y1="1" x2="5.5" y2="10"/><line x1="1" y1="5.5" x2="10" y2="5.5"/></svg>
-              Create <strong style="margin-left:2px">"${esc(q)}"</strong>
-            </div>`
-          : "");
+      list.innerHTML = filtered
+        .map(
+          (opt, i) =>
+            `<div class="cb-option${i === activeIdx ? " active" : ""}" data-value="${esc(opt)}">${highlightMatch(opt, q)}</div>`,
+        )
+        .join("");
     }
     list.querySelectorAll(".cb-option").forEach((el, i) => {
       el.onmousedown = (e) => { e.preventDefault(); selectVal(el.dataset.value); };
       el.onmouseenter = () => { activeIdx = i; render(); };
     });
-    const createEl = list.querySelector("[data-create]");
-    if (createEl) {
-      createEl.onmousedown = (e) => { e.preventDefault(); selectCreate(); };
-      createEl.onmouseenter = () => { activeIdx = filtered.length; render(); };
-    }
   }
 
   function openDropdown() {
@@ -263,7 +247,7 @@ function initCombobox(rootEl, getOptions) {
     activeIdx = -1;
     control.classList.add("open");
     dropdown.hidden = false;
-    render(); // Show all options + Create option
+    render(); // Show all options
   }
 
   function closeDropdown() {
@@ -280,39 +264,19 @@ function initCombobox(rootEl, getOptions) {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function selectCreate() {
-    closeDropdown();
-    input.dispatchEvent(new Event("change", { bubbles: true }));
-  }
-
-  input.addEventListener("focus", () => {
-    if (!ignoreNextFocus) openDropdown();
-    ignoreNextFocus = false;
-  });
   input.addEventListener("input", () => { if (!isOpen) openDropdown(); else render(); });
   input.addEventListener("keydown", (e) => {
-    const filtered = getFiltered();
-    const create = needsCreate();
-    const total = filtered.length + (create ? 1 : 0);
-    if (!isOpen && (e.key === "ArrowDown" || e.key === "Enter")) { openDropdown(); return; }
+    // Only handle Escape to close dropdown - mouse-only navigation
     if (e.key === "Escape") { closeDropdown(); return; }
-    if (e.key === "ArrowDown") { e.preventDefault(); activeIdx = Math.min(activeIdx + 1, total - 1); render(); }
-    if (e.key === "ArrowUp") { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, -1); render(); }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (activeIdx >= 0 && activeIdx < filtered.length) selectVal(filtered[activeIdx]);
-      else if (create) selectCreate();
-    }
+    // Allow typing, tab navigation, etc. but no arrow key or Enter navigation
   });
   control.addEventListener("mousedown", (e) => {
     if (e.target === input) return;
     e.preventDefault();
-    // Set flag to ignore the focus event that will be triggered by input.focus()
-    ignoreNextFocus = true;
     // Toggle dropdown
     if (isOpen) closeDropdown(); else openDropdown();
-    // Focus input after a tiny delay to ensure ignoreNextFocus is respected
-    setTimeout(() => input.focus(), 0);
+    // Focus input
+    input.focus();
   });
   const onDocDown = (e) => { if (!rootEl.contains(e.target)) closeDropdown(); };
   document.addEventListener("mousedown", onDocDown);
