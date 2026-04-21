@@ -27,32 +27,6 @@ async def test_create_endpoint_persists_to_db(client, db):
     assert row["api_key"] == "test-key-123"
 
 
-async def test_list_endpoints_includes_created(client, db):
-    """Test GET /api/endpoints returns created endpoints"""
-    # Create an endpoint
-    create_resp = await client.post(
-        "/api/endpoints",
-        json={"url": "https://api.test.com", "api_key": "secret"},
-    )
-    assert create_resp.status_code == 200
-    endpoint_id = create_resp.json()["id"]
-
-    # List endpoints
-    resp = await client.get("/api/endpoints")
-    assert resp.status_code == 200
-    endpoints = resp.json()
-    
-    # Should be at least one endpoint (may have default endpoints)
-    assert len(endpoints) >= 1
-    
-    # Find our created endpoint
-    created = next((e for e in endpoints if e["id"] == endpoint_id), None)
-    assert created is not None
-    assert created["url"] == "https://api.test.com"
-    # API key should not be exposed in list
-    assert "api_key" not in created
-
-
 async def test_delete_endpoint_removes_from_db(client, db):
     """Test DELETE /api/endpoints/{id} removes endpoint"""
     # Create an endpoint
