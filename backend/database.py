@@ -711,8 +711,17 @@ async def update_settings(data: dict) -> dict:
 async def get_endpoints() -> list[dict]:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall("SELECT id, url FROM endpoints ORDER BY id ASC")
+        rows = await db.execute_fetchall("SELECT id, url, api_key FROM endpoints ORDER BY id ASC")
         return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_endpoint(endpoint_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall("SELECT id, url, api_key FROM endpoints WHERE id = ?", (endpoint_id,))
+        return dict(rows[0]) if rows else None
     finally:
         await db.close()
 

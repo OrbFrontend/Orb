@@ -19,6 +19,7 @@ from .database import (
     get_settings,
     update_settings,
     get_endpoints,
+    get_endpoint,
     create_endpoint,
     update_endpoint,
     delete_endpoint,
@@ -366,6 +367,14 @@ async def api_update_settings(data: SettingsUpdate):
 @app.get("/api/endpoints")
 async def api_get_endpoints():
     return await get_endpoints()
+
+
+@app.get("/api/endpoints/{endpoint_id}")
+async def api_get_endpoint(endpoint_id: int):
+    result = await get_endpoint(endpoint_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+    return result
 
 
 @app.post("/api/endpoints")

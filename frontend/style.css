@@ -2206,6 +2206,31 @@ label {
    ═══════════════════════════════════════════ */
 .cb-root { position: relative; width: 100%; }
 
+.api-key-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.api-key-wrap .api-key-input {
+  padding-right: 34px;
+  font-family: monospace;
+  -webkit-text-security: disc;
+}
+.api-key-toggle {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  width: auto;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  line-height: 1;
+}
+.api-key-toggle:hover { color: var(--text-primary); }
+
 .cb-control {
   display: flex;
   align-items: center;
