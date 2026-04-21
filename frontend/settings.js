@@ -121,7 +121,7 @@ export function renderSettings() {
       return `<div class="field"><label>${f.l}</label>
         <div class="cb-root" data-combobox="${f.k}">
           <div class="cb-control">
-            <input type="text" class="cb-input" value="${v}" data-key="${f.k}" placeholder="${ph}" onchange="saveSetting(this)">
+            <input type="text" class="cb-input" value="${v}" data-key="${f.k}" placeholder="${ph}" autocomplete="off" onchange="saveSetting(this)">
             <span class="cb-arrow"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="2,4 6,8 10,4"/></svg></span>
           </div>
           <div class="cb-dropdown" hidden><div class="cb-list"></div></div>
@@ -343,14 +343,14 @@ function initCombobox(rootEl, getItems) {
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  input.addEventListener("input", () => { if (!isOpen) openDropdown(); else render(); });
   input.addEventListener("keydown", (e) => {
     // Only handle Escape to close dropdown - mouse-only navigation
     if (e.key === "Escape") { closeDropdown(); return; }
     // Allow typing, tab navigation, etc. but no arrow key or Enter navigation
   });
   control.addEventListener("mousedown", (e) => {
-    if (e.target === input) return;
+    // Only toggle when clicking the arrow (cb-arrow), not the input or control background
+    if (!e.target.closest(".cb-arrow")) return;
     e.preventDefault();
     // Toggle dropdown
     if (isOpen) closeDropdown(); else openDropdown();
