@@ -2,6 +2,24 @@
    Mobile UI — viewport, header controls, layouts
    ═══════════════════════════════════════════ */
 
+/* ── Shared mobile tokens ── */
+:root {
+  --mobile-header-button-size: 34px;
+  --mobile-actions-menu-min-width: 170px;
+  --mobile-sidebar-width: min(82vw, 320px);
+  --mobile-panel-width: min(88vw, 340px);
+  --mobile-overlay-z: 80;
+  --mobile-sidebar-z: 90;
+  --mobile-panel-z: 95;
+  --mobile-menu-z: 115;
+  --mobile-overlay-color: rgba(0, 0, 0, .45);
+  --mobile-panel-shadow-left: 10px 0 28px rgba(0, 0, 0, .45);
+  --mobile-panel-shadow-right: -10px 0 28px rgba(0, 0, 0, .45);
+  --mobile-menu-shadow: 0 4px 16px rgba(0, 0, 0, .35);
+  --mobile-slide-duration: .2s ease;
+}
+
+/* ── Viewport sizing ── */
 html {
   height: 100%;
 }
@@ -26,10 +44,12 @@ body {
   position: relative;
 }
 
-#mobile-sidebar-toggle {
+/* ── Mobile header controls ── */
+#mobile-sidebar-toggle,
+#mobile-chat-actions-toggle {
   display: none;
-  width: 34px;
-  height: 34px;
+  width: var(--mobile-header-button-size);
+  height: var(--mobile-header-button-size);
   padding: 0;
   align-items: center;
   justify-content: center;
@@ -41,44 +61,28 @@ body {
   transition: all .15s;
 }
 
-#mobile-sidebar-toggle:hover {
+#mobile-sidebar-toggle:hover,
+#mobile-chat-actions-toggle:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
 #mobile-chat-actions-toggle {
-  display: none;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
   font-size: 20px;
   line-height: 1;
-  flex-shrink: 0;
-  transition: all .15s;
-}
-
-#mobile-chat-actions-toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
 }
 
 #mobile-chat-actions-menu {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  min-width: 170px;
+  min-width: var(--mobile-actions-menu-min-width);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, .35);
+  box-shadow: var(--mobile-menu-shadow);
   overflow: hidden;
-  z-index: 115;
+  z-index: var(--mobile-menu-z);
   display: none;
 }
 
@@ -86,6 +90,8 @@ body {
   display: block;
 }
 
+/* Keep this breakpoint in sync with `MOBILE_SIDEBAR_BREAKPOINT` in `mobile.js`. */
+/* ── Main mobile layout ── */
 @media (max-width: 900px) {
   #app {
     position: relative;
@@ -100,12 +106,12 @@ body {
     left: 0;
     top: 0;
     bottom: 0;
-    width: min(82vw, 320px);
+    width: var(--mobile-sidebar-width);
     min-width: 0;
-    z-index: 90;
+    z-index: var(--mobile-sidebar-z);
     transform: translateX(-100%);
-    transition: transform .2s ease;
-    box-shadow: 10px 0 28px rgba(0, 0, 0, .45);
+    transition: transform var(--mobile-slide-duration);
+    box-shadow: var(--mobile-panel-shadow-left);
   }
 
   #app.mobile-sidebar-open #sidebar {
@@ -116,20 +122,14 @@ body {
     content: "";
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, .45);
+    background: var(--mobile-overlay-color);
     opacity: 0;
     pointer-events: none;
-    transition: opacity .2s ease;
-    z-index: 80;
+    transition: opacity var(--mobile-slide-duration);
+    z-index: var(--mobile-overlay-z);
   }
 
-  #app.mobile-sidebar-open::before {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  #app.mobile-tools-open::before,
-  #app.mobile-inspector-open::before {
+  #app:is(.mobile-sidebar-open, .mobile-tools-open, .mobile-inspector-open)::before {
     opacity: 1;
     pointer-events: auto;
   }
@@ -140,18 +140,18 @@ body {
     right: 0;
     top: 0;
     bottom: 0;
-    width: min(88vw, 340px);
+    width: var(--mobile-panel-width);
     min-width: 0;
-    z-index: 95;
+    z-index: var(--mobile-panel-z);
     transform: translateX(100%);
-    transition: transform .2s ease;
-    box-shadow: -10px 0 28px rgba(0, 0, 0, .45);
+    transition: transform var(--mobile-slide-duration);
+    box-shadow: var(--mobile-panel-shadow-right);
     pointer-events: none;
   }
 
   #tools-panel.open,
   #inspector.open {
-    width: min(88vw, 340px);
+    width: var(--mobile-panel-width);
     min-width: 0;
     transform: translateX(0);
     pointer-events: auto;
@@ -177,6 +177,7 @@ body {
   }
 }
 
+/* ── Tablet modal/layout tightening ── */
 @media (max-width: 700px) {
   .modal {
     width: 100%;
@@ -220,6 +221,7 @@ body {
   }
 }
 
+/* ── Small-phone compaction ── */
 @media (max-width: 480px) {
   #chat-header {
     padding: 10px 12px;

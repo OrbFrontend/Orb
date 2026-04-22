@@ -81,9 +81,11 @@ import {
 import { closeModal, switchTab, showConfirmModal, runConfirmCb, closeCropModal } from "./modal.js";
 import {
   initMobileUi,
+  toggleBurger,
   toggleMobileSidebar,
   toggleMobileHeaderActions,
   closeMobileHeaderActions,
+  closeBurger,
 } from "./mobile.js";
 
 // ── Sidebar toggle
@@ -92,13 +94,6 @@ function toggleSection(header) {
   header.nextElementSibling.classList.toggle("collapsed");
 }
 
-// ── Burger menu
-function toggleBurger() {
-  $("burger-dropdown").classList.toggle("open");
-}
-function closeBurger() {
-  $("burger-dropdown").classList.remove("open");
-}
 function triggerAttachImage() {
   $("attach-image-input").click();
 }
@@ -348,7 +343,7 @@ initAutoscroll();
 
 // Load data independently to prevent failures from blocking other loads
 async function initAll() {
-  initMobileUi({ closeBurger });
+  initMobileUi();
 
   try {
     await loadSettings();

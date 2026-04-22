@@ -1,76 +1,168 @@
 import { $ } from "./utils.js";
 import { closeModal, closeCropModal } from "./modal.js";
 
+// ── Mobile config
 const MOBILE_SIDEBAR_BREAKPOINT = 900;
+const MOBILE_VIEWPORT = window.matchMedia(`(max-width: ${MOBILE_SIDEBAR_BREAKPOINT}px)`);
+
+const IDS = Object.freeze({
+  app: "app",
+  burgerButton: "burger-btn",
+  burgerMenu: "burger-dropdown",
+  mobileActionsToggle: "mobile-chat-actions-toggle",
+  mobileActionsMenu: "mobile-chat-actions-menu",
+  mobileSidebarToggle: "mobile-sidebar-toggle",
+  sidebar: "sidebar",
+  toolsPanel: "tools-panel",
+  toolsPanelToggle: "tools-panel-btn",
+  inspector: "inspector",
+  inspectorToggle: "inspector-toggle",
+  modalRoot: "modal-root",
+  cropModalRoot: "modal-crop-root",
+});
+
+const APP_STATE = Object.freeze({
+  sidebarOpen: "mobile-sidebar-open",
+  toolsOpen: "mobile-tools-open",
+  inspectorOpen: "mobile-inspector-open",
+});
+
+const MOBILE_SIDE_PANELS = Object.freeze([
+  {
+    elementId: IDS.toolsPanel,
+    toggleId: IDS.toolsPanelToggle,
+    appStateClass: APP_STATE.toolsOpen,
+  },
+  {
+    elementId: IDS.inspector,
+    toggleId: IDS.inspectorToggle,
+    appStateClass: APP_STATE.inspectorOpen,
+  },
+]);
+
 let _mobileBackArmed = false;
 let _handlingMobilePop = false;
-let _closeBurger = () => {};
+let _initialized = false;
+
+// ── DOM/state helpers
+function getElement(id) {
+  return $(id);
+}
+
+function getApp() {
+  return getElement(IDS.app);
+}
 
 function isMobileSidebarViewport() {
-  return window.matchMedia(`(max-width: ${MOBILE_SIDEBAR_BREAKPOINT}px)`).matches;
+  return MOBILE_VIEWPORT.matches;
+}
+
+function isElementOpen(id) {
+  return getElement(id)?.classList.contains("open") ?? false;
+}
+
+function setElementOpen(id, open) {
+  getElement(id)?.classList.toggle("open", open);
+}
+
+function hasAppState(stateClass) {
+  return getApp()?.classList.contains(stateClass) ?? false;
+}
+
+function setAppState(stateClass, enabled) {
+  getApp()?.classList.toggle(stateClass, enabled);
+}
+
+function createEventMatcher(event) {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  const target = event.target instanceof Element ? event.target : null;
+
+  return {
+    hasId(id) {
+      return path.some((node) => node instanceof Element && node.id === id) || Boolean(target?.closest(`#${id}`));
+    },
+    matches(selector) {
+      return Boolean(target?.closest(selector));
+    },
+  };
+}
+
+// ── Public toggles
+export function closeBurger() {
+  setElementOpen(IDS.burgerMenu, false);
+}
+
+export function toggleBurger() {
+  setElementOpen(IDS.burgerMenu, !isElementOpen(IDS.burgerMenu));
 }
 
 function closeMobileSidebar() {
-  $("app")?.classList.remove("mobile-sidebar-open");
+  setAppState(APP_STATE.sidebarOpen, false);
+}
+
+export function closeMobileHeaderActions() {
+  setElementOpen(IDS.mobileActionsMenu, false);
 }
 
 export function toggleMobileHeaderActions() {
   if (!isMobileSidebarViewport()) return;
-  $("mobile-chat-actions-menu")?.classList.toggle("open");
-  _closeBurger();
+  setElementOpen(IDS.mobileActionsMenu, !isElementOpen(IDS.mobileActionsMenu));
+  closeBurger();
   armMobileBackIfNeeded();
 }
 
-export function closeMobileHeaderActions() {
-  $("mobile-chat-actions-menu")?.classList.remove("open");
-}
-
+// ── Panel sync
 function syncMobilePanelState() {
-  const app = $("app");
-  const toolsPanel = $("tools-panel");
-  const inspector = $("inspector");
-  if (!app || !toolsPanel || !inspector) return;
+  const app = getApp();
+  if (!app) return;
 
   if (!isMobileSidebarViewport()) {
-    app.classList.remove("mobile-tools-open", "mobile-inspector-open");
+    for (const panel of MOBILE_SIDE_PANELS) {
+      app.classList.remove(panel.appStateClass);
+    }
     return;
   }
 
-  const toolsOpen = toolsPanel.classList.contains("open");
-  const inspectorOpen = inspector.classList.contains("open");
-  app.classList.toggle("mobile-tools-open", toolsOpen);
-  app.classList.toggle("mobile-inspector-open", inspectorOpen);
+  let anyUtilityPanelOpen = false;
+  for (const panel of MOBILE_SIDE_PANELS) {
+    const isOpen = isElementOpen(panel.elementId);
+    app.classList.toggle(panel.appStateClass, isOpen);
+    anyUtilityPanelOpen ||= isOpen;
+  }
 
-  if (toolsOpen || inspectorOpen) {
+  if (anyUtilityPanelOpen) {
     closeMobileSidebar();
     closeMobileHeaderActions();
   }
 }
 
 function closeMobileUtilityPanels() {
-  $("tools-panel")?.classList.remove("open");
-  $("inspector")?.classList.remove("open");
+  for (const panel of MOBILE_SIDE_PANELS) {
+    setElementOpen(panel.elementId, false);
+  }
   syncMobilePanelState();
 }
 
+// ── Overlay stack
 function hasOpenBaseModal() {
-  return Boolean($("modal-root")?.firstElementChild);
+  return Boolean(getElement(IDS.modalRoot)?.firstElementChild);
 }
 
 function hasOpenCropModal() {
-  return Boolean($("modal-crop-root")?.firstElementChild);
+  return Boolean(getElement(IDS.cropModalRoot)?.firstElementChild);
 }
 
 function hasOpenMobileOverlay() {
   if (!isMobileSidebarViewport()) return false;
-  const app = $("app");
-  return Boolean(
+
+  return (
     hasOpenCropModal() ||
-      hasOpenBaseModal() ||
-      $("mobile-chat-actions-menu")?.classList.contains("open") ||
-      app?.classList.contains("mobile-sidebar-open") ||
-      app?.classList.contains("mobile-tools-open") ||
-      app?.classList.contains("mobile-inspector-open"),
+    hasOpenBaseModal() ||
+    isElementOpen(IDS.mobileActionsMenu) ||
+    hasAppState(APP_STATE.sidebarOpen) ||
+    MOBILE_SIDE_PANELS.some(
+      ({ elementId, appStateClass }) => isElementOpen(elementId) || hasAppState(appStateClass),
+    )
   );
 }
 
@@ -82,6 +174,7 @@ function armMobileBackIfNeeded() {
 
 function closeTopMobileOverlay() {
   if (!isMobileSidebarViewport()) return false;
+
   if (hasOpenCropModal()) {
     closeCropModal();
     return true;
@@ -90,18 +183,19 @@ function closeTopMobileOverlay() {
     closeModal();
     return true;
   }
-  if ($("mobile-chat-actions-menu")?.classList.contains("open")) {
+  if (isElementOpen(IDS.mobileActionsMenu)) {
     closeMobileHeaderActions();
     return true;
   }
-  if ($("tools-panel")?.classList.contains("open") || $("inspector")?.classList.contains("open")) {
+  if (MOBILE_SIDE_PANELS.some(({ elementId }) => isElementOpen(elementId))) {
     closeMobileUtilityPanels();
     return true;
   }
-  if ($("app")?.classList.contains("mobile-sidebar-open")) {
+  if (hasAppState(APP_STATE.sidebarOpen)) {
     closeMobileSidebar();
     return true;
   }
+
   return false;
 }
 
@@ -109,122 +203,128 @@ export function toggleMobileSidebar() {
   if (!isMobileSidebarViewport()) return;
   closeMobileUtilityPanels();
   closeMobileHeaderActions();
-  $("app")?.classList.toggle("mobile-sidebar-open");
-  _closeBurger();
+  setAppState(APP_STATE.sidebarOpen, !hasAppState(APP_STATE.sidebarOpen));
+  closeBurger();
   armMobileBackIfNeeded();
 }
 
-/**
- * @param {{ closeBurger: () => void }} deps
- */
-export function initMobileUi(deps) {
-  _closeBurger = deps.closeBurger;
+// ── Event handlers
+function handleDocumentClick(event) {
+  const matcher = createEventMatcher(event);
+  const clickedMobileActionsMenu = matcher.hasId(IDS.mobileActionsMenu);
+  const sidebarOpen = hasAppState(APP_STATE.sidebarOpen);
 
-  document.addEventListener("click", (e) => {
-    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
-    const target = e.target instanceof Element ? e.target : null;
-    const inPath = (id) => path.some((node) => node instanceof Element && node.id === id);
-    const inSelector = (selector) => Boolean(target?.closest(selector));
+  if (!matcher.hasId(IDS.burgerButton) && !matcher.hasId(IDS.burgerMenu)) {
+    closeBurger();
+  }
 
-    const clickedBurgerBtn = inPath("burger-btn") || inSelector("#burger-btn");
-    const clickedBurgerDropdown = inPath("burger-dropdown") || inSelector("#burger-dropdown");
-    const clickedMobileActionsToggle =
-      inPath("mobile-chat-actions-toggle") || inSelector("#mobile-chat-actions-toggle");
-    const clickedMobileActionsMenu = inPath("mobile-chat-actions-menu") || inSelector("#mobile-chat-actions-menu");
-    const clickedSidebar = inPath("sidebar") || inSelector("#sidebar");
-    const clickedSidebarToggle = inPath("mobile-sidebar-toggle") || inSelector("#mobile-sidebar-toggle");
-    const clickedToolsPanel = inPath("tools-panel") || inSelector("#tools-panel");
-    const clickedToolsBtn = inPath("tools-panel-btn") || inSelector("#tools-panel-btn");
-    const clickedInspectorPanel = inPath("inspector") || inSelector("#inspector");
-    const clickedInspectorBtn = inPath("inspector-toggle") || inSelector("#inspector-toggle");
-    const clickedSidebarAction = inSelector("#sidebar .btn, #sidebar .char-item, #sidebar .fragment-item");
+  if (!matcher.hasId(IDS.mobileActionsToggle) && !clickedMobileActionsMenu) {
+    closeMobileHeaderActions();
+  }
 
-    if (!clickedBurgerBtn && !clickedBurgerDropdown) _closeBurger();
-    if (!clickedMobileActionsToggle && !clickedMobileActionsMenu) {
-      closeMobileHeaderActions();
-    }
-    if (
-      isMobileSidebarViewport() &&
-      $("app")?.classList.contains("mobile-sidebar-open") &&
-      clickedSidebarAction
-    ) {
-      setTimeout(closeMobileSidebar, 0);
-    }
-    if (
-      isMobileSidebarViewport() &&
-      $("app")?.classList.contains("mobile-sidebar-open") &&
-      !clickedSidebar &&
-      !clickedSidebarToggle
-    ) {
-      closeMobileSidebar();
-    }
-    if (
-      isMobileSidebarViewport() &&
-      $("tools-panel")?.classList.contains("open") &&
-      !clickedToolsPanel &&
-      !clickedToolsBtn &&
-      !clickedMobileActionsMenu
-    ) {
-      $("tools-panel").classList.remove("open");
-      syncMobilePanelState();
-    }
-    if (
-      isMobileSidebarViewport() &&
-      $("inspector")?.classList.contains("open") &&
-      !clickedInspectorPanel &&
-      !clickedInspectorBtn &&
-      !clickedMobileActionsMenu
-    ) {
-      $("inspector").classList.remove("open");
-      syncMobilePanelState();
-    }
-  });
+  if (!isMobileSidebarViewport()) return;
 
-  window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      closeMobileSidebar();
-      closeMobileHeaderActions();
-      closeMobileUtilityPanels();
-    }
-  });
+  if (sidebarOpen && matcher.matches("#sidebar .btn, #sidebar .char-item, #sidebar .fragment-item")) {
+    setTimeout(closeMobileSidebar, 0);
+  }
 
-  window.addEventListener("resize", () => {
-    if (!isMobileSidebarViewport()) {
-      closeMobileSidebar();
-      closeMobileHeaderActions();
-    }
+  if (sidebarOpen && !matcher.hasId(IDS.sidebar) && !matcher.hasId(IDS.mobileSidebarToggle)) {
+    closeMobileSidebar();
+  }
+
+  let closedUtilityPanel = false;
+  for (const panel of MOBILE_SIDE_PANELS) {
+    if (!isElementOpen(panel.elementId)) continue;
+    if (matcher.hasId(panel.elementId) || matcher.hasId(panel.toggleId) || clickedMobileActionsMenu) continue;
+
+    setElementOpen(panel.elementId, false);
+    closedUtilityPanel = true;
+  }
+
+  if (closedUtilityPanel) {
     syncMobilePanelState();
-    armMobileBackIfNeeded();
-  });
+  }
+}
 
-  const toolsPanel = $("tools-panel");
-  const inspectorPanel = $("inspector");
-  if (toolsPanel && inspectorPanel) {
-    const observer = new MutationObserver(() => {
-      syncMobilePanelState();
-      if (!_handlingMobilePop) armMobileBackIfNeeded();
-    });
-    observer.observe(toolsPanel, { attributes: true, attributeFilter: ["class"] });
-    observer.observe(inspectorPanel, { attributes: true, attributeFilter: ["class"] });
+function handleEscape(event) {
+  if (event.key !== "Escape") return;
+  closeMobileSidebar();
+  closeMobileHeaderActions();
+  closeMobileUtilityPanels();
+}
+
+function handleViewportChange() {
+  if (!isMobileSidebarViewport()) {
+    closeMobileSidebar();
+    closeMobileHeaderActions();
   }
   syncMobilePanelState();
+  armMobileBackIfNeeded();
+}
 
-  const modalRoot = $("modal-root");
-  const cropModalRoot = $("modal-crop-root");
-  if (modalRoot || cropModalRoot) {
-    const overlayObserver = new MutationObserver(() => {
-      if (!_handlingMobilePop) armMobileBackIfNeeded();
-    });
-    if (modalRoot) overlayObserver.observe(modalRoot, { childList: true });
-    if (cropModalRoot) overlayObserver.observe(cropModalRoot, { childList: true });
+// ── Observers
+function observeClassChanges(ids, callback) {
+  const elements = ids.map(getElement).filter(Boolean);
+  if (elements.length === 0) return;
+
+  const observer = new MutationObserver(callback);
+  for (const element of elements) {
+    observer.observe(element, { attributes: true, attributeFilter: ["class"] });
   }
+}
+
+function observeChildChanges(ids, callback) {
+  const elements = ids.map(getElement).filter(Boolean);
+  if (elements.length === 0) return;
+
+  const observer = new MutationObserver(callback);
+  for (const element of elements) {
+    observer.observe(element, { childList: true });
+  }
+}
+
+function bindViewportListener(handler) {
+  if (typeof MOBILE_VIEWPORT.addEventListener === "function") {
+    MOBILE_VIEWPORT.addEventListener("change", handler);
+    return;
+  }
+
+  MOBILE_VIEWPORT.addListener(handler);
+}
+
+// ── Init
+export function initMobileUi() {
+  if (_initialized) return;
+  _initialized = true;
+
+  document.addEventListener("click", handleDocumentClick);
+  window.addEventListener("keydown", handleEscape);
+  bindViewportListener(handleViewportChange);
+
+  observeClassChanges(
+    MOBILE_SIDE_PANELS.map(({ elementId }) => elementId),
+    () => {
+      syncMobilePanelState();
+      if (!_handlingMobilePop) armMobileBackIfNeeded();
+    },
+  );
+
+  observeChildChanges([IDS.modalRoot, IDS.cropModalRoot], () => {
+    if (!_handlingMobilePop) armMobileBackIfNeeded();
+  });
+
+  syncMobilePanelState();
 
   window.addEventListener("popstate", () => {
     _mobileBackArmed = false;
     if (!isMobileSidebarViewport()) return;
+
     _handlingMobilePop = true;
     const closedAny = closeTopMobileOverlay();
     _handlingMobilePop = false;
-    if (closedAny && hasOpenMobileOverlay()) armMobileBackIfNeeded();
+
+    if (closedAny && hasOpenMobileOverlay()) {
+      armMobileBackIfNeeded();
+    }
   });
 }
