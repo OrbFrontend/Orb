@@ -47,7 +47,9 @@ def test_structural_repetition_detected_through_contextual_audit():
         previous_assistant_msgs=[_MSG1],
     )
     sr = report.structural_repetition_result
-    assert sr is not None, "structural_repetition_result should be set when previous messages are provided"
+    assert (
+        sr is not None
+    ), "structural_repetition_result should be set when previous messages are provided"
     assert sr.is_repetitive, (
         f"Expected is_repetitive=True but got False "
         f"(min_sim={sr.min_similarity}, mean_sim={sr.mean_similarity}). "

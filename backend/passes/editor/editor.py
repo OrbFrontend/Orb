@@ -163,7 +163,12 @@ def _run_contextual_audit(
     to only include issues in the draft itself.  Returns (report, report_text)."""
     full_text = _build_audit_text(draft, previous_assistant_msgs)
     # run_audit will append the current text to assistant_messages internally
-    raw_report = run_audit(full_text, phrase_bank, assistant_messages=previous_assistant_msgs, structural_text=draft)
+    raw_report = run_audit(
+        full_text,
+        phrase_bank,
+        assistant_messages=previous_assistant_msgs,
+        structural_text=draft,
+    )
     filtered = filter_audit_report_to_text(raw_report, draft)
     return filtered, format_report(filtered)
 

@@ -111,7 +111,7 @@ export function renderSettings() {
   $("settings-form").innerHTML = SETTING_FIELDS.map((f) => {
     const v = S.settings[f.k] ?? "";
     if (f.t === "textarea") {
-      const rows = f.k === "system_prompt" ? ' rows="2"' : '';
+      const rows = f.k === "system_prompt" ? ' rows="2"' : "";
       return `<div class="field"><label>${f.l}</label>
                 <textarea data-key="${f.k}"${rows} onchange="saveSetting(this)">${v}</textarea>
               </div>`;

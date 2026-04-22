@@ -11,7 +11,6 @@ import pytest
 
 from backend.passes.editor.template_repetition import (
     detect_template_repetition,
-    FlaggedTemplate,
 )
 
 
@@ -49,8 +48,7 @@ class TestTruePositives:
         assert len(result.flagged_templates) >= 1
         # Find the flagged template about "the question"
         question_templates = [
-            ft for ft in result.flagged_templates 
-            if "the question" in ft.template
+            ft for ft in result.flagged_templates if "the question" in ft.template
         ]
         assert len(question_templates) >= 1
         assert question_templates[0].count >= 3
@@ -124,10 +122,7 @@ class TestFalsePositives:
 
     def test_high_flag_threshold_blocks_detection(self):
         """High threshold should prevent flagging."""
-        text = (
-            "The question hangs in the air. "
-            "The question is heavy."
-        )
+        text = "The question hangs in the air. " "The question is heavy."
         result = detect_template_repetition(text, max_words=2, flag_threshold=3)
         # Threshold is 3 but only 2 occurrences
         assert len(result.flagged_templates) == 0
@@ -184,8 +179,9 @@ class TestEdgeCases:
         result_small = detect_template_repetition(text, max_words=2, flag_threshold=2)
         # With max_words=4, might match more specifically
         result_large = detect_template_repetition(text, max_words=4, flag_threshold=2)
-        
+
         # Both should find something
+        print(result_large)
         assert len(result_small.flagged_templates) >= 1
 
     def test_normalization_lowercase(self):
@@ -209,21 +205,19 @@ class TestEdgeCases:
         )
         result = detect_template_repetition(text, max_words=2, flag_threshold=3)
         assert len(result.flagged_templates) >= 1
-        
+
         ft = result.flagged_templates[0]
-        assert hasattr(ft, 'template')
-        assert hasattr(ft, 'count')
-        assert hasattr(ft, 'fraction')
-        assert hasattr(ft, 'sentences')
+        assert hasattr(ft, "template")
+        assert hasattr(ft, "count")
+        assert hasattr(ft, "fraction")
+        assert hasattr(ft, "sentences")
         assert isinstance(ft.sentences, list)
         assert isinstance(ft.count, int)
 
     def test_repetition_score_calculation(self):
         """Repetition score should reflect template reuse."""
         text = (
-            "Template A here. "
-            "Template A again. "
-            "Something completely different."
+            "Template A here. " "Template A again. " "Something completely different."
         )
         result = detect_template_repetition(text, max_words=2)
         # Score should be > 0 since there's repetition
@@ -233,11 +227,7 @@ class TestEdgeCases:
 
     def test_similarity_threshold_effect(self):
         """Higher similarity threshold should reduce clustering."""
-        text = (
-            "The big red dog. "
-            "The big blue cat. "
-            "The big green fish."
-        )
+        text = "The big red dog. " "The big blue cat. " "The big green fish."
         # High threshold - less clustering
         result_high = detect_template_repetition(
             text, max_words=3, flag_threshold=2, similarity_threshold=0.9
@@ -251,11 +241,7 @@ class TestEdgeCases:
 
     def test_exact_template_repetition_in_score(self):
         """Exact template repetition should affect score."""
-        text = (
-            "The cat sat. "
-            "The cat sat. "
-            "The cat sat."
-        )
+        text = "The cat sat. " "The cat sat. " "The cat sat."
         result = detect_template_repetition(text, max_words=3)
         # "the cat sat" appears 3 times
         assert result.repetition_score > 0

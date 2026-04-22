@@ -21,11 +21,13 @@ _PARA_SPLIT = re.compile(r"\n\s*\n")
 
 # ---------- dataclasses ----------
 
+
 @dataclass
 class MessageStructure:
     index: int
     signature: list[str]
     blocks: list[tuple[str, str]] = field(default_factory=list)
+
 
 @dataclass
 class StructuralResult:
@@ -37,6 +39,7 @@ class StructuralResult:
 
 
 # ---------- block extraction ----------
+
 
 def _find_quote_spans(text: str) -> list[tuple[int, int]]:
     spans = []
@@ -62,9 +65,9 @@ def _find_quote_spans(text: str) -> list[tuple[int, int]]:
 
 
 _EMPHASIS_RE = re.compile(
-    r'(?<!\w)\*(?!\s)([^*\n]+?)\*(?!\w)'   # *thought*  (not bullet)
-    r'|'
-    r'(?<!\w)_(?!\s)([^_\n]+?)_(?!\w)',     # _thought_
+    r"(?<!\w)\*(?!\s)([^*\n]+?)\*(?!\w)"  # *thought*  (not bullet)
+    r"|"
+    r"(?<!\w)_(?!\s)([^_\n]+?)_(?!\w)",  # _thought_
 )
 
 
@@ -74,9 +77,13 @@ def _find_emphasis_spans(text: str) -> list[tuple[int, int]]:
         # Bullet guard: if this * is first non-space on its line and followed by space, skip
         if m.group(0).startswith("*"):
             line_start = text.rfind("\n", 0, m.start()) + 1
-            prefix = text[line_start:m.start()]
+            prefix = text[line_start : m.start()]
             after_star = m.start() + 1
-            if prefix.strip() == "" and after_star < len(text) and text[after_star] in " \t":
+            if (
+                prefix.strip() == ""
+                and after_star < len(text)
+                and text[after_star] in " \t"
+            ):
                 continue
         spans.append((m.start(), m.end()))
     return spans
@@ -93,9 +100,7 @@ def _extract_blocks(para: str) -> list[tuple[str, str]]:
             (s, e) for s, e in _find_emphasis_spans(para[prev_end:qs])
         )
         prev_end = qe
-    emphasis_spans.extend(
-        (s, e) for s, e in _find_emphasis_spans(para[prev_end:])
-    )
+    emphasis_spans.extend((s, e) for s, e in _find_emphasis_spans(para[prev_end:]))
 
     # Merge and tag
     typed = [(s, e, "SPEECH") for s, e in quote_spans] + [
@@ -131,6 +136,7 @@ def _collapse_signature(blocks: list[tuple[str, str]]) -> list[str]:
 
 # ---------- similarity ----------
 
+
 def _sequence_similarity(a: list[str], b: list[str]) -> float:
     if not a and not b:
         return 1.0
@@ -140,6 +146,7 @@ def _sequence_similarity(a: list[str], b: list[str]) -> float:
 
 
 # ---------- public API ----------
+
 
 def detect_structural_repetition(
     messages: list[str],

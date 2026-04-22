@@ -11,7 +11,6 @@ from .contrastive_negation import detect_contrastive_negation
 from .structural_repetition import (
     detect_structural_repetition,
     StructuralResult,
-    MessageStructure,
 )
 
 
