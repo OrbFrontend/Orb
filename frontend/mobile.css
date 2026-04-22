@@ -86,11 +86,6 @@ body {
   display: block;
 }
 
-.char-browser-count {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
 @media (max-width: 900px) {
   #app {
     position: relative;
@@ -245,10 +240,6 @@ body {
 
   .modal h2 {
     font-size: 16px;
-  }
-
-  .char-browser-count {
-    font-size: 10px;
   }
 
   .char-browser-grid {
