@@ -1929,6 +1929,11 @@ textarea {
   min-height: 60px;
 }
 
+textarea[data-key="system_prompt"] {
+  min-height: 30px;
+  height: 30px;
+}
+
 label {
   display: block;
   font-size: 11px;
