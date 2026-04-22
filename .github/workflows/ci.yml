@@ -5,41 +5,74 @@ on:
     branches: [main, dev]
 
 jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'tests/**'
+              - 'requirements*.txt'
+              - '.flake8'
+              - 'pytest.ini'
+            frontend:
+              - 'frontend/**'
+              - 'biome.json'
+
   lint-and-format:
     name: Lint & Format Check
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true' || needs.detect-changes.outputs.frontend == 'true'
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
+        if: needs.detect-changes.outputs.backend == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dev dependencies
+        if: needs.detect-changes.outputs.backend == 'true'
         run: pip install -r requirements-dev.txt
 
       - name: Black format check
+        if: needs.detect-changes.outputs.backend == 'true'
         run: python -m black --check backend/ tests/
 
       - name: Flake8 lint
+        if: needs.detect-changes.outputs.backend == 'true'
         run: python -m flake8 backend/ tests/
 
       - name: Set up Node
+        if: needs.detect-changes.outputs.frontend == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Install Biome
+        if: needs.detect-changes.outputs.frontend == 'true'
         run: npm install -g @biomejs/biome
 
       - name: Biome format check
+        if: needs.detect-changes.outputs.frontend == 'true'
         run: biome format frontend/
 
   tests:
     name: Tests
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend == 'true'
     steps:
       - uses: actions/checkout@v4
 
