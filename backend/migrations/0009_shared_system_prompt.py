@@ -1,4 +1,4 @@
-    """
+"""
 0009_shared_system_prompt — add shared_system_prompt column to settings,
 copy existing system_prompt to it, and reset model-specific system_prompts.
 """
