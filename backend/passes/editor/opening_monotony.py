@@ -49,6 +49,7 @@ _SENT_SPLIT = re.compile(r"(?<=[.!?\u2026])[\"\u201d]?\s+")
 _OPEN_QUOTES = {"\u201c"}  # "
 _CLOSE_QUOTES = {"\u201d"}  # "
 # Straight double quote has no direction; we toggle on each occurrence.
+# Note: Single quote is excluded to avoid issues with contractions like I'm, don't, etc.
 _TOGGLE_QUOTES = {'"'}
 
 

@@ -23,6 +23,7 @@ from ...tool_defs import (
     EDITOR_PATCH_INSTRUCTIONS,
     EDITOR_REWRITE_INSTRUCTIONS,
     EDITOR_BOTH_INSTRUCTIONS,
+    STRUCTURAL_REWRITE_INSTRUCTIONS,
     LENGTH_GUARD_INSTRUCTIONS,
     MAX_EDITOR_ITERATIONS,
     enabled_schemas,
@@ -129,11 +130,15 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
         nb for nb in report.not_but_result if nb.get("sentence", "") in target_text
     ]
 
+    # Structural repetition is a cross-message check, so it's always relevant
+    # when comparing the draft to previous messages. We keep it unfiltered.
+
     return AuditReport(
         cliche_result=filtered_cliche,
         monotony_result=filtered_monotony,
         template_result=filtered_template,
         not_but_result=filtered_not_but,
+        structural_repetition_result=report.structural_repetition_result,
     )
 
 
@@ -157,7 +162,8 @@ def _run_contextual_audit(
     """Run audit on *draft* with cross-message context, then filter results
     to only include issues in the draft itself.  Returns (report, report_text)."""
     full_text = _build_audit_text(draft, previous_assistant_msgs)
-    raw_report = run_audit(full_text, phrase_bank)
+    # run_audit will append the current text to assistant_messages internally
+    raw_report = run_audit(full_text, phrase_bank, assistant_messages=previous_assistant_msgs, structural_text=draft)
     filtered = filter_audit_report_to_text(raw_report, draft)
     return filtered, format_report(filtered)
 
@@ -281,12 +287,19 @@ async def editor_pass(
         report, report_text = _run_contextual_audit(
             draft, phrase_bank, assistant_messages
         )
+        structural_issues = (
+            1
+            if report.structural_repetition_result
+            and report.structural_repetition_result.is_repetitive
+            else 0
+        )
         logger.info(
-            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d)",
+            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d, structural=%d)",
             report.total_issues,
             report.cliche_result.flagged_count,
             len(report.monotony_result.flagged_openers),
             len(report.template_result.flagged_templates),
+            structural_issues,
         )
         debug_parts.append(
             f"Initial audit ({report.total_issues} issues):\n{report_text}"
@@ -353,6 +366,7 @@ async def editor_pass(
         report_text,
         length_guard_triggered,
         length_guard_instruction,
+        structural_rewrite=_structural_rewrite_needed(report),
     )
 
     logger.info(final_prompt)
@@ -478,16 +492,22 @@ async def editor_pass(
 
                 if report.is_clean:
                     break
-                editor_tools = [EDITOR_APPLY_PATCH_TOOL] if audit_enabled else []
+                if _structural_rewrite_needed(report):
+                    editor_tools = [EDITOR_REWRITE_TOOL]
+                elif audit_enabled:
+                    editor_tools = [EDITOR_APPLY_PATCH_TOOL]
+                else:
+                    editor_tools = []
                 prev_issues = report.total_issues
                 msgs[-2] = {"role": "assistant", "content": current_draft}
                 msgs[-1] = {
                     "role": "user",
                     "content": _build_editor_prompt(
-                        audit_enabled,
+                        audit_enabled and not report.is_clean,
                         report_text,
                         length_guard_triggered,
                         length_guard_instruction,
+                        structural_rewrite=_structural_rewrite_needed(report),
                     ),
                 }
                 continue
@@ -592,36 +612,46 @@ def _build_editor_prompt(
     report_text: str,
     length_guard_triggered: bool,
     length_guard_instruction: str,
+    structural_rewrite: bool = False,
 ) -> str:
     """Assemble the editor instruction sent as the final user message.
 
     The preamble is *always* included so the model knows it is the
     Editor Agent and that the assistant message above is the draft.
     Audit rules and/or length-guard instructions are appended as needed.
-    The CoT prompt is appended once at the very end.
     """
     parts = [EDITOR_PREAMBLE]
-    if has_audit_issues and length_guard_triggered:
+    rewrite_triggered = length_guard_triggered or structural_rewrite
+
+    if rewrite_triggered:
         parts.append(EDITOR_REWRITE_INSTRUCTIONS)
-        parts.append(report_text)
-        parts.append(length_guard_instruction)
-        parts.append(EDITOR_BOTH_INSTRUCTIONS)
+        if has_audit_issues:
+            parts.append(report_text)
+        if structural_rewrite:
+            parts.append(STRUCTURAL_REWRITE_INSTRUCTIONS)
+        if length_guard_triggered:
+            parts.append(length_guard_instruction)
+        if has_audit_issues and length_guard_triggered:
+            parts.append(EDITOR_BOTH_INSTRUCTIONS)
     elif has_audit_issues:
         parts.append(EDITOR_PATCH_INSTRUCTIONS)
         parts.append(report_text)
-    elif length_guard_triggered:
-        parts.append(EDITOR_REWRITE_INSTRUCTIONS)
-        parts.append(length_guard_instruction)
+
     return "\n\n".join(parts)
+
+
+def _structural_rewrite_needed(report: AuditReport) -> bool:
+    return (
+        report.structural_repetition_result is not None
+        and report.structural_repetition_result.is_repetitive
+    )
 
 
 def _pick_tool_choice(
     length_guard_triggered: bool, report: AuditReport, audit_enabled: bool
 ):
     """Determine the tool_choice parameter for the editor LLM call."""
-    if length_guard_triggered:
-        # Length guard always requires editor_rewrite, whether or not
-        # audit issues are also present (the both-case).
+    if length_guard_triggered or _structural_rewrite_needed(report):
         return {"type": "function", "function": {"name": "editor_rewrite"}}
     if audit_enabled:
         return TOOLS["editor_apply_patch"]["choice"]

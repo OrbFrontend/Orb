@@ -208,7 +208,7 @@ EDITOR_PATCH_INSTRUCTIONS = (
 EDITOR_REWRITE_INSTRUCTIONS = (
     "Use `editor_rewrite` to produce a rewrite within the specified limits.\n\n"
     "REWRITING RULES:\n"
-    "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied - avoid 3+ consecutive sentences starting with the same word (e.g. 'she, she, she').\n"
+    "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied.\n"
     "- First priority is to get rid of repetitiveness and condense comma-separated adjectives into stronger, more precise words (e.g. old, ruined building -> decrepit building).\n"
     "- Be more concise but maintain coherence and narrative flow."
 )
@@ -217,6 +217,13 @@ EDITOR_REWRITE_INSTRUCTIONS = (
 # The model already receives the full audit report and length-guard
 # instruction with concrete word/paragraph limits.
 EDITOR_BOTH_INSTRUCTIONS = "Call `editor_rewrite` to address both concerns in a single rewrite. Address all audit issues while also respecting length constraints."
+
+STRUCTURAL_REWRITE_INSTRUCTIONS = (
+    "STRUCTURAL REPETITION: This response follows the same paragraph layout as recent "
+    "previous messages. Call `editor_rewrite` with an entirely different structure — "
+    "change the order and balance of narration, dialogue, and internal thought so the "
+    "response is laid out distinctly from the previous ones."
+)
 
 LENGTH_GUARD_INSTRUCTIONS = (
     "LENGTH GUARD: The draft is {word_count} words — too long. "

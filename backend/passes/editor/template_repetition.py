@@ -64,7 +64,8 @@ _SENT_SPLIT = re.compile(r"(?<=[.!?\u2026])[\"\u201d\u2019']?\s+")
 _OPEN_QUOTES = {"\u201c", "\u2018"}  # " '
 _CLOSE_QUOTES = {"\u201d", "\u2019"}  # " '
 # Straight quotes have no direction; we toggle on each occurrence.
-_TOGGLE_QUOTES = {'"', "'"}
+# Note: Single quote is excluded to avoid issues with contractions like I'm, don't, etc.
+_TOGGLE_QUOTES = {'"'}
 
 
 def _extract_narration(paragraph: str) -> str:
