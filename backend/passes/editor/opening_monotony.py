@@ -57,22 +57,40 @@ def _extract_narration(paragraph: str) -> str:
 
     State resets at the start of each paragraph (the caller splits first), so
     an unclosed quote inside one paragraph cannot contaminate later ones.
+    
+    Inserts spaces when stripping quotes to prevent word fusion.
     """
     out: list[str] = []
     inside = False
+    prev_was_quote = False
+    
     for ch in paragraph:
         if ch in _TOGGLE_QUOTES:
             inside = not inside
+            prev_was_quote = True
             continue
         if ch in _OPEN_QUOTES:
             inside = True
+            prev_was_quote = True
             continue
         if ch in _CLOSE_QUOTES:
             inside = False
+            prev_was_quote = True
             continue
+        
         if not inside:
+            # Insert space where quote was stripped to prevent fusion
+            if prev_was_quote and out and out[-1] not in " \t\n":
+                out.append(" ")
             out.append(ch)
-    return "".join(out)
+        else:
+            # Inside quotes - still insert space to prevent fusion at boundary
+            if out and out[-1] not in " \t\n":
+                out.append(" ")
+        
+        prev_was_quote = False
+    
+    return " ".join("".join(out).split())  # Normalize whitespace
 
 
 def _split_sentences(text: str) -> list[str]:
