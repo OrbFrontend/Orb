@@ -212,7 +212,8 @@ DEFAULT_SETTINGS = {
     "top_p": 0.95,
     "repetition_penalty": 1.0,
     "max_tokens": 4096,
-    "system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nCharacters have their own conviction and ideas, they may disagree with each other.\nKeep tenses (past, present) and POV consistent.\nAvoid repetition of word choices and sentence structures.",
+    "shared_system_prompt": "You are a creative roleplay partner. Be responsive to the scene's evolving tone.\nCharacters have their own conviction and ideas, they may disagree with each other.\nKeep tenses (past, present) and POV consistent.\nAvoid repetition of word choices and sentence structures.",
+    "system_prompt": "",
     "user_name": "User",
     "user_description": "",
     "enable_agent": True,
@@ -330,6 +331,7 @@ async def init_db():
                 top_p REAL NOT NULL DEFAULT 0.95,
                 repetition_penalty REAL NOT NULL DEFAULT 1.0,
                 max_tokens INTEGER NOT NULL DEFAULT 4096,
+                shared_system_prompt TEXT NOT NULL DEFAULT '',
                 system_prompt TEXT NOT NULL DEFAULT '',
                 user_name TEXT NOT NULL DEFAULT 'User',
                 user_description TEXT NOT NULL DEFAULT '',
@@ -514,6 +516,10 @@ async def init_db():
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL"
             )
+        if "shared_system_prompt" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN shared_system_prompt TEXT NOT NULL DEFAULT ''"
+            )
 
         # Migration for director_state keywords column
         director_cols = {
@@ -544,7 +550,7 @@ async def init_db():
         if row[0]["c"] == 0:
             s = DEFAULT_SETTINGS
             await db.execute(
-                "INSERT INTO settings (id, endpoint_url, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, system_prompt, enabled_tools) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO settings (id, endpoint_url, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, shared_system_prompt, system_prompt, enabled_tools) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     s["endpoint_url"],
                     s["model_name"],
@@ -554,6 +560,7 @@ async def init_db():
                     s["top_p"],
                     s["repetition_penalty"],
                     s["max_tokens"],
+                    s["shared_system_prompt"],
                     s["system_prompt"],
                     json.dumps(DEFAULT_ENABLED_TOOLS),
                 ),
@@ -578,7 +585,7 @@ async def init_db():
                     (
                         endpoint_id,
                         s.get("model_name", "default"),
-                        s.get("system_prompt", ""),
+                        "",  # Model-specific system_prompt starts empty
                         s.get("temperature", 0.8),
                         s.get("min_p", 0.0),
                         s.get("top_k", 40),
@@ -675,6 +682,7 @@ async def update_settings(data: dict) -> dict:
             "top_p",
             "repetition_penalty",
             "max_tokens",
+            "shared_system_prompt",
             "system_prompt",
             "user_name",
             "user_description",
@@ -2006,9 +2014,20 @@ async def delete_message_with_descendants(cid: str, msg_id: int) -> bool:
 async def resolve_char_context(conv: dict, settings: dict) -> tuple[str, str, str]:
     """Load character card data and resolve the effective system prompt, persona, and example messages.
 
+    Combines shared_system_prompt (global) with system_prompt (model-specific).
+    Character card system_prompt, if present, completely overrides both.
+
     Returns (system_prompt, char_persona, mes_example).
     """
-    system_prompt = settings["system_prompt"]
+    # Combine shared (global) + model-specific system prompts
+    shared = settings.get("shared_system_prompt", "")
+    model_specific = settings.get("system_prompt", "")
+
+    if shared and model_specific:
+        system_prompt = f"{shared}\n\n{model_specific}"
+    else:
+        system_prompt = shared or model_specific
+
     char_persona, mes_example = "", ""
     if card_id := conv.get("character_card_id"):
         card = await get_character_card(card_id)
@@ -2018,6 +2037,7 @@ async def resolve_char_context(conv: dict, settings: dict) -> tuple[str, str, st
             )
             mes_example = card.get("mes_example", "")
             if card.get("system_prompt"):
+                # Character card system_prompt completely overrides
                 system_prompt = card["system_prompt"]
     return system_prompt, char_persona, mes_example
 
@@ -2056,7 +2076,7 @@ async def reset_to_defaults() -> None:
         # Re-seed settings
         s = DEFAULT_SETTINGS
         await db.execute(
-            "INSERT INTO settings (id, endpoint_url, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, system_prompt, enabled_tools) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO settings (id, endpoint_url, model_name, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, shared_system_prompt, system_prompt, enabled_tools) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 s["endpoint_url"],
                 s["model_name"],
@@ -2066,6 +2086,7 @@ async def reset_to_defaults() -> None:
                 s["top_p"],
                 s["repetition_penalty"],
                 s["max_tokens"],
+                s["shared_system_prompt"],
                 s["system_prompt"],
                 json.dumps(DEFAULT_ENABLED_TOOLS),
             ),
@@ -2082,7 +2103,7 @@ async def reset_to_defaults() -> None:
             (
                 endpoint_id,
                 s["model_name"],
-                s["system_prompt"],
+                "",  # Model-specific system_prompt starts empty
                 s["temperature"],
                 s["min_p"],
                 s["top_k"],

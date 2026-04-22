@@ -119,6 +119,7 @@ class SettingsUpdate(BaseModel):
     top_p: Optional[float] = None
     repetition_penalty: Optional[float] = None
     max_tokens: Optional[int] = None
+    shared_system_prompt: Optional[str] = None
     system_prompt: Optional[str] = None
     user_name: Optional[str] = None
     user_description: Optional[str] = None

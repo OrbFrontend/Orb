@@ -30,6 +30,7 @@ export function initTheme() {
 
 // ── Settings
 const MODEL_HYPERPARAM_KEYS = [
+  "shared_system_prompt",
   "system_prompt",
   "temperature",
   "max_tokens",
@@ -43,7 +44,8 @@ const SETTING_FIELDS = [
   { k: "endpoint_url", l: "Endpoint URL", t: "text" },
   { k: "api_key", l: "API Key", t: "api_key" },
   { k: "model_name", l: "Model Name", t: "text" },
-  { k: "system_prompt", l: "System Prompt", t: "textarea" },
+  { k: "shared_system_prompt", l: "System Prompt (global)", t: "textarea" },
+  { k: "system_prompt", l: "System Prompt (model)", t: "textarea" },
   { k: "temperature", l: "Temperature", t: "number", s: "0.05", mn: "0", mx: "2" },
   { k: "max_tokens", l: "Max Tokens", t: "number", s: "64", mn: "64", mx: "8192" },
   { k: "top_p", l: "Top P", t: "number", s: "0.05", mn: "0", mx: "1" },
