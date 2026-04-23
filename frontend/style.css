@@ -2287,6 +2287,8 @@ label {
   margin-left: 4px;
   flex-shrink: 0;
   cursor: pointer;
+  padding: 8px 4px;
+  margin: -8px -4px;
 }
 
 .cb-control:hover .cb-arrow {
