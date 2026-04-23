@@ -11,6 +11,7 @@ from typing import AsyncIterator, List, Optional
 
 from . import database as db
 from .llm_client import LLMClient
+from .endpoint_profiles import profile_for
 from .tool_defs import TOOLS, POST_WRITER_TOOLS
 from .prompt_builder import build_prefix, compute_style_injection_block
 from .kv_tracker import _KVCacheTracker
@@ -276,7 +277,14 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
     director_fragments = await db.get_director_fragments()
     director_fragments = [df for df in director_fragments if df.get("enabled", True)]
     phrase_bank = await db.get_phrase_bank()
-    client = LLMClient(settings["endpoint_url"], api_key=settings.get("api_key", ""))
+    client = LLMClient(
+        settings["endpoint_url"],
+        api_key=settings.get("api_key", ""),
+        profile=profile_for(
+            settings["endpoint_url"],
+            settings.get("model_name", ""),
+        ),
+    )
 
     system_prompt, char_persona, mes_example = await db.resolve_char_context(
         conv, settings

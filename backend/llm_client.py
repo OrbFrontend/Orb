@@ -5,6 +5,8 @@ import json
 import logging
 from typing import AsyncIterator
 
+from .endpoint_profiles import ModelProfile
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,10 +31,17 @@ def reasoning_cfg(on: bool) -> dict:
 
 
 class LLMClient:
-    def __init__(self, base_url: str, api_key: str = "", timeout: float = 120.0):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str = "",
+        timeout: float = 120.0,
+        profile: ModelProfile | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        self.profile = profile
         self._abort: asyncio.Event = asyncio.Event()
 
     def abort(self) -> None:
@@ -73,6 +82,10 @@ class LLMClient:
         if tool_choice:
             body["tool_choice"] = tool_choice
 
+        if self.profile is not None:
+            for action in self.profile.apply(body):
+                logger.info("LLM profile: %s", action)
+
         logger.info(
             "LLM complete: model=%s, tools=%s, tool_choice=%s",
             model,
@@ -90,7 +103,22 @@ class LLMClient:
             async with client.stream(
                 "POST", self._url(), json=body, headers=self._headers()
             ) as resp:
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    # Streaming response: body isn't eagerly read, so
+                    # raise_for_status() would surface only the status line.
+                    # Read the body so upstream error detail lands in logs.
+                    try:
+                        err_bytes = await resp.aread()
+                        err_text = err_bytes.decode("utf-8", errors="replace")
+                    except Exception as read_err:
+                        err_text = f"<failed to read response body: {read_err!r}>"
+                    logger.error(
+                        "LLM HTTP %d from %s: %s",
+                        resp.status_code,
+                        self._url(),
+                        err_text,
+                    )
+                    resp.raise_for_status()
                 # Race each line read against the abort signal so that client.abort()
                 # breaks out of this loop immediately, letting the async-with block
                 # exit *normally* and cleanly close the TCP connection to the LLM
