@@ -152,9 +152,7 @@ function hasOpenMobileOverlay() {
     hasOpenBaseModal() ||
     isElementOpen(IDS.mobileActionsMenu) ||
     hasAppState(APP_STATE.sidebarOpen) ||
-    MOBILE_SIDE_PANELS.some(
-      ({ elementId, appStateClass }) => isElementOpen(elementId) || hasAppState(appStateClass),
-    )
+    MOBILE_SIDE_PANELS.some(({ elementId, appStateClass }) => isElementOpen(elementId) || hasAppState(appStateClass))
   );
 }
 
