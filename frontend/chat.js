@@ -382,10 +382,12 @@ export function renderMessages() {
           S.hasMultipleTabs || !m.id
             ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to edit" : ""}">✏️ Edit</button>`
             : `<button onclick="startEdit(${m.id})" title="Edit">✏️ Edit</button>`;
+        const childAssistant =
+          m.role === "user" ? S.messages.find((child) => child.parent_id === m.id && child.role === "assistant") : null;
         const regenBtn =
-          S.hasMultipleTabs || !m.id || m.role !== "assistant"
+          S.hasMultipleTabs || !m.id || (m.role !== "assistant" && !childAssistant)
             ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to regenerate" : ""}">🔄 Regen</button>`
-            : `<button onclick="regenerate(${m.id})" title="Regenerate">🔄 Regen</button>`;
+            : `<button onclick="regenerate(${m.role === "assistant" ? m.id : childAssistant.id})" title="Regenerate">🔄 Regen</button>`;
         const delBtn = m.id
           ? `<button onclick="deleteMessage(${m.id})" title="Delete message, siblings, and all children" style="color:var(--red)">✕ Del</button>`
           : `<button disabled style="color:var(--red)">✕ Del</button>`;
@@ -575,8 +577,12 @@ function patchPendingUserMessage(pendingMsg) {
   div.setAttribute("data-msg-id", freshMsg.id);
   const tb = div.querySelector(".msg-toolbar");
   if (tb) {
-    tb.innerHTML = `<button onclick="startEdit(${freshMsg.id})" title="Edit">✏️ Edit</button>
-      <button onclick="deleteMessage(${freshMsg.id})" title="Delete message, siblings, and all children" style="color:var(--red)">✕ Del</button>`;
+    const childAssistant = S.messages.find((m) => m.parent_id === freshMsg.id && m.role === "assistant");
+    const regenBtn =
+      S.hasMultipleTabs || !childAssistant
+        ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to regenerate" : ""}">🔄 Regen</button>`
+        : `<button onclick="regenerate(${childAssistant.id})" title="Regenerate">🔄 Regen</button>`;
+    tb.innerHTML = `<button onclick="startEdit(${freshMsg.id})" title="Edit">✏️ Edit</button>${regenBtn}<button onclick="deleteMessage(${freshMsg.id})" title="Delete message, siblings, and all children" style="color:var(--red)">✕ Del</button>`;
   }
 }
 
