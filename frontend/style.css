@@ -1843,7 +1843,7 @@ button {
 
 .btn-accent:hover { background: var(--accent); }
 
-.btn-sm { padding: 4px 8px; font-size: 11px; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-xs { padding: 2px 6px; font-size: 10px; }
 
 .btn-danger { color: var(--red); }
