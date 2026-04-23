@@ -513,10 +513,6 @@ async def init_db():
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN active_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL"
             )
-        if "active_model_config_id" not in existing_cols:
-            await db.execute(
-                "ALTER TABLE settings ADD COLUMN active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL"
-            )
         if "shared_system_prompt" not in existing_cols:
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN shared_system_prompt TEXT NOT NULL DEFAULT ''"
@@ -744,7 +740,6 @@ async def update_settings(data: dict) -> dict:
             "character_library_view",
             "character_library_sort",
             "active_endpoint_id",
-            "active_model_config_id",
         ]
         json_fields = {"enabled_tools", "reasoning_enabled_passes"}
         sets = []
