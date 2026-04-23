@@ -457,7 +457,8 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS endpoints (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 url TEXT NOT NULL,
-                api_key TEXT NOT NULL DEFAULT ''
+                api_key TEXT NOT NULL DEFAULT '',
+                active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS model_configs (
@@ -519,6 +520,14 @@ async def init_db():
         if "shared_system_prompt" not in existing_cols:
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN shared_system_prompt TEXT NOT NULL DEFAULT ''"
+            )
+        endpoint_cols = {
+            row[1]
+            for row in await db.execute_fetchall("PRAGMA table_info(endpoints)")
+        }
+        if "active_model_config_id" not in endpoint_cols:
+            await db.execute(
+                "ALTER TABLE endpoints ADD COLUMN active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL"
             )
 
         # Migration for director_state keywords column
@@ -596,8 +605,12 @@ async def init_db():
                 )
                 model_config_id = cur2.lastrowid
                 await db.execute(
-                    "UPDATE settings SET active_endpoint_id = ?, active_model_config_id = ? WHERE id = 1",
-                    (endpoint_id, model_config_id),
+                    "UPDATE endpoints SET active_model_config_id = ? WHERE id = ?",
+                    (model_config_id, endpoint_id),
+                )
+                await db.execute(
+                    "UPDATE settings SET active_endpoint_id = ? WHERE id = 1",
+                    (endpoint_id,),
                 )
 
         # Seed mood fragments if empty
@@ -664,6 +677,37 @@ async def get_settings() -> dict:
             s.get("reasoning_enabled_passes")
             or '{"director":true,"writer":false,"editor":false}'
         )
+        # Overlay endpoint_url, api_key, model_name, and hyperparameters from the
+        # active endpoint's active model config so callers always get live values
+        # rather than the stale flat columns.
+        active_ep_id = s.get("active_endpoint_id")
+        if active_ep_id:
+            ep_rows = await db.execute_fetchall(
+                "SELECT id, url, api_key, active_model_config_id FROM endpoints WHERE id = ?",
+                (active_ep_id,),
+            )
+            if ep_rows:
+                ep = dict(ep_rows[0])
+                mc_id = ep.get("active_model_config_id")
+                if mc_id:
+                    mc_rows = await db.execute_fetchall(
+                        """SELECT mc.*, e.url AS endpoint_url, e.api_key
+                           FROM model_configs mc
+                           JOIN endpoints e ON mc.endpoint_id = e.id
+                           WHERE mc.id = ?""",
+                        (mc_id,),
+                    )
+                    if mc_rows:
+                        mc = dict(mc_rows[0])
+                        s["endpoint_url"] = mc["endpoint_url"]
+                        s["api_key"] = mc.get("api_key", "")
+                        s["model_name"] = mc["model_name"]
+                        for field in ("temperature", "min_p", "top_k", "top_p",
+                                      "repetition_penalty", "max_tokens"):
+                            if mc.get(field) is not None:
+                                s[field] = mc[field]
+                        if mc.get("system_prompt") is not None:
+                            s["system_prompt"] = mc["system_prompt"]
         return s
     finally:
         await db.close()
@@ -723,7 +767,7 @@ async def get_endpoints() -> list[dict]:
     db = await get_db()
     try:
         rows = await db.execute_fetchall(
-            "SELECT id, url, api_key FROM endpoints ORDER BY id ASC"
+            "SELECT id, url, api_key, active_model_config_id FROM endpoints ORDER BY id ASC"
         )
         return [dict(r) for r in rows]
     finally:
@@ -734,7 +778,8 @@ async def get_endpoint(endpoint_id: int) -> dict | None:
     db = await get_db()
     try:
         rows = await db.execute_fetchall(
-            "SELECT id, url, api_key FROM endpoints WHERE id = ?", (endpoint_id,)
+            "SELECT id, url, api_key, active_model_config_id FROM endpoints WHERE id = ?",
+            (endpoint_id,),
         )
         return dict(rows[0]) if rows else None
     finally:
@@ -759,7 +804,7 @@ async def create_endpoint(url: str, api_key: str = "") -> dict:
 async def update_endpoint(endpoint_id: int, data: dict) -> dict | None:
     db = await get_db()
     try:
-        allowed = ["url", "api_key"]
+        allowed = ["url", "api_key", "active_model_config_id"]
         sets, vals = [], []
         for k in allowed:
             if k in data:
@@ -773,7 +818,8 @@ async def update_endpoint(endpoint_id: int, data: dict) -> dict | None:
             )
             await db.commit()
         rows = await db.execute_fetchall(
-            "SELECT id, url FROM endpoints WHERE id = ?", (endpoint_id,)
+            "SELECT id, url, api_key, active_model_config_id FROM endpoints WHERE id = ?",
+            (endpoint_id,),
         )
         return dict(rows[0]) if rows else None
     finally:
@@ -2114,8 +2160,12 @@ async def reset_to_defaults() -> None:
         )
         model_config_id = cur_mc.lastrowid
         await db.execute(
-            "UPDATE settings SET active_endpoint_id = ?, active_model_config_id = ? WHERE id = 1",
-            (endpoint_id, model_config_id),
+            "UPDATE endpoints SET active_model_config_id = ? WHERE id = ?",
+            (model_config_id, endpoint_id),
+        )
+        await db.execute(
+            "UPDATE settings SET active_endpoint_id = ? WHERE id = 1",
+            (endpoint_id,),
         )
 
         # Re-seed mood fragments

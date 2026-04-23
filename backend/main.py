@@ -144,6 +144,7 @@ class EndpointCreate(BaseModel):
 class EndpointUpdate(BaseModel):
     url: Optional[str] = None
     api_key: Optional[str] = None
+    active_model_config_id: Optional[int] = None
 
 
 class ModelConfigCreate(BaseModel):

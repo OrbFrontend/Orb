@@ -386,7 +386,9 @@ export async function loadEndpoints() {
   try {
     S.endpoints = await api.get("/endpoints");
     S.activeEndpointId = S.settings.active_endpoint_id || null;
-    S.activeModelConfigId = S.settings.active_model_config_id || null;
+    // active_model_config_id lives on the endpoint row, not settings
+    const activeEp = S.endpoints.find((e) => e.id === S.activeEndpointId);
+    S.activeModelConfigId = activeEp?.active_model_config_id || null;
     populateEndpointDatalist();
     if (S.activeEndpointId) {
       await loadModelConfigs(S.activeEndpointId);
@@ -450,7 +452,7 @@ async function syncEndpointRecord(url, apiKey) {
     S.endpoints.push(ep);
     S.activeEndpointId = ep.id;
     S.activeModelConfigId = null;
-    await api.put("/settings", { active_endpoint_id: ep.id, active_model_config_id: null });
+    await api.put("/settings", { active_endpoint_id: ep.id });
     populateEndpointDatalist();
     await loadModelConfigs(ep.id);
   }
@@ -469,7 +471,7 @@ async function syncModelConfigRecord(modelName, hyperparams) {
       await api.put(`/models/${existing.id}`, update);
       Object.assign(existing, update);
     }
-    await api.put("/settings", { active_model_config_id: existing.id });
+    await api.put(`/endpoints/${S.activeEndpointId}`, { active_model_config_id: existing.id });
   } else {
     const mc = await api.post(`/endpoints/${S.activeEndpointId}/models`, {
       model_name: modelName,
@@ -483,7 +485,7 @@ async function syncModelConfigRecord(modelName, hyperparams) {
     });
     S.modelConfigs.push(mc);
     S.activeModelConfigId = mc.id;
-    await api.put("/settings", { active_model_config_id: mc.id });
+    await api.put(`/endpoints/${S.activeEndpointId}`, { active_model_config_id: mc.id });
     populateModelDatalist();
   }
 }
@@ -506,16 +508,16 @@ export async function onHybridInput(el) {
     if (apiKeyEl) apiKeyEl.value = match.api_key || "";
     // Load models for this endpoint
     await loadModelConfigs(match.id);
-    // Auto-select: prefer the stored active model config, fall back to first
+    // Auto-select: prefer this endpoint's last-used model, fall back to first
     const modelEl = document.querySelector('[data-key="model_name"]');
     if (!modelEl || !S.modelConfigs.length) return;
-    const activeModel = S.modelConfigs.find((m) => m.id === S.activeModelConfigId) || S.modelConfigs[0];
+    const activeModel = S.modelConfigs.find((m) => m.id === match.active_model_config_id) || S.modelConfigs[0];
     modelEl.value = activeModel.model_name;
     fillModelConfigFields(activeModel);
-    // Persist the chosen model config
+    // Persist the chosen model config on the endpoint row
     S.activeModelConfigId = activeModel.id;
     try {
-      await api.put("/settings", { active_model_config_id: activeModel.id });
+      await api.put(`/endpoints/${match.id}`, { active_model_config_id: activeModel.id });
     } catch (e) {
       console.error("Failed to save active model config:", e);
     }
@@ -532,7 +534,7 @@ export async function onHybridInput(el) {
     fillModelConfigFields(match);
     S.activeModelConfigId = match.id;
     try {
-      await api.put("/settings", { active_model_config_id: match.id });
+      await api.put(`/endpoints/${S.activeEndpointId}`, { active_model_config_id: match.id });
     } catch (e) {
       console.error("Failed to save active model config:", e);
     }
