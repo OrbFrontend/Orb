@@ -1,6 +1,6 @@
 """
-editor.py — Editor pass: audit filtering, text patching, and the
-ReAct-style LLM loop that fixes audit issues and/or enforces length guards.
+editor.py — Editor pass: the post-processing phase that runs a 
+ReAct-style LLM loop that fixes audit issues in Writer's output.
 """
 
 from __future__ import annotations

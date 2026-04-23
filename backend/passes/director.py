@@ -1,5 +1,5 @@
 """
-passes/director.py — Director pass: the tool-calling phase that selects
+passes/director.py — Director pass: the pre-processing phase that selects
 moods, plot direction, and optionally rewrites the user's prompt before
 the writer pass runs.
 """

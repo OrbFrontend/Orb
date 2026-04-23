@@ -1,5 +1,5 @@
 """
-passes/writer.py — Writer pass: streams the story response.
+passes/writer.py — Writer pass: the main phase that streams the story response.
 """
 
 from __future__ import annotations
