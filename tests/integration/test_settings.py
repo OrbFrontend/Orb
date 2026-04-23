@@ -19,7 +19,11 @@ async def test_update_settings_persists_to_db(client, db):
     # (model_name, temperature, max_tokens are now managed via endpoints/model_configs)
     resp = await client.put(
         "/api/settings",
-        json={"user_name": "TestUser", "user_description": "A test user", "max_tokens": 1024},
+        json={
+            "user_name": "TestUser",
+            "user_description": "A test user",
+            "max_tokens": 1024,
+        },
     )
     assert resp.status_code == 200
     assert resp.json()["user_name"] == "TestUser"
