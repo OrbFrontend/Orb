@@ -478,7 +478,7 @@ export async function deleteMessage(msgId) {
       try {
         S.messages = await api.del(convUrl(S.activeConvId, "messages", msgId));
         S.lastDirectorData = null;
-        // Re-fetch director state so active moods are correct after deletion
+        // Re-fetch director state so moods are correct after deletion
         S.directorState = await api.get(convUrl(S.activeConvId, "director"));
         renderMessages();
         renderInspector();
@@ -500,7 +500,7 @@ export async function switchBranch(msgId) {
 
     S.messages = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
     S.lastDirectorData = null;
-    // Re-fetch director state so active moods are correct for this branch
+    // Re-fetch director state so moods are correct for this branch
     S.directorState = await api.get(convUrl(S.activeConvId, "director"));
     renderMessages();
     renderInspector();
@@ -1122,7 +1122,7 @@ export function renderInspector() {
   const tc = ld.tool_calls || [];
   const inj = ld.injection_block || "";
   $("inspector-content").innerHTML = `
-    <div class="inspector-block"><h4>Active Moods</h4>
+    <div class="inspector-block"><h4>Moods</h4>
       <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
     </div>
     ${_buildReasoningHtml()}
