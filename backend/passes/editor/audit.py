@@ -187,8 +187,6 @@ def format_report(report: AuditReport) -> str:
             is_parallel = nb.get("is_parallel", False)
             parallel_note = " (parallel structure)" if is_parallel else ""
             lines.append(f'   - Sentence: "{sentence}"{parallel_note}')
-            if x_template and y_template:
-                lines.append(f"     X: {x_template} -> Y: {y_template}")
         sections.append("\n".join(lines))
 
     # 5. Structural repetition
