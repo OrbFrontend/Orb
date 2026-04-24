@@ -19,6 +19,11 @@ import { renderCharacters, loadCharacters, refreshCharacters } from "./library.j
 import { validate } from "./validate.js";
 import { requestSendPermission } from "./tabLock.js";
 
+const ICON_EDIT  = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+const ICON_REGEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>`;
+const ICON_DEL   = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+const ICON_CLEAR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+
 // ── Attachments rendering
 function formatBytes(bytes) {
   if (bytes === 0) return "0 B";
@@ -120,12 +125,12 @@ function finalizeStreamingDiv(lastMsg) {
         ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">✕ Diff</button>`
         : "";
     const editBtn = S.hasMultipleTabs
-      ? `<button disabled title="Close other tabs to edit">✏️ Edit</button>`
-      : `<button onclick="startEdit(${lastMsg.id})" title="Edit">✏️ Edit</button>`;
+      ? `<button disabled title="Close other tabs to edit">${ICON_EDIT}</button>`
+      : `<button onclick="startEdit(${lastMsg.id})" title="Edit">${ICON_EDIT}</button>`;
     const regenBtn = S.hasMultipleTabs
-      ? `<button disabled title="Close other tabs to regenerate">🔄 Regen</button>`
-      : `<button onclick="regenerate(${lastMsg.id})" title="Regenerate">🔄 Regen</button>`;
-    tb.innerHTML = `${editBtn}${regenBtn}<button onclick="deleteMessage(${lastMsg.id})" title="Delete message, siblings, and all children" style="color:var(--red)">✕ Del</button>${diffBtn}`;
+      ? `<button disabled title="Close other tabs to regenerate">${ICON_REGEN}</button>`
+      : `<button onclick="regenerate(${lastMsg.id})" title="Regenerate">${ICON_REGEN}</button>`;
+    tb.innerHTML = `${editBtn}${regenBtn}<button onclick="deleteMessage(${lastMsg.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>${diffBtn}`;
   }
 
   const bc = lastMsg.branch_count || 1;
@@ -461,22 +466,22 @@ export function renderMessages() {
             : "";
         const editBtn =
           S.hasMultipleTabs || !m.id
-            ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to edit" : ""}">✏️ Edit</button>`
-            : `<button onclick="startEdit(${m.id})" title="Edit">✏️ Edit</button>`;
+            ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to edit" : ""}">${ICON_EDIT}</button>`
+            : `<button onclick="startEdit(${m.id})" title="Edit">${ICON_EDIT}</button>`;
         const childAssistant =
           m.role === "user" ? S.messages.find((child) => child.parent_id === m.id && child.role === "assistant") : null;
         const regenTargetId = m.role === "assistant" ? m.id : childAssistant?.id;
         const canRegen = m.role === "assistant" || childAssistant || (m.role === "user" && m.id);
         const regenBtn =
           S.hasMultipleTabs || !canRegen
-            ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to regenerate" : ""}">🔄 Regen</button>`
-            : `<button onclick="${regenTargetId ? `regenerate(${regenTargetId})` : `continueFromUser()`}" title="Regenerate">🔄 Regen</button>`;
+            ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to regenerate" : ""}">${ICON_REGEN}</button>`
+            : `<button onclick="${regenTargetId ? `regenerate(${regenTargetId})` : `continueFromUser()`}" title="Regenerate">${ICON_REGEN}</button>`;
         const delBtn = m.id
-          ? `<button onclick="deleteMessage(${m.id})" title="Delete message, siblings, and all children" style="color:var(--red)">✕ Del</button>`
-          : `<button disabled style="color:var(--red)">✕ Del</button>`;
+          ? `<button onclick="deleteMessage(${m.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>`
+          : `<button disabled class="msg-btn-del">${ICON_DEL}</button>`;
         const diffBtn =
           S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId
-            ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">✕ Diff</button>`
+            ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
             : "";
         const toolbar = isEditing
           ? ""
@@ -644,9 +649,9 @@ function createStreamingDiv() {
       <span class="typing-indicator"><span></span><span></span><span></span></span>
     </div>
     <div class="msg-toolbar">
-      <button disabled>✏️ Edit</button>
-      <button disabled>🔄 Regen</button>
-      <button disabled style="color:var(--red)">✕ Del</button>
+      <button disabled>${ICON_EDIT}</button>
+      <button disabled>${ICON_REGEN}</button>
+      <button disabled class="msg-btn-del">${ICON_DEL}</button>
     </div>`;
   S.streamingBodyEl = div.querySelector(".msg-body");
   return div;
@@ -663,9 +668,9 @@ function patchPendingUserMessage(pendingMsg) {
     const childAssistant = S.messages.find((m) => m.parent_id === freshMsg.id && m.role === "assistant");
     const regenTargetId = childAssistant?.id;
     const regenBtn = S.hasMultipleTabs
-      ? `<button disabled title="Close other tabs to regenerate">🔄 Regen</button>`
-      : `<button onclick="${regenTargetId ? `regenerate(${regenTargetId})` : `continueFromUser()`}" title="Regenerate">🔄 Regen</button>`;
-    tb.innerHTML = `<button onclick="startEdit(${freshMsg.id})" title="Edit">✏️ Edit</button>${regenBtn}<button onclick="deleteMessage(${freshMsg.id})" title="Delete message, siblings, and all children" style="color:var(--red)">✕ Del</button>`;
+      ? `<button disabled title="Close other tabs to regenerate">${ICON_REGEN}</button>`
+      : `<button onclick="${regenTargetId ? `regenerate(${regenTargetId})` : `continueFromUser()`}" title="Regenerate">${ICON_REGEN}</button>`;
+    tb.innerHTML = `<button onclick="startEdit(${freshMsg.id})" title="Edit">${ICON_EDIT}</button>${regenBtn}<button onclick="deleteMessage(${freshMsg.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>`;
   }
 }
 

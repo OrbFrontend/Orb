@@ -680,7 +680,7 @@ body {
 .msg-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   opacity: 0;
   transition: opacity .15s;
   margin-top: 4px;
@@ -689,27 +689,25 @@ body {
 .message:hover .msg-toolbar { opacity: 1; }
 
 .msg-toolbar button {
-  padding: 6px 6px;
-  font-size: 10px;
+  padding: 5px;
+  background: none;
+  border: none;
   color: var(--text-muted);
-  border-radius: 3px;
-  transition: all .1s;
-  transform: scale(1.2);
-  transform-origin: left center;
+  border-radius: 4px;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  line-height: 1;
-}
-
-.message.user .msg-toolbar button {
-  transform-origin: right center;
+  transition: color .1s, background .1s;
 }
 
 .msg-toolbar button:hover {
   color: var(--text-primary);
   background: var(--bg-hover);
 }
+
+.msg-toolbar .msg-btn-del { color: var(--red); opacity: .6; }
+.msg-toolbar .msg-btn-del:hover { color: var(--red); opacity: 1; background: var(--bg-hover); }
 
 .message.user .msg-toolbar { justify-content: flex-end; }
 
