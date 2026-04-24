@@ -531,6 +531,9 @@ export function startEdit(msgId) {
   }
   const ta = $("edit-textarea-" + msgId);
   if (ta) {
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+    });
     ta.focus();
     ta.selectionStart = ta.selectionEnd = ta.value.length;
     ta.style.height = "auto";
