@@ -27,6 +27,8 @@ MIGRATIONS: list[str] = [
     "0008_multi_endpoints",
     "0009_shared_system_prompt",
     "0010_active_model_config_on_endpoints",
+    "0011_add_show_editor_diff",
+    "0012_hide_streaming_until_baked",
 ]
 
 

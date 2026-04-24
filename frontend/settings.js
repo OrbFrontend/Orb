@@ -3,6 +3,7 @@ import { $, esc, toast } from "./utils.js";
 import { api } from "./api.js";
 import { showModal, closeModal, showConfirmModal } from "./modal.js";
 import { validate } from "./validate.js";
+import { renderMessages } from "./chat.js";
 
 // ── Theme
 const THEMES = [
@@ -79,6 +80,14 @@ export async function loadSettings() {
   if (S.settings.reasoning_enabled_passes)
     S.reasoningEnabled = { ...S.reasoningEnabled, ...S.settings.reasoning_enabled_passes };
 
+  if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
+  else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
+
+  if (typeof S.settings.hide_streaming_until_baked === "number")
+    S.hideUntilBaked = S.settings.hide_streaming_until_baked !== 0;
+  else if (typeof S.settings.hide_streaming_until_baked === "boolean")
+    S.hideUntilBaked = S.settings.hide_streaming_until_baked;
+
   // Expand Settings section if endpoint_url is empty
   const settingsSection = $("settings-section");
   if (settingsSection && (!S.settings.endpoint_url || S.settings.endpoint_url.trim() === "")) {
@@ -145,6 +154,12 @@ export function renderSettings() {
             </div>`;
   }).join("");
   $("settings-form").innerHTML += `
+    <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
+      <label class="lg-enforce-label" title="Hide the assistant's reply while the pipeline (director -> writer -> editor) runs. The phase indicator stays visible.">
+        <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} onchange="toggleHideUntilBaked(this.checked)">
+        Hide streaming message until baked
+      </label>
+    </div>
     <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
       <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">Reset to Defaults</button>
     </div>
@@ -785,6 +800,28 @@ export async function toggleLengthGuardEnforce(on) {
   }
 }
 
+export async function toggleShowEditorDiff(on) {
+  S.showEditorDiff = on;
+  renderMessages();
+  renderToolsPanel();
+  try {
+    S.settings = await api.put("/settings", { show_editor_diff: on });
+  } catch (e) {
+    toast("Failed to save editor diff setting", true);
+  }
+}
+
+export async function toggleHideUntilBaked(on) {
+  S.hideUntilBaked = on;
+  renderMessages();
+  renderSettings();
+  try {
+    S.settings = await api.put("/settings", { hide_streaming_until_baked: on });
+  } catch (e) {
+    toast("Failed to save hide-until-baked setting", true);
+  }
+}
+
 export async function saveLengthGuardConfig() {
   const words = parseInt($("lg-max-words").value, 10);
   const paras = parseInt($("lg-max-paragraphs").value, 10);
@@ -813,6 +850,15 @@ export function renderToolsPanel() {
   $("tools-panel-btn").style.opacity = S.agentEnabled ? "1" : "0.5";
   const toolCards = TOOL_DEFS.map((t) => {
     const on = !!S.enabledTools[t.id];
+    const extras =
+      t.id === "editor_apply_patch" && on
+        ? `<div class="lg-config">
+             <label class="lg-enforce-label" title="Highlight edited sentences with green/red strikethrough when the editor pass rewrites the writer's output.">
+               <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} onchange="toggleShowEditorDiff(this.checked)">
+               Show diff highlights
+             </label>
+           </div>`
+        : "";
     return `<div class="tool-card ${on ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">${t.name}</span>
@@ -822,6 +868,7 @@ export function renderToolsPanel() {
         </label>
       </div>
       <div class="tool-card-desc">${t.desc}</div>
+      ${extras}
     </div>`;
   }).join("");
 
