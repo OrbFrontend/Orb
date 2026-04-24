@@ -155,6 +155,12 @@ export function renderSettings() {
   }).join("");
   $("settings-form").innerHTML += `
     <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
+      <label class="lg-enforce-label" title="Hide the assistant's reply while the pipeline (director -> writer -> editor) runs. The phase indicator stays visible.">
+        <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} onchange="toggleHideUntilBaked(this.checked)">
+        Hide streaming message until baked
+      </label>
+    </div>
+    <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
       <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">Reset to Defaults</button>
     </div>
   `;
@@ -808,7 +814,7 @@ export async function toggleShowEditorDiff(on) {
 export async function toggleHideUntilBaked(on) {
   S.hideUntilBaked = on;
   renderMessages();
-  renderToolsPanel();
+  renderSettings();
   try {
     S.settings = await api.put("/settings", { hide_streaming_until_baked: on });
   } catch (e) {
@@ -844,6 +850,15 @@ export function renderToolsPanel() {
   $("tools-panel-btn").style.opacity = S.agentEnabled ? "1" : "0.5";
   const toolCards = TOOL_DEFS.map((t) => {
     const on = !!S.enabledTools[t.id];
+    const extras =
+      t.id === "editor_apply_patch" && on
+        ? `<div class="lg-config">
+             <label class="lg-enforce-label" title="Highlight edited sentences with green/red strikethrough when the editor pass rewrites the writer's output.">
+               <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} onchange="toggleShowEditorDiff(this.checked)">
+               Show diff highlights
+             </label>
+           </div>`
+        : "";
     return `<div class="tool-card ${on ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">${t.name}</span>
@@ -853,6 +868,7 @@ export function renderToolsPanel() {
         </label>
       </div>
       <div class="tool-card-desc">${t.desc}</div>
+      ${extras}
     </div>`;
   }).join("");
 
@@ -890,21 +906,7 @@ export function renderToolsPanel() {
     ${lgConfig}
   </div>`;
 
-  const showEditorDiffCard = `<div class="tool-card">
-    <label class="lg-enforce-label" title="Highlight edited sentences with green/red strikethrough when the editor pass rewrites the writer's output.">
-      <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} onchange="toggleShowEditorDiff(this.checked)">
-      Show editor diff highlights
-    </label>
-  </div>`;
-
-  const hideUntilBakedCard = `<div class="tool-card">
-    <label class="lg-enforce-label" title="Hide the assistant's reply while the pipeline (director -> writer -> editor) runs. The phase indicator stays visible.">
-      <input type="checkbox" ${S.hideUntilBaked ? "checked" : ""} onchange="toggleHideUntilBaked(this.checked)">
-      Hide streaming message until baked
-    </label>
-  </div>`;
-
-  $("tools-list").innerHTML = toolCards + lengthGuardCard + showEditorDiffCard + hideUntilBakedCard;
+  $("tools-list").innerHTML = toolCards + lengthGuardCard;
 }
 
 // ── Phrase Bank
