@@ -101,6 +101,23 @@ _DEEPSEEK_REASONER_EXTRA: frozenset[str] = _DEEPSEEK_DEFAULT_EXTRA - {
 }
 
 
+def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> Optional[str]:
+    """Any DeepSeek request with thinking enabled is routed through reasoner
+    semantics, which reject forced-function tool_choice and "required" -- the
+    API echoes back "deepseek-reasoner does not support this tool_choice"
+    even when model=deepseek-chat. Coerce to "auto" so the graceful-skip
+    paths in Director/Editor handle any unselected tool calls.
+    """
+    thinking = body.get("thinking")
+    if not isinstance(thinking, dict) or thinking.get("type") != "enabled":
+        return None
+    tc = body.get("tool_choice")
+    if isinstance(tc, dict) or tc == "required":
+        body["tool_choice"] = "auto"
+        return f"tool_choice {tc!r} -> 'auto' (thinking enabled)"
+    return None
+
+
 # Outer key: URL-substring (case-insensitive match; first insertion wins, so
 # order matters if adding more specific URL prefixes like "api.deepseek.com/beta"
 # -- the more specific one must come first).
@@ -108,13 +125,19 @@ _DEEPSEEK_REASONER_EXTRA: frozenset[str] = _DEEPSEEK_DEFAULT_EXTRA - {
 # per-model overrides (replace, not merge).
 PROFILES: dict[str, dict[Optional[str], ModelProfile]] = {
     "api.deepseek.com": {
+        # deepseek-chat supports forced-function tool_choice in chat mode but
+        # rejects it whenever the request also carries thinking=enabled (the
+        # API silently routes thinking-on requests through reasoner semantics).
+        # The custom transform handles that conditional case.
         None: ModelProfile(
             allow_extra=_DEEPSEEK_DEFAULT_EXTRA,
             allow_forced_tool_choice=True,
+            custom=(_deepseek_coerce_tool_choice_when_thinking,),
         ),
-        # deepseek-reasoner rejects forced-function tool_choice and "required".
-        # Coerce to "auto" and let graceful skip paths in Director/Editor handle
-        # any skipped tool calls.
+        # deepseek-reasoner is unconditionally thinking-on, so coerce statically.
+        # Equivalent to the conditional above for this model; kept as a static
+        # knob for clarity. Graceful-skip paths in Director/Editor handle any
+        # unselected tool calls.
         "deepseek-reasoner": ModelProfile(
             allow_extra=_DEEPSEEK_REASONER_EXTRA,
             allow_forced_tool_choice=False,
