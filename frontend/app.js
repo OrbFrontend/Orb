@@ -85,6 +85,7 @@ import {
   handleTitleEditKey,
 } from "./chat.js";
 import { closeModal, switchTab, showConfirmModal, runConfirmCb, closeCropModal } from "./modal.js";
+import { initMobileUi, toggleMobileSidebar, toggleMobileHeaderActions, closeMobileHeaderActions } from "./mobile.js";
 
 // ── Sidebar toggle
 function toggleSection(header) {
@@ -99,6 +100,7 @@ function toggleBurger() {
 function closeBurger() {
   $("burger-dropdown").classList.remove("open");
 }
+
 function triggerAttachImage() {
   $("attach-image-input").click();
 }
@@ -294,6 +296,9 @@ Object.assign(window, {
   clearRefineDiff,
   // ui
   toggleSection,
+  toggleMobileSidebar,
+  toggleMobileHeaderActions,
+  closeMobileHeaderActions,
   toggleBurger,
   closeBurger,
   triggerAttachImage,
@@ -362,6 +367,8 @@ setLockStateChangeCallback((hasMultipleTabs) => {
 
 // Load data independently to prevent failures from blocking other loads
 async function initAll() {
+  initMobileUi({ closeBurger });
+
   try {
     await loadSettings();
   } catch (e) {
