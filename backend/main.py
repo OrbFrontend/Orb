@@ -735,10 +735,12 @@ async def api_get_character(card_id: str):
 
 @app.put("/api/characters/{card_id}")
 async def api_update_character(card_id: str, data: CharacterCardUpdate):
+    old_card = await get_character_card(card_id)
     result = await update_character_card(card_id, data.model_dump(exclude_none=True))
     if not result:
         raise HTTPException(404, "Character card not found")
-    await sync_conversations_for_card(card_id, result)
+    old_name = old_card["name"] if old_card and "name" in data.model_dump(exclude_none=True) else None
+    await sync_conversations_for_card(card_id, result, old_name=old_name)
     return result
 
 

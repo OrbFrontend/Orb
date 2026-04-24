@@ -832,6 +832,13 @@ export async function saveCharEdit(id) {
     }
     closeModal();
     await loadCharacters();
+    await loadConversations();
+    // If the active conversation belongs to this character, refresh its title
+    const activeConv = S.conversations.find((c) => c.id === S.activeConvId);
+    if (activeConv && activeConv.character_card_id === id) {
+      const titleEl = document.getElementById("chat-title-text");
+      if (titleEl) titleEl.textContent = activeConv.title || activeConv.character_name || "";
+    }
     toast("Saved");
   } catch (e) {
     toast(e.message, true);

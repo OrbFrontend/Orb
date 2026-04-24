@@ -94,6 +94,62 @@ async def test_update_character_syncs_to_linked_conversations(client, db):
     assert row["character_scenario"] == "Updated scenario"
 
 
+async def test_rename_character_updates_matching_conversation_titles(client, db):
+    create_resp = await client.post(
+        "/api/characters",
+        json={"name": "Old Name", "scenario": "A scenario"},
+    )
+    card_id = create_resp.json()["id"]
+
+    conv_resp = await client.post(
+        "/api/conversations", json={"character_card_id": card_id}
+    )
+    cid = conv_resp.json()["id"]
+
+    # Title should have defaulted to character name
+    async with db.execute(
+        "SELECT title FROM conversations WHERE id = ?", (cid,)
+    ) as cur:
+        row = await cur.fetchone()
+    assert row["title"] == "Old Name"
+
+    await client.put(
+        f"/api/characters/{card_id}", json={"name": "New Name"}
+    )
+
+    async with db.execute(
+        "SELECT title, character_name FROM conversations WHERE id = ?", (cid,)
+    ) as cur:
+        row = await cur.fetchone()
+    assert row["title"] == "New Name"
+    assert row["character_name"] == "New Name"
+
+
+async def test_rename_character_leaves_custom_title_alone(client, db):
+    create_resp = await client.post(
+        "/api/characters",
+        json={"name": "Original", "scenario": "A scenario"},
+    )
+    card_id = create_resp.json()["id"]
+
+    conv_resp = await client.post(
+        "/api/conversations",
+        json={"character_card_id": card_id, "title": "Custom Title"},
+    )
+    cid = conv_resp.json()["id"]
+
+    await client.put(
+        f"/api/characters/{card_id}", json={"name": "Renamed"}
+    )
+
+    async with db.execute(
+        "SELECT title, character_name FROM conversations WHERE id = ?", (cid,)
+    ) as cur:
+        row = await cur.fetchone()
+    assert row["title"] == "Custom Title"
+    assert row["character_name"] == "Renamed"
+
+
 async def test_delete_character_removes_from_db(client, db):
     create_resp = await client.post("/api/characters", json={"name": "Doomed"})
     card_id = create_resp.json()["id"]

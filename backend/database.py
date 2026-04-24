@@ -1915,12 +1915,17 @@ async def update_character_card(card_id: str, data: dict) -> dict | None:
         await db.close()
 
 
-async def sync_conversations_for_card(card_id: str, card: dict) -> None:
+async def sync_conversations_for_card(
+    card_id: str, card: dict, old_name: str | None = None
+) -> None:
     """Propagate mutable card fields to all conversations linked to this card.
 
     Only syncs fields that are denormalised onto the conversation row and
     affect prompt-building at runtime. first_mes is excluded because it has
     already been materialised as a message in the conversation tree.
+
+    If ``old_name`` is provided, conversation titles that still match the old
+    name are updated to the new name so they don't become stale.
     """
     db = await get_db()
     try:
@@ -1937,6 +1942,13 @@ async def sync_conversations_for_card(card_id: str, card: dict) -> None:
                 card_id,
             ),
         )
+        if old_name is not None:
+            await db.execute(
+                """UPDATE conversations
+                   SET title = ?
+                   WHERE character_card_id = ? AND title = ?""",
+                (card.get("name", ""), card_id, old_name),
+            )
         await db.commit()
     finally:
         await db.close()
