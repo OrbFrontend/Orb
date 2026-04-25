@@ -3,7 +3,7 @@ import { S } from "./state.js";
 import { toast } from "./utils.js";
 
 const CHANNEL_NAME = "orb-tab-lock";
-const TAB_ID = crypto.randomUUID();
+const TAB_ID = `${Date.now()}-${Math.random()}`;
 
 let broadcastChannel = null;
 let onLockStateChange = null;
