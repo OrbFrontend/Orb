@@ -19,6 +19,24 @@ import { renderCharacters, loadCharacters, refreshCharacters } from "./library.j
 import { validate } from "./validate.js";
 import { requestSendPermission } from "./tabLock.js";
 
+function canStartGeneration() {
+  if (S.isStreaming) return false;
+  return requestSendPermission();
+}
+
+function normalizeMessages(msgs) {
+  if (!Array.isArray(msgs)) return msgs;
+  for (const m of msgs) {
+    if (m.attachments && Array.isArray(m.attachments)) {
+      for (const att of m.attachments) {
+        if (att.data_b64 != null && att.b64 == null) att.b64 = att.data_b64;
+        if (att.mime_type != null && att.mime == null) att.mime = att.mime_type;
+      }
+    }
+  }
+  return msgs;
+}
+
 const ICON_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
 const ICON_REGEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>`;
 const ICON_DEL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
@@ -255,7 +273,7 @@ export async function selectConversation(id) {
   }
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;
-  S.messages = await api.get(convUrl(id, "messages"));
+  S.messages = normalizeMessages(await api.get(convUrl(id, "messages")));
   S.directorState = await api.get(convUrl(id, "director"));
   S.editingMsgId = null;
   renderMessages();
@@ -583,7 +601,7 @@ export async function deleteMessage(msgId) {
     },
     async () => {
       try {
-        S.messages = await api.del(convUrl(S.activeConvId, "messages", msgId));
+        S.messages = normalizeMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
         S.lastDirectorData = null;
         // Re-fetch director state so moods are correct after deletion
         S.directorState = await api.get(convUrl(S.activeConvId, "director"));
@@ -605,7 +623,7 @@ export async function switchBranch(msgId) {
     const ct = $("chat-messages");
     const scrollTop = ct ? ct.scrollTop : 0;
 
-    S.messages = await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {});
+    S.messages = normalizeMessages(await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {}));
     S.lastDirectorData = null;
     // Re-fetch director state so moods are correct for this branch
     S.directorState = await api.get(convUrl(S.activeConvId, "director"));
@@ -634,7 +652,7 @@ export async function saveEdit(msgId, role) {
 
   try {
     await api.post(convUrl(S.activeConvId, "messages", msgId, "edit"), { content, regenerate: false });
-    S.messages = await api.get(convUrl(S.activeConvId, "messages"));
+    S.messages = normalizeMessages(await api.get(convUrl(S.activeConvId, "messages")));
     renderMessages();
     toast("Message edited");
   } catch (e) {
@@ -702,10 +720,10 @@ async function afterStream() {
   S.wasAborted = false;
   S.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
   clearRefineTimer();
+  setGenerationPhase(null);
 
   if (!S.activeConvId) {
     S.streamingBodyEl = null;
-    setGenerationPhase(null);
     setStreaming(false);
     $("send-btn").disabled = false;
     renderMessages();
@@ -718,7 +736,7 @@ async function afterStream() {
   }
 
   try {
-    S.messages = await api.get(convUrl(S.activeConvId, "messages"));
+    S.messages = normalizeMessages(await api.get(convUrl(S.activeConvId, "messages")));
     S.directorState = await api.get(convUrl(S.activeConvId, "director"));
     // Update the conversation's updated_at timestamp so refreshCharacters() can
     // correctly place the active character at the top of the recent list.
@@ -726,7 +744,9 @@ async function afterStream() {
       const conv = S.conversations?.find((c) => c.id === S.activeConvId);
       if (conv) conv.updated_at = new Date().toISOString();
     }
-  } catch (e) {}
+  } catch (e) {
+    toast("Failed to sync messages: " + e.message, true);
+  }
 
   if (pendingUserMsg) {
     const hasUserMsg = S.messages.some((m) => m.role === "user" && m.content === pendingUserMsg.content);
@@ -748,7 +768,6 @@ async function afterStream() {
     }
   }
 
-  setGenerationPhase(null);
   setStreaming(false);
   $("send-btn").disabled = false;
 
@@ -871,6 +890,7 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
           [...S.messages].reverse().find((m) => m.role === "user" && !m.id) ||
           [...S.messages].reverse().find((m) => m.role === "user");
         if (lastUser) lastUser.content = d.refined_message;
+        if (S.pendingUserMsg) S.pendingUserMsg.content = d.refined_message;
         if (S.isStreaming) {
           const userBodies = document.querySelectorAll("#chat-messages .message.user .msg-body");
           const last = userBodies[userBodies.length - 1];
@@ -950,7 +970,7 @@ function agentPayload() {
 }
 
 export async function continueFromUser() {
-  if (!S.activeConvId || S.isStreaming) return;
+  if (!S.activeConvId || !canStartGeneration()) return;
   const lastMsg = S.messages[S.messages.length - 1];
   if (lastMsg?.role !== "user") {
     toast("Last message is not a user message", true);
@@ -982,8 +1002,7 @@ export async function continueFromUser() {
 
 // ── Send Message
 export async function sendMessage() {
-  if (!S.activeConvId || S.isStreaming) return;
-  if (!requestSendPermission()) return;
+  if (!S.activeConvId || !canStartGeneration()) return;
 
   const inp = $("chat-input");
   let content = inp.value.trim();
@@ -1051,7 +1070,7 @@ export async function sendMessage() {
 
 // ── Regenerate
 export async function regenerate(msgId) {
-  if (S.isStreaming || !S.activeConvId) return;
+  if (!S.activeConvId || !canStartGeneration()) return;
   setStreaming(true);
   setGenerationPhase("pending");
   $("send-btn").disabled = true;

@@ -364,7 +364,7 @@ initAutoscroll();
 initTabLock();
 // Re-render messages when tab lock state changes to update toolbar buttons
 setLockStateChangeCallback((hasMultipleTabs) => {
-  if (S.activeConvId) {
+  if (S.activeConvId && !S.isStreaming) {
     renderMessages();
   }
 });
