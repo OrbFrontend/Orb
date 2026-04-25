@@ -629,10 +629,6 @@ export async function saveEdit(msgId, role) {
     toast(validation.error, true);
     return;
   }
-  if (S.isStreaming) {
-    toast("Wait for generation to finish", true);
-    return;
-  }
   const trimmed = content.trim();
   S.editingMsgId = null;
 
