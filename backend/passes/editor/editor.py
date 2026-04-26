@@ -408,7 +408,7 @@ async def editor_pass(
             if not reasoning_params["reasoning"].get("enabled", True):
                 logger.info("Editor iteration %d: reasoning disabled", iteration + 1)
 
-            logger.info(
+            logger.debug(
                 "Editor iteration %d: sending %d messages to LLM:\n%s",
                 iteration + 1,
                 len(msgs),
