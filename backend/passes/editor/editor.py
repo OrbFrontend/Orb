@@ -607,7 +607,7 @@ async def editor_pass(
                 "Editor iteration %d failed: %s", iteration + 1, e, exc_info=True
             )
             debug_parts.append(f"Iteration {iteration + 1} error: {e}")
-            break
+            raise
     else:
         logger.warning(
             "Editor: hit max iterations (%d) with %d issues remaining",
