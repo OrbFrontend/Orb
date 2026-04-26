@@ -18,6 +18,7 @@ _OPEN_QUOTES = {"\u201c", "\u2018"}
 _CLOSE_QUOTES = {"\u201d", "\u2019"}
 _TOGGLE_QUOTES = {'"'}
 _PARA_SPLIT = re.compile(r"\n\s*\n")
+_SENT_SPLIT = re.compile(r"(?<=[.!?\u2026])\s+")
 
 # ---------- dataclasses ----------
 
@@ -36,6 +37,22 @@ class StructuralResult:
     mean_similarity: float
     shared_skeleton: list[str] | None
     messages: list[MessageStructure]
+
+
+# ---------- sentence counting ----------
+
+
+def _count_sentences(text: str) -> int:
+    """Count sentences in a block of text.
+
+    Non-empty text that contains no sentence terminator still counts as 1
+    (it is a fragment or short imperative).  Empty text returns 0.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return 0
+    pieces = [s.strip() for s in _SENT_SPLIT.split(stripped) if s.strip()]
+    return len(pieces) if pieces else 1
 
 
 # ---------- block extraction ----------
@@ -127,10 +144,27 @@ def _extract_blocks(para: str) -> list[tuple[str, str]]:
 
 
 def _collapse_signature(blocks: list[tuple[str, str]]) -> list[str]:
-    sig = []
-    for typ, _ in blocks:
-        if not sig or sig[-1] != typ:
-            sig.append(typ)
+    """Collapse consecutive same-type blocks into counted signature tokens.
+
+    Each token encodes ``TYPE:sentence_count`` so that, e.g., two narration
+    sentences between speech blocks (``NARRATION:2``) are distinguished from
+    one (``NARRATION:1``).  Sentence counts apply to *all* block types
+    (SPEECH, NARRATION, EMPHASIS).
+    """
+    if not blocks:
+        return []
+    sig: list[str] = []
+    current_type = blocks[0][0]
+    current_count = _count_sentences(blocks[0][1])
+    for typ, text in blocks[1:]:
+        count = _count_sentences(text)
+        if typ == current_type:
+            current_count += count
+        else:
+            sig.append(f"{current_type}:{current_count}")
+            current_type = typ
+            current_count = count
+    sig.append(f"{current_type}:{current_count}")
     return sig
 
 
@@ -192,7 +226,7 @@ def detect_structural_repetition(
     mean_sim = total / count if count else 1.0
 
     # Complexity guard: ignore trivial pure-narration windows
-    distinct_types = {t for m in parsed for t in m.signature}
+    distinct_types = {t.split(":")[0] for m in parsed for t in m.signature}
     complex_enough = len(distinct_types) >= min_complexity
 
     is_rep = complex_enough and min_sim >= similarity_threshold

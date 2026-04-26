@@ -388,7 +388,10 @@ async def editor_pass(
 
     # ── ReAct loop
     for iteration in range(MAX_EDITOR_ITERATIONS):
-        logger.info(
+        if client.is_aborted:
+            logger.info("Editor: abort signal detected at iteration %d, stopping", iteration + 1)
+            break
+        logger.debug(
             "Editor iteration %d/%d, %d issues remaining",
             iteration + 1,
             MAX_EDITOR_ITERATIONS,
@@ -402,6 +405,13 @@ async def editor_pass(
             )
             if not reasoning_params["reasoning"].get("enabled", True):
                 logger.info("Editor iteration %d: reasoning disabled", iteration + 1)
+
+            logger.info(
+                "Editor iteration %d: sending %d messages to LLM:\n%s",
+                iteration + 1,
+                len(msgs),
+                json.dumps(msgs, default=str, indent=2),
+            )
 
             resp: dict = {}
             try:
@@ -444,18 +454,11 @@ async def editor_pass(
             parsed = parse_tool_calls(resp)
             if not parsed:
                 logger.info(
-                    "Editor iteration %d: no tool call, nudging model to use a tool",
+                    "Editor iteration %d: no tool call (resp=%s), stopping",
                     iteration + 1,
+                    "empty" if not resp else f"finish_reason={finish_reason}",
                 )
-                # Nudge the model with a tool-role message encouraging it to call a tool
-                msgs.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": "nudge",
-                        "content": "Please call one of the available editor tools (editor_apply_patch or editor_rewrite) to fix the issues. Do not respond without calling a tool.",
-                    }
-                )
-                continue
+                break
             all_calls.extend(parsed)
 
             # ── Handle editor_rewrite
