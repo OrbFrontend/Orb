@@ -201,10 +201,10 @@ async def _run_pipeline(
         },
     }
 
-    # --- Editor pass ---
     if client.is_aborted:
         return
 
+    # --- Editor pass ---
     if do_edit and resp_text:
         logger.info(
             "Editor pass starting (draft=%d chars, phrase_bank=%d groups)",
