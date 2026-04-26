@@ -504,17 +504,35 @@ async def editor_pass(
                 else:
                     editor_tools = []
                 prev_issues = report.total_issues
-                msgs[-2] = {"role": "assistant", "content": current_draft}
-                msgs[-1] = {
-                    "role": "user",
-                    "content": _build_editor_prompt(
-                        audit_enabled and not report.is_clean,
-                        report_text,
-                        length_guard_triggered,
-                        length_guard_instruction,
-                        structural_rewrite=_structural_rewrite_needed(report),
-                    ),
-                }
+                if reasoning_on:
+                    rewrite_tool_calls = resp.get("tool_calls", [])
+                    msgs.append(
+                        {
+                            "role": "assistant",
+                            "content": resp.get("content") or "",
+                            "tool_calls": rewrite_tool_calls,
+                        }
+                    )
+                    if rewrite_tool_calls:
+                        msgs.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": rewrite_tool_calls[0].get("id", ""),
+                                "content": report_text,
+                            }
+                        )
+                else:
+                    msgs[-2] = {"role": "assistant", "content": current_draft}
+                    msgs[-1] = {
+                        "role": "user",
+                        "content": _build_editor_prompt(
+                            audit_enabled and not report.is_clean,
+                            report_text,
+                            length_guard_triggered,
+                            length_guard_instruction,
+                            structural_rewrite=_structural_rewrite_needed(report),
+                        ),
+                    }
                 continue
 
             # ── Handle editor_apply_patch
@@ -577,7 +595,9 @@ async def editor_pass(
             prev_issues = report.total_issues
 
             # Append recap for next iteration
-            _append_iteration_context(msgs, resp, patches, errors, report_text)
+            _append_iteration_context(
+                msgs, resp, patches, errors, report_text, reasoning_on=reasoning_on
+            )
 
         except Exception as e:
             logger.error(
@@ -669,32 +689,54 @@ def _append_iteration_context(
     patches: list[dict],
     errors: list[str],
     report_text: str,
+    *,
+    reasoning_on: bool,
 ):
-    """Append assistant recap and user tool-result turns for the next iteration."""
-    reasoning = resp.get("content", "") or ""
-    reasoning_content = resp.get("reasoning_content", "") or ""
+    """Append assistant recap and tool-result turns for the next iteration.
 
-    patch_summary = (
-        "; ".join(
-            f"replaced \"{p.get('search', '')[:40]}…\""
-            for p in patches
-            if p.get("search") != p.get("replace")
+    reasoning_on=True: use structured tool-use format so the model can see its
+    exact tool call and the remaining issues in the form it was trained on.
+    reasoning_on=False: use a human-readable synthetic recap which is more
+    reliable for non-thinking models.
+    """
+    tool_response = ("\n".join(errors) + "\n\n" if errors else "") + report_text
+    if reasoning_on:
+        tool_calls = resp.get("tool_calls", [])
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": resp.get("content") or "",
+                "tool_calls": tool_calls,
+            }
         )
-        or "no effective changes"
-    )
-
-    if reasoning or reasoning_content:
-        combined = (reasoning + "\n" + reasoning_content).strip()
-        assistant_recap = combined + "\n\n" + f"[Applied patches: {patch_summary}]"
+        for tc in tool_calls:
+            msgs.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.get("id", ""),
+                    "content": tool_response,
+                }
+            )
     else:
-        assistant_recap = f"[Applied patches: {patch_summary}]"
-
-    msgs.append({"role": "assistant", "content": assistant_recap})
-
-    tool_response = "\n".join(errors) + "\n\n" + report_text if errors else report_text
-    msgs.append(
-        {
-            "role": "user",
-            "content": f"[Tool result — updated audit after your patches]\n{tool_response}",
-        }
-    )
+        reasoning = resp.get("content", "") or ""
+        reasoning_content = resp.get("reasoning_content", "") or ""
+        patch_summary = (
+            "; ".join(
+                f"replaced \"{p.get('search', '')[:40]}…\""
+                for p in patches
+                if p.get("search") != p.get("replace")
+            )
+            or "no effective changes"
+        )
+        if reasoning or reasoning_content:
+            combined = (reasoning + "\n" + reasoning_content).strip()
+            assistant_recap = combined + "\n\n" + f"[Applied patches: {patch_summary}]"
+        else:
+            assistant_recap = f"[Applied patches: {patch_summary}]"
+        msgs.append({"role": "assistant", "content": assistant_recap})
+        msgs.append(
+            {
+                "role": "user",
+                "content": f"[Tool result — updated audit after your patches]\n{tool_response}",
+            }
+        )

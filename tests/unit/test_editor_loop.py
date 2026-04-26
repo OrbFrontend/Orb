@@ -368,6 +368,8 @@ class TestEditorLoopToolSwitching:
         ), "editor_rewrite must NOT be available in iteration 1"
 
         # ── Instruction text also switched ────────────────────────────────────
+        # reasoning_on=False uses the old mutation path, so msgs[-1] is a rebuilt
+        # editor prompt with updated instructions for the next tool.
         prompt1 = iter1["last_user_content"]
         assert (
             "editor_apply_patch" in prompt1
