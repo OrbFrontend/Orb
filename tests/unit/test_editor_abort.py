@@ -15,7 +15,11 @@ from backend.llm_client import LLMClient
 from backend.passes.editor.audit import AuditReport
 from backend.passes.editor.editor import editor_pass
 from backend.passes.editor.opening_monotony import MonotonyResult
-from backend.passes.editor.slop_detector import DetectionResult, FlaggedSentence, ClicheHit
+from backend.passes.editor.slop_detector import (
+    DetectionResult,
+    FlaggedSentence,
+    ClicheHit,
+)
 from backend.passes.editor.template_repetition import TemplateResult
 
 
@@ -26,15 +30,16 @@ def _make_client() -> LLMClient:
 def _flagged_sentence(text: str, canonical: str, variant: str | None = None):
     return FlaggedSentence(
         sentence=text,
-        cliches=[ClicheHit(canonical=canonical, variant=variant or canonical, score=1.0)],
+        cliches=[
+            ClicheHit(canonical=canonical, variant=variant or canonical, score=1.0)
+        ],
     )
 
 
 def _make_report(issue_count: int) -> AuditReport:
     """Return an AuditReport with *issue_count* cliché hits."""
     flagged = [
-        _flagged_sentence(f"Sentence {i}.", f"cliche-{i}")
-        for i in range(issue_count)
+        _flagged_sentence(f"Sentence {i}.", f"cliche-{i}") for i in range(issue_count)
     ]
     return AuditReport(
         cliche_result=DetectionResult(
@@ -75,7 +80,10 @@ async def test_editor_iteration_exception_propagates():
                                 "arguments": json.dumps(
                                     {
                                         "patches": [
-                                            {"search": "Sentence 0.", "replace": "Fixed 0."}
+                                            {
+                                                "search": "Sentence 0.",
+                                                "replace": "Fixed 0.",
+                                            }
                                         ]
                                     }
                                 ),

@@ -389,7 +389,9 @@ async def editor_pass(
     # ── ReAct loop
     for iteration in range(MAX_EDITOR_ITERATIONS):
         if client.is_aborted:
-            logger.info("Editor: abort signal detected at iteration %d, stopping", iteration + 1)
+            logger.info(
+                "Editor: abort signal detected at iteration %d, stopping", iteration + 1
+            )
             break
         logger.debug(
             "Editor iteration %d/%d, %d issues remaining",
