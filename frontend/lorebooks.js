@@ -253,7 +253,7 @@ function renderLorebookDrawer() {
       return `
       <div class="lb-entry-item${sel ? " active" : ""}${!enabled ? " lb-disabled" : ""}" onclick="lbSelectEntry(${e.id})">
         ${dirtyDot}
-        <span class="lb-entry-name">${esc(e.name)}</span>
+        <span class="lb-entry-name">${esc(e.name || e.keywords?.[0] || "")}</span>
         <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
           <label class="frag-toggle" for="${toggleId}">
             <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
