@@ -221,13 +221,6 @@ function _buildEditorHtml() {
           <span class="lb-priority-label">Priority</span>
           <input id="lb-priority" class="lb-priority-input" type="number" value="${_draft.priority}"
                  oninput="lbDraftChange('priority', parseInt(this.value) || 0)">
-          <div class="frag-toggle-wrapper">
-            <label class="frag-toggle" for="lb-entry-enabled">
-              <input type="checkbox" id="lb-entry-enabled" ${_draft.enabled ? "checked" : ""}
-                     onchange="lbDraftChange('enabled', this.checked)">
-              <span class="frag-toggle-slider"></span>
-            </label>
-          </div>
         </div>
       </div>
       <div class="lb-editor-keywords">

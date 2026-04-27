@@ -2471,6 +2471,8 @@ mark.cb-hl {
   transition: background .1s;
 }
 
+.world-item:hover { background: var(--bg-hover); }
+
 .world-item.active {
   background: var(--accent-glow);
   border-left-color: var(--accent);
@@ -2489,25 +2491,23 @@ mark.cb-hl {
 .world-item-main:hover .world-name { color: var(--text-primary); }
 
 .world-avatar {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
-  font-weight: 600;
-  color: var(--accent);
+  font-size: 14px;
+  color: var(--text-muted);
   flex-shrink: 0;
-  letter-spacing: .03em;
 }
 
 .world-name {
   font-size: 12px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2621,7 +2621,7 @@ mark.cb-hl {
 
 .lb-entry-name {
   flex: 1;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -2717,7 +2717,7 @@ mark.cb-hl {
 }
 
 .lb-priority-input {
-  width: 52px;
+  width: 72px;
   padding: 3px 6px;
   text-align: center;
   background: var(--bg-elevated);
@@ -2837,7 +2837,7 @@ mark.cb-hl {
   border-radius: var(--radius);
   padding: 10px 12px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 16px;
   font-family: var(--font-prose);
   line-height: 1.65;
   resize: none;
