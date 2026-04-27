@@ -99,7 +99,7 @@ export async function toggleWorldEnabled(worldId, enabled) {
 
 export async function deleteWorld(worldId) {
   showConfirmModal(
-    { title: "Delete World", message: "Delete this world and all its lorebook entries?", confirmText: "Delete", confirmClass: "btn-danger" },
+    { title: "Delete Lorebook", message: "⚠️ Delete this lorebook and all its entries?", confirmText: "Delete", confirmClass: "btn-danger" },
     async () => {
       try {
         await api.del(`/worlds/${worldId}`);
@@ -108,7 +108,7 @@ export async function deleteWorld(worldId) {
         if (_focusWorldId === worldId) closeLorebook();
         renderWorldsSidebar();
       } catch (e) {
-        toast("Failed to delete world", true);
+        toast("Failed to delete lorebook", true);
       }
     },
   );
@@ -199,6 +199,7 @@ function renderLorebookDrawer() {
         </div>
         <div class="lb-entry-list-footer">
           <button class="btn btn-sm btn-block" onclick="lbAddEntry()">+ New Entry</button>
+          <button class="btn btn-sm btn-block" style="color:var(--red);margin-top:4px" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
         </div>
       </div>
       <div class="lb-editor" id="lb-editor">
