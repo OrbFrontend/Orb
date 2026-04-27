@@ -31,10 +31,10 @@ async def _writer_pass(
 ) -> AsyncIterator[dict]:
     """Yields {"type": "content"|"reasoning", "delta": str} dicts."""
     tail = ""
-    if inj_block:
-        tail += "___\n\n" + inj_block + "\n\n"
     if lorebook_block:
         tail += "___\n\n" + lorebook_block + "\n\n"
+    if inj_block:
+        tail += "___\n\n" + inj_block + "\n\n"
     if len(enabled_tools) > 0:
         tail += "**Do not use tool or function calls.**\n\n"
     if length_guard_enforce and length_guard and length_guard.get("enabled"):

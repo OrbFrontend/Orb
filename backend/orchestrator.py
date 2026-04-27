@@ -115,6 +115,7 @@ async def _run_pipeline(
             attachments=attachments,
             kv_tracker=kv_tracker,
             reasoning_on=director_reasoning_on,
+            lorebook_block=lorebook_block,
         ):
             if event["type"] == "reasoning":
                 yield {
@@ -583,9 +584,11 @@ async def handle_turn(
         prefix = _build_prefix_from_ctx(ctx, history)
         asst_turn = next_turn + (0 if skip_user_persist else 1)
 
-        # Compute lorebook injection based on the conversation history
+        # Compute lorebook injection — include the current user message so its
+        # keywords are scanned, not just prior history.
         lorebook_block = compute_lorebook_injection_block(
-            history, ctx.get("lorebook_entries", [])
+            history + [{"role": "user", "content": user_message}],
+            ctx.get("lorebook_entries", []),
         )
 
         async def _on_result(res, asst_id):
@@ -678,9 +681,11 @@ async def handle_regenerate(
             await db.get_attachments_for_message(user_msg_id) if user_msg_id else []
         )
 
-        # Compute lorebook injection for regenerate
+        # Compute lorebook injection for regenerate — include the user message
+        # being regenerated so its keywords are scanned.
         lorebook_block = compute_lorebook_injection_block(
-            history, ctx.get("lorebook_entries", [])
+            history + [{"role": "user", "content": user_msg["content"]}],
+            ctx.get("lorebook_entries", []),
         )
 
         pipeline = _run_pipeline(
