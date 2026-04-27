@@ -225,7 +225,12 @@ def build_style_injection(
 # ── Lorebook injection block
 
 
-def compute_lorebook_injection_block(messages: list[dict], entries: list[dict]) -> str:
+def compute_lorebook_injection_block(
+    messages: list[dict],
+    entries: list[dict],
+    user_name: str = "User",
+    char_name: str = "",
+) -> str:
     """Compute the lorebook injection block from active entries whose keywords
     appear in the 6 most recent messages (any role).
 
@@ -271,8 +276,8 @@ def compute_lorebook_injection_block(messages: list[dict], entries: list[dict]) 
 
     parts = ["**Lorebook**"]
     for entry in matched:
-        name = entry.get("name", "")
-        content = entry.get("content", "")
+        name = replace_placeholders(entry.get("name", ""), user_name, char_name)
+        content = replace_placeholders(entry.get("content", ""), user_name, char_name)
         if name and content:
             parts.append(f"{name}: {content}")
         elif content:

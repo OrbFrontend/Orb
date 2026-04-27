@@ -327,18 +327,28 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
     }
 
 
+def _ctx_names(ctx: dict) -> tuple[str, str]:
+    """Return (user_name, char_name) resolved from a pipeline-context dict."""
+    active_persona = ctx.get("active_persona")
+    user_name = (
+        active_persona.get("name", "User")
+        if active_persona
+        else ctx["settings"].get("user_name", "User")
+    )
+    return user_name, ctx["conv"]["character_name"]
+
+
 def _build_prefix_from_ctx(ctx: dict, history: list[dict]) -> list[dict]:
     """Build the LLM prefix from a pipeline-context dict."""
     conv = ctx["conv"]
-    settings = ctx["settings"]
     active_persona = ctx.get("active_persona")
 
     if active_persona:
         user_name = active_persona.get("name", "User")
         user_description = active_persona.get("description", "")
     else:
-        user_name = settings.get("user_name", "User")
-        user_description = settings.get("user_description", "")
+        user_name = ctx["settings"].get("user_name", "User")
+        user_description = ctx["settings"].get("user_description", "")
 
     return build_prefix(
         ctx["system_prompt"],
@@ -590,9 +600,12 @@ async def handle_turn(
 
         # Compute lorebook injection — include the current user message so its
         # keywords are scanned, not just prior history.
+        _user_name, _char_name = _ctx_names(ctx)
         lorebook_block = compute_lorebook_injection_block(
             history + [{"role": "user", "content": user_message}],
             ctx.get("lorebook_entries", []),
+            _user_name,
+            _char_name,
         )
 
         async def _on_result(res, asst_id):
@@ -687,9 +700,12 @@ async def handle_regenerate(
 
         # Compute lorebook injection for regenerate — include the user message
         # being regenerated so its keywords are scanned.
+        _user_name, _char_name = _ctx_names(ctx)
         lorebook_block = compute_lorebook_injection_block(
             history + [{"role": "user", "content": user_msg["content"]}],
             ctx.get("lorebook_entries", []),
+            _user_name,
+            _char_name,
         )
 
         pipeline = _run_pipeline(
