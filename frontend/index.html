@@ -30,6 +30,15 @@
     </div>
     <div class="sidebar-scroll">
       <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Worlds <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-body collapsed" id="worlds-section">
+          <div class="btn-row" style="margin-bottom:8px;gap:8px">
+            <button class="btn btn-sm" style="flex:1;justify-content:center" onclick="showCreateWorldModal()">+ Create</button>
+          </div>
+          <div id="worlds-list"></div>
+        </div>
+      </div>
+      <div class="sidebar-section">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Characters <span class="arrow">▼</span></div>
         <div class="sidebar-section-body" id="char-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
@@ -68,6 +77,7 @@
     </div>
   </div>
   <div id="main">
+    <div id="lorebook-drawer" class="hidden"></div>
     <div id="tab-lock-banner" class="tab-lock-banner hidden">
       <span class="tab-lock-icon">⚠️</span>
       <span class="tab-lock-text">Multiple tabs detected. Close other tabs to send messages.</span>

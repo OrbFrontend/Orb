@@ -87,6 +87,26 @@ import {
   handleTitleEditKey,
 } from "./chat.js";
 import { closeModal, switchTab, showConfirmModal, runConfirmCb, closeCropModal } from "./modal.js";
+import {
+  loadWorlds,
+  renderWorldsSidebar,
+  showCreateWorldModal,
+  createWorld,
+  toggleWorldEnabled,
+  deleteWorld,
+  openLorebook,
+  closeLorebook,
+  lbSelectEntry,
+  lbToggleEntry,
+  lbAddEntry,
+  lbDeleteEntry,
+  lbSaveEntry,
+  lbDiscardChanges,
+  lbDraftChange,
+  lbChipKeydown,
+  lbChipInput,
+  lbRemoveChip,
+} from "./lorebooks.js";
 import { initMobileUi, toggleMobileSidebar, toggleMobileHeaderActions, closeMobileHeaderActions } from "./mobile.js";
 
 // ── Sidebar toggle
@@ -309,6 +329,23 @@ Object.assign(window, {
   updateAttachmentPreview,
   showAvatarPopup,
   hideAvatarPopup,
+  // worlds / lorebook
+  showCreateWorldModal,
+  createWorld,
+  toggleWorldEnabled,
+  deleteWorld,
+  openLorebook,
+  closeLorebook,
+  lbSelectEntry,
+  lbToggleEntry,
+  lbAddEntry,
+  lbDeleteEntry,
+  lbSaveEntry,
+  lbDiscardChanges,
+  lbDraftChange,
+  lbChipKeydown,
+  lbChipInput,
+  lbRemoveChip,
   // state
   S,
 });
@@ -405,6 +442,12 @@ async function initAll() {
     await loadCharacters();
   } catch (e) {
     console.error("Failed to load characters:", e);
+  }
+
+  try {
+    await loadWorlds();
+  } catch (e) {
+    console.error("Failed to load worlds:", e);
   }
 }
 
