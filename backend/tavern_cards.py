@@ -86,6 +86,7 @@ class TavernCardV2Data:
     tags: List[str] = field(default_factory=lambda: [])
     creator: str = ""
     character_version: str = ""
+    extensions: Dict[str, Any] = field(default_factory=lambda: dict())
     fav: Optional[bool] = None
     chat: Optional[str] = None
     creatorcomment: Optional[str] = None
@@ -184,6 +185,12 @@ def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
             logger.info(
                 f"V2 card has {len(card.data.alternate_greetings)} alternate greetings"
             )
+            if card.data.character_book is not None:
+                logger.info(
+                    f"V2 card has character_book with {len(card.data.character_book.entries)} entries"
+                )
+            else:
+                logger.info("V2 card has no character_book")
             logger.info(
                 f"V2 card fields: name={card.data.name}, first_mes={len(card.data.first_mes)} chars"
             )
@@ -248,8 +255,13 @@ def to_png(card_dict: dict, avatar_bytes: bytes | None = None) -> bytes:
             "tags": card_dict.get("tags", []),
             "creator": card_dict.get("creator", ""),
             "character_version": card_dict.get("character_version", ""),
+            "extensions": card_dict.get("extensions", {}),
         },
     }
+    # Include character_book if present
+    cb = card_dict.get("character_book")
+    if cb:
+        v2_payload["data"]["character_book"] = cb
     chara_b64 = base64.b64encode(
         json.dumps(v2_payload, ensure_ascii=False).encode("utf-8")
     ).decode("ascii")
@@ -271,6 +283,55 @@ def to_png(card_dict: dict, avatar_bytes: bytes | None = None) -> bytes:
     return buf.getvalue()
 
 
+def _character_book_entry_to_dict(entry: CharacterBookEntry) -> dict:
+    """Serialize a CharacterBookEntry to a spec-compliant dictionary."""
+    d: Dict[str, Any] = {
+        "keys": entry.keys,
+        "content": entry.content,
+        "extensions": entry.extensions if entry.extensions else {},
+        "enabled": entry.enabled,
+        "insertion_order": entry.insertion_order,
+    }
+    if entry.case_sensitive is not None:
+        d["case_sensitive"] = entry.case_sensitive
+    if entry.name is not None:
+        d["name"] = entry.name
+    if entry.priority is not None:
+        d["priority"] = entry.priority
+    if entry.id is not None:
+        d["id"] = entry.id
+    if entry.comment is not None:
+        d["comment"] = entry.comment
+    if entry.selective is not None:
+        d["selective"] = entry.selective
+    if entry.secondary_keys is not None:
+        d["secondary_keys"] = entry.secondary_keys
+    if entry.constant is not None:
+        d["constant"] = entry.constant
+    if entry.position is not None:
+        d["position"] = entry.position
+    return d
+
+
+def _character_book_to_dict(book: CharacterBook) -> dict:
+    """Serialize a CharacterBook to a spec-compliant dictionary."""
+    d: Dict[str, Any] = {
+        "extensions": book.extensions if book.extensions else {},
+        "entries": [_character_book_entry_to_dict(e) for e in book.entries],
+    }
+    if book.name is not None:
+        d["name"] = book.name
+    if book.description is not None:
+        d["description"] = book.description
+    if book.scan_depth is not None:
+        d["scan_depth"] = book.scan_depth
+    if book.token_budget is not None:
+        d["token_budget"] = book.token_budget
+    if book.recursive_scanning is not None:
+        d["recursive_scanning"] = book.recursive_scanning
+    return d
+
+
 def card_to_dict(card: Union[TavernCardV2, TavernCardV1]) -> dict:
     """Normalize a parsed card (V1 or V2) into a flat dictionary for storage."""
     if isinstance(card, TavernCardV2):
@@ -286,7 +347,11 @@ def card_to_dict(card: Union[TavernCardV2, TavernCardV1]) -> dict:
             )
         if len(d.alternate_greetings) > 3:
             logger.info(f"  ... and {len(d.alternate_greetings) - 3} more")
-        return {
+        if d.character_book is not None:
+            logger.info(
+                f"  Character book: {len(d.character_book.entries)} entries"
+            )
+        result = {
             "name": d.name,
             "description": d.description,
             "personality": d.personality,
@@ -300,8 +365,12 @@ def card_to_dict(card: Union[TavernCardV2, TavernCardV1]) -> dict:
             "tags": d.tags or [],
             "creator": d.creator or "",
             "character_version": d.character_version or "",
+            "extensions": d.extensions if d.extensions else {},
             "source_format": "tavern_v2",
         }
+        if d.character_book is not None:
+            result["character_book"] = _character_book_to_dict(d.character_book)
+        return result
     else:
         logger.info(
             f"Converting V1 card to dict: name={card.name}, no alternate greetings"
