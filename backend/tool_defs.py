@@ -194,9 +194,9 @@ EDITOR_PREAMBLE = (
 # Sent when only audit issues are flagged (banned phrases, repetitive
 # openers/templates) — no length guard.  Directs the model to patch only.
 EDITOR_PATCH_INSTRUCTIONS = (
-    "Use `editor_apply_patch` to apply a patch to fix flagged issues.\n\n"
+    "Use `editor_apply_patch` to apply a patch to fix ALL flagged issues.\n\n"
     "PATCHING RULES:\n"
-    "- The `search` field must be copied EXACTLY from the draft text above — including all punctuation and quotes.\n"
+    "- The `search` field must be copied EXACTLY from the draft text above, including all punctuation and quotes if they exist.\n"
     "- Each patch must target a DIFFERENT, non-overlapping piece of text.\n"
     "- Do NOT send a patch where `search` and `replace` are identical.\n"
     "- For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar, related words. Note: The audit report may show the canonical phrase name, but you need to remove the actual variant that appears in the sentence.\n"

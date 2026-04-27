@@ -186,6 +186,20 @@ _QUOTE_MAP = str.maketrans(
     }
 )
 
+# Non-standard escape sequences some LLMs emit literally in their JSON output.
+# Standard JSON escapes (\n, \t, etc.) are already decoded by json.loads;
+# these are the ones that slip through as literal two-character sequences.
+_LLM_ESCAPE_MAP = [
+    ("\\'", "'"),
+    ('\\"', '"'),
+]
+
+
+def _unescape_llm_artifacts(text: str) -> str:
+    for esc, ch in _LLM_ESCAPE_MAP:
+        text = text.replace(esc, ch)
+    return text
+
 
 def _normalize_quotes(text: str) -> str:
     return text.translate(_QUOTE_MAP)
@@ -197,8 +211,8 @@ def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
     logger.debug("Applying %d patches to draft (%d chars)", len(patches), len(draft))
 
     for i, p in enumerate(patches):
-        search = p.get("search", "")
-        replace = p.get("replace", "")
+        search = _unescape_llm_artifacts(p.get("search", ""))
+        replace = _unescape_llm_artifacts(p.get("replace", ""))
         if not search:
             logger.debug("Patch %d: empty search string, skipping", i)
             continue
