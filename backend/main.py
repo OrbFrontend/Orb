@@ -307,6 +307,7 @@ class CharacterCardCreate(BaseModel):
     avatar_b64: Optional[str] = None
     avatar_mime: Optional[str] = None
     world_id: Optional[str] = None
+    character_book: Optional[dict] = None
 
 
 class CharacterCardUpdate(BaseModel):
@@ -637,6 +638,28 @@ async def api_delete_lorebook_entry(world_id: str, entry_id: int):
     return {"ok": True}
 
 
+def _normalise_lorebook_entry(item: dict) -> dict:
+    keywords = item.get("keys") or item.get("key") or []
+    if not isinstance(keywords, list):
+        keywords = []
+    keywords = [str(k) for k in keywords if k]
+    name = item.get("name") or item.get("comment") or ""
+    if "disable" in item:
+        enabled = not item["disable"]
+    else:
+        enabled = bool(item.get("enabled", True))
+    priority = int(item.get("insertion_order") or item.get("order") or 100)
+    case_sensitive = item.get("caseSensitive") or item.get("case_sensitive")
+    return {
+        "name": str(name),
+        "content": str(item.get("content") or ""),
+        "keywords": keywords,
+        "enabled": enabled,
+        "priority": priority,
+        "case_insensitive": not bool(case_sensitive),
+    }
+
+
 @app.post("/api/worlds/{world_id}/import")
 async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
     world = await get_world(world_id)
@@ -654,46 +677,11 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
     else:
         raise HTTPException(422, "entries must be an object or array")
 
-    def _normalise(item: dict) -> dict:
-        # SillyTavern uses `key`, V2 uses `keys`
-        keywords = item.get("keys") or item.get("key") or []
-        if not isinstance(keywords, list):
-            keywords = []
-        keywords = [str(k) for k in keywords if k]
-
-        name = (
-            item.get("name")
-            or item.get("comment")
-            or ""
-        )
-
-        # SillyTavern `disable` inverts to enabled; V2 uses `enabled` directly
-        if "disable" in item:
-            enabled = not item["disable"]
-        else:
-            enabled = bool(item.get("enabled", True))
-
-        # SillyTavern uses `order`, V2 uses `insertion_order`
-        priority = int(item.get("insertion_order") or item.get("order") or 100)
-
-        # SillyTavern `caseSensitive` null → insensitive; V2 `case_sensitive` null → insensitive
-        case_sensitive = item.get("caseSensitive") or item.get("case_sensitive")
-        case_insensitive = not bool(case_sensitive)
-
-        return {
-            "name": str(name),
-            "content": str(item.get("content") or ""),
-            "keywords": keywords,
-            "enabled": enabled,
-            "priority": priority,
-            "case_insensitive": case_insensitive,
-        }
-
     created = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        entry_data = _normalise(item)
+        entry_data = _normalise_lorebook_entry(item)
         created.append(await create_lorebook_entry(world_id, entry_data))
 
     return {"imported": len(created), "entries": created}
@@ -891,10 +879,22 @@ async def api_list_characters():
 @app.post("/api/characters")
 async def api_create_character(data: CharacterCardCreate):
     card_data = data.model_dump()
-    card_data["id"] = card_data.get("id") or str(
-        uuid.uuid4()
-    )  # see CharacterCardCreate
+    card_data["id"] = card_data.get("id") or str(uuid.uuid4())
     card_data["source_format"] = card_data.get("source_format") or "manual"
+
+    character_book = card_data.pop("character_book", None)
+    if character_book and not card_data.get("world_id"):
+        entries = character_book.get("entries") or []
+        if isinstance(entries, dict):
+            entries = list(entries.values())
+        if entries:
+            book_name = character_book.get("name") or card_data["name"]
+            world = await create_world({"name": book_name})
+            for item in entries:
+                if isinstance(item, dict):
+                    await create_lorebook_entry(world["id"], _normalise_lorebook_entry(item))
+            card_data["world_id"] = world["id"]
+
     try:
         return await create_character_card(card_data)
     except ValueError as e:
@@ -1002,6 +1002,30 @@ async def api_export_character(card_id: str):
             avatar_bytes = None
 
     card["id"] = card_id
+
+    # If the character is linked to a lorebook, embed it as character_book
+    if card.get("world_id") and not card.get("character_book"):
+        world = await get_world(card["world_id"])
+        entries = await get_lorebook_entries(card["world_id"])
+        card["character_book"] = {
+            "name": world["name"] if world else "",
+            "extensions": {},
+            "entries": [
+                {
+                    "keys": e["keywords"],
+                    "content": e["content"],
+                    "extensions": {},
+                    "enabled": bool(e["enabled"]),
+                    "insertion_order": e["sort_order"],
+                    "case_sensitive": not bool(e["case_insensitive"]),
+                    "name": e["name"],
+                    "priority": e["priority"],
+                    "id": e["id"],
+                }
+                for e in entries
+            ],
+        }
+
     png_bytes = tavern_cards.to_png(card, avatar_bytes)
 
     safe_name = (

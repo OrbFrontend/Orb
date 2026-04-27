@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { showModal, closeModal, switchTab, showConfirmModal, showCropModal } from "./modal.js";
 import { resetChatUI, loadConversations } from "./chat.js";
 import { validate } from "./validate.js";
+import { loadWorlds } from "./lorebooks.js";
 
 // Pending avatar for the character create modal (cleared on submit or cancel)
 let _pendingAvatar = null;
@@ -11,6 +12,8 @@ let _pendingAvatar = null;
 let _pendingImportId = null;
 let _pendingImportSourceFormat = null;
 let _pendingTags = null;
+// Embedded character_book from an imported PNG (cleared on submit)
+let _pendingCharacterBook = null;
 // Per-card cache-bust timestamps so the browser re-fetches updated avatars
 const _avatarBust = new Map();
 
@@ -575,6 +578,9 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
     )
     .join("");
 
+  const noneLabel = !d.world_id && d.character_book
+    ? `(Import from embedded lorebook)`
+    : `(None)`;
   const worldOptions = worlds
     .map((w) => `<option value="${esc(w.id)}" ${d.world_id === w.id ? "selected" : ""}>${esc(w.name)}</option>`)
     .join("");
@@ -619,13 +625,13 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
     <div id="${prefix}-tmisc" class="tab-content">
       <div class="field"><label>Linked Lorebook</label>
         <select id="${prefix}-world-id">
-          <option value="">(None)</option>
+          <option value="">${noneLabel}</option>
           ${worldOptions}
         </select>
       </div>
       ${
         d.character_book
-          ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px">Imported card contains an embedded character book (${(d.character_book.entries || []).length} entries). It is preserved on PNG export.</div>`
+          ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px">Imported card contains an embedded lorebook (${(d.character_book.entries || []).length} entries). It will be imported as a new lorebook unless you select one above.</div>`
           : ""
       }
     </div>`
@@ -735,9 +741,11 @@ export async function showCharEditModal(idOrData) {
 
   if (isNew) {
     _pendingTags = c.tags || [];
+    _pendingCharacterBook = c.character_book || null;
     console.log("showCharEditModal import tags:", c.tags, "pending:", _pendingTags);
   } else {
     _pendingTags = null;
+    _pendingCharacterBook = null;
     console.log("showCharEditModal edit tags:", c.tags, "pending:", _pendingTags);
   }
 
@@ -949,14 +957,16 @@ export async function saveImportedChar() {
   }
   if (_pendingImportId) d.id = _pendingImportId;
   if (_pendingImportSourceFormat) d.source_format = _pendingImportSourceFormat;
+  if (_pendingCharacterBook && !d.world_id) d.character_book = _pendingCharacterBook;
   _pendingAvatar = null;
   _pendingImportId = null;
   _pendingImportSourceFormat = null;
   _pendingTags = null;
+  _pendingCharacterBook = null;
   try {
     const created = await api.post("/characters", d);
     closeModal();
-    await loadCharacters();
+    await Promise.all([loadCharacters(), loadWorlds()]);
     toast(`Imported "${created.name}"`);
   } catch (e) {
     if (e.status === 409) toast("Character already in your library", true);
