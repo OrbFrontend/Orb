@@ -2561,8 +2561,8 @@ mark.cb-hl {
 
 /* ── Entry list panel */
 .lb-entry-list {
-  width: 210px;
-  min-width: 210px;
+  width: 260px;
+  min-width: 260px;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -2587,7 +2587,21 @@ mark.cb-hl {
 .lb-active-count {
   font-size: 10px;
   color: var(--text-muted);
+  margin-left: auto;
 }
+
+.lb-rename-btn {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 2px 4px;
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0.5;
+}
+.lb-rename-btn:hover { opacity: 1; background: none; }
 
 .lb-entries-scroll {
   flex: 1;

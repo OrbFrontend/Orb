@@ -7,7 +7,7 @@ import base64
 import tempfile
 from contextlib import asynccontextmanager
 
-from typing import Annotated, Optional, List
+from typing import Annotated, Any, Optional, List
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -249,6 +249,16 @@ class LorebookEntryUpdate(BaseModel):
     case_insensitive: Optional[bool] = None
     priority: Optional[int] = None
     enabled: Optional[bool] = None
+
+
+class LorebookImportPayload(BaseModel):
+    # Accepts raw lorebook JSON as parsed by the frontend.
+    # Supports two common formats:
+    #   - SillyTavern standalone lorebook: {"entries": {"0": {...}, "1": {...}}}
+    #     where each entry has `key` (list), `comment`, `content`, `disable`, `order`, `caseSensitive`
+    #   - Tavern V2 character_book: {"entries": [...]}
+    #     where each entry has `keys`, `name`, `content`, `enabled`, `insertion_order`, `case_sensitive`
+    entries: Any
 
 
 class ConversationCreate(BaseModel):
@@ -625,6 +635,68 @@ async def api_delete_lorebook_entry(world_id: str, entry_id: int):
     if not await delete_lorebook_entry(entry_id):
         raise HTTPException(404, "Entry not found")
     return {"ok": True}
+
+
+@app.post("/api/worlds/{world_id}/import")
+async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
+    world = await get_world(world_id)
+    if not world:
+        raise HTTPException(404, "World not found")
+
+    raw_entries = payload.entries
+    # Normalise both formats into a flat list of dicts
+    if isinstance(raw_entries, dict):
+        # SillyTavern standalone: {"0": {...}, "1": {...}}
+        items = list(raw_entries.values())
+    elif isinstance(raw_entries, list):
+        # Tavern V2 character_book: [...]
+        items = raw_entries
+    else:
+        raise HTTPException(422, "entries must be an object or array")
+
+    def _normalise(item: dict) -> dict:
+        # SillyTavern uses `key`, V2 uses `keys`
+        keywords = item.get("keys") or item.get("key") or []
+        if not isinstance(keywords, list):
+            keywords = []
+        keywords = [str(k) for k in keywords if k]
+
+        name = (
+            item.get("name")
+            or item.get("comment")
+            or ""
+        )
+
+        # SillyTavern `disable` inverts to enabled; V2 uses `enabled` directly
+        if "disable" in item:
+            enabled = not item["disable"]
+        else:
+            enabled = bool(item.get("enabled", True))
+
+        # SillyTavern uses `order`, V2 uses `insertion_order`
+        priority = int(item.get("insertion_order") or item.get("order") or 100)
+
+        # SillyTavern `caseSensitive` null → insensitive; V2 `case_sensitive` null → insensitive
+        case_sensitive = item.get("caseSensitive") or item.get("case_sensitive")
+        case_insensitive = not bool(case_sensitive)
+
+        return {
+            "name": str(name),
+            "content": str(item.get("content") or ""),
+            "keywords": keywords,
+            "enabled": enabled,
+            "priority": priority,
+            "case_insensitive": case_insensitive,
+        }
+
+    created = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        entry_data = _normalise(item)
+        created.append(await create_lorebook_entry(world_id, entry_data))
+
+    return {"imported": len(created), "entries": created}
 
 
 @app.get("/api/lorebook-entries/active")

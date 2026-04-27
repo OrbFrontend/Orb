@@ -92,6 +92,8 @@ import {
   renderWorldsSidebar,
   showCreateWorldModal,
   createWorld,
+  showRenameWorldModal,
+  renameWorld,
   toggleWorldEnabled,
   deleteWorld,
   openLorebook,
@@ -106,6 +108,7 @@ import {
   lbChipKeydown,
   lbChipInput,
   lbRemoveChip,
+  lbImportJson,
 } from "./lorebooks.js";
 import { initMobileUi, toggleMobileSidebar, toggleMobileHeaderActions, closeMobileHeaderActions } from "./mobile.js";
 
@@ -332,6 +335,8 @@ Object.assign(window, {
   // worlds / lorebook
   showCreateWorldModal,
   createWorld,
+  showRenameWorldModal,
+  renameWorld,
   toggleWorldEnabled,
   deleteWorld,
   openLorebook,
@@ -346,6 +351,7 @@ Object.assign(window, {
   lbChipKeydown,
   lbChipInput,
   lbRemoveChip,
+  lbImportJson,
   // state
   S,
 });

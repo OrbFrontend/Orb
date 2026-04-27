@@ -95,6 +95,43 @@ export async function deactivateWorld(worldId) {
 }
 
 // ── World CRUD
+export function showRenameWorldModal(worldId) {
+  const world = _getWorld(worldId);
+  if (!world) return;
+  showModal(`
+    <h2>Rename Lorebook</h2>
+    <div class="field">
+      <label>Name</label>
+      <input id="rename-world-inp" value="${esc(world.name)}" autofocus>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="renameWorld('${worldId}')">Rename</button>
+    </div>`);
+  setTimeout(() => {
+    const inp = $("rename-world-inp");
+    if (inp) { inp.focus(); inp.select(); }
+  }, 50);
+}
+
+export async function renameWorld(worldId) {
+  const name = $("rename-world-inp")?.value?.trim();
+  if (!name) {
+    toast("Name is required", true);
+    return;
+  }
+  try {
+    const updated = await api.put(`/worlds/${worldId}`, { name });
+    const idx = _worlds.findIndex((w) => w.id === worldId);
+    if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
+    closeModal();
+    renderWorldsSidebar();
+    if (_focusWorldId === worldId) renderLorebookDrawer();
+  } catch (e) {
+    toast("Failed to rename lorebook", true);
+  }
+}
+
 export async function showCreateWorldModal() {
   showModal(`
     <h2>New World</h2>
@@ -241,6 +278,7 @@ function renderLorebookDrawer() {
       <div class="lb-entry-list">
         <div class="lb-world-header">
           <span class="lb-world-name">${esc(world.name)}</span>
+          <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook">✎</button>
           <span class="lb-active-count">${activeCount} active</span>
         </div>
         <div class="lb-entries-scroll">
@@ -248,7 +286,7 @@ function renderLorebookDrawer() {
         </div>
         <div class="lb-entry-list-footer">
           <button class="btn btn-sm btn-block" onclick="lbAddEntry()">+ New Entry</button>
-          <button class="btn btn-sm btn-block" style="color:var(--red);margin-top:4px" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
+<button class="btn btn-sm btn-block" style="color:var(--red);margin-top:4px" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
         </div>
       </div>
       <div class="lb-editor" id="lb-editor">
@@ -531,4 +569,41 @@ export async function lbAddEntry() {
   } catch (e) {
     toast("Failed to create entry", true);
   }
+}
+
+// ── Import lorebook from JSON file (always creates a new world)
+export function lbImportJson() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      toast("Invalid JSON file", true);
+      return;
+    }
+    // Accept a top-level {entries:...} lorebook object or a bare array
+    const payload = Array.isArray(parsed) ? { entries: parsed } : parsed;
+    if (!payload.entries) {
+      toast("No entries found in file", true);
+      return;
+    }
+    const worldName = payload.name || file.name.replace(/\.json$/i, "") || "Imported Lorebook";
+    try {
+      const world = await api.post("/worlds", { name: worldName });
+      _worlds.push(world);
+      const result = await api.post(`/worlds/${world.id}/import`, payload);
+      _entries[world.id] = result.entries;
+      renderWorldsSidebar();
+      openLorebook(world.id);
+      toast(`Imported ${result.imported} ${result.imported === 1 ? "entry" : "entries"}`);
+    } catch (e) {
+      toast("Import failed", true);
+    }
+  };
+  input.click();
 }
