@@ -39,9 +39,10 @@ export function renderWorldsSidebar() {
       const enabled = w.enabled === true || w.enabled === 1;
       const active = _lorebookOpen && _focusWorldId === w.id;
       const toggleId = `world-toggle-${w.id}`;
+      const clickHandler = active ? 'closeLorebook()' : `openLorebook('${w.id}')`;
       return `
       <div class="world-item${active ? " active" : ""}">
-        <div class="world-item-main" onclick="openLorebook('${w.id}')">
+        <div class="world-item-main" onclick="${clickHandler}">
           <div class="world-avatar">${esc(initials)}</div>
           <span class="world-name">${esc(w.name)}</span>
         </div>
