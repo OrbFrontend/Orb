@@ -131,7 +131,9 @@ async def _director_pass(
     t0 = time.monotonic()
     for name in tool_names:
         tool_tail = build_tool_prompt(name, user_message, active_moods, mood_fragments)
-        tail = ("___\n\n" + lorebook_block + "\n\n" if lorebook_block else "") + tool_tail
+        tail = (
+            "___\n\n" + lorebook_block + "\n\n" if lorebook_block else ""
+        ) + tool_tail
         if attachments:
             parts = [{"type": "text", "text": tail}]
             for att in attachments:

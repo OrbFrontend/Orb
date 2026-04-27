@@ -348,9 +348,7 @@ def card_to_dict(card: Union[TavernCardV2, TavernCardV1]) -> dict:
         if len(d.alternate_greetings) > 3:
             logger.info(f"  ... and {len(d.alternate_greetings) - 3} more")
         if d.character_book is not None:
-            logger.info(
-                f"  Character book: {len(d.character_book.entries)} entries"
-            )
+            logger.info(f"  Character book: {len(d.character_book.entries)} entries")
         result = {
             "name": d.name,
             "description": d.description,

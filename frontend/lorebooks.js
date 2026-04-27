@@ -39,7 +39,7 @@ export function renderWorldsSidebar() {
       const enabled = w.enabled === true || w.enabled === 1;
       const active = _lorebookOpen && _focusWorldId === w.id;
       const toggleId = `world-toggle-${w.id}`;
-      const clickHandler = active ? 'closeLorebook()' : `openLorebook('${w.id}')`;
+      const clickHandler = active ? "closeLorebook()" : `openLorebook('${w.id}')`;
       return `
       <div class="world-item${active ? " active" : ""}">
         <div class="world-item-main" onclick="${clickHandler}">
@@ -111,7 +111,10 @@ export async function showCreateWorldModal() {
 
 export async function createWorld() {
   const name = $("world-name-inp")?.value?.trim();
-  if (!name) { toast("Name is required", true); return; }
+  if (!name) {
+    toast("Name is required", true);
+    return;
+  }
   try {
     const w = await api.post("/worlds", { name });
     _worlds.push(w);
@@ -135,7 +138,12 @@ export async function toggleWorldEnabled(worldId, enabled) {
 
 export async function deleteWorld(worldId) {
   showConfirmModal(
-    { title: "Delete Lorebook", message: "⚠️ Delete this lorebook and all its entries?", confirmText: "Delete", confirmClass: "btn-danger" },
+    {
+      title: "Delete Lorebook",
+      message: "⚠️ Delete this lorebook and all its entries?",
+      confirmText: "Delete",
+      confirmClass: "btn-danger",
+    },
     async () => {
       try {
         await api.del(`/worlds/${worldId}`);
@@ -191,7 +199,10 @@ function renderLorebookDrawer() {
   if (!drawer) return;
 
   const world = _getWorld(_focusWorldId);
-  if (!world) { closeLorebook(); return; }
+  if (!world) {
+    closeLorebook();
+    return;
+  }
 
   const entries = _entries[_focusWorldId] || [];
   const activeCount = entries.filter((e) => e.enabled === true || e.enabled === 1).length;
@@ -217,7 +228,9 @@ function renderLorebookDrawer() {
     })
     .join("");
 
-  const editorHtml = _selectedEntryId ? _buildEditorHtml() : `<div class="lb-empty-state">Select an entry to edit</div>`;
+  const editorHtml = _selectedEntryId
+    ? _buildEditorHtml()
+    : `<div class="lb-empty-state">Select an entry to edit</div>`;
 
   drawer.innerHTML = `
     <div class="lb-header">
@@ -293,7 +306,12 @@ function _renderKeywordChips() {
   if (!wrap) return;
   const chips = _draft.keywords;
   wrap.innerHTML =
-    chips.map((c, i) => `<span class="lb-chip">${esc(c)}<button class="lb-chip-remove" onclick="lbRemoveChip(${i})">×</button></span>`).join("") +
+    chips
+      .map(
+        (c, i) =>
+          `<span class="lb-chip">${esc(c)}<button class="lb-chip-remove" onclick="lbRemoveChip(${i})">×</button></span>`,
+      )
+      .join("") +
     `<input id="lb-chip-text" class="lb-chip-text" placeholder="${chips.length ? "" : "Add keyword…"}" onkeydown="lbChipKeydown(event)" oninput="lbChipInput(this)">`;
 }
 
@@ -383,7 +401,12 @@ export function lbSelectEntry(entryId) {
   if (_selectedEntryId === entryId) return;
   if (_dirty) {
     showConfirmModal(
-      { title: "Unsaved changes", message: "Discard changes to this entry and continue?", confirmText: "Discard & continue", confirmClass: "btn-danger" },
+      {
+        title: "Unsaved changes",
+        message: "Discard changes to this entry and continue?",
+        confirmText: "Discard & continue",
+        confirmClass: "btn-danger",
+      },
       () => _doSelectEntry(entryId),
     );
     return;
@@ -469,7 +492,12 @@ export function lbDeleteEntry() {
   if (!_selectedEntryId) return;
   const worldId = _focusWorldId;
   showConfirmModal(
-    { title: "Delete Entry", message: "Delete this lorebook entry?", confirmText: "Delete", confirmClass: "btn-danger" },
+    {
+      title: "Delete Entry",
+      message: "Delete this lorebook entry?",
+      confirmText: "Delete",
+      confirmClass: "btn-danger",
+    },
     async () => {
       try {
         await api.del(`/worlds/${worldId}/entries/${_selectedEntryId}`);

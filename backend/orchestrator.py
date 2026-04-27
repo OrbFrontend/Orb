@@ -13,7 +13,11 @@ from . import database as db
 from .llm_client import LLMClient
 from .endpoint_profiles import profile_for
 from .tool_defs import TOOLS, POST_WRITER_TOOLS
-from .prompt_builder import build_prefix, compute_style_injection_block, compute_lorebook_injection_block
+from .prompt_builder import (
+    build_prefix,
+    compute_style_injection_block,
+    compute_lorebook_injection_block,
+)
 from .kv_tracker import _KVCacheTracker
 from .passes.director import _director_pass
 from .passes.writer import _writer_pass

@@ -599,7 +599,9 @@ async def api_get_lorebook_entry(world_id: str, entry_id: int):
 
 
 @app.put("/api/worlds/{world_id}/entries/{entry_id}")
-async def api_update_lorebook_entry(world_id: str, entry_id: int, data: LorebookEntryUpdate):
+async def api_update_lorebook_entry(
+    world_id: str, entry_id: int, data: LorebookEntryUpdate
+):
     world = await get_world(world_id)
     if not world:
         raise HTTPException(404, "World not found")
@@ -889,11 +891,7 @@ async def api_update_character(card_id: str, data: CharacterCardUpdate):
     result = await update_character_card(card_id, update_data)
     if not result:
         raise HTTPException(404, "Character card not found")
-    old_name = (
-        old_card["name"]
-        if old_card and "name" in update_data
-        else None
-    )
+    old_name = old_card["name"] if old_card and "name" in update_data else None
     await sync_conversations_for_card(card_id, result, old_name=old_name)
     return result
 

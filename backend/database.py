@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import List, Optional
-import asyncio
 import aiosqlite
 import sqlite3
 import json
@@ -704,9 +703,7 @@ async def init_db():
 async def get_worlds() -> list[dict]:
     db = await get_db()
     try:
-        rows = await db.execute_fetchall(
-            "SELECT * FROM worlds ORDER BY created_at ASC"
-        )
+        rows = await db.execute_fetchall("SELECT * FROM worlds ORDER BY created_at ASC")
         return [dict(r) for r in rows]
     finally:
         await db.close()
@@ -876,9 +873,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> dict | None:
 async def delete_lorebook_entry(entry_id: int) -> bool:
     db = await get_db()
     try:
-        cur = await db.execute(
-            "DELETE FROM lorebook_entries WHERE id = ?", (entry_id,)
-        )
+        cur = await db.execute("DELETE FROM lorebook_entries WHERE id = ?", (entry_id,))
         await db.commit()
         return cur.rowcount > 0
     finally:

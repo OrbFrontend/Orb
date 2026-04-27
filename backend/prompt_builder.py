@@ -225,9 +225,7 @@ def build_style_injection(
 # ── Lorebook injection block
 
 
-def compute_lorebook_injection_block(
-    messages: list[dict], entries: list[dict]
-) -> str:
+def compute_lorebook_injection_block(messages: list[dict], entries: list[dict]) -> str:
     """Compute the lorebook injection block from active entries whose keywords
     appear in the 6 most recent messages (any role).
 
