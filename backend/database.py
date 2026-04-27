@@ -720,6 +720,17 @@ async def get_world(world_id: str) -> dict | None:
         await db.close()
 
 
+async def get_world_by_name(name: str) -> dict | None:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM worlds WHERE name = ? LIMIT 1", (name,)
+        )
+        return dict(rows[0]) if rows else None
+    finally:
+        await db.close()
+
+
 async def create_world(data: dict) -> dict:
     db = await get_db()
     try:

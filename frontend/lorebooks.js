@@ -593,6 +593,10 @@ export function lbImportJson() {
       return;
     }
     const worldName = payload.name || file.name.replace(/\.json$/i, "") || "Imported Lorebook";
+    if (_worlds.some((w) => w.name === worldName)) {
+      toast(`A lorebook named "${worldName}" already exists`, true);
+      return;
+    }
     try {
       const world = await api.post("/worlds", { name: worldName });
       _worlds.push(world);

@@ -73,6 +73,7 @@ from .database import (
     get_messages,
     get_worlds,
     get_world,
+    get_world_by_name,
     create_world,
     update_world,
     delete_world,
@@ -889,10 +890,12 @@ async def api_create_character(data: CharacterCardCreate):
             entries = list(entries.values())
         if entries:
             book_name = character_book.get("name") or card_data["name"]
-            world = await create_world({"name": book_name})
-            for item in entries:
-                if isinstance(item, dict):
-                    await create_lorebook_entry(world["id"], _normalise_lorebook_entry(item))
+            world = await get_world_by_name(book_name)
+            if not world:
+                world = await create_world({"name": book_name})
+                for item in entries:
+                    if isinstance(item, dict):
+                        await create_lorebook_entry(world["id"], _normalise_lorebook_entry(item))
             card_data["world_id"] = world["id"]
 
     try:
