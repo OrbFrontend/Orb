@@ -416,11 +416,13 @@ body {
   flex-shrink: 0;
   position: relative;
   z-index: 1;
+  margin-top: 4px;
 }
 
 .frag-toggle {
   position: relative;
-  display: inline-block;
+  display: flex;
+  align-items: center;
   cursor: pointer;
   user-select: none;
 }
