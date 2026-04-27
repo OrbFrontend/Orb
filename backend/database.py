@@ -388,6 +388,7 @@ async def init_db():
                 avatar_b64 TEXT DEFAULT NULL,
                 avatar_mime TEXT DEFAULT NULL,
                 source_format TEXT NOT NULL DEFAULT 'manual',
+                world_id TEXT DEFAULT NULL REFERENCES worlds(id) ON DELETE SET NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -580,6 +581,16 @@ async def init_db():
         if "enabled" not in fragment_cols:
             await db.execute(
                 "ALTER TABLE mood_fragments ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT 1"
+            )
+
+        # Migration for character_cards world_id column
+        character_cols = {
+            row[1]
+            for row in await db.execute_fetchall("PRAGMA table_info(character_cards)")
+        }
+        if "world_id" not in character_cols:
+            await db.execute(
+                "ALTER TABLE character_cards ADD COLUMN world_id TEXT DEFAULT NULL REFERENCES worlds(id) ON DELETE SET NULL"
             )
 
         # Seed settings if empty
@@ -2010,7 +2021,7 @@ async def list_character_cards() -> list[dict]:
     db = await get_db()
     try:
         rows = await db.execute_fetchall(
-            "SELECT id, name, description, personality, scenario, first_mes, creator_notes, system_prompt, tags, creator, source_format, created_at, updated_at, avatar_mime FROM character_cards ORDER BY updated_at DESC"
+            "SELECT id, name, description, personality, scenario, first_mes, creator_notes, system_prompt, tags, creator, source_format, created_at, updated_at, avatar_mime, world_id FROM character_cards ORDER BY updated_at DESC"
         )
         result = []
         for r in rows:
@@ -2033,7 +2044,7 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> dict
             else (
                 "id, name, description, personality, scenario, first_mes, mes_example, "
                 "creator_notes, system_prompt, post_history_instructions, tags, creator, "
-                "character_version, alternate_greetings, avatar_mime, source_format, created_at, updated_at"
+                "character_version, alternate_greetings, avatar_mime, source_format, world_id, created_at, updated_at"
             )
         )
         rows = await db.execute_fetchall(
@@ -2063,8 +2074,8 @@ async def create_character_card(data: dict) -> dict:
                    (id, name, description, personality, scenario, first_mes, mes_example,
                     creator_notes, system_prompt, post_history_instructions, tags, creator,
                     character_version, alternate_greetings, avatar_b64, avatar_mime,
-                    source_format, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    source_format, world_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     data["id"],
                     data["name"],
@@ -2083,6 +2094,7 @@ async def create_character_card(data: dict) -> dict:
                     data.get("avatar_b64"),
                     data.get("avatar_mime"),
                     data.get("source_format", "manual"),
+                    data.get("world_id"),
                     now,
                     now,
                 ),
@@ -2145,6 +2157,7 @@ async def update_character_card(card_id: str, data: dict) -> dict | None:
             "post_history_instructions",
             "creator",
             "character_version",
+            "world_id",
         ]
         sets = []
         vals = []

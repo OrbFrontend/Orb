@@ -58,6 +58,27 @@ export function renderWorldsSidebar() {
     .join("");
 }
 
+// ── Activate and prioritize a world (called when loading a character with a linked lorebook)
+export async function activateAndPrioritizeWorld(worldId) {
+  const idx = _worlds.findIndex((w) => w.id === worldId);
+  if (idx === -1) return;
+  const world = _worlds[idx];
+  const enabled = world.enabled === true || world.enabled === 1;
+  if (!enabled) {
+    try {
+      const updated = await api.put(`/worlds/${worldId}`, { enabled: true });
+      _worlds[idx] = { ...world, ...updated };
+    } catch (e) {
+      console.error("Failed to enable world:", e);
+      return;
+    }
+  }
+  // Move to top of list
+  const [w] = _worlds.splice(idx, 1);
+  _worlds.unshift(w);
+  renderWorldsSidebar();
+}
+
 // ── World CRUD
 export async function showCreateWorldModal() {
   showModal(`

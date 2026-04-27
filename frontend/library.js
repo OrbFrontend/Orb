@@ -564,7 +564,7 @@ export function exportCharacter(id, name) {
 }
 
 // ── Shared tab template for create / edit modals
-function charFormTabs(prefix, d, isEdit) {
+function charFormTabs(prefix, d, isEdit, worlds = []) {
   const agHtml = (d.alternate_greetings || [])
     .map(
       (g) => `
@@ -575,12 +575,17 @@ function charFormTabs(prefix, d, isEdit) {
     )
     .join("");
 
+  const worldOptions = worlds
+    .map((w) => `<option value="${esc(w.id)}" ${d.world_id === w.id ? "selected" : ""}>${esc(w.name)}</option>`)
+    .join("");
+
   return `
     <div class="tabs">
       <div class="tab active" onclick="switchTab(this,'${prefix}-tp')">Persona</div>
       <div class="tab" onclick="switchTab(this,'${prefix}-ts')">Scenario</div>
       <div class="tab" onclick="switchTab(this,'${prefix}-tm')">Messages</div>
       ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-ta')">Advanced</div>` : ""}
+      ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-tmisc')">Misc</div>` : ""}
     </div>
     <div id="${prefix}-tp" class="tab-content active">
       <div class="field"><label>Description</label><textarea id="${prefix}-desc" rows="5">${esc(d.description || "")}</textarea></div>
@@ -605,6 +610,24 @@ function charFormTabs(prefix, d, isEdit) {
       <div class="field"><label>System Prompt Override</label><textarea id="${prefix}-sysprompt" rows="3">${esc(d.system_prompt || "")}</textarea></div>
       <div class="field"><label>Post-History Instructions</label><textarea id="${prefix}-posthist" rows="3">${esc(d.post_history_instructions || "")}</textarea></div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:8px">Source: ${esc(d.source_format)} · ID: ${esc(d.id)}</div>
+    </div>`
+        : ""
+    }
+    ${
+      isEdit
+        ? `
+    <div id="${prefix}-tmisc" class="tab-content">
+      <div class="field"><label>Linked Lorebook</label>
+        <select id="${prefix}-world-id">
+          <option value="">(None)</option>
+          ${worldOptions}
+        </select>
+      </div>
+      ${
+        d.character_book
+          ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px">Imported card contains an embedded character book (${(d.character_book.entries || []).length} entries). It is preserved on PNG export.</div>`
+          : ""
+      }
     </div>`
         : ""
     }`;
@@ -720,6 +743,14 @@ export async function showCharEditModal(idOrData) {
 
   const tags = (c.tags || []).map((t) => `<span class="char-tag">${esc(t)}</span>`).join("");
 
+  // Load worlds for the lorebook selector
+  let worlds = [];
+  try {
+    worlds = await api.get("/worlds");
+  } catch (e) {
+    console.error("Failed to load worlds:", e);
+  }
+
   showModal(`
     <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:16px;">
       <div id="ce-avatar-preview" class="char-avatar-lg" onclick="triggerAvatarCrop('ce')"
@@ -732,7 +763,7 @@ export async function showCharEditModal(idOrData) {
         ${tags ? `<div class="char-tags">${tags}</div>` : ""}
       </div>
     </div>
-    ${charFormTabs("ce", c, true)}
+    ${charFormTabs("ce", c, true, worlds)}
     <div class="modal-actions">
       ${!isNew ? `<button class="btn btn-danger btn-sm" onclick="deleteCharacter('${c.id}')">Delete</button>` : ""}
       <div style="flex:1"></div>
@@ -809,6 +840,7 @@ export async function saveCharEdit(id) {
     post_history_instructions: $("ce-posthist").value.trim(),
     tags: _pendingTags || [],
     alternate_greetings: _readAltGreetings("ce"),
+    world_id: $("ce-world-id")?.value || null,
   };
   if (_pendingTags === null) {
     delete d.tags;
@@ -909,6 +941,7 @@ export async function saveImportedChar() {
     post_history_instructions: $("ce-posthist").value.trim(),
     tags: _pendingTags || [],
     alternate_greetings: _readAltGreetings("ce"),
+    world_id: $("ce-world-id")?.value || null,
   };
   if (_pendingAvatar) {
     d.avatar_b64 = _pendingAvatar.b64;

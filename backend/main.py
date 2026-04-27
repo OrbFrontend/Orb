@@ -296,6 +296,7 @@ class CharacterCardCreate(BaseModel):
     alternate_greetings: list[str] = []
     avatar_b64: Optional[str] = None
     avatar_mime: Optional[str] = None
+    world_id: Optional[str] = None
 
 
 class CharacterCardUpdate(BaseModel):
@@ -324,6 +325,7 @@ class CharacterCardUpdate(BaseModel):
     alternate_greetings: Optional[list[str]] = None
     avatar_b64: Optional[str] = None
     avatar_mime: Optional[str] = None
+    world_id: Optional[str] = None
 
 
 class AttachmentIn(BaseModel):
@@ -880,12 +882,16 @@ async def api_get_character(card_id: str):
 @app.put("/api/characters/{card_id}")
 async def api_update_character(card_id: str, data: CharacterCardUpdate):
     old_card = await get_character_card(card_id)
-    result = await update_character_card(card_id, data.model_dump(exclude_none=True))
+    update_data = data.model_dump(exclude_none=True)
+    # world_id can be explicitly set to None to unlink; preserve it via model_fields_set
+    if "world_id" in data.model_fields_set:
+        update_data["world_id"] = data.world_id
+    result = await update_character_card(card_id, update_data)
     if not result:
         raise HTTPException(404, "Character card not found")
     old_name = (
         old_card["name"]
-        if old_card and "name" in data.model_dump(exclude_none=True)
+        if old_card and "name" in update_data
         else None
     )
     await sync_conversations_for_card(card_id, result, old_name=old_name)

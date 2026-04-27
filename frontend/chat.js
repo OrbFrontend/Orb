@@ -16,6 +16,7 @@ import {
 import { api } from "./api.js";
 import { showModal, closeModal, showConfirmModal } from "./modal.js";
 import { renderCharacters, loadCharacters, refreshCharacters } from "./library.js";
+import { activateAndPrioritizeWorld } from "./lorebooks.js";
 import { validate } from "./validate.js";
 import { requestSendPermission } from "./tabLock.js";
 
@@ -273,6 +274,15 @@ export async function selectConversation(id) {
   }
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;
+
+  // If the character has a linked lorebook, activate it and move it to the top
+  if (conv?.character_card_id) {
+    const char = (S.allCharacters || []).find((c) => c.id === conv.character_card_id);
+    if (char?.world_id) {
+      activateAndPrioritizeWorld(char.world_id);
+    }
+  }
+
   S.messages = normalizeMessages(await api.get(convUrl(id, "messages")));
   S.directorState = await api.get(convUrl(id, "director"));
   S.editingMsgId = null;
