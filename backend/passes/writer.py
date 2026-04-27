@@ -21,6 +21,7 @@ async def _writer_pass(
     enabled_tools: dict | None = None,
     *,
     inj_block: str = "",
+    lorebook_block: str = "",
     effective_msg: str,
     attachments: Optional[List[dict]] = None,
     length_guard_enforce: bool = False,
@@ -32,6 +33,8 @@ async def _writer_pass(
     tail = ""
     if inj_block:
         tail += "___\n\n" + inj_block + "\n\n"
+    if lorebook_block:
+        tail += "___\n\n" + lorebook_block + "\n\n"
     if len(enabled_tools) > 0:
         tail += "**Do not use tool or function calls.**\n\n"
     if length_guard_enforce and length_guard and length_guard.get("enabled"):

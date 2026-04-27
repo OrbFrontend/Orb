@@ -219,3 +219,65 @@ def build_style_injection(
             parts.append(f'Deactivated [{f["id"]}]: {neg}')
 
     return "\n\n".join(parts)
+
+
+# ── Lorebook injection block
+
+
+def compute_lorebook_injection_block(
+    messages: list[dict], entries: list[dict]
+) -> str:
+    """Compute the lorebook injection block from active entries whose keywords
+    appear in the latest user message.
+
+    Entries are sorted by priority DESC. Returns empty string if no matches.
+    """
+    if not entries:
+        return ""
+
+    # Scan only the latest user message for keyword matching
+    latest_user_msg = ""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            latest_user_msg = m.get("content") or ""
+            break
+
+    if not latest_user_msg:
+        return ""
+
+    scan_text = latest_user_msg
+    matched = []
+
+    for entry in entries:
+        keywords = entry.get("keywords", [])
+        if not keywords:
+            continue
+
+        case_insensitive = entry.get("case_insensitive", True)
+        text = scan_text.lower() if case_insensitive else scan_text
+
+        found = False
+        for kw in keywords:
+            kw_text = kw.lower() if case_insensitive else kw
+            if kw_text in text:
+                found = True
+                break
+
+        if found:
+            matched.append(entry)
+
+    if not matched:
+        return ""
+
+    matched.sort(key=lambda e: e.get("priority", 100), reverse=True)
+
+    parts = ["**Lorebook**"]
+    for entry in matched:
+        name = entry.get("name", "")
+        content = entry.get("content", "")
+        if name and content:
+            parts.append(f"{name}: {content}")
+        elif content:
+            parts.append(content)
+
+    return "\n\n".join(parts)

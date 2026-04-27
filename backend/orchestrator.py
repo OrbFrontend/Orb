@@ -13,7 +13,7 @@ from . import database as db
 from .llm_client import LLMClient
 from .endpoint_profiles import profile_for
 from .tool_defs import TOOLS, POST_WRITER_TOOLS
-from .prompt_builder import build_prefix, compute_style_injection_block
+from .prompt_builder import build_prefix, compute_style_injection_block, compute_lorebook_injection_block
 from .kv_tracker import _KVCacheTracker
 from .passes.director import _director_pass
 from .passes.writer import _writer_pass
@@ -35,6 +35,7 @@ async def _run_pipeline(
     user_message: str,
     attachments: Optional[List[dict]] = None,
     phrase_bank: list[list[str]] | None = None,
+    lorebook_block: str = "",
 ) -> AsyncIterator[dict]:
     """Three-pass pipeline: director → writer → editor.
 
@@ -170,6 +171,7 @@ async def _run_pipeline(
         settings,
         enabled_tools,
         inj_block=inj_block,
+        lorebook_block=lorebook_block,
         effective_msg=effective_msg,
         attachments=attachments,
         length_guard_enforce=length_guard_enforce,
@@ -284,6 +286,7 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
     director_fragments = await db.get_director_fragments()
     director_fragments = [df for df in director_fragments if df.get("enabled", True)]
     phrase_bank = await db.get_phrase_bank()
+    lorebook_entries = await db.get_active_lorebook_entries()
     client = LLMClient(
         settings["endpoint_url"],
         api_key=settings.get("api_key", ""),
@@ -310,6 +313,7 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
         "mood_fragments": mood_fragments,
         "director_fragments": director_fragments,
         "phrase_bank": phrase_bank,
+        "lorebook_entries": lorebook_entries,
         "client": client,
         "system_prompt": system_prompt,
         "char_persona": char_persona,
@@ -579,6 +583,11 @@ async def handle_turn(
         prefix = _build_prefix_from_ctx(ctx, history)
         asst_turn = next_turn + (0 if skip_user_persist else 1)
 
+        # Compute lorebook injection based on the conversation history
+        lorebook_block = compute_lorebook_injection_block(
+            history, ctx.get("lorebook_entries", [])
+        )
+
         async def _on_result(res, asst_id):
             await db.add_conversation_log(
                 conversation_id,
@@ -600,6 +609,7 @@ async def handle_turn(
             user_message,
             attachments=attachments,
             phrase_bank=ctx["phrase_bank"],
+            lorebook_block=lorebook_block,
         )
         async for event in _consume_pipeline(
             pipeline,
@@ -667,6 +677,12 @@ async def handle_regenerate(
         attachments = (
             await db.get_attachments_for_message(user_msg_id) if user_msg_id else []
         )
+
+        # Compute lorebook injection for regenerate
+        lorebook_block = compute_lorebook_injection_block(
+            history, ctx.get("lorebook_entries", [])
+        )
+
         pipeline = _run_pipeline(
             ctx["client"],
             settings,
@@ -677,6 +693,7 @@ async def handle_regenerate(
             user_msg["content"],
             attachments,
             ctx["phrase_bank"],
+            lorebook_block=lorebook_block,
         )
         async for event in _consume_pipeline(
             pipeline, conversation_id, settings, user_msg_id, target["turn_index"]

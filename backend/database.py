@@ -5,9 +5,8 @@ import aiosqlite
 import sqlite3
 import json
 import os
+import uuid
 from datetime import datetime, timezone
-
-from backend.migrations import run_pending as _run_migrations
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "app.db")
 
@@ -477,6 +476,28 @@ async def init_db():
                 repetition_penalty REAL NOT NULL DEFAULT 1.0,
                 max_tokens INTEGER NOT NULL DEFAULT 4096
             );
+
+            CREATE TABLE IF NOT EXISTS worlds (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                enabled BOOLEAN NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS lorebook_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                keywords TEXT NOT NULL DEFAULT '[]',
+                case_insensitive BOOLEAN NOT NULL DEFAULT 1,
+                priority INTEGER NOT NULL DEFAULT 100,
+                enabled BOOLEAN NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
         """
         )
 
@@ -662,11 +683,217 @@ async def init_db():
                 )
 
         await db.commit()
-
     finally:
         await db.close()
 
-    await asyncio.to_thread(_run_migrations, DB_PATH)
+
+# --- Worlds ---
+
+
+async def get_worlds() -> list[dict]:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM worlds ORDER BY created_at ASC"
+        )
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_world(world_id: str) -> dict | None:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM worlds WHERE id = ?", (world_id,)
+        )
+        return dict(rows[0]) if rows else None
+    finally:
+        await db.close()
+
+
+async def create_world(data: dict) -> dict:
+    db = await get_db()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        world_id = data.get("id") or str(uuid.uuid4())
+        await db.execute(
+            "INSERT INTO worlds (id, name, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (
+                world_id,
+                data["name"],
+                1 if data.get("enabled", True) else 0,
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+        return await get_world(world_id)
+    finally:
+        await db.close()
+
+
+async def update_world(world_id: str, data: dict) -> dict | None:
+    db = await get_db()
+    try:
+        allowed = ["name", "enabled"]
+        sets = []
+        vals = []
+        for k in allowed:
+            if k in data:
+                sets.append(f"{k} = ?")
+                vals.append(data[k])
+        if sets:
+            sets.append("updated_at = ?")
+            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(world_id)
+            await db.execute(
+                f"UPDATE worlds SET {', '.join(sets)} WHERE id = ?",
+                vals,
+            )
+            await db.commit()
+        return await get_world(world_id)
+    finally:
+        await db.close()
+
+
+async def delete_world(world_id: str) -> bool:
+    db = await get_db()
+    try:
+        cur = await db.execute("DELETE FROM worlds WHERE id = ?", (world_id,))
+        await db.commit()
+        return cur.rowcount > 0
+    finally:
+        await db.close()
+
+
+# --- Lorebook Entries ---
+
+
+async def get_lorebook_entries(world_id: str) -> list[dict]:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM lorebook_entries WHERE world_id = ? ORDER BY sort_order ASC, id ASC",
+            (world_id,),
+        )
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["keywords"] = json.loads(d["keywords"]) if d.get("keywords") else []
+            result.append(d)
+        return result
+    finally:
+        await db.close()
+
+
+async def get_lorebook_entry(entry_id: int) -> dict | None:
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM lorebook_entries WHERE id = ?", (entry_id,)
+        )
+        if not rows:
+            return None
+        d = dict(rows[0])
+        d["keywords"] = json.loads(d["keywords"]) if d.get("keywords") else []
+        return d
+    finally:
+        await db.close()
+
+
+async def create_lorebook_entry(world_id: str, data: dict) -> dict:
+    db = await get_db()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        cur = await db.execute(
+            "INSERT INTO lorebook_entries (world_id, name, content, keywords, case_insensitive, priority, enabled, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                world_id,
+                data["name"],
+                data.get("content", ""),
+                json.dumps(data.get("keywords", [])),
+                1 if data.get("case_insensitive", True) else 0,
+                data.get("priority", 100),
+                1 if data.get("enabled", True) else 0,
+                data.get("sort_order", 0),
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+        return await get_lorebook_entry(cur.lastrowid)
+    finally:
+        await db.close()
+
+
+async def update_lorebook_entry(entry_id: int, data: dict) -> dict | None:
+    db = await get_db()
+    try:
+        allowed = [
+            "name",
+            "content",
+            "keywords",
+            "case_insensitive",
+            "priority",
+            "enabled",
+            "sort_order",
+        ]
+        sets = []
+        vals = []
+        for k in allowed:
+            if k in data:
+                sets.append(f"{k} = ?")
+                if k == "keywords":
+                    vals.append(json.dumps(data[k]))
+                else:
+                    vals.append(data[k])
+        if sets:
+            sets.append("updated_at = ?")
+            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(entry_id)
+            await db.execute(
+                f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",
+                vals,
+            )
+            await db.commit()
+        return await get_lorebook_entry(entry_id)
+    finally:
+        await db.close()
+
+
+async def delete_lorebook_entry(entry_id: int) -> bool:
+    db = await get_db()
+    try:
+        cur = await db.execute(
+            "DELETE FROM lorebook_entries WHERE id = ?", (entry_id,)
+        )
+        await db.commit()
+        return cur.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_active_lorebook_entries() -> list[dict]:
+    """Return all enabled entries from enabled worlds, ordered by priority DESC, sort_order ASC."""
+    db = await get_db()
+    try:
+        rows = await db.execute_fetchall(
+            """
+            SELECT le.* FROM lorebook_entries le
+            JOIN worlds w ON le.world_id = w.id
+            WHERE le.enabled = 1 AND w.enabled = 1
+            ORDER BY le.priority DESC, le.sort_order ASC, le.id ASC
+            """
+        )
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["keywords"] = json.loads(d["keywords"]) if d.get("keywords") else []
+            result.append(d)
+        return result
+    finally:
+        await db.close()
 
 
 # --- Settings ---

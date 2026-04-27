@@ -71,6 +71,17 @@ from .database import (
     delete_director_fragment,
     reset_to_defaults,
     get_messages,
+    get_worlds,
+    get_world,
+    create_world,
+    update_world,
+    delete_world,
+    get_lorebook_entries,
+    get_lorebook_entry,
+    create_lorebook_entry,
+    update_lorebook_entry,
+    delete_lorebook_entry,
+    get_active_lorebook_entries,
 )
 import asyncio
 from .orchestrator import handle_turn, handle_regenerate
@@ -211,6 +222,33 @@ class DirectorFragmentUpdate(BaseModel):
     enabled: Optional[bool] = None
     injection_label: Optional[str] = None
     sort_order: Optional[int] = None
+
+
+class WorldCreate(BaseModel):
+    name: str
+
+
+class WorldUpdate(BaseModel):
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class LorebookEntryCreate(BaseModel):
+    name: str
+    content: str = ""
+    keywords: list[str] = []
+    case_insensitive: bool = True
+    priority: int = 100
+    enabled: bool = True
+
+
+class LorebookEntryUpdate(BaseModel):
+    name: Optional[str] = None
+    content: Optional[str] = None
+    keywords: Optional[list[str]] = None
+    case_insensitive: Optional[bool] = None
+    priority: Optional[int] = None
+    enabled: Optional[bool] = None
 
 
 class ConversationCreate(BaseModel):
@@ -498,6 +536,96 @@ async def api_delete_director_fragment(fid: str):
     if not await delete_director_fragment(fid):
         raise HTTPException(404, "Director fragment not found")
     return {"ok": True}
+
+
+# Worlds ──
+
+
+@app.get("/api/worlds")
+async def api_list_worlds():
+    return await get_worlds()
+
+
+@app.post("/api/worlds")
+async def api_create_world(data: WorldCreate):
+    return await create_world(data.model_dump())
+
+
+@app.put("/api/worlds/{world_id}")
+async def api_update_world(world_id: str, data: WorldUpdate):
+    result = await update_world(world_id, data.model_dump(exclude_unset=True))
+    if not result:
+        raise HTTPException(404, "World not found")
+    return result
+
+
+@app.delete("/api/worlds/{world_id}")
+async def api_delete_world(world_id: str):
+    if not await delete_world(world_id):
+        raise HTTPException(404, "World not found")
+    return {"ok": True}
+
+
+# Lorebook Entries ──
+
+
+@app.get("/api/worlds/{world_id}/entries")
+async def api_list_lorebook_entries(world_id: str):
+    world = await get_world(world_id)
+    if not world:
+        raise HTTPException(404, "World not found")
+    return await get_lorebook_entries(world_id)
+
+
+@app.post("/api/worlds/{world_id}/entries")
+async def api_create_lorebook_entry(world_id: str, data: LorebookEntryCreate):
+    world = await get_world(world_id)
+    if not world:
+        raise HTTPException(404, "World not found")
+    return await create_lorebook_entry(world_id, data.model_dump())
+
+
+@app.get("/api/worlds/{world_id}/entries/{entry_id}")
+async def api_get_lorebook_entry(world_id: str, entry_id: int):
+    world = await get_world(world_id)
+    if not world:
+        raise HTTPException(404, "World not found")
+    entry = await get_lorebook_entry(entry_id)
+    if not entry or entry.get("world_id") != world_id:
+        raise HTTPException(404, "Entry not found")
+    return entry
+
+
+@app.put("/api/worlds/{world_id}/entries/{entry_id}")
+async def api_update_lorebook_entry(world_id: str, entry_id: int, data: LorebookEntryUpdate):
+    world = await get_world(world_id)
+    if not world:
+        raise HTTPException(404, "World not found")
+    entry = await get_lorebook_entry(entry_id)
+    if not entry or entry.get("world_id") != world_id:
+        raise HTTPException(404, "Entry not found")
+    result = await update_lorebook_entry(entry_id, data.model_dump(exclude_unset=True))
+    if not result:
+        raise HTTPException(404, "Entry not found")
+    return result
+
+
+@app.delete("/api/worlds/{world_id}/entries/{entry_id}")
+async def api_delete_lorebook_entry(world_id: str, entry_id: int):
+    world = await get_world(world_id)
+    if not world:
+        raise HTTPException(404, "World not found")
+    entry = await get_lorebook_entry(entry_id)
+    if not entry or entry.get("world_id") != world_id:
+        raise HTTPException(404, "Entry not found")
+    if not await delete_lorebook_entry(entry_id):
+        raise HTTPException(404, "Entry not found")
+    return {"ok": True}
+
+
+@app.get("/api/lorebook-entries/active")
+async def api_get_active_lorebook_entries():
+    return await get_active_lorebook_entries()
 
 
 # Phrase Bank ──

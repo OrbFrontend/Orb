@@ -6,14 +6,11 @@
 [Done]  + Tag-based search.
   + Handle importing characters with the same name => List the chars with that name, ask user whether to make a new one or replace, and which one.
 
-- Feature: Saving multiple endpoints in Settings
-  + Endpoint URL is a hybrid input + dropdown
-  + Model name is a hybrid input + dropdown
-  + API key, model name go with the endpoint 
-  + System prompt, hyperparams go with the model name
-  + Tree struct
 - Feature: Condense history and make a new conversation from there.
-- Feature: Implement min_words for length_guard in editor pass.
+- Feature: Lorebooks:
+  + Add a World collapsible to left side panel that contains a list of recent worlds/lorebooks.
+  + Add a tab "Misc" to character cards => It contains an associated World, can be updated. Update card on detach/attach entry. Will have a tags section later.
+  + 
 
 -- Not yet --
 - Feature: Tags and search for Convos.
