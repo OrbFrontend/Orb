@@ -691,8 +691,7 @@ async def handle_regenerate(
         moods_before = await db.get_moods_before_turn(
             conversation_id, target["turn_index"] - 1
         )
-        if moods_before:
-            ctx["director"]["active_moods"] = moods_before
+        ctx["director"]["active_moods"] = moods_before
 
         attachments = (
             await db.get_attachments_for_message(user_msg_id) if user_msg_id else []
