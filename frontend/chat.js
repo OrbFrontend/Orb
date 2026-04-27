@@ -16,7 +16,7 @@ import {
 import { api } from "./api.js";
 import { showModal, closeModal, showConfirmModal } from "./modal.js";
 import { renderCharacters, loadCharacters, refreshCharacters } from "./library.js";
-import { activateAndPrioritizeWorld } from "./lorebooks.js";
+import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
 import { validate } from "./validate.js";
 import { requestSendPermission } from "./tabLock.js";
 
@@ -213,6 +213,7 @@ export async function selectChar(id, source = "recent") {
   if (S.activeCharId === id || S._selectCharLock) return;
   S._selectCharLock = true;
   try {
+    const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
     S.activeCharId = id;
     renderCharacters();
     const existing = S.conversations.find((c) => c.character_card_id === id);
@@ -238,6 +239,10 @@ export async function selectChar(id, source = "recent") {
         toast(e.message, true);
       }
     }
+    const newWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
+    if (oldWorldId && oldWorldId !== newWorldId) {
+      deactivateWorld(oldWorldId);
+    }
     // Refresh the recent characters panel to reflect updated timestamps
     refreshCharacters();
   } finally {
@@ -247,17 +252,23 @@ export async function selectChar(id, source = "recent") {
 
 export async function newConvForChar(id) {
   try {
+    const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
     const conv = await api.post("/conversations", { character_card_id: id });
     await loadConversations();
     S.activeCharId = id;
     renderCharacters();
     await selectConversation(conv.id);
+    const newWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
+    if (oldWorldId && oldWorldId !== newWorldId) {
+      deactivateWorld(oldWorldId);
+    }
   } catch (e) {
     toast(e.message, true);
   }
 }
 
 export async function selectConversation(id) {
+  const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
   S.activeConvId = id;
   S.lastDirectorData = null;
   const conv = S.conversations.find((c) => c.id === id);
@@ -281,6 +292,11 @@ export async function selectConversation(id) {
     if (char?.world_id) {
       activateAndPrioritizeWorld(char.world_id);
     }
+  }
+
+  const newWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
+  if (oldWorldId && oldWorldId !== newWorldId) {
+    deactivateWorld(oldWorldId);
   }
 
   S.messages = normalizeMessages(await api.get(convUrl(id, "messages")));

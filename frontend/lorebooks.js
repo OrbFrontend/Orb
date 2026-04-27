@@ -79,6 +79,21 @@ export async function activateAndPrioritizeWorld(worldId) {
   renderWorldsSidebar();
 }
 
+export async function deactivateWorld(worldId) {
+  const world = _worlds.find((w) => w.id === worldId);
+  if (!world) return;
+  const enabled = world.enabled === true || world.enabled === 1;
+  if (!enabled) return;
+  try {
+    const updated = await api.put(`/worlds/${worldId}`, { enabled: false });
+    const idx = _worlds.findIndex((w) => w.id === worldId);
+    if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
+    renderWorldsSidebar();
+  } catch (e) {
+    console.error("Failed to deactivate world:", e);
+  }
+}
+
 // ── World CRUD
 export async function showCreateWorldModal() {
   showModal(`
