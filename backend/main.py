@@ -895,7 +895,9 @@ async def api_create_character(data: CharacterCardCreate):
                 world = await create_world({"name": book_name})
                 for item in entries:
                     if isinstance(item, dict):
-                        await create_lorebook_entry(world["id"], _normalise_lorebook_entry(item))
+                        await create_lorebook_entry(
+                            world["id"], _normalise_lorebook_entry(item)
+                        )
             card_data["world_id"] = world["id"]
 
     try:

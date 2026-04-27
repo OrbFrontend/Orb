@@ -110,7 +110,10 @@ export function showRenameWorldModal(worldId) {
     </div>`);
   setTimeout(() => {
     const inp = $("rename-world-inp");
-    if (inp) { inp.focus(); inp.select(); }
+    if (inp) {
+      inp.focus();
+      inp.select();
+    }
   }, 50);
 }
 

@@ -578,9 +578,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
     )
     .join("");
 
-  const noneLabel = !d.world_id && d.character_book
-    ? `(Import from embedded lorebook)`
-    : `(None)`;
+  const noneLabel = !d.world_id && d.character_book ? `(Import from embedded lorebook)` : `(None)`;
   const worldOptions = worlds
     .map((w) => `<option value="${esc(w.id)}" ${d.world_id === w.id ? "selected" : ""}>${esc(w.name)}</option>`)
     .join("");
