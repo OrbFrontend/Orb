@@ -9,6 +9,7 @@ import re
 
 from .tool_defs import TOOLS
 
+LOREBOOK_SCAN_DEPTH = 6
 
 # ── Placeholder replacement
 
@@ -228,24 +229,23 @@ def compute_lorebook_injection_block(
     messages: list[dict], entries: list[dict]
 ) -> str:
     """Compute the lorebook injection block from active entries whose keywords
-    appear in the latest user message.
+    appear in the 6 most recent messages (any role).
 
     Entries are sorted by priority DESC. Returns empty string if no matches.
     """
     if not entries:
         return ""
 
-    # Scan only the latest user message for keyword matching
-    latest_user_msg = ""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            latest_user_msg = m.get("content") or ""
-            break
+    scan_parts = [
+        m.get("content") or ""
+        for m in messages[-LOREBOOK_SCAN_DEPTH:]
+        if m.get("content")
+    ]
 
-    if not latest_user_msg:
+    if not scan_parts:
         return ""
 
-    scan_text = latest_user_msg
+    scan_text = " ".join(scan_parts)
     matched = []
 
     for entry in entries:
