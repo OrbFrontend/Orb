@@ -1234,13 +1234,23 @@ export function clearRefineDiff() {
 export function toggleInspector() {
   const inspector = $("inspector");
   const toolsPanel = $("tools-panel");
+  const btn = $("inspector-toggle");
+  const toolsBtn = $("tools-panel-btn");
   const wasOpen = inspector.classList.contains("open");
+  const switching = !wasOpen && toolsPanel.classList.contains("open");
 
   if (wasOpen) {
     inspector.classList.remove("open");
+    btn.classList.remove("btn-active");
   } else {
     toolsPanel.classList.remove("open");
-    inspector.classList.add("open");
+    toolsBtn.classList.remove("btn-active");
+    const open = () => {
+      inspector.classList.add("open");
+      btn.classList.add("btn-active");
+    };
+    if (switching) setTimeout(open, 180);
+    else open();
   }
 }
 

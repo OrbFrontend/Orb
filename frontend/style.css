@@ -1880,6 +1880,17 @@ button {
 
 .btn-accent:hover { background: var(--accent); }
 
+.btn-active {
+  background: var(--accent-glow);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+.btn-active:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .btn-sm { padding: 5px 10px; font-size: 12px; }
 .btn-xs { padding: 2px 6px; font-size: 10px; }
 

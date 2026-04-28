@@ -131,6 +131,7 @@ function syncMobilePanelState() {
 function closeMobileUtilityPanels() {
   for (const panel of MOBILE_SIDE_PANELS) {
     setElementOpen(panel.elementId, false);
+    getElement(panel.toggleId)?.classList.remove("btn-active");
   }
   syncMobilePanelState();
 }

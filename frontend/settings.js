@@ -743,18 +743,24 @@ const TOOL_DEFS = [
 export function toggleToolsPanel() {
   const panel = $("tools-panel");
   const inspector = $("inspector");
+  const btn = $("tools-panel-btn");
+  const inspectorBtn = $("inspector-toggle");
   const wasOpen = panel.classList.contains("open");
+  const switching = !wasOpen && inspector.classList.contains("open");
 
   if (wasOpen) {
     panel.classList.remove("open");
-    $("tools-panel-btn").style.background = "";
-    $("tools-panel-btn").style.borderColor = "";
+    btn.classList.remove("btn-active");
   } else {
     inspector.classList.remove("open");
-    panel.classList.add("open");
-    $("tools-panel-btn").style.background = "var(--accent-glow)";
-    $("tools-panel-btn").style.borderColor = "var(--accent-dim)";
-    renderToolsPanel();
+    inspectorBtn.classList.remove("btn-active");
+    const open = () => {
+      panel.classList.add("open");
+      btn.classList.add("btn-active");
+      renderToolsPanel();
+    };
+    if (switching) setTimeout(open, 180);
+    else open();
   }
 }
 
