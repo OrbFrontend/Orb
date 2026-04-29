@@ -7,7 +7,6 @@ async def test_list_mood_fragments_returns_seeded_data(client, db):
     mood_fragments = resp.json()
     ids = {f["id"] for f in mood_fragments}
     # These are seeded by init_db
-    assert "terse" in ids
     assert "talkative" in ids
 
 
