@@ -85,7 +85,7 @@ from .database import (
     get_active_lorebook_entries,
 )
 import asyncio
-from .orchestrator import handle_turn, handle_regenerate
+from .orchestrator import handle_turn, handle_regenerate, handle_super_regenerate
 from . import tavern_cards
 
 logging.basicConfig(level=logging.INFO)
@@ -1250,6 +1250,27 @@ async def api_regenerate_msg(
     return _CleanupStreamingResponse(
         _sse_stream(
             handle_regenerate(cid, msg_id, client_ref=client_ref),
+            request,
+            client_ref=client_ref,
+            cid=cid,
+        ),
+        media_type="text/event-stream",
+    )
+
+
+@app.post("/api/conversations/{cid}/messages/{msg_id}/super_regenerate")
+async def api_super_regenerate_msg(
+    cid: str, msg_id: int, request: Request, data: Optional[RegenerateMsg] = None
+):
+    """Super-regenerate: keeps prior response as context, asks model for a different direction."""
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+
+    client_ref: list = []
+    return _CleanupStreamingResponse(
+        _sse_stream(
+            handle_super_regenerate(cid, msg_id, client_ref=client_ref),
             request,
             client_ref=client_ref,
             cid=cid,

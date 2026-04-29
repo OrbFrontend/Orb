@@ -727,3 +727,103 @@ async def handle_regenerate(
     except Exception as e:
         logger.exception("Regenerate error")
         yield {"event": "error", "data": str(e)}
+
+
+_SUPER_REGEN_MSG = (
+    "[OOC: Your previous response was kind of boring, "
+    "rewrite it to the story in a slightly different but still in-character direction.]"
+)
+
+
+async def handle_super_regenerate(
+    conversation_id: str,
+    assistant_msg_id: int,
+    client_ref: list | None = None,
+) -> AsyncIterator[dict]:
+    try:
+        ctx = await _load_pipeline_context(conversation_id)
+        if ctx is None:
+            yield {"event": "error", "data": "Conversation not found"}
+            return
+
+        if client_ref is not None:
+            client_ref.append(ctx["client"])
+
+        settings = ctx["settings"]
+        target = await db.get_message_by_id(assistant_msg_id)
+        if (
+            not target
+            or target["conversation_id"] != conversation_id
+            or target["role"] != "assistant"
+        ):
+            yield {"event": "error", "data": "Invalid target message"}
+            return
+
+        user_msg_id = target["parent_id"]
+        user_msg = await db.get_message_by_id(user_msg_id) if user_msg_id else None
+        if not user_msg:
+            yield {"event": "error", "data": "Parent user message not found"}
+            return
+
+        history = (
+            await db._get_path_to_leaf(conversation_id, user_msg.get("parent_id"))
+            if user_msg.get("parent_id")
+            else []
+        )
+
+        # Extend history to include the original user+assistant exchange so the
+        # model sees what it wrote before being asked to go a different direction.
+        extended_history = history + [
+            {"role": "user", "content": user_msg["content"]},
+            {"role": "assistant", "content": target["content"]},
+        ]
+        prefix = _build_prefix_from_ctx(ctx, extended_history)
+
+        # Reset moods to pre-turn baseline (same logic as handle_regenerate).
+        moods_before = await db.get_moods_before_turn(
+            conversation_id, target["turn_index"] - 1
+        )
+        ctx["director"]["active_moods"] = moods_before
+
+        attachments = (
+            await db.get_attachments_for_message(user_msg_id) if user_msg_id else []
+        )
+
+        # rewrite_user_prompt must not alter the OOC steering message.
+        super_regen_settings = {
+            **settings,
+            "enabled_tools": {
+                **(settings.get("enabled_tools") or {}),
+                "rewrite_user_prompt": False,
+            },
+        }
+
+        _user_name, _char_name = _ctx_names(ctx)
+        lorebook_block = compute_lorebook_injection_block(
+            extended_history + [{"role": "user", "content": _SUPER_REGEN_MSG}],
+            ctx.get("lorebook_entries", []),
+            _user_name,
+            _char_name,
+        )
+
+        pipeline = _run_pipeline(
+            ctx["client"],
+            super_regen_settings,
+            ctx["director"],
+            ctx["mood_fragments"],
+            ctx["director_fragments"],
+            prefix,
+            _SUPER_REGEN_MSG,
+            attachments,
+            ctx["phrase_bank"],
+            lorebook_block=lorebook_block,
+        )
+        # Save result as a sibling of the original: same parent_id and turn_index.
+        async for event in _consume_pipeline(
+            pipeline, conversation_id, settings, user_msg_id, target["turn_index"]
+        ):
+            yield event
+
+    except Exception as e:
+        logger.exception("Super-regenerate error")
+        yield {"event": "error", "data": str(e)}

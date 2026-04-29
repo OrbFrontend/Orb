@@ -156,7 +156,10 @@ function finalizeStreamingDiv(lastMsg) {
     const regenBtn = S.hasMultipleTabs
       ? `<button disabled title="Close other tabs to regenerate">${ICON_REGEN}</button>`
       : `<button onclick="regenerate(${lastMsg.id})" title="Regenerate">${ICON_REGEN}</button>`;
-    tb.innerHTML = `${editBtn}${regenBtn}<button onclick="deleteMessage(${lastMsg.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>${diffBtn}`;
+    const superRegenBtn = S.hasMultipleTabs
+      ? `<button disabled title="Close other tabs to regenerate">⚡</button>`
+      : `<button onclick="superRegenerate(${lastMsg.id})" title="Super Regenerate">⚡</button>`;
+    tb.innerHTML = `${editBtn}${regenBtn}${superRegenBtn}<button onclick="deleteMessage(${lastMsg.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>${diffBtn}`;
   }
 
   const bc = lastMsg.branch_count || 1;
@@ -528,6 +531,12 @@ export function renderMessages() {
           S.hasMultipleTabs || !canRegen
             ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to regenerate" : ""}">${ICON_REGEN}</button>`
             : `<button onclick="${regenTargetId ? `regenerate(${regenTargetId})` : `continueFromUser()`}" title="Regenerate">${ICON_REGEN}</button>`;
+        const superRegenBtn =
+          m.role === "assistant" && m.id
+            ? S.hasMultipleTabs
+              ? `<button disabled title="Close other tabs to regenerate">⚡</button>`
+              : `<button onclick="superRegenerate(${m.id})" title="Super Regenerate">⚡</button>`
+            : "";
         const delBtn = m.id
           ? `<button onclick="deleteMessage(${m.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>`
           : `<button disabled class="msg-btn-del">${ICON_DEL}</button>`;
@@ -539,7 +548,7 @@ export function renderMessages() {
           ? ""
           : `
         <div class="msg-toolbar">
-          ${editBtn}${regenBtn}${delBtn}${diffBtn}
+          ${editBtn}${regenBtn}${superRegenBtn}${delBtn}${diffBtn}
         </div>`;
         const body = isEditing
           ? `
@@ -1114,6 +1123,41 @@ export async function regenerate(msgId) {
   S.abortController = new AbortController();
   try {
     const resp = await fetch("/api" + convUrl(S.activeConvId, "messages", msgId, "regenerate"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(agentPayload()),
+      signal: S.abortController.signal,
+    });
+    await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
+  } catch (e) {
+    if (e.name === "AbortError") {
+      S.wasAborted = true;
+    } else {
+      toast("Error: " + e.message, true);
+    }
+  }
+  await afterStream();
+}
+
+// ── Super Regenerate
+export async function superRegenerate(msgId) {
+  if (!S.activeConvId || !canStartGeneration()) return;
+  setStreaming(true);
+  setGenerationPhase("pending");
+  $("send-btn").disabled = true;
+
+  const idx = S.messages.findIndex((m) => m.id === msgId);
+  S.streamCutoffIndex = idx >= 0 ? idx : S.messages.length;
+
+  renderMessages();
+
+  const ct = $("chat-messages");
+  const msgDiv = createStreamingDiv();
+  if (!S.hideUntilBaked) ct.appendChild(msgDiv);
+  scrollToBottom();
+  S.abortController = new AbortController();
+  try {
+    const resp = await fetch("/api" + convUrl(S.activeConvId, "messages", msgId, "super_regenerate"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(agentPayload()),
