@@ -42,6 +42,7 @@ const ICON_EDIT = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const ICON_REGEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>`;
 const ICON_DEL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
 const ICON_CLEAR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>`;
+const ICON_SUPER_REGEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>`;
 
 // ── Attachments rendering
 function formatBytes(bytes) {
@@ -157,8 +158,8 @@ function finalizeStreamingDiv(lastMsg) {
       ? `<button disabled title="Close other tabs to regenerate">${ICON_REGEN}</button>`
       : `<button onclick="regenerate(${lastMsg.id})" title="Regenerate">${ICON_REGEN}</button>`;
     const superRegenBtn = S.hasMultipleTabs
-      ? `<button disabled title="Close other tabs to regenerate">⚡</button>`
-      : `<button onclick="superRegenerate(${lastMsg.id})" title="Super Regenerate">⚡</button>`;
+      ? `<button disabled title="Close other tabs to regenerate">${ICON_SUPER_REGEN}</button>`
+      : `<button onclick="superRegenerate(${lastMsg.id})" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`;
     tb.innerHTML = `${editBtn}${regenBtn}${superRegenBtn}<button onclick="deleteMessage(${lastMsg.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>${diffBtn}`;
   }
 
@@ -534,8 +535,8 @@ export function renderMessages() {
         const superRegenBtn =
           m.role === "assistant" && m.id
             ? S.hasMultipleTabs
-              ? `<button disabled title="Close other tabs to regenerate">⚡</button>`
-              : `<button onclick="superRegenerate(${m.id})" title="Super Regenerate">⚡</button>`
+              ? `<button disabled title="Close other tabs to regenerate">${ICON_SUPER_REGEN}</button>`
+              : `<button onclick="superRegenerate(${m.id})" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`
             : "";
         const delBtn = m.id
           ? `<button onclick="deleteMessage(${m.id})" title="Delete message, siblings, and all children" class="msg-btn-del">${ICON_DEL}</button>`
