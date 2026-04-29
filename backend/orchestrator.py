@@ -729,10 +729,7 @@ async def handle_regenerate(
         yield {"event": "error", "data": str(e)}
 
 
-_SUPER_REGEN_MSG = (
-    "[OOC: Your response was kind of meh, "
-    "rewrite it in a slightly different but still in-character direction.]"
-)
+_SUPER_REGEN_MSG = "[OOC: Your response was kind of meh, rewrite it in a slightly different but still realistic direction.]"
 
 
 async def handle_super_regenerate(

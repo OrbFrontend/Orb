@@ -654,8 +654,13 @@ export async function deleteMessage(msgId) {
 export async function switchBranch(msgId) {
   if (!msgId || S.isStreaming) return;
   try {
-    // Save current scroll position before rendering
+    // Use the parent user message as scroll anchor so the viewport doesn't jump
+    const currentBranchMsg = S.messages.find((m) => m.next_branch_id === msgId || m.prev_branch_id === msgId);
+    const anchorMsgId = currentBranchMsg?.parent_id ?? null;
+
     const ct = $("chat-messages");
+    const anchorEl = anchorMsgId ? ct?.querySelector(`[data-msg-id="${anchorMsgId}"]`) : null;
+    const anchorOffset = anchorEl ? anchorEl.offsetTop - ct.scrollTop : null;
     const scrollTop = ct ? ct.scrollTop : 0;
 
     S.messages = normalizeMessages(await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {}));
@@ -665,8 +670,13 @@ export async function switchBranch(msgId) {
     renderMessages();
     renderInspector();
 
-    // Restore scroll position instead of scrolling to bottom
-    if (ct) ct.scrollTop = scrollTop;
+    if (anchorMsgId && anchorOffset !== null) {
+      const newAnchorEl = ct.querySelector(`[data-msg-id="${anchorMsgId}"]`);
+      if (newAnchorEl) ct.scrollTop = newAnchorEl.offsetTop - anchorOffset;
+      else ct.scrollTop = scrollTop;
+    } else if (ct) {
+      ct.scrollTop = scrollTop;
+    }
   } catch (e) {
     toast(e.message, true);
   }
