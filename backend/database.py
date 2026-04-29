@@ -40,20 +40,6 @@ SEED_MOOD_FRAGMENTS = [
         ),
     },
     {
-        "id": "terse",
-        "label": "Terse",
-        "description": "Short, punchy prose with no filler, like a haiku. Use to conclude a chapter/scene.",
-        "prompt_text": (
-            "Your mood has NOW shifted — use short, clipped prose. Cut adjectives. "
-            "Cut adverbs. Every sentence earns its place or gets deleted. Paragraphs are 1-3 "
-            "sentences max. This overrides your previous tendencies toward longer prose."
-        ),
-        "negative_prompt": (
-            "Return to normal prose length. You may use full sentences, adjectives, and longer "
-            "paragraphs again. Do not keep clipping sentences artificially."
-        ),
-    },
-    {
         "id": "tense",
         "label": "Tense",
         "description": "Suspenseful, high-stakes atmosphere",
