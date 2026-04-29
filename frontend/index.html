@@ -30,7 +30,7 @@
     </div>
     <div class="sidebar-scroll">
       <div class="sidebar-section">
-        <div class="sidebar-section-header" onclick="toggleSection(this)">Worlds <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Worlds<span id="worlds-active-count" style="display:none;margin-left:6px;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-muted,color-mix(in srgb,var(--accent) 18%,transparent));padding:1px 6px;border-radius:8px;"></span> <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="worlds-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
             <button class="btn btn-sm" style="flex:1;justify-content:center" onclick="showCreateWorldModal()">+ Create</button>

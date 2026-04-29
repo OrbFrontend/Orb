@@ -29,6 +29,16 @@ async function _loadEntries(worldId) {
 export function renderWorldsSidebar() {
   const el = $("worlds-list");
   if (!el) return;
+  const countEl = $("worlds-active-count");
+  if (countEl) {
+    const activeCount = _worlds.filter((w) => w.enabled === true || w.enabled === 1).length;
+    if (activeCount > 0) {
+      countEl.textContent = activeCount;
+      countEl.style.display = "";
+    } else {
+      countEl.style.display = "none";
+    }
+  }
   if (!_worlds.length) {
     el.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No worlds yet</div>`;
     return;
