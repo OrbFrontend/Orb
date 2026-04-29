@@ -1119,6 +1119,7 @@ export async function regenerate(msgId) {
   const ct = $("chat-messages");
   const msgDiv = createStreamingDiv();
   if (!S.hideUntilBaked) ct.appendChild(msgDiv);
+  S.autoscrollEnabled = true;
   scrollToBottom();
   S.abortController = new AbortController();
   try {
@@ -1154,6 +1155,7 @@ export async function superRegenerate(msgId) {
   const ct = $("chat-messages");
   const msgDiv = createStreamingDiv();
   if (!S.hideUntilBaked) ct.appendChild(msgDiv);
+  S.autoscrollEnabled = true;
   scrollToBottom();
   S.abortController = new AbortController();
   try {

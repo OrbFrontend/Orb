@@ -730,8 +730,8 @@ async def handle_regenerate(
 
 
 _SUPER_REGEN_MSG = (
-    "[OOC: Your previous response was kind of boring, "
-    "rewrite it to the story in a slightly different but still in-character direction.]"
+    "[OOC: Your response was kind of meh, "
+    "rewrite it in a slightly different but still in-character direction.]"
 )
 
 
