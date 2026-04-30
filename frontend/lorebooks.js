@@ -181,6 +181,7 @@ export async function toggleWorldEnabled(worldId, enabled) {
     const updated = await api.put(`/worlds/${worldId}`, { enabled });
     const idx = _worlds.findIndex((w) => w.id === worldId);
     if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
+    renderWorldsSidebar();
   } catch (e) {
     toast("Failed to update world", true);
   }
