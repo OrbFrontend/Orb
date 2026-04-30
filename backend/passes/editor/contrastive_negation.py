@@ -22,7 +22,7 @@ import re
 
 
 def _split_sentences(text: str) -> list[str]:
-    return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    return [s.strip() for s in re.split(r'(?<=[.!?])["”]?\s+', text) if s.strip()]
 
 
 def _tokenize(sent: str) -> list[str]:
