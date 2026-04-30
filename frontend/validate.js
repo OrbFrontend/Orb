@@ -7,26 +7,26 @@
 
 // ── Constants ──
 
-const MAX_CHAT_INPUT = 10000;
+const MAX_CHAT_INPUT = 100000;
 const MAX_CHARACTER_NAME = 200;
 const MAX_CHARACTER_FIELD = 10000;
 const MAX_CHARACTER_ADVANCED = 5000;
 const MAX_ALT_GREETING = 10000;
-const MAX_ALT_GREETINGS_COUNT = 10;
+const MAX_ALT_GREETINGS_COUNT = 30;
 const MAX_FRAGMENT_ID = 64;
 const MAX_FRAGMENT_LABEL = 100;
 const MAX_FRAGMENT_DESCRIPTION = 500;
 const MAX_FRAGMENT_PROMPT = 10000;
 const MAX_FRAGMENT_NEGATIVE_PROMPT = 5000;
 const MAX_SETTINGS_TEXT = 2048;
-const MAX_SETTINGS_PROMPT = 10000;
-const MAX_USER_PROFILE_NAME = 100;
-const MAX_USER_PROFILE_DESC = 2000;
-const MAX_PERSONA_NAME = 100;
-const MAX_PERSONA_DESC = 2000;
-const MAX_PHRASE_VARIANT = 500;
+const MAX_SETTINGS_PROMPT = 50000;
+const MAX_USER_PROFILE_NAME = 50;
+const MAX_USER_PROFILE_DESC = 1000;
+const MAX_PERSONA_NAME = 50;
+const MAX_PERSONA_DESC = 1000;
+const MAX_PHRASE_VARIANT = 100;
 const MAX_BROWSE_SEARCH = 200;
-const MAX_CONVERSATION_TITLE = 200;
+const MAX_CONVERSATION_TITLE = 100;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5 MB
 const MIN_AVATAR_DIMENSION = 200;
@@ -229,9 +229,6 @@ export function validateChatInput(content) {
   if (!trimmed) {
     return { valid: false, error: "Message cannot be empty" };
   }
-  if (trimmed.length < 2) {
-    return { valid: false, error: "Message is too short" };
-  }
   if (trimmed.length > MAX_CHAT_INPUT) {
     return { valid: false, error: `Message must be ${MAX_CHAT_INPUT} characters or less` };
   }
@@ -428,7 +425,7 @@ export function validateSetting(key, value) {
     case "max_tokens": {
       const numCheck = isNumber(value, "Max tokens");
       if (!numCheck.valid) return numCheck;
-      const range = numberRange(numCheck.parsed, 64, 8192, "Max tokens");
+      const range = numberRange(numCheck.parsed, 64, 32768, "Max tokens");
       if (!range.valid) return range;
       return isInteger(numCheck.parsed, "Max tokens");
     }
