@@ -335,6 +335,11 @@ function initCombobox(rootEl, getItems) {
         .join("");
     }
     list.querySelectorAll(".cb-option").forEach((el, i) => {
+      el.addEventListener("touchstart", (e) => {
+        if (e.target.classList.contains("cb-delete-btn")) return;
+        e.preventDefault();
+        selectVal(el.dataset.value);
+      }, { passive: false });
       el.onmousedown = (e) => {
         if (e.target.classList.contains("cb-delete-btn")) return;
         e.preventDefault();
@@ -388,11 +393,24 @@ function initCombobox(rootEl, getItems) {
     // Focus input
     input.focus();
   });
+  control.addEventListener("touchstart", (e) => {
+    if (!e.target.closest(".cb-arrow")) return;
+    e.preventDefault();
+    if (isOpen) closeDropdown();
+    else openDropdown();
+  }, { passive: false });
   const onDocDown = (e) => {
     if (!rootEl.contains(e.target)) closeDropdown();
   };
+  const onDocTouch = (e) => {
+    if (!rootEl.contains(e.target)) closeDropdown();
+  };
   document.addEventListener("mousedown", onDocDown);
-  _comboboxCleanups.push(() => document.removeEventListener("mousedown", onDocDown));
+  document.addEventListener("touchstart", onDocTouch, { passive: true });
+  _comboboxCleanups.push(() => {
+    document.removeEventListener("mousedown", onDocDown);
+    document.removeEventListener("touchstart", onDocTouch);
+  });
 }
 
 // ── Endpoint / Model Config helpers
