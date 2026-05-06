@@ -46,7 +46,7 @@ export const S = {
   reasoningPassSelected: 0,
   reasoningUserOverride: false,
   reasoningOpen: true,
-  reasoningEnabled: { director: true, writer: false, editor: false },
+  reasoningEnabled: { director: true, writer: false, editor: false, scripter: false },
   pendingRefineDiff: null, // {original, ops} set on writer_rewrite, cleared on next stream
   showEditorDiff: true, // when false, editor-pass diff highlights + "clear diff" button are suppressed
   hideUntilBaked: false, // when true, in-flight streaming message is kept detached from DOM until stream finalizes

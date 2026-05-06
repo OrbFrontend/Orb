@@ -103,6 +103,7 @@ from .endpoint_profiles import profile_for
 from . import tavern_cards
 from . import prompt_builder
 from .tts import get_adapter, list_backends
+from .tts.regex_extractor import regex_extract
 from .tts.speech_scripter import run_speech_scripter
 
 logging.basicConfig(level=logging.INFO)
@@ -1844,43 +1845,56 @@ async def api_speak_message(cid: str, msg_id: int):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    # Build LLM client for speech scripter
+    # Get settings to determine extraction path
     settings = await get_settings()
-    endpoint_id = profile.get("endpoint_id") or settings.get("active_endpoint_id")
-    endpoint = await get_endpoint(endpoint_id) if endpoint_id else None
-    if not endpoint:
-        raise HTTPException(400, "No LLM endpoint configured for speech scripter")
+    use_scripter = settings.get("reasoning_enabled_passes", {}).get("scripter", False)
 
-    # Determine speech scripter model
-    scripter_model = profile.get("scripter_model") or settings.get("model_name", "")
-    if not scripter_model:
-        raise HTTPException(400, "No model configured for speech scripter")
+    if use_scripter:
+        # LLM path — requires endpoint and model configuration
+        endpoint_id = profile.get("endpoint_id") or settings.get("active_endpoint_id")
+        endpoint = await get_endpoint(endpoint_id) if endpoint_id else None
+        if not endpoint:
+            raise HTTPException(400, "No LLM endpoint configured for speech scripter")
 
-    client = LLMClient(
-        base_url=endpoint["url"],
-        api_key=endpoint.get("api_key", ""),
-        profile=profile_for(endpoint["url"], scripter_model),
-    )
+        scripter_model = profile.get("scripter_model") or settings.get("model_name", "")
+        if not scripter_model:
+            raise HTTPException(400, "No model configured for speech scripter")
 
-    # Get Director moods for context
-    logs = await get_conversation_logs(cid)
-    moods = []
-    if logs:
-        last_log = logs[-1]
-        moods = (
-            last_log.get("active_moods_after", []) if isinstance(last_log, dict) else []
+        client = LLMClient(
+            base_url=endpoint["url"],
+            api_key=endpoint.get("api_key", ""),
+            profile=profile_for(endpoint["url"], scripter_model),
         )
 
-    # Run speech scripter pass
-    chunks = await run_speech_scripter(
-        client=client,
-        model=scripter_model,
-        writer_text=msg["content"],
-        backend_type=profile["backend"],
-        moods=moods,
-        custom_prompt=profile.get("speech_prompt", ""),
-        temperature=profile.get("scripter_temperature", 0.3),
-    )
+        # Get Director moods for context
+        logs = await get_conversation_logs(cid)
+        moods = []
+        if logs:
+            last_log = logs[-1]
+            moods = (
+                last_log.get("active_moods_after", [])
+                if isinstance(last_log, dict)
+                else []
+            )
+
+        # Run speech scripter pass
+        chunks = await run_speech_scripter(
+            client=client,
+            model=scripter_model,
+            writer_text=msg["content"],
+            backend_type=profile["backend"],
+            moods=moods,
+            custom_prompt=profile.get("speech_prompt", ""),
+            temperature=profile.get("scripter_temperature", 0.3),
+        )
+    else:
+        # Algorithm path — zero LLM, zero latency
+        adapter_obj = get_adapter(profile["backend"])
+        chunks = regex_extract(
+            text=msg["content"],
+            backend_type=profile["backend"],
+            supports_emotion_tags=adapter_obj.supports_emotion_tags,
+        )
 
     # Synthesize audio
     result = await adapter.synthesize(

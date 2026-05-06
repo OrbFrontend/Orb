@@ -258,13 +258,18 @@ def _parse_chunks(raw: str) -> list[SpeakableChunk]:
     return chunks
 
 
+# Fallback import for backward compatibility — new code should use
+# backend.tts.regex_extractor.regex_extract instead.
 def _fallback_passthrough(writer_text: str) -> list[SpeakableChunk]:
-    """Extract only quoted dialogue, strip everything else."""
+    """Extract only quoted dialogue, strip everything else.
+
+    DEPRECATED: Use regex_extract from backend.tts.regex_extractor instead.
+    Kept for backward compat with existing tests.
+    """
     if not writer_text.strip():
         return []
 
     chunks = []
-    # Extract text in quotes (double quotes only — single quotes are ambiguous)
     for match in re.finditer(r'"([^"]+)"', writer_text):
         text = match.group(1)
         if text:
@@ -275,6 +280,5 @@ def _fallback_passthrough(writer_text: str) -> list[SpeakableChunk]:
     if not chunks:
         return []
 
-    # Remove leading pause from first chunk
     chunks[0].pause_before_ms = 0
     return chunks

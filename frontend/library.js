@@ -653,6 +653,12 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
           Enable speech generation for this character
         </label>
       </div>
+      <div class="field">
+        <label class="modal-checkbox-label">
+          <input type="checkbox" id="${prefix}-voice-scripter-toggle" onchange="onScripterToggle('${prefix}')">
+          Use LLM Speech Scripter <span style="font-size:11px;color:var(--text-muted)">(adds latency & API cost per message)</span>
+        </label>
+      </div>
       <div class="field"><label>TTS Backend</label>
         <select id="${prefix}-voice-backend" onchange="onVoiceBackendChange('${prefix}')">
         </select>
@@ -691,8 +697,10 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
         <input type="range" id="${prefix}-voice-pitch" min="0.5" max="2.0" step="0.1" value="1.0"
           oninput="document.getElementById('${prefix}-voice-pitch-val').textContent=this.value">
       </div>
+      <div id="${prefix}-voice-scripter-fields" style="display:none">
       <div class="field"><label>Custom Speech Scripter Prompt <span style="font-size:11px;color:var(--text-muted)">(optional)</span></label>
         <textarea id="${prefix}-voice-custom-prompt" rows="3" placeholder="Extra instructions for the speech scripter…"></textarea>
+      </div>
       </div>
       <div class="field" style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-sm" onclick="previewVoice('${prefix}')">🔊 Preview</button>
@@ -1426,6 +1434,24 @@ function _updateFieldVisibility(prefix) {
   show("lang", fields.lang);
   show("speed", fields.speed);
   show("pitch", fields.pitch);
+  // Scripter fields visibility based on toggle
+  const scripterOn = $(prefix + "-voice-scripter-toggle")?.checked;
+  const scripterFields = document.getElementById(prefix + "-voice-scripter-fields");
+  if (scripterFields) scripterFields.style.display = scripterOn ? "" : "none";
+}
+
+async function onScripterToggle(prefix) {
+  const checked = $(prefix + "-voice-scripter-toggle")?.checked || false;
+  _updateFieldVisibility(prefix);
+  // Persist to global settings
+  try {
+    const settings = await api.get("/settings");
+    const passes = settings.reasoning_enabled_passes || {};
+    passes.scripter = checked;
+    await api.put("/settings", { reasoning_enabled_passes: passes });
+  } catch (e) {
+    // Silently fail — will retry on next toggle
+  }
 }
 
 async function _populateBackendDropdown(prefix) {
@@ -1536,6 +1562,14 @@ export async function loadVoiceProfileIntoTab(charId, prefix) {
   await _populateBackendDropdown(prefix);
   // Load voice list for current defaults
   await _loadVoiceList(prefix);
+  // Load scripter toggle from global settings
+  try {
+    const settings = await api.get("/settings");
+    const scripterToggle = $(prefix + "-voice-scripter-toggle");
+    if (scripterToggle) scripterToggle.checked = settings.reasoning_enabled_passes?.scripter || false;
+  } catch (e) {
+    /* ignore */
+  }
   // Load saved profile
   try {
     const profile = await api.get("/characters/" + charId + "/voice-profile");

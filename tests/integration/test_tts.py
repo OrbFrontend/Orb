@@ -152,6 +152,7 @@ class FakeAdapter:
     def __init__(self, content_type: str = "audio/mpeg"):
         self.content_type = content_type
         self.calls = []
+        self.supports_emotion_tags = False
 
     async def synthesize(self, **kwargs):
         self.calls.append(kwargs)

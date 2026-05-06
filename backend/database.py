@@ -348,7 +348,7 @@ async def init_db():
                 enable_agent INTEGER NOT NULL DEFAULT 1,
                 length_guard_max_words INTEGER NOT NULL DEFAULT 240,
                 length_guard_max_paragraphs INTEGER NOT NULL DEFAULT 4,
-                reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":false,"editor":false}',
+                reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":false,"editor":false,"scripter":false}',
                 active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
                 character_library_view TEXT NOT NULL DEFAULT 'grid',
                 character_library_sort TEXT NOT NULL DEFAULT 'time-added',
@@ -557,7 +557,7 @@ async def init_db():
             )
         if "reasoning_enabled_passes" not in existing_cols:
             await db.execute(
-                'ALTER TABLE settings ADD COLUMN reasoning_enabled_passes TEXT NOT NULL DEFAULT \'{"director":true,"writer":false,"editor":false}\''
+                'ALTER TABLE settings ADD COLUMN reasoning_enabled_passes TEXT NOT NULL DEFAULT \'{"director":true,"writer":false,"editor":false,"scripter":false}\''
             )
 
         if "active_persona_id" not in existing_cols:
@@ -1034,8 +1034,11 @@ async def get_settings() -> dict:
         s["enabled_tools"] = json.loads(s.get("enabled_tools") or "{}")
         s["reasoning_enabled_passes"] = json.loads(
             s.get("reasoning_enabled_passes")
-            or '{"director":true,"writer":false,"editor":false}'
+            or '{"director":true,"writer":false,"editor":false,"scripter":false}'
         )
+        # Patch existing DBs that have reasoning_enabled_passes without scripter key
+        if "scripter" not in s["reasoning_enabled_passes"]:
+            s["reasoning_enabled_passes"]["scripter"] = False
         # Overlay endpoint_url, api_key, model_name, and hyperparameters from the
         # active endpoint's active model config so callers always get live values
         # rather than the stale flat columns.
