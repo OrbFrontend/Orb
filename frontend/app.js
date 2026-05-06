@@ -60,6 +60,8 @@ import {
   charTagKeydown,
   charTagInput,
   charTagRemoveChip,
+  loadVoiceProfileIntoTab,
+  saveVoiceProfileFromTab,
 } from "./library.js";
 import {
   loadConversations,
@@ -96,6 +98,8 @@ import {
   clearRefineDiff,
   showAvatarPopup,
   hideAvatarPopup,
+  speakMessageAction,
+  stopSpeaking,
   startEditTitle,
   saveTitleEdit,
   cancelTitleEdit,
@@ -354,6 +358,8 @@ Object.assign(window, {
   updateAttachmentPreview,
   showAvatarPopup,
   hideAvatarPopup,
+  speakMessage: speakMessageAction,
+  stopSpeaking,
   // worlds / lorebook
   showCreateWorldModal,
   createWorld,

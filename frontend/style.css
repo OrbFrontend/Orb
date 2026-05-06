@@ -2990,6 +2990,7 @@ mark.cb-hl {
   flex-shrink: 0;
 }
 
+<<<<<<< HEAD
 /* Context Size */
 .ctx-total {
   font-weight: 600;
@@ -3036,4 +3037,26 @@ mark.cb-hl {
   min-width: 40px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── TTS / Speak Button ────────────────────────────── */
+
+.btn-tts-active {
+  color: var(--accent, #00e5ff) !important;
+  animation: tts-pulse 1.2s ease-in-out infinite;
+}
+
+.btn-tts-loading {
+  opacity: 0.5;
+  animation: tts-spin 1s linear infinite;
+}
+
+@keyframes tts-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes tts-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

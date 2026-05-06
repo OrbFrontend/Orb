@@ -14,7 +14,7 @@ import {
   formatRelativeDate,
   resolvePlaceholders,
 } from "./utils.js";
-import { api } from "./api.js";
+import { api, speakMessage as apiSpeakMessage } from "./api.js";
 import { showModal, closeModal, showConfirmModal } from "./modal.js";
 import { renderCharacters, loadCharacters, refreshCharacters } from "./library.js";
 import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
@@ -58,6 +58,7 @@ const ICON_DEL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const ICON_CLEAR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>`;
 const ICON_SUPER_REGEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>`;
 const ICON_MAGIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>`;
+const ICON_SPEAK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>`;
 
 function buildMsgToolbar(m) {
   const isAssistant = m.role === "assistant";
@@ -106,7 +107,16 @@ function buildMsgToolbar(m) {
       ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
       : "";
 
-  return `${editBtn}${regenBtn}${superRegenBtn}${magicBtn}${magicInput}${delBtn}${diffBtn}`;
+  const speakBtn =
+    isAssistant && m.id && !isGreeting
+      ? S.speakingMsgId === m.id
+        ? `<button class="btn-tts-active" onclick="stopSpeaking()" title="Stop speaking">${ICON_SPEAK}</button>`
+        : S.ttsLoading && S.speakingMsgId === m.id
+          ? `<button disabled class="btn-tts-loading" title="Loading audio…">${ICON_SPEAK}</button>`
+          : `<button onclick="speakMessage(${m.id})" title="Speak message">${ICON_SPEAK}</button>`
+      : "";
+
+  return `${speakBtn}${editBtn}${regenBtn}${superRegenBtn}${magicBtn}${magicInput}${delBtn}${diffBtn}`;
 }
 
 // ── Attachments rendering
@@ -1751,3 +1761,64 @@ export function hideAvatarPopup() {
   const popup = document.getElementById("avatar-popup");
   if (popup) popup.classList.add("hidden");
 }
+
+// ── TTS / Speak ──────────────────────────────────────────────
+
+let _currentAudio = null;
+
+export async function speakMessageAction(msgId) {
+  if (!S.activeConvId || !msgId) return;
+
+  // If something is already playing, stop it first
+  if (_currentAudio) {
+    _currentAudio.pause();
+    _currentAudio = null;
+  }
+
+  S.speakingMsgId = msgId;
+  S.ttsLoading = true;
+  S.ttsError = null;
+  renderMessages();
+
+  try {
+    const audioUrl = await apiSpeakMessage(S.activeConvId, msgId);
+    const audio = new Audio(audioUrl);
+    _currentAudio = audio;
+
+    audio.onended = () => {
+      S.speakingMsgId = null;
+      S.ttsLoading = false;
+      _currentAudio = null;
+      renderMessages();
+    };
+
+    audio.onerror = () => {
+      S.speakingMsgId = null;
+      S.ttsLoading = false;
+      S.ttsError = "Audio playback failed";
+      _currentAudio = null;
+      renderMessages();
+    };
+
+    S.ttsLoading = false;
+    renderMessages();
+    await audio.play();
+  } catch (err) {
+    S.speakingMsgId = null;
+    S.ttsLoading = false;
+    S.ttsError = err.message || "TTS failed";
+    _currentAudio = null;
+    renderMessages();
+    toast(S.ttsError, "error");
+  }
+};
+
+export function stopSpeaking() {
+  if (_currentAudio) {
+    _currentAudio.pause();
+    _currentAudio = null;
+  }
+  S.speakingMsgId = null;
+  S.ttsLoading = false;
+  renderMessages();
+};

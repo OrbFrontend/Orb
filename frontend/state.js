@@ -55,4 +55,7 @@ export const S = {
   hasMultipleTabs: false, // true if multiple tabs of the app are open
   editingPendingUserMsg: false, // true when the pending (not-yet-persisted) user message is in edit mode
   pendingUserMsgEdit: null, // stores edited content for a pending user message to apply after streaming
+  speakingMsgId: null, // message ID currently being spoken (null = idle)
+  ttsLoading: false, // true while fetching TTS audio
+  ttsError: null, // last TTS error message
 };
