@@ -1,0 +1,13 @@
+# Optional TTS dependencies for voice speech generation.
+# Install with:  pip install -r requirements-tts.txt
+#
+# Each adapter is independent — install only what you need.
+# The app starts fine without any of these; unavailable backends are hidden.
+
+edge-tts>=6.1.0        # Microsoft Edge TTS (free, no API key)
+
+# ElevenLabs uses httpx (already in requirements.txt) — no extra install needed.
+# Just configure your API key in the voice profile.
+
+# Fish Speech uses httpx (already in requirements.txt) — no extra install needed.
+# Run your own Fish Speech API server and point Orb at it.

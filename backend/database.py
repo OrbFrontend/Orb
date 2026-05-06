@@ -515,6 +515,27 @@ async def init_db():
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS voice_profiles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                character_card_id TEXT NOT NULL UNIQUE,
+                backend TEXT NOT NULL DEFAULT 'edge',
+                voice_id TEXT NOT NULL DEFAULT 'en-US-JennyNeural',
+                language TEXT NOT NULL DEFAULT 'en-US',
+                rate REAL NOT NULL DEFAULT 1.0,
+                pitch REAL NOT NULL DEFAULT 1.0,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                endpoint_id INTEGER,
+                scripter_model TEXT DEFAULT '',
+                scripter_temperature REAL DEFAULT 0.3,
+                speech_prompt TEXT DEFAULT '',
+                api_url TEXT DEFAULT '',
+                api_key TEXT DEFAULT '',
+                model TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (character_card_id) REFERENCES character_cards(id)
+            );
         """
         )
 
@@ -679,6 +700,24 @@ async def init_db():
         if "world_id" not in character_cols:
             await db.execute(
                 "ALTER TABLE character_cards ADD COLUMN world_id TEXT DEFAULT NULL REFERENCES worlds(id) ON DELETE SET NULL"
+            )
+
+        # Migrate voice_profiles — add columns for new backends
+        vp_cols = {
+            row[1]
+            for row in await db.execute_fetchall("PRAGMA table_info(voice_profiles)")
+        }
+        if "api_url" not in vp_cols:
+            await db.execute(
+                "ALTER TABLE voice_profiles ADD COLUMN api_url TEXT DEFAULT ''"
+            )
+        if "api_key" not in vp_cols:
+            await db.execute(
+                "ALTER TABLE voice_profiles ADD COLUMN api_key TEXT DEFAULT ''"
+            )
+        if "model" not in vp_cols:
+            await db.execute(
+                "ALTER TABLE voice_profiles ADD COLUMN model TEXT DEFAULT ''"
             )
 
         # Seed settings if empty
@@ -2561,3 +2600,72 @@ async def reset_to_defaults() -> None:
             )
 
         await db.commit()
+
+
+# Voice Profiles (TTS)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def get_voice_profile(character_card_id: str) -> dict | None:
+    """Return the voice profile for a character, or None."""
+    async with get_db() as db:
+        row = await db.execute(
+            "SELECT * FROM voice_profiles WHERE character_card_id = ?",
+            (character_card_id,),
+        )
+        r = await row.fetchone()
+        return dict(r) if r else None
+
+
+async def upsert_voice_profile(character_card_id: str, data: dict) -> dict:
+    """Create or update a voice profile for a character.
+
+    Accepts a subset of voice_profiles columns. Missing fields keep their
+    current or default values.
+    """
+    async with get_db() as db:
+        allowed = {
+            "backend",
+            "voice_id",
+            "language",
+            "rate",
+            "pitch",
+            "enabled",
+            "endpoint_id",
+            "scripter_model",
+            "scripter_temperature",
+            "speech_prompt",
+            "api_url",
+            "api_key",
+            "model",
+        }
+        updates = {k: v for k, v in data.items() if k in allowed}
+
+        # Check if profile exists
+        row = await db.execute(
+            "SELECT id FROM voice_profiles WHERE character_card_id = ?",
+            (character_card_id,),
+        )
+        existing = await row.fetchone()
+
+        if existing:
+            if updates:
+                sets = ", ".join(f"{k} = ?" for k in updates)
+                vals = list(updates.values()) + [character_card_id]
+                await db.execute(
+                    f"UPDATE voice_profiles SET {sets}, updated_at = datetime('now') WHERE character_card_id = ?",
+                    vals,
+                )
+                await db.commit()
+        else:
+            cols = ["character_card_id"] + list(updates.keys())
+            placeholders = ", ".join("?" * len(cols))
+            vals = [character_card_id] + list(updates.values())
+            await db.execute(
+                f"INSERT INTO voice_profiles ({', '.join(cols)}) VALUES ({placeholders})",
+                vals,
+            )
+            await db.commit()
+
+    return await get_voice_profile(character_card_id)
+

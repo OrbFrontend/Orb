@@ -31,6 +31,7 @@ MIGRATIONS: list[str] = [
     "0012_hide_streaming_until_baked",
     "0013_agent_endpoint",
     "0014_progressive_director_state",
+    "0015_voice_profiles",
 ]
 
 
