@@ -47,6 +47,13 @@ try:
 except ImportError:
     logger.info("httpx not installed — OpenAI TTS backend disabled")
 
+try:
+    from .kokoro_adapter import KokoroTTSAdapter
+
+    _REGISTRY["kokoro"] = KokoroTTSAdapter
+except ImportError:
+    logger.info("httpx not installed — Kokoro TTS backend disabled")
+
 
 def get_adapter(backend: str) -> TTSAdapter:
     """Instantiate and return a TTS adapter for the given backend name."""
