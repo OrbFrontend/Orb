@@ -85,8 +85,11 @@ from .database import (
     update_lorebook_entry,
     delete_lorebook_entry,
     get_active_lorebook_entries,
+    get_db,
     resolve_char_context,
     get_user_persona,
+    get_voice_profile,
+    upsert_voice_profile,
 )
 import asyncio
 from .orchestrator import (
@@ -99,6 +102,8 @@ from .llm_client import LLMClient
 from .endpoint_profiles import profile_for
 from . import tavern_cards
 from . import prompt_builder
+from .tts import get_adapter, list_backends
+from .tts.speech_scripter import run_speech_scripter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1679,3 +1684,290 @@ async def serve_frontend():
 # Mount static files last
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
+
+TTS_CACHE_DIR = os.path.join(os.path.dirname(__file__), "data", "tts_cache")
+
+
+def _tts_cache_media_type(profile: dict) -> tuple[str, str]:
+    """Return the expected cached media type and extension for a voice profile."""
+    if profile.get("backend") == "kokoro":
+        return "audio/wav", "wav"
+    return "audio/mpeg", "mp3"
+
+
+def _tts_cache_path(cid: str, msg_id: int, profile: dict, content: str = "") -> str:
+    """Cache path keyed by message content and voice/scripter configuration."""
+    import hashlib
+    media_type, ext = _tts_cache_media_type(profile)
+    fingerprint = hashlib.md5(
+        f"{profile.get('backend', '')}|{profile.get('voice_id', '')}|"
+        f"{profile.get('language', '')}|{profile.get('rate', '')}|{profile.get('pitch', '')}|"
+        f"{profile.get('scripter_model', '')}|{profile.get('scripter_temperature', '')}|"
+        f"{profile.get('speech_prompt', '')}|{profile.get('api_url', '')}|"
+        f"{profile.get('model', '')}|{media_type}|{content}"
+        .encode()
+    ).hexdigest()[:8]
+    return os.path.join(TTS_CACHE_DIR, cid, f"{msg_id}_{fingerprint}.{ext}")
+
+
+@app.get("/api/tts/backends")
+async def api_tts_backends():
+    """List available TTS backends."""
+    return list_backends()
+
+
+@app.get("/api/tts/voices")
+async def api_tts_voices(
+    backend: str = "edge", language: str = "", api_url: str = "", api_key: str = ""
+):
+    """List available voices for a TTS backend."""
+    try:
+        adapter = get_adapter(backend)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return await adapter.list_voices(language, api_url=api_url, api_key=api_key or None)
+
+
+@app.get("/api/tts/models")
+async def api_tts_models(backend: str = "", api_url: str = "", api_key: str = ""):
+    """List available TTS models for a backend."""
+    if not backend:
+        return []
+    try:
+        adapter = get_adapter(backend)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not hasattr(adapter, "list_models"):
+        return []
+    return await adapter.list_models(api_url=api_url, api_key=api_key or None)
+
+
+@app.post("/api/tts/preview")
+async def api_tts_preview(body: dict):
+    """Quick TTS preview — synthesize short text without conversation context."""
+    text = body.get("text", "Preview.")
+    backend = body.get("backend", "edge")
+    voice_id = body.get("voice_id", "en-US-JennyNeural")
+    try:
+        adapter = get_adapter(backend)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    from .tts.base import SpeakableChunk
+
+    chunk = SpeakableChunk(text=text, emotion="neutral")
+    result = await adapter.synthesize(
+        [chunk],
+        voice_id=voice_id,
+        rate=1.0,
+        pitch=1.0,
+        api_url=body.get("api_url", ""),
+        api_key=body.get("api_key", "") or None,
+        model=body.get("model", ""),
+    )
+    return Response(content=result.audio_bytes, media_type=result.content_type)
+
+
+@app.get("/api/characters/{card_id}/voice-profile")
+async def api_get_voice_profile(card_id: str):
+    """Get the TTS voice profile for a character."""
+    profile = await get_voice_profile(card_id)
+    if not profile:
+        return {"character_card_id": card_id, "enabled": 0}
+    return profile
+
+
+@app.put("/api/characters/{card_id}/voice-profile")
+async def api_update_voice_profile(card_id: str, body: dict):
+    """Create or update the TTS voice profile for a character."""
+    # Verify character exists
+    card = await get_character_card(card_id)
+    if not card:
+        raise HTTPException(404, "Character not found")
+
+    # Clear generated TTS files for all conversations using this character.
+    async with get_db() as _db:
+        _rows = await _db.execute(
+            "SELECT id FROM conversations WHERE character_card_id = ?",
+            (card_id,),
+        )
+        _conv_ids = [r["id"] for r in await _rows.fetchall()]
+    for _cid in _conv_ids:
+        _cache_dir = os.path.join(TTS_CACHE_DIR, _cid)
+        if os.path.isdir(_cache_dir):
+            for _name in os.listdir(_cache_dir):
+                _path = os.path.join(_cache_dir, _name)
+                if os.path.isfile(_path):
+                    os.remove(_path)
+
+    profile = await upsert_voice_profile(card_id, body)
+    return profile
+
+
+@app.post("/api/conversations/{cid}/messages/{msg_id}/speak")
+async def api_speak_message(cid: str, msg_id: int):
+    """Generate TTS audio for a message. Returns MP3 audio."""
+    # Validate message exists and belongs to conversation
+    msg = await get_message_by_id(msg_id)
+    if not msg or msg["conversation_id"] != cid:
+        raise HTTPException(404, "Message not found")
+    if msg["role"] != "assistant":
+        raise HTTPException(400, "TTS is only available for assistant messages")
+
+    # Get conversation and character
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+
+    card_id = conv.get("character_card_id")
+    if not card_id:
+        raise HTTPException(400, "No character associated with this conversation")
+
+    # Get voice profile
+    profile = await get_voice_profile(card_id)
+    if not profile or not profile.get("enabled"):
+        raise HTTPException(400, "TTS not enabled for this character")
+
+    # Check cache
+    cache_path = _tts_cache_path(cid, msg_id, profile, msg["content"])
+    if os.path.exists(cache_path):
+        media_type, ext = _tts_cache_media_type(profile)
+        return FileResponse(
+            cache_path,
+            media_type=media_type,
+            filename=f"msg_{msg_id}.{ext}",
+        )
+
+    # Get TTS adapter
+    try:
+        adapter = get_adapter(profile["backend"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    # Build LLM client for speech scripter
+    settings = await get_settings()
+    endpoint_id = profile.get("endpoint_id") or settings.get("active_endpoint_id")
+    endpoint = await get_endpoint(endpoint_id) if endpoint_id else None
+    if not endpoint:
+        raise HTTPException(400, "No LLM endpoint configured for speech scripter")
+
+    # Determine speech scripter model
+    scripter_model = profile.get("scripter_model") or settings.get("model_name", "")
+    if not scripter_model:
+        raise HTTPException(400, "No model configured for speech scripter")
+
+    client = LLMClient(
+        base_url=endpoint["url"],
+        api_key=endpoint.get("api_key", ""),
+        profile=profile_for(endpoint["url"], scripter_model),
+    )
+
+    # Get Director moods for context
+    logs = await get_conversation_logs(cid)
+    moods = []
+    if logs:
+        last_log = logs[-1]
+        moods = last_log.get("active_moods_after", []) if isinstance(last_log, dict) else []
+
+    # Run speech scripter pass
+    chunks = await run_speech_scripter(
+        client=client,
+        model=scripter_model,
+        writer_text=msg["content"],
+        backend_type=profile["backend"],
+        moods=moods,
+        custom_prompt=profile.get("speech_prompt", ""),
+        temperature=profile.get("scripter_temperature", 0.3),
+    )
+
+    # Synthesize audio
+    result = await adapter.synthesize(
+        chunks=chunks,
+        voice_id=profile.get("voice_id", "en-US-JennyNeural"),
+        language=profile.get("language", "en-US"),
+        rate=profile.get("rate", 1.0),
+        pitch=profile.get("pitch", 1.0),
+        api_url=profile.get("api_url", ""),
+        api_key=profile.get("api_key", "") or None,
+        model=profile.get("model", ""),
+    )
+
+    if not result.audio_bytes:
+        raise HTTPException(500, "TTS synthesis produced no audio")
+
+    # Cache the audio
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, "wb") as f:
+        f.write(result.audio_bytes)
+
+    return Response(
+        content=result.audio_bytes,
+        media_type=result.content_type,
+        headers={"Content-Length": str(len(result.audio_bytes))},
+    )
+
+
+# Chat (SSE streaming) ──
+
+
+@app.post("/api/conversations/{cid}/send")
+async def api_send_message(cid: str, data: SendMessage, request: Request):
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    attachments = [a.dict() for a in data.attachments]
+    client_ref: list = []
+    return _CleanupStreamingResponse(
+        _sse_stream(
+            handle_turn(
+                cid, data.content, attachments=attachments, client_ref=client_ref
+            ),
+            request,
+            client_ref=client_ref,
+            cid=cid,
+        ),
+        media_type="text/event-stream",
+    )
+
+
+@app.post("/api/conversations/{cid}/continue")
+async def api_continue_from_user(
+    cid: str, request: Request, data: Optional[RegenerateMsg] = None
+):
+    """Generate an assistant response for the current user turn without creating a new message."""
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    messages = await get_messages(cid)
+    if not messages or messages[-1]["role"] != "user":
+        raise HTTPException(
+            status_code=400, detail="Last message is not a user message"
+        )
+    user_content = messages[-1]["content"]
+    client_ref: list = []
+    return _CleanupStreamingResponse(
+        _sse_stream(
+            handle_turn(
+                cid, user_content, skip_user_persist=True, client_ref=client_ref
+            ),
+            request,
+            client_ref=client_ref,
+            cid=cid,
+        ),
+        media_type="text/event-stream",
+    )
+
+
+# Frontend serving ──
+
+
+@app.get("/")
+async def serve_frontend():
+    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+
+
+# Mount static files last
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+
