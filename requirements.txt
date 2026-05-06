@@ -8,3 +8,4 @@ Pillow==11.3.0
 dacite==1.8.1
 dataclasses-json==0.6.7
 python-multipart==0.0.20
+edge-tts>=6.1.0
