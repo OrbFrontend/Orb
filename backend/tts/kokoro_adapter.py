@@ -9,13 +9,12 @@ Server repo: ~/repos/kokoro-tts/
 
 from __future__ import annotations
 
-import io
 import logging
 from typing import TYPE_CHECKING
 
 import httpx
 
-from .base import AudioChunk, SpeakableChunk, SynthesisResult, TTSAdapter
+from .base import SpeakableChunk, SynthesisResult, TTSAdapter
 
 if TYPE_CHECKING:
     pass
@@ -25,15 +24,15 @@ logger = logging.getLogger(__name__)
 # Kokoro voice prefix -> language code mapping
 # af/am = American English, bf/bm = British English, etc.
 _VOICE_LANG_MAP = {
-    "a": "en-US",   # American English
-    "b": "en-GB",   # British English
-    "e": "es-ES",   # Spanish
-    "f": "fr-FR",   # French
-    "h": "hi-IN",   # Hindi
-    "i": "it-IT",   # Italian
-    "j": "ja-JP",   # Japanese
-    "p": "pt-BR",   # Brazilian Portuguese
-    "z": "zh-CN",   # Chinese
+    "a": "en-US",  # American English
+    "b": "en-GB",  # British English
+    "e": "es-ES",  # Spanish
+    "f": "fr-FR",  # French
+    "h": "hi-IN",  # Hindi
+    "i": "it-IT",  # Italian
+    "j": "ja-JP",  # Japanese
+    "p": "pt-BR",  # Brazilian Portuguese
+    "z": "zh-CN",  # Chinese
 }
 
 _GENDER_MAP = {
@@ -71,12 +70,20 @@ class KokoroTTSAdapter(TTSAdapter):
 
         # Map language codes to Kokoro lang_code (single char)
         _LANG_TO_KOKORO = {
-            "en": "a", "us": "a",
-            "gb": "b", "uk": "b",
-            "es": "e", "fr": "f", "hi": "h",
-            "it": "i", "ja": "j", "jp": "j",
-            "pt": "p", "br": "p",
-            "zh": "z", "cn": "z",
+            "en": "a",
+            "us": "a",
+            "gb": "b",
+            "uk": "b",
+            "es": "e",
+            "fr": "f",
+            "hi": "h",
+            "it": "i",
+            "ja": "j",
+            "jp": "j",
+            "pt": "p",
+            "br": "p",
+            "zh": "z",
+            "cn": "z",
         }
         lang_short = language.split("-")[0].lower() if language else "en"
         kokoro_lang = _LANG_TO_KOKORO.get(lang_short, "a")
@@ -119,7 +126,9 @@ class KokoroTTSAdapter(TTSAdapter):
 
         if language:
             lang_prefix = language.split("-")[0].lower()
-            voices = [v for v in voices if v.get("language", "").startswith(lang_prefix)]
+            voices = [
+                v for v in voices if v.get("language", "").startswith(lang_prefix)
+            ]
 
         return voices
 
@@ -134,18 +143,88 @@ class KokoroTTSAdapter(TTSAdapter):
 
 # Default voice list (used when server is not reachable)
 _DEFAULT_VOICES = [
-    {"id": "af_heart", "name": "Heart (American Female)", "language": "en-US", "gender": "Female"},
-    {"id": "af_bella", "name": "Bella (American Female)", "language": "en-US", "gender": "Female"},
-    {"id": "af_nicole", "name": "Nicole (American Female)", "language": "en-US", "gender": "Female"},
-    {"id": "af_sarah", "name": "Sarah (American Female)", "language": "en-US", "gender": "Female"},
-    {"id": "af_nova", "name": "Nova (American Female)", "language": "en-US", "gender": "Female"},
-    {"id": "af_river", "name": "River (American Female)", "language": "en-US", "gender": "Female"},
-    {"id": "af_sky", "name": "Sky (American Female)", "language": "en-US", "gender": "Female"},
-    {"id": "am_adam", "name": "Adam (American Male)", "language": "en-US", "gender": "Male"},
-    {"id": "am_michael", "name": "Michael (American Male)", "language": "en-US", "gender": "Male"},
-    {"id": "am_liam", "name": "Liam (American Male)", "language": "en-US", "gender": "Male"},
-    {"id": "bf_emma", "name": "Emma (British Female)", "language": "en-GB", "gender": "Female"},
-    {"id": "bf_alice", "name": "Alice (British Female)", "language": "en-GB", "gender": "Female"},
-    {"id": "bm_george", "name": "George (British Male)", "language": "en-GB", "gender": "Male"},
-    {"id": "bm_daniel", "name": "Daniel (British Male)", "language": "en-GB", "gender": "Male"},
+    {
+        "id": "af_heart",
+        "name": "Heart (American Female)",
+        "language": "en-US",
+        "gender": "Female",
+    },
+    {
+        "id": "af_bella",
+        "name": "Bella (American Female)",
+        "language": "en-US",
+        "gender": "Female",
+    },
+    {
+        "id": "af_nicole",
+        "name": "Nicole (American Female)",
+        "language": "en-US",
+        "gender": "Female",
+    },
+    {
+        "id": "af_sarah",
+        "name": "Sarah (American Female)",
+        "language": "en-US",
+        "gender": "Female",
+    },
+    {
+        "id": "af_nova",
+        "name": "Nova (American Female)",
+        "language": "en-US",
+        "gender": "Female",
+    },
+    {
+        "id": "af_river",
+        "name": "River (American Female)",
+        "language": "en-US",
+        "gender": "Female",
+    },
+    {
+        "id": "af_sky",
+        "name": "Sky (American Female)",
+        "language": "en-US",
+        "gender": "Female",
+    },
+    {
+        "id": "am_adam",
+        "name": "Adam (American Male)",
+        "language": "en-US",
+        "gender": "Male",
+    },
+    {
+        "id": "am_michael",
+        "name": "Michael (American Male)",
+        "language": "en-US",
+        "gender": "Male",
+    },
+    {
+        "id": "am_liam",
+        "name": "Liam (American Male)",
+        "language": "en-US",
+        "gender": "Male",
+    },
+    {
+        "id": "bf_emma",
+        "name": "Emma (British Female)",
+        "language": "en-GB",
+        "gender": "Female",
+    },
+    {
+        "id": "bf_alice",
+        "name": "Alice (British Female)",
+        "language": "en-GB",
+        "gender": "Female",
+    },
+    {
+        "id": "bm_george",
+        "name": "George (British Male)",
+        "language": "en-GB",
+        "gender": "Male",
+    },
+    {
+        "id": "bm_daniel",
+        "name": "Daniel (British Male)",
+        "language": "en-GB",
+        "gender": "Male",
+    },
 ]

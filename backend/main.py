@@ -1699,14 +1699,14 @@ def _tts_cache_media_type(profile: dict) -> tuple[str, str]:
 def _tts_cache_path(cid: str, msg_id: int, profile: dict, content: str = "") -> str:
     """Cache path keyed by message content and voice/scripter configuration."""
     import hashlib
+
     media_type, ext = _tts_cache_media_type(profile)
     fingerprint = hashlib.md5(
         f"{profile.get('backend', '')}|{profile.get('voice_id', '')}|"
         f"{profile.get('language', '')}|{profile.get('rate', '')}|{profile.get('pitch', '')}|"
         f"{profile.get('scripter_model', '')}|{profile.get('scripter_temperature', '')}|"
         f"{profile.get('speech_prompt', '')}|{profile.get('api_url', '')}|"
-        f"{profile.get('model', '')}|{media_type}|{content}"
-        .encode()
+        f"{profile.get('model', '')}|{media_type}|{content}".encode()
     ).hexdigest()[:8]
     return os.path.join(TTS_CACHE_DIR, cid, f"{msg_id}_{fingerprint}.{ext}")
 
@@ -1867,7 +1867,9 @@ async def api_speak_message(cid: str, msg_id: int):
     moods = []
     if logs:
         last_log = logs[-1]
-        moods = last_log.get("active_moods_after", []) if isinstance(last_log, dict) else []
+        moods = (
+            last_log.get("active_moods_after", []) if isinstance(last_log, dict) else []
+        )
 
     # Run speech scripter pass
     chunks = await run_speech_scripter(
@@ -1907,67 +1909,6 @@ async def api_speak_message(cid: str, msg_id: int):
     )
 
 
-# Chat (SSE streaming) ──
-
-
-@app.post("/api/conversations/{cid}/send")
-async def api_send_message(cid: str, data: SendMessage, request: Request):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    attachments = [a.dict() for a in data.attachments]
-    client_ref: list = []
-    return _CleanupStreamingResponse(
-        _sse_stream(
-            handle_turn(
-                cid, data.content, attachments=attachments, client_ref=client_ref
-            ),
-            request,
-            client_ref=client_ref,
-            cid=cid,
-        ),
-        media_type="text/event-stream",
-    )
-
-
-@app.post("/api/conversations/{cid}/continue")
-async def api_continue_from_user(
-    cid: str, request: Request, data: Optional[RegenerateMsg] = None
-):
-    """Generate an assistant response for the current user turn without creating a new message."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    messages = await get_messages(cid)
-    if not messages or messages[-1]["role"] != "user":
-        raise HTTPException(
-            status_code=400, detail="Last message is not a user message"
-        )
-    user_content = messages[-1]["content"]
-    client_ref: list = []
-    return _CleanupStreamingResponse(
-        _sse_stream(
-            handle_turn(
-                cid, user_content, skip_user_persist=True, client_ref=client_ref
-            ),
-            request,
-            client_ref=client_ref,
-            cid=cid,
-        ),
-        media_type="text/event-stream",
-    )
-
-
-# Frontend serving ──
-
-
-@app.get("/")
-async def serve_frontend():
-    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
-
-
 # Mount static files last
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
-

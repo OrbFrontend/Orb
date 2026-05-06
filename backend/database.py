@@ -2668,4 +2668,3 @@ async def upsert_voice_profile(character_card_id: str, data: dict) -> dict:
             await db.commit()
 
     return await get_voice_profile(character_card_id)
-

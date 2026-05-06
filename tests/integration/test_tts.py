@@ -67,9 +67,7 @@ async def test_list_voices_by_language(client, monkeypatch):
 
 async def test_voice_profile_crud(client):
     # Create a character first
-    char = await client.post(
-        "/api/characters", json={"name": "Voice Test Char"}
-    )
+    char = await client.post("/api/characters", json={"name": "Voice Test Char"})
     assert char.status_code == 200
     char_id = char.json()["id"]
 
@@ -122,9 +120,7 @@ async def test_voice_profile_crud(client):
 
 
 async def test_voice_profile_custom_prompt(client):
-    char = await client.post(
-        "/api/characters", json={"name": "Prompt Test Char"}
-    )
+    char = await client.post("/api/characters", json={"name": "Prompt Test Char"})
     char_id = char.json()["id"]
 
     resp = await client.put(
@@ -234,7 +230,9 @@ async def test_speak_message_rejects_disabled_voice_profile(client):
     assert "not enabled" in resp.text
 
 
-async def test_speak_message_synthesizes_and_reuses_cache(client, monkeypatch, tmp_path):
+async def test_speak_message_synthesizes_and_reuses_cache(
+    client, monkeypatch, tmp_path
+):
     import backend.main as main
 
     char_id, cid, msg_id = await _create_tts_conversation(client)

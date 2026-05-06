@@ -50,7 +50,9 @@ surprised, whispered, breathless, amused
 
 Respond with ONLY the JSON array. No markdown, no explanation."""
 
-_SCRIPTER_PLAIN = _SCRIPTER_BASE + """
+_SCRIPTER_PLAIN = (
+    _SCRIPTER_BASE
+    + """
 
 This TTS backend does NOT support special tags.
 - Action beats with sounds (*laughs*, *sighs*, *gasps*) → pause chunk only (no text)
@@ -62,8 +64,11 @@ Pauses: Use pause_before_ms and pause_after_ms (milliseconds).
 - After an action beat: 500ms
 - Scene change (new location, time skip): 800ms
 """
+)
 
-_SCRIPTER_WITH_TAGS = _SCRIPTER_BASE + """
+_SCRIPTER_WITH_TAGS = (
+    _SCRIPTER_BASE
+    + """
 
 This TTS backend supports inline sound tags: [laugh], [sigh], [gasp], \
 [moan], [groan], [chuckle], [sniffle], [cough], [clears throat].
@@ -79,6 +84,7 @@ Pauses: Use pause_before_ms and pause_after_ms (milliseconds).
 - Medium pause: 400ms
 - Long pause: 700ms
 """
+)
 
 # Map backend names to prompt variants
 _PROMPT_MAP = {
@@ -169,7 +175,9 @@ async def run_speech_scripter(
         return _fallback_passthrough(writer_text)
 
     except Exception:
-        logger.exception("Speech Scripter: LLM call failed, falling back to passthrough")
+        logger.exception(
+            "Speech Scripter: LLM call failed, falling back to passthrough"
+        )
         return _fallback_passthrough(writer_text)
 
 
@@ -260,7 +268,9 @@ def _fallback_passthrough(writer_text: str) -> list[SpeakableChunk]:
     for match in re.finditer(r'"([^"]+)"', writer_text):
         text = match.group(1)
         if text:
-            chunks.append(SpeakableChunk(text=text, emotion="neutral", pause_before_ms=300))
+            chunks.append(
+                SpeakableChunk(text=text, emotion="neutral", pause_before_ms=300)
+            )
 
     if not chunks:
         return []

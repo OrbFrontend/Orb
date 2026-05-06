@@ -1387,11 +1387,11 @@ function renderCharacterBrowser() {
 
 // Backend capabilities: which fields to show
 const _BACKEND_FIELDS = {
-  edge:       { provider: false, api_url: false, api_key: false, model: false, lang: true,  speed: true,  pitch: true  },
-  kokoro:     { provider: false, api_url: true,  api_key: false, model: false, lang: true,  speed: true,  pitch: false },
-  openai:     { provider: false, api_url: true,  api_key: true,  model: true,  lang: false, speed: true,  pitch: false },
-  fish:       { provider: false, api_url: true,  api_key: false, model: false, lang: false, speed: true,  pitch: false },
-  elevenlabs: { provider: false, api_url: false, api_key: true,  model: true,  lang: false, speed: false, pitch: false },
+  edge: { provider: false, api_url: false, api_key: false, model: false, lang: true, speed: true, pitch: true },
+  kokoro: { provider: false, api_url: true, api_key: false, model: false, lang: true, speed: true, pitch: false },
+  openai: { provider: false, api_url: true, api_key: true, model: true, lang: false, speed: true, pitch: false },
+  fish: { provider: false, api_url: true, api_key: false, model: false, lang: false, speed: true, pitch: false },
+  elevenlabs: { provider: false, api_url: false, api_key: true, model: true, lang: false, speed: false, pitch: false },
 };
 
 let _backendsCache = null;
@@ -1436,9 +1436,7 @@ async function _populateBackendDropdown(prefix) {
   } catch (e) {
     _backendsCache = [{ id: "edge", name: "Microsoft Edge TTS" }];
   }
-  sel.innerHTML = _backendsCache
-    .map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`)
-    .join("");
+  sel.innerHTML = _backendsCache.map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
 }
 
 async function _loadModelList(prefix) {
@@ -1471,7 +1469,7 @@ async function _loadVoiceList(prefix) {
   const apiKey = $(prefix + "-voice-api-key")?.value || "";
   const sel = $(prefix + "-voice-id");
   if (!sel) return;
-  sel.innerHTML = "<option value=\"\">Loading…</option>";
+  sel.innerHTML = '<option value="">Loading…</option>';
   try {
     let qs = `/tts/voices?backend=${backend}&language=${lang}`;
     if (apiUrl) qs += `&api_url=${encodeURIComponent(apiUrl)}`;
@@ -1479,13 +1477,16 @@ async function _loadVoiceList(prefix) {
     const voices = await api.get(qs);
     if (voices.length > 0) {
       sel.outerHTML = `<select id="${prefix}-voice-id">${voices
-        .map((v) => `<option value="${esc(v.id)}">${esc(v.name || v.id)} ${v.gender ? "(" + esc(v.gender) + ")" : ""}</option>`)
+        .map(
+          (v) =>
+            `<option value="${esc(v.id)}">${esc(v.name || v.id)} ${v.gender ? "(" + esc(v.gender) + ")" : ""}</option>`,
+        )
         .join("")}</select>`;
     } else {
       sel.outerHTML = `<input type="text" id="${prefix}-voice-id" placeholder="Enter voice name (e.g. alloy)">`;
     }
   } catch (e) {
-    sel.innerHTML = "<option value=\"\">Error loading voices</option>";
+    sel.innerHTML = '<option value="">Error loading voices</option>';
   }
 }
 
@@ -1515,8 +1516,14 @@ window.previewVoice = async function (prefix) {
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
-    audio.onended = () => { statusEl.textContent = ""; URL.revokeObjectURL(url); };
-    audio.onerror = () => { statusEl.textContent = "Playback error"; URL.revokeObjectURL(url); };
+    audio.onended = () => {
+      statusEl.textContent = "";
+      URL.revokeObjectURL(url);
+    };
+    audio.onerror = () => {
+      statusEl.textContent = "Playback error";
+      URL.revokeObjectURL(url);
+    };
     audio.play();
     statusEl.textContent = "Playing…";
   } catch (e) {
@@ -1532,7 +1539,10 @@ export async function loadVoiceProfileIntoTab(charId, prefix) {
   // Load saved profile
   try {
     const profile = await api.get("/characters/" + charId + "/voice-profile");
-    if (!profile || !profile.backend) { _updateFieldVisibility(prefix); return; }
+    if (!profile || !profile.backend) {
+      _updateFieldVisibility(prefix);
+      return;
+    }
     const backend = $(prefix + "-voice-backend");
     const lang = $(prefix + "-voice-lang");
     const enabled = $(prefix + "-voice-enabled");
@@ -1546,10 +1556,16 @@ export async function loadVoiceProfileIntoTab(charId, prefix) {
     if (voiceId) voiceId.value = profile.voice_id || "";
     const speed = $(prefix + "-voice-speed");
     const speedVal = $(prefix + "-voice-speed-val");
-    if (speed) { speed.value = profile.rate || 1.0; if (speedVal) speedVal.textContent = speed.value; }
+    if (speed) {
+      speed.value = profile.rate || 1.0;
+      if (speedVal) speedVal.textContent = speed.value;
+    }
     const pitch = $(prefix + "-voice-pitch");
     const pitchVal = $(prefix + "-voice-pitch-val");
-    if (pitch) { pitch.value = profile.pitch || 1.0; if (pitchVal) pitchVal.textContent = pitch.value; }
+    if (pitch) {
+      pitch.value = profile.pitch || 1.0;
+      if (pitchVal) pitchVal.textContent = pitch.value;
+    }
     const customPrompt = $(prefix + "-voice-custom-prompt");
     if (customPrompt) customPrompt.value = profile.speech_prompt || "";
     const apiUrl = $(prefix + "-voice-api-url");

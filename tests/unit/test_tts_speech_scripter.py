@@ -34,7 +34,9 @@ class TestParseChunks:
 
     def test_truncated_json_no_closing_bracket(self):
         # Array opened but no ] at all — should recover complete objects
-        text = '[{"text":"First.","emotion":"neutral"},{"text":"Second.","emotion":"warm"}'
+        text = (
+            '[{"text":"First.","emotion":"neutral"},{"text":"Second.","emotion":"warm"}'
+        )
         chunks = _parse_chunks(text)
         assert len(chunks) == 2
         assert chunks[0].text == "First."
@@ -92,7 +94,7 @@ class TestFallbackPassthrough:
         assert chunks[1].text == "Second."
 
     def test_asterisk_actions_stripped(self):
-        text = "*She crosses her arms.* \"No way.\""
+        text = '*She crosses her arms.* "No way."'
         chunks = _fallback_passthrough(text)
         assert len(chunks) == 1
         assert chunks[0].text == "No way."
