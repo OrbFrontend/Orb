@@ -26,27 +26,6 @@ try:
 except ImportError:
     logger.info("edge-tts not installed — Edge TTS backend disabled")
 
-try:
-    from .elevenlabs_adapter import ElevenLabsAdapter
-
-    _REGISTRY["elevenlabs"] = ElevenLabsAdapter
-except ImportError:
-    logger.info("httpx not installed — ElevenLabs backend disabled")
-
-try:
-    from .fish_adapter import FishSpeechAdapter
-
-    _REGISTRY["fish"] = FishSpeechAdapter
-except ImportError:
-    logger.info("httpx not installed — Fish Speech backend disabled")
-
-try:
-    from .openai_speech_adapter import OpenAISpeechAdapter
-
-    _REGISTRY["openai"] = OpenAISpeechAdapter
-except ImportError:
-    logger.info("httpx not installed — OpenAI TTS backend disabled")
-
 
 def get_adapter(backend: str) -> TTSAdapter:
     """Instantiate and return a TTS adapter for the given backend name."""
