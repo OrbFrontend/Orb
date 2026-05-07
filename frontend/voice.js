@@ -27,10 +27,7 @@ export function renderVoicePanel() {
   const el = $("voice-panel-content");
   if (!el) return;
 
-  const extracted = S.ttsExtractedText || "No speech generated yet.";
-  const lines = extracted.split("\n");
-  const shouldCollapse = extracted.length > 180 || lines.length > 2;
-  const debugText = S.ttsDebugExpanded || !shouldCollapse ? extracted : lines.slice(0, 2).join("\n");
+  const extracted = S.ttsExtractedText || "";
   const volumePct = Math.round(clampVolume(S.ttsVolume) * 100);
   const hasNowPlaying = S.speakingMsgId || S.ttsLoading;
   const duration = S.ttsDuration || 0;
@@ -69,12 +66,17 @@ export function renderVoicePanel() {
         : ""
     }
 
-    <div class="voice-block">
-      <div class="voice-section-title">Extracted Speech Debug</div>
-      <div class="voice-help">Last generated via ${esc(S.ttsExtractionMethod || "regex")}</div>
-      <pre class="voice-debug-text">${esc(debugText)}</pre>
-      ${shouldCollapse ? `<button class="btn btn-sm" onclick="toggleTtsDebugExpanded()">${S.ttsDebugExpanded ? "Collapse" : "Show full"}</button>` : ""}
-    </div>
+    ${
+      extracted
+        ? `<details class="voice-block" ${S.ttsDebugExpanded ? " open" : ""} ontoggle="setTtsDebugExpanded(this.open)">
+             <summary class="voice-section-title" style="cursor:pointer">Extracted Speech via ${esc(S.ttsExtractionMethod || "regex")}</summary>
+             <pre class="voice-debug-text">${esc(extracted)}</pre>
+           </details>`
+        : `<div class="voice-block">
+             <div class="voice-section-title">Extracted Speech</div>
+             <div class="voice-help">No speech generated yet.</div>
+           </div>`
+    }
   `;
 }
 
@@ -121,7 +123,6 @@ export async function setTtsAutoSpeak(checked) {
   await persistVoiceSettings({ tts_auto_speak: S.ttsAutoSpeak ? 1 : 0 });
 }
 
-export function toggleTtsDebugExpanded() {
-  S.ttsDebugExpanded = !S.ttsDebugExpanded;
-  renderVoicePanel();
+export function setTtsDebugExpanded(open) {
+  S.ttsDebugExpanded = !!open;
 }
