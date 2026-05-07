@@ -210,10 +210,8 @@ DEFAULT_SETTINGS = {
     "hide_streaming_until_baked": 0,
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
-    "tts_scripter_enabled": 0,
     "tts_auto_speak": 0,
     "tts_volume": 0.75,
-    "tts_scripter_prompt": "",
 }
 
 SEED_PHRASE_BANK = [
@@ -361,10 +359,8 @@ async def init_db():
                 agent_same_as_writer INTEGER NOT NULL DEFAULT 1,
                 agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
                 agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
-                tts_scripter_enabled INTEGER NOT NULL DEFAULT 0,
                 tts_auto_speak INTEGER NOT NULL DEFAULT 0,
-                tts_volume REAL NOT NULL DEFAULT 0.75,
-                tts_scripter_prompt TEXT DEFAULT ''
+                tts_volume REAL NOT NULL DEFAULT 0.75
             );
 
             CREATE TABLE IF NOT EXISTS mood_fragments (
@@ -675,10 +671,6 @@ async def init_db():
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN agent_shared_system_prompt TEXT NOT NULL DEFAULT ''"
             )
-        if "tts_scripter_enabled" not in existing_cols:
-            await db.execute(
-                "ALTER TABLE settings ADD COLUMN tts_scripter_enabled INTEGER NOT NULL DEFAULT 0"
-            )
         if "tts_auto_speak" not in existing_cols:
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN tts_auto_speak INTEGER NOT NULL DEFAULT 0"
@@ -687,15 +679,12 @@ async def init_db():
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN tts_volume REAL NOT NULL DEFAULT 0.75"
             )
-        if "tts_scripter_prompt" not in existing_cols:
-            await db.execute(
-                "ALTER TABLE settings ADD COLUMN tts_scripter_prompt TEXT DEFAULT ''"
-            )
 
-        # Migrate legacy reasoning_enabled_passes.scripter into the real TTS setting.
+        # Clean up the legacy experiment that briefly stored a TTS scripter toggle
+        # inside reasoning_enabled_passes. TTS extraction is not a reasoning pass.
         settings_rows = list(
             await db.execute_fetchall(
-                "SELECT id, reasoning_enabled_passes, tts_scripter_enabled FROM settings WHERE id = 1"
+                "SELECT id, reasoning_enabled_passes FROM settings WHERE id = 1"
             )
         )
         if settings_rows:
@@ -707,10 +696,10 @@ async def init_db():
             except json.JSONDecodeError:
                 passes = {}
             if "scripter" in passes:
-                legacy_scripter = 1 if passes.pop("scripter") else 0
+                passes.pop("scripter", None)
                 await db.execute(
-                    "UPDATE settings SET reasoning_enabled_passes = ?, tts_scripter_enabled = CASE WHEN tts_scripter_enabled THEN tts_scripter_enabled ELSE ? END WHERE id = 1",
-                    (json.dumps(passes), legacy_scripter),
+                    "UPDATE settings SET reasoning_enabled_passes = ? WHERE id = 1",
+                    (json.dumps(passes),),
                 )
 
         # Migration for director_state keywords column
@@ -1202,10 +1191,8 @@ async def update_settings(data: dict) -> dict:
             "agent_same_as_writer",
             "agent_endpoint_id",
             "agent_shared_system_prompt",
-            "tts_scripter_enabled",
             "tts_auto_speak",
             "tts_volume",
-            "tts_scripter_prompt",
         ]
         sets, vals = _build_set_clause(
             allowed, data, json_fields={"enabled_tools", "reasoning_enabled_passes"}

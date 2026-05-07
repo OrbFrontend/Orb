@@ -8,12 +8,11 @@ The **Voice** sidepanel controls global playback behavior:
 
 - Volume
 - Auto-speak new assistant messages
-- Regex vs LLM speech extraction
-- Global LLM speech extraction prompt
+- Algorithmic speech extraction status
 - Now-playing progress
 - Extracted speech debug preview
 
-Regex extraction is the default and does not call an LLM. Enable LLM extraction globally from the Voice sidepanel when regex extraction is not accurate enough for a writing style.
+Regex extraction is the only extraction path in this PR. It does not call an LLM and preserves action beats/nonverbal tags when the selected backend supports them.
 
 The extracted speech debug preview shows the latest text sent into the TTS backend. It is collapsed by default so long messages do not take over the panel.
 
@@ -28,13 +27,13 @@ Each character keeps its own voice profile in the character editor **Voice** tab
 - Preview playback
 - Optional character-specific speech instructions
 
-Character-specific speech instructions are appended to the global speech extraction prompt when LLM extraction is enabled.
+Character-specific speech instructions are reserved for future expressive extraction and backend-specific pronunciation/style hints. The current algorithmic extractor does not call an LLM.
 
 ## How It Works
 
 Clicking the speaker icon on a character message, or enabling auto-speak for new assistant messages, triggers a three-step pipeline:
 
-1. **Speech Extraction** — the default regex extractor extracts spoken dialogue locally. If LLM extraction is enabled, the speech scripter extracts only spoken dialogue from the message, stripping inner monologue, action beats (`*like this*`), and scene descriptions.
+1. **Speech Extraction** — the regex extractor extracts spoken dialogue locally, strips inner monologue/scene text, and converts recognized action beats (`*laughs*`, `*sighs*`) into pauses or emotion tags for capable backends.
 2. **TTS Synthesis** — the speakable text is sent to the configured backend (Edge TTS, OpenAI, Fish Speech, ElevenLabs).
 3. **Playback** — the generated audio plays in-browser; results are cached on disk so repeated plays are instant.
 

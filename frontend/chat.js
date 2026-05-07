@@ -1809,7 +1809,7 @@ export async function speakMessageAction(msgId, opts = {}) {
   try {
     const { audioUrl, extractedText, extractionMethod } = await apiSpeakMessage(S.activeConvId, msgId);
     S.ttsExtractedText = extractedText || "";
-    S.ttsExtractionMethod = extractionMethod || (S.ttsScripterEnabled ? "llm" : "regex");
+    S.ttsExtractionMethod = extractionMethod || "regex";
 
     const audio = new Audio(audioUrl);
     audio.volume = Math.max(0, Math.min(1, S.ttsVolume ?? 0.75));

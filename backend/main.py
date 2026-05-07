@@ -105,7 +105,6 @@ from . import tavern_cards
 from . import prompt_builder
 from .tts import get_adapter, list_backends
 from .tts.regex_extractor import regex_extract
-from .tts.speech_scripter import run_speech_scripter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1699,17 +1698,15 @@ def _tts_cache_media_type(profile: dict) -> tuple[str, str]:
 
 
 def _tts_cache_path(cid: str, msg_id: int, profile: dict, content: str = "") -> str:
-    """Cache path keyed by message content and voice/scripter configuration."""
+    """Cache path keyed by message content and voice configuration."""
     import hashlib
 
     media_type, ext = _tts_cache_media_type(profile)
     fingerprint = hashlib.md5(
         f"{profile.get('backend', '')}|{profile.get('voice_id', '')}|"
         f"{profile.get('language', '')}|{profile.get('rate', '')}|{profile.get('pitch', '')}|"
-        f"{profile.get('scripter_model', '')}|{profile.get('scripter_temperature', '')}|"
         f"{profile.get('speech_prompt', '')}|{profile.get('api_url', '')}|"
-        f"{profile.get('model', '')}|{profile.get('_tts_scripter_enabled', '')}|"
-        f"{profile.get('_tts_scripter_prompt', '')}|{media_type}|{content}".encode()
+        f"{profile.get('model', '')}|{media_type}|{content}".encode()
     ).hexdigest()[:8]
     return os.path.join(TTS_CACHE_DIR, cid, f"{msg_id}_{fingerprint}.{ext}")
 
@@ -1845,17 +1842,8 @@ async def api_speak_message(cid: str, msg_id: int):
     if not profile or not profile.get("enabled"):
         raise HTTPException(400, "TTS not enabled for this character")
 
-    # Get settings before cache lookup because extraction settings affect the cache key.
-    settings = await get_settings()
-    use_scripter = bool(settings.get("tts_scripter_enabled"))
-    cache_profile = {
-        **profile,
-        "_tts_scripter_enabled": use_scripter,
-        "_tts_scripter_prompt": settings.get("tts_scripter_prompt", ""),
-    }
-
     # Check cache
-    cache_path = _tts_cache_path(cid, msg_id, cache_profile, msg["content"])
+    cache_path = _tts_cache_path(cid, msg_id, profile, msg["content"])
     if os.path.exists(cache_path):
         media_type, ext = _tts_cache_media_type(profile)
         metadata = {}
@@ -1876,61 +1864,16 @@ async def api_speak_message(cid: str, msg_id: int):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    if use_scripter:
-        # LLM path — requires endpoint and model configuration
-        endpoint_id = profile.get("endpoint_id") or settings.get("active_endpoint_id")
-        endpoint = await get_endpoint(endpoint_id) if endpoint_id else None
-        if not endpoint:
-            raise HTTPException(400, "No LLM endpoint configured for speech scripter")
-
-        scripter_model = profile.get("scripter_model") or settings.get("model_name", "")
-        if not scripter_model:
-            raise HTTPException(400, "No model configured for speech scripter")
-
-        client = LLMClient(
-            base_url=endpoint["url"],
-            api_key=endpoint.get("api_key", ""),
-            profile=profile_for(endpoint["url"], scripter_model),
-        )
-
-        # Get Director moods for context
-        logs = await get_conversation_logs(cid)
-        moods = []
-        if logs:
-            last_log = logs[-1]
-            moods = (
-                last_log.get("active_moods_after", [])
-                if isinstance(last_log, dict)
-                else []
-            )
-
-        global_prompt = (settings.get("tts_scripter_prompt") or "").strip()
-        character_prompt = (profile.get("speech_prompt") or "").strip()
-        custom_prompt = "\n\n".join(
-            prompt for prompt in (global_prompt, character_prompt) if prompt
-        )
-
-        # Run speech scripter pass
-        chunks = await run_speech_scripter(
-            client=client,
-            model=scripter_model,
-            writer_text=msg["content"],
-            backend_type=profile["backend"],
-            moods=moods,
-            custom_prompt=custom_prompt,
-            temperature=settings.get("temperature", 0.8),
-        )
-    else:
-        # Algorithm path — zero LLM, zero latency
-        adapter_obj = get_adapter(profile["backend"])
-        chunks = regex_extract(
-            text=msg["content"],
-            backend_type=profile["backend"],
-            supports_emotion_tags=adapter_obj.supports_emotion_tags,
-        )
+    # Algorithm path — zero LLM, zero latency
+    adapter_obj = get_adapter(profile["backend"])
+    chunks = regex_extract(
+        text=msg["content"],
+        backend_type=profile["backend"],
+        supports_emotion_tags=adapter_obj.supports_emotion_tags,
+    )
 
     metadata = {
-        "extraction_method": "llm" if use_scripter else "regex",
+        "extraction_method": "regex",
         "extracted_text": " ".join(chunk.text for chunk in chunks),
     }
 

@@ -58,12 +58,10 @@ export const S = {
   speakingMsgId: null, // message ID currently being spoken (null = idle)
   ttsLoading: false, // true while fetching TTS audio
   ttsError: null, // last TTS error message
-  ttsScripterEnabled: false, // true uses LLM extraction, false uses regex extractor
   ttsAutoSpeak: false, // automatically speak new assistant messages
   ttsVolume: 0.75, // audio playback volume, 0.0 - 1.0
-  ttsScripterPrompt: "", // global speech extraction prompt appended before per-character prompt
   ttsExtractedText: "", // last extracted speech text, for debugging
-  ttsExtractionMethod: "regex", // regex | llm
+  ttsExtractionMethod: "regex", // extraction method used for last generated speech
   ttsDebugExpanded: false,
   ttsPlayingLabel: "",
   ttsCurrentTime: 0,

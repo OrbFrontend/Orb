@@ -2,8 +2,6 @@ import { api } from "./api.js";
 import { S } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 
-let _voicePromptSaveTimer = null;
-
 function clampVolume(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0.75;
@@ -53,17 +51,7 @@ export function renderVoicePanel() {
 
     <div class="voice-block">
       <div class="voice-section-title">Speech Extraction</div>
-      <label class="voice-check-row">
-        <input type="checkbox" ${S.ttsScripterEnabled ? "checked" : ""} onchange="setTtsScripterEnabled(this.checked)">
-        <span>Use LLM extraction</span>
-      </label>
-      <div class="voice-help">${S.ttsScripterEnabled ? "LLM scripter extracts spoken dialogue when regex is not enough." : "Regex extraction runs locally with no LLM call."}</div>
-      ${
-        S.ttsScripterEnabled
-          ? `<label class="voice-label">Global scripter prompt</label>
-             <textarea class="voice-textarea" rows="4" oninput="setTtsScripterPrompt(this.value)">${esc(S.ttsScripterPrompt)}</textarea>`
-          : ""
-      }
+      <div class="voice-help">Algorithmic regex extraction runs locally with no LLM call. Action beats and nonverbal tags are preserved when the selected backend supports them.</div>
     </div>
 
     ${
@@ -131,20 +119,6 @@ export async function setTtsAutoSpeak(checked) {
   S.ttsAutoSpeak = !!checked;
   renderVoicePanel();
   await persistVoiceSettings({ tts_auto_speak: S.ttsAutoSpeak ? 1 : 0 });
-}
-
-export async function setTtsScripterEnabled(checked) {
-  S.ttsScripterEnabled = !!checked;
-  renderVoicePanel();
-  await persistVoiceSettings({ tts_scripter_enabled: S.ttsScripterEnabled ? 1 : 0 });
-}
-
-export function setTtsScripterPrompt(value) {
-  S.ttsScripterPrompt = value;
-  clearTimeout(_voicePromptSaveTimer);
-  _voicePromptSaveTimer = setTimeout(async () => {
-    await persistVoiceSettings({ tts_scripter_prompt: S.ttsScripterPrompt });
-  }, 400);
 }
 
 export function toggleTtsDebugExpanded() {

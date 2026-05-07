@@ -1,7 +1,7 @@
 """
 backend/tts/base.py — Abstract base class for TTS adapters.
 
-All TTS backends implement this interface. The Speech Scripter produces
+All TTS backends implement this interface. Speech extractors produce
 SpeakableChunks, which adapters translate into audio via their backend-specific API.
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 class SpeakableChunk:
     """A unit of text ready for TTS synthesis.
 
-    The Speech Scripter produces these from writer output.
+    Speech extractors produce these from writer output.
     Each chunk has its own emotion/prosody settings.
     """
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import edge_tts
 
-from backend.tts.base import SpeakableChunk, SynthesisResult
+from backend.tts.base import SynthesisResult
 
 
 FAKE_EDGE_VOICES = [
@@ -239,12 +239,8 @@ async def test_speak_message_synthesizes_and_reuses_cache(
     char_id, cid, msg_id = await _create_tts_conversation(client)
     adapter = FakeAdapter(content_type="audio/wav")
 
-    async def fake_scripter(**kwargs):
-        return [SpeakableChunk(text="Hello there.", emotion="warm")]
-
     monkeypatch.setattr(main, "TTS_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr(main, "get_adapter", lambda backend: adapter)
-    monkeypatch.setattr(main, "run_speech_scripter", fake_scripter)
 
     resp = await client.put(
         f"/api/characters/{char_id}/voice-profile",

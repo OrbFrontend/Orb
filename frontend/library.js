@@ -692,7 +692,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
           oninput="document.getElementById('${prefix}-voice-pitch-val').textContent=this.value">
       </div>
       <div class="field"><label>Character Speech Instructions <span style="font-size:11px;color:var(--text-muted)">(optional)</span></label>
-        <textarea id="${prefix}-voice-custom-prompt" rows="3" placeholder="Character-specific instructions appended to the global speech extraction prompt when LLM extraction is enabled…"></textarea>
+        <textarea id="${prefix}-voice-custom-prompt" rows="3" placeholder="Character-specific pronunciation/style hints for speech extraction…"></textarea>
         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Global speech extraction is configured in the Voice sidepanel.</div>
       </div>
       <div class="field" style="display:flex;gap:8px;align-items:center">

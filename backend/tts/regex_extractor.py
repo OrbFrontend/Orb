@@ -2,8 +2,8 @@
 backend/tts/regex_extractor.py — Algorithmic dialogue extractor.
 
 Extracts speakable dialogue from RP text using regex/heuristics.
-Zero LLM calls, zero latency, zero cost. This is the default
-extraction path; the LLM speech_scripter is opt-in.
+Zero LLM calls, zero latency, zero cost. This is the only
+extraction path in this PR; model-backed expressive extraction is deferred.
 
 Pattern handling:
 - Quoted dialogue ("Hello") → extract
