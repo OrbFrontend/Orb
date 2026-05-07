@@ -90,11 +90,13 @@
       <div class="chat-actions">
         <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile">👤 User</button>
         <button class="btn btn-sm" id="tools-panel-btn" onclick="toggleToolsPanel()" title="Agent tools">🎭 Agent</button>
+        <button class="btn btn-sm" id="voice-panel-btn" onclick="toggleVoicePanel()" title="Voice controls">🔊 Voice</button>
         <button class="btn btn-sm" id="inspector-toggle" onclick="toggleInspector()">🔍 Inspector</button>
         <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions">⋯</button>
         <div id="mobile-chat-actions-menu">
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();showUserModal()">👤 User</div>
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">🎭 Agent</div>
+          <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleVoicePanel()">🔊 Voice</div>
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleInspector()">🔍 Inspector</div>
         </div>
       </div>
@@ -137,6 +139,7 @@
       <div style="font-size: 10px; color: var(--text-muted); text-align: center;">Manage banned/overused phrases</div>
     </div>
   </div></div>
+  <div id="voice-panel"><div class="voice-inner"><div class="inspector-title">Voice</div><div id="voice-panel-content"></div></div></div>
   <div id="inspector"><div class="inspector-inner"><div class="inspector-title">Inspector</div><div id="inspector-content"><div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div></div></div></div>
 </div>
 <div id="modal-root"></div>

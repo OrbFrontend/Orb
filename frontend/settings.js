@@ -129,6 +129,13 @@ export async function loadSettings() {
   if (S.settings.reasoning_enabled_passes)
     S.reasoningEnabled = { ...S.reasoningEnabled, ...S.settings.reasoning_enabled_passes };
 
+  if (typeof S.settings.tts_scripter_enabled === "number") S.ttsScripterEnabled = S.settings.tts_scripter_enabled !== 0;
+  else if (typeof S.settings.tts_scripter_enabled === "boolean") S.ttsScripterEnabled = S.settings.tts_scripter_enabled;
+  if (typeof S.settings.tts_auto_speak === "number") S.ttsAutoSpeak = S.settings.tts_auto_speak !== 0;
+  else if (typeof S.settings.tts_auto_speak === "boolean") S.ttsAutoSpeak = S.settings.tts_auto_speak;
+  if (typeof S.settings.tts_volume === "number") S.ttsVolume = S.settings.tts_volume;
+  S.ttsScripterPrompt = S.settings.tts_scripter_prompt || "";
+
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
   else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
 
@@ -954,17 +961,21 @@ async function persistSettings(payload) {
 export function toggleToolsPanel() {
   const panel = $("tools-panel");
   const inspector = $("inspector");
+  const voicePanel = $("voice-panel");
   const btn = $("tools-panel-btn");
   const inspectorBtn = $("inspector-toggle");
+  const voiceBtn = $("voice-panel-btn");
   const wasOpen = panel.classList.contains("open");
-  const switching = !wasOpen && inspector.classList.contains("open");
+  const switching = !wasOpen && (inspector.classList.contains("open") || voicePanel?.classList.contains("open"));
 
   if (wasOpen) {
     panel.classList.remove("open");
     btn.classList.remove("btn-active");
   } else {
     inspector.classList.remove("open");
+    voicePanel?.classList.remove("open");
     inspectorBtn.classList.remove("btn-active");
+    voiceBtn?.classList.remove("btn-active");
     const open = () => {
       panel.classList.add("open");
       btn.classList.add("btn-active");

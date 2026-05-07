@@ -2,22 +2,41 @@
 
 Edge TTS is included in the main Python dependencies; cloud and self-hosted backends use the existing HTTP client stack.
 
-## Setup
+## Voice Sidepanel
 
-A **Voice** tab appears in the character editor where you can:
+The **Voice** sidepanel controls global playback behavior:
 
-- Pick a TTS backend and voice
-- Adjust speed and pitch
-- Preview voices before saving
-- Set a custom speech generation prompt per character
+- Volume
+- Auto-speak new assistant messages
+- Regex vs LLM speech extraction
+- Global LLM speech extraction prompt
+- Now-playing progress
+- Extracted speech debug preview
+
+Regex extraction is the default and does not call an LLM. Enable LLM extraction globally from the Voice sidepanel when regex extraction is not accurate enough for a writing style.
+
+The extracted speech debug preview shows the latest text sent into the TTS backend. It is collapsed by default so long messages do not take over the panel.
+
+## Character Voice Settings
+
+Each character keeps its own voice profile in the character editor **Voice** tab:
+
+- Enabled/disabled
+- Backend/API config
+- Language and voice
+- Speed and pitch
+- Preview playback
+- Optional character-specific speech instructions
+
+Character-specific speech instructions are appended to the global speech extraction prompt when LLM extraction is enabled.
 
 ## How It Works
 
-Clicking the speaker icon on a character message triggers a three-step pipeline:
+Clicking the speaker icon on a character message, or enabling auto-speak for new assistant messages, triggers a three-step pipeline:
 
-1. **Speech Scripter** — an LLM pass extracts only spoken dialogue from the message, stripping inner monologue, action beats (`*like this*`), and scene descriptions
-2. **TTS Synthesis** — the speakable text is sent to the configured backend (Edge TTS, OpenAI, Fish Speech, ElevenLabs)
-3. **Playback** — the generated audio plays in-browser; results are cached on disk so repeated plays are instant
+1. **Speech Extraction** — the default regex extractor extracts spoken dialogue locally. If LLM extraction is enabled, the speech scripter extracts only spoken dialogue from the message, stripping inner monologue, action beats (`*like this*`), and scene descriptions.
+2. **TTS Synthesis** — the speakable text is sent to the configured backend (Edge TTS, OpenAI, Fish Speech, ElevenLabs).
+3. **Playback** — the generated audio plays in-browser; results are cached on disk so repeated plays are instant.
 
 ## Available Backends
 

@@ -66,6 +66,20 @@ body {
   min-width: var(--tools-width);
 }
 
+#voice-panel {
+  width: 0;
+  min-width: 0;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+  transition: width .25s, min-width .25s;
+}
+
+#voice-panel.open {
+  width: var(--tools-width);
+  min-width: var(--tools-width);
+}
+
 /* ═══════════════════════════════════════════
    2. Sidebar
    ═══════════════════════════════════════════ */
@@ -1334,6 +1348,112 @@ body {
 
 .tools-inner::-webkit-scrollbar { width: 4px; }
 .tools-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.voice-inner {
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+  width: var(--tools-width);
+}
+
+.voice-inner::-webkit-scrollbar { width: 4px; }
+.voice-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.voice-block {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.voice-row,
+.voice-check-row,
+.voice-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-row {
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.voice-check-row {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.voice-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.voice-help {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin-top: 6px;
+}
+
+.voice-label {
+  display: block;
+  margin: 12px 0 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.voice-textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.voice-range {
+  width: 100%;
+}
+
+.voice-now-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-progress-row {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.voice-progress-row progress {
+  flex: 1;
+  height: 6px;
+}
+
+.voice-debug-text {
+  max-height: 150px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  margin: 8px 0;
+}
 
 .agent-master-row {
   display: flex;

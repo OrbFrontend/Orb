@@ -46,7 +46,7 @@ export const S = {
   reasoningPassSelected: 0,
   reasoningUserOverride: false,
   reasoningOpen: true,
-  reasoningEnabled: { director: true, writer: false, editor: false, scripter: false },
+  reasoningEnabled: { director: true, writer: false, editor: false },
   pendingRefineDiff: null, // {original, ops} set on writer_rewrite, cleared on next stream
   showEditorDiff: true, // when false, editor-pass diff highlights + "clear diff" button are suppressed
   hideUntilBaked: false, // when true, in-flight streaming message is kept detached from DOM until stream finalizes
@@ -58,4 +58,14 @@ export const S = {
   speakingMsgId: null, // message ID currently being spoken (null = idle)
   ttsLoading: false, // true while fetching TTS audio
   ttsError: null, // last TTS error message
+  ttsScripterEnabled: false, // true uses LLM extraction, false uses regex extractor
+  ttsAutoSpeak: false, // automatically speak new assistant messages
+  ttsVolume: 0.75, // audio playback volume, 0.0 - 1.0
+  ttsScripterPrompt: "", // global speech extraction prompt appended before per-character prompt
+  ttsExtractedText: "", // last extracted speech text, for debugging
+  ttsExtractionMethod: "regex", // regex | llm
+  ttsDebugExpanded: false,
+  ttsPlayingLabel: "",
+  ttsCurrentTime: 0,
+  ttsDuration: 0,
 };

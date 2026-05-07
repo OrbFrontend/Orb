@@ -100,12 +100,21 @@ import {
   hideAvatarPopup,
   speakMessageAction,
   stopSpeaking,
+  setCurrentTtsVolume,
   startEditTitle,
   saveTitleEdit,
   cancelTitleEdit,
   handleTitleEditKey,
 } from "./chat.js";
 import { closeModal, switchTab, showConfirmModal, runConfirmCb, closeCropModal } from "./modal.js";
+import {
+  toggleVoicePanel,
+  setTtsVolume,
+  setTtsAutoSpeak,
+  setTtsScripterEnabled,
+  setTtsScripterPrompt,
+  toggleTtsDebugExpanded,
+} from "./voice.js";
 import {
   loadWorlds,
   renderWorldsSidebar,
@@ -360,6 +369,14 @@ Object.assign(window, {
   hideAvatarPopup,
   speakMessage: speakMessageAction,
   stopSpeaking,
+  setCurrentTtsVolume,
+  // voice
+  toggleVoicePanel,
+  setTtsVolume,
+  setTtsAutoSpeak,
+  setTtsScripterEnabled,
+  setTtsScripterPrompt,
+  toggleTtsDebugExpanded,
   // worlds / lorebook
   showCreateWorldModal,
   createWorld,

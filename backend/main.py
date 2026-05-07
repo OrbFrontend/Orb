@@ -5,6 +5,7 @@ import uuid
 import logging
 import base64
 import tempfile
+import urllib.parse
 from contextlib import asynccontextmanager
 
 from typing import Annotated, Any, AsyncGenerator, Optional, List, cast
@@ -1707,9 +1708,24 @@ def _tts_cache_path(cid: str, msg_id: int, profile: dict, content: str = "") -> 
         f"{profile.get('language', '')}|{profile.get('rate', '')}|{profile.get('pitch', '')}|"
         f"{profile.get('scripter_model', '')}|{profile.get('scripter_temperature', '')}|"
         f"{profile.get('speech_prompt', '')}|{profile.get('api_url', '')}|"
-        f"{profile.get('model', '')}|{media_type}|{content}".encode()
+        f"{profile.get('model', '')}|{profile.get('_tts_scripter_enabled', '')}|"
+        f"{profile.get('_tts_scripter_prompt', '')}|{media_type}|{content}".encode()
     ).hexdigest()[:8]
     return os.path.join(TTS_CACHE_DIR, cid, f"{msg_id}_{fingerprint}.{ext}")
+
+
+def _tts_cache_meta_path(audio_path: str) -> str:
+    """Sidecar path for TTS extraction metadata."""
+    return audio_path + ".json"
+
+
+def _tts_metadata_headers(metadata: dict) -> dict[str, str]:
+    """Expose extraction debug data without changing the audio response body."""
+    text = metadata.get("extracted_text", "") or ""
+    return {
+        "X-Orb-TTS-Extraction-Method": metadata.get("extraction_method", "") or "",
+        "X-Orb-TTS-Extracted-Text": urllib.parse.quote(text[:4000]),
+    }
 
 
 @app.get("/api/tts/backends")
@@ -1829,14 +1845,29 @@ async def api_speak_message(cid: str, msg_id: int):
     if not profile or not profile.get("enabled"):
         raise HTTPException(400, "TTS not enabled for this character")
 
+    # Get settings before cache lookup because extraction settings affect the cache key.
+    settings = await get_settings()
+    use_scripter = bool(settings.get("tts_scripter_enabled"))
+    cache_profile = {
+        **profile,
+        "_tts_scripter_enabled": use_scripter,
+        "_tts_scripter_prompt": settings.get("tts_scripter_prompt", ""),
+    }
+
     # Check cache
-    cache_path = _tts_cache_path(cid, msg_id, profile, msg["content"])
+    cache_path = _tts_cache_path(cid, msg_id, cache_profile, msg["content"])
     if os.path.exists(cache_path):
         media_type, ext = _tts_cache_media_type(profile)
+        metadata = {}
+        meta_path = _tts_cache_meta_path(cache_path)
+        if os.path.exists(meta_path):
+            with open(meta_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
         return FileResponse(
             cache_path,
             media_type=media_type,
             filename=f"msg_{msg_id}.{ext}",
+            headers=_tts_metadata_headers(metadata),
         )
 
     # Get TTS adapter
@@ -1844,10 +1875,6 @@ async def api_speak_message(cid: str, msg_id: int):
         adapter = get_adapter(profile["backend"])
     except ValueError as e:
         raise HTTPException(400, str(e))
-
-    # Get settings to determine extraction path
-    settings = await get_settings()
-    use_scripter = settings.get("reasoning_enabled_passes", {}).get("scripter", False)
 
     if use_scripter:
         # LLM path — requires endpoint and model configuration
@@ -1877,6 +1904,12 @@ async def api_speak_message(cid: str, msg_id: int):
                 else []
             )
 
+        global_prompt = (settings.get("tts_scripter_prompt") or "").strip()
+        character_prompt = (profile.get("speech_prompt") or "").strip()
+        custom_prompt = "\n\n".join(
+            prompt for prompt in (global_prompt, character_prompt) if prompt
+        )
+
         # Run speech scripter pass
         chunks = await run_speech_scripter(
             client=client,
@@ -1884,8 +1917,8 @@ async def api_speak_message(cid: str, msg_id: int):
             writer_text=msg["content"],
             backend_type=profile["backend"],
             moods=moods,
-            custom_prompt=profile.get("speech_prompt", ""),
-            temperature=profile.get("scripter_temperature", 0.3),
+            custom_prompt=custom_prompt,
+            temperature=settings.get("temperature", 0.8),
         )
     else:
         # Algorithm path — zero LLM, zero latency
@@ -1895,6 +1928,11 @@ async def api_speak_message(cid: str, msg_id: int):
             backend_type=profile["backend"],
             supports_emotion_tags=adapter_obj.supports_emotion_tags,
         )
+
+    metadata = {
+        "extraction_method": "llm" if use_scripter else "regex",
+        "extracted_text": " ".join(chunk.text for chunk in chunks),
+    }
 
     # Synthesize audio
     result = await adapter.synthesize(
@@ -1911,15 +1949,20 @@ async def api_speak_message(cid: str, msg_id: int):
     if not result.audio_bytes:
         raise HTTPException(500, "TTS synthesis produced no audio")
 
-    # Cache the audio
+    # Cache the audio and extraction metadata
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     with open(cache_path, "wb") as f:
         f.write(result.audio_bytes)
+    with open(_tts_cache_meta_path(cache_path), "w", encoding="utf-8") as f:
+        json.dump(metadata, f, ensure_ascii=False)
 
     return Response(
         content=result.audio_bytes,
         media_type=result.content_type,
-        headers={"Content-Length": str(len(result.audio_bytes))},
+        headers={
+            "Content-Length": str(len(result.audio_bytes)),
+            **_tts_metadata_headers(metadata),
+        },
     )
 
 

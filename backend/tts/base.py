@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -82,6 +83,7 @@ class TTSAdapter(ABC):
         language: str = "en-US",
         rate: float = 1.0,
         pitch: float = 1.0,
+        **kwargs: Any,
     ) -> SynthesisResult:
         """Synthesize speakable chunks into complete audio.
 
@@ -98,7 +100,7 @@ class TTSAdapter(ABC):
         ...
 
     @abstractmethod
-    async def list_voices(self, language: str = "") -> list[dict]:
+    async def list_voices(self, language: str = "", **kwargs: Any) -> list[dict]:
         """Return available voices for this backend.
 
         Args:
@@ -108,6 +110,10 @@ class TTSAdapter(ABC):
             List of dicts with keys: id, name, language, gender.
         """
         ...
+
+    async def list_models(self, **kwargs: Any) -> list[dict]:
+        """Return available models for backends that expose model selection."""
+        return []
 
     @property
     @abstractmethod

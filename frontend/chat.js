@@ -20,6 +20,7 @@ import { renderCharacters, loadCharacters, refreshCharacters } from "./library.j
 import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
 import { validate } from "./validate.js";
 import { requestSendPermission } from "./tabLock.js";
+import { renderVoicePanel } from "./voice.js";
 
 function canStartGeneration() {
   if (S.isStreaming) return false;
@@ -1154,6 +1155,10 @@ async function afterStream() {
   renderInspector();
   scrollToBottom(true);
   refreshCharacters();
+
+  if (!wasAborted && S.ttsAutoSpeak && lastMsg?.role === "assistant" && lastMsg.id) {
+    speakMessageAction(lastMsg.id, { silentErrors: true });
+  }
 }
 
 async function processSSEStream(resp, container, msgDiv, signal) {
@@ -1659,17 +1664,21 @@ export function clearRefineDiff() {
 export function toggleInspector() {
   const inspector = $("inspector");
   const toolsPanel = $("tools-panel");
+  const voicePanel = $("voice-panel");
   const btn = $("inspector-toggle");
   const toolsBtn = $("tools-panel-btn");
+  const voiceBtn = $("voice-panel-btn");
   const wasOpen = inspector.classList.contains("open");
-  const switching = !wasOpen && toolsPanel.classList.contains("open");
+  const switching = !wasOpen && (toolsPanel.classList.contains("open") || voicePanel?.classList.contains("open"));
 
   if (wasOpen) {
     inspector.classList.remove("open");
     btn.classList.remove("btn-active");
   } else {
     toolsPanel.classList.remove("open");
+    voicePanel?.classList.remove("open");
     toolsBtn.classList.remove("btn-active");
+    voiceBtn?.classList.remove("btn-active");
     const open = () => {
       inspector.classList.add("open");
       btn.classList.add("btn-active");
@@ -1766,7 +1775,19 @@ export function hideAvatarPopup() {
 
 let _currentAudio = null;
 
-export async function speakMessageAction(msgId) {
+function resetTtsPlaybackState() {
+  S.speakingMsgId = null;
+  S.ttsLoading = false;
+  S.ttsCurrentTime = 0;
+  S.ttsDuration = 0;
+  S.ttsPlayingLabel = "";
+}
+
+export function setCurrentTtsVolume(volume) {
+  if (_currentAudio) _currentAudio.volume = Math.max(0, Math.min(1, Number(volume) || 0));
+}
+
+export async function speakMessageAction(msgId, opts = {}) {
   if (!S.activeConvId || !msgId) return;
 
   // If something is already playing, stop it first
@@ -1775,41 +1796,62 @@ export async function speakMessageAction(msgId) {
     _currentAudio = null;
   }
 
+  const msg = S.messages.find((m) => m.id === msgId);
   S.speakingMsgId = msgId;
   S.ttsLoading = true;
   S.ttsError = null;
+  S.ttsCurrentTime = 0;
+  S.ttsDuration = 0;
+  S.ttsPlayingLabel = msg ? `Message #${msgId}` : `Message #${msgId}`;
   renderMessages();
+  renderVoicePanel();
 
   try {
-    const audioUrl = await apiSpeakMessage(S.activeConvId, msgId);
+    const { audioUrl, extractedText, extractionMethod } = await apiSpeakMessage(S.activeConvId, msgId);
+    S.ttsExtractedText = extractedText || "";
+    S.ttsExtractionMethod = extractionMethod || (S.ttsScripterEnabled ? "llm" : "regex");
+
     const audio = new Audio(audioUrl);
+    audio.volume = Math.max(0, Math.min(1, S.ttsVolume ?? 0.75));
     _currentAudio = audio;
 
+    audio.onloadedmetadata = () => {
+      S.ttsDuration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      renderVoicePanel();
+    };
+
+    audio.ontimeupdate = () => {
+      S.ttsCurrentTime = audio.currentTime || 0;
+      S.ttsDuration = Number.isFinite(audio.duration) ? audio.duration : S.ttsDuration;
+      renderVoicePanel();
+    };
+
     audio.onended = () => {
-      S.speakingMsgId = null;
-      S.ttsLoading = false;
+      resetTtsPlaybackState();
       _currentAudio = null;
       renderMessages();
+      renderVoicePanel();
     };
 
     audio.onerror = () => {
-      S.speakingMsgId = null;
-      S.ttsLoading = false;
+      resetTtsPlaybackState();
       S.ttsError = "Audio playback failed";
       _currentAudio = null;
       renderMessages();
+      renderVoicePanel();
     };
 
     S.ttsLoading = false;
     renderMessages();
+    renderVoicePanel();
     await audio.play();
   } catch (err) {
-    S.speakingMsgId = null;
-    S.ttsLoading = false;
+    resetTtsPlaybackState();
     S.ttsError = err.message || "TTS failed";
     _currentAudio = null;
     renderMessages();
-    toast(S.ttsError, "error");
+    renderVoicePanel();
+    if (!opts.silentErrors) toast(S.ttsError, "error");
   }
 }
 
@@ -1818,7 +1860,7 @@ export function stopSpeaking() {
     _currentAudio.pause();
     _currentAudio = null;
   }
-  S.speakingMsgId = null;
-  S.ttsLoading = false;
+  resetTtsPlaybackState();
   renderMessages();
+  renderVoicePanel();
 }

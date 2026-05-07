@@ -210,6 +210,10 @@ DEFAULT_SETTINGS = {
     "hide_streaming_until_baked": 0,
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
+    "tts_scripter_enabled": 0,
+    "tts_auto_speak": 0,
+    "tts_volume": 0.75,
+    "tts_scripter_prompt": "",
 }
 
 SEED_PHRASE_BANK = [
@@ -348,7 +352,7 @@ async def init_db():
                 enable_agent INTEGER NOT NULL DEFAULT 1,
                 length_guard_max_words INTEGER NOT NULL DEFAULT 240,
                 length_guard_max_paragraphs INTEGER NOT NULL DEFAULT 4,
-                reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":false,"editor":false,"scripter":false}',
+                reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":false,"editor":false}',
                 active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
                 character_library_view TEXT NOT NULL DEFAULT 'grid',
                 character_library_sort TEXT NOT NULL DEFAULT 'time-added',
@@ -356,7 +360,11 @@ async def init_db():
                 hide_streaming_until_baked INTEGER NOT NULL DEFAULT 0,
                 agent_same_as_writer INTEGER NOT NULL DEFAULT 1,
                 agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
-                agent_shared_system_prompt TEXT NOT NULL DEFAULT ''
+                agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
+                tts_scripter_enabled INTEGER NOT NULL DEFAULT 0,
+                tts_auto_speak INTEGER NOT NULL DEFAULT 0,
+                tts_volume REAL NOT NULL DEFAULT 0.75,
+                tts_scripter_prompt TEXT DEFAULT ''
             );
 
             CREATE TABLE IF NOT EXISTS mood_fragments (
@@ -557,7 +565,7 @@ async def init_db():
             )
         if "reasoning_enabled_passes" not in existing_cols:
             await db.execute(
-                'ALTER TABLE settings ADD COLUMN reasoning_enabled_passes TEXT NOT NULL DEFAULT \'{"director":true,"writer":false,"editor":false,"scripter":false}\''
+                'ALTER TABLE settings ADD COLUMN reasoning_enabled_passes TEXT NOT NULL DEFAULT \'{"director":true,"writer":false,"editor":false}\''
             )
 
         if "active_persona_id" not in existing_cols:
@@ -667,6 +675,43 @@ async def init_db():
             await db.execute(
                 "ALTER TABLE settings ADD COLUMN agent_shared_system_prompt TEXT NOT NULL DEFAULT ''"
             )
+        if "tts_scripter_enabled" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN tts_scripter_enabled INTEGER NOT NULL DEFAULT 0"
+            )
+        if "tts_auto_speak" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN tts_auto_speak INTEGER NOT NULL DEFAULT 0"
+            )
+        if "tts_volume" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN tts_volume REAL NOT NULL DEFAULT 0.75"
+            )
+        if "tts_scripter_prompt" not in existing_cols:
+            await db.execute(
+                "ALTER TABLE settings ADD COLUMN tts_scripter_prompt TEXT DEFAULT ''"
+            )
+
+        # Migrate legacy reasoning_enabled_passes.scripter into the real TTS setting.
+        settings_rows = list(
+            await db.execute_fetchall(
+                "SELECT id, reasoning_enabled_passes, tts_scripter_enabled FROM settings WHERE id = 1"
+            )
+        )
+        if settings_rows:
+            settings_row = dict(settings_rows[0])
+            try:
+                passes = json.loads(
+                    settings_row.get("reasoning_enabled_passes") or "{}"
+                )
+            except json.JSONDecodeError:
+                passes = {}
+            if "scripter" in passes:
+                legacy_scripter = 1 if passes.pop("scripter") else 0
+                await db.execute(
+                    "UPDATE settings SET reasoning_enabled_passes = ?, tts_scripter_enabled = CASE WHEN tts_scripter_enabled THEN tts_scripter_enabled ELSE ? END WHERE id = 1",
+                    (json.dumps(passes), legacy_scripter),
+                )
 
         # Migration for director_state keywords column
         director_cols = {
@@ -1034,11 +1079,12 @@ async def get_settings() -> dict:
         s["enabled_tools"] = json.loads(s.get("enabled_tools") or "{}")
         s["reasoning_enabled_passes"] = json.loads(
             s.get("reasoning_enabled_passes")
-            or '{"director":true,"writer":false,"editor":false,"scripter":false}'
+            or '{"director":true,"writer":false,"editor":false}'
         )
-        # Patch existing DBs that have reasoning_enabled_passes without scripter key
-        if "scripter" not in s["reasoning_enabled_passes"]:
-            s["reasoning_enabled_passes"]["scripter"] = False
+        # Scripter is a TTS setting, not a reasoning pass. Existing DBs may still
+        # have this legacy key; hide it from callers so the Inspector remains
+        # reasoning-only.
+        s["reasoning_enabled_passes"].pop("scripter", None)
         # Overlay endpoint_url, api_key, model_name, and hyperparameters from the
         # active endpoint's active model config so callers always get live values
         # rather than the stale flat columns.
@@ -1156,6 +1202,10 @@ async def update_settings(data: dict) -> dict:
             "agent_same_as_writer",
             "agent_endpoint_id",
             "agent_shared_system_prompt",
+            "tts_scripter_enabled",
+            "tts_auto_speak",
+            "tts_volume",
+            "tts_scripter_prompt",
         ]
         sets, vals = _build_set_clause(
             allowed, data, json_fields={"enabled_tools", "reasoning_enabled_passes"}
@@ -2670,4 +2720,7 @@ async def upsert_voice_profile(character_card_id: str, data: dict) -> dict:
             )
             await db.commit()
 
-    return await get_voice_profile(character_card_id)
+    profile = await get_voice_profile(character_card_id)
+    if profile is None:
+        raise RuntimeError("Failed to load saved voice profile")
+    return profile

@@ -37,8 +37,14 @@ export async function speakMessage(convId, msgId) {
     err.status = r.status;
     throw err;
   }
+  const extractedText = decodeURIComponent(r.headers.get("X-Orb-TTS-Extracted-Text") || "");
+  const extractionMethod = r.headers.get("X-Orb-TTS-Extraction-Method") || "";
   const blob = await r.blob();
-  return URL.createObjectURL(blob);
+  return {
+    audioUrl: URL.createObjectURL(blob),
+    extractedText,
+    extractionMethod,
+  };
 }
 
 export async function getTtsBackends() {
