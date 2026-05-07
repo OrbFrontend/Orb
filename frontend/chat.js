@@ -781,6 +781,17 @@ export function renderMessages() {
   if (!S.isStreaming) updateContextCounter();
 }
 
+function refreshMessageToolbar(msgId) {
+  if (!msgId) return;
+  const msg = S.messages.find((m) => m.id === msgId);
+  const toolbar = document.querySelector(`[data-msg-id="${msgId}"] .msg-toolbar`);
+  if (msg && toolbar) toolbar.innerHTML = buildMsgToolbar(msg);
+}
+
+function refreshTtsMessageToolbars(...msgIds) {
+  for (const msgId of new Set(msgIds.filter(Boolean))) refreshMessageToolbar(msgId);
+}
+
 function updateContextCounter() {
   fetchContextSize();
 }
@@ -1790,7 +1801,9 @@ export function setCurrentTtsVolume(volume) {
 export async function speakMessageAction(msgId, opts = {}) {
   if (!S.activeConvId || !msgId) return;
 
-  // If something is already playing, stop it first
+  // If something is already playing, stop it first.
+  // Only patch the affected toolbar(s); re-rendering the whole chat log makes it blink.
+  const previousMsgId = S.speakingMsgId;
   if (_currentAudio) {
     _currentAudio.pause();
     _currentAudio = null;
@@ -1803,7 +1816,7 @@ export async function speakMessageAction(msgId, opts = {}) {
   S.ttsCurrentTime = 0;
   S.ttsDuration = 0;
   S.ttsPlayingLabel = msg ? `Message #${msgId}` : `Message #${msgId}`;
-  renderMessages();
+  refreshTtsMessageToolbars(previousMsgId, msgId);
   renderVoicePanel();
 
   try {
@@ -1827,40 +1840,44 @@ export async function speakMessageAction(msgId, opts = {}) {
     };
 
     audio.onended = () => {
+      const endedMsgId = S.speakingMsgId;
       resetTtsPlaybackState();
       _currentAudio = null;
-      renderMessages();
+      refreshTtsMessageToolbars(endedMsgId);
       renderVoicePanel();
     };
 
     audio.onerror = () => {
+      const erroredMsgId = S.speakingMsgId;
       resetTtsPlaybackState();
       S.ttsError = "Audio playback failed";
       _currentAudio = null;
-      renderMessages();
+      refreshTtsMessageToolbars(erroredMsgId);
       renderVoicePanel();
     };
 
     S.ttsLoading = false;
-    renderMessages();
+    refreshTtsMessageToolbars(msgId);
     renderVoicePanel();
     await audio.play();
   } catch (err) {
+    const erroredMsgId = S.speakingMsgId;
     resetTtsPlaybackState();
     S.ttsError = err.message || "TTS failed";
     _currentAudio = null;
-    renderMessages();
+    refreshTtsMessageToolbars(erroredMsgId);
     renderVoicePanel();
     if (!opts.silentErrors) toast(S.ttsError, "error");
   }
 }
 
 export function stopSpeaking() {
+  const stoppedMsgId = S.speakingMsgId;
   if (_currentAudio) {
     _currentAudio.pause();
     _currentAudio = null;
   }
   resetTtsPlaybackState();
-  renderMessages();
+  refreshTtsMessageToolbars(stoppedMsgId);
   renderVoicePanel();
 }
