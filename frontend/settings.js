@@ -720,7 +720,19 @@ async function _syncModelConfigRecord(ctx, modelName, hyperparams) {
   }
 }
 
-async function _saveEndpointSetting(ctx, el) {
+// Serialize endpoint-related saves. When a user fills endpoint_url + api_key + model_name and
+// clicks outside, the three change events fire near-simultaneously and run concurrently. The
+// model save reads S[ctx.endpointIdKey], which is only populated after the endpoint POST resolves
+// — so without serialization the model save sees a null id and silently no-ops.
+let _endpointSaveQueue = Promise.resolve();
+
+function _saveEndpointSetting(ctx, el) {
+  const next = _endpointSaveQueue.catch(() => {}).then(() => _doSaveEndpointSetting(ctx, el));
+  _endpointSaveQueue = next;
+  return next;
+}
+
+async function _doSaveEndpointSetting(ctx, el) {
   let v = el.value;
   if (el.type === "number") v = parseFloat(v);
   const key = el.dataset.key;
@@ -738,7 +750,18 @@ async function _saveEndpointSetting(ctx, el) {
   } else if (key === ctx.modelField) {
     ctx.hyperparamKeys.forEach((k) => {
       const fieldEl = document.querySelector(`[data-key="${k}"]`);
-      if (fieldEl) payload[k] = fieldEl.type === "number" ? parseFloat(fieldEl.value) : fieldEl.value;
+      if (!fieldEl) return;
+      if (fieldEl.type === "number") {
+        // Empty number inputs would parseFloat to NaN, which JSON-serializes as null and is
+        // rejected by the backend's Pydantic float fields. Skip them so the model-create POST
+        // can fall back to its defaults.
+        if (fieldEl.value.trim() === "") return;
+        const parsed = parseFloat(fieldEl.value);
+        if (Number.isNaN(parsed)) return;
+        payload[k] = parsed;
+      } else {
+        payload[k] = fieldEl.value;
+      }
     });
   }
   try {
@@ -760,6 +783,7 @@ async function _saveEndpointSetting(ctx, el) {
     }
   } catch (e) {
     console.error("Endpoint/model sync error:", e);
+    toast("Failed to sync " + (key === ctx.modelField ? "model" : "endpoint") + ": " + e.message, true);
   }
   updateAgentModelWarning();
 }
