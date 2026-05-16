@@ -70,12 +70,12 @@ For optimal KV cache reuse, the following will remain consistent across passes:
 2. OpenAI-compatible LLM inference backend API that supports prompt-caching
 3. Python 3.9+
 
+## Wiki
+
+Full documentation is at **https://orbfrontend.github.io/Orb/**
+
 ## Contributing & Discussions
 
 Read this before opening a PR: https://github.com/OrbFrontend/Orb/blob/main/CONTRIBUTING.md
 
 Ideas, help requests, and questions go here: https://github.com/OrbFrontend/Orb/discussions
-
-## Voice Speech Generation (TTS)
-
-Orb can speak character messages using text-to-speech. See [docs/tts.md](docs/tts.md) for setup, available backends, and how to add new ones.
