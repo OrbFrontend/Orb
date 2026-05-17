@@ -12,7 +12,7 @@ from typing import AsyncIterator, List, Optional
 from . import database as db
 from .llm_client import LLMClient, reasoning_cfg
 from .endpoint_profiles import profile_for
-from .tool_defs import TOOLS, POST_WRITER_TOOLS
+from .tool_defs import TOOLS, POST_WRITER_TOOLS, build_direct_scene_tool
 from .prompt_builder import (
     build_prefix,
     compute_style_injection_block,
@@ -126,6 +126,12 @@ async def _run_pipeline(
 
     kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
 
+    # All three passes must send byte-identical tools; direct_scene is dynamic
+    # so it's built once here and shared via schema_overrides.
+    schema_overrides = {
+        "direct_scene": build_direct_scene_tool(director_fragments),
+    }
+
     # --- Director pass ---
     has_pre_writer_tools = any(enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
     if agent_on and has_pre_writer_tools:
@@ -145,6 +151,7 @@ async def _run_pipeline(
             lorebook_block=lorebook_block,
             model=agent_model,
             progressive_state=progressive_state,
+            schema_overrides=schema_overrides,
         ):
             if event["type"] == "reasoning":
                 reasoning_director_text += event["delta"]
@@ -223,6 +230,7 @@ async def _run_pipeline(
         length_guard=length_guard,
         kv_tracker=kv_tracker,
         reasoning_on=writer_reasoning_on,
+        schema_overrides=schema_overrides,
     ):
         if item["type"] == "reasoning":
             reasoning_writer_text += item["delta"]
@@ -278,6 +286,7 @@ async def _run_pipeline(
                 audit_context_msgs=editor_audit_msgs,
                 model=agent_model,
                 writer_user_msg=writer_content,
+                schema_overrides=schema_overrides,
             ):
                 if event["type"] == "reasoning":
                     reasoning_editor_text += event["delta"]
