@@ -16,6 +16,7 @@ from ..tool_defs import (
     TOOLS,
     POST_WRITER_TOOLS,
     enabled_schemas,
+    build_direct_scene_tool,
 )
 from ..prompt_builder import build_director_tool_prompt
 from ..utils import extract_hyperparams, build_multimodal_content
@@ -68,7 +69,6 @@ async def _director_pass(
     lorebook_block: str = "",
     model: str | None = None,
     progressive_state: dict | None = None,
-    schema_overrides: dict | None = None,
 ) -> AsyncIterator[dict]:
     """Yields reasoning dicts during each tool call, then a single done dict.
 
@@ -100,7 +100,10 @@ async def _director_pass(
         }
         return
 
-    tool_schemas = enabled_schemas(enabled_tools, schema_overrides)
+    # Build base schemas, replacing the static direct_scene with the dynamic one.
+    base_schemas = enabled_schemas(enabled_tools)
+    dynamic_direct_scene = build_direct_scene_tool(director_fragments, progressive_state)
+    tool_schemas = [dynamic_direct_scene if s["function"]["name"] == "direct_scene" else s for s in base_schemas]
 
     logger.info(
         "Director pass: tools included=%s",
@@ -153,8 +156,6 @@ async def _director_pass(
                     yield {"type": "reasoning", "delta": event["delta"]}
                 elif event["type"] == "done":
                     resp = event["message"]
-                    if kv_tracker is not None:
-                        kv_tracker.record_usage(f"director:{name}", event.get("usage"))
             last_raw = json.dumps(resp, default=str)
             logger.info("Agent tool=%s output:\n%s", name, last_raw)
             if parsed := parse_tool_calls(resp):
