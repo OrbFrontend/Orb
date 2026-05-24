@@ -25,17 +25,11 @@ _DIRECT_SCENE_DESCRIPTION = (
 )
 
 
-def build_direct_scene_tool(
-    director_fragments: list[dict],
-    progressive_state: dict | None = None,
-) -> dict:
+def build_direct_scene_tool(director_fragments: list[dict]) -> dict:
     """Build the direct_scene tool schema from enabled director fragments.
 
     Director fragments provide dynamic string/array parameters beyond the fixed
     moods and keywords fields. The returned dict is in OpenAI function-calling format.
-
-    For "progressive" fragments, the previous value (from progressive_state) is
-    appended to the description so the LLM can see what it wrote last turn.
     """
     properties: dict = {}
     required: list[str] = []
@@ -49,12 +43,6 @@ def build_direct_scene_tool(
                 "items": {"type": "string"},
                 "description": df["description"],
             }
-        elif field_type == "progressive":
-            desc = df["description"]
-            prev = (progressive_state or {}).get(fid)
-            if prev:
-                desc = f"{desc} Previous value: {prev!r}"
-            prop = {"type": "string", "description": desc}
         else:
             prop = {"type": "string", "description": df["description"]}
         properties[fid] = prop
@@ -239,5 +227,12 @@ PRE_WRITER_TOOLS = {"rewrite_user_prompt"}
 POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite"}
 
 
-def enabled_schemas(enabled_tools: dict) -> list[dict]:
-    return [TOOLS[n]["schema"] for n in TOOLS if enabled_tools.get(n, False)]
+def enabled_schemas(enabled_tools: dict, overrides: dict[str, dict] | None = None) -> list[dict]:
+    """Return tool schemas for enabled tools, in TOOLS registry order.
+
+    ``overrides`` replaces named schemas with dynamic variants so every pass
+    sends a byte-identical tools blob; any mismatch breaks the KV cache at
+    the tools position in the chat template.
+    """
+    overrides = overrides or {}
+    return [s for n in TOOLS if enabled_tools.get(n, False) if (s := overrides.get(n, TOOLS[n]["schema"])) is not None]

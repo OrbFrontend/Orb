@@ -66,6 +66,8 @@ plugins:
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - Architecture:
+      - KV Cache Reuse: architecture/kv-cache.md
   - Features:
       - features/index.md
       - Writer Direction: features/director.md

@@ -76,7 +76,10 @@ class LLMClient:
 
         Yields:
             {"type": "reasoning", "delta": str}  — zero or more reasoning chunks
-            {"type": "done", "message": dict}    — assembled message with content/tool_calls
+            {"type": "content",   "delta": str}  — zero or more content chunks
+            {"type": "done", "message": dict, "usage": dict | None}
+                — assembled message with content/tool_calls, plus the provider's
+                  usage object if returned (None when the server doesn't emit it).
         """
         body = {
             "model": model,
@@ -88,6 +91,8 @@ class LLMClient:
             body["tools"] = tools
         if tool_choice:
             body["tool_choice"] = tool_choice
+        # Requests usage in the terminal SSE chunk; servers that don't support it silently ignore this field.
+        body.setdefault("stream_options", {"include_usage": True})
 
         if self.profile is not None:
             for action in self.profile.apply(body):
@@ -105,6 +110,7 @@ class LLMClient:
         reasoning_parts: list[str] = []
         tool_calls_acc: dict[int, dict] = {}
         finish_reason: str | None = None
+        usage: dict | None = None
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:
@@ -163,7 +169,21 @@ class LLMClient:
                             break
                         try:
                             chunk = json.loads(payload)
-                            choice = chunk["choices"][0]
+                        except json.JSONDecodeError:
+                            continue
+
+                        # Usage may appear in a terminal chunk (choices=[]) or on the final content chunk; last-write-wins since totals are monotonic.
+                        u = chunk.get("usage")
+                        if isinstance(u, dict):
+                            usage = u
+
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            # Pure usage/metadata chunk — nothing else to do.
+                            continue
+
+                        try:
+                            choice = choices[0]
                             delta = choice.get("delta", {})
 
                             # Reasoning delta (field name varies by server)
@@ -199,7 +219,7 @@ class LLMClient:
                             if choice.get("finish_reason"):
                                 finish_reason = choice["finish_reason"]
 
-                        except (json.JSONDecodeError, KeyError, IndexError):
+                        except (KeyError, IndexError):
                             continue
                 finally:
                     abort_wait.cancel()
@@ -232,12 +252,13 @@ class LLMClient:
             message["finish_reason"] = finish_reason
 
         logger.info(
-            "LLM complete: assembled keys=%s, has_tool_calls=%s, content_len=%s",
+            "LLM complete: assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
             list(message.keys()),
             "tool_calls" in message,
             len(message.get("content", "") or "") if message.get("content") else "null",
+            usage,
         )
-        yield {"type": "done", "message": message}
+        yield {"type": "done", "message": message, "usage": usage}
 
 
 def _sanitize_args(obj):
