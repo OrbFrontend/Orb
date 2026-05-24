@@ -130,6 +130,25 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #a3e0f8, #38ace3); }
 * { scrollbar-width: thin; scrollbar-color: #4eb3e3 rgba(255,255,255,0.3); }
 
+/* ── Legibility for text that floats directly on the sky
+   gradient (not inside a white card). The muted blue defaults
+   blend into the blue top / green bottom of the wallpaper, so
+   darken them and add a soft white halo — the glow doubles as
+   an authentic Aero "wet glass" text treatment. */
+.msg-role {
+  color: #0f5279 !important;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.85), 0 0 1px rgba(255,255,255,0.9) !important;
+}
+.swipe-counter, .swipe-nav {
+  color: #155f86 !important;
+  text-shadow: 0 1px 1px rgba(255,255,255,0.8) !important;
+}
+.swipe-nav:hover { color: var(--accent) !important; }
+
+/* Toolbar icons keep their hover-reveal behaviour, but read
+   clearly against the gradient once shown. */
+.msg-toolbar { color: #2a6a91 !important; }
+
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
 </content>
