@@ -59,6 +59,7 @@ async def _writer_pass(
     length_guard: dict | None = None,
     kv_tracker=None,
     reasoning_on: bool = True,
+    schema_overrides: dict | None = None,
 ) -> AsyncIterator[dict]:
     """Yields {"type": "content"|"reasoning", "delta": str} dicts."""
     content = build_writer_content(
@@ -74,7 +75,7 @@ async def _writer_pass(
     msgs = prefix + [{"role": "user", "content": content}]
 
     hyperparams = extract_hyperparams(settings)
-    schemas = enabled_schemas(enabled_tools)
+    schemas = enabled_schemas(enabled_tools, schema_overrides)
     logger.info(
         "Writer pass: tools included=%s",
         json.dumps([s["function"]["name"] for s in schemas]) if schemas else "[]",
@@ -87,5 +88,7 @@ async def _writer_pass(
 
     async for item in client.complete(messages=msgs, model=settings["model_name"], **extra, **hyperparams):
         if item["type"] == "done":
+            if kv_tracker is not None:
+                kv_tracker.record_usage("writer", item.get("usage"))
             return
         yield item
