@@ -2,6 +2,14 @@
    Frutiger Aero — glossy sky-and-water glass, Windows 7 era
    Light, wet, optimistic. Aqua blues, fresh greens, frosted
    glass panels, and a high-gloss reflective button finish.
+
+   Performance note: live backdrop-filter (real-time blur) is
+   restricted to a handful of large, fixed elements — the side
+   panels, the input dock, and the modal layer. It is never
+   applied per-message, per-list-item, or to anything that
+   repeats, since blurring many elements on every scroll frame
+   is what tanks framerate. Everywhere else, a high-opacity
+   white over the sky gradient fakes "glass" for nearly free.
    ═══════════════════════════════════════════════════════════ */
 :root {
   /* Frosted-white surfaces — kept lightly translucent so the
@@ -34,29 +42,36 @@
 }
 
 /* ── Sky-and-grass wallpaper: the signature Aero backdrop.
-   Bright sky up top, a wash of fresh aqua-green toward the
-   bottom, plus a soft sun-glow bloom in the corner. */
+   A bright graduated sky melting into fresh aqua-green, a soft
+   sun-glow bloom in the top corner, a faint cool counter-light
+   opposite it, and a low green ground-bloom. All static
+   gradients — painted once, no runtime cost. */
 body {
   background:
-    radial-gradient(120% 80% at 78% -10%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0) 42%),
-    radial-gradient(90% 70% at 12% 108%, rgba(120,220,170,0.40) 0%, rgba(120,220,170,0) 55%),
-    linear-gradient(180deg, #5fbdef 0%, #8fd4f3 24%, #bfe9f5 52%, #d8f3ec 78%, #e9f7df 100%)
+    radial-gradient(140% 90% at 80% -16%, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.35) 24%, rgba(255,255,255,0) 46%),
+    radial-gradient(70% 60% at 6% 4%, rgba(180,235,255,0.5) 0%, rgba(180,235,255,0) 50%),
+    radial-gradient(100% 75% at 14% 112%, rgba(116,222,168,0.5) 0%, rgba(116,222,168,0) 56%),
+    linear-gradient(180deg, #4fb6ee 0%, #79cdf2 22%, #aee2f4 48%, #d2f1ed 74%, #e7f6dd 100%)
     !important;
+  background-attachment: fixed !important;
 }
 
-/* ── Aero Glass: frosted, translucent, blurred panels. */
+/* ── Aero Glass: frosted, translucent, blurred side panels.
+   Three fixed elements only. The inset top line is a crisp
+   glass highlight; the soft inner shadow gives the pane depth. */
 #sidebar, #inspector, #tools-panel {
-  background: rgba(238,248,253,0.62) !important;
-  backdrop-filter: blur(16px) saturate(150%) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
+  background: rgba(238,248,253,0.58) !important;
+  backdrop-filter: blur(18px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
   border-color: rgba(255,255,255,0.6) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85) !important;
 }
 #sidebar { border-right: 1px solid rgba(255,255,255,0.55) !important; }
 #inspector, #tools-panel { border-left: 1px solid rgba(255,255,255,0.55) !important; }
 
 /* Glass headers get a brighter top-light sheen. */
-.sidebar-header {
-  background: linear-gradient(180deg, rgba(255,255,255,0.7), rgba(255,255,255,0) 100%) !important;
+.sidebar-header, #chat-header {
+  background: linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0) 100%) !important;
   border-bottom: 1px solid rgba(255,255,255,0.6) !important;
 }
 
@@ -66,17 +81,21 @@ body {
   text-shadow: 0 1px 0 rgba(255,255,255,0.9), 0 0 14px rgba(60,180,230,0.45) !important;
 }
 
+/* Collapsible section headers brighten on hover like lit glass. */
+.sidebar-section-header:hover { color: #0f5279 !important; }
+
 /* ── High-gloss buttons: two-tone reflective face + top highlight. */
 .btn {
   background: linear-gradient(180deg, #ffffff 0%, #eaf6fd 47%, #d3ecf9 50%, #e4f4fc 100%) !important;
   border: 1px solid #8fc3e3 !important;
   color: #154863 !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 2px rgba(40,110,160,0.18) !important;
-  transition: all .12s ease !important;
+  transition: background .12s ease, border-color .12s ease, box-shadow .12s ease !important;
 }
 .btn:hover {
   background: linear-gradient(180deg, #ffffff 0%, #f1fafe 47%, #d9f0fc 50%, #ecf8ff 100%) !important;
   border-color: #5fb1de !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,1), 0 1px 3px rgba(40,110,160,0.22), 0 0 0 2px var(--accent-glow) !important;
 }
 .btn:active {
   background: linear-gradient(180deg, #d3ecf9 0%, #e4f4fc 50%, #ffffff 100%) !important;
@@ -93,15 +112,61 @@ body {
 }
 .btn-accent:hover, .btn-active:hover, #send-btn:hover {
   background: linear-gradient(180deg, #82d2f6 0%, #36ace3 47%, #1d92d2 50%, #54bdf0 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), 0 1px 4px rgba(20,90,140,0.4), 0 0 12px rgba(40,165,225,0.35) !important;
 }
 
-/* Danger button: glossy coral. */
-.btn-danger {
+/* Danger button + chat Stop button: glossy coral gel. */
+.btn-danger, #stop-btn {
   background: linear-gradient(180deg, #f6a08c 0%, #e0573f 47%, #c84528 50%, #ec7257 100%) !important;
   border: 1px solid #b53d22 !important;
   color: #fff !important;
   text-shadow: 0 -1px 0 rgba(60,10,0,0.3) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 1px 3px rgba(150,50,30,0.3) !important;
+}
+.btn-danger:hover, #stop-btn:hover {
+  background: linear-gradient(180deg, #f8af9d 0%, #e8624a 47%, #d24c2e 50%, #f17e64 100%) !important;
+}
+
+/* Burger / icon button by the composer — small glossy glass tile. */
+#burger-btn {
+  background: linear-gradient(180deg, #ffffff 0%, #e9f5fd 50%, #d6edf9 100%) !important;
+  border: 1px solid #8fc3e3 !important;
+  color: #2a6a91 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95) !important;
+}
+#burger-btn:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #f1fafe 50%, #e0f2fc 100%) !important;
+  border-color: #5fb1de !important;
+  color: #0f5279 !important;
+}
+
+/* ── Composer dock: a frosted glass shelf with a top sheen. */
+#chat-input-area {
+  background: rgba(233,245,253,0.66) !important;
+  backdrop-filter: blur(14px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(150%) !important;
+  border-top: 1px solid rgba(255,255,255,0.6) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}
+
+/* ── Glossy gel toggle, Win7-style: recessed track, pearly knob;
+   lights up aqua when on. */
+.tog-slider {
+  background: linear-gradient(180deg, #d4e8f4, #eaf6fd) !important;
+  border: 1px solid #9fc9e4 !important;
+  box-shadow: inset 0 1px 2px rgba(40,110,160,0.18) !important;
+}
+.tog-slider:before {
+  background: linear-gradient(180deg, #ffffff, #d7e9f4) !important;
+  box-shadow: 0 1px 2px rgba(40,110,160,0.35), inset 0 1px 0 rgba(255,255,255,0.95) !important;
+}
+.tog input:checked + .tog-slider {
+  background: linear-gradient(180deg, #5fc0ee, #1a9bd7) !important;
+  border-color: #1377ad !important;
+  box-shadow: inset 0 1px 2px rgba(10,70,110,0.35), 0 0 6px rgba(40,165,225,0.4) !important;
+}
+.tog input:checked + .tog-slider:before {
+  background: linear-gradient(180deg, #ffffff, #e3f3fd) !important;
 }
 
 /* ── Message cards: clean glass with a soft drop shadow.
@@ -119,6 +184,40 @@ body {
   border-color: rgba(143,195,227,0.7) !important;
 }
 
+/* Code blocks: faint frosted-blue inset so they sit a notch
+   below the card surface (flat fill — no blur). */
+.message .msg-body pre,
+.message .msg-body code.inline-code {
+  background: rgba(222,239,250,0.7) !important;
+  border-color: rgba(143,195,227,0.55) !important;
+}
+
+/* ── Modals: a single frosted-glass sheet on a sky-tinted,
+   lightly-blurred scrim. Only present while a modal is open,
+   so the blur cost is transient. */
+.modal-overlay {
+  background: rgba(120,180,215,0.32) !important;
+  backdrop-filter: blur(6px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(130%) !important;
+}
+.modal, .modal-crop {
+  background: rgba(244,250,254,0.86) !important;
+  backdrop-filter: blur(20px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+  border: 1px solid rgba(255,255,255,0.7) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 12px 40px rgba(30,90,140,0.3) !important;
+}
+
+/* ── Toast: little floating glass lozenge. */
+.toast {
+  background: rgba(244,250,254,0.85) !important;
+  backdrop-filter: blur(12px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(150%) !important;
+  border: 1px solid rgba(255,255,255,0.7) !important;
+  color: #143a52 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 6px 20px rgba(30,90,140,0.25) !important;
+}
+
 /* ── Glossy aqua scrollbars (rounded "water drop" thumb). */
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-track { background: rgba(255,255,255,0.25); }
@@ -129,6 +228,9 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #a3e0f8, #38ace3); }
 * { scrollbar-width: thin; scrollbar-color: #4eb3e3 rgba(255,255,255,0.3); }
+
+/* Aqua text selection. */
+::selection { background: rgba(40,165,225,0.32); color: #0f3a54; }
 
 /* ── Legibility for text that floats directly on the sky
    gradient (not inside a white card). The muted blue defaults
@@ -151,4 +253,3 @@ body {
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
-</content>
