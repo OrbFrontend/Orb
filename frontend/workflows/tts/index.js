@@ -28,7 +28,13 @@ function injectStyles() {
 // The config slot is stored as a full replacement (not merged with defaults),
 // so a persisted slot may lack these keys; defaulting them here to the same
 // values as the backend config_defaults keeps that case consistent.
-const config = { auto_play: false, volume: 0.75, click_granularity: "block", click_play_scope: "unit", show_karaoke: true };
+const config = {
+  auto_play: false,
+  volume: 0.75,
+  click_granularity: "block",
+  click_play_scope: "unit",
+  show_karaoke: true,
+};
 
 async function loadConfig() {
   try {

@@ -126,15 +126,17 @@ function saveGlobal() {
   if (cfg.click_granularity !== prevGranularity) renderMessages();
   // The config slot is replaced wholesale on write, so every key must be sent
   // or an omitted one reverts to its default.
-  api.put("/secondary-workflows/" + WORKFLOW_ID + "/config", {
-    config: {
-      auto_play: cfg.auto_play,
-      volume: cfg.volume,
-      click_granularity: cfg.click_granularity,
-      click_play_scope: cfg.click_play_scope,
-      show_karaoke: cfg.show_karaoke,
-    },
-  }).catch((e) => console.warn("tts config save failed", e));
+  api
+    .put("/secondary-workflows/" + WORKFLOW_ID + "/config", {
+      config: {
+        auto_play: cfg.auto_play,
+        volume: cfg.volume,
+        click_granularity: cfg.click_granularity,
+        click_play_scope: cfg.click_play_scope,
+        show_karaoke: cfg.show_karaoke,
+      },
+    })
+    .catch((e) => console.warn("tts config save failed", e));
 }
 
 async function populateProfile() {
@@ -181,7 +183,9 @@ function field(name, inner) {
 
 function profileFormHtml(p, backends) {
   const backendOpts = backends.map((b) => opt(b.id, b.name || b.id, b.id === p.backend)).join("");
-  const langOpts = LANGUAGES.map(([code, label]) => opt(code, label, p.language && p.language.startsWith(code))).join("");
+  const langOpts = LANGUAGES.map(([code, label]) => opt(code, label, p.language && p.language.startsWith(code))).join(
+    "",
+  );
   return `
     <div class="tts-config-heading">Voice (this character)</div>
     <label class="tts-config-row"><input type="checkbox" id="tts-pf-enabled"${p.enabled ? " checked" : ""}> Generate speech for this character's replies</label>

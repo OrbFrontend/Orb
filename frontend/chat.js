@@ -689,10 +689,9 @@ async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope) {
   _workflowActionInFlight.set(rootId, msgId);
   const aid = scope === "group" ? rootId : activeId;
   try {
-    const res = await api.post(
-      convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", aid, "delete"),
-      { scope },
-    );
+    const res = await api.post(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", aid, "delete"), {
+      scope,
+    });
     if (res && res.group_empty) {
       _workflowMinimized.delete(rootId);
       _persistWorkflowMinimized();
@@ -853,10 +852,7 @@ function finalizeStreamingDiv(lastMsg) {
       ? formatProseWithDiff(S.pendingRefineDiff.ops)
       : formatProse(resolvePlaceholders(lastMsg.content));
   smoothUpdateBody(body, bodyHtml, () => scrollToBottom(true));
-  if (
-    (S.workflowTextEffects.length || S.workflowClickHandlers.length) &&
-    !(S.pendingRefineDiff && S.showEditorDiff)
-  ) {
+  if ((S.workflowTextEffects.length || S.workflowClickHandlers.length) && !(S.pendingRefineDiff && S.showEditorDiff)) {
     _applyWorkflowTextSegments(body, lastMsg);
   }
 
