@@ -12,7 +12,6 @@ from backend.tool_defs import (
     enabled_schemas,
     register_tool,
 )
-from backend.kv_tracker import _KVCacheTracker
 
 
 _TEST_TOOL_NAME = "ut_tool_defs_test"
@@ -58,21 +57,25 @@ class TestEnabledSchemasBaseline:
         names = [s["function"]["name"] for s in schemas]
         assert set(names) == BUILTIN_TOOL_NAMES
 
-    def test_none_returns_alphabetical_order(self):
+    def test_none_returns_tools_insertion_order(self):
         schemas = enabled_schemas(None)
         names = [s["function"]["name"] for s in schemas]
-        assert names == sorted(names)
         assert names == [
             "direct_scene",
+            "rewrite_user_prompt",
             "editor_apply_patch",
             "editor_rewrite",
-            "rewrite_user_prompt",
         ]
 
-    def test_dict_filter_returns_alphabetical_subset(self):
-        gated = {"editor_rewrite": True, "direct_scene": True, "editor_apply_patch": False}
+    def test_dict_filter_returns_insertion_order_subset(self):
+        gated = {
+            "editor_apply_patch": True,
+            "rewrite_user_prompt": True,
+            "editor_rewrite": False,
+            "direct_scene": False,
+        }
         names = [s["function"]["name"] for s in enabled_schemas(gated)]
-        assert names == ["direct_scene", "editor_rewrite"]
+        assert names == ["rewrite_user_prompt", "editor_apply_patch"]
 
     def test_empty_dict_returns_nothing(self):
         assert enabled_schemas({}) == []
@@ -103,37 +106,18 @@ class TestRegisterTool:
         register_tool(_TEST_TOOL_NAME, _TEST_SCHEMA, _TEST_CHOICE, standalone=True)
         assert _TEST_TOOL_NAME in STANDALONE_TOOLS
 
-    def test_alphabetical_order_holds_with_workflow_tool(self, _restore_registry):
+    def test_registered_tool_lands_at_end_under_insertion_order(self, _restore_registry):
         register_tool(
-            "aaa_first",
-            {"type": "function", "function": {"name": "aaa_first"}},
-            {"type": "function", "function": {"name": "aaa_first"}},
+            "z_late_tool",
+            {"type": "function", "function": {"name": "z_late_tool"}},
+            {"type": "function", "function": {"name": "z_late_tool"}},
             standalone=False,
         )
         names = [s["function"]["name"] for s in enabled_schemas(None)]
-        assert names[0] == "aaa_first"
-        assert names[1:] == sorted(names[1:])
-
-
-class TestKVTrackerPrefixChars:
-    def test_default_prefix_chars_zero(self):
-        kv = _KVCacheTracker()
-        assert kv._prefix_chars == 0
-
-    def test_set_prefix_chars_updates_value(self):
-        kv = _KVCacheTracker()
-        kv.set_prefix_chars(12345)
-        assert kv._prefix_chars == 12345
-
-    def test_init_kwarg_sets_value(self):
-        kv = _KVCacheTracker(prefix_chars=999)
-        assert kv._prefix_chars == 999
-
-    def test_log_summary_tail_uses_prefix_chars(self, caplog):
-        kv = _KVCacheTracker()
-        kv.record("a", [{"role": "user", "content": "hello world"}], None, model="m")
-        kv.set_prefix_chars(5)
-        with caplog.at_level("INFO", logger="backend.kv_tracker"):
-            kv.log_summary()
-        total = kv._entries[0]["total_chars"]
-        assert f"total={total:7d}  tail={total - 5:6d}" in caplog.text
+        assert names[-1] == "z_late_tool"
+        assert names[:-1] == [
+            "direct_scene",
+            "rewrite_user_prompt",
+            "editor_apply_patch",
+            "editor_rewrite",
+        ]

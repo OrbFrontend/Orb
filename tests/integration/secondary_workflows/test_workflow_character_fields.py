@@ -36,7 +36,13 @@ async def _drain(gen) -> list:
 
 
 def _pipeline_kwargs() -> dict:
-    return {"prefix": _PREFIX, "enabled_tools": {}, "turn_scratch": {}, "kv_tracker": _KVCacheTracker()}
+    return {
+        "prefix": _PREFIX,
+        "enabled_tools": {},
+        "turn_scratch": {},
+        "kv_tracker": _KVCacheTracker(),
+        "schema_overrides": {},
+    }
 
 
 async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
@@ -62,6 +68,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
                 turn_scratch={},
                 client=None,
                 kv_tracker=_KVCacheTracker(),
+                schema_overrides={},
                 accumulators={"merged_enabled_tools": {}, "extras": []},
             )
         )

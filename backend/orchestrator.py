@@ -12,7 +12,7 @@ from typing import AsyncIterator, List, Optional
 from . import database as db
 from .llm_client import LLMClient, reasoning_cfg
 from .endpoint_profiles import profile_for
-from .tool_defs import TOOLS, POST_WRITER_TOOLS
+from .tool_defs import TOOLS, POST_WRITER_TOOLS, build_direct_scene_tool
 from .prompt_builder import (
     build_prefix,
     compute_style_injection_block,
@@ -63,13 +63,17 @@ async def _run_pipeline(
     enabled_tools: dict,
     turn_scratch: dict,
     kv_tracker: _KVCacheTracker,
+    schema_overrides: dict,
 ) -> AsyncIterator[dict]:
     """Three-pass pipeline: director → writer → editor, plus a post-pipeline
     workflow iteration before persistence.
 
     KV cache strategy: *prefix* (system prompt + chat history) and the tool
-    schema list returned by ``enabled_schemas(enabled_tools)`` are kept
-    identical across all three passes so the LLM can reuse cached KV entries.
+    schema list returned by ``enabled_schemas(enabled_tools, schema_overrides)``
+    are kept byte-identical across all three passes so the LLM can reuse cached
+    KV entries. ``direct_scene`` is dynamic per character; its schema is built
+    once by the caller via ``build_direct_scene_tool(director_fragments)`` and
+    threaded as ``schema_overrides`` to every pass so the tools blob matches.
     Only ``tool_choice`` and the trailing user message differ per pass.
     ``editor_rewrite`` is included in the schema set whenever the length guard
     is enabled (mirroring how ``editor_apply_patch`` tracks ``audit_enabled``).
@@ -82,6 +86,9 @@ async def _run_pipeline(
     per-turn workflow scratch dict, ref-shared with every workflow hook this
     turn. *kv_tracker* is likewise constructed by the caller and finalised
     here via ``log_summary()`` after the post-pipeline loop closes.
+    *schema_overrides* is the per-turn dynamic-schema map the caller builds
+    (today: ``{"direct_scene": build_direct_scene_tool(director_fragments)}``)
+    and threads here so every pass receives it for byte-identical tools.
 
     The single ``_result`` event fires after the post-pipeline iteration and
     carries both the final draft and any workflow-staged attachments. Earlier
@@ -171,6 +178,7 @@ async def _run_pipeline(
             lorebook_block=lorebook_block,
             model=agent_model,
             progressive_state=progressive_state,
+            schema_overrides=schema_overrides,
         ):
             if event["type"] == "reasoning":
                 reasoning_director_text += event["delta"]
@@ -249,6 +257,7 @@ async def _run_pipeline(
         length_guard=length_guard,
         kv_tracker=kv_tracker,
         reasoning_on=writer_reasoning_on,
+        schema_overrides=schema_overrides,
     ):
         if item["type"] == "reasoning":
             reasoning_writer_text += item["delta"]
@@ -312,6 +321,7 @@ async def _run_pipeline(
                 audit_context_msgs=editor_audit_msgs,
                 model=agent_model,
                 writer_user_msg=writer_content,
+                schema_overrides=schema_overrides,
             ):
                 if event["type"] == "reasoning":
                     reasoning_editor_text += event["delta"]
@@ -375,6 +385,7 @@ async def _run_pipeline(
                     turn_scratch=turn_scratch,
                     client=client,
                     kv_tracker=kv_tracker,
+                    schema_overrides=_readonly(schema_overrides),
                     character_id=character_id,
                     character=_readonly(card),
                 )
@@ -544,6 +555,7 @@ async def _iterate_pre_pipeline_hooks(
     turn_scratch: dict,
     client,
     kv_tracker,
+    schema_overrides: dict,
     accumulators: dict,
 ) -> AsyncIterator[dict]:
     """Drive each pre_pipeline subscription in priority-ascending order,
@@ -555,7 +567,10 @@ async def _iterate_pre_pipeline_hooks(
     ``{"merged_enabled_tools": <fresh dict>, "extras": []}``; this helper
     updates both in place. PreCtx construction is inside the try block so a
     ``_readonly`` failure on pathological input is logged-and-skipped rather
-    than crashing the turn.
+    than crashing the turn. *schema_overrides* carries the per-turn
+    dynamic-schema map the pipeline ships to ``enabled_schemas(...)``; it is
+    ref-shared with every PreCtx so workflow hooks issuing forced calls can
+    pass it through to ``forced_tool_call`` for byte-identical cache reuse.
     """
     for sub in iter_subscriptions(HookType.PRE_PIPELINE):
         # See workflow_state_lock invariant in backend/locks.py: held across the
@@ -575,6 +590,7 @@ async def _iterate_pre_pipeline_hooks(
                     turn_scratch=turn_scratch,
                     client=client,
                     kv_tracker=kv_tracker,
+                    schema_overrides=_readonly(schema_overrides),
                     character_id=character_id,
                     character=_readonly(card),
                 )
@@ -1113,6 +1129,7 @@ async def handle_turn(
         # and finalised after the pipeline prefix is known.
         turn_scratch: dict = {}
         kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
         enabled_tools_setting = settings.get("enabled_tools") or {}
         if settings.get("enable_agent", 1):
             enabled_tools_pre_merge = dict(enabled_tools_setting)
@@ -1134,6 +1151,7 @@ async def handle_turn(
             turn_scratch=turn_scratch,
             client=ctx["client"],
             kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
             accumulators=accumulators,
         ):
             yield ev
@@ -1143,7 +1161,6 @@ async def handle_turn(
             prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
         else:
             prefix, agent_prefix = prefix_base, agent_prefix_base
-        kv_tracker.set_prefix_chars(sum(len(m.get("content") or "") for m in prefix))
 
         async def _on_result(res, asst_id):
             await db.add_conversation_log(
@@ -1181,6 +1198,7 @@ async def handle_turn(
             enabled_tools=merged_enabled_tools,
             turn_scratch=turn_scratch,
             kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
         )
         async for event in _consume_pipeline(
             pipeline,
@@ -1229,6 +1247,7 @@ async def handle_regenerate(
 
         turn_scratch: dict = {}
         kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
         enabled_tools_setting = settings.get("enabled_tools") or {}
         if settings.get("enable_agent", 1):
             enabled_tools_pre_merge = dict(enabled_tools_setting)
@@ -1250,6 +1269,7 @@ async def handle_regenerate(
             turn_scratch=turn_scratch,
             client=ctx["client"],
             kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
             accumulators=accumulators,
         ):
             yield ev
@@ -1259,7 +1279,6 @@ async def handle_regenerate(
             prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
         else:
             prefix, agent_prefix = prefix_base, agent_prefix_base
-        kv_tracker.set_prefix_chars(sum(len(m.get("content") or "") for m in prefix))
 
         pipeline = _run_pipeline(
             ctx["client"],
@@ -1281,6 +1300,7 @@ async def handle_regenerate(
             enabled_tools=merged_enabled_tools,
             turn_scratch=turn_scratch,
             kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
         )
 
         async def _on_result(res, asst_id):
@@ -1373,6 +1393,7 @@ async def handle_super_regenerate(
 
         turn_scratch: dict = {}
         kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
         enabled_tools_setting = super_regen_settings.get("enabled_tools") or {}
         if super_regen_settings.get("enable_agent", 1):
             enabled_tools_pre_merge = dict(enabled_tools_setting)
@@ -1394,6 +1415,7 @@ async def handle_super_regenerate(
             turn_scratch=turn_scratch,
             client=ctx["client"],
             kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
             accumulators=accumulators,
         ):
             yield ev
@@ -1403,7 +1425,6 @@ async def handle_super_regenerate(
             prefix, agent_prefix = _build_prefixes(ctx, extended_history, extra_system_blocks=extras)
         else:
             prefix, agent_prefix = prefix_base, agent_prefix_base
-        kv_tracker.set_prefix_chars(sum(len(m.get("content") or "") for m in prefix))
 
         pipeline = _run_pipeline(
             ctx["client"],
@@ -1426,6 +1447,7 @@ async def handle_super_regenerate(
             enabled_tools=merged_enabled_tools,
             turn_scratch=turn_scratch,
             kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
         )
 
         async def _on_result(res, asst_id):

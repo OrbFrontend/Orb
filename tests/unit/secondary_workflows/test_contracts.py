@@ -135,6 +135,7 @@ def _make_pre_ctx(history_src=None, settings_src=None) -> PreCtx:
         turn_scratch={},
         client=object(),
         kv_tracker=object(),
+        schema_overrides=MappingProxyType({}),
     )
 
 
@@ -199,6 +200,7 @@ class TestAllCtxFrozen:
             turn_scratch={},
             client=object(),
             kv_tracker=object(),
+            schema_overrides=MappingProxyType({}),
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             post.draft = "e"  # type: ignore[misc]

@@ -1,0 +1,81 @@
+site_name: Orb
+site_description: Agentic RP Frontend — wiki and documentation
+site_url: https://orbfrontend.github.io/Orb/
+repo_url: https://github.com/OrbFrontend/Orb
+repo_name: OrbFrontend/Orb
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  # logo: assets/Orb.png
+  # favicon: assets/Orb.png
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture:
+      - KV Cache Reuse: architecture/kv-cache.md
+  - Features:
+      - features/index.md
+      - Writer Direction: features/director.md
+      - Anti-slop: features/anti-slop.md
+      - Length Guard: features/length-guard.md
+      - Super-regenerate: features/super-regenerate.md
+      - Magic Rewrite: features/magic-rewrite.md
+      - Compress History: features/compress-history.md
+      - Mobile Compatibility: features/mobile.md
+      - Integrated TTS: features/tts.md
+  - Contributing: contributing.md

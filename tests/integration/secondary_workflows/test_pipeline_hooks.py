@@ -44,6 +44,7 @@ def _pipeline_kwargs(enabled_tools: dict | None = None) -> dict:
         "enabled_tools": dict(enabled_tools or {}),
         "turn_scratch": {},
         "kv_tracker": _KVCacheTracker(),
+        "schema_overrides": {},
     }
 
 
@@ -63,6 +64,7 @@ async def test_pre_pipeline_iter_empty_registry_no_events_no_accumulator_change(
         turn_scratch={},
         client=None,
         kv_tracker=_KVCacheTracker(),
+        schema_overrides={},
         accumulators=accumulators,
     ):
         events.append(ev)
@@ -89,6 +91,7 @@ async def test_pre_pipeline_iter_enable_tools_dict_merges_only_true_entries():
             turn_scratch={},
             client=None,
             kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
             accumulators=accumulators,
         ):
             events.append(ev)
@@ -117,6 +120,7 @@ async def test_pre_pipeline_iter_enable_tools_set_form_treats_each_as_true():
             turn_scratch={},
             client=None,
             kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
             accumulators=accumulators,
         ):
             pass
@@ -140,6 +144,7 @@ async def test_pre_pipeline_iter_unregistered_tool_name_dropped():
             turn_scratch={},
             client=None,
             kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
             accumulators=accumulators,
         ):
             pass
@@ -168,6 +173,7 @@ async def test_pre_pipeline_iter_system_prompt_collected_in_subscription_order()
             turn_scratch={},
             client=None,
             kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
             accumulators=accumulators,
         ):
             pass
@@ -193,6 +199,7 @@ async def test_pre_pipeline_iter_empty_system_prompt_block_dropped():
             turn_scratch={},
             client=None,
             kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
             accumulators=accumulators,
         ):
             pass
@@ -217,6 +224,7 @@ async def test_pre_pipeline_iter_passes_through_unknown_event_types():
             turn_scratch={},
             client=None,
             kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
             accumulators=accumulators,
         ):
             events.append(ev)
@@ -248,6 +256,7 @@ async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues()
             turn_scratch={},
             client=None,
             kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
             accumulators=accumulators,
         ):
             pass
@@ -599,6 +608,7 @@ async def test_run_pipeline_turn_scratch_ref_shared_pre_to_post():
             turn_scratch=turn_scratch,
             client=client,
             kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
             accumulators=accumulators,
         ):
             pass
@@ -616,6 +626,7 @@ async def test_run_pipeline_turn_scratch_ref_shared_pre_to_post():
                     enabled_tools=accumulators["merged_enabled_tools"],
                     turn_scratch=turn_scratch,
                     kv_tracker=_KVCacheTracker(),
+                    schema_overrides={},
                 )
             )
 
@@ -651,6 +662,7 @@ async def test_run_pipeline_turn_scratch_fresh_across_turns():
                         enabled_tools={},
                         turn_scratch={},
                         kv_tracker=_KVCacheTracker(),
+                        schema_overrides={},
                     )
                 )
     assert captured[0] != captured[1]

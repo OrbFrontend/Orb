@@ -1,13 +1,30 @@
 """
-kv_tracker.py — Lightweight KV-cache hit/miss estimator shared across passes.
+kv_tracker.py — KV-cache hit/miss tracker shared across passes.
 
-Serializes the full prompt (messages + tools) for each LLM call, then computes
-the actual character-level common prefix between consecutive calls to estimate
-cache reuse.  Character counts are a proxy for token counts — no tokeniser needed.
+Reports two views per LLM call:
 
-Cross-turn tracking: when a pass has no same-model predecessor in the current
-turn (would show "baseline"), it falls back to the matching label from the
-previous turn so inter-turn cache reuse is visible.
+  1. Provider — ground truth. The ``usage`` field from each response is parsed
+     with fallbacks across OpenAI / Anthropic / DeepSeek / vLLM naming and
+     printed as ``cached/total`` tokens. This is the only number that
+     reconciles with your provider's billing dashboard.
+
+  2. Local estimate — a debugging aid, NOT a prediction of the provider
+     number. We track two things separately:
+       - ``msgs_overlap``: char-prefix overlap of the messages list serialized
+         alone.  Captures whether system prompt + history + most of the final
+         user message are shared with the previous same-model call.
+       - ``tools_match``:  whether the tools list is byte-identical to the
+         previous same-model call.
+
+     We deliberately do NOT combine these into a single "estimated hit
+     percentage." Where the chat template renders tools (start vs. end of the
+     system block vs. before the final user turn) determines whether a tools
+     diff actually breaks the wire-level cache, and the tracker has no way to
+     know that. Two split numbers + provider truth lets a human read both
+     failure modes:
+       - msgs_overlap high, tools_match False → cache may or may not hold;
+         provider number tells you which.
+       - msgs_overlap low                     → cache is broken regardless.
 """
 
 from __future__ import annotations
@@ -21,16 +38,19 @@ logger = logging.getLogger(__name__)
 _prev_turn_entries: dict[str, list[dict]] = {}
 
 
-def _serialize_prompt(messages: list[dict], tools: list[dict] | None) -> str:
-    """Compact JSON serialization of the full prompt for prefix comparison."""
-    parts = [json.dumps(m, separators=(",", ":")) for m in messages]
-    if tools:
-        parts.append(json.dumps(tools, separators=(",", ":")))
-    return "\n".join(parts)
+def _serialize_messages(messages: list[dict]) -> str:
+    """Compact JSON serialization of a messages list; sort_keys for byte-stable output regardless of dict construction order."""
+    return "\n".join(json.dumps(m, separators=(",", ":"), sort_keys=True) for m in messages)
+
+
+def _serialize_tools(tools: list[dict] | None) -> str:
+    """Compact, order-deterministic JSON for tools. Empty string when no tools."""
+    if not tools:
+        return ""
+    return json.dumps(tools, separators=(",", ":"), sort_keys=True)
 
 
 def _common_prefix_len(a: str, b: str) -> int:
-    """Length of the longest common prefix between two strings."""
     i = 0
     limit = min(len(a), len(b))
     while i < limit and a[i] == b[i]:
@@ -38,17 +58,71 @@ def _common_prefix_len(a: str, b: str) -> int:
     return i
 
 
+def extract_cache_stats(usage: dict | None) -> dict:
+    """Pull cache hit / write / total token counts from a provider ``usage``
+    dict, with fallbacks across naming conventions.
+
+    Recognises:
+      - OpenAI / vLLM / llama.cpp:  usage.prompt_tokens_details.cached_tokens
+      - Anthropic:                  usage.cache_read_input_tokens,
+                                    usage.cache_creation_input_tokens
+      - DeepSeek:                   usage.prompt_cache_hit_tokens
+
+    Returns ``prompt_tokens``, ``cached_tokens``, ``cache_write_tokens``, and
+    ``source`` (which field path was used — useful when debugging why a
+    provider's numbers look off). When ``usage`` is missing or unrecognized,
+    counts are 0 and ``source`` distinguishes "missing", "unrecognized", and
+    "no_cache_fields" so callers can tell "no data" from a real zero.
+    """
+    if not isinstance(usage, dict):
+        return {
+            "prompt_tokens": 0,
+            "cached_tokens": 0,
+            "cache_write_tokens": 0,
+            "source": "missing",
+        }
+
+    prompt_tokens = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+
+    cached = 0
+    source = "unrecognized"
+
+    details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details")
+    if isinstance(details, dict):
+        v = details.get("cached_tokens") or details.get("cache_read_tokens") or 0
+        if v:
+            cached, source = int(v), "prompt_tokens_details.cached_tokens"
+
+    if not cached:
+        v = usage.get("cache_read_input_tokens") or 0
+        if v:
+            cached, source = int(v), "cache_read_input_tokens"
+
+    if not cached:
+        v = usage.get("prompt_cache_hit_tokens") or 0
+        if v:
+            cached, source = int(v), "prompt_cache_hit_tokens"
+
+    cache_write = int(usage.get("cache_creation_input_tokens") or 0)
+    if cache_write and source == "unrecognized":
+        source = "cache_creation_input_tokens"
+
+    if int(prompt_tokens or 0) > 0 and source == "unrecognized" and not cache_write:
+        source = "no_cache_fields"
+
+    return {
+        "prompt_tokens": int(prompt_tokens or 0),
+        "cached_tokens": cached,
+        "cache_write_tokens": cache_write,
+        "source": source,
+    }
+
+
 class _KVCacheTracker:
-    def __init__(self, conversation_id: str | None = None, prefix_chars: int = 0):
+    def __init__(self, conversation_id: str | None = None):
         self._entries: list[dict] = []
         self._conversation_id = conversation_id
         self._prev_entries: list[dict] = list(_prev_turn_entries.get(conversation_id, [])) if conversation_id else []
-        # Tail figures in log_summary are computed against this value, set
-        # uniformly across every recorded entry once the final prefix is built.
-        self._prefix_chars = prefix_chars
-
-    def set_prefix_chars(self, n: int) -> None:
-        self._prefix_chars = n
 
     def record(
         self,
@@ -57,60 +131,96 @@ class _KVCacheTracker:
         tools: list[dict] | None,
         model: str = "",
     ) -> None:
-        """Snapshot a single LLM call. Call once per pass (or per tool in the director)."""
-        serialized = _serialize_prompt(messages, tools)
+        """Snapshot a single LLM call. Call once per pass (or per tool in director)."""
+        msgs_serialized = _serialize_messages(messages)
+        tools_serialized = _serialize_tools(tools)
         self._entries.append(
             {
                 "label": label,
                 "model": model,
-                "serialized": serialized,
-                "total_chars": len(serialized),
-                "tools_names": ([t.get("function", {}).get("name", "") for t in tools] if tools else []),
+                "msgs_serialized": msgs_serialized,
+                "tools_serialized": tools_serialized,
+                "msgs_chars": len(msgs_serialized),
+                "tools_chars": len(tools_serialized),
+                "tools_names": [t.get("function", {}).get("name", "") for t in (tools or [])],
+                "usage": None,
             }
         )
+
+    def record_usage(self, label: str, usage: dict | None) -> None:
+        """Attach the provider's ``usage`` dict to the most recent entry with this label."""
+        for entry in reversed(self._entries):
+            if entry["label"] == label:
+                entry["usage"] = usage
+                return
+        logger.debug("record_usage: no prior record() for label=%r, dropping", label)
+
+    def _find_prev(self, i: int, model: str, label: str) -> tuple[dict | None, bool]:
+        """Return (prev_entry, is_cross_turn). Matches same-model first within
+        this turn, then falls back to same-(label, model) from the previous turn."""
+        for j in range(i - 1, -1, -1):
+            if self._entries[j].get("model", "") == model:
+                return self._entries[j], False
+        if self._prev_entries:
+            for p in self._prev_entries:
+                if p["label"] == label and p.get("model", "") == model:
+                    return p, True
+        return None, False
 
     def log_summary(self) -> None:
         if not self._entries:
             return
 
-        lines = ["KV cache comparison  (serialized prompt overlap):"]
-        total_saved = 0
+        lines = ["KV cache report  (provider = truth; local = msgs-prefix + tools-match, template-dependent):"]
+        total_cached = 0
+        total_prompt = 0
 
         for i, e in enumerate(self._entries):
-            e_model = e.get("model", "")
-            # Look for same-model predecessor within this turn first.
-            prev = next(
-                (self._entries[j] for j in range(i - 1, -1, -1) if self._entries[j].get("model", "") == e_model),
-                None,
-            )
-            cross_turn = False
-            if prev is None and self._prev_entries:
-                # Fall back to the same-label entry from the previous turn.
-                prev = next(
-                    (p for p in self._prev_entries if p["label"] == e["label"]),
-                    None,
-                )
-                cross_turn = prev is not None
+            model = e.get("model", "")
+            prev, cross_turn = self._find_prev(i, model, e["label"])
 
+            # ── Local view: messages prefix + tools identity, reported separately
             if prev is None:
-                overlap = 0
-                cache_note = "baseline"
+                local_note = "local: baseline"
             else:
-                prev_serialized = prev["serialized"]
-                overlap = _common_prefix_len(prev_serialized, e["serialized"])
-                if overlap > 0:
-                    total_saved += overlap
-                    pct = overlap / len(prev_serialized) * 100 if prev_serialized else 0
-                    turn_tag = "prev-turn " if cross_turn else ""
-                    cache_note = f"HIT  overlap={overlap} ({pct:.1f}%)  vs {turn_tag}{prev['label']!r}"
+                msgs_overlap = _common_prefix_len(prev["msgs_serialized"], e["msgs_serialized"])
+                msgs_total = e["msgs_chars"]
+                msgs_pct = (msgs_overlap / msgs_total * 100) if msgs_total else 0
+                tools_match = e["tools_serialized"] == prev["tools_serialized"] and e["tools_chars"] > 0
+                if e["tools_chars"] == 0 and prev["tools_chars"] == 0:
+                    tools_note = "tools=none"
+                elif tools_match:
+                    tools_note = "tools_MATCH"
                 else:
-                    cache_note = "BUST  no_overlap"
+                    tools_note = f"tools_DIFFER (prev={prev['tools_chars']}c, this={e['tools_chars']}c)"
+                turn_tag = "prev-turn " if cross_turn else ""
+                local_note = (
+                    f"local: msgs_overlap={msgs_overlap}/{msgs_total}c ({msgs_pct:.1f}%) "
+                    f"vs {turn_tag}{prev['label']!r}; {tools_note}"
+                )
 
-            tail = e["total_chars"] - self._prefix_chars
+            # ── Provider view: ground truth from usage
+            stats = extract_cache_stats(e.get("usage"))
+            if stats["source"] == "missing":
+                provider_note = "provider: N/A (no usage returned)"
+            elif stats["source"] in ("unrecognized", "no_cache_fields"):
+                provider_note = f"provider: prompt={stats['prompt_tokens']} tok  cached=N/A [{stats['source']}]"
+            else:
+                pt, ct, cw = stats["prompt_tokens"], stats["cached_tokens"], stats["cache_write_tokens"]
+                total_cached += ct
+                total_prompt += pt
+                pct = (ct / pt * 100) if pt else 0.0
+                write_part = f"  write={cw}" if cw else ""
+                provider_note = f"provider: cached={ct}/{pt} tok ({pct:.1f}%){write_part} [{stats['source']}]"
 
-            lines.append(f"  {e['label']:<28}  total={e['total_chars']:7d}  " f"tail={tail:6d}  {cache_note}")
+            lines.append(f"  {e['label']:<28}  {provider_note}  |  {local_note}")
 
-        lines.append(f"  Total estimated KV cache char savings: {total_saved}")
+        if total_prompt:
+            pct_total = total_cached / total_prompt * 100
+            lines.append(f"  Totals — provider cached: {total_cached}/{total_prompt} tok ({pct_total:.1f}%)")
+        else:
+            lines.append("  Totals — provider cached: N/A (server returned no usage data)")
+
         logger.info("\n".join(lines))
 
         if self._conversation_id:

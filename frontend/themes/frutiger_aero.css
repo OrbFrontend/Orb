@@ -1,0 +1,255 @@
+/* ═══════════════════════════════════════════════════════════
+   Frutiger Aero — glossy sky-and-water glass, Windows 7 era
+   Light, wet, optimistic. Aqua blues, fresh greens, frosted
+   glass panels, and a high-gloss reflective button finish.
+
+   Performance note: live backdrop-filter (real-time blur) is
+   restricted to a handful of large, fixed elements — the side
+   panels, the input dock, and the modal layer. It is never
+   applied per-message, per-list-item, or to anything that
+   repeats, since blurring many elements on every scroll frame
+   is what tanks framerate. Everywhere else, a high-opacity
+   white over the sky gradient fakes "glass" for nearly free.
+   ═══════════════════════════════════════════════════════════ */
+:root {
+  /* Frosted-white surfaces — kept lightly translucent so the
+     sky gradient behind them reads through as Aero Glass. */
+  --bg-deep:#bfe3f5;
+  --bg-primary:#e9f5fd;
+  --bg-surface:#f3fafe;
+  --bg-elevated:#ffffff;
+  --bg-hover:#dcefff;
+  --border:#9fc9e4;
+  --border-light:#c3e2f3;
+
+  --text-primary:#143a52;
+  --text-secondary:#3a6f8e;
+  --text-muted:#7aa6c0;
+
+  --accent:#1a9bd7;
+  --accent-dim:#5fb9e3;
+  --accent-glow:rgba(40,165,225,0.16);
+  --accent-muted:rgba(40,165,225,0.14);
+
+  --red:#e0573f;
+
+  --font-prose:'Segoe UI','Frutiger','Helvetica Neue',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --font-ui:'Segoe UI','Frutiger','Helvetica Neue',-apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+  --font-mono:'Consolas','Segoe UI Mono','Lucida Console',monospace;
+  --radius:7px;
+  --font-prose-size:16px;
+  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
+}
+
+/* ── Sky-and-grass wallpaper: the signature Aero backdrop.
+   A bright graduated sky melting into fresh aqua-green, a soft
+   sun-glow bloom in the top corner, a faint cool counter-light
+   opposite it, and a low green ground-bloom. All static
+   gradients — painted once, no runtime cost. */
+body {
+  background:
+    radial-gradient(140% 90% at 80% -16%, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.35) 24%, rgba(255,255,255,0) 46%),
+    radial-gradient(70% 60% at 6% 4%, rgba(180,235,255,0.5) 0%, rgba(180,235,255,0) 50%),
+    radial-gradient(100% 75% at 14% 112%, rgba(116,222,168,0.5) 0%, rgba(116,222,168,0) 56%),
+    linear-gradient(180deg, #4fb6ee 0%, #79cdf2 22%, #aee2f4 48%, #d2f1ed 74%, #e7f6dd 100%)
+    !important;
+  background-attachment: fixed !important;
+}
+
+/* ── Aero Glass: frosted, translucent, blurred side panels.
+   Three fixed elements only. The inset top line is a crisp
+   glass highlight; the soft inner shadow gives the pane depth. */
+#sidebar, #inspector, #tools-panel {
+  background: rgba(238,248,253,0.58) !important;
+  backdrop-filter: blur(18px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
+  border-color: rgba(255,255,255,0.6) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}
+#sidebar { border-right: 1px solid rgba(255,255,255,0.55) !important; }
+#inspector, #tools-panel { border-left: 1px solid rgba(255,255,255,0.55) !important; }
+
+/* Glass headers get a brighter top-light sheen. */
+.sidebar-header, #chat-header {
+  background: linear-gradient(180deg, rgba(255,255,255,0.78), rgba(255,255,255,0) 100%) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.6) !important;
+}
+
+/* The app title — wet aqua with a faint glow, very Aero. */
+.sidebar-header h1 {
+  color: #1786c4 !important;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.9), 0 0 14px rgba(60,180,230,0.45) !important;
+}
+
+/* Collapsible section headers brighten on hover like lit glass. */
+.sidebar-section-header:hover { color: #0f5279 !important; }
+
+/* ── High-gloss buttons: two-tone reflective face + top highlight. */
+.btn {
+  background: linear-gradient(180deg, #ffffff 0%, #eaf6fd 47%, #d3ecf9 50%, #e4f4fc 100%) !important;
+  border: 1px solid #8fc3e3 !important;
+  color: #154863 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95), 0 1px 2px rgba(40,110,160,0.18) !important;
+  transition: background .12s ease, border-color .12s ease, box-shadow .12s ease !important;
+}
+.btn:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #f1fafe 47%, #d9f0fc 50%, #ecf8ff 100%) !important;
+  border-color: #5fb1de !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,1), 0 1px 3px rgba(40,110,160,0.22), 0 0 0 2px var(--accent-glow) !important;
+}
+.btn:active {
+  background: linear-gradient(180deg, #d3ecf9 0%, #e4f4fc 50%, #ffffff 100%) !important;
+  box-shadow: inset 0 1px 3px rgba(40,110,160,0.25) !important;
+}
+
+/* Primary/accent buttons: glossy aqua-blue gel. */
+.btn-accent, .btn-active, #send-btn {
+  background: linear-gradient(180deg, #6fc9f2 0%, #2ba2da 47%, #1786c4 50%, #43b2e8 100%) !important;
+  border: 1px solid #1377ad !important;
+  color: #ffffff !important;
+  text-shadow: 0 -1px 0 rgba(0,40,70,0.35) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 1px 3px rgba(20,90,140,0.35) !important;
+}
+.btn-accent:hover, .btn-active:hover, #send-btn:hover {
+  background: linear-gradient(180deg, #82d2f6 0%, #36ace3 47%, #1d92d2 50%, #54bdf0 100%) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), 0 1px 4px rgba(20,90,140,0.4), 0 0 12px rgba(40,165,225,0.35) !important;
+}
+
+/* Danger button + chat Stop button: glossy coral gel. */
+.btn-danger, #stop-btn {
+  background: linear-gradient(180deg, #f6a08c 0%, #e0573f 47%, #c84528 50%, #ec7257 100%) !important;
+  border: 1px solid #b53d22 !important;
+  color: #fff !important;
+  text-shadow: 0 -1px 0 rgba(60,10,0,0.3) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 1px 3px rgba(150,50,30,0.3) !important;
+}
+.btn-danger:hover, #stop-btn:hover {
+  background: linear-gradient(180deg, #f8af9d 0%, #e8624a 47%, #d24c2e 50%, #f17e64 100%) !important;
+}
+
+/* Burger / icon button by the composer — small glossy glass tile. */
+#burger-btn {
+  background: linear-gradient(180deg, #ffffff 0%, #e9f5fd 50%, #d6edf9 100%) !important;
+  border: 1px solid #8fc3e3 !important;
+  color: #2a6a91 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.95) !important;
+}
+#burger-btn:hover {
+  background: linear-gradient(180deg, #ffffff 0%, #f1fafe 50%, #e0f2fc 100%) !important;
+  border-color: #5fb1de !important;
+  color: #0f5279 !important;
+}
+
+/* ── Composer dock: a frosted glass shelf with a top sheen. */
+#chat-input-area {
+  background: rgba(233,245,253,0.66) !important;
+  backdrop-filter: blur(14px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(150%) !important;
+  border-top: 1px solid rgba(255,255,255,0.6) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.85) !important;
+}
+
+/* ── Glossy gel toggle, Win7-style: recessed track, pearly knob;
+   lights up aqua when on. */
+.tog-slider {
+  background: linear-gradient(180deg, #d4e8f4, #eaf6fd) !important;
+  border: 1px solid #9fc9e4 !important;
+  box-shadow: inset 0 1px 2px rgba(40,110,160,0.18) !important;
+}
+.tog-slider:before {
+  background: linear-gradient(180deg, #ffffff, #d7e9f4) !important;
+  box-shadow: 0 1px 2px rgba(40,110,160,0.35), inset 0 1px 0 rgba(255,255,255,0.95) !important;
+}
+.tog input:checked + .tog-slider {
+  background: linear-gradient(180deg, #5fc0ee, #1a9bd7) !important;
+  border-color: #1377ad !important;
+  box-shadow: inset 0 1px 2px rgba(10,70,110,0.35), 0 0 6px rgba(40,165,225,0.4) !important;
+}
+.tog input:checked + .tog-slider:before {
+  background: linear-gradient(180deg, #ffffff, #e3f3fd) !important;
+}
+
+/* ── Message cards: clean glass with a soft drop shadow.
+   Flat translucent fill (no backdrop-filter) — there can be
+   many bubbles on screen and live-blurring each one on every
+   scroll frame is what tanks performance. A high-opacity white
+   over the sky gradient reads as glass for nearly free. */
+.message .msg-body {
+  background: rgba(255,255,255,0.9) !important;
+  border: 1px solid rgba(255,255,255,0.85) !important;
+  box-shadow: 0 1px 6px rgba(40,110,160,0.14) !important;
+}
+.message.user .msg-body {
+  background: linear-gradient(180deg, rgba(224,244,253,0.9), rgba(199,233,250,0.85)) !important;
+  border-color: rgba(143,195,227,0.7) !important;
+}
+
+/* Code blocks: faint frosted-blue inset so they sit a notch
+   below the card surface (flat fill — no blur). */
+.message .msg-body pre,
+.message .msg-body code.inline-code {
+  background: rgba(222,239,250,0.7) !important;
+  border-color: rgba(143,195,227,0.55) !important;
+}
+
+/* ── Modals: a single frosted-glass sheet on a sky-tinted,
+   lightly-blurred scrim. Only present while a modal is open,
+   so the blur cost is transient. */
+.modal-overlay {
+  background: rgba(120,180,215,0.32) !important;
+  backdrop-filter: blur(6px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(130%) !important;
+}
+.modal, .modal-crop {
+  background: rgba(244,250,254,0.86) !important;
+  backdrop-filter: blur(20px) saturate(160%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+  border: 1px solid rgba(255,255,255,0.7) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 12px 40px rgba(30,90,140,0.3) !important;
+}
+
+/* ── Toast: little floating glass lozenge. */
+.toast {
+  background: rgba(244,250,254,0.85) !important;
+  backdrop-filter: blur(12px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(150%) !important;
+  border: 1px solid rgba(255,255,255,0.7) !important;
+  color: #143a52 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 6px 20px rgba(30,90,140,0.25) !important;
+}
+
+/* ── Glossy aqua scrollbars (rounded "water drop" thumb). */
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.25); }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #8fd6f5, #2ba2da);
+  border: 2px solid rgba(255,255,255,0.6);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #a3e0f8, #38ace3); }
+* { scrollbar-width: thin; scrollbar-color: #4eb3e3 rgba(255,255,255,0.3); }
+
+/* Aqua text selection. */
+::selection { background: rgba(40,165,225,0.32); color: #0f3a54; }
+
+/* ── Legibility for text that floats directly on the sky
+   gradient (not inside a white card). The muted blue defaults
+   blend into the blue top / green bottom of the wallpaper, so
+   darken them and add a soft white halo — the glow doubles as
+   an authentic Aero "wet glass" text treatment. */
+.msg-role {
+  color: #0f5279 !important;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.85), 0 0 1px rgba(255,255,255,0.9) !important;
+}
+.swipe-counter, .swipe-nav {
+  color: #155f86 !important;
+  text-shadow: 0 1px 1px rgba(255,255,255,0.8) !important;
+}
+.swipe-nav:hover { color: var(--accent) !important; }
+
+/* Toolbar icons keep their hover-reveal behaviour, but read
+   clearly against the gradient once shown. */
+.msg-toolbar { color: #2a6a91 !important; }
+
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }

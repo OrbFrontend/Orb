@@ -21,6 +21,9 @@ class _RecordingTracker:
     def record(self, label: str, messages: list, tools: list | None, model: str = "") -> None:
         self.calls.append((label, messages, tools, model))
 
+    def record_usage(self, label: str, usage: dict | None) -> None:
+        pass
+
 
 class _FakeClient:
     """Drives `client.complete` with a programmable event stream."""
@@ -183,7 +186,7 @@ class TestToolsAssembly:
             )
         )
         names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
-        # enabled_schemas returns alphabetical order over True entries.
+        # enabled_schemas walks TOOLS in registry insertion order; only the True entries survive.
         assert names == ["editor_apply_patch", "editor_rewrite"]
 
     async def test_standalone_forced_tool_appended_to_array(self):

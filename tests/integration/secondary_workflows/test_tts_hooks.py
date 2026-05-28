@@ -62,6 +62,7 @@ def _post_ctx(cid: str, char_id: str, draft: str) -> PostCtx:
         turn_scratch={},
         client=None,
         kv_tracker=None,
+        schema_overrides=MappingProxyType({}),
         character_id=char_id,
     )
 
@@ -138,6 +139,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
                 enabled_tools={},
                 turn_scratch={},
                 kv_tracker=_KVCacheTracker(),
+                schema_overrides={},
             )
         ]
 

@@ -49,6 +49,7 @@ async def forced_tool_call(
     settings: Mapping[str, Any],
     pass_id: str | None = None,
     enabled_tools: Mapping[str, bool] | None = None,
+    schema_overrides: Mapping[str, Mapping] | None = None,
     kv_tracker: Any = None,
     reasoning_on: bool = True,
     temperature: float = 0.25,
@@ -66,26 +67,32 @@ async def forced_tool_call(
       - ``enabled_tools=None`` -- single-tool array. Smallest bytes; use
         when the caller does not need pipeline tools-bytes cache reuse.
       - ``enabled_tools=<dict>`` -- assemble the same tools array
-        ``enabled_schemas(enabled_tools)`` returns. If ``tool_name`` is
-        standalone or otherwise absent from the result, append its
-        schema so the forced ``tool_choice`` resolves.
+        ``enabled_schemas(enabled_tools, schema_overrides)`` returns. If
+        ``tool_name`` is standalone or otherwise absent from the result,
+        append its schema so the forced ``tool_choice`` resolves.
+        ``schema_overrides`` must be the dict the pipeline shipped this
+        turn (``pre_ctx.schema_overrides`` / ``post_ctx.schema_overrides``)
+        for byte-identical tools cache reuse.
 
-    ``kv_tracker=None`` skips the per-call ``record(...)`` step silently
-    (the on-demand path does not participate in turn caching).
+    ``kv_tracker=None`` skips the per-call ``record(...)`` + ``record_usage(...)``
+    steps silently (the on-demand path does not participate in turn caching).
     """
     schema = TOOLS[tool_name]["schema"]
     if enabled_tools is None:
         tools = [schema]
     else:
-        tools = list(enabled_schemas(dict(enabled_tools)))
-        if tool_name in STANDALONE_TOOLS or schema not in tools:
-            tools.append(schema)
+        overrides_arg = _plain(schema_overrides) if schema_overrides else None
+        tools = list(enabled_schemas(dict(enabled_tools), overrides_arg))
+        canonical = (overrides_arg or {}).get(tool_name, schema)
+        if canonical is not None and (tool_name in STANDALONE_TOOLS or canonical not in tools):
+            tools.append(canonical)
 
     messages = [_plain(m) for m in prefix] + [_plain(m) for m in tail_messages]
 
+    kv_label = pass_id or f"forced:{tool_name}"
     if kv_tracker is not None:
         kv_tracker.record(
-            pass_id or f"forced:{tool_name}",
+            kv_label,
             messages,
             tools,
             model=settings.get("model_name", ""),
@@ -112,6 +119,8 @@ async def forced_tool_call(
                     }
             elif etype == "done":
                 resp = event.get("message", {}) or {}
+                if kv_tracker is not None:
+                    kv_tracker.record_usage(kv_label, event.get("usage"))
     except Exception as e:
         logger.warning("forced_tool_call %s failed during stream: %r", tool_name, e)
         yield {"type": "result", "args": {}}

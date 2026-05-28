@@ -31,6 +31,7 @@ def _pipeline_kwargs(enabled_tools: dict) -> dict:
         "enabled_tools": dict(enabled_tools),
         "turn_scratch": {},
         "kv_tracker": _KVCacheTracker(),
+        "schema_overrides": {},
     }
 
 

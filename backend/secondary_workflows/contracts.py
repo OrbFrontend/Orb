@@ -71,20 +71,24 @@ class PreCtx:
     """Inputs available to a workflow's pre-pipeline hook.
 
     Wrapped fields (``history``, ``settings``, ``prefix``,
-    ``enabled_tools_pre_merge``) are recursively read-only at the point the
-    orchestrator constructs this Ctx; mutation attempts at any nesting
-    depth raise immediately. ``turn_scratch``, ``client``, and
-    ``kv_tracker`` are intentionally not wrapped -- they are the documented
-    mutation channel, the per-turn LLM client, and the per-turn cache
-    aggregator respectively, ref-shared across every PreCtx and PostCtx in
-    the same turn.
+    ``enabled_tools_pre_merge``, ``schema_overrides``) are recursively
+    read-only at the point the orchestrator constructs this Ctx; mutation
+    attempts at any nesting depth raise immediately. ``turn_scratch``,
+    ``client``, and ``kv_tracker`` are intentionally not wrapped -- they
+    are the documented mutation channel, the per-turn LLM client, and the
+    per-turn cache aggregator respectively, ref-shared across every PreCtx
+    and PostCtx in the same turn.
 
     ``prefix`` carries the pipeline prefix *before* extra system blocks
     contributed by pre-pipeline ``system_prompt`` yields have been
     appended; ``enabled_tools_pre_merge`` carries the pre-merge enable map
     (``settings["enabled_tools"]``, zeroed wholesale when ``agent_on`` is
-    false). Pre-pipeline forced calls that want pipeline tools-bytes cache
-    reuse pass these through to ``forced_tool_call``.
+    false). ``schema_overrides`` is the per-turn dynamic-schema map every
+    pipeline pass passes into ``enabled_schemas(...)`` (today it carries
+    the dynamic ``direct_scene`` built from this turn's director
+    fragments). Pre-pipeline forced calls that want pipeline tools-bytes
+    cache reuse pass ``prefix``, ``enabled_tools_pre_merge``, AND
+    ``schema_overrides`` through to ``forced_tool_call``.
     """
 
     conversation_id: str
@@ -96,6 +100,7 @@ class PreCtx:
     turn_scratch: dict
     client: Any
     kv_tracker: Any
+    schema_overrides: MappingProxyType
     character_id: str | None = None
     character: MappingProxyType | None = None
 
@@ -109,9 +114,11 @@ class PostCtx:
     ``prefix`` carries the final pipeline prefix -- extras from pre-pipeline
     ``system_prompt`` yields have already been appended -- matching the
     bytes director / writer / editor saw. ``enabled_tools`` is the merged
-    pipeline tool-enable map. Post-pipeline forced calls that want full KV
-    cache reuse with the pipeline pass both ``prefix`` and
-    ``enabled_tools`` through to ``forced_tool_call``.
+    pipeline tool-enable map. ``schema_overrides`` is the per-turn
+    dynamic-schema map the three pipeline passes used. Post-pipeline forced
+    calls that want full KV cache reuse with the pipeline should pass
+    ``prefix``, ``enabled_tools``, AND ``schema_overrides`` through to
+    ``forced_tool_call``.
     """
 
     conversation_id: str
@@ -124,6 +131,7 @@ class PostCtx:
     turn_scratch: dict
     client: Any
     kv_tracker: Any
+    schema_overrides: MappingProxyType
     character_id: str | None = None
     character: MappingProxyType | None = None
 
