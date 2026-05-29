@@ -1,6 +1,6 @@
 """Boundary contracts for the workflow subsystem.
 
-Defines the four context dataclasses passed to workflow hooks, the
+Defines the five context dataclasses passed to workflow hooks, the
 ``ToolSpec`` declaration carried on a ``Workflow``, and the ``_readonly``
 recursive wrapper that turns mutable orchestrator-derived structures into
 deeply read-only views.
@@ -111,17 +111,27 @@ class PostCtx:
 
     Constructed fresh per workflow during post-pipeline iteration with the
     current draft (any prior hook's ``draft_replaced`` is already applied).
-    ``prefix`` carries the final pipeline prefix -- extras from pre-pipeline
-    ``system_prompt`` yields have already been appended -- matching the
-    bytes director / writer / editor saw. ``enabled_tools`` is the merged
-    pipeline tool-enable map. ``schema_overrides`` is the per-turn
-    dynamic-schema map the three pipeline passes used. Post-pipeline forced
-    calls that want full KV cache reuse with the pipeline should pass
-    ``prefix``, ``enabled_tools``, AND ``schema_overrides`` through to
-    ``forced_tool_call``.
+    ``history`` is the same read-only message list the turn's ``PreCtx``
+    received: prior messages only, excluding this turn's user message and the
+    assistant message being produced. The current user message is available
+    as ``effective_msg``. ``prefix`` carries the final pipeline prefix --
+    extras from pre-pipeline ``system_prompt`` yields have already been
+    appended -- matching the bytes director / writer / editor saw.
+    ``enabled_tools`` is the merged pipeline tool-enable map.
+    ``schema_overrides`` is the per-turn dynamic-schema map the three
+    pipeline passes used. Post-pipeline forced calls that want full KV cache
+    reuse with the pipeline should pass ``prefix``, ``enabled_tools``, AND
+    ``schema_overrides`` through to ``forced_tool_call``.
+
+    The assistant message row does not exist yet at post-pipeline time, so
+    its per-message workflow state cannot be written through the toolkit
+    setter here. A hook commits it by yielding
+    ``{"type": "set_message_state", "state": <dict>}``; the orchestrator
+    writes the slot once the row is persisted.
     """
 
     conversation_id: str
+    history: tuple
     draft: str
     effective_msg: str
     director_output: MappingProxyType

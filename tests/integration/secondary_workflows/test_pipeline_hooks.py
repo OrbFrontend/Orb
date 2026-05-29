@@ -9,9 +9,19 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
+from backend.database import (
+    add_message,
+    create_conversation,
+    get_messages,
+    get_workflow_message_state,
+    set_active_leaf,
+)
 from backend.kv_tracker import _KVCacheTracker
 from backend.llm_client import LLMClient
 from backend.orchestrator import (
+    _consume_pipeline,
     _iterate_pre_pipeline_hooks,
     _run_pipeline,
     _stage_workflow_attachment,
@@ -762,3 +772,191 @@ async def test_run_pipeline_writer_abort_emits_result_skips_post_pipeline():
     assert result["data"]["resp_text"] == "partial"
     assert result["data"]["staged_attachments"] == []
     assert post_ran == []
+
+
+async def test_run_pipeline_set_message_state_collected_and_not_forwarded():
+    client = _make_client()
+
+    async def mock_writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "draft"}
+
+    async def post_hook(post_ctx):
+        yield {"type": "set_message_state", "state": {"seen": 1}}
+
+    w = make_workflow("ms", post_pipeline=post_hook)
+    with register_for_test(w):
+        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+            events = await _drain(
+                _run_pipeline(
+                    client,
+                    _SETTINGS,
+                    _DIRECTOR_STATE,
+                    [],
+                    [],
+                    "hello",
+                    **_pipeline_kwargs(),
+                )
+            )
+
+    [result] = [e for e in events if e["event"] == "_result"]
+    assert result["data"]["staged_message_state"] == {"ms": {"seen": 1}}
+    assert not any(e.get("type") == "set_message_state" for e in events)
+    assert not any(e.get("event") == "set_message_state" for e in events)
+
+
+async def test_run_pipeline_set_message_state_non_dict_dropped():
+    client = _make_client()
+
+    async def mock_writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "draft"}
+
+    async def post_hook(post_ctx):
+        yield {"type": "set_message_state", "state": "not-a-dict"}
+
+    w = make_workflow("ms", post_pipeline=post_hook)
+    with register_for_test(w):
+        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+            events = await _drain(
+                _run_pipeline(
+                    client,
+                    _SETTINGS,
+                    _DIRECTOR_STATE,
+                    [],
+                    [],
+                    "hello",
+                    **_pipeline_kwargs(),
+                )
+            )
+
+    [result] = [e for e in events if e["event"] == "_result"]
+    assert result["data"]["staged_message_state"] == {}
+
+
+async def test_run_pipeline_set_message_state_keyed_per_workflow():
+    client = _make_client()
+
+    async def mock_writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "draft"}
+
+    async def hook_a(post_ctx):
+        yield {"type": "set_message_state", "state": {"from": "a"}}
+
+    async def hook_b(post_ctx):
+        yield {"type": "set_message_state", "state": {"from": "b"}}
+
+    wa = make_workflow("wf_a", post_pipeline=hook_a)
+    wb = make_workflow("wf_b", post_pipeline=hook_b)
+    with register_for_test(wa), register_for_test(wb):
+        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+            events = await _drain(
+                _run_pipeline(
+                    client,
+                    _SETTINGS,
+                    _DIRECTOR_STATE,
+                    [],
+                    [],
+                    "hello",
+                    **_pipeline_kwargs(),
+                )
+            )
+
+    [result] = [e for e in events if e["event"] == "_result"]
+    assert result["data"]["staged_message_state"] == {"wf_a": {"from": "a"}, "wf_b": {"from": "b"}}
+
+
+async def test_post_pipeline_ctx_carries_readonly_history():
+    captured = {}
+    client = _make_client()
+
+    async def mock_writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "draft"}
+
+    async def post_hook(post_ctx):
+        captured["history"] = post_ctx.history
+        yield {"event": "noop", "data": {}}
+
+    w = make_workflow("hist", post_pipeline=post_hook)
+    with register_for_test(w):
+        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+            await _drain(
+                _run_pipeline(
+                    client,
+                    _SETTINGS,
+                    _DIRECTOR_STATE,
+                    [],
+                    [],
+                    "hello",
+                    history=[{"role": "user", "content": "earlier"}],
+                    **_pipeline_kwargs(),
+                )
+            )
+
+    history = captured["history"]
+    assert [m["role"] for m in history] == ["user"]
+    assert history[0]["content"] == "earlier"
+    with pytest.raises(AttributeError):
+        history.append({"role": "user"})
+    with pytest.raises(TypeError):
+        history[0]["content"] = "x"
+
+
+async def test_post_pipeline_set_message_state_persists_to_assistant_row(client):
+    await create_conversation("cms", "T", "X", "")
+    user_id, _ = await add_message("cms", "user", "hi", 0)
+    await set_active_leaf("cms", user_id)
+
+    async def mock_writer(c, *args, **kwargs):
+        yield {"type": "content", "delta": "reply"}
+
+    async def post_hook(post_ctx):
+        yield {"type": "set_message_state", "state": {"k": 1}}
+
+    w = make_workflow("ms_persist", post_pipeline=post_hook)
+    with register_for_test(w):
+        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+            pipeline = _run_pipeline(
+                _make_client(),
+                _SETTINGS,
+                _DIRECTOR_STATE,
+                [],
+                [],
+                "hi",
+                conversation_id="cms",
+                **_pipeline_kwargs(),
+            )
+            await _drain(_consume_pipeline(pipeline, "cms", _SETTINGS, user_id, 1))
+
+    msgs = await get_messages("cms")
+    assistant = [m for m in msgs if m["role"] == "assistant"][-1]
+    assert await get_workflow_message_state(assistant["id"], "ms_persist") == {"k": 1}
+
+
+async def test_post_pipeline_set_message_state_dropped_when_no_message_persisted(client):
+    await create_conversation("cms_empty", "T", "X", "")
+    user_id, _ = await add_message("cms_empty", "user", "hi", 0)
+    await set_active_leaf("cms_empty", user_id)
+
+    async def mock_writer(c, *args, **kwargs):
+        return
+        yield  # pragma: no cover -- async generator with no output
+
+    async def post_hook(post_ctx):
+        yield {"type": "set_message_state", "state": {"k": 1}}
+
+    w = make_workflow("ms_empty", post_pipeline=post_hook)
+    with register_for_test(w):
+        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+            pipeline = _run_pipeline(
+                _make_client(),
+                _SETTINGS,
+                _DIRECTOR_STATE,
+                [],
+                [],
+                "hi",
+                conversation_id="cms_empty",
+                **_pipeline_kwargs(),
+            )
+            await _drain(_consume_pipeline(pipeline, "cms_empty", _SETTINGS, user_id, 1))
+
+    msgs = await get_messages("cms_empty")
+    assert [m for m in msgs if m["role"] == "assistant"] == []

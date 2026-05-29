@@ -191,6 +191,7 @@ class TestAllCtxFrozen:
     def test_postctx_frozen(self):
         post = PostCtx(
             conversation_id="c1",
+            history=_readonly([]),
             draft="d",
             effective_msg="m",
             director_output=_readonly({}),

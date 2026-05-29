@@ -348,12 +348,15 @@ async def set_workflow_message_state(message_id: int, workflow_id: str, payload:
     payload=None removes the slot. Empty dict stores {}. No-op if message
     missing (UPDATE matches zero rows).
 
-    Caller must hold ``backend.locks.workflow_state_lock(conversation_id, workflow_id)``
-    (the message's owning conversation) across the read-then-write the
-    payload was computed from. Acquisition sites: ``backend.main.api_trigger_workflow``
-    and the pre/post pipeline hook loops in ``backend.orchestrator``.
-    Direct use outside those paths re-introduces the read-modify-write
-    clobber.
+    Read-modify-write callers must hold
+    ``backend.locks.workflow_state_lock(conversation_id, workflow_id)`` (the
+    message's owning conversation) across the read-then-write the payload was
+    computed from, or a concurrent caller can clobber the read between read
+    and write. Acquisition sites: ``backend.main.api_trigger_workflow`` and
+    the pre/post pipeline hook loops in ``backend.orchestrator``. The blind
+    first write from ``_persist_result`` to a just-minted assistant message
+    is exempt: that row is not yet the active leaf and no other caller can
+    name its id, so there is nothing to serialize against.
     """
     async with get_db() as db:
         if payload is None:

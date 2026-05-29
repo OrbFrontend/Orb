@@ -188,7 +188,7 @@ function profileFormHtml(p, backends) {
   );
   return `
     <div class="tts-config-heading">Voice (this character)</div>
-    <label class="tts-config-row"><input type="checkbox" id="tts-pf-enabled"${p.enabled ? " checked" : ""}> Generate speech for this character's replies</label>
+    <label class="tts-config-row"><input type="checkbox" id="tts-pf-enabled"${p.enabled ? " checked" : ""}> Auto-generate speech for this character's replies</label>
     <label class="tts-config-row">Backend
       <select id="tts-pf-backend" onchange="window.ttsBackendChange()">${backendOpts}</select>
     </label>

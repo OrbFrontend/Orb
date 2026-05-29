@@ -53,6 +53,7 @@ def fake_adapter(monkeypatch):
 def _post_ctx(cid: str, char_id: str, draft: str) -> PostCtx:
     return PostCtx(
         conversation_id=cid,
+        history=(),
         draft=draft,
         effective_msg="",
         director_output=MappingProxyType({}),

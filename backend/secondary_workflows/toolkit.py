@@ -4,13 +4,14 @@ Workflows import from this module rather than reaching directly into
 ``backend.llm_client``, ``backend.prompt_builder``, etc. The set of
 re-exports is the workflow author's API: LLM client, tool-schema
 assembly, prompt assembly, macro resolution, read-only DB helpers for
-core state, workflow-scoped storage wrappers, the forced-call helper,
+core state, workflow-scoped storage wrappers, the locks guarding
+read-modify-write on that storage, the forced-call helper,
 the tool-overlay helper, and the editor audit helpers (for workflows
 scoring their own outputs against the same audit logic the editor
 runs).
 
 Workflows do not import orchestration symbols, the transactional DB
-helpers (``add_message``, ``create_swipe``, etc.), director-state
+helpers (``add_message``, etc.), director-state
 mutators, or pass internals. ``insert_workflow_attachment`` is exported
 as the only attachment writer -- the workflow byte cache wraps the raw
 row insert with budget + eviction, so all workflow byte writes flow
@@ -41,7 +42,11 @@ from backend.prompt_builder import (
 )
 from backend.tool_defs import STANDALONE_TOOLS, TOOLS, enabled_schemas
 
-from backend.locks import workflow_config_lock
+from backend.locks import (
+    workflow_character_state_lock,
+    workflow_config_lock,
+    workflow_state_lock,
+)
 
 from ._forced_call import forced_tool_call
 from .attachment_cache import insert_workflow_attachment
@@ -92,5 +97,7 @@ __all__ = [
     "set_workflow_config",
     "set_workflow_message_state",
     "set_workflow_state",
+    "workflow_character_state_lock",
     "workflow_config_lock",
+    "workflow_state_lock",
 ]

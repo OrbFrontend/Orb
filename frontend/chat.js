@@ -334,8 +334,8 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
     bodyHtml = `<div class="workflow-widget" data-workflow-id="${esc(active.workflow_id)}" data-attachment-id="${active.id}">${widgetHtml}</div>`;
   }
   const indicator = total > 1 ? `<span class="workflow-artifact-counter">${idx + 1} / ${total}</span>` : "";
-  // No cycling: each arrow dies at its end of the list (also when another tab holds
-  // the swipe lock, or there is only one sibling).
+  // No cycling: each arrow dies at its end of the list (also when other tabs are
+  // open, or there is only one sibling).
   const navLocked = total <= 1 || S.hasMultipleTabs;
   const prevDisabled = navLocked || idx === 0 ? " disabled" : "";
   const nextDisabled = navLocked || idx === total - 1 ? " disabled" : "";

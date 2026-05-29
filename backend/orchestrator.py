@@ -64,6 +64,7 @@ async def _run_pipeline(
     turn_scratch: dict,
     kv_tracker: _KVCacheTracker,
     schema_overrides: dict,
+    history: list[dict] | None = None,
 ) -> AsyncIterator[dict]:
     """Three-pass pipeline: director → writer → editor, plus a post-pipeline
     workflow iteration before persistence.
@@ -89,6 +90,8 @@ async def _run_pipeline(
     *schema_overrides* is the per-turn dynamic-schema map the caller builds
     (today: ``{"direct_scene": build_direct_scene_tool(director_fragments)}``)
     and threads here so every pass receives it for byte-identical tools.
+    *history* is the prior-message list forwarded read-only onto each
+    ``PostCtx``; the passes read history through *prefix*, not this argument.
 
     The single ``_result`` event fires after the post-pipeline iteration and
     carries both the final draft and any workflow-staged attachments. Earlier
@@ -269,7 +272,7 @@ async def _run_pipeline(
             resp_text += item["delta"]
             yield {"event": "token", "data": item["delta"]}
 
-    def _make_result(final_text: str, staged: list[dict]) -> dict:
+    def _make_result(final_text: str, staged: list[dict], staged_state: dict | None = None) -> dict:
         return {
             "event": "_result",
             "data": {
@@ -287,6 +290,7 @@ async def _run_pipeline(
                 "reasoning_writer": reasoning_writer_text,
                 "reasoning_editor": reasoning_editor_text,
                 "staged_attachments": staged,
+                "staged_message_state": staged_state or {},
             },
         }
 
@@ -355,6 +359,7 @@ async def _run_pipeline(
     # exceptions are logged-and-skipped; one bad hook does not crash a turn.
     draft = resp_text
     staged_attachments: list[dict] = []
+    staged_message_state: dict[str, dict] = {}
     director_output = {
         "active_moods": active_moods,
         "raw": agent_raw,
@@ -376,6 +381,7 @@ async def _run_pipeline(
             try:
                 post_ctx = PostCtx(
                     conversation_id=conversation_id or "",
+                    history=_readonly(history or []),
                     draft=draft,
                     effective_msg=effective_msg,
                     director_output=_readonly(director_output),
@@ -432,6 +438,22 @@ async def _run_pipeline(
                         if staged is not None:
                             staged_attachments.append(staged)
                         continue
+                    if t == "set_message_state":
+                        # The assistant row is minted in _persist_result after
+                        # this loop, so the slot is written there. The owning
+                        # workflow comes from the subscription, so a hook can
+                        # only address its own slot.
+                        state = ev.get("state") if isinstance(ev, dict) else None
+                        if not isinstance(state, dict):
+                            logger.warning(
+                                "post_pipeline hook %r yielded set_message_state with "
+                                "non-dict state (type=%s); ignoring",
+                                sub.workflow_id,
+                                type(state).__name__,
+                            )
+                            continue
+                        staged_message_state[sub.workflow_id] = state
+                        continue
                     # Underscore-prefixed event names are reserved by
                     # _consume_pipeline for internal persistence signals
                     # (_result, _refined_result, _editor_reasoning). Refuse
@@ -449,7 +471,7 @@ async def _run_pipeline(
             except Exception:
                 logger.exception("post_pipeline hook %r failed", sub.workflow_id)
 
-    yield _make_result(draft, staged_attachments)
+    yield _make_result(draft, staged_attachments, staged_message_state)
     kv_tracker.log_summary()
 
 
@@ -874,6 +896,11 @@ async def _persist_result(
             attachments=staged,
             progressive_fields=res.get("progressive_fields"),
         )
+        # Per-workflow state staged by post-pipeline hooks targets this row,
+        # whose id is only known now. The row is not yet the active leaf and
+        # no other caller can name it, so each blind first write needs no lock.
+        for wid, payload in (res.get("staged_message_state") or {}).items():
+            await db.set_workflow_message_state(asst_id, wid, payload)
         await db.set_active_leaf(conversation_id, asst_id)
         return asst_id, rejected
     else:
@@ -1199,6 +1226,7 @@ async def handle_turn(
             turn_scratch=turn_scratch,
             kv_tracker=kv_tracker,
             schema_overrides=schema_overrides,
+            history=history,
         )
         async for event in _consume_pipeline(
             pipeline,
@@ -1301,6 +1329,7 @@ async def handle_regenerate(
             turn_scratch=turn_scratch,
             kv_tracker=kv_tracker,
             schema_overrides=schema_overrides,
+            history=history,
         )
 
         async def _on_result(res, asst_id):
@@ -1448,6 +1477,7 @@ async def handle_super_regenerate(
             turn_scratch=turn_scratch,
             kv_tracker=kv_tracker,
             schema_overrides=schema_overrides,
+            history=extended_history,
         )
 
         async def _on_result(res, asst_id):
