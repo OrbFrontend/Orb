@@ -1645,14 +1645,16 @@ export function startEdit(msgId) {
     scrollToMessage(msgId);
   }
   focusEditTextarea($("edit-textarea-" + msgId), cancelEdit);
-  inspectMessage(msgId);
+  const msg = S.messages.find((m) => m.id === msgId);
+  const inspectId =
+    msg?.role === "assistant" ? msgId : S.messages.find((c) => c.parent_id === msgId && c.role === "assistant")?.id;
+  if (inspectId) inspectMessage(inspectId);
 }
 
 export function cancelEdit() {
   S.editingMsgId = null;
   S.editingPendingUserMsg = false;
   renderMessages();
-  clearInspectedMessage();
 }
 
 export async function inspectMessage(msgId) {
