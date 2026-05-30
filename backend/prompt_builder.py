@@ -262,10 +262,10 @@ def build_style_injection(
             parts.append(f"{label}: {val}")
 
     for f in active:
-        parts.append(f'Mood [{f["id"]}]: {f["prompt_text"]}')
+        parts.append(f["prompt_text"])
     for f in deactivated or []:
         if neg := f.get("negative_prompt", "").strip():
-            parts.append(f'Deactivated [{f["id"]}]: {neg}')
+            parts.append(neg)
 
     return "\n\n".join(parts)
 

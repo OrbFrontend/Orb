@@ -54,7 +54,7 @@ Within a single turn, Orb makes 2–4+ LLM calls. Here's what each one looks lik
 ```
   system + history                ← cached prefix (same as director's)
 + lorebook block
-+ "**Scene Direction**\nMood [tense]: ..."   ← injected from director's output
++ "**Scene Direction**\n<Mood content>"   ← injected from director's output
 + user's actual message
 ```
 
@@ -131,7 +131,7 @@ The model returns: `direct_scene(moods=["tense", "combat"], keywords=["steel", "
 ### Step 3 — Writer call
 
 ```python
-inj_block = "**Scene Direction**\nMood [tense]: ...\nMood [combat]: ...\n"
+inj_block = "**Scene Direction**\n<Mood1 content>: ...\n<Mood2 content>: ...\n"
 msgs = prefix + [{"role": "user", "content": "<lorebook>\n<inj_block>\nI draw my sword."}]
 client.complete(messages=msgs, tools=ALL_SCHEMAS, tool_choice="none")
 ```
