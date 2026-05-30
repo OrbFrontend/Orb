@@ -12,7 +12,7 @@ Orb is an **agentic AI roleplay/writing frontend** with a Python/FastAPI backend
 
 > **Cross-pass prompt caching:** The director/writer/editor passes are deliberately built to share one KV-cached prefix (same system prompt, same history, same tool schemas) so each turn stays fast and cheap. The full design — the invariants, dual-model behavior, the editor's ReAct loop, and the KV tracker — lives in [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md). Read it before touching anything that builds prompts, orders passes, or assembles tool schemas, and keep cache details there rather than duplicating them here.
 
-> **Secondary workflows:** Pluggable workflows hook into the turn pipeline (pre/post), emit on-demand HTTP responses, and persist per-message artifacts — registered in `backend/workflows/` with frontend modules in `frontend/workflows/`. The full framework reference (registration, hook contexts, locks, the toolkit import surface, attachment cache, HTTP routes, and the frontend state surface) lives in [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md). **The shipped `tts` workflow (`backend/workflows/tts/`, `frontend/workflows/tts/`) is the first and reference secondary workflow** — read it as the worked example before authoring a new one. Start from that doc rather than re-deriving the framework here.
+> **Secondary workflows:** Pluggable workflows hook into the turn pipeline (pre/post), emit on-demand HTTP responses, and persist per-message artifacts — registered in `backend/workflows/` with frontend modules in `frontend/workflows/`. The full framework reference (registration, hook contexts, locks, the toolkit import surface, attachment cache, HTTP routes, and the frontend state surface), along with the shipped workflows, lives in [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md). Start from that doc rather than re-deriving the framework here.
 
 ```mermaid
 graph TD
@@ -20,7 +20,6 @@ graph TD
         state["state.js"] <--> api["api.js"]
         api <--> sse["SSE streaming"]
         sse <--> chat["chat.js (rendering)"]
-        voice["voice.js (TTS controls)"]
         inspector["Inspector panel: moods, reasoning, tool calls, injection block"]
     end
 
@@ -31,11 +30,9 @@ graph TD
         dir["Director Pass (passes/director.py)<br/>LLM calls direct_scene tool → fills fragments<br/>Fragments are user-defined (director_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
         writer["Writer Pass (passes/writer.py)<br/>Main generation pass. System prompt + history +<br/>Lorebook entries + Scene Direction injection block + user message.<br/>Streams response tokens via SSE."]
         editor["[Post-Writer] Editor Pass (passes/editor/) (optional)<br/>Checks: slop, banned phrases, repetitive openers,<br/>templates, structural repetition, length guard.<br/>Tools: editor_apply_patch or editor_rewrite.<br/>Up to 3 iterations."]
-        tts["TTS Layer (tts/)<br/>Regex speech extraction → backend synthesis<br/>Adapters: Edge, ElevenLabs, Fish, Kokoro, OpenAI"]
         summarizer["Summarizer (summarizer.py)<br/>Narrative summary + compress flow<br/>Not part of the pipeline — triggered manually"]
 
         orch --> pre --> dir --> writer --> editor
-        writer -.-> tts
     end
 
     Frontend -- "HTTP + SSE" --> Backend
@@ -91,24 +88,15 @@ Orb/
 │   │       ├── template_repetition.py # Part-of-speech pattern repetition
 │   │       ├── structural_repetition.py # Same paragraph layout as previous msgs
 │   │       └── contrastive_negation.py # "not X, but Y" cliché detection
-│   ├── tts/
-│   │   ├── base.py          # TTSAdapter abstract base class
-│   │   ├── router.py        # Adapter registry, routes backend name → adapter class
-│   │   ├── cache.py         # Audio file cache keyed by text + voice params. Per-chunk caching helpers.
-│   │   ├── regex_extractor.py # Speech/non-speech chunk splitting
-│   │   ├── edge_adapter.py      # Edge TTS (free, local)
-│   │   ├── elevenlabs_adapter.py # ElevenLabs API
-│   │   ├── fish_adapter.py      # Fish Speech API
-│   │   ├── kokoro_adapter.py    # Kokoro TTS (local)
-│   │   └── openai_speech_adapter.py # OpenAI Speech API
-│   └── data/                # Runtime: app.db (SQLite), tts_cache/
+│   ├── workflows/           # Secondary workflow framework + shipped workflows
+│   │                        # (see docs/architecture/secondary-workflow.md)
+│   └── data/                # Runtime: app.db (SQLite)
 ├── frontend/
 │   ├── index.html           # Single-page app shell
 │   ├── app.js               # Bootstrap: wire up sidebar, tabs, modals
 │   ├── state.js             # Global state object (S.*), reactive getters
 │   ├── api.js               # All fetch() calls to backend
-│   ├── chat.js              # Chat rendering, message display, Inspector, streaming, TTS chunk queue player
-│   ├── voice.js             # TTS UI controls, speak buttons, voice settings
+│   ├── chat.js              # Chat rendering, message display, Inspector, streaming
 │   ├── library.js           # Character card grid/list, CRUD UI
 │   ├── settings.js          # Settings panel, endpoint/model config UI
 │   ├── lorebooks.js         # World/lorebook entry management
@@ -121,19 +109,20 @@ Orb/
 │   ├── mobile.css           # Mobile breakpoints
 │   ├── fonts.css            # Custom font declarations
 │   ├── fonts/               # Self-hosted: Crimson, Exo2, Lora, Playfair, Spectral, Fira Code
-│   └── themes/              # 9 CSS theme files
+│   ├── themes/              # 9 CSS theme files
+│   └── workflows/           # Frontend secondary workflow modules
 ├── docs/
 │   ├── index.md             # Docs home / table of contents
 │   ├── getting-started.md   # Install & first run
 │   ├── contributing.md      # Contributor guide
 │   ├── architecture/
 │   │   ├── kv-cache.md      # How Orb reuses the LLM KV cache across passes & turns
-│   │   └── secondary-workflow.md # Workflow framework dev guide (tts = reference impl)
+│   │   └── secondary-workflow.md # Workflow framework dev guide
 │   ├── features/            # Per-feature guides (director, anti-slop, length-guard,
-│   │                        # compress-history, magic-rewrite, super-regenerate, tts, mobile)
+│   │                        # compress-history, magic-rewrite, super-regenerate, mobile)
 │   └── assets/              # Doc images
 ├── tests/
-│   ├── unit/                # Unit tests (editor, fragments, TTS adapters, etc.)
+│   ├── unit/                # Unit tests (editor, fragments, etc.)
 │   └── integration/         # Integration tests (FastAPI TestClient)
 ├── scripts/
 │   ├── tests.sh             # Run test suites
@@ -161,7 +150,7 @@ Orb/
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON), length_guard_*, reasoning_enabled_passes, active_persona_id, active_endpoint_id, tts_*, agent_* |
+| `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON), length_guard_*, reasoning_enabled_passes, active_persona_id, active_endpoint_id, agent_* |
 | `endpoints` | LLM API endpoints | url, api_key, active_model_config_id, agent_active_model_config_id → model_configs.id |
 | `model_configs` | Per-endpoint model settings | endpoint_id, model_name, temperature, top_p, top_k, min_p, repetition_penalty, max_tokens, system_prompt, role |
 | `conversations` | Chat sessions | character_card_id, character_name, character_scenario, post_history_instructions, active_leaf_id → messages.id |
@@ -178,12 +167,6 @@ Orb/
 | `mood_fragments` | Named mood presets | id, label, description, prompt_text, negative_prompt, enabled |
 | `phrase_bank` | Banned phrases for editor audit | id, variants (JSON array of strings) |
 | `conversation_logs` | Per-turn Director audit trail | conversation_id, turn_index, message_id, agent_raw_output, tool_calls (JSON), active_moods_after, progressive_fields_after (JSON), injection_block, agent_latency_ms |
-
-### TTS Tables
-
-| Table | Purpose | Key Columns |
-|-------|---------|-------------|
-| `voice_profiles` | Per-character TTS settings | character_card_id (unique), backend, voice_id, language, rate, pitch, enabled, endpoint_id, api_url, api_key, model |
 
 ### World/Lorebook Tables
 
@@ -216,7 +199,6 @@ erDiagram
     messages ||--o{ message_attachments : has
     character_cards }o--o| worlds : "world_id"
     worlds ||--o{ lorebook_entries : has
-    character_cards ||--o| voice_profiles : has
 ```
 
 ## API Endpoints
@@ -254,16 +236,6 @@ erDiagram
 - `GET/PUT/DELETE /api/characters/{id}` — CRUD
 - `GET /api/characters/{id}/avatar` — Serve avatar image
 - `GET /api/characters/{id}/export` — Export as PNG card
-
-### TTS & Voice
-- `GET /api/tts/backends` — List available TTS backends
-- `GET /api/tts/voices` — List voices for a backend
-- `GET /api/tts/models` — List models for a backend
-- `POST /api/tts/preview` — Preview TTS output
-- `GET/PUT /api/characters/{id}/voice-profile` — Per-character voice settings
-- `POST /api/conversations/{cid}/messages/{id}/speak` — Generate speech for message (monolithic, all chunks)
-- `GET /api/conversations/{cid}/messages/{id}/chunks` — Return chunk metadata (text, emotion, pause_before_ms, index)
-- `POST /api/conversations/{cid}/messages/{id}/speak-chunk` — Synthesize single chunk by index (per-chunk caching)
 
 ### Fragments & Moods
 - `GET/POST /api/fragments` — List/create mood fragments
@@ -309,7 +281,6 @@ flowchart TD
     settings --> reasoning["settings.reasoning_enabled_passes → JSON<br/>{director, writer, editor}"]
     settings --> persona["settings.active_persona_id → user_personas[id]"]
     settings --> agent["settings.agent_endpoint_id → endpoints[id]<br/>settings.agent_shared_system_prompt"]
-    settings --> tts_cfg["settings.tts_enabled, tts_auto_speak, tts_volume"]
 ```
 
 Multiple model configs per endpoint. Active one selected via `endpoints.active_model_config_id`. Agent (Director) can use a separate endpoint (`agent_endpoint_id`) or share the writer's.
@@ -320,37 +291,7 @@ Multiple model configs per endpoint. Active one selected via `endpoints.active_m
 - **Rendering** (`chat.js`): `renderMessages()` rebuilds the entire message list from `S.messages`. Inspector panel rendered by `renderInspector()`.
 - **Streaming**: SSE events parsed in `chat.js` — `director_start`, `director_done`, `prompt_rewritten`, `token`, `reasoning`, `writer_rewrite`, `editor_done`, `user_message_created`, `done`, `error`. `_result` and `_refined_result` are backend-internal, consumed before reaching the frontend. Tokens accumulate into the current message div in real-time.
 - **API** (`api.js`): All backend calls via `fetch()`. SSE streams handled by `EventSource`-like parsing in `chat.js`.
-- **Voice** (`voice.js`): TTS controls — speak buttons on messages, voice settings, TTS status bar.
 - **Branching**: Messages use `parent_id` forming a tree. `conversations.active_leaf_id` selects the visible leaf. UI shows branch count/index with prev/next navigation buttons.
-
-## TTS Pipeline
-
-```mermaid
-flowchart LR
-    msg["Assistant message"] --> extract["regex_extractor.py<br/>Extract dialogue from quoted text<br/>Skips narration, parentheticals, action beats"]
-    extract --> speech_chunks["SpeakableChunks (dialogue only)"]
-    speech_chunks --> router["router.py → adapter"]
-    router --> edge["Edge TTS"]
-    router --> eleven["ElevenLabs"]
-    router --> fish["Fish Speech"]
-    router --> kokoro["Kokoro"]
-    router --> openai["OpenAI Speech"]
-    edge & eleven & fish & kokoro & openai --> cache["cache.py → audio files (format varies by adapter)"]
-    cache --> playback["Frontend playback"]
-```
-
-Each character card has a voice profile (`voice_profiles` table) selecting backend, voice ID, language, rate, pitch. The regex extractor splits text into dialogue and narration chunks; only dialogue is spoken by default.
-
-### Click-to-Speak & Chunk Queue
-
-Users can click individual quoted dialogue lines to hear just that chunk, or play the full message with sequential chunk playback and karaoke highlighting:
-
-1. `GET /chunks` returns ordered chunk metadata for a message
-2. Frontend annotates `<span class="quoted">` elements with `data-chunk-idx`
-3. Click a span → `POST /speak-chunk` for that index → single chunk playback
-4. Full speak → chunk queue player plays chunks sequentially, highlighting each in turn
-5. Prefetch: during chunk N playback, chunk N+1 audio is fetched in the background to eliminate gaps
-6. Messages without extractable dialogue (narration-only) fall back to monolithic `/speak`
 
 ## Context Management
 
@@ -362,8 +303,8 @@ Orb sends the **full active message path** (leaf to root) every turn — no auto
 
 ## Testing
 
-- **Unit tests** (`tests/unit/`): Test individual functions — editor audit, fragment parsing, dialogue splitting, template detection, abort logic, TTS adapters, regex extractor.
-- **Integration tests** (`tests/integration/`): FastAPI `TestClient` against real DB — CRUD for characters, conversations, endpoints, settings, fragments, personas, TTS, context size.
+- **Unit tests** (`tests/unit/`): Test individual functions — editor audit, fragment parsing, template detection, abort logic.
+- **Integration tests** (`tests/integration/`): FastAPI `TestClient` against real DB — CRUD for characters, conversations, endpoints, settings, fragments, personas, context size.
 - **Run**: `cd ~/repos/Orb && python -m pytest tests/ -v`
 - **No e2e tests** for the frontend.
 
@@ -392,12 +333,9 @@ When running under Codex's filesystem/network sandbox, `aiosqlite` integration t
 4. Handle the tool call response in the relevant pass
 5. Add toggle in `settings.enabled_tools` and frontend tools panel
 
-### Adding a New TTS Backend
+### Adding a New Secondary Workflow
 
-1. Create `backend/tts/your_backend.py` extending `TTSAdapter` from `base.py`
-2. Implement `list_voices()`, `synthesize()`, and any backend-specific methods
-3. Register in `router.py` — import and add to `_REGISTRY` dict
-4. Add any new dependencies to `requirements.txt` (optional, graceful import)
+See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) for the full guide to authoring a secondary workflow — registration, hook contexts, HTTP routes, and the frontend module surface.
 
 ### Adding a New UI Panel
 
@@ -434,10 +372,8 @@ When running under Codex's filesystem/network sandbox, `aiosqlite` integration t
 
 10. **Lorebook scan depth** — Hard-coded to 6 messages (`LOREBOOK_SCAN_DEPTH` in `prompt_builder.py`). Only the last 6 messages are scanned for lorebook keyword matches.
 
-11. **TTS regex extractor and chunk playback** — Splits text into speech/non-speech chunks using quotation marks. The `regex_extractor.py` handles edge cases (nested quotes, em-dashes) but isn't perfect for all writing styles. Only speech chunks are sent to the TTS backend. Chunk indices from the backend must stay in sync with frontend `<span class="quoted">` elements — the `annotateChunkSpans()` function matches by `original_text` with consumed-span tracking to handle duplicate dialogue. The chunk queue player uses a `playbackId` monotonic token to prevent stale async continuations when stopping/restarting.
+11. **Agent endpoint separation** — Both the Director and Editor can use separate endpoints from the Writer (`agent_endpoint_id` in settings). If `agent_same_as_writer` is true, they share. When using a separate endpoint the writer and agent passes no longer share a KV cache and the writer drops its tool list; the instruction prompt also has a small difference. See [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) (Invariant 5 and the editor ReAct-loop section) for the full caching consequences. Make sure to check which endpoint you're targeting when modifying agent-related code.
 
-12. **Agent endpoint separation** — Both the Director and Editor can use separate endpoints from the Writer (`agent_endpoint_id` in settings). If `agent_same_as_writer` is true, they share. When using a separate endpoint the writer and agent passes no longer share a KV cache and the writer drops its tool list; the instruction prompt also has a small difference. See [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) (Invariant 5 and the editor ReAct-loop section) for the full caching consequences. Make sure to check which endpoint you're targeting when modifying agent-related code.
+12. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire.
 
-13. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire.
-
-14. **Never bypass lefthook with `--no-verify`** — The pre-commit hook runs `black --line-length 128`, `biome format`, and `flake8`. If a hook fails, fix the issue. Do not bypass it. CI runs the same checks and will catch formatting drift. Dirty working tree files can produce flake8 warnings that don't exist in committed code — verify before assuming a hook failure is legitimate.
+13. **Never bypass lefthook with `--no-verify`** — The pre-commit hook runs `black --line-length 128`, `biome format`, and `flake8`. If a hook fails, fix the issue. Do not bypass it. CI runs the same checks and will catch formatting drift. Dirty working tree files can produce flake8 warnings that don't exist in committed code — verify before assuming a hook failure is legitimate.
