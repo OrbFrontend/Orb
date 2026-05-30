@@ -1,7 +1,9 @@
 """Download character cards from external sources (CharacterHub, etc.).
 
 Use a registry pattern so new sources can be added by calling register_source()
-with a name, a browse function and a download function.
+with a name, a browse function and a download function. Sources may optionally
+provide a randomize function; randomize is treated as a capability hook because
+not every provider supports surfacing a random selection.
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ import hashlib
 import uuid
 import logging
 import base64
+import random
 import tempfile
 import os
 
@@ -21,21 +24,49 @@ logger = logging.getLogger(__name__)
 
 _CHUB_PAGE_SIZE = 24
 _CHUB_AVATARS_BASE = "https://avatars.charhub.io/avatars"
+_CHUB_RANDOM_MAX_PAGE = 40
 
-SOURCES: dict[str, tuple] = {}
+SOURCES: dict[str, dict] = {}
 
 
-def register_source(name: str, browse_fn, download_fn):
-    """Register an external source for character-card browsing and downloading."""
-    SOURCES[name] = (browse_fn, download_fn)
+def register_source(name: str, browse_fn, download_fn, randomize_fn=None):
+    """Register an external source for character-card browsing and downloading.
+
+    ``randomize_fn`` is optional: pass it only for providers that can return a
+    randomized selection. Sources without one simply don't advertise the
+    capability, and the frontend hides the Randomize button accordingly.
+    """
+    SOURCES[name] = {
+        "browse": browse_fn,
+        "download": download_fn,
+        "randomize": randomize_fn,
+    }
+
+
+def _get_source(source: str) -> dict:
+    src = SOURCES.get(source)
+    if not src:
+        raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
+    return src
+
+
+def capabilities(source: str) -> dict:
+    """Report which optional capabilities a source supports (e.g. randomize)."""
+    src = _get_source(source)
+    return {"randomize": src.get("randomize") is not None}
 
 
 async def browse(source: str, q: str = "", page: int = 1) -> dict:
     """Proxy external character-card search providers (avoids browser CORS)."""
-    pair = SOURCES.get(source)
-    if not pair:
-        raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
-    return await pair[0](q, page)
+    return await _get_source(source)["browse"](q, page)
+
+
+async def randomize(source: str, q: str = "") -> dict:
+    """Return a randomized selection from a source that supports it."""
+    fn = _get_source(source).get("randomize")
+    if fn is None:
+        raise HTTPException(status_code=400, detail=f"Source does not support randomize: {source}")
+    return await fn(q)
 
 
 async def download_card(source: str, full_path: str) -> dict:
@@ -44,10 +75,7 @@ async def download_card(source: str, full_path: str) -> dict:
     Returns the same dict shape as the file-import endpoint so the frontend
     can feed it straight into the character editor modal.
     """
-    pair = SOURCES.get(source)
-    if not pair:
-        raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
-    card_dict, avatar_b64, avatar_mime, card_id = await pair[1](full_path)
+    card_dict, avatar_b64, avatar_mime, card_id = await _get_source(source)["download"](full_path)
     card_dict["id"] = card_id
     if avatar_b64:
         card_dict["avatar_b64"] = avatar_b64
@@ -58,11 +86,12 @@ async def download_card(source: str, full_path: str) -> dict:
 # ── CharacterHub ──────────────────────────────────────────────────────
 
 
-async def _browse_characterhub(q: str, page: int) -> dict:
+async def _chub_search(q: str, page: int, sort: str = "download_count") -> dict:
+    """Run a CharacterHub search and normalize the response shape."""
     params = {
         "search": q,
         "page": max(1, int(page)),
-        "sort": "download_count",
+        "sort": sort,
         "first": _CHUB_PAGE_SIZE,
         "nsfw": "true",
         "nsfl": "true",
@@ -89,6 +118,13 @@ async def _browse_characterhub(q: str, page: int) -> dict:
         topics = n.get("topics") or n.get("tags") or []
         if not isinstance(topics, list):
             topics = []
+        date_updated = (
+            n.get("lastActivityAt")
+            or n.get("last_activity_at")
+            or n.get("createdAt")
+            or n.get("created_at")
+            or ""
+        )
         results.append(
             {
                 "name": n.get("name", ""),
@@ -96,10 +132,33 @@ async def _browse_characterhub(q: str, page: int) -> dict:
                 "avatar_url": avatar_url,
                 "full_path": full_path,
                 "topics": topics,
+                "date_updated": date_updated,
             }
         )
     has_more = len(nodes) >= _CHUB_PAGE_SIZE
     return {"results": results, "has_more": has_more}
+
+
+async def _browse_characterhub(q: str, page: int) -> dict:
+    return await _chub_search(q, page)
+
+
+async def _randomize_characterhub(q: str) -> dict:
+    """Surface a random page of CharacterHub results.
+
+    CharacterHub has no native "random" sort, so we jump to a random page of
+    the (optionally query-filtered) catalog to give a fresh selection each call.
+    """
+    page = random.randint(1, _CHUB_RANDOM_MAX_PAGE)
+    data = await _chub_search(q, page)
+    # A random deep page can land past the end of the catalog; fall back to the
+    # first page so the user still sees something rather than an empty grid.
+    if not data["results"] and page > 1:
+        data = await _chub_search(q, 1)
+    # Randomized results are a one-shot batch; paging "Load More" would silently
+    # switch back to ranked order, so don't advertise more.
+    data["has_more"] = False
+    return data
 
 
 async def _download_characterhub_card(full_path: str):
@@ -151,4 +210,9 @@ async def _download_characterhub_card(full_path: str):
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
-register_source("characterhub", _browse_characterhub, _download_characterhub_card)
+register_source(
+    "characterhub",
+    _browse_characterhub,
+    _download_characterhub_card,
+    _randomize_characterhub,
+)

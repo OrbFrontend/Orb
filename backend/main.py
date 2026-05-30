@@ -1185,6 +1185,18 @@ async def api_browse_characters(source: str = "characterhub", q: str = "", page:
     return await card_downloader.browse(source, q, page)
 
 
+@app.get("/api/characters/source-capabilities")
+async def api_source_capabilities(source: str = "characterhub"):
+    """Report optional capabilities (e.g. randomize) a browse source supports."""
+    return card_downloader.capabilities(source)
+
+
+@app.get("/api/characters/randomize")
+async def api_randomize_characters(source: str = "characterhub", q: str = ""):
+    """Return a randomized selection from a source that supports randomize."""
+    return await card_downloader.randomize(source, q)
+
+
 @app.post("/api/characters/import-url")
 async def api_import_character_url(req: ImportUrlRequest):
     """Download a character card from an external source and run it through the

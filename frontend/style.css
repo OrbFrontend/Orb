@@ -3799,18 +3799,25 @@ mark.cb-hl {
 .internet-controls {
   display: flex;
   gap: 8px;
-  align-items: stretch;
+  align-items: center;
 }
 
 .internet-controls select {
   flex: 0 0 auto;
-  width: 110px;
-  padding: 8px 6px;
+  width: auto;
+  min-width: 132px;
+  padding: 8px 28px 8px 10px;
   font-size: 12px;
   background: var(--bg-deep);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
+}
+
+.internet-controls .btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 8px 14px;
 }
 
 .internet-controls input {

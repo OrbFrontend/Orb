@@ -3,7 +3,7 @@ import { loadConversations, resetChatUI } from "./chat.js";
 import { loadWorlds } from "./lorebooks.js";
 import { closeModal, setModalCloseCallback, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
 import { S } from "./state.js";
-import { $, avatarUrl, esc, toast } from "./utils.js";
+import { $, avatarUrl, esc, formatRelativeDate, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // Pending avatar for the character create modal (cleared on submit or cancel)
@@ -33,6 +33,7 @@ let _internetPage = 1;
 let _internetResults = [];
 let _internetLoading = false;
 let _internetHasMore = false;
+let _internetRandomizeSupported = false;
 
 // ── Mood Fragments
 export async function loadMoodFragments() {
@@ -1309,9 +1310,28 @@ function renderInternetPanel() {
                value="${esc(_internetQuery)}"
                onkeydown="if(event.key==='Enter')searchInternet()">
         <button class="btn" onclick="searchInternet()">Search</button>
+        <button class="btn" id="internet-randomize-btn" onclick="randomizeInternet()"
+                title="Show a random selection"
+                style="display:${_internetRandomizeSupported ? "" : "none"}">🎲 Randomize</button>
       </div>
       <div id="internet-results">${renderInternetResultsBody()}</div>
     </div>`;
+  refreshInternetCapabilities();
+}
+
+// Randomize is an optional per-source capability; ask the backend whether the
+// current source supports it and show/hide the button accordingly.
+async function refreshInternetCapabilities() {
+  try {
+    const caps = await api.get(
+      `/characters/source-capabilities?source=${encodeURIComponent(_internetSource)}`,
+    );
+    _internetRandomizeSupported = !!caps?.randomize;
+  } catch {
+    _internetRandomizeSupported = false;
+  }
+  const btn = $("internet-randomize-btn");
+  if (btn) btn.style.display = _internetRandomizeSupported ? "" : "none";
 }
 
 function renderInternetResultsBody() {
@@ -1334,7 +1354,13 @@ function renderInternetResultCard(item) {
     : "👤";
   const fullPath = (item.full_path || "").replace(/'/g, "\\'");
   const topics = (item.topics || []).slice(0, 12);
-  const tooltipParts = [item.name, item.tagline, topics.length ? "Tags: " + topics.join(", ") : ""].filter(Boolean);
+  const updated = item.date_updated ? "Updated: " + formatRelativeDate(item.date_updated) : "";
+  const tooltipParts = [
+    item.name,
+    item.tagline,
+    updated,
+    topics.length ? "Tags: " + topics.join(", ") : "",
+  ].filter(Boolean);
   const tooltip = tooltipParts.map(esc).join("\n");
   return `
     <div class="char-browser-card internet-result-card">
@@ -1384,6 +1410,31 @@ export function loadMoreInternet() {
   if (_internetLoading || !_internetHasMore) return;
   _internetPage += 1;
   searchInternet(true);
+}
+
+export async function randomizeInternet() {
+  if (_internetLoading) return;
+  const input = $("internet-search-input");
+  if (input) _internetQuery = input.value.trim();
+
+  _internetPage = 1;
+  _internetResults = [];
+  _internetHasMore = false;
+  _internetLoading = true;
+  refreshInternetResults();
+
+  try {
+    const data = await api.get(
+      `/characters/randomize?source=${encodeURIComponent(_internetSource)}&q=${encodeURIComponent(_internetQuery)}`,
+    );
+    _internetResults = Array.isArray(data?.results) ? data.results : [];
+    _internetHasMore = !!data?.has_more;
+  } catch (e) {
+    toast("Randomize failed: " + e.message, true);
+  } finally {
+    _internetLoading = false;
+    refreshInternetResults();
+  }
 }
 
 export function setInternetSource(val) {
