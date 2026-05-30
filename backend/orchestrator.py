@@ -446,8 +446,7 @@ async def _run_pipeline(
                         state = ev.get("state") if isinstance(ev, dict) else None
                         if not isinstance(state, dict):
                             logger.warning(
-                                "post_pipeline hook %r yielded set_message_state with "
-                                "non-dict state (type=%s); ignoring",
+                                "post_pipeline hook %r yielded set_message_state with " "non-dict state (type=%s); ignoring",
                                 sub.workflow_id,
                                 type(state).__name__,
                             )

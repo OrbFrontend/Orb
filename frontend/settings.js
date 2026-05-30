@@ -1196,8 +1196,7 @@ export function renderToolsPanel() {
       }
     }
     secEl.innerHTML =
-      secHtml ||
-      `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No workflows registered.</div>`;
+      secHtml || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No workflows registered.</div>`;
   }
 }
 
