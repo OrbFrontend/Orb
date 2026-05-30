@@ -66,7 +66,7 @@ body {
   border-color: rgba(58,170,216,0.14) !important;
 }
 #sidebar { border-right: 1px solid rgba(58,170,216,0.14) !important; }
-#inspector, #tools-panel { border-left: 1px solid rgba(58,170,216,0.14) !important; }
+#inspector.open, #tools-panel.open { border-left: 1px solid rgba(58,170,216,0.14) !important; }
 
 /* Headers: flat, just a hairline divider. No top-light gradient —
    that lit-glass sheen was the last Aero tell in the title bar. */

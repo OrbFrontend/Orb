@@ -45,7 +45,7 @@ body {
   border-color: rgba(70,168,82,0.14) !important;
 }
 #sidebar { border-right: 1px solid rgba(70,168,82,0.14) !important; }
-#inspector, #tools-panel { border-left: 1px solid rgba(70,168,82,0.14) !important; }
+#inspector.open, #tools-panel.open { border-left: 1px solid rgba(70,168,82,0.14) !important; }
 
 /* Headers: flat, just a hairline divider — no sheen. */
 .sidebar-header, #chat-header {

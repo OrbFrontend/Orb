@@ -2921,15 +2921,22 @@ export function toggleInspector() {
   if (wasOpen) {
     inspector.classList.remove("open");
     btn.classList.remove("btn-active");
-  } else {
+  } else if (switching) {
+    // Both panels are the same width: swap instantly with no slide animation.
+    inspector.classList.add("no-anim");
+    toolsPanel.classList.add("no-anim");
     toolsPanel.classList.remove("open");
     toolsBtn.classList.remove("btn-active");
-    const open = () => {
-      inspector.classList.add("open");
-      btn.classList.add("btn-active");
-    };
-    if (switching) setTimeout(open, 180);
-    else open();
+    inspector.classList.add("open");
+    btn.classList.add("btn-active");
+    // Force a synchronous reflow so the swapped state is committed with
+    // transitions disabled before we re-enable them.
+    void inspector.offsetWidth;
+    inspector.classList.remove("no-anim");
+    toolsPanel.classList.remove("no-anim");
+  } else {
+    inspector.classList.add("open");
+    btn.classList.add("btn-active");
   }
 }
 

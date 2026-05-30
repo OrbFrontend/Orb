@@ -67,7 +67,7 @@ body {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.85) !important;
 }
 #sidebar { border-right: 1px solid rgba(255,255,255,0.55) !important; }
-#inspector, #tools-panel { border-left: 1px solid rgba(255,255,255,0.55) !important; }
+#inspector.open, #tools-panel.open { border-left: 1px solid rgba(255,255,255,0.55) !important; }
 
 /* Glass headers get a brighter top-light sheen. */
 .sidebar-header, #chat-header {

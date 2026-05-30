@@ -1039,16 +1039,24 @@ export function toggleToolsPanel() {
   if (wasOpen) {
     panel.classList.remove("open");
     btn.classList.remove("btn-active");
-  } else {
+  } else if (switching) {
+    // Both panels are the same width: swap instantly with no slide animation.
+    panel.classList.add("no-anim");
+    inspector.classList.add("no-anim");
     inspector.classList.remove("open");
     inspectorBtn.classList.remove("btn-active");
-    const open = () => {
-      panel.classList.add("open");
-      btn.classList.add("btn-active");
-      renderToolsPanel();
-    };
-    if (switching) setTimeout(open, 180);
-    else open();
+    panel.classList.add("open");
+    btn.classList.add("btn-active");
+    renderToolsPanel();
+    // Force a synchronous reflow so the swapped state is committed with
+    // transitions disabled before we re-enable them.
+    void panel.offsetWidth;
+    panel.classList.remove("no-anim");
+    inspector.classList.remove("no-anim");
+  } else {
+    panel.classList.add("open");
+    btn.classList.add("btn-active");
+    renderToolsPanel();
   }
 }
 
