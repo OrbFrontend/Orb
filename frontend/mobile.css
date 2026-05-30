@@ -223,6 +223,16 @@ body {
   .char-browser-grid,
   .char-browser-list {
     max-height: 52vh;
+    overflow-y: auto;
+  }
+
+  /* Let the internet browse controls wrap instead of overflowing the row. */
+  .internet-controls {
+    flex-wrap: wrap;
+  }
+  .internet-controls input {
+    flex-basis: 100%;
+    order: 1;
   }
 
   /* Character create/edit modal: stop inner content forcing horizontal overflow. */

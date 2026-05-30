@@ -128,6 +128,7 @@ from .orchestrator import (
 from .llm_client import LLMClient
 from .macros import Macros
 from . import tavern_cards
+from . import card_downloader
 from . import prompt_builder
 from .summarizer import ConversationSummarizer
 
@@ -1171,6 +1172,30 @@ async def api_import_character(file: Annotated[UploadFile, File(...)]):
     card_dict["avatar_mime"] = avatar_mime
 
     return card_dict
+
+
+class ImportUrlRequest(BaseModel):
+    source: str
+    full_path: str
+
+
+@app.get("/api/characters/browse")
+async def api_browse_characters(source: str = "characterhub", q: str = "", page: int = 1):
+    """Proxy external character-card search providers (avoids browser CORS)."""
+    return await card_downloader.browse(source, q, page)
+
+
+@app.get("/api/characters/randomize")
+async def api_randomize_characters(source: str = "characterhub", q: str = ""):
+    """Return a randomized selection from a source that supports randomize."""
+    return await card_downloader.randomize(source, q)
+
+
+@app.post("/api/characters/import-url")
+async def api_import_character_url(req: ImportUrlRequest):
+    """Download a character card from an external source and run it through the
+    same parse pipeline as /api/characters/import."""
+    return await card_downloader.download_card(req.source, req.full_path)
 
 
 @app.get("/api/characters/{card_id}")
