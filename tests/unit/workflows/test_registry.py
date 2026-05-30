@@ -8,7 +8,7 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.secondary_workflows import (
+from backend.workflows import (
     HookType,
     Subscription,
     ToolNameCollision,
@@ -24,8 +24,8 @@ from backend.secondary_workflows import (
     subscribe,
     workflow_has_hook,
 )
-from backend.secondary_workflows.contracts import ToolSpec
-from backend.secondary_workflows import registry as registry_module
+from backend.workflows.contracts import ToolSpec
+from backend.workflows import registry as registry_module
 from backend.tool_defs import STANDALONE_TOOLS, TOOLS
 
 
@@ -364,23 +364,23 @@ class TestIsProducesArtifactsWorkflow:
     """The cache helper's predicate that gates byte writes by registry state."""
 
     def test_unregistered_id_returns_false(self):
-        from backend.secondary_workflows.attachment_cache import _is_produces_artifacts_workflow
+        from backend.workflows.attachment_cache import _is_produces_artifacts_workflow
 
         assert _is_produces_artifacts_workflow("never_registered") is False
 
     def test_registered_without_flag_returns_false(self):
-        from backend.secondary_workflows.attachment_cache import _is_produces_artifacts_workflow
+        from backend.workflows.attachment_cache import _is_produces_artifacts_workflow
 
         register_workflow(Workflow(id="x", display_name="X", produces_artifacts=False))
         assert _is_produces_artifacts_workflow("x") is False
 
     def test_registered_with_flag_returns_true(self):
-        from backend.secondary_workflows.attachment_cache import _is_produces_artifacts_workflow
+        from backend.workflows.attachment_cache import _is_produces_artifacts_workflow
 
         register_workflow(Workflow(id="x", display_name="X", produces_artifacts=True))
         assert _is_produces_artifacts_workflow("x") is True
 
     def test_empty_string_returns_false(self):
-        from backend.secondary_workflows.attachment_cache import _is_produces_artifacts_workflow
+        from backend.workflows.attachment_cache import _is_produces_artifacts_workflow
 
         assert _is_produces_artifacts_workflow("") is False

@@ -1,4 +1,4 @@
-"""Tests for GET /api/secondary-workflows."""
+"""Tests for GET /api/workflows."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from copy import deepcopy
 
 import pytest
 
-from backend.secondary_workflows import registry as registry_module
+from backend.workflows import registry as registry_module
 
 from ._fixtures import make_workflow, register_for_test
 
@@ -24,7 +24,7 @@ def _empty_registry():
 
 
 async def test_empty_registry_returns_empty_list(client):
-    resp = await client.get("/api/secondary-workflows")
+    resp = await client.get("/api/workflows")
     assert resp.status_code == 200
     assert resp.json() == []
 
@@ -46,7 +46,7 @@ async def test_registered_workflow_appears_with_all_fields(client):
         config_defaults={"style": "noir"},
     )
     with register_for_test(wf):
-        resp = await client.get("/api/secondary-workflows")
+        resp = await client.get("/api/workflows")
     assert resp.status_code == 200
     body = resp.json()
     assert body == [
@@ -64,6 +64,6 @@ async def test_manifest_follows_registration_order(client):
     second = make_workflow("zzz", display_name="Second registered")
     third = make_workflow("aaa", display_name="Third registered")
     with register_for_test(first), register_for_test(second), register_for_test(third):
-        resp = await client.get("/api/secondary-workflows")
+        resp = await client.get("/api/workflows")
     ids = [w["id"] for w in resp.json()]
     assert ids == ["first", "zzz", "aaa"]

@@ -16,7 +16,7 @@ from backend.database import (
     set_active_leaf,
 )
 from backend.database.connection import get_db
-from backend.secondary_workflows.attachment_cache import (
+from backend.workflows.attachment_cache import (
     EVICTED_MARKER,
     OVERSIZE_NO_METADATA_REASON,
     WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON,

@@ -15,7 +15,7 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
-from backend.secondary_workflows.attachment_cache import EVICTED_MARKER, evict
+from backend.workflows.attachment_cache import EVICTED_MARKER, evict
 
 from ._fixtures import make_workflow, must_get_workflow_attachment, register_for_test
 
@@ -265,7 +265,7 @@ async def test_rehydrate_does_not_touch_active_sibling_id(client):
         mid,
         {"filename": "y", "mime": "image/png", "data": b"Y", "workflow_id": "img", "parent_attachment_id": aid},
     )
-    from backend.secondary_workflows.attachment_cache import set_active_sibling
+    from backend.workflows.attachment_cache import set_active_sibling
 
     await set_active_sibling(aid, other)
     await evict(aid)

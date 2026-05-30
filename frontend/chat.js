@@ -168,7 +168,7 @@ function renderUserAttachments(userAtts) {
 }
 
 // Eviction sentinel for workflow attachment bytes -- must match
-// `EVICTED_MARKER` in backend/secondary_workflows/attachment_cache.py.
+// `EVICTED_MARKER` in backend/workflows/attachment_cache.py.
 const WORKFLOW_ATT_EVICTED_MARKER = "[evicted]";
 
 function _isAttachmentEvicted(att) {
@@ -2751,7 +2751,7 @@ export function renderInspectorSecondary() {
   const reasoning = _buildSecondaryReasoningHtml();
   const cards = _buildSecondaryAgentsHtml();
   if (!reasoning && !cards) {
-    el.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No secondary workflows registered.</div>`;
+    el.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No workflows registered.</div>`;
     return;
   }
   el.innerHTML = reasoning + cards;
@@ -2852,12 +2852,12 @@ function workflowPhaseLabel(wid, verb) {
   return `${(entry && entry.display_name) || "Workflow"}: ${verb}`;
 }
 
-export async function loadSecondaryWorkflowManifest() {
+export async function loadWorkflowManifest() {
   try {
-    const manifest = await api.get("/secondary-workflows");
+    const manifest = await api.get("/workflows");
     if (Array.isArray(manifest)) S.workflowManifest = manifest;
   } catch (e) {
-    console.error("Failed to load secondary workflow manifest:", e);
+    console.error("Failed to load workflow manifest:", e);
   }
 }
 

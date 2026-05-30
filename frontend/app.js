@@ -16,7 +16,7 @@ import {
   initWorkflowMutationListener,
   hideAvatarPopup,
   loadConversations,
-  loadSecondaryWorkflowManifest,
+  loadWorkflowManifest,
   newConvForChar,
   regenerate,
   renderMessages,
@@ -505,9 +505,9 @@ async function initAll() {
   }
 
   try {
-    await loadSecondaryWorkflowManifest();
+    await loadWorkflowManifest();
   } catch (e) {
-    console.error("Failed to load secondary workflow manifest:", e);
+    console.error("Failed to load workflow manifest:", e);
   }
 
   try {

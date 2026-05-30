@@ -20,14 +20,14 @@ from backend.database import (
     get_messages,
     get_workflow_attachment_by_id,
 )
-from backend.secondary_workflows import (
+from backend.workflows import (
     PostCtx,
     RegenCtx,
     set_workflow_character_state,
     set_workflow_config,
 )
-from backend.secondary_workflows.tts import hooks
-from backend.secondary_workflows.tts.engine.base import SynthesisResult, TTSAdapter
+from backend.workflows.tts import hooks
+from backend.workflows.tts.engine.base import SynthesisResult, TTSAdapter
 from backend.kv_tracker import _KVCacheTracker
 from backend.llm_client import LLMClient
 from backend.orchestrator import _run_pipeline
@@ -47,7 +47,7 @@ class _FakeAdapter(TTSAdapter):
 
 @pytest.fixture
 def fake_adapter(monkeypatch):
-    monkeypatch.setattr("backend.secondary_workflows.tts.synth.get_adapter", lambda backend: _FakeAdapter())
+    monkeypatch.setattr("backend.workflows.tts.synth.get_adapter", lambda backend: _FakeAdapter())
 
 
 def _post_ctx(cid: str, char_id: str, draft: str) -> PostCtx:
@@ -250,7 +250,7 @@ async def test_rehydrate_regenerates_consumption_metadata(client, fake_adapter):
 
     from backend.database import insert_workflow_attachment_row, set_active_leaf
     from backend.database.connection import get_db
-    from backend.secondary_workflows.attachment_cache import evict
+    from backend.workflows.attachment_cache import evict
 
     cid, char_id = await _seed()
     mid, _ = await add_message(cid, "assistant", '"Hello there."', 0)
@@ -297,15 +297,15 @@ async def test_rehydrate_regenerates_consumption_metadata(client, fake_adapter):
 
 async def test_config_round_trip(client):
     payload = {"config": {"auto_play": True, "volume": 0.4}}
-    put = await client.put("/api/secondary-workflows/tts/config", json=payload)
+    put = await client.put("/api/workflows/tts/config", json=payload)
     assert put.status_code == 200
     assert put.json() == payload
-    got = await client.get("/api/secondary-workflows/tts/config")
+    got = await client.get("/api/workflows/tts/config")
     assert got.json() == payload
 
 
 async def test_config_defaults_on_fresh_slot(client):
-    got = await client.get("/api/secondary-workflows/tts/config")
+    got = await client.get("/api/workflows/tts/config")
     assert got.json() == {
         "config": {
             "auto_play": False,

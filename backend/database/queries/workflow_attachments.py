@@ -2,7 +2,7 @@
 
 This module is the database boundary for the workflow-attachment cache.
 Higher-level concerns (size budget, eviction, access tracking) live in
-`backend.secondary_workflows.attachment_cache`. The functions here are
+`backend.workflows.attachment_cache`. The functions here are
 side-effect-free with respect to the cache state -- they only read and
 write rows.
 
@@ -132,7 +132,7 @@ async def insert_workflow_attachment_row(
 
     if insert_as_evicted:
         # Lazy import keeps queries module free of attachment_cache cycle.
-        from backend.secondary_workflows.attachment_cache import EVICTED_MARKER
+        from backend.workflows.attachment_cache import EVICTED_MARKER
 
         data_b64 = EVICTED_MARKER
     elif has_path:

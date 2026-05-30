@@ -8,7 +8,7 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.secondary_workflows.contracts import (
+from backend.workflows.contracts import (
     OnDemandCtx,
     PostCtx,
     PreCtx,

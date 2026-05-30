@@ -231,9 +231,9 @@ async def add_message(
                 ),
             )
         # Lazy import: the database package must not depend on
-        # secondary_workflows at import time (would invert the layering).
+        # workflows at import time (would invert the layering).
         if workflow_atts:
-            from backend.secondary_workflows.attachment_cache import insert_workflow_attachments
+            from backend.workflows.attachment_cache import insert_workflow_attachments
 
             _, rejected_workflow_atts = await insert_workflow_attachments(message_id, workflow_atts, db=db)
         await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, cid))

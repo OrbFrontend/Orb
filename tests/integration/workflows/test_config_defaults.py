@@ -13,13 +13,13 @@ from copy import deepcopy
 
 import pytest
 
-from backend.secondary_workflows import (
+from backend.workflows import (
     Workflow,
     get_workflow_config,
     register_workflow,
     set_workflow_config,
 )
-from backend.secondary_workflows import registry as registry_module
+from backend.workflows import registry as registry_module
 from backend.tool_defs import STANDALONE_TOOLS, TOOLS
 
 

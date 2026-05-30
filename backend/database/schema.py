@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS user_personas (
 
 -- Required on fresh install by migration 0002, which deletes orphan rows
 -- from this table before any migration could create it. Migration
--- 0020_secondary_workflows copies surviving rows into user_attachments and
+-- 0020_workflows copies surviving rows into user_attachments and
 -- drops this table at the end of the chain. No rows persist in a
 -- fully-migrated database.
 CREATE TABLE IF NOT EXISTS message_attachments (

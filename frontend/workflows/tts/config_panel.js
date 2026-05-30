@@ -127,7 +127,7 @@ function saveGlobal() {
   // The config slot is replaced wholesale on write, so every key must be sent
   // or an omitted one reverts to its default.
   api
-    .put("/secondary-workflows/" + WORKFLOW_ID + "/config", {
+    .put("/workflows/" + WORKFLOW_ID + "/config", {
       config: {
         auto_play: cfg.auto_play,
         volume: cfg.volume,

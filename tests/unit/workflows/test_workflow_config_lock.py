@@ -8,7 +8,7 @@ import pytest
 import backend.database.connection as db_connection
 from backend.database import init_db
 from backend.database.queries.settings import get_workflow_config, set_workflow_config
-from backend.secondary_workflows.toolkit import workflow_config_lock
+from backend.workflows.toolkit import workflow_config_lock
 
 
 @pytest.fixture

@@ -75,7 +75,7 @@ export const S = {
   workflowTextEffects: [], // [{id, label}], registered text-effect drivers; a non-empty list enables body word-segmentation
   workflowClickHandlers: [], // [{id, label, priority, claims, onClick}], clickable-text-unit claimants
 
-  workflowManifest: [], // fetched from /api/secondary-workflows at boot
+  workflowManifest: [], // fetched from /api/workflows at boot
   reasoningByPass: {}, // {[pass_id]: accumulatedText}, per-workflow-pipeline reasoning buffer
   inspectorTab: "main", // "main" | "secondary"
   toolsTab: "main", // "main" | "secondary"

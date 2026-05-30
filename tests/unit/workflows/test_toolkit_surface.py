@@ -1,6 +1,6 @@
 """Pins the workflow locks onto the toolkit's public re-export surface.
 
-Workflow authors import everything from ``backend.secondary_workflows.toolkit``,
+Workflow authors import everything from ``backend.workflows.toolkit``,
 so the three workflow locks must be reachable there to guard a read-modify-write
 on any state tier without importing ``backend.locks`` directly. These assertions
 fail if a lock is dropped from the re-export, omitted from ``__all__``, or rebound
@@ -10,7 +10,7 @@ to something other than the canonical ``backend.locks`` object.
 from __future__ import annotations
 
 from backend import locks
-from backend.secondary_workflows import toolkit
+from backend.workflows import toolkit
 
 _LOCK_NAMES = (
     "workflow_state_lock",

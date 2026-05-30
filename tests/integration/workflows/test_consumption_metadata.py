@@ -14,7 +14,7 @@ from backend.database import (
     set_active_leaf,
 )
 from backend.database.queries.messages import get_workflow_attachments_for_message
-from backend.secondary_workflows.attachment_cache import EVICTED_MARKER, evict
+from backend.workflows.attachment_cache import EVICTED_MARKER, evict
 
 from ._fixtures import make_workflow, must_get_workflow_attachment, register_for_test
 

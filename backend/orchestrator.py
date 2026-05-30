@@ -21,7 +21,7 @@ from .prompt_builder import (
 from .kv_tracker import _KVCacheTracker
 from .locks import workflow_character_state_lock, workflow_state_lock
 from .macros import Macros
-from .secondary_workflows import (
+from .workflows import (
     HookType,
     PostCtx,
     PreCtx,
@@ -29,7 +29,7 @@ from .secondary_workflows import (
     get_workflow,
     iter_subscriptions,
 )
-from .secondary_workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
+from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from .utils import extract_hyperparams
 from .passes.director import _director_pass
 from .passes.writer import _writer_pass, build_writer_content

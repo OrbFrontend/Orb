@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from backend.secondary_workflows.tts import hooks, synth
-from backend.secondary_workflows.tts.engine.base import SynthesisResult, TTSAdapter
+from backend.workflows.tts import hooks, synth
+from backend.workflows.tts.engine.base import SynthesisResult, TTSAdapter
 
 
 class _FakeAdapter(TTSAdapter):
@@ -52,7 +52,7 @@ class _BoundaryAdapter(TTSAdapter):
 
 
 def _patch_adapter(monkeypatch):
-    monkeypatch.setattr("backend.secondary_workflows.tts.synth.get_adapter", lambda backend: _FakeAdapter())
+    monkeypatch.setattr("backend.workflows.tts.synth.get_adapter", lambda backend: _FakeAdapter())
 
 
 def test_normalize_profile_fills_defaults():
@@ -206,7 +206,7 @@ async def test_synthesize_blocks_estimates_words_without_native_timing(monkeypat
 
 
 async def test_synthesize_blocks_uses_native_word_boundaries(monkeypatch):
-    monkeypatch.setattr("backend.secondary_workflows.tts.synth.get_adapter", lambda backend: _BoundaryAdapter())
+    monkeypatch.setattr("backend.workflows.tts.synth.get_adapter", lambda backend: _BoundaryAdapter())
     profile = synth.normalize_profile({"voice_id": "v1"})
     _, _, blocks = await synth.synthesize_blocks('"Hello there."', profile)
     words = blocks[0]["words"]

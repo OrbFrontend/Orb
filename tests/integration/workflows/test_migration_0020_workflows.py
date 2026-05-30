@@ -1,6 +1,6 @@
-"""Tests for migration 0020_secondary_workflows (the squashed workflow migration).
+"""Tests for migration 0020_workflows (the squashed workflow migration).
 
-0020_secondary_workflows collapses the feature's seven development migrations
+0020_workflows collapses the feature's seven development migrations
 into one net 0019 -> final-shape delta. These pin the squash's two contracts:
 the final schema it converges on, and the legacy data it ports on a real
 upgrade (user attachments copied, TTS config reshaped, voice profiles moved
@@ -22,7 +22,7 @@ from backend.database.migrations import run_pending
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    importlib.import_module("backend.database.migrations.0020_secondary_workflows").migrate(conn)
+    importlib.import_module("backend.database.migrations.0020_workflows").migrate(conn)
 
 
 def _tables(conn: sqlite3.Connection) -> set[str]:
@@ -228,7 +228,7 @@ def test_no_legacy_tts_leaves_config_empty(mig_db: Path):
 
 def test_run_pending_fires_unified_and_drops_message_attachments(mig_db: Path):
     """End-to-end through the real runner on a fresh branch DB: with 0001-0019
-    marked applied, run_pending fires only 0020_secondary_workflows, which drops
+    marked applied, run_pending fires only 0020_workflows, which drops
     the message_attachments table schema.py keeps purely as migration-bootstrap
     scaffolding (migration 0002 deletes from it on a fresh boot)."""
     from backend.database.schema import CREATE_TABLES_SQL
@@ -242,7 +242,7 @@ def test_run_pending_fires_unified_and_drops_message_attachments(mig_db: Path):
             "CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')))"
         )
         for name in MIGRATIONS:
-            if name != "0020_secondary_workflows":
+            if name != "0020_workflows":
                 conn.execute("INSERT OR IGNORE INTO schema_migrations (id) VALUES (?)", (name,))
         conn.commit()
     finally:
@@ -256,6 +256,6 @@ def test_run_pending_fires_unified_and_drops_message_attachments(mig_db: Path):
         assert "message_attachments" not in tables
         assert {"user_attachments", "workflow_attachments"}.issubset(tables)
         applied = {r[0] for r in conn.execute("SELECT id FROM schema_migrations")}
-        assert "0020_secondary_workflows" in applied
+        assert "0020_workflows" in applied
     finally:
         conn.close()

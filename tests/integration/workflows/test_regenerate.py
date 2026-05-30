@@ -7,7 +7,7 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
-from backend.secondary_workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
+from backend.workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 
 from ._fixtures import make_workflow, must_get_workflow_attachment, register_for_test
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import base64
 import logging
 
-from backend.secondary_workflows.toolkit import (
+from backend.workflows.toolkit import (
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,

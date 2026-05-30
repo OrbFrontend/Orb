@@ -17,7 +17,7 @@ from typing import Any, Iterator
 
 from backend.database.queries.conversations import get_workflow_state, set_workflow_state
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
-from backend.secondary_workflows import (
+from backend.workflows import (
     HookType,
     ToolSpec,
     Workflow,
@@ -25,7 +25,7 @@ from backend.secondary_workflows import (
     register_workflow,
     subscribe,
 )
-from backend.secondary_workflows import registry as _registry
+from backend.workflows import registry as _registry
 from backend.tool_defs import STANDALONE_TOOLS, TOOLS
 
 
@@ -134,7 +134,7 @@ def register_for_test(workflow: Workflow, *, finalize: bool = True) -> Iterator[
 # ``gate`` before its body and sets ``release`` once past it, so tests can
 # both block a hook mid-execution and observe when it has actually
 # entered. Per-hook signatures match the kind's contract in
-# backend/secondary_workflows/contracts.py: pre/post are async generators
+# backend/workflows/contracts.py: pre/post are async generators
 # taking ``(ctx)``, on_demand and regenerate are coroutines taking
 # ``(ctx, body)``, reroll_gen takes ``(ctx, params, seed)``.
 

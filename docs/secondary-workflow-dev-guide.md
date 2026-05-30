@@ -1,6 +1,6 @@
-# Secondary workflow development guide
+# Workflow development guide
 
-Navigation map for authoring a secondary workflow. Reader is assumed to know the rest of Orb's backend (FastAPI + aiosqlite, three-pass pipeline in `backend/orchestrator.py`) and frontend (vanilla JS modules mutating the global `S` object in `frontend/state.js`), and to be new to the workflow framework. Every section points at code; build the mental model from the cited source.
+Navigation map for authoring a workflow. Reader is assumed to know the rest of Orb's backend (FastAPI + aiosqlite, three-pass pipeline in `backend/orchestrator.py`) and frontend (vanilla JS modules mutating the global `S` object in `frontend/state.js`), and to be new to the workflow framework. Every section points at code; build the mental model from the cited source.
 
 ---
 
@@ -14,13 +14,13 @@ A workflow is a Python record in the process-local registry -- one record per wo
 - Carry state across four DB-backed tiers (conversation, message, character, config) plus one in-memory per-turn scratch tier.
 - Ship a frontend module that registers renderers (message buttons, attachment widgets, inspector/tools-panel cards -- a config panel is just a tools-panel renderer), click/text-effect/SSE handlers.
 
-Built-in registered workflow: `tts` (`backend/secondary_workflows/tts/`, `frontend/workflows/tts/`). It binds four of the five hook types (post-pipeline, on-demand, regenerate, reroll-gen -- not pre-pipeline). For persistent state it uses the character and config tiers only. Cross-reference it as the worked example.
+Built-in registered workflow: `tts` (`backend/workflows/tts/`, `frontend/workflows/tts/`). It binds four of the five hook types (post-pipeline, on-demand, regenerate, reroll-gen -- not pre-pipeline). For persistent state it uses the character and config tiers only. Cross-reference it as the worked example.
 
 ---
 
 ## 2. File map
 
-### Backend (`backend/secondary_workflows/`)
+### Backend (`backend/workflows/`)
 
 | Path | Role |
 |---|---|
@@ -40,7 +40,7 @@ Adjacent backend pieces a workflow author touches:
 | `backend/main.py` | Workflow HTTP routes (1671--2211) + `_workflow_root_lock` (157). |
 | `backend/orchestrator.py` | Pre-pipeline hook loop (`_iterate_pre_pipeline_hooks`) + post-pipeline hook loop (inline, over `iter_subscriptions(HookType.POST_PIPELINE)`) + `_stage_workflow_attachment` + `_persist_result` + `_consume_pipeline`. |
 | `backend/database/queries/workflow_attachments.py` | Raw row INSERT (`insert_workflow_attachment_row`) -- no budget/eviction; the cache wraps this. |
-| `backend/database/migrations/0020_secondary_workflows.py` | Schema for `workflow_attachments` + per-scope `workflow_state` columns (conversations / messages / character_cards) + `workflow_config` + `attachment_cache_budget_bytes` + `attachment_access_counter`. |
+| `backend/database/migrations/0020_workflows.py` | Schema for `workflow_attachments` + per-scope `workflow_state` columns (conversations / messages / character_cards) + `workflow_config` + `attachment_cache_budget_bytes` + `attachment_access_counter`. |
 | `backend/database/schema.py` | Mirror of post-migration shape for fresh installs. |
 
 ### Frontend (`frontend/`)
@@ -48,7 +48,7 @@ Adjacent backend pieces a workflow author touches:
 | Path | Role |
 |---|---|
 | `state.js` | `S.workflow*` slots + exported `registerWorkflowPipeline` / `registerTextEffect` / `registerClickHandler`. |
-| `workflow_loader.js` | Boot loader: `loadWorkflowModules` dynamic-imports each manifest entry's `index.js` in manifest order. (Manifest itself fetched by `loadSecondaryWorkflowManifest` in `chat.js`.) |
+| `workflow_loader.js` | Boot loader: `loadWorkflowModules` dynamic-imports each manifest entry's `index.js` in manifest order. (Manifest itself fetched by `loadWorkflowManifest` in `chat.js`.) |
 | `chat.js` | SSE dispatch, workflow widget rendering, phase pill, reasoning rail, refetch helpers, `window.workflow*` handlers. |
 | `default_widget.js` | Fallback MIME-routed renderer (image / audio / video; else a download link). |
 | `workflow_segmentation.js` | `.seg` span wrapper + `messageSegments(msgId)` + `segDescriptor`. |
@@ -58,7 +58,7 @@ Adjacent backend pieces a workflow author touches:
 | `audio_schedule.js` | Pure scheduling math (normalize / build / locate / reschedule). |
 | `audio_transport.js` | Transport bar mount: channel selector plus one control row bound to the selected channel. |
 | `tabLock.js` | `broadcastWorkflowMutation` for cross-tab refresh. |
-| `app.js` | Boot wiring: imports + calls at startup `loadSecondaryWorkflowManifest` + `initWorkflowMutationListener` (from `chat.js`), `loadWorkflowModules` (from `workflow_loader.js`), `initWorkflowTextInteraction` (from `workflow_text_interaction.js`), `initAudioPlayer` (from `audio_transport.js`). `window.workflow*` inline handlers themselves live in `chat.js`. |
+| `app.js` | Boot wiring: imports + calls at startup `loadWorkflowManifest` + `initWorkflowMutationListener` (from `chat.js`), `loadWorkflowModules` (from `workflow_loader.js`), `initWorkflowTextInteraction` (from `workflow_text_interaction.js`), `initAudioPlayer` (from `audio_transport.js`). `window.workflow*` inline handlers themselves live in `chat.js`. |
 | `workflows/<id>/` | Per-workflow modules served from `/static/workflows/<id>/`. |
 | `workflows/tts/` | Shipped TTS frontend (index, widget, karaoke, config_panel, extract, tts.css). |
 
@@ -69,7 +69,7 @@ Adjacent backend pieces a workflow author touches:
 Declaration and registration are two distinct steps; `registry.py` hosts both the `Workflow` dataclass and the registration functions:
 
 1. **Declare** the `Workflow` data record. Author calls `Workflow(id=..., display_name=..., ...)` inside the workflow's own subdir `__init__.py`. No registration happens yet.
-2. **Register + bind hooks**. Author calls `register_workflow(w)` + one `subscribe(w.id, HookType.X, fn)` per hook + `finalize_registry()`. ALL three calls live in `backend/secondary_workflows/__init__.py:108-115`, NOT in the workflow's own subdir.
+2. **Register + bind hooks**. Author calls `register_workflow(w)` + one `subscribe(w.id, HookType.X, fn)` per hook + `finalize_registry()`. ALL three calls live in `backend/workflows/__init__.py:108-115`, NOT in the workflow's own subdir.
 
 ### 3.1 `Workflow` dataclass -- data shape only (`registry.py:41-58`)
 
@@ -86,7 +86,7 @@ Authors construct one of these and never touch `subscriptions` -- that field is 
   subscriptions: list[Subscription]         # default-factory []; framework-owned
 ```
 
-Live example: shipped TTS builds its `Workflow(...)` instance at `backend/secondary_workflows/tts/__init__.py:46-58`.
+Live example: shipped TTS builds its `Workflow(...)` instance at `backend/workflows/tts/__init__.py:46-58`.
 
 ### 3.2 `ToolSpec` (`contracts.py:49-66`)
 
@@ -114,7 +114,7 @@ Single-dispatch hooks fire from their own HTTP routes, never from the turn pipel
 
 The package `__init__.py` imports each workflow's instance plus its hook callables and runs the three registration calls against them. Hooks are aliased on import (`_tts_*`) so that when a second workflow lands, its identically-named hooks (`post_pipeline`, etc.) will not shadow TTS's in the shared package namespace.
 
-Live shape -- imports at `backend/secondary_workflows/__init__.py:66-72`, calls at `:108-115`:
+Live shape -- imports at `backend/workflows/__init__.py:66-72`, calls at `:108-115`:
 
 ```
 from .tts import tts_workflow                                          # the Workflow(...) instance
@@ -147,7 +147,7 @@ finalize_registry()                                                    # step 3 
 
 ### 3.6 Manifest route
 
-`GET /api/secondary-workflows` (`main.py:1674`). Returns a list; each entry `{id, display_name, config_schema, config_defaults}`. Frontend fetches once at boot via `loadSecondaryWorkflowManifest` (`chat.js:2855`) into `S.workflowManifest`.
+`GET /api/workflows` (`main.py:1674`). Returns a list; each entry `{id, display_name, config_schema, config_defaults}`. Frontend fetches once at boot via `loadWorkflowManifest` (`chat.js:2855`) into `S.workflowManifest`.
 
 ---
 
@@ -232,12 +232,12 @@ Distinct, int-keyed space (`dict[int, asyncio.Lock]`), keyed on the root attachm
 
 | Lock | Held by |
 |---|---|
-| `workflow_state_lock` (outer) + `workflow_character_state_lock` (inner) | PRE-pipeline iterator (`orchestrator.py:601`), POST-pipeline iterator (`orchestrator.py:378`), `/trigger` route (`main.py:1720` outer + `:1734` inner). Workflow code doing read-modify-write on workflow_state acquires the same locks via the `toolkit` re-export (`backend/secondary_workflows/toolkit.py`). |
-| `workflow_config_lock` | `PUT /api/secondary-workflows/{workflow_id}/config` (`main.py:1695`). Workflow code doing read-modify-write on workflow_config acquires it via the `toolkit` re-export. |
+| `workflow_state_lock` (outer) + `workflow_character_state_lock` (inner) | PRE-pipeline iterator (`orchestrator.py:601`), POST-pipeline iterator (`orchestrator.py:378`), `/trigger` route (`main.py:1720` outer + `:1734` inner). Workflow code doing read-modify-write on workflow_state acquires the same locks via the `toolkit` re-export (`backend/workflows/toolkit.py`). |
+| `workflow_config_lock` | `PUT /api/workflows/{workflow_id}/config` (`main.py:1695`). Workflow code doing read-modify-write on workflow_config acquires it via the `toolkit` re-export. |
 
 ---
 
-## 6. Toolkit (`backend/secondary_workflows/toolkit.py`)
+## 6. Toolkit (`backend/workflows/toolkit.py`)
 
 The pinned author import surface. Importing from anywhere else inside `backend` is discouraged.
 
@@ -438,15 +438,15 @@ Note: when `resp_text` is empty, `_persist_result` short-circuits (sec. 7.7) and
 
 ### 8.1 Per-route reference cards
 
-#### GET `/api/secondary-workflows` (manifest)
+#### GET `/api/workflows` (manifest)
 
-Handler `api_list_secondary_workflows` (`:1675`). No locks. Response: JSON list of `{id, display_name, config_schema, config_defaults}` in registration order. No errors.
+Handler `api_list_workflows` (`:1675`). No locks. Response: JSON list of `{id, display_name, config_schema, config_defaults}` in registration order. No errors.
 
-#### PUT `/api/secondary-workflows/{wid}/config`
+#### PUT `/api/workflows/{wid}/config`
 
 Handler `api_set_workflow_config` (`:1689`). Body model `WorkflowConfigUpdate` (`:242-245`): `{"config": dict}`, REQUIRED -- missing key is FastAPI 422 before handler. Lock: `workflow_config_lock()` (`:1695`). DB: `set_workflow_config(wid, data.config)` then `get_workflow_config(wid)`. Response: `{"config": <effective>}` (post-write read; empty dict slot falls back to `config_defaults`). 404 if unregistered.
 
-#### GET `/api/secondary-workflows/{wid}/config`
+#### GET `/api/workflows/{wid}/config`
 
 Handler `api_get_workflow_config` (`:1703`). No locks. DB: `get_workflow_config(wid)`. Response `{"config": <effective>}`. 404 if unregistered.
 
@@ -464,19 +464,19 @@ Handler `api_reroll_gen_attachment` (`:1924`). Body unused. `get_conversation(ci
 
 #### POST `/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate`
 
-Handler `api_rehydrate_attachment` (`:2016`). Body unused. Pre-lock: `get_conversation(cid)` (404), `get_workflow_attachment_by_id(aid)` (404 if missing or `message_id != mid`), `get_message_by_id(mid)` (404 if cid mismatch). 409 gates: `att["data_b64"] != EVICTED_MARKER` (already restored), `att["seed"]` empty. `root_id = att["parent_attachment_id"] or aid`. Lock: `_workflow_root_lock(root_id)` (`:2050`). In-lock re-read of `att`; 409 if `data_b64` no longer evicted (race). 404 if no REROLL_GEN sub. Same `_build_reroll_gen_ctx` + `await sub.callable(ctx, params, seed)` where `seed = att["seed"]` (stored). `_split_reroll_gen_result` normalize. Write via `rehydrate_attachment(aid, bytes, consumption_metadata=...)` (`backend/secondary_workflows/attachment_cache.py:143`) -- in-place UPDATE on the same row. `RehydrateAlreadyDoneError` (subclass of `ValueError`) -> 409. Other `(LookupError, ValueError)` -> 500. Response: `{"attachment_id": aid}` (echoed).
+Handler `api_rehydrate_attachment` (`:2016`). Body unused. Pre-lock: `get_conversation(cid)` (404), `get_workflow_attachment_by_id(aid)` (404 if missing or `message_id != mid`), `get_message_by_id(mid)` (404 if cid mismatch). 409 gates: `att["data_b64"] != EVICTED_MARKER` (already restored), `att["seed"]` empty. `root_id = att["parent_attachment_id"] or aid`. Lock: `_workflow_root_lock(root_id)` (`:2050`). In-lock re-read of `att`; 409 if `data_b64` no longer evicted (race). 404 if no REROLL_GEN sub. Same `_build_reroll_gen_ctx` + `await sub.callable(ctx, params, seed)` where `seed = att["seed"]` (stored). `_split_reroll_gen_result` normalize. Write via `rehydrate_attachment(aid, bytes, consumption_metadata=...)` (`backend/workflows/attachment_cache.py:143`) -- in-place UPDATE on the same row. `RehydrateAlreadyDoneError` (subclass of `ValueError`) -> 409. Other `(LookupError, ValueError)` -> 500. Response: `{"attachment_id": aid}` (echoed).
 
 #### POST `/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/activate`
 
-Handler `api_activate_workflow_attachment` (`:2108`). Body: `{"sibling_id": int | None}`. No hook. Pre-lock: `get_conversation(cid)` (404), `get_message_by_id(mid)` (404 if cid mismatch); non-int `sibling_id` rejected 400, including the `bool`-is-`int` case (`:2123-2124`). The URL `aid` is interpreted as the ROOT id (verified inside `set_active_sibling` -- not pre-checked at the route). Lock: `_workflow_root_lock(aid)` (`:2127`). DB: `set_active_sibling(aid, sibling_id, expected_message_id=mid)` (`backend/secondary_workflows/attachment_cache.py:748`). `LookupError` -> 404, `ValueError` -> 400. Response: `{"active_sibling_id": <echoed>}`.
+Handler `api_activate_workflow_attachment` (`:2108`). Body: `{"sibling_id": int | None}`. No hook. Pre-lock: `get_conversation(cid)` (404), `get_message_by_id(mid)` (404 if cid mismatch); non-int `sibling_id` rejected 400, including the `bool`-is-`int` case (`:2123-2124`). The URL `aid` is interpreted as the ROOT id (verified inside `set_active_sibling` -- not pre-checked at the route). Lock: `_workflow_root_lock(aid)` (`:2127`). DB: `set_active_sibling(aid, sibling_id, expected_message_id=mid)` (`backend/workflows/attachment_cache.py:748`). `LookupError` -> 404, `ValueError` -> 400. Response: `{"active_sibling_id": <echoed>}`.
 
 #### POST `/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/delete`
 
-Handler `api_delete_workflow_attachment` (`:2137`). Body: `{"scope": "variant" | "group"}`. No hook. Pre-lock (in order): `get_conversation(cid)` (404), `get_message_by_id(mid)` (404 if cid mismatch), `scope` validation (400, checked before the attachment lookup), `get_workflow_attachment_by_id(aid)` (404 if missing or `message_id != mid`). `root_id = att["parent_attachment_id"] or aid`. Lock: `_workflow_root_lock(root_id)` (`:2158`). DB: `delete_workflow_attachments(aid, scope=scope, expected_message_id=mid)` (`backend/secondary_workflows/attachment_cache.py:812`). `LookupError` -> 404, `ValueError` -> 400. Response: `{"deleted_ids": [...], "group_empty": bool, "root_id": <post-op>, "active_sibling_id": int | None}`.
+Handler `api_delete_workflow_attachment` (`:2137`). Body: `{"scope": "variant" | "group"}`. No hook. Pre-lock (in order): `get_conversation(cid)` (404), `get_message_by_id(mid)` (404 if cid mismatch), `scope` validation (400, checked before the attachment lookup), `get_workflow_attachment_by_id(aid)` (404 if missing or `message_id != mid`). `root_id = att["parent_attachment_id"] or aid`. Lock: `_workflow_root_lock(root_id)` (`:2158`). DB: `delete_workflow_attachments(aid, scope=scope, expected_message_id=mid)` (`backend/workflows/attachment_cache.py:812`). `LookupError` -> 404, `ValueError` -> 400. Response: `{"deleted_ids": [...], "group_empty": bool, "root_id": <post-op>, "active_sibling_id": int | None}`.
 
 #### POST `/api/conversations/{cid}/workflow-attachments/access`
 
-Handler `api_record_workflow_attachment_access` (`:2168`). Body: `{"ids": list[int]}`. No hook, no `_workflow_root_lock`. Validation: 404 on missing conversation; 400 if `ids` not a list; per-element drop on `isinstance(bool)` first, then `isinstance(int)` keep, else drop; empty filtered list short-circuits to `{"ok": True, "recorded": 0}`. JOIN `workflow_attachments` x `messages` filtered by `m.conversation_id = ?` -- silently drops ids not on this conversation. Survivors re-ordered to input order. Call `record_access(ordered_valid)` (`backend/secondary_workflows/attachment_cache.py:306`). Response: `{"ok": True, "recorded": n}`.
+Handler `api_record_workflow_attachment_access` (`:2168`). Body: `{"ids": list[int]}`. No hook, no `_workflow_root_lock`. Validation: 404 on missing conversation; 400 if `ids` not a list; per-element drop on `isinstance(bool)` first, then `isinstance(int)` keep, else drop; empty filtered list short-circuits to `{"ok": True, "recorded": 0}`. JOIN `workflow_attachments` x `messages` filtered by `m.conversation_id = ?` -- silently drops ids not on this conversation. Survivors re-ordered to input order. Call `record_access(ordered_valid)` (`backend/workflows/attachment_cache.py:306`). Response: `{"ok": True, "recorded": n}`.
 
 ### 8.2 Helpers used by attachment routes
 
@@ -488,11 +488,11 @@ Handler `api_record_workflow_attachment_access` (`:2168`). Body: `{"ids": list[i
 
 ---
 
-## 9. Attachment cache (`backend/secondary_workflows/attachment_cache.py`)
+## 9. Attachment cache (`backend/workflows/attachment_cache.py`)
 
 ### 9.1 Schema
 
-Migration `backend/database/migrations/0020_secondary_workflows.py` (sole migration touching this subsystem).
+Migration `backend/database/migrations/0020_workflows.py` (sole migration touching this subsystem).
 
 Table `workflow_attachments` (`:95-114`):
 
@@ -621,7 +621,7 @@ POST_PIPELINE hooks commit `workflow_message_state` for the in-flight assistant 
 
 Order:
 
-1. `loadSecondaryWorkflowManifest()` (`chat.js:2855`) -- `await api.get("/secondary-workflows")` into `S.workflowManifest`.
+1. `loadWorkflowManifest()` (`chat.js:2855`) -- `await api.get("/workflows")` into `S.workflowManifest`.
 2. `loadWorkflowModules()` (`workflow_loader.js:8`) -- for each manifest entry: `await import("/static/workflows/<id>/index.js")` (sequential, manifest order). 404s and module throws caught. If any module loaded, the loader re-runs `renderToolsPanel()` (`workflow_loader.js:26`): the Tools panel paints once before modules load, so freshly pushed cards would otherwise stay hidden behind the stale paint.
 
 Both run inside `initAll` in `app.js`.
@@ -652,7 +652,7 @@ Top-level `register*` and `S.workflow*` push/assign calls run on import. Manifes
 | `toolsTab` | `"main"` | via `setToolsTab` only | tab paint |
 | `rejectedWorkflowAtts` | `[]` | (framework writes via `_mergeWorkflowRejections`; per-tuple replace, empty incoming clears) | rejection chip render |
 
-An author may read its own entry from `S.workflowManifest` (matched by `id`) for `display_name`, `config_schema`, or `config_defaults` (`main.py:1678`). Config *values* are not in the manifest -- read or write the live config slot via `GET` / `PUT /secondary-workflows/<id>/config`.
+An author may read its own entry from `S.workflowManifest` (matched by `id`) for `display_name`, `config_schema`, or `config_defaults` (`main.py:1678`). Config *values* are not in the manifest -- read or write the live config slot via `GET` / `PUT /workflows/<id>/config`.
 
 ### 11.4 Exported registrars (`state.js`)
 
@@ -794,10 +794,10 @@ Paths passed to `api.*` must NOT include `/api` -- `_req` adds it. A conversatio
 ### 13.6 Author-callable HTTP routes
 
 - `POST /api/conversations/<cid>/workflows/<wid>/trigger` -- ON_DEMAND. Body + response are author-defined.
-- `GET /api/secondary-workflows/<wid>/config` -- live effective config.
-- `PUT /api/secondary-workflows/<wid>/config` body `{config: {...}}` -- full replacement; `{config: {}}` resets to defaults.
+- `GET /api/workflows/<wid>/config` -- live effective config.
+- `PUT /api/workflows/<wid>/config` body `{config: {...}}` -- full replacement; `{config: {}}` resets to defaults.
 
-No first-party JS wrapper for any of these; call `api.*` directly with the path minus the `/api` prefix. The config routes are not conversation-scoped, so build them by hand; the trigger route is, so `convUrl` applies. E.g. `api.get("/secondary-workflows/" + wid + "/config")`, `api.put("/secondary-workflows/" + wid + "/config", {config})`, `api.post(convUrl(cid, "workflows", wid, "trigger"), body)`.
+No first-party JS wrapper for any of these; call `api.*` directly with the path minus the `/api` prefix. The config routes are not conversation-scoped, so build them by hand; the trigger route is, so `convUrl` applies. E.g. `api.get("/workflows/" + wid + "/config")`, `api.put("/workflows/" + wid + "/config", {config})`, `api.post(convUrl(cid, "workflows", wid, "trigger"), body)`.
 
 ---
 
@@ -1066,10 +1066,10 @@ To ship a new workflow:
 
 ### 17.1 Backend
 
-1. Create `backend/secondary_workflows/<id>/` with at minimum `__init__.py` and `hooks.py`.
+1. Create `backend/workflows/<id>/` with at minimum `__init__.py` and `hooks.py`.
 2. In the workflow module's `__init__.py`, build a `Workflow(...)` instance with `id`, `display_name`, optional `tools` (list of `ToolSpec`; sec. 3.2), optional `config_schema` / `config_defaults`, and `produces_artifacts` if you persist attachments.
-3. Implement hook callables in `hooks.py` matching the signatures in sec. 4.6. Use `backend.secondary_workflows.toolkit` for all internal access.
-4. Wire registration in `backend/secondary_workflows/__init__.py` (NOT the workflow's own subdir): import each hook callable from `<id>/hooks.py` (alias them, e.g. `as _myflow_post`, so module-level names from different workflows do not collide -- see sec. 3.4), then call `register_workflow(my_workflow)` + one `subscribe(my_workflow.id, HookType.X, fn)` per hook. Keep the `finalize_registry()` call at the bottom of the file -- it is a no-op for non-producers but fails import for a `produces_artifacts=True` workflow missing `REGENERATE`/`REROLL_GEN`.
+3. Implement hook callables in `hooks.py` matching the signatures in sec. 4.6. Use `backend.workflows.toolkit` for all internal access.
+4. Wire registration in `backend/workflows/__init__.py` (NOT the workflow's own subdir): import each hook callable from `<id>/hooks.py` (alias them, e.g. `as _myflow_post`, so module-level names from different workflows do not collide -- see sec. 3.4), then call `register_workflow(my_workflow)` + one `subscribe(my_workflow.id, HookType.X, fn)` per hook. Keep the `finalize_registry()` call at the bottom of the file -- it is a no-op for non-producers but fails import for a `produces_artifacts=True` workflow missing `REGENERATE`/`REROLL_GEN`.
 5. State stores: hold the matching lock for read-modify-write (locks recap, 17.6).
 
 ### 17.2 Frontend
@@ -1085,8 +1085,8 @@ To ship a new workflow:
 ### 17.3 Config form
 
 1. Workflow's `config_schema` (a JSON Schema dict) ships in the manifest.
-2. Form populates from `GET /api/secondary-workflows/<id>/config` (effective values).
-3. Save via `PUT /api/secondary-workflows/<id>/config` with `{config: {...}}` (full replacement; `{}` resets to defaults).
+2. Form populates from `GET /api/workflows/<id>/config` (effective values).
+3. Save via `PUT /api/workflows/<id>/config` with `{config: {...}}` (full replacement; `{}` resets to defaults).
 4. Backend reads via `get_workflow_config(wid)` (default-fallback aware).
 
 ### 17.4 Per-character data

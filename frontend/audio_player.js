@@ -1,4 +1,4 @@
-// Universal audio engine shared by every secondary workflow. A workflow points a
+// Universal audio engine shared by every workflow. A workflow points a
 // named channel at an ordered list of segments (each a workflow-attachment row or
 // inline base64, with an optional time window) and the engine decodes, windows,
 // and schedules them gaplessly on the Web Audio clock. Channels mix

@@ -10,7 +10,7 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
-from backend.secondary_workflows.attachment_cache import (
+from backend.workflows.attachment_cache import (
     EVICTED_MARKER,
     OVERSIZE_NO_METADATA_REASON,
     WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON,

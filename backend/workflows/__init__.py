@@ -11,12 +11,12 @@ Public surface re-exported from this module:
   - per-workflow storage wrappers and ``overlay_enable_tools``
 
 Workflow authors should import day-to-day helpers from
-``backend.secondary_workflows.toolkit`` instead -- that module is the
+``backend.workflows.toolkit`` instead -- that module is the
 stable import surface for LLM client, prompt assembly, DB readers, and
 the forced-call helper. This module is the registration / typing
 surface.
 
-First-party workflows live under ``backend/secondary_workflows/`` and
+First-party workflows live under ``backend/workflows/`` and
 are wired in here above the ``finalize_registry()`` call at the bottom
 of this file: each workflow's metadata is registered via
 ``register_workflow``, then each of its hooks is attached via

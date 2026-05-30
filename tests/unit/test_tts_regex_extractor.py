@@ -6,7 +6,7 @@ using pure heuristics — zero LLM calls.
 
 from __future__ import annotations
 
-from backend.secondary_workflows.tts.engine.regex_extractor import (
+from backend.workflows.tts.engine.regex_extractor import (
     AUDIBLE_BEATS,
     AUDIBLE_EMOTION_MAP,
     _extract_beat_action,

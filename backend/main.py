@@ -93,7 +93,7 @@ from .database import (
     get_user_persona,
     get_workflow_attachment_by_id,
 )
-from .secondary_workflows.attachment_cache import (
+from .workflows.attachment_cache import (
     delete_workflow_attachments,
     insert_workflow_attachment,
     insert_workflow_attachments,
@@ -106,7 +106,7 @@ from .secondary_workflows.attachment_cache import (
     RehydrateAlreadyDoneError,
 )
 from .endpoint_profiles import profile_for
-from .secondary_workflows import (
+from .workflows import (
     HookType,
     OnDemandCtx,
     RegenCtx,
@@ -1668,11 +1668,11 @@ async def api_continue_from_user(cid: str, request: Request, data: Optional[Rege
     )
 
 
-# Secondary workflows --
+# Workflows --
 
 
-@app.get("/api/secondary-workflows")
-async def api_list_secondary_workflows():
+@app.get("/api/workflows")
+async def api_list_workflows():
     """Manifest the frontend reads once at boot to populate Secondary tabs and buttons."""
     return [
         {
@@ -1685,7 +1685,7 @@ async def api_list_secondary_workflows():
     ]
 
 
-@app.put("/api/secondary-workflows/{workflow_id}/config")
+@app.put("/api/workflows/{workflow_id}/config")
 async def api_set_workflow_config(workflow_id: str, data: WorkflowConfigUpdate):
     """Persist a workflow's global config slot as a full replacement."""
     if get_workflow(workflow_id) is None:
@@ -1699,7 +1699,7 @@ async def api_set_workflow_config(workflow_id: str, data: WorkflowConfigUpdate):
     return {"config": effective}
 
 
-@app.get("/api/secondary-workflows/{workflow_id}/config")
+@app.get("/api/workflows/{workflow_id}/config")
 async def api_get_workflow_config(workflow_id: str):
     """Return a workflow's effective config: persisted slot, else its defaults."""
     if get_workflow(workflow_id) is None:

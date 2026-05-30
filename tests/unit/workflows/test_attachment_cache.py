@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from backend.secondary_workflows.attachment_cache import (
+from backend.workflows.attachment_cache import (
     EVICTED_MARKER,
     select_lru3_victim,
     validate_workflow_attachment_shape,

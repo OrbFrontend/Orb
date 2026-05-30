@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
-from backend.secondary_workflows._forced_call import forced_tool_call
+from backend.workflows._forced_call import forced_tool_call
 from backend.tool_defs import STANDALONE_TOOLS, TOOLS
 
 
@@ -230,7 +230,7 @@ class TestToolsAssembly:
         list -- json.dumps fails on MappingProxyType, so this is the only
         way prefix bytes match what the pipeline serializes."""
         import json
-        from backend.secondary_workflows.contracts import _readonly
+        from backend.workflows.contracts import _readonly
 
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
         wrapped_prefix = _readonly([{"role": "system", "content": "x"}])
@@ -340,7 +340,7 @@ class TestGracefulDegradation:
         def _raises(_msg):
             raise ValueError("corrupt")
 
-        monkeypatch.setattr("backend.secondary_workflows._forced_call.parse_tool_calls", _raises)
+        monkeypatch.setattr("backend.workflows._forced_call.parse_tool_calls", _raises)
         client = _FakeClient([{"type": "done", "message": {"tool_calls": []}}])
         out = await _collect(
             forced_tool_call(

@@ -1,5 +1,5 @@
 """
-0020_secondary_workflows -- schema + data migration for the secondary-workflows
+0020_workflows -- schema + data migration for the workflows
 feature.
 
 Carries a 0019 -> final-shape delta and runs correctly on two entry shapes:

@@ -38,7 +38,7 @@ const config = {
 
 async function loadConfig() {
   try {
-    const res = await api.get("/secondary-workflows/" + WORKFLOW_ID + "/config");
+    const res = await api.get("/workflows/" + WORKFLOW_ID + "/config");
     const c = (res && res.config) || {};
     if (typeof c.auto_play === "boolean") config.auto_play = c.auto_play;
     if (typeof c.volume === "number") config.volume = c.volume;

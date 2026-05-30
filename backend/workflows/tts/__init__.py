@@ -1,4 +1,4 @@
-"""Text-to-speech secondary workflow.
+"""Text-to-speech workflow.
 
 The synthesis engine -- backend adapters, the adapter router, and the
 dialogue extractor -- lives in the ``engine`` subpackage and depends only on
@@ -10,7 +10,7 @@ engine stays independently importable and testable.
 
 from __future__ import annotations
 
-from backend.secondary_workflows.registry import Workflow
+from backend.workflows.registry import Workflow
 
 
 _CONFIG_SCHEMA = {
