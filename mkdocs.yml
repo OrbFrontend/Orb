@@ -68,6 +68,7 @@ nav:
   - Getting Started: getting-started.md
   - Architecture:
       - KV Cache Reuse: architecture/kv-cache.md
+      - Secondary Workflows: architecture/secondary-workflow.md
   - Features:
       - features/index.md
       - Writer Direction: features/director.md

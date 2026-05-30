@@ -10,6 +10,10 @@ Orb is an **agentic AI roleplay/writing frontend** with a Python/FastAPI backend
 
 ## Architecture
 
+> **Cross-pass prompt caching:** The director/writer/editor passes are deliberately built to share one KV-cached prefix (same system prompt, same history, same tool schemas) so each turn stays fast and cheap. The full design — the invariants, dual-model behavior, the editor's ReAct loop, and the KV tracker — lives in [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md). Read it before touching anything that builds prompts, orders passes, or assembles tool schemas, and keep cache details there rather than duplicating them here.
+
+> **Secondary workflows:** Pluggable workflows hook into the turn pipeline (pre/post), emit on-demand HTTP responses, and persist per-message artifacts — registered in `backend/workflows/` with frontend modules in `frontend/workflows/`. The full framework reference (registration, hook contexts, locks, the toolkit import surface, attachment cache, HTTP routes, and the frontend state surface) lives in [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md). **The shipped `tts` workflow (`backend/workflows/tts/`, `frontend/workflows/tts/`) is the first and reference secondary workflow** — read it as the worked example before authoring a new one. Start from that doc rather than re-deriving the framework here.
+
 ```mermaid
 graph TD
     subgraph Frontend ["Frontend (vanilla JS)"]
@@ -119,7 +123,15 @@ Orb/
 │   ├── fonts/               # Self-hosted: Crimson, Exo2, Lora, Playfair, Spectral, Fira Code
 │   └── themes/              # 9 CSS theme files
 ├── docs/
-│   └── tts.md               # TTS setup guide, backend config, adding new backends
+│   ├── index.md             # Docs home / table of contents
+│   ├── getting-started.md   # Install & first run
+│   ├── contributing.md      # Contributor guide
+│   ├── architecture/
+│   │   ├── kv-cache.md      # How Orb reuses the LLM KV cache across passes & turns
+│   │   └── secondary-workflow.md # Workflow framework dev guide (tts = reference impl)
+│   ├── features/            # Per-feature guides (director, anti-slop, length-guard,
+│   │                        # compress-history, magic-rewrite, super-regenerate, tts, mobile)
+│   └── assets/              # Doc images
 ├── tests/
 │   ├── unit/                # Unit tests (editor, fragments, TTS adapters, etc.)
 │   └── integration/         # Integration tests (FastAPI TestClient)
@@ -424,7 +436,7 @@ When running under Codex's filesystem/network sandbox, `aiosqlite` integration t
 
 11. **TTS regex extractor and chunk playback** — Splits text into speech/non-speech chunks using quotation marks. The `regex_extractor.py` handles edge cases (nested quotes, em-dashes) but isn't perfect for all writing styles. Only speech chunks are sent to the TTS backend. Chunk indices from the backend must stay in sync with frontend `<span class="quoted">` elements — the `annotateChunkSpans()` function matches by `original_text` with consumed-span tracking to handle duplicate dialogue. The chunk queue player uses a `playbackId` monotonic token to prevent stale async continuations when stopping/restarting.
 
-12. **Agent endpoint separation** — Both the Director and Editor can use separate endpoints from the Writer (`agent_endpoint_id` in settings). If `agent_same_as_writer` is true, they share. When using a separate endpoint, note that a different prompt caching mechanism applies, and the instruction prompt has a small difference. Make sure to check which endpoint you're targeting when modifying agent-related code.
+12. **Agent endpoint separation** — Both the Director and Editor can use separate endpoints from the Writer (`agent_endpoint_id` in settings). If `agent_same_as_writer` is true, they share. When using a separate endpoint the writer and agent passes no longer share a KV cache and the writer drops its tool list; the instruction prompt also has a small difference. See [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) (Invariant 5 and the editor ReAct-loop section) for the full caching consequences. Make sure to check which endpoint you're targeting when modifying agent-related code.
 
 13. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire.
 
