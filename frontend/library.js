@@ -1,12 +1,4 @@
-import {
-  api,
-  getTtsBackends,
-  getTtsModels,
-  getTtsVoices,
-  getVoiceProfile,
-  saveVoiceProfile,
-  ttsPreview,
-} from "./api.js";
+import { api } from "./api.js";
 import { loadConversations, resetChatUI } from "./chat.js";
 import { loadWorlds } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
@@ -599,7 +591,6 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="tab" onclick="switchTab(this,'${prefix}-ts')">Scenario</div>
       <div class="tab" onclick="switchTab(this,'${prefix}-tm')">Messages</div>
       ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-ta')">Advanced</div>` : ""}
-      ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-tvoice')">Voice</div>` : ""}
     </div>
     <div id="${prefix}-tp" class="tab-content active">
       <div class="field"><label>Description</label><textarea id="${prefix}-desc" rows="5">${esc(d.description || "")}</textarea></div>
@@ -643,74 +634,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
     </div>`
         : ""
     }
-    ${
-      isEdit
-        ? `<div id="${prefix}-tvoice" class="tab-content">
-      <div id="${prefix}-voice-fields" class="voice-fields-wrap">
-        <div id="${prefix}-voice-loading" class="voice-loading-overlay hidden">
-          <div class="voice-loading-spinner"></div>
-          <span>Loading voice settings…</span>
-        </div>
-      <div class="field voice-enable-row">
-        <label>Voice</label>
-        <label class="modal-checkbox-label">
-          Enable speech generation for this character
-          <label class="tog" onclick="event.stopPropagation()">
-            <input type="checkbox" id="${prefix}-voice-enabled"
-              onchange="toggleVoiceFields('${prefix}', this.checked)">
-            <span class="tog-slider"></span>
-          </label>
-        </label>
-      </div>
-      <div id="${prefix}-voice-config" class="voice-config">
-      <div class="field"><label>TTS Backend</label>
-        <select id="${prefix}-voice-backend" onchange="onVoiceBackendChange('${prefix}')">
-          <option value="">Loading…</option>
-        </select>
-      </div>
-      <div class="field" id="${prefix}-voice-api-url-wrap"><label>API URL</label>
-        <input type="text" id="${prefix}-voice-api-url" placeholder="http://localhost:8080">
-      </div>
-      <div class="field" id="${prefix}-voice-api-key-wrap"><label>API Key</label>
-        <input type="password" id="${prefix}-voice-api-key" placeholder="Leave empty if not needed">
-      </div>
-      <div class="field" id="${prefix}-voice-model-wrap"><label>Model</label>
-        <input type="text" id="${prefix}-voice-model" placeholder="e.g. tts-1, fish-speech">
-      </div>
-      <div class="field" id="${prefix}-voice-lang-wrap"><label>Language</label>
-        <select id="${prefix}-voice-lang" onchange="onVoiceLangChange('${prefix}')">
-          <option value="en">English</option>
-          <option value="de">German</option>
-          <option value="es">Spanish</option>
-          <option value="fr">French</option>
-          <option value="ja">Japanese</option>
-          <option value="ko">Korean</option>
-          <option value="zh">Chinese</option>
-          <option value="pt">Portuguese</option>
-          <option value="ru">Russian</option>
-          <option value="it">Italian</option>
-        </select>
-      </div>
-      <div class="field" id="${prefix}-voice-id-wrap"><label>Voice</label>
-        <select id="${prefix}-voice-id"><option value="">Loading voices…</option></select>
-      </div>
-      <div class="field" id="${prefix}-voice-speed-wrap"><label>Speed <span id="${prefix}-voice-speed-val">1.0</span>x</label>
-        <input type="range" id="${prefix}-voice-speed" min="0.5" max="2.0" step="0.1" value="1.0"
-          oninput="document.getElementById('${prefix}-voice-speed-val').textContent=this.value">
-      </div>
-      <div class="field" id="${prefix}-voice-pitch-wrap"><label>Pitch <span id="${prefix}-voice-pitch-val">1.0</span></label>
-        <input type="range" id="${prefix}-voice-pitch" min="0.5" max="2.0" step="0.1" value="1.0"
-          oninput="document.getElementById('${prefix}-voice-pitch-val').textContent=this.value">
-      </div>
-      <div class="field" style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-sm" onclick="previewVoice('${prefix}')">🔊 Preview</button>
-        <span id="${prefix}-voice-preview-status" style="font-size:12px;color:var(--text-muted)"></span>
-      </div>
-      </div>
-      </div>
-    </div>`
-        : ""
-    }`;
+    `;
 }
 
 export function showCharCreateModal() {
@@ -911,8 +835,6 @@ export async function showCharEditModal(idOrData) {
       }
     </div>`);
   _renderCharTagChips("ce");
-  // Load voice profile into Voice tab
-  loadVoiceProfileIntoTab(c.id, "ce").catch((e) => console.warn("Voice profile load failed:", e));
 }
 
 export async function saveCharEdit(id, exportAfter = false) {
@@ -997,16 +919,6 @@ export async function saveCharEdit(id, exportAfter = false) {
         if (av)
           av.innerHTML = `<img src="${avatarUrl(id)}?v=${_avatarBust.get(id)}" onerror="this.parentElement.textContent='📜'">`;
       }
-    }
-    try {
-      await saveVoiceProfileFromTab(id, "ce");
-      if (S.activeCharId === id) {
-        const { loadVoiceProfile } = await import("./voice.js");
-        loadVoiceProfile();
-      }
-    } catch (e) {
-      toast("Character saved, but voice profile failed: " + e.message, true);
-      return;
     }
     closeModal();
     await loadCharacters();
@@ -1105,14 +1017,6 @@ export async function saveImportedChar() {
   _pendingCharacterBook = null;
   try {
     const created = await api.post("/characters", d);
-    try {
-      await saveVoiceProfileFromTab(created.id, "ce");
-    } catch (e) {
-      closeModal();
-      await Promise.all([loadCharacters(), loadWorlds()]);
-      toast(`Imported "${created.name}", but voice profile failed: ${e.message}`, true);
-      return;
-    }
     closeModal();
     await Promise.all([loadCharacters(), loadWorlds()]);
     toast(`Imported "${created.name}"`);
@@ -1373,247 +1277,4 @@ function renderCharacterBrowser() {
     const container = $("char-browser-content");
     if (container) container.style.minHeight = container.offsetHeight + "px";
   }, 0);
-}
-
-// ── Voice profile tab helpers ──────────────────────────────────────────────
-
-// Backend capabilities: which fields to show
-const _BACKEND_FIELDS = {
-  edge: { provider: false, api_url: false, api_key: false, model: false, lang: true, speed: true, pitch: true },
-  kokoro: { provider: false, api_url: true, api_key: false, model: false, lang: true, speed: true, pitch: false },
-  openai: { provider: false, api_url: true, api_key: true, model: true, lang: false, speed: true, pitch: false },
-  fish: { provider: false, api_url: true, api_key: false, model: false, lang: false, speed: true, pitch: false },
-  elevenlabs: { provider: false, api_url: false, api_key: true, model: true, lang: false, speed: false, pitch: false },
-};
-
-let _backendsCache = null;
-
-window.toggleVoiceFields = (prefix, enabled) => {
-  const config = $(prefix + "-voice-config");
-  if (!config) return;
-  config.classList.toggle("voice-config-disabled", !enabled);
-  config.querySelectorAll("input, select, button").forEach((el) => {
-    el.disabled = !enabled;
-  });
-};
-
-window.onVoiceBackendChange = async (prefix) => {
-  _updateFieldVisibility(prefix);
-  // Auto-fill default API URL for backends that need one
-  const backend = $(prefix + "-voice-backend")?.value || "";
-  const apiUrl = $(prefix + "-voice-api-url");
-  if (apiUrl && !apiUrl.value) {
-    if (backend === "openai") apiUrl.value = "https://api.openai.com";
-    else if (backend === "fish") apiUrl.value = "http://localhost:8080";
-    else if (backend === "kokoro") apiUrl.value = "http://localhost:9200";
-  }
-  await Promise.all([_loadVoiceList(prefix), _loadModelList(prefix)]);
-};
-
-window.onVoiceLangChange = async (prefix) => {
-  await _loadVoiceList(prefix);
-};
-
-function _updateFieldVisibility(prefix) {
-  const backend = $(prefix + "-voice-backend")?.value || "edge";
-  const fields = _BACKEND_FIELDS[backend] || _BACKEND_FIELDS.edge;
-  const show = (id, visible) => {
-    const el = $(prefix + "-voice-" + id + "-wrap");
-    if (el) el.style.display = visible ? "" : "none";
-  };
-  show("api-url", fields.api_url);
-  show("api-key", fields.api_key);
-  show("model", fields.model);
-  show("lang", fields.lang);
-  show("speed", fields.speed);
-  show("pitch", fields.pitch);
-}
-
-async function _populateBackendDropdown(prefix) {
-  const sel = $(prefix + "-voice-backend");
-  if (!sel) return;
-  sel.innerHTML = '<option value="">Loading…</option>';
-  sel.disabled = true;
-  try {
-    _backendsCache = await getTtsBackends();
-  } catch (e) {
-    _backendsCache = [{ id: "edge", name: "Microsoft Edge TTS" }];
-  }
-  sel.innerHTML = _backendsCache.map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
-  sel.disabled = false;
-}
-
-async function _loadModelList(prefix) {
-  const backend = $(prefix + "-voice-backend")?.value || "";
-  const apiUrl = $(prefix + "-voice-api-url")?.value || "";
-  const apiKey = $(prefix + "-voice-api-key")?.value || "";
-  const modelEl = $(prefix + "-voice-model");
-  if (!modelEl || !_BACKEND_FIELDS[backend]?.model) return;
-  try {
-    const models = await getTtsModels(backend, { apiUrl, apiKey });
-    if (models.length > 0) {
-      modelEl.outerHTML = `<select id="${prefix}-voice-model">${models
-        .map((m) => `<option value="${esc(m.id)}">${esc(m.name || m.id)}</option>`)
-        .join("")}</select>`;
-    } else {
-      modelEl.outerHTML = `<input type="text" id="${prefix}-voice-model" placeholder="Model name">`;
-    }
-  } catch (e) {
-    modelEl.outerHTML = `<input type="text" id="${prefix}-voice-model" placeholder="Model name">`;
-  }
-}
-
-async function _loadVoiceList(prefix) {
-  const backend = $(prefix + "-voice-backend")?.value || "edge";
-  const lang = $(prefix + "-voice-lang")?.value || "en";
-  const apiUrl = $(prefix + "-voice-api-url")?.value || "";
-  const apiKey = $(prefix + "-voice-api-key")?.value || "";
-  const sel = $(prefix + "-voice-id");
-  if (!sel) return;
-  // Show loading state
-  const isSelect = sel.tagName === "SELECT";
-  if (isSelect) {
-    sel.innerHTML = '<option value="">Loading voices…</option>';
-    sel.disabled = true;
-  } else {
-    sel.value = "";
-    sel.placeholder = "Loading voices…";
-    sel.disabled = true;
-  }
-  try {
-    const voices = await getTtsVoices(backend, lang, { apiUrl, apiKey });
-    if (voices.length > 0) {
-      sel.outerHTML = `<select id="${prefix}-voice-id">${voices
-        .map(
-          (v) =>
-            `<option value="${esc(v.id)}">${esc(v.name || v.id)} ${v.gender ? "(" + esc(v.gender) + ")" : ""}</option>`,
-        )
-        .join("")}</select>`;
-    } else {
-      sel.outerHTML = `<input type="text" id="${prefix}-voice-id" placeholder="Enter voice name (e.g. alloy)">`;
-    }
-  } catch (e) {
-    if (isSelect) {
-      sel.innerHTML = '<option value="">Error loading voices</option>';
-      sel.disabled = false;
-    } else {
-      sel.placeholder = "Error loading voices";
-      sel.disabled = false;
-    }
-  }
-}
-
-window.previewVoice = async (prefix) => {
-  const statusEl = $(prefix + "-voice-preview-status");
-  if (!statusEl) return;
-  const backend = $(prefix + "-voice-backend")?.value || "edge";
-  const voiceId = $(prefix + "-voice-id")?.value || "en-US-JennyNeural";
-  const apiUrl = $(prefix + "-voice-api-url")?.value || "";
-  const apiKey = $(prefix + "-voice-api-key")?.value || "";
-  const model = $(prefix + "-voice-model")?.value || "";
-  const speed = parseFloat($(prefix + "-voice-speed")?.value || "1.0");
-  const pitch = parseFloat($(prefix + "-voice-pitch")?.value || "1.0");
-  statusEl.textContent = "Generating preview…";
-  try {
-    const blob = await ttsPreview({
-      text: "Hey, this is a voice preview. How do I sound?",
-      voice_id: voiceId,
-      backend,
-      api_url: apiUrl,
-      api_key: apiKey,
-      model,
-      speed,
-      pitch,
-    });
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.onended = () => {
-      statusEl.textContent = "";
-      URL.revokeObjectURL(url);
-    };
-    audio.onerror = () => {
-      statusEl.textContent = "Playback error";
-      URL.revokeObjectURL(url);
-    };
-    audio.play();
-    statusEl.textContent = "Playing…";
-  } catch (e) {
-    statusEl.textContent = "Error: " + e.message;
-  }
-};
-
-function _setVoiceLoading(prefix, loading) {
-  const overlay = $(prefix + "-voice-loading");
-  if (overlay) overlay.classList.toggle("hidden", !loading);
-}
-
-export async function loadVoiceProfileIntoTab(charId, prefix) {
-  _setVoiceLoading(prefix, true);
-  try {
-    // Populate backend dropdown from API
-    await _populateBackendDropdown(prefix);
-    // Load voice list for current defaults
-    await _loadVoiceList(prefix);
-    // Load saved profile
-    try {
-      const profile = await getVoiceProfile(charId);
-      if (!profile || !profile.backend) {
-        _updateFieldVisibility(prefix);
-        toggleVoiceFields(prefix, false);
-        return;
-      }
-      const backend = $(prefix + "-voice-backend");
-      const lang = $(prefix + "-voice-lang");
-      const enabled = $(prefix + "-voice-enabled");
-      if (enabled) enabled.checked = profile.enabled === true || profile.enabled === 1;
-      if (backend) backend.value = profile.backend || "edge";
-      // Set language from voice_id locale (e.g. "en-US" → "en")
-      const langCode = (profile.language || "en-US").split("-")[0];
-      if (lang) lang.value = langCode;
-      await _loadVoiceList(prefix);
-      const voiceId = $(prefix + "-voice-id");
-      if (voiceId) voiceId.value = profile.voice_id || "";
-      const speed = $(prefix + "-voice-speed");
-      const speedVal = $(prefix + "-voice-speed-val");
-      if (speed) {
-        speed.value = profile.rate || 1.0;
-        if (speedVal) speedVal.textContent = speed.value;
-      }
-      const pitch = $(prefix + "-voice-pitch");
-      const pitchVal = $(prefix + "-voice-pitch-val");
-      if (pitch) {
-        pitch.value = profile.pitch || 1.0;
-        if (pitchVal) pitchVal.textContent = pitch.value;
-      }
-      const apiUrl = $(prefix + "-voice-api-url");
-      if (apiUrl) apiUrl.value = profile.api_url || "";
-      const apiKey = $(prefix + "-voice-api-key");
-      if (apiKey) apiKey.value = profile.api_key || "";
-      const model = $(prefix + "-voice-model");
-      if (model) model.value = profile.model || "";
-      _updateFieldVisibility(prefix);
-      toggleVoiceFields(prefix, enabled?.checked ?? false);
-    } catch (e) {
-      // No profile yet — that's fine, defaults are loaded
-      _updateFieldVisibility(prefix);
-      toggleVoiceFields(prefix, false);
-    }
-  } finally {
-    _setVoiceLoading(prefix, false);
-  }
-}
-
-export function saveVoiceProfileFromTab(charId, prefix) {
-  const data = {
-    enabled: $(prefix + "-voice-enabled")?.checked ? 1 : 0,
-    backend: $(prefix + "-voice-backend")?.value || "edge",
-    voice_id: $(prefix + "-voice-id")?.value || "",
-    language: $(prefix + "-voice-lang")?.value || "en",
-    rate: parseFloat($(prefix + "-voice-speed")?.value || "1.0"),
-    pitch: parseFloat($(prefix + "-voice-pitch")?.value || "1.0"),
-    api_url: $(prefix + "-voice-api-url")?.value || "",
-    api_key: $(prefix + "-voice-api-key")?.value || "",
-    model: $(prefix + "-voice-model")?.value || "",
-  };
-  return saveVoiceProfile(charId, data);
 }

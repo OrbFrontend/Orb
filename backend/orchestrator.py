@@ -19,7 +19,17 @@ from .prompt_builder import (
     compute_lorebook_injection_block,
 )
 from .kv_tracker import _KVCacheTracker
+from .locks import workflow_character_state_lock, workflow_state_lock
 from .macros import Macros
+from .workflows import (
+    HookType,
+    PostCtx,
+    PreCtx,
+    _readonly,
+    get_workflow,
+    iter_subscriptions,
+)
+from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from .utils import extract_hyperparams
 from .passes.director import _director_pass
 from .passes.writer import _writer_pass, build_writer_content
@@ -37,7 +47,6 @@ async def _run_pipeline(
     director: dict,
     mood_fragments: list[dict],
     director_fragments: list[dict],
-    prefix: list[dict],
     user_message: str,
     attachments: Optional[List[dict]] = None,
     phrase_bank: list[list[str]] | None = None,
@@ -47,15 +56,47 @@ async def _run_pipeline(
     agent_prefix: list[dict] | None = None,
     macros: Macros | None = None,
     conversation_id: str | None = None,
+    character_id: str | None = None,
+    card: dict | None = None,
+    *,
+    prefix: list[dict],
+    enabled_tools: dict,
+    turn_scratch: dict,
+    kv_tracker: _KVCacheTracker,
+    schema_overrides: dict,
+    history: list[dict] | None = None,
 ) -> AsyncIterator[dict]:
-    """Three-pass pipeline: director → writer → editor.
+    """Three-pass pipeline: director → writer → editor, plus a post-pipeline
+    workflow iteration before persistence.
 
     KV cache strategy: *prefix* (system prompt + chat history) and the tool
-    schema list returned by ``enabled_schemas(enabled_tools)`` are kept
-    identical across all three passes so the LLM can reuse cached KV entries.
+    schema list returned by ``enabled_schemas(enabled_tools, schema_overrides)``
+    are kept byte-identical across all three passes so the LLM can reuse cached
+    KV entries. ``direct_scene`` is dynamic per character; its schema is built
+    once by the caller via ``build_direct_scene_tool(director_fragments)`` and
+    threaded as ``schema_overrides`` to every pass so the tools blob matches.
     Only ``tool_choice`` and the trailing user message differ per pass.
     ``editor_rewrite`` is included in the schema set whenever the length guard
     is enabled (mirroring how ``editor_apply_patch`` tracks ``audit_enabled``).
+
+    *enabled_tools* is already merged (settings plus any pre-pipeline
+    contribution, with the enable_agent zeroing already applied) and *prefix*
+    is the final pipeline prefix including any extra system blocks --
+    construction lives in the caller so the pre-pipeline iteration site can
+    yield its own SSE events before the pipeline starts. *turn_scratch* is the
+    per-turn workflow scratch dict, ref-shared with every workflow hook this
+    turn. *kv_tracker* is likewise constructed by the caller and finalised
+    here via ``log_summary()`` after the post-pipeline loop closes.
+    *schema_overrides* is the per-turn dynamic-schema map the caller builds
+    (today: ``{"direct_scene": build_direct_scene_tool(director_fragments)}``)
+    and threads here so every pass receives it for byte-identical tools.
+    *history* is the prior-message list forwarded read-only onto each
+    ``PostCtx``; the passes read history through *prefix*, not this argument.
+
+    The single ``_result`` event fires after the post-pipeline iteration and
+    carries both the final draft and any workflow-staged attachments. Earlier
+    (writer-done and editor-done) ``_result`` / ``_refined_result`` emissions
+    have been retired; persistence is deferred to one transaction.
     """
     if macros is None:
         macros = Macros("User", "")
@@ -64,10 +105,7 @@ async def _run_pipeline(
 
     user_message = macros.resolve_message(user_message)
 
-    enabled_tools = settings.get("enabled_tools") or {}
     agent_on = bool(settings.get("enable_agent", 1))
-    if not agent_on:
-        enabled_tools = {}
 
     reasoning_passes = settings.get("reasoning_enabled_passes") or {}
     director_reasoning_on = bool(reasoning_passes.get("director", True))
@@ -123,14 +161,6 @@ async def _run_pipeline(
     director_prefix = agent_prefix or prefix
     editor_prefix = agent_prefix or prefix
     agent_model = settings.get("agent_model_name", settings["model_name"]) if agent_client else settings["model_name"]
-
-    kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
-
-    # All three passes must send byte-identical tools; direct_scene is dynamic
-    # so it's built once here and shared via schema_overrides.
-    schema_overrides = {
-        "direct_scene": build_direct_scene_tool(director_fragments),
-    }
 
     # --- Director pass ---
     has_pre_writer_tools = any(enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
@@ -242,25 +272,34 @@ async def _run_pipeline(
             resp_text += item["delta"]
             yield {"event": "token", "data": item["delta"]}
 
-    yield {
-        "event": "_result",
-        "data": {
-            "active_moods": active_moods,
-            "agent_raw": agent_raw,
-            "calls": calls,
-            "latency": latency,
-            "rewritten_msg": rewritten_msg,
-            "effective_msg": effective_msg,
-            "resp_text": resp_text,
-            "inj_block": inj_block,
-            "extra_fields": extra_fields,
-            "progressive_fields": progressive_fields,
-            "reasoning_director": reasoning_director_text,
-            "reasoning_writer": reasoning_writer_text,
-        },
-    }
+    def _make_result(final_text: str, staged: list[dict], staged_state: dict | None = None) -> dict:
+        return {
+            "event": "_result",
+            "data": {
+                "active_moods": active_moods,
+                "agent_raw": agent_raw,
+                "calls": calls,
+                "latency": latency,
+                "rewritten_msg": rewritten_msg,
+                "effective_msg": effective_msg,
+                "resp_text": final_text,
+                "inj_block": inj_block,
+                "extra_fields": extra_fields,
+                "progressive_fields": progressive_fields,
+                "reasoning_director": reasoning_director_text,
+                "reasoning_writer": reasoning_writer_text,
+                "reasoning_editor": reasoning_editor_text,
+                "staged_attachments": staged,
+                "staged_message_state": staged_state or {},
+            },
+        }
 
+    # If the turn was aborted during writer, persist what streamed so far and
+    # skip the editor + post-pipeline iteration. The single _result still
+    # fires so the persistence path stays uniform.
     if client.is_aborted or (agent_client is not None and agent_client.is_aborted):
+        yield _make_result(resp_text, [])
+        kv_tracker.log_summary()
         return
 
     # --- Editor pass ---
@@ -302,10 +341,6 @@ async def _run_pipeline(
                             "event": "writer_rewrite",
                             "data": {"refined_text": resp_text},
                         }
-                        yield {
-                            "event": "_refined_result",
-                            "data": {"resp_text": resp_text},
-                        }
                     if event.get("tool_calls"):
                         yield {
                             "event": "editor_done",
@@ -313,12 +348,330 @@ async def _run_pipeline(
                         }
         except Exception as e:
             logger.error("editor pass failed, keeping original: %s", e, exc_info=True)
-        if reasoning_editor_text:
-            yield {"event": "_editor_reasoning", "data": {"reasoning_editor": reasoning_editor_text}}
     elif not do_edit:
         logger.info("Editor pass skipped (do_edit=%s)", do_edit)
 
+    # --- Post-pipeline workflow iteration ---
+    # Each hook may yield `draft_replaced` (one applied per hook per turn) to
+    # mutate the draft for downstream hooks and final persistence, plus zero
+    # or more `attach_artifact` entries that are validated, path-normalized,
+    # and staged for the upcoming add_message transaction. Per-workflow
+    # exceptions are logged-and-skipped; one bad hook does not crash a turn.
+    draft = resp_text
+    staged_attachments: list[dict] = []
+    staged_message_state: dict[str, dict] = {}
+    director_output = {
+        "active_moods": active_moods,
+        "raw": agent_raw,
+        "calls": calls,
+        "latency": latency,
+        "rewritten_msg": rewritten_msg,
+        "extra_fields": extra_fields,
+        "progressive_fields": progressive_fields,
+    }
+    for sub in iter_subscriptions(HookType.POST_PIPELINE):
+        replaced_this_hook = False
+        # Serialize same-(cid, workflow_id) writers against concurrent
+        # /trigger calls and any other in-flight pipeline that reaches this
+        # hook on the same conversation. Different workflows on the same
+        # conversation keep distinct lock keys, so they still run in parallel.
+        async with workflow_state_lock(conversation_id or "", sub.workflow_id), workflow_character_state_lock(
+            character_id or "", sub.workflow_id
+        ):
+            try:
+                post_ctx = PostCtx(
+                    conversation_id=conversation_id or "",
+                    history=_readonly(history or []),
+                    draft=draft,
+                    effective_msg=effective_msg,
+                    director_output=_readonly(director_output),
+                    settings=_readonly(settings),
+                    prefix=_readonly(prefix),
+                    enabled_tools=_readonly(enabled_tools),
+                    turn_scratch=turn_scratch,
+                    client=client,
+                    kv_tracker=kv_tracker,
+                    schema_overrides=_readonly(schema_overrides),
+                    character_id=character_id,
+                    character=_readonly(card),
+                )
+                async for ev in sub.callable(post_ctx):
+                    t = ev.get("type") if isinstance(ev, dict) else None
+                    if t == "draft_replaced":
+                        if replaced_this_hook:
+                            logger.warning(
+                                "post_pipeline hook %r yielded a second draft_replaced; ignoring",
+                                sub.workflow_id,
+                            )
+                            continue
+                        new_draft = ev.get("draft")
+                        if not isinstance(new_draft, str) or new_draft == draft:
+                            logger.warning(
+                                "post_pipeline hook %r yielded malformed draft_replaced "
+                                "(draft type=%s, unchanged=%s); ignoring",
+                                sub.workflow_id,
+                                type(new_draft).__name__,
+                                new_draft == draft,
+                            )
+                            continue
+                        draft = new_draft
+                        replaced_this_hook = True
+                        yield {"event": "writer_rewrite", "data": {"refined_text": draft}}
+                        continue
+                    if t == "attach_artifact":
+                        # Only workflows declared with produces_artifacts=True
+                        # may persist attachments. Drop silently otherwise so a
+                        # misconfigured workflow cannot corrupt the turn.
+                        w = get_workflow(sub.workflow_id)
+                        if not (w and w.produces_artifacts):
+                            logger.warning(
+                                "post_pipeline hook %r yielded attach_artifact but "
+                                "workflow does not declare produces_artifacts=True; "
+                                "dropping entry",
+                                sub.workflow_id,
+                            )
+                            continue
+                        staged = _stage_workflow_attachment(
+                            ev.get("attachment") if isinstance(ev, dict) else None,
+                            sub.workflow_id,
+                        )
+                        if staged is not None:
+                            staged_attachments.append(staged)
+                        continue
+                    if t == "set_message_state":
+                        # The assistant row is minted in _persist_result after
+                        # this loop, so the slot is written there. The owning
+                        # workflow comes from the subscription, so a hook can
+                        # only address its own slot.
+                        state = ev.get("state") if isinstance(ev, dict) else None
+                        if not isinstance(state, dict):
+                            logger.warning(
+                                "post_pipeline hook %r yielded set_message_state with " "non-dict state (type=%s); ignoring",
+                                sub.workflow_id,
+                                type(state).__name__,
+                            )
+                            continue
+                        staged_message_state[sub.workflow_id] = state
+                        continue
+                    # Underscore-prefixed event names are reserved by
+                    # _consume_pipeline for internal persistence signals
+                    # (_result, _refined_result, _editor_reasoning). Refuse
+                    # them here so a hook cannot drive an extra db.add_message
+                    # or rewrite of the assistant row via impersonation.
+                    e_name = ev.get("event") if isinstance(ev, dict) else None
+                    if isinstance(e_name, str) and e_name.startswith("_"):
+                        logger.warning(
+                            "post_pipeline hook %r yielded reserved internal event %r; dropping",
+                            sub.workflow_id,
+                            e_name,
+                        )
+                        continue
+                    yield ev
+            except Exception:
+                logger.exception("post_pipeline hook %r failed", sub.workflow_id)
+
+    yield _make_result(draft, staged_attachments, staged_message_state)
     kv_tracker.log_summary()
+
+
+def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
+    """Validate a workflow ``attach_artifact`` entry and normalize it to the
+    bytes-only shape ``add_message`` consumes.
+
+    Returns the staged dict on acceptance, or ``None`` (with a logged warning)
+    when validation fails. Never raises -- workflow noise must not crash a
+    turn. The orchestrator owns this validation so the DB layer can trust
+    incoming staged attachments and write them in the same transaction as the
+    parent message row.
+    """
+    if not isinstance(att, dict):
+        logger.warning(
+            "post_pipeline hook %r yielded attach_artifact with non-dict " "attachment (type=%s); ignoring",
+            workflow_id,
+            type(att).__name__,
+        )
+        return None
+
+    expected_source = f"workflow:{workflow_id}"
+    filename = att.get("filename")
+    mime = att.get("mime")
+    has_data = "data" in att
+    has_path = "path" in att
+    annotation_present = "annotation" in att
+    raw_annotation = att.get("annotation")
+
+    valid = (
+        isinstance(filename, str)
+        and isinstance(mime, str)
+        and (has_data != has_path)
+        and ((not has_data) or isinstance(att["data"], (bytes, bytearray)))
+        and ((not has_path) or isinstance(att["path"], str))
+        and ((not annotation_present) or raw_annotation is None or isinstance(raw_annotation, str))
+        and att.get("source") == expected_source
+        and att.get("workflow_id") == workflow_id
+    )
+    if not valid:
+        logger.warning(
+            "post_pipeline hook %r yielded attach_artifact failing validation "
+            "(filename/mime/data-xor-path/source/workflow_id/annotation); ignoring entry",
+            workflow_id,
+        )
+        return None
+
+    out = dict(att)
+    # Whitespace-only annotation collapses to None so the history renderer
+    # sees one sentinel for "no LLM-visible footprint".
+    if isinstance(raw_annotation, str) and not raw_annotation.strip():
+        out["annotation"] = None
+
+    raw_cm = out.get("consumption_metadata")
+    if raw_cm is not None and not isinstance(raw_cm, dict):
+        logger.warning(
+            "post_pipeline hook %r yielded attach_artifact with non-dict consumption_metadata "
+            "(filename=%r, type=%s); coercing to None",
+            workflow_id,
+            filename,
+            type(raw_cm).__name__,
+        )
+        out["consumption_metadata"] = None
+
+    if has_path:
+        try:
+            with open(att["path"], "rb") as f:
+                data_bytes = f.read()
+        except OSError as e:
+            logger.warning(
+                "post_pipeline hook %r yielded attach_artifact with path=%r " "that failed to read (%s); dropping entry",
+                workflow_id,
+                att["path"],
+                e,
+            )
+            return None
+        out.pop("path", None)
+        out["data"] = data_bytes
+    else:
+        out["data"] = bytes(att["data"])
+
+    if not out.get("data"):
+        logger.warning(
+            "post_pipeline hook %r yielded attach_artifact with empty data " "(filename=%r); dropping entry",
+            workflow_id,
+            filename,
+        )
+        return None
+
+    return out
+
+
+async def _iterate_pre_pipeline_hooks(
+    *,
+    conversation_id: str,
+    character_id: str | None = None,
+    card: dict | None = None,
+    history: list[dict],
+    last_user_message: str,
+    settings: dict,
+    prefix_base: list[dict],
+    enabled_tools_pre_merge: dict,
+    turn_scratch: dict,
+    client,
+    kv_tracker,
+    schema_overrides: dict,
+    accumulators: dict,
+) -> AsyncIterator[dict]:
+    """Drive each pre_pipeline subscription in priority-ascending order,
+    ties broken by registration order. Yields SSE pass-through events;
+    mutates *accumulators* with the merged enable_tools map and the
+    system_prompt block list.
+
+    *accumulators* must enter populated with
+    ``{"merged_enabled_tools": <fresh dict>, "extras": []}``; this helper
+    updates both in place. PreCtx construction is inside the try block so a
+    ``_readonly`` failure on pathological input is logged-and-skipped rather
+    than crashing the turn. *schema_overrides* carries the per-turn
+    dynamic-schema map the pipeline ships to ``enabled_schemas(...)``; it is
+    ref-shared with every PreCtx so workflow hooks issuing forced calls can
+    pass it through to ``forced_tool_call`` for byte-identical cache reuse.
+    """
+    for sub in iter_subscriptions(HookType.PRE_PIPELINE):
+        # See workflow_state_lock invariant in backend/locks.py: held across the
+        # hook's full lifetime to keep its workflow_state RMW atomic against any
+        # concurrent /trigger or pipeline iteration on the same (cid, wid).
+        async with workflow_state_lock(conversation_id, sub.workflow_id), workflow_character_state_lock(
+            character_id or "", sub.workflow_id
+        ):
+            try:
+                pre_ctx = PreCtx(
+                    conversation_id=conversation_id,
+                    history=_readonly(history),
+                    last_user_message=last_user_message,
+                    settings=_readonly(settings),
+                    prefix=_readonly(prefix_base),
+                    enabled_tools_pre_merge=_readonly(enabled_tools_pre_merge),
+                    turn_scratch=turn_scratch,
+                    client=client,
+                    kv_tracker=kv_tracker,
+                    schema_overrides=_readonly(schema_overrides),
+                    character_id=character_id,
+                    character=_readonly(card),
+                )
+                async for ev in sub.callable(pre_ctx):
+                    t = ev.get("type") if isinstance(ev, dict) else None
+                    if t == "enable_tools":
+                        tools = ev.get("tools")
+                        if isinstance(tools, (set, frozenset)):
+                            items = ((n, True) for n in tools)
+                        elif isinstance(tools, dict):
+                            items = tools.items()
+                        else:
+                            logger.warning(
+                                "pre_pipeline hook %r yielded enable_tools with " "invalid tools payload (type=%s); ignoring",
+                                sub.workflow_id,
+                                type(tools).__name__,
+                            )
+                            continue
+                        for name, val in items:
+                            if val is not True:
+                                logger.warning(
+                                    "workflow %r yielded enable_tools %r=%r; only True " "is honored, entry dropped",
+                                    sub.workflow_id,
+                                    name,
+                                    val,
+                                )
+                                continue
+                            if name not in TOOLS:
+                                logger.warning(
+                                    "workflow %r enabled unregistered tool %r; dropping",
+                                    sub.workflow_id,
+                                    name,
+                                )
+                                continue
+                            accumulators["merged_enabled_tools"][name] = True
+                        continue
+                    if t == "system_prompt":
+                        block = ev.get("block")
+                        if not isinstance(block, str) or not block.strip():
+                            logger.warning(
+                                "pre_pipeline hook %r yielded empty/whitespace-only " "system_prompt; ignoring",
+                                sub.workflow_id,
+                            )
+                            continue
+                        accumulators["extras"].append(block)
+                        continue
+                    # Reserved by _consume_pipeline; refused here as
+                    # defense-in-depth even though pre_pipeline events do not
+                    # currently flow through that consumer.
+                    e_name = ev.get("event") if isinstance(ev, dict) else None
+                    if isinstance(e_name, str) and e_name.startswith("_"):
+                        logger.warning(
+                            "pre_pipeline hook %r yielded reserved internal event %r; dropping",
+                            sub.workflow_id,
+                            e_name,
+                        )
+                        continue
+                    yield ev
+            except Exception:
+                logger.exception("pre_pipeline hook %r failed", sub.workflow_id)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -358,7 +711,9 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
         ),
     )
 
-    system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings)
+    card_id = conv.get("character_card_id")
+    card = await db.get_character_card(card_id) if card_id else None
+    system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
 
     # Load active persona if set
     active_persona = None
@@ -379,11 +734,14 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
             api_key=agent_api_key,
             profile=profile_for(agent_url, agent_model),
         )
-        agent_system_prompt, _, _ = await db.resolve_char_context(conv, settings, shared_key="agent_shared_system_prompt")
+        agent_system_prompt, _, _ = await db.resolve_char_context(
+            conv, settings, shared_key="agent_shared_system_prompt", card=card
+        )
 
     return {
         "settings": settings,
         "conv": conv,
+        "card": card,
         "director": director,
         "mood_fragments": mood_fragments,
         "director_fragments": director_fragments,
@@ -399,11 +757,19 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
     }
 
 
-def _build_prefix_from_ctx(ctx: dict, history: list[dict], *, system_prompt: str | None = None) -> list[dict]:
+def _build_prefix_from_ctx(
+    ctx: dict,
+    history: list[dict],
+    *,
+    system_prompt: str | None = None,
+    extra_system_blocks: list[str] | None = None,
+) -> list[dict]:
     """Build the LLM prefix from a pipeline-context dict.
 
     When *system_prompt* is provided it overrides ``ctx["system_prompt"]``
     (used for the agent prefix when it has its own system prompt).
+    *extra_system_blocks* appends contributions from pre-pipeline hooks; None
+    or an empty list preserves baseline byte parity.
     """
     conv = ctx["conv"]
     active_persona = ctx.get("active_persona")
@@ -419,17 +785,29 @@ def _build_prefix_from_ctx(ctx: dict, history: list[dict], *, system_prompt: str
         history,
         macros,
         user_description,
+        extra_system_blocks=extra_system_blocks,
     )
 
 
-def _build_prefixes(ctx: dict, history: list[dict]) -> tuple[list[dict], list[dict] | None]:
+def _build_prefixes(
+    ctx: dict,
+    history: list[dict],
+    *,
+    extra_system_blocks: list[str] | None = None,
+) -> tuple[list[dict], list[dict] | None]:
     """Build (prefix, agent_prefix) from *ctx* and *history*.
 
-    *agent_prefix* is ``None`` when no separate agent system prompt is configured.
+    *agent_prefix* is ``None`` when no separate agent system prompt is
+    configured. *extra_system_blocks* is applied to both prefixes so the
+    system body stays identical across director / writer / editor.
     """
-    prefix = _build_prefix_from_ctx(ctx, history)
+    prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks)
     agent_sp = ctx.get("agent_system_prompt")
-    agent_prefix = _build_prefix_from_ctx(ctx, history, system_prompt=agent_sp) if agent_sp is not None else None
+    agent_prefix = (
+        _build_prefix_from_ctx(ctx, history, system_prompt=agent_sp, extra_system_blocks=extra_system_blocks)
+        if agent_sp is not None
+        else None
+    )
     return prefix, agent_prefix
 
 
@@ -472,7 +850,7 @@ async def _prepare_regen_context(
     grandparent = next((m for m in reversed(history) if m["role"] == "assistant"), None)
     ctx["director"]["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
     user_msg_id = target["parent_id"]
-    attachments = await db.get_attachments_for_message(user_msg_id) if user_msg_id else []
+    attachments = await db.get_user_attachments_for_message(user_msg_id) if user_msg_id else []
     return history, attachments
 
 
@@ -482,8 +860,14 @@ async def _persist_result(
     settings: dict,
     user_msg_id: int | None,
     turn_index: int,
-) -> int | None:
-    """Persist the assistant message after _result.  Returns the new assistant message id."""
+) -> tuple[int | None, list[dict]]:
+    """Persist the assistant message after _result. Returns
+    ``(asst_id, rejected_workflow_atts)``. The rejected list is empty
+    when the cache accepted all workflow atts; populated when the cache
+    dropped atts for rehydratability reasons (oversize without
+    seed+generation_metadata). The caller (``_consume_pipeline``) emits
+    a SSE event for non-empty rejections so the frontend can surface a
+    warning chip on the affected message."""
     if settings.get("enable_agent", 1):
         await db.update_director_state(
             conversation_id,
@@ -498,19 +882,29 @@ async def _persist_result(
     # without generating any non‑reasoning tokens (e.g., reasoning‑only mode).
     resp_text = res.get("resp_text", "")
     if resp_text.strip():
-        asst_id = await db.add_message(
+        # Workflow-staged attachments ride the same transaction as the row
+        # INSERT so they persist iff the message persists; an aborted turn
+        # that never reaches this call leaves no orphan attachment rows.
+        staged = res.get("staged_attachments") or None
+        asst_id, rejected = await db.add_message(
             conversation_id,
             "assistant",
             resp_text,
             turn_index,
             parent_id=user_msg_id,
+            attachments=staged,
             progressive_fields=res.get("progressive_fields"),
         )
+        # Per-workflow state staged by post-pipeline hooks targets this row,
+        # whose id is only known now. The row is not yet the active leaf and
+        # no other caller can name it, so each blind first write needs no lock.
+        for wid, payload in (res.get("staged_message_state") or {}).items():
+            await db.set_workflow_message_state(asst_id, wid, payload)
         await db.set_active_leaf(conversation_id, asst_id)
-        return asst_id
+        return asst_id, rejected
     else:
         logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
-        return None
+        return None, []
 
 
 async def _fallback_persist(
@@ -544,7 +938,7 @@ async def _fallback_persist(
         # NOT included here. This prevents creating message nodes when the
         # user stops generation during the reasoning phase (no writer output).
         if accumulated_text.strip():
-            asst_id = await db.add_message(
+            asst_id, _ = await db.add_message(
                 conversation_id,
                 "assistant",
                 accumulated_text,
@@ -623,8 +1017,32 @@ async def _consume_pipeline(
                 yield event
             elif etype == "_result":
                 res = event["data"]
-                asst_id = await _persist_result(conversation_id, res, settings, user_msg_id, turn_index)
+                asst_id, rejected = await _persist_result(conversation_id, res, settings, user_msg_id, turn_index)
                 persisted = True
+                if rejected and asst_id is not None:
+                    # Surface the cache's rejections so the frontend can render a warning
+                    # chip on the message. Bytes never enter the SSE payload. ``reason``
+                    # falls back to the oversize-no-metadata constant for any legacy
+                    # entry the helper failed to tag. ``originating_attachment_id`` is
+                    # always None on this path because no DB row was produced for these
+                    # rejected entries (they are first-write rejections); the frontend
+                    # interprets null as "message-level, not bound to a swipe widget".
+                    yield {
+                        "event": "workflow_attachments_rejected",
+                        "data": {
+                            "message_id": asst_id,
+                            "rejected": [
+                                {
+                                    "filename": a.get("filename"),
+                                    "workflow_id": a.get("workflow_id"),
+                                    "mime": a.get("mime"),
+                                    "reason": a.get("reason") or OVERSIZE_NO_METADATA_REASON,
+                                    "originating_attachment_id": None,
+                                }
+                                for a in rejected
+                            ],
+                        },
+                    }
             elif etype == "_editor_reasoning":
                 res["reasoning_editor"] = event["data"]["reasoning_editor"]
             elif etype == "_refined_result":
@@ -710,7 +1128,7 @@ async def handle_turn(
                         "size": att.get("size"),
                     }
                 )
-            user_msg_id = await db.add_message(
+            user_msg_id, _ = await db.add_message(
                 conversation_id,
                 "user",
                 user_message,
@@ -721,7 +1139,7 @@ async def handle_turn(
             await db.set_active_leaf(conversation_id, user_msg_id)
             yield {"event": "user_message_created", "data": {"id": user_msg_id}}
 
-        prefix, agent_prefix = _build_prefixes(ctx, history)
+        prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
         asst_turn = next_turn + (0 if skip_user_persist else 1)
 
         macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
@@ -729,6 +1147,46 @@ async def handle_turn(
         # Compute lorebook injection — include the current user message so its
         # keywords are scanned, not just prior history.
         lorebook_block = _compute_lorebook(macros, ctx, history + [{"role": "user", "content": user_message}])
+
+        # Workflow pre-pipeline iteration. Hooks may yield enable_tools or
+        # system_prompt yields that fold into the merged tool map and the
+        # extra system blocks below; any other yield passes through to the
+        # SSE stream verbatim. The kv_tracker is constructed once per turn
+        # and finalised after the pipeline prefix is known.
+        turn_scratch: dict = {}
+        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
+        enabled_tools_setting = settings.get("enabled_tools") or {}
+        if settings.get("enable_agent", 1):
+            enabled_tools_pre_merge = dict(enabled_tools_setting)
+        else:
+            enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
+        accumulators = {
+            "merged_enabled_tools": dict(enabled_tools_pre_merge),
+            "extras": [],
+        }
+        async for ev in _iterate_pre_pipeline_hooks(
+            conversation_id=conversation_id,
+            character_id=ctx["conv"].get("character_card_id"),
+            card=ctx["card"],
+            history=history,
+            last_user_message=user_message,
+            settings=settings,
+            prefix_base=prefix_base,
+            enabled_tools_pre_merge=enabled_tools_pre_merge,
+            turn_scratch=turn_scratch,
+            client=ctx["client"],
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+            accumulators=accumulators,
+        ):
+            yield ev
+        merged_enabled_tools = accumulators["merged_enabled_tools"]
+        extras = accumulators["extras"]
+        if extras:
+            prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
+        else:
+            prefix, agent_prefix = prefix_base, agent_prefix_base
 
         async def _on_result(res, asst_id):
             await db.add_conversation_log(
@@ -752,7 +1210,6 @@ async def handle_turn(
             ctx["director"],
             ctx["mood_fragments"],
             ctx["director_fragments"],
-            prefix,
             user_message,
             attachments=attachments,
             phrase_bank=ctx["phrase_bank"],
@@ -761,6 +1218,14 @@ async def handle_turn(
             agent_prefix=agent_prefix,
             macros=macros,
             conversation_id=conversation_id,
+            character_id=ctx["conv"].get("character_card_id"),
+            card=ctx["card"],
+            prefix=prefix,
+            enabled_tools=merged_enabled_tools,
+            turn_scratch=turn_scratch,
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+            history=history,
         )
         async for event in _consume_pipeline(
             pipeline,
@@ -802,10 +1267,45 @@ async def handle_regenerate(
 
         user_msg_id = target["parent_id"]
         history, attachments = await _prepare_regen_context(ctx, conversation_id, target, user_msg)
-        prefix, agent_prefix = _build_prefixes(ctx, history)
+        prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
 
         macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
         lorebook_block = _compute_lorebook(macros, ctx, history + [{"role": "user", "content": user_msg["content"]}])
+
+        turn_scratch: dict = {}
+        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
+        enabled_tools_setting = settings.get("enabled_tools") or {}
+        if settings.get("enable_agent", 1):
+            enabled_tools_pre_merge = dict(enabled_tools_setting)
+        else:
+            enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
+        accumulators = {
+            "merged_enabled_tools": dict(enabled_tools_pre_merge),
+            "extras": [],
+        }
+        async for ev in _iterate_pre_pipeline_hooks(
+            conversation_id=conversation_id,
+            character_id=ctx["conv"].get("character_card_id"),
+            card=ctx["card"],
+            history=history,
+            last_user_message=user_msg["content"],
+            settings=settings,
+            prefix_base=prefix_base,
+            enabled_tools_pre_merge=enabled_tools_pre_merge,
+            turn_scratch=turn_scratch,
+            client=ctx["client"],
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+            accumulators=accumulators,
+        ):
+            yield ev
+        merged_enabled_tools = accumulators["merged_enabled_tools"]
+        extras = accumulators["extras"]
+        if extras:
+            prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
+        else:
+            prefix, agent_prefix = prefix_base, agent_prefix_base
 
         pipeline = _run_pipeline(
             ctx["client"],
@@ -813,7 +1313,6 @@ async def handle_regenerate(
             ctx["director"],
             ctx["mood_fragments"],
             ctx["director_fragments"],
-            prefix,
             user_msg["content"],
             attachments,
             ctx["phrase_bank"],
@@ -822,6 +1321,14 @@ async def handle_regenerate(
             agent_prefix=agent_prefix,
             macros=macros,
             conversation_id=conversation_id,
+            character_id=ctx["conv"].get("character_card_id"),
+            card=ctx["card"],
+            prefix=prefix,
+            enabled_tools=merged_enabled_tools,
+            turn_scratch=turn_scratch,
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+            history=history,
         )
 
         async def _on_result(res, asst_id):
@@ -890,7 +1397,7 @@ async def handle_super_regenerate(
             {"role": "user", "content": user_msg["content"]},
             {"role": "assistant", "content": target["content"]},
         ]
-        prefix, agent_prefix = _build_prefixes(ctx, extended_history)
+        prefix_base, agent_prefix_base = _build_prefixes(ctx, extended_history)
 
         # rewrite_user_prompt must not alter the OOC steering message.
         super_regen_settings = {
@@ -912,13 +1419,47 @@ async def handle_super_regenerate(
         # the editor doesn't flag the new draft for repeating the message it replaced.
         editor_audit_msgs = [msg["content"] for msg in reversed(history) if msg.get("role") == "assistant"][:3]
 
+        turn_scratch: dict = {}
+        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
+        enabled_tools_setting = super_regen_settings.get("enabled_tools") or {}
+        if super_regen_settings.get("enable_agent", 1):
+            enabled_tools_pre_merge = dict(enabled_tools_setting)
+        else:
+            enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
+        accumulators = {
+            "merged_enabled_tools": dict(enabled_tools_pre_merge),
+            "extras": [],
+        }
+        async for ev in _iterate_pre_pipeline_hooks(
+            conversation_id=conversation_id,
+            character_id=ctx["conv"].get("character_card_id"),
+            card=ctx["card"],
+            history=extended_history,
+            last_user_message=user_msg["content"],
+            settings=super_regen_settings,
+            prefix_base=prefix_base,
+            enabled_tools_pre_merge=enabled_tools_pre_merge,
+            turn_scratch=turn_scratch,
+            client=ctx["client"],
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+            accumulators=accumulators,
+        ):
+            yield ev
+        merged_enabled_tools = accumulators["merged_enabled_tools"]
+        extras = accumulators["extras"]
+        if extras:
+            prefix, agent_prefix = _build_prefixes(ctx, extended_history, extra_system_blocks=extras)
+        else:
+            prefix, agent_prefix = prefix_base, agent_prefix_base
+
         pipeline = _run_pipeline(
             ctx["client"],
             super_regen_settings,
             ctx["director"],
             ctx["mood_fragments"],
             ctx["director_fragments"],
-            prefix,
             _SUPER_REGEN_MSG,
             attachments,
             ctx["phrase_bank"],
@@ -928,6 +1469,14 @@ async def handle_super_regenerate(
             agent_prefix=agent_prefix,
             macros=macros,
             conversation_id=conversation_id,
+            character_id=ctx["conv"].get("character_card_id"),
+            card=ctx["card"],
+            prefix=prefix,
+            enabled_tools=merged_enabled_tools,
+            turn_scratch=turn_scratch,
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+            history=extended_history,
         )
 
         async def _on_result(res, asst_id):

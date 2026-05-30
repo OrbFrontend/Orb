@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from ..connection import _build_set_clause, get_db
@@ -96,3 +97,50 @@ async def update_conversation(cid: str, data: dict) -> dict | None:
             )
             await db.commit()
         return await get_conversation(cid)
+
+
+async def get_workflow_state(conv_id: str, workflow_id: str) -> dict | None:
+    """Return the workflow's slot, or None if conversation missing or slot empty."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM conversations WHERE id = ?",
+                (workflow_id, conv_id),
+            )
+        )
+        if not rows:
+            return None
+        slot = rows[0]["slot"]
+        if slot is None:
+            return None
+        return json.loads(slot)
+
+
+async def set_workflow_state(conv_id: str, workflow_id: str, payload: dict | None) -> None:
+    """Atomic per-slot write via SQLite JSON1.
+
+    payload=None removes the slot. Empty dict stores {}. No-op if conversation
+    missing (UPDATE matches zero rows).
+
+    Caller must hold ``backend.locks.workflow_state_lock(conv_id, workflow_id)``
+    across the read-then-write the payload was computed from. Acquisition
+    sites: ``backend.main.api_trigger_workflow`` and the pre/post pipeline
+    hook loops in ``backend.orchestrator``. Direct use outside those paths
+    re-introduces the read-modify-write clobber.
+    """
+    async with get_db() as db:
+        if payload is None:
+            await db.execute(
+                "UPDATE conversations "
+                "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
+                "WHERE id = ?",
+                (workflow_id, conv_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE conversations "
+                "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
+                "WHERE id = ?",
+                (workflow_id, json.dumps(payload), conv_id),
+            )
+        await db.commit()

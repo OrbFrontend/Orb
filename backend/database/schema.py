@@ -31,10 +31,10 @@ CREATE TABLE IF NOT EXISTS settings (
     agent_same_as_writer INTEGER NOT NULL DEFAULT 1,
     agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
-    tts_enabled INTEGER NOT NULL DEFAULT 0,
-    tts_auto_speak INTEGER NOT NULL DEFAULT 0,
-    tts_volume REAL NOT NULL DEFAULT 0.75,
-    inspector_open_states TEXT NOT NULL DEFAULT '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}'
+    inspector_open_states TEXT NOT NULL DEFAULT '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}',
+    workflow_config TEXT NOT NULL DEFAULT '{}',
+    attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
+    attachment_access_counter INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (
@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     post_history_instructions TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT,
-    active_leaf_id INTEGER REFERENCES messages(id) ON DELETE SET NULL
+    active_leaf_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    workflow_state TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS character_cards (
@@ -78,7 +79,8 @@ CREATE TABLE IF NOT EXISTS character_cards (
     source_format TEXT NOT NULL DEFAULT 'manual',
     world_id TEXT DEFAULT NULL REFERENCES worlds(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    workflow_state TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -89,7 +91,8 @@ CREATE TABLE IF NOT EXISTS messages (
     turn_index INTEGER NOT NULL,
     parent_id INTEGER REFERENCES messages(id) ON DELETE CASCADE,
     progressive_fields TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    workflow_state TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS director_state (
@@ -141,6 +144,11 @@ CREATE TABLE IF NOT EXISTS user_personas (
     updated_at TEXT NOT NULL
 );
 
+-- Required on fresh install by migration 0002, which deletes orphan rows
+-- from this table before any migration could create it. Migration
+-- 0020_workflows copies surviving rows into user_attachments and
+-- drops this table at the end of the chain. No rows persist in a
+-- fully-migrated database.
 CREATE TABLE IF NOT EXISTS message_attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
@@ -149,6 +157,33 @@ CREATE TABLE IF NOT EXISTS message_attachments (
     filename TEXT,
     size INTEGER,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    mime_type TEXT NOT NULL,
+    data_b64 TEXT NOT NULL,
+    filename TEXT,
+    size INTEGER,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workflow_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    mime_type TEXT NOT NULL,
+    data_b64 TEXT NOT NULL,
+    filename TEXT,
+    created_at TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    parent_attachment_id INTEGER REFERENCES workflow_attachments(id) ON DELETE CASCADE,
+    annotation TEXT DEFAULT NULL,
+    seed TEXT DEFAULT NULL,
+    generation_metadata TEXT DEFAULT NULL,
+    consumption_metadata TEXT DEFAULT NULL,
+    active_sibling_id INTEGER REFERENCES workflow_attachments(id) ON DELETE SET NULL,
+    recent_accesses TEXT DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS endpoints (
@@ -196,21 +231,4 @@ CREATE TABLE IF NOT EXISTS lorebook_entries (
     updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS voice_profiles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    character_card_id TEXT NOT NULL UNIQUE,
-    backend TEXT NOT NULL DEFAULT 'edge',
-    voice_id TEXT NOT NULL DEFAULT 'en-US-JennyNeural',
-    language TEXT NOT NULL DEFAULT 'en-US',
-    rate REAL NOT NULL DEFAULT 1.0,
-    pitch REAL NOT NULL DEFAULT 1.0,
-    enabled INTEGER NOT NULL DEFAULT 0,
-    endpoint_id INTEGER,
-    api_url TEXT DEFAULT '',
-    api_key TEXT DEFAULT '',
-    model TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (character_card_id) REFERENCES character_cards(id)
-);
 """

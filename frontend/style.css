@@ -586,6 +586,13 @@ body {
   scroll-behavior: auto;
 }
 
+#chat-messages.audio-reserve-animating {
+  /* Smoothly collapse the audio bar's reserved bottom space on close
+     (audio_transport.js): as padding-bottom shrinks, the view rides down to the
+     new bottom. Added only for the close animation -- open sets padding instantly. */
+  transition: padding-bottom 0.25s ease;
+}
+
 #chat-messages::-webkit-scrollbar { width: 6px; }
 #chat-messages::-webkit-scrollbar-track { background: transparent; }
 #chat-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -645,12 +652,6 @@ body {
 .message .msg-body em { font-style: italic; color: var(--text-secondary); }
 .message .msg-body strong { font-weight: 600; }
 .message .msg-body .quoted { color: var(--accent); }
-.message .msg-body .quoted.speaking {
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-surface));
-  border-radius: 2px;
-  transition: background 0.15s ease;
-}
-body.tts-enabled .message.assistant .msg-body .quoted { cursor: pointer; }
 .message .msg-body pre {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -673,6 +674,76 @@ body.tts-enabled .message.assistant .msg-body .quoted { cursor: pointer; }
   border-radius: 4px;
   padding: .1em .4em;
 }
+
+/* Workflow text units: clickable affordance + transient effects */
+.message .msg-body .seg.seg-clickable { cursor: pointer; }
+.message .msg-body .seg.seg-multi {
+  text-decoration: underline dotted var(--accent-dim);
+  text-underline-offset: 3px;
+}
+.message .msg-body .seg.fx-highlight {
+  background: var(--accent-glow);
+  border-radius: 2px;
+  transition: background .15s ease;
+}
+.message .msg-body .seg.fx-underline { box-shadow: inset 0 -2px 0 var(--accent); }
+.message .msg-body .seg.fx-pulse {
+  border-radius: 2px;
+  animation: wf-seg-pulse 1s ease-in-out infinite;
+}
+@keyframes wf-seg-pulse {
+  0%, 100% { background: transparent; }
+  50% { background: var(--accent-glow); }
+}
+
+.wf-seg-caret {
+  position: fixed;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  z-index: 120;
+  transform: translateY(-2px);
+}
+.wf-seg-caret::after {
+  content: "";
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-top: 4px solid currentColor;
+}
+.wf-seg-caret:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+.wf-claim-popover {
+  position: fixed;
+  z-index: 130;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.wf-claim-item {
+  padding: 6px 10px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.wf-claim-item:hover { background: var(--accent-glow); color: var(--accent); }
 
 /* Editor diff highlights */
 .diff-change {
@@ -1316,7 +1387,7 @@ details.inspector-block[open] .reasoning-summary-arrow {
   word-wrap: break-word;
   height: 140px;
   overflow-y: auto;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 .reasoning-box::-webkit-scrollbar { width: 3px; }
@@ -1334,10 +1405,6 @@ details.inspector-block[open] .reasoning-summary-arrow {
 
 .tools-inner::-webkit-scrollbar { width: 4px; }
 .tools-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-.voice-range {
-  width: 100%;
-}
 
 /* Range inputs — theme-aware (uses --accent, --bg-*) */
 input[type="range"] {
@@ -1474,21 +1541,6 @@ input[type="range"]::-moz-range-track {
   margin-bottom: 20px;
 }
 
-.voice-enable-row .modal-checkbox-label {
-  justify-content: space-between;
-}
-
-.voice-enable-row {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 12px;
-  margin-bottom: 12px;
-}
-
-.voice-config-disabled {
-  opacity: 0.4;
-  pointer-events: none;
-}
-
 /* ═══════════════════════════════════════════
    6. Generation Status Bar
    ═══════════════════════════════════════════ */
@@ -1554,109 +1606,6 @@ input[type="range"]::-moz-range-track {
 
 @keyframes gen-spin {
   to { transform: rotate(360deg); }
-}
-
-/* ═══════════════════════════════════════════
-   6b. TTS Status Bar
-   ═══════════════════════════════════════════ */
-.tts-bar {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 34px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  transition: height .3s ease, opacity .3s ease, border-top .3s ease;
-}
-.tts-bar.hidden {
-  height: 0;
-  opacity: 0;
-  border-top-color: transparent;
-}
-
-/* Loading: animated sliding gradient (matches gen-bar) */
-.tts-load-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 40%;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  animation: tts-bar-slide 1.8s ease-in-out infinite;
-}
-.tts-bar:not(.tts-loading) .tts-load-bar {
-  display: none;
-}
-@keyframes tts-bar-slide {
-  0%   { transform: translateX(-120%); }
-  100% { transform: translateX(350%); }
-}
-
-/* Playing: solid progress fill */
-.tts-progress {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: 2px;
-  background: var(--accent);
-  transition: width 0.3s linear;
-}
-.tts-bar.tts-loading .tts-progress {
-  display: none;
-}
-
-/* Pulsing dot — loading only */
-.tts-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  flex-shrink: 0;
-  animation: tts-pulse 1.2s ease-in-out infinite;
-}
-.tts-bar:not(.tts-loading) .tts-dot {
-  display: none;
-}
-@keyframes tts-pulse {
-  0%, 100% { opacity: .3; transform: scale(.8); }
-  50%      { opacity: 1;  transform: scale(1.2); }
-}
-
-/* Speaker icon — playing state */
-.tts-icon-speak,
-.tts-icon-stop {
-  display: none;
-  flex-shrink: 0;
-}
-.tts-bar:not(.tts-loading) .tts-icon-speak {
-  display: inline-flex;
-  color: var(--accent);
-  animation: tts-pulse 1.2s ease-in-out infinite;
-}
-.tts-bar:not(.tts-loading):hover .tts-icon-speak {
-  display: none;
-}
-.tts-bar:not(.tts-loading):hover .tts-icon-stop {
-  display: inline-flex;
-  color: #e74c3c;
-}
-
-.tts-bar .tts-text {
-  flex: 0 0 auto;
-}
-
-.tts-bar:not(.tts-loading) {
-  cursor: pointer;
-}
-.tts-bar:not(.tts-loading):hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
 }
 
 /* ═══════════════════════════════════════════
@@ -1807,7 +1756,6 @@ input[type="range"]::-moz-range-track {
   margin-top: 6px;
 }
 
-/* Large review/edit textarea (e.g. compress summary) */
 .modal-textarea {
   width: 100%;
   resize: vertical;
@@ -3238,55 +3186,615 @@ mark.cb-hl {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── TTS / Speak Button ────────────────────────────── */
 
-.btn-tts-active {
-  color: var(--accent, #00e5ff) !important;
-  animation: tts-pulse 1.2s ease-in-out infinite;
+/* Workflows ----------------------- */
+
+.tab-row {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
 }
 
-.btn-tts-loading {
-  opacity: 0.5;
-  animation: tts-spin 1s linear infinite;
+.tab-button {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
 }
 
-@keyframes tts-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+.tab-button:hover {
+  color: var(--text-primary);
 }
 
-@keyframes tts-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.tab-button-active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: var(--accent-glow);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* ── Voice tab loading overlay ── */
-
-.voice-fields-wrap {
-  position: relative;
+.workflow-card {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+  background: var(--bg-surface);
 }
 
-.voice-loading-overlay {
-  position: absolute;
-  inset: 0;
+.workflow-card > h4 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-secondary);
+}
+
+.workflow-pipeline-card .reasoning-stepper {
+  margin-bottom: 8px;
+}
+
+.workflow-artifacts {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: var(--bg-surface, #1a1a2e);
-  opacity: 0.85;
-  z-index: 10;
-  border-radius: var(--radius, 6px);
-  color: var(--text-secondary);
-  font-size: 13px;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
 }
 
-.voice-loading-spinner {
+.workflow-artifact-swipe {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.workflow-artifact-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workflow-artifact-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.workflow-widget {
+  display: contents;
+}
+
+.workflow-artifact-image {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: var(--radius);
+  display: block;
+}
+
+.workflow-artifact-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.workflow-artifact-link:hover {
+  background: var(--bg-elevated);
+}
+
+.workflow-swipe-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-swipe-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.workflow-swipe-btn:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+.workflow-artifact-counter {
+  align-self: center;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.workflow-regen-button {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-regen-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.workflow-regen-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.workflow-regen-error {
+  font-size: 11px;
+  color: var(--danger, #c66);
+  margin-top: 6px;
+  width: 100%;
+}
+
+.workflow-reroll-button {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-reroll-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.workflow-reroll-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.workflow-reroll-error {
+  font-size: 11px;
+  color: var(--danger, #c66);
+  margin-top: 6px;
+  width: 100%;
+}
+
+.workflow-artifact-evicted {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.workflow-artifact-evicted-label {
+  font-style: italic;
+}
+
+.workflow-rehydrate-button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.workflow-rehydrate-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.workflow-rehydrate-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.workflow-rehydrate-disabled {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.workflow-rehydrate-error {
+  font-size: 11px;
+  color: var(--danger, #c66);
+  margin-top: 6px;
+  width: 100%;
+}
+
+.workflow-rejected-warning {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Framework chrome header on every workflow-artifact widget: label left,
+   minimize + delete controls right. */
+.workflow-artifact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-artifact-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.workflow-artifact-label-count {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.workflow-artifact-controls {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Lighter than the regen/reroll body buttons so chrome reads below content. */
+.workflow-chrome-btn {
   width: 22px;
   height: 22px;
-  border: 2px solid var(--border, #333);
-  border-top-color: var(--accent, #00e5ff);
+  flex-shrink: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.workflow-chrome-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--bg-elevated);
+}
+
+.workflow-min-btn svg {
+  transition: transform .15s;
+}
+
+.workflow-min-btn.collapsed svg {
+  transform: rotate(-90deg);
+}
+
+.workflow-del-btn:hover {
+  color: var(--red);
+  border-color: var(--red);
+  background: rgba(196, 93, 93, .12);
+}
+
+/* Collapsed widget is just the header strip -- no body, nav, or counter. */
+.workflow-artifact-swipe.minimized {
+  gap: 0;
+}
+
+/* Delete dialog actions: Cancel pinned left, destructive choices grouped right.
+   Own class so the global `.modal-actions .btn-danger { margin-right: auto }`
+   single-action rule does not split the two delete buttons apart. */
+.workflow-delete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.workflow-delete-actions .btn:first-child {
+  margin-right: auto;
+}
+
+.gen-text-secondary {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-left: 8px;
+  margin-left: 4px;
+  border-left: 1px solid var(--border);
+}
+
+.gen-text-secondary:empty {
+  display: none;
+}
+
+/* Out-of-turn workflow status pill: only the secondary label shows, so hide the
+   turn-generation chrome and the label's left divider. */
+.gen-status.pill-only .gen-bar,
+.gen-status.pill-only .gen-dot,
+.gen-status.pill-only .gen-text {
+  display: none;
+}
+
+.gen-status.pill-only .gen-text-secondary {
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+/* Workflow audio player transport (frontend/audio_transport.js). A floating
+   control bar pinned just above the composer and out of the message flow, so
+   #chat-messages keeps its full height and its scrollbar runs the whole column.
+   It lives inside #chat-input-area; the chat re-render only rebuilds
+   #chat-messages, so the bar survives it. */
+.audio-transport {
+  /* Fluid scale: every size below derives from one of these viewport-tracked
+     tokens (the repo's min(82vw, ...) mobile-token idiom), clamped so the bar
+     shrinks on small screens and caps out instead of ballooning on 4K. Retune
+     the whole widget here. */
+  --at-mx: clamp(10px, 1.4vw, 22px);
+  --at-my: clamp(6px, 0.6vw, 11px);
+  --at-px: clamp(12px, 1.3vw, 24px);
+  --at-py: clamp(6px, 0.55vw, 11px);
+  --at-gap: clamp(6px, 0.6vw, 11px);
+  --at-fs: clamp(11px, 0.85vw, 15px);
+  --at-fs-sm: clamp(10px, 0.78vw, 14px);
+  --at-btn-px: clamp(7px, 0.7vw, 13px);
+  --at-btn-py: clamp(2px, 0.25vw, 5px);
+  --at-track: clamp(7px, 0.7vw, 12px);
+  --at-vol-w: clamp(64px, 7vw, 116px);
+  --at-thumb: clamp(10px, 1vw, 15px);
+
+  /* Pinned to the composer's top edge: bottom:100% tracks the composer as its
+     textarea grows (the idiom #burger-dropdown already uses), and absolute
+     positioning keeps the bar out of the message flow so #chat-messages keeps
+     its full height and scrollbar. The inset card floats over the bottom of the
+     message list; audio_transport.js reserves matching scroll space so the
+     newest message clears it instead of hiding behind it. */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--at-gap) * 0.75);
+  /* left/right are re-set per-frame by audio_transport.js to align with the
+     message bubbles (assistant left / user right, scrollbar included); --at-mx is
+     the pre-sync fallback. Top/bottom stay fluid here. */
+  margin: var(--at-my) var(--at-mx);
+  padding: var(--at-py) var(--at-px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  font-size: var(--at-fs);
+  color: var(--text-secondary);
+}
+.audio-transport.hidden { display: none; }
+.audio-transport-suspended::before {
+  content: "tap to enable audio";
+  color: var(--text-muted);
+  font-style: italic;
+}
+.audio-transport-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--at-gap) * 0.5);
+}
+.audio-transport-tab {
+  flex: 0 0 auto;
+  max-width: clamp(90px, 9vw, 150px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px var(--at-btn-px);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: var(--at-fs-sm);
+  cursor: pointer;
+}
+.audio-transport-tab.selected {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+.audio-transport-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--at-gap);
+}
+.audio-transport-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--at-gap) calc(var(--at-gap) * 1.2);
+}
+.audio-transport-playpause,
+.audio-transport-repeat,
+.audio-transport-stop {
+  flex: 0 0 auto;
+  padding: var(--at-btn-py) var(--at-btn-px);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: var(--at-fs-sm);
+  cursor: pointer;
+}
+.audio-transport-playpause:hover,
+.audio-transport-repeat:hover,
+.audio-transport-stop:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+.audio-transport-repeat.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.audio-transport-playpause {
+  min-width: clamp(48px, 5vw, 84px);
+  text-align: center;
+}
+.audio-transport-time {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: var(--at-fs-sm);
+  white-space: nowrap;
+}
+.audio-transport-progress {
+  width: 100%;
+  height: var(--at-track);
+  background: var(--bg-hover);
+  border-radius: calc(var(--at-track) / 2);
+  overflow: hidden;
+  cursor: pointer;
+  transition: height 0.1s ease;
+}
+.audio-transport-progress:hover {
+  height: calc(var(--at-track) + 3px);
+}
+.audio-transport-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+.audio-transport-vol {
+  flex: 0 0 auto;
+  width: var(--at-vol-w);
+  height: calc(var(--at-track) * 0.8);
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-hover);
+  border-radius: calc(var(--at-track) * 0.4);
+  cursor: pointer;
+}
+.audio-transport-vol::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--at-thumb);
+  height: var(--at-thumb);
   border-radius: 50%;
-  animation: tts-spin .8s linear infinite;
+  background: var(--text-secondary);
+  cursor: pointer;
+}
+.audio-transport-vol:hover::-webkit-slider-thumb {
+  background: var(--text-primary);
+}
+.audio-transport-vol::-moz-range-thumb {
+  width: var(--at-thumb);
+  height: var(--at-thumb);
+  border: none;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  cursor: pointer;
+}
+.audio-transport-vol::-moz-range-track {
+  height: calc(var(--at-track) * 0.8);
+  background: var(--bg-hover);
+  border-radius: calc(var(--at-track) * 0.4);
+}
+/* Close (x) at the right end of the tab row -- dismisses the bar without stopping
+   playback (audio_transport.js). Inherits the --at-* scale from .audio-transport. */
+.audio-transport-close {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px var(--at-btn-px);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.audio-transport-close:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+.audio-transport-close svg {
+  width: 1.1em;
+  height: 1.1em;
+  display: block;
+}
+/* Floating button that restores a dismissed bar (audio_transport.js): same anchor
+   as the bar -- above the composer -- but a small corner control. Standalone, so
+   it uses literal clamps rather than the bar-scoped --at-* tokens. */
+.audio-reopen {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin: 0 clamp(12px, 1.4vw, 24px) clamp(6px, 0.6vw, 11px) 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(30px, 3vw, 42px);
+  height: clamp(30px, 3vw, 42px);
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.audio-reopen:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+.audio-reopen svg {
+  width: 58%;
+  height: 58%;
+  display: block;
 }

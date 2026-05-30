@@ -199,7 +199,6 @@ async def sync_conversations_for_card(card_id: str, card: dict, old_name: str | 
 
 async def delete_character_card(card_id: str, delete_conversations: bool = False) -> bool:
     async with get_db() as db:
-        await db.execute("DELETE FROM voice_profiles WHERE character_card_id = ?", (card_id,))
         if delete_conversations:
             await db.execute("DELETE FROM conversations WHERE character_card_id = ?", (card_id,))
         # When keeping conversations, character_card_id is intentionally left as-is.
@@ -211,13 +210,15 @@ async def delete_character_card(card_id: str, delete_conversations: bool = False
         return cur.rowcount > 0
 
 
-async def resolve_char_context(conv: dict, settings: dict, shared_key: str = "shared_system_prompt") -> tuple[str, str, str]:
-    """Load character card data and resolve the effective system prompt, persona, and example messages.
+async def resolve_char_context(
+    conv: dict, settings: dict, shared_key: str = "shared_system_prompt", card: dict | None = None
+) -> tuple[str, str, str]:
+    """Resolve the effective system prompt, persona, and example messages.
 
-    Combines shared_system_prompt (global) with system_prompt (model-specific).
-    Character card system_prompt, if present, completely overrides both.
-
-    Returns (system_prompt, char_persona, mes_example).
+    shared_system_prompt and the model-specific system_prompt are concatenated
+    (shared first); a character card's own system_prompt, when present and not
+    disabled by the prevent_prompt_overrides setting, replaces that combined
+    result entirely rather than appending to it.
     """
     # Combine shared (global) + model-specific system prompts
     shared = settings.get(shared_key, "")
@@ -229,14 +230,13 @@ async def resolve_char_context(conv: dict, settings: dict, shared_key: str = "sh
         system_prompt = shared or model_specific
 
     char_persona, mes_example = "", ""
-    if card_id := conv.get("character_card_id"):
+    if card is None and (card_id := conv.get("character_card_id")):
         card = await get_character_card(card_id)
-        if card:
-            char_persona = "\n\n".join(filter(None, [card.get("description", ""), card.get("personality", "")]))
-            mes_example = card.get("mes_example", "")
-            if card.get("system_prompt") and not settings.get("prevent_prompt_overrides"):
-                # Character card system_prompt completely overrides
-                system_prompt = card["system_prompt"]
+    if card:
+        char_persona = "\n\n".join(filter(None, [card.get("description", ""), card.get("personality", "")]))
+        mes_example = card.get("mes_example", "")
+        if card.get("system_prompt") and not settings.get("prevent_prompt_overrides"):
+            system_prompt = card["system_prompt"]
     return system_prompt, char_persona, mes_example
 
 
@@ -252,3 +252,45 @@ async def get_character_avatar(card_id: str) -> tuple[bytes, str] | None:
         if not rows or not rows[0]["avatar_b64"]:
             return None
         return base64.b64decode(rows[0]["avatar_b64"]), rows[0]["avatar_mime"]
+
+
+async def get_workflow_character_state(character_id: str, workflow_id: str) -> dict | None:
+    """Return the workflow's slot on this character, or None if card missing or slot empty."""
+    async with get_db() as db:
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT json_extract(workflow_state, '$.' || ?) AS slot FROM character_cards WHERE id = ?",
+                (workflow_id, character_id),
+            )
+        )
+        if not rows:
+            return None
+        slot = rows[0]["slot"]
+        if slot is None:
+            return None
+        return json.loads(slot)
+
+
+async def set_workflow_character_state(character_id: str, workflow_id: str, payload: dict | None) -> None:
+    """Atomic per-slot write via SQLite JSON1. payload=None removes the slot;
+    empty dict stores {}. No-op if card missing (UPDATE matches zero rows).
+
+    Caller must hold backend.locks.workflow_character_state_lock(character_id,
+    workflow_id) across the read-then-write the payload was computed from.
+    """
+    async with get_db() as db:
+        if payload is None:
+            await db.execute(
+                "UPDATE character_cards "
+                "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
+                "WHERE id = ?",
+                (workflow_id, character_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE character_cards "
+                "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
+                "WHERE id = ?",
+                (workflow_id, json.dumps(payload), character_id),
+            )
+        await db.commit()

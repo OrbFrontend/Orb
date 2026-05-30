@@ -23,22 +23,40 @@ LOREBOOK_SCAN_DEPTH = 6
 def format_message_with_attachments(message: dict, macros: Macros | None) -> dict:
     """Convert a message dict with optional attachments to OpenAI vision format.
 
-    Input message dict expects keys: 'role', 'content' (str), 'attachments' (list of dicts).
-    Each attachment dict must have 'mime_type' and 'data_b64'.
+    Two attachment lists travel on the message dict:
+      - 'user_attachments': bytes embed as multimodal image_url parts on the
+        message content.
+      - 'workflow_attachments': bytes never enter the prefix. The 'annotation'
+        column on a root row (parent_attachment_id IS NULL) is appended to the
+        message text with a blank-line separator. Sibling variants and rows
+        with empty or whitespace-only annotations contribute nothing.
+
     Returns a dict with 'role' and 'content' (string or list of parts).
     """
     role = message["role"]
     raw = message.get("content", "")
     text = macros.resolve_prompt(raw) if macros else raw
-    attachments = message.get("attachments") or []
 
-    if not attachments:
-        return {"role": role, "content": text}
+    user_atts: list[dict] = list(message.get("user_attachments") or [])
+    workflow_annotations: list[str] = []
+    for att in message.get("workflow_attachments") or []:
+        if att.get("parent_attachment_id") is not None:
+            continue
+        annot = att.get("annotation")
+        if isinstance(annot, str) and annot.strip():
+            workflow_annotations.append(annot)
 
-    parts = []
-    if text:
-        parts.append({"type": "text", "text": text})
-    for att in attachments:
+    text_parts = [text] if text else []
+    text_parts.extend(workflow_annotations)
+    combined_text = "\n\n".join(text_parts)
+
+    if not user_atts:
+        return {"role": role, "content": combined_text}
+
+    parts: list[dict] = []
+    if combined_text:
+        parts.append({"type": "text", "text": combined_text})
+    for att in user_atts:
         mime = att["mime_type"]
         b64 = att["data_b64"]
         url = f"data:{mime};base64,{b64}"
@@ -58,6 +76,8 @@ def build_prefix(
     messages: list[dict] | None = None,
     macros: Macros | None = None,
     user_description: str = "",
+    *,
+    extra_system_blocks: list[str] | None = None,
 ) -> list[dict]:
     resolve = macros.resolve_message if macros else (lambda t: t)
     resolved = {
@@ -90,6 +110,10 @@ def build_prefix(
     if resolved["user_desc"]:
         user_label = macros.user if macros else "User"
         parts.append(f"\n\n## User: {user_label}\n{resolved['user_desc']}")
+
+    if extra_system_blocks:
+        for block in extra_system_blocks:
+            parts.append(f"\n\n{block}")
 
     processed_messages = [format_message_with_attachments(m, macros) for m in (messages or [])]
 

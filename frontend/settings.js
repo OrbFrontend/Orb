@@ -137,12 +137,6 @@ export async function loadSettings() {
     if (typeof ios.context_size === "boolean") S.contextSizeOpen = ios.context_size;
   }
 
-  if (typeof S.settings.tts_enabled === "number") S.ttsEnabled = S.settings.tts_enabled !== 0;
-  else if (typeof S.settings.tts_enabled === "boolean") S.ttsEnabled = S.settings.tts_enabled;
-  document.body.classList.toggle("tts-enabled", S.ttsEnabled);
-  if (typeof S.settings.tts_auto_speak === "number") S.ttsAutoSpeak = S.settings.tts_auto_speak !== 0;
-  else if (typeof S.settings.tts_auto_speak === "boolean") S.ttsAutoSpeak = S.settings.tts_auto_speak;
-  if (typeof S.settings.tts_volume === "number") S.ttsVolume = S.settings.tts_volume;
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
   else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
 
@@ -321,33 +315,6 @@ export function renderSettings() {
         </label>
       </div>
       <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
-    </div>
-    <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Audio</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
-    <div class="tool-card ${S.ttsEnabled ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Enable TTS</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${S.ttsEnabled ? "checked" : ""} onchange="toggleTtsEnabled(this.checked)">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Read character dialogue aloud.</div>
-    </div>
-    <div id="tts-fields" style="${S.ttsEnabled ? "" : "display:none"}">
-      <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin:8px 0 0">
-        <span>Volume</span><span id="tts-volume-pct" style="margin-left:auto">${Math.round((S.ttsVolume ?? 0.75) * 100)}%</span>
-      </div>
-      <input class="voice-range" type="range" min="0" max="100" value="${Math.round((S.ttsVolume ?? 0.75) * 100)}" oninput="setTtsVolumeLive(this.value)" onchange="setTtsVolume(this.value)">
-      <div class="tool-card" style="margin-top:8px">
-        <div class="tool-card-header">
-          <span class="tool-card-name">Auto-speak</span>
-          <label class="tog" onclick="event.stopPropagation()">
-            <input type="checkbox" ${S.ttsAutoSpeak ? "checked" : ""} onchange="setTtsAutoSpeak(this.checked)">
-            <span class="tog-slider"></span>
-          </label>
-        </div>
-        <div class="tool-card-desc">Automatically speak new character messages.</div>
-      </div>
     </div>
     <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
       <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">Reset to Defaults</button>
@@ -1131,18 +1098,6 @@ export async function togglePreventPromptOverrides(on) {
   await persistSettings({ prevent_prompt_overrides: on });
 }
 
-export async function toggleTtsEnabled(checked) {
-  S.ttsEnabled = !!checked;
-  document.body.classList.toggle("tts-enabled", S.ttsEnabled);
-  renderSettings();
-  renderMessages();
-  try {
-    S.settings = await api.put("/settings", { tts_enabled: checked ? 1 : 0 });
-  } catch (e) {
-    toast("Failed to save TTS setting", true);
-  }
-}
-
 export async function saveLengthGuardConfig() {
   const words = parseInt($("lg-max-words").value, 10);
   const paras = parseInt($("lg-max-paragraphs").value, 10);
@@ -1228,6 +1183,21 @@ export function renderToolsPanel() {
   </div>`;
 
   $("tools-list").innerHTML = toolCards + lengthGuardCard;
+
+  const secEl = $("tools-list-secondary");
+  if (secEl) {
+    let secHtml = "";
+    for (const fn of S.workflowToolsPanelRenderers) {
+      try {
+        const piece = fn();
+        if (typeof piece === "string" && piece) secHtml += piece;
+      } catch (e) {
+        console.error("workflow tools-panel renderer threw:", e);
+      }
+    }
+    secEl.innerHTML =
+      secHtml || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No workflows registered.</div>`;
+  }
 }
 
 // ── Phrase Bank
