@@ -33,7 +33,6 @@ let _internetPage = 1;
 let _internetResults = [];
 let _internetLoading = false;
 let _internetHasMore = false;
-let _internetRandomizeSupported = false;
 
 // ── Mood Fragments
 export async function loadMoodFragments() {
@@ -1304,34 +1303,17 @@ function renderInternetPanel() {
       <div class="internet-controls">
         <select id="internet-source" onchange="setInternetSource(this.value)">
           <option value="characterhub" ${_internetSource === "characterhub" ? "selected" : ""}>CharacterHub</option>
+          <option value="chararc" ${_internetSource === "chararc" ? "selected" : ""}>Character Archive</option>
         </select>
         <input id="internet-search-input" type="text"
                placeholder="Search characters…"
                value="${esc(_internetQuery)}"
                onkeydown="if(event.key==='Enter')searchInternet()">
         <button class="btn" onclick="searchInternet()">Search</button>
-        <button class="btn" id="internet-randomize-btn" onclick="randomizeInternet()"
-                title="Show a random selection"
-                style="display:${_internetRandomizeSupported ? "" : "none"}">🎲 Randomize</button>
+        <button class="btn" onclick="randomizeInternet()" title="Show a random selection">🎲 Randomize</button>
       </div>
       <div id="internet-results">${renderInternetResultsBody()}</div>
     </div>`;
-  refreshInternetCapabilities();
-}
-
-// Randomize is an optional per-source capability; ask the backend whether the
-// current source supports it and show/hide the button accordingly.
-async function refreshInternetCapabilities() {
-  try {
-    const caps = await api.get(
-      `/characters/source-capabilities?source=${encodeURIComponent(_internetSource)}`,
-    );
-    _internetRandomizeSupported = !!caps?.randomize;
-  } catch {
-    _internetRandomizeSupported = false;
-  }
-  const btn = $("internet-randomize-btn");
-  if (btn) btn.style.display = _internetRandomizeSupported ? "" : "none";
 }
 
 function renderInternetResultsBody() {
@@ -1355,12 +1337,9 @@ function renderInternetResultCard(item) {
   const fullPath = (item.full_path || "").replace(/'/g, "\\'");
   const topics = (item.topics || []).slice(0, 12);
   const updated = item.date_updated ? "Updated: " + formatRelativeDate(item.date_updated) : "";
-  const tooltipParts = [
-    item.name,
-    item.tagline,
-    updated,
-    topics.length ? "Tags: " + topics.join(", ") : "",
-  ].filter(Boolean);
+  const tooltipParts = [item.name, item.tagline, updated, topics.length ? "Tags: " + topics.join(", ") : ""].filter(
+    Boolean,
+  );
   const tooltip = tooltipParts.map(esc).join("\n");
   return `
     <div class="char-browser-card internet-result-card">
