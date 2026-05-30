@@ -37,7 +37,7 @@ Adjacent backend pieces a workflow author touches:
 | Path | Role |
 |---|---|
 | `backend/locks.py` | `workflow_state_lock`, `workflow_character_state_lock`, `workflow_config_lock`. |
-| `backend/main.py` | Workflow HTTP routes (1671--2211) + `_workflow_root_lock` (157). |
+| `backend/main.py` | Workflow HTTP routes + `_workflow_root_lock`. |
 | `backend/orchestrator.py` | Pre-pipeline hook loop (`_iterate_pre_pipeline_hooks`) + post-pipeline hook loop (inline, over `iter_subscriptions(HookType.POST_PIPELINE)`) + `_stage_workflow_attachment` + `_persist_result` + `_consume_pipeline`. |
 | `backend/database/queries/workflow_attachments.py` | Raw row INSERT (`insert_workflow_attachment_row`) -- no budget/eviction; the cache wraps this. |
 | `backend/database/migrations/0020_workflows.py` | Schema for `workflow_attachments` + per-scope `workflow_state` columns (conversations / messages / character_cards) + `workflow_config` + `attachment_cache_budget_bytes` + `attachment_access_counter`. |
@@ -114,7 +114,7 @@ Single-dispatch hooks fire from their own HTTP routes, never from the turn pipel
 
 The package `__init__.py` imports each workflow's instance plus its hook callables and runs the three registration calls against them. Hooks are aliased on import (`_tts_*`) so that when a second workflow lands, its identically-named hooks (`post_pipeline`, etc.) will not shadow TTS's in the shared package namespace.
 
-Live shape -- imports at `backend/workflows/__init__.py`, calls at ``:
+Live shape -- imports and registration calls in `backend/workflows/__init__.py`:
 
 ```
 from .tts import tts_workflow                                          # the Workflow(...) instance
@@ -139,11 +139,11 @@ finalize_registry()                                                    # step 3 
 
 ### 3.5 Lookups (`registry.py`)
 
-- `get_workflow(workflow_id) -> Workflow | None` -- ``.
-- `get_subscription(workflow_id, hook_type) -> Subscription | None` -- ``. Collapses "unknown id" and "unbound hook" to None.
-- `iter_subscriptions(hook_type) -> list[Subscription]` -- ``. Priority-ascending, registration-order tie-break (stable sort).
-- `list_workflows() -> list[Workflow]` -- ``. Registration order.
-- `workflow_has_hook(w, hook_type) -> bool` -- ``.
+- `get_workflow(workflow_id) -> Workflow | None`.
+- `get_subscription(workflow_id, hook_type) -> Subscription | None`. Collapses "unknown id" and "unbound hook" to None.
+- `iter_subscriptions(hook_type) -> list[Subscription]`. Priority-ascending, registration-order tie-break (stable sort).
+- `list_workflows() -> list[Workflow]`. Registration order.
+- `workflow_has_hook(w, hook_type) -> bool`.
 
 ### 3.6 Manifest route
 
@@ -153,7 +153,7 @@ finalize_registry()                                                    # step 3 
 
 ## 4. Hook context dataclasses (`contracts.py`)
 
-All Ctx are `@dataclass(frozen=True)`. Mutable fields routed through `_readonly(...)` (recursive: `dict -> MappingProxyType`, `list/tuple -> tuple`, `set/frozenset -> frozenset`, `bytearray -> bytes`; ``). `turn_scratch`, `client`, `kv_tracker` stay unwrapped.
+All Ctx are `@dataclass(frozen=True)`. Mutable fields routed through `_readonly(...)` (recursive: `dict -> MappingProxyType`, `list/tuple -> tuple`, `set/frozenset -> frozenset`, `bytearray -> bytes`). `turn_scratch`, `client`, `kv_tracker` stay unwrapped.
 
 ### 4.1 PreCtx -- paired with PRE_PIPELINE
 
@@ -216,15 +216,15 @@ PRE/POST hooks are async generators yielding dict events. The rest are awaited a
 
 ### 5.1 Shared in-process locks (`backend/locks.py`)
 
-| Lock | Key | Scope | Defined |
-|---|---|---|---|
-| `workflow_state_lock(cid, wid)` | `(cid, wid)` | Per `(conversation, workflow)` | ``, dict `` |
-| `workflow_character_state_lock(character_id, wid)` | `(character_id, wid)` | Per `(character_card, workflow)` | ``, dict `` |
-| `workflow_config_lock()` | (none) | Process-global; serializes all `workflow_config` RMW across every workflow id | ``, dict `` |
+| Lock | Key | Scope |
+|---|---|---|
+| `workflow_state_lock(cid, wid)` | `(cid, wid)` | Per `(conversation, workflow)` |
+| `workflow_character_state_lock(character_id, wid)` | `(character_id, wid)` | Per `(character_card, workflow)` |
+| `workflow_config_lock()` | (none) | Process-global; serializes all `workflow_config` RMW across every workflow id |
 
 Non-reentrant `asyncio.Lock`s. Nesting order at every site: `workflow_state_lock` outer, `workflow_character_state_lock` inner.
 
-### 5.2 `_workflow_root_lock(root_id)` (`backend/main.py`, dict ``)
+### 5.2 `_workflow_root_lock(root_id)` (`backend/main.py`)
 
 Distinct, int-keyed space (`dict[int, asyncio.Lock]`), keyed on the root attachment id. Held by the five attachment-mutating routes: `/regenerate`, `/reroll-gen`, `/rehydrate`, `/activate`, `/delete`. It serializes concurrent edits to one attachment's variant group (the root row plus its sibling variants), so two callers cannot interleave a read-modify-write on the same group. It is never nested with `workflow_state_lock` or `workflow_character_state_lock` at any call site and so sits outside their ordering rule.
 
@@ -232,7 +232,7 @@ Distinct, int-keyed space (`dict[int, asyncio.Lock]`), keyed on the root attachm
 
 | Lock | Held by |
 |---|---|
-| `workflow_state_lock` (outer) + `workflow_character_state_lock` (inner) | PRE-pipeline iterator (`orchestrator.py`), POST-pipeline iterator (`orchestrator.py`), `/trigger` route (`main.py` outer + `` inner). Workflow code doing read-modify-write on workflow_state acquires the same locks via the `toolkit` re-export (`backend/workflows/toolkit.py`). |
+| `workflow_state_lock` (outer) + `workflow_character_state_lock` (inner) | PRE-pipeline iterator (`orchestrator.py`), POST-pipeline iterator (`orchestrator.py`), `/trigger` route (`main.py`). Workflow code doing read-modify-write on workflow_state acquires the same locks via the `toolkit` re-export (`backend/workflows/toolkit.py`). |
 | `workflow_config_lock` | `PUT /api/workflows/{workflow_id}/config` (`main.py`). Workflow code doing read-modify-write on workflow_config acquires it via the `toolkit` re-export. |
 
 ---
@@ -301,11 +301,11 @@ The only attachment writer exposed to authors. See sec. 9.
 
 ### 7.1 Turn entry points
 
-| Function | def line | First built-in event | Last event |
-|---|---|---|---|
-| `handle_turn` | `` | `user_message_created` | `done` |
-| `handle_regenerate` | `` | `director_start` or, when the director block is skipped, `director_done` | `done` |
-| `handle_super_regenerate` | `` | same as `handle_regenerate` | `done` |
+| Function | First built-in event | Last event |
+|---|---|---|
+| `handle_turn` | `user_message_created` | `done` |
+| `handle_regenerate` | `director_start` or, when the director block is skipped, `director_done` | `done` |
+| `handle_super_regenerate` | same as `handle_regenerate` | `done` |
 
 All three run PRE-pipeline hooks first. `handle_regenerate` / `handle_super_regenerate` skip `user_message_created` -- they do not persist a new user row. `done` fires last from `_consume_pipeline` on any turn that completes without raising -- it sits after the pipeline's `try/finally`, so a pipeline exception propagates past it.
 
@@ -313,12 +313,12 @@ All three run PRE-pipeline hooks first. `handle_regenerate` / `handle_super_rege
 
 ### 7.2 Per-turn shared identities
 
-- `turn_scratch: dict = {}` allocated once per turn; entry-point lines ``, ``, ``. Same object reference into every PreCtx and PostCtx (`` PRE wrap site, `` POST wrap site -- both `turn_scratch=turn_scratch`, no `_readonly`). Writes during PRE visible to POST.
-- `schema_overrides: dict = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}` -- entry-point lines ``, ``, ``. Threaded into pre-pipeline iter, `_run_pipeline`, every pass (`_director_pass`, `_writer_pass`, `editor_pass`), and exposed read-only on PreCtx/PostCtx for `forced_tool_call` reuse.
+- `turn_scratch: dict = {}` allocated once per turn. Same object reference into every PreCtx and PostCtx (both the PRE and POST wrap sites pass `turn_scratch=turn_scratch`, no `_readonly`). Writes during PRE visible to POST.
+- `schema_overrides: dict = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}` -- built per turn, then threaded into pre-pipeline iter, `_run_pipeline`, every pass (`_director_pass`, `_writer_pass`, `editor_pass`), and exposed read-only on PreCtx/PostCtx for `forced_tool_call` reuse.
 - `client = LLMClient(...)` built in `_load_pipeline_context`; attached to PreCtx.client / PostCtx.client (raw, not macros-wrapped).
 - `kv_tracker` -- per-turn `_KVCacheTracker`; ref-shared across all passes and ctx fields.
 
-### 7.3 PRE_PIPELINE iteration (`_iterate_pre_pipeline_hooks` ``)
+### 7.3 PRE_PIPELINE iteration (`_iterate_pre_pipeline_hooks`)
 
 For each subscription (priority-ascending):
 
@@ -326,19 +326,19 @@ For each subscription (priority-ascending):
 2. Build `PreCtx`.
 3. `async for ev in sub.callable(pre_ctx)`. Dispatch on `ev.get("type")`:
 
-| Event `type` | Effect | Code |
-|---|---|---|
-| `"enable_tools"` | Merge `ev["tools"]` into `accumulators["merged_enabled_tools"]`: `set`/`frozenset` -> each name True; `dict` -> entries whose value is exactly `True`. Names not in `TOOLS`, dict values that are not `True`, and a `tools` payload that is not set/frozenset/dict each drop (the whole event, for a bad payload) with WARNING. | `` |
-| `"system_prompt"` | Append `ev["block"]` to `accumulators["extras"]` if it is a non-whitespace `str` (empty/whitespace-only dropped with WARNING). | `` |
-| neither | Forward `ev` to SSE stream verbatim. | `` |
+| Event `type` | Effect |
+|---|---|
+| `"enable_tools"` | Merge `ev["tools"]` into `accumulators["merged_enabled_tools"]`: `set`/`frozenset` -> each name True; `dict` -> entries whose value is exactly `True`. Names not in `TOOLS`, dict values that are not `True`, and a `tools` payload that is not set/frozenset/dict each drop (the whole event, for a bad payload) with WARNING. |
+| `"system_prompt"` | Append `ev["block"]` to `accumulators["extras"]` if it is a non-whitespace `str` (empty/whitespace-only dropped with WARNING). |
+| neither | Forward `ev` to SSE stream verbatim. |
 
 Reserved-name rule: any `ev["event"]` that is a string starting with `_` is dropped with WARNING.
 
 Error containment: each subscription's body wrapped in `try / except Exception`. One bad hook is logged-and-skipped.
 
-Post-loop application (entry points `` and analogues): `extras` non-empty triggers `_build_prefixes(ctx, history, extra_system_blocks=extras)` rebuild. `merged_enabled_tools` is fed to `_run_pipeline(enabled_tools=...)`.
+Post-loop application (entry points and analogues): `extras` non-empty triggers `_build_prefixes(ctx, history, extra_system_blocks=extras)` rebuild. `merged_enabled_tools` is fed to `_run_pipeline(enabled_tools=...)`.
 
-### 7.4 POST_PIPELINE iteration (inside `_run_pipeline` ``)
+### 7.4 POST_PIPELINE iteration (inside `_run_pipeline`)
 
 For each subscription:
 
@@ -346,11 +346,11 @@ For each subscription:
 2. Build `PostCtx`.
 3. `async for ev in sub.callable(post_ctx)`. Dispatch on `ev.get("type")`:
 
-| Event `type` | Effect | Code |
-|---|---|---|
-| `"draft_replaced"` | One per hook. `ev["draft"]` must be a str differing from current `draft`, else WARNING + drop. On accept: `draft = ev["draft"]`, yield `{"event": "writer_rewrite", "data": {"refined_text": draft}}`. | `` |
-| `"attach_artifact"` | Gated on `get_workflow(wid)` resolving with `produces_artifacts` truthy (unknown workflow or unset flag -> WARNING + drop). Validated via `_stage_workflow_attachment`. Survivors appended to local `staged_attachments`. No SSE event at attach time. | `` |
-| `"set_message_state"` | `ev["state"]` must be a dict (else WARNING + drop). On accept: staged under the hook's `workflow_id` (last-wins), then written to the new assistant message's per-message state slot in `_persist_result` once the assistant row exists. No SSE event. | `` |
+| Event `type` | Effect |
+|---|---|
+| `"draft_replaced"` | One per hook. `ev["draft"]` must be a str differing from current `draft`, else WARNING + drop. On accept: `draft = ev["draft"]`, yield `{"event": "writer_rewrite", "data": {"refined_text": draft}}`. |
+| `"attach_artifact"` | Gated on `get_workflow(wid)` resolving with `produces_artifacts` truthy (unknown workflow or unset flag -> WARNING + drop). Validated via `_stage_workflow_attachment`. Survivors appended to local `staged_attachments`. No SSE event at attach time. |
+| `"set_message_state"` | `ev["state"]` must be a dict (else WARNING + drop). On accept: staged under the hook's `workflow_id` (last-wins), then written to the new assistant message's per-message state slot in `_persist_result` once the assistant row exists. No SSE event. |
 | neither | Forward `ev` to SSE stream. Underscore-prefixed `ev["event"]` dropped. |
 
 Error containment: each subscription wrapped in `try / except Exception`.
@@ -374,20 +374,20 @@ On fail: WARNING + return None. On success: shallow-copy + normalize whitespace-
 
 ### 7.6 Reserved event names
 
-The orchestrator owns these `event:` names: built-ins it emits itself, and underscore-prefixed internals it drops before they reach the wire (PRE ``, POST ``). A hook that yields one collides with the orchestrator's own use. (Producer line = the `yield` statement; the literal `"event"` key may sit a line below.)
+The orchestrator owns these `event:` names: built-ins it emits itself, and underscore-prefixed internals it drops before they reach the wire (in both the PRE and POST hook loops). A hook that yields one collides with the orchestrator's own use.
 
-| Event | Producer line |
+| Event | Notes |
 |---|---|
-| `user_message_created` | `` (only `handle_turn`) |
-| `director_start` | `` |
-| `director_done` | `` |
-| `prompt_rewritten` | `` |
-| `token` | `` |
-| `reasoning` | ``, ``, `` (built-ins); custom pipelines: see sec. 13.2 |
-| `writer_rewrite` | `` (editor), `` (post-pipeline draft_replaced) |
-| `editor_done` | `` |
-| `workflow_attachments_rejected` | `_consume_pipeline` |
-| `done` | `_consume_pipeline` |
+| `user_message_created` | only `handle_turn` |
+| `director_start` | |
+| `director_done` | |
+| `prompt_rewritten` | |
+| `token` | |
+| `reasoning` | built-ins; custom pipelines see sec. 13.2 |
+| `writer_rewrite` | editor + post-pipeline draft_replaced |
+| `editor_done` | |
+| `workflow_attachments_rejected` | from `_consume_pipeline` |
+| `done` | from `_consume_pipeline` |
 | `error` | entry-point guard returns + `except` blocks |
 | `_result`, `_editor_reasoning`, `_refined_result` | Internal; never reach SSE wire. |
 
@@ -422,7 +422,7 @@ Reads from `_run_pipeline`, dispatches by `event["event"]`:
 | `"_refined_result"` | Overwrite `res["resp_text"]`; rewrite the assistant DB row when one was persisted. NOT re-yielded. |
 | anything else | Re-yield verbatim. |
 
-Trailing `yield {"event": "done"}` at ``.
+Trailing `yield {"event": "done"}`.
 
 Note: when `resp_text` is empty, `_persist_result` short-circuits (sec. 7.7) and returns `(None, [])`, so any staged `attach_artifact` or `set_message_state` entries are dropped, the former without a `workflow_attachments_rejected` event. An artifact-only or message-state-only hook produces nothing on a turn whose writer emitted no text.
 
@@ -430,7 +430,7 @@ Note: when `resp_text` is empty, `_persist_result` short-circuits (sec. 7.7) and
 
 `user_message_created`? -> PRE passthrough events* -> `director_start`? -> `reasoning(director)`? -> `prompt_rewritten`? -> `director_done`? -> `reasoning(writer)`? -> `token`* -> `reasoning(editor)`? -> `writer_rewrite`? -> `editor_done`? -> POST-hook events* (`writer_rewrite` from `draft_replaced`, plus passthrough, interleaved per hook in priority order) -> `workflow_attachments_rejected`? -> `done`.
 
-`?` = conditional. `director_start` and `reasoning(director)` run only when the agent is on and a pre-writer tool is enabled; `prompt_rewritten` additionally requires the director to have rewritten the message. `director_done` fires unconditionally (``, outside the `` block), absent only when the turn aborts at the post-director stop check. Each `reasoning(pass)` fires only when that pass's reasoning flag is set (director on by default, writer/editor off; ``); `user_message_created` is suppressed when the caller pre-persisted the user row.
+`?` = conditional. `director_start` and `reasoning(director)` run only when the agent is on and a pre-writer tool is enabled; `prompt_rewritten` additionally requires the director to have rewritten the message. `director_done` fires unconditionally (outside the director block), absent only when the turn aborts at the post-director stop check. Each `reasoning(pass)` fires only when that pass's reasoning flag is set (director on by default, writer/editor off); `user_message_created` is suppressed when the caller pre-persisted the user row.
 
 ---
 
@@ -460,7 +460,7 @@ Handler `api_regenerate_attachment`. Body: raw `dict`. Pre-lock: `get_conversati
 
 #### POST `/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen`
 
-Handler `api_reroll_gen_attachment`. Body unused. `get_conversation(cid)` (404), `att` (404), `anchor` (404), `sub` (REROLL_GEN, 404). `params` = `att["generation_metadata"]` decoded as JSON, coerced to `{}` on empty / parse fail / non-dict. `root_id = att["parent_attachment_id"] or aid`. Lock: `_workflow_root_lock(root_id)`. `seed = _generated_seed()` (`secrets.token_hex(16)`, ``). Build `RerollGenCtx` via `_build_reroll_gen_ctx` + LLMClient. `await sub.callable(ctx, params, seed) -> bytes | (bytes, dict | None)` -- normalize via `_split_reroll_gen_result`. Empty/non-bytes => 500. Build new sibling dict: fresh `seed`, inherited `generation_metadata=params`, optional new `consumption_metadata`, `workflow_id=sub.workflow_id`, `parent_attachment_id=root_id`, `filename=att.get("filename") or sub.workflow_id`, `mime=att.get("mime_type") or "application/octet-stream"`, `annotation` copied from `att`. `insert_workflow_attachment(mid, new_attachment)`. Response: `{"attachment_id": new_id, "rejected_workflow_atts": [...0-or-1...]}`.
+Handler `api_reroll_gen_attachment`. Body unused. `get_conversation(cid)` (404), `att` (404), `anchor` (404), `sub` (REROLL_GEN, 404). `params` = `att["generation_metadata"]` decoded as JSON, coerced to `{}` on empty / parse fail / non-dict. `root_id = att["parent_attachment_id"] or aid`. Lock: `_workflow_root_lock(root_id)`. `seed = _generated_seed()` (`secrets.token_hex(16)`). Build `RerollGenCtx` via `_build_reroll_gen_ctx` + LLMClient. `await sub.callable(ctx, params, seed) -> bytes | (bytes, dict | None)` -- normalize via `_split_reroll_gen_result`. Empty/non-bytes => 500. Build new sibling dict: fresh `seed`, inherited `generation_metadata=params`, optional new `consumption_metadata`, `workflow_id=sub.workflow_id`, `parent_attachment_id=root_id`, `filename=att.get("filename") or sub.workflow_id`, `mime=att.get("mime_type") or "application/octet-stream"`, `annotation` copied from `att`. `insert_workflow_attachment(mid, new_attachment)`. Response: `{"attachment_id": new_id, "rejected_workflow_atts": [...0-or-1...]}`.
 
 #### POST `/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate`
 
@@ -480,11 +480,11 @@ Handler `api_record_workflow_attachment_access`. Body: `{"ids": list[int]}`. No 
 
 ### 8.2 Helpers used by attachment routes
 
-- `_workflow_root_lock(root_id)` -- `` (backed by the `_workflow_root_locks` dict at ``). Per-int-key asyncio lock.
-- `_decode_stored_consumption_metadata(att)` -- ``. Parses `att["consumption_metadata"]` JSON; None on empty, malformed, or non-dict.
-- `_split_reroll_gen_result(result, wid) -> (data, cm)` -- ``. Accepts `bytes` or `(bytes, dict | None)`; non-dict second element coerced to None with WARNING. Used by `/reroll-gen` and `/rehydrate`.
-- `_build_reroll_gen_ctx(cid, mid, aid, att, settings, client) -> RerollGenCtx` -- ``.
-- `_generated_seed() -> str` -- ``. `secrets.token_hex(16)` (32-char lowercase hex).
+- `_workflow_root_lock(root_id)` -- backed by the `_workflow_root_locks` dict. Per-int-key asyncio lock.
+- `_decode_stored_consumption_metadata(att)`. Parses `att["consumption_metadata"]` JSON; None on empty, malformed, or non-dict.
+- `_split_reroll_gen_result(result, wid) -> (data, cm)`. Accepts `bytes` or `(bytes, dict | None)`; non-dict second element coerced to None with WARNING. Used by `/reroll-gen` and `/rehydrate`.
+- `_build_reroll_gen_ctx(cid, mid, aid, att, settings, client) -> RerollGenCtx`.
+- `_generated_seed() -> str`. `secrets.token_hex(16)` (32-char lowercase hex).
 
 ---
 
@@ -513,7 +513,7 @@ Table `workflow_attachments`:
 | `active_sibling_id` | INTEGER | FK `workflow_attachments(id)` ON DELETE SET NULL |
 | `recent_accesses` | TEXT | nullable (JSON list of ints, max length 3) |
 
-Added by 0020 (PRAGMA-guarded ADD COLUMN, ``, ``):
+Added by 0020 (PRAGMA-guarded ADD COLUMN):
 
 - `conversations.workflow_state` TEXT DEFAULT NULL
 - `messages.workflow_state` TEXT DEFAULT NULL
@@ -527,8 +527,8 @@ No CREATE INDEX besides implicit PRIMARY KEY.
 ### 9.2 EVICTED_MARKER + budget
 
 - `EVICTED_MARKER = "[evicted]"`. Replaces `data_b64` on eviction; all other columns preserved.
-- Budget: `settings.attachment_cache_budget_bytes` (live read each call via `_get_budget_bytes_on`, ``).
-- "LRU-3": `recent_accesses` keeps at most 3 counter values (`` -- `new_list = ([assigned] + cur)[:3]`). Eviction sort key is the *oldest* of those values (`_lru3_key` -- ``); rows evict oldest-counter-first, so a single recent touch does not indefinitely pin an otherwise-idle row. Rows with empty/missing `recent_accesses` sort last (`+inf`) and are never first to evict.
+- Budget: `settings.attachment_cache_budget_bytes` (live read each call via `_get_budget_bytes_on`).
+- "LRU-3": `recent_accesses` keeps at most 3 counter values (`new_list = ([assigned] + cur)[:3]`). Eviction sort key is the *oldest* of those values (`_lru3_key`); rows evict oldest-counter-first, so a single recent touch does not indefinitely pin an otherwise-idle row. Rows with empty/missing `recent_accesses` sort last (`+inf`) and are never first to evict.
 
 ### 9.3 Validation: `validate_workflow_attachment_shape(att) -> (bool, reason | None)`
 
@@ -554,7 +554,7 @@ Only `insert_workflow_attachment` is re-exported from `toolkit.py`. The others a
 
 1. Reject if `not _is_produces_artifacts_workflow(workflow_id)` -> tagged `WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON`.
 2. `_check_flat_parent_on` -- parent must exist, must have `parent_attachment_id IS NULL`, must be on same message.
-3. Size via `_estimate_size`. If `size > budget` and rehydratable (`seed` non-empty str AND `generation_metadata` dict; `_is_rehydratable` ``), insert as marker; if not rehydratable, reject with `OVERSIZE_NO_METADATA_REASON`.
+3. Size via `_estimate_size`. If `size > budget` and rehydratable (`seed` non-empty str AND `generation_metadata` dict; `_is_rehydratable`), insert as marker; if not rehydratable, reject with `OVERSIZE_NO_METADATA_REASON`.
 4. Otherwise evict existing rows via `_lru3_key`-sorted candidates until residual `(occupied + new_size) - budget <= 0`.
 5. `insert_workflow_attachment_row` (`backend/database/queries/workflow_attachments.py`) issues `SELECT id FROM messages WHERE id=?` then `INSERT INTO workflow_attachments(...) VALUES(?,?,?,?,?,?,?,?,?,?,?)`.
 6. Birth-as-access via `_record_access_inner`.
@@ -644,9 +644,9 @@ Top-level `register*` and `S.workflow*` push/assign calls run on import. Manifes
 | `workflowPipelines` | `[]` | via `registerWorkflowPipeline` only | SSE `reasoning` routing (`chat.js`); Inspector Secondary rail |
 | `workflowState` | `{}` | `S.workflowState[wid] = <opaque>` | author only (framework never reads) |
 | `workflowPhases` | `{}` | via `setWorkflowPhase` / `clearWorkflowPhase` only | `_renderWorkflowPhasesPill` (`chat.js`) |
-| `workflowTextEffects` | `[]` | via `registerTextEffect` only | segmentation gate (`chat.js`, ``) |
-| `workflowClickHandlers` | `[]` | via `registerClickHandler` only | segmentation gate (`chat.js`, ``); click router (`workflow_text_interaction.js`) |
-| `workflowManifest` | `[]` | (framework writes at boot) | `workflow_loader.js` (module-load loop); `chat.js` regen/reroll-button gates + label helpers (``, ``, ``, ``) |
+| `workflowTextEffects` | `[]` | via `registerTextEffect` only | segmentation gate (`chat.js`) |
+| `workflowClickHandlers` | `[]` | via `registerClickHandler` only | segmentation gate (`chat.js`); click router (`workflow_text_interaction.js`) |
+| `workflowManifest` | `[]` | (framework writes at boot) | `workflow_loader.js` (module-load loop); `chat.js` regen/reroll-button gates + label helpers |
 | `reasoningByPass` | `{}` | (framework writes via SSE + `registerWorkflowPipeline` seed; reset per turn / conversation switch) | rail render |
 | `inspectorTab` | `"main"` | via `setInspectorTab` only | tab paint |
 | `toolsTab` | `"main"` | via `setToolsTab` only | tab paint |
@@ -676,7 +676,7 @@ registerClickHandler({id, label?, priority?, claims?, onClick})
 
 - `id` non-empty string (else `console.error` and skip).
 - `label` -> `id`.
-- Registering any effect enables body word-segmentation -- without a registered effect or click handler, `.seg` spans are never produced (`chat.js`, ``).
+- Registering any effect enables body word-segmentation -- without a registered effect or click handler, `.seg` spans are never produced (`chat.js`).
 
 `registerClickHandler` (validation + defaults):
 
@@ -723,7 +723,7 @@ These 11 names are intercepted by built-in `case`s in `handleSSEEvent` before th
 
 ### 12.4 `afterStream`
 
-Awaited unconditionally at end of `runStreamRequest` and `sendMessage`. Refetches `/conversations/<id>/messages`, refreshes director state, finalizes streaming DOM, clears workflow phases as backstop (`clearWorkflowPhase()` no arg, ``).
+Awaited unconditionally at end of `runStreamRequest` and `sendMessage`. Refetches `/conversations/<id>/messages`, refreshes director state, finalizes streaming DOM, clears workflow phases as backstop (`clearWorkflowPhase()` no arg).
 
 ---
 
@@ -771,9 +771,9 @@ Switching to Inspector Secondary triggers `renderInspectorSecondary` (rebuild). 
 ### 13.4 Refetch helpers
 
 ```
-refreshConversationMessages(msgId?)   # chat.js   async, may return false (in-flight gates)
-renderMessages()                       # chat.js  no-arg local repaint
-broadcastWorkflowMutation({convId, msgId})   # tabLock.js   peer-tab refresh
+refreshConversationMessages(msgId?)   # chat.js async, may return false (in-flight gates)
+renderMessages()                       # chat.js no-arg local repaint
+broadcastWorkflowMutation({convId, msgId})   # tabLock.js peer-tab refresh
 ```
 
 `refreshConversationMessages` returns `false` when there is no active conversation (`S.activeConvId`), while streaming (`S.isStreaming`), while editing (`editingMsgId` / `editingPendingUserMsg` / `magicInputMsgId`), or when `msgId` is one a rehydrate/action/swipe is mid-flight on. `renderMessages` repaints from current `S.messages` (no fetch) -- use after a local config change that affects how renderers paint.
@@ -781,12 +781,12 @@ broadcastWorkflowMutation({convId, msgId})   # tabLock.js   peer-tab refresh
 ### 13.5 HTTP / DOM helpers
 
 ```
-api.get(path)                # frontend/api.js      prepends /api (via _req, )
-api.post(path, body)         #                      JSON body
-api.put(path, body)          #                      JSON body
-convUrl(...parts)            # frontend/utils.js    -> "/conversations/<part1>/<part2>/..."
-esc(s)                       # frontend/utils.js     HTML-escape; null/undefined -> ""
-showModal(html) / closeModal()   # frontend/modal.js, 
+api.get(path)                # frontend/api.js prepends /api (via _req)
+api.post(path, body)         # JSON body
+api.put(path, body)          # JSON body
+convUrl(...parts)            # frontend/utils.js -> "/conversations/<part1>/<part2>/..."
+esc(s)                       # frontend/utils.js HTML-escape; null/undefined -> ""
+showModal(html) / closeModal()   # frontend/modal.js
 ```
 
 Paths passed to `api.*` must NOT include `/api` -- `_req` adds it. A conversation-scoped call: `api.post(convUrl(cid, "foo"), body)`, equivalently `api.post("/conversations/" + cid + "/foo", body)`; both hit `/api/conversations/<cid>/foo`.
@@ -816,7 +816,7 @@ Per group, `_renderWorkflowSwipeContainer(msg, rootId, atts)` decides branch:
 | Renderer | `S.workflowAttachmentRenderers[active.workflow_id]` is a function | `renderer(ctx)`. |
 | Default | otherwise | `defaultHtml`. |
 
-Active sibling selection: `_activeIndexForGroup` (``, wrapping `_activeAttachmentForGroup` ``) -- `root.active_sibling_id` if it matches a sibling, else newest.
+Active sibling selection: `_activeIndexForGroup` (wrapping `_activeAttachmentForGroup`) -- `root.active_sibling_id` if it matches a sibling, else newest.
 
 ### 14.2 Renderer `ctx`
 
@@ -859,7 +859,7 @@ Source aliases: `att.b64 || att.data_b64`, `att.mime || att.mime_type` (fallback
 
 Inspector Secondary card iteration: `_buildSecondaryAgentsHtml` (`chat.js`). Each `S.workflowInspectorCardRenderers[i]()` output is concatenated raw (no per-card wrap).
 
-Tools Secondary card iteration: `renderToolsPanel` (`settings.js`; secondary-card loop at ``). Same shape, iterating `S.workflowToolsPanelRenderers` (a distinct array from the inspector's `S.workflowInspectorCardRenderers`).
+Tools Secondary card iteration: `renderToolsPanel` (`settings.js`). Same shape, iterating `S.workflowToolsPanelRenderers` (a distinct array from the inspector's `S.workflowInspectorCardRenderers`).
 
 Per-message buttons: `_renderExtraButtons(msg)` (`chat.js`). Each `S.workflowMessageButtonRenderers[i](msg)` spliced into the toolbar between magic and delete buttons.
 
@@ -867,15 +867,15 @@ Per-message buttons: `_renderExtraButtons(msg)` (`chat.js`). Each `S.workflowMes
 
 Owned by the framework; bound onto the buttons the chrome, nav arrows, and widget bodies emit. The POST-driven handlers hit the per-attachment route family `/conversations/<cid>/messages/<mid>/workflow-attachments/<attId>/<op>` (sec. 8); the table names only the `<op>` segment:
 
-| Handler | Line | Behavior |
-|---|---|---|
-| `workflowRegenerate(msgId, attId, btn)` | `` | tab-lock gate, per-root in-flight lock, set pill, POST `.../regenerate`, merge rejections, refetch + render |
-| `workflowReroll(msgId, attId, btn)` | `` | same shape, POST `.../reroll-gen` |
-| `workflowRehydrate(msgId, attId, btn)` | `` | tab-lock gate, per-attId in-flight, POST `.../rehydrate`, refetch + render; 409 treated as already-restored |
-| `workflowArtifactStep(instanceId, delta)` | `` | sibling nav; optimistic `root.active_sibling_id` update + DOM swap + POST `.../activate` |
-| `workflowToggleMinimize(instanceId)` | `` | toggles `_workflowMinimized` Set + `localStorage["orb.workflowMinimized"]`; no server |
-| `workflowDeleteAttachment(instanceId)` | `` | opens the delete-choice modal, then `workflowConfirmDelete(scope)` on confirm. The variant-vs-whole-group choice appears only for a group with >1 sibling; a single-variant group gets a plain confirm |
-| `workflowConfirmDelete(scope)` | `` | confirm dispatcher |
+| Handler | Behavior |
+|---|---|
+| `workflowRegenerate(msgId, attId, btn)` | tab-lock gate, per-root in-flight lock, set pill, POST `.../regenerate`, merge rejections, refetch + render |
+| `workflowReroll(msgId, attId, btn)` | same shape, POST `.../reroll-gen` |
+| `workflowRehydrate(msgId, attId, btn)` | tab-lock gate, per-attId in-flight, POST `.../rehydrate`, refetch + render; 409 treated as already-restored |
+| `workflowArtifactStep(instanceId, delta)` | sibling nav; optimistic `root.active_sibling_id` update + DOM swap + POST `.../activate` |
+| `workflowToggleMinimize(instanceId)` | toggles `_workflowMinimized` Set + `localStorage["orb.workflowMinimized"]`; no server |
+| `workflowDeleteAttachment(instanceId)` | opens the delete-choice modal, then `workflowConfirmDelete(scope)` on confirm. The variant-vs-whole-group choice appears only for a group with >1 sibling; a single-variant group gets a plain confirm |
+| `workflowConfirmDelete(scope)` | confirm dispatcher |
 
 LocalStorage key: `WF_MINIMIZED_LS_KEY = "orb.workflowMinimized"`. Persisted: a collapsed widget stays collapsed across reloads and is shared across same-origin tabs; the in-memory Set is rebuilt per load.
 
@@ -885,14 +885,14 @@ LocalStorage key: `WF_MINIMIZED_LS_KEY = "orb.workflowMinimized"`. Persisted: a 
 
 | Surface | Trigger | originatingId |
 |---|---|---|
-| Per-widget chip (filtered + placed in `_renderWorkflowSwipeContainer`, ``) | regenerate/reroll response | `root_id` |
-| Footer chip (`_renderWorkflowRejection`, ``) | SSE `workflow_attachments_rejected` | `null` |
+| Per-widget chip (filtered + placed in `_renderWorkflowSwipeContainer`) | regenerate/reroll response | `root_id` |
+| Footer chip (`_renderWorkflowRejection`) | SSE `workflow_attachments_rejected` | `null` |
 
 Both surfaces emit their HTML through the shared `_workflowRejectionChipHtml`, which renders `<div class="workflow-rejected-warning">...</div>`.
 
 ### 14.8 Access reporting client
 
-- IntersectionObserver `_workflowViewportObserver` (`chat.js`, re-attached per render by `_refreshWorkflowViewportObserver` ``). Threshold `0.1`. On first entry of a message (deduped per session via `_workflowObservedMsgIds`, declared ``): queues one active-sibling id per group into `_workflowViewportPendingIds`.
+- IntersectionObserver `_workflowViewportObserver` (`chat.js`, re-attached per render by `_refreshWorkflowViewportObserver`). Threshold `0.1`. On first entry of a message (deduped per session via `_workflowObservedMsgIds`, declared): queues one active-sibling id per group into `_workflowViewportPendingIds`.
 - Swipe success also queues the new active sibling id.
 - Debounce `_scheduleWorkflowViewportFlush`: 250ms `setTimeout` -> `_flushWorkflowViewportReport` POSTs `{ids: [...]}` to `/conversations/<cid>/workflow-attachments/access`.
 - IDs are sent in Set insertion order (`[..._workflowViewportPendingIds]`); the backend assigns access counters in that order (sec. 9).
@@ -941,8 +941,8 @@ seekChannel(channel, offsetSec)
 setChannelVolume(channel, vol)
 setChannelRepeat(channel, on)
 replayChannel(channel)
-channelState(channel)                      #     null if never played / hard-stopped
-onChannel(channel, handler)                #     returns unsubscribe
+channelState(channel)                      # null if never played / hard-stopped
+onChannel(channel, handler)                # returns unsubscribe
 ```
 
 A naturally-ended channel keeps its plan; `replayChannel`, `seekChannel`, and `setChannelRepeat(on=true)` can re-arm without re-calling `playAudio`.
@@ -983,7 +983,7 @@ Mounted above the composer inside `#chat-input-area` at boot (`initAudioPlayer`)
 
 The chat render path wraps words in `.seg` spans (`segmentBody`, `workflow_segmentation.js`) and tags the claimed ones (`markClickable`) via `_applyWorkflowTextSegments` (`chat.js`). Both entry points require the same two things: at least one of `S.workflowTextEffects` / `S.workflowClickHandlers` is non-empty, and the body is not in editor-diff review. The two entry points:
 
-- After streaming completes, in place on the new message: `finalizeStreamingDiv` (`chat.js`, gate at ``).
+- After streaming completes, in place on the new message: `finalizeStreamingDiv` (`chat.js`).
 - Full re-render: `_segmentRenderedMessages` (`chat.js`).
 
 Only finalized messages with a positive-integer `data-msg-id` are segmented (`chat.js`); pending and streaming rows lack one until finalized.
@@ -1013,7 +1013,7 @@ Passed to `claims(seg)` and `onClick(seg, msgId)`:
 | `word` | lazy getter; concatenates `textContent` of all spans sharing `data-seg` |
 | `sentenceText` | lazy getter; concatenates spans sharing `data-sent` |
 | `msgId` | merged in via `extra`; the click router reads it from the closest `.message[data-msg-id]` (`workflow_text_interaction.js`), the render-time claim pass `markClickable` passes the message id it already holds |
-| `role` | merged in via `extra`; `"user"`/`"assistant"` (`workflow_text_interaction.js`, ``) |
+| `role` | merged in via `extra`; `"user"`/`"assistant"` (`workflow_text_interaction.js`) |
 
 ### 16.5 `startTextEffect({msgId, effectId, grain?, variant?})` (`workflow_text_effects.js`)
 
@@ -1051,10 +1051,10 @@ Delegated `click` listener on `#chat-messages`. Steps:
 |---|---|
 | `.seg` | `workflow_segmentation.js` (structural marker; styled only via `.seg.<modifier>` compounds) |
 | `.seg-clickable` | `workflow_text_interaction.js` (added to any claimed word) |
-| `.seg-multi` | `` (added to words with >1 claimant) |
+| `.seg-multi` | `workflow_text_interaction.js` (added to words with >1 claimant) |
 | `.fx-highlight` / `.fx-underline` / `.fx-pulse` | `workflow_text_effects.js` toggle |
 | `.wf-seg-caret` | `workflow_text_interaction.js` (hover chooser button) |
-| `.wf-claim-popover` / `.wf-claim-item` | ``, `` |
+| `.wf-claim-popover` / `.wf-claim-item` | `workflow_text_interaction.js` |
 
 CSS for all these lives in `frontend/style.css`. Author addresses units by index; framework owns DOM and classes.
 
