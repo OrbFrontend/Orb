@@ -329,6 +329,7 @@ def regex_extract(
             chunks.append(
                 SpeakableChunk(
                     text=final_text,
+                    spoken_text=dialogue_text,
                     emotion=emotion,
                     pause_before_ms=pause_before,
                     pause_after_ms=0,

@@ -13,8 +13,10 @@ import {
   handleMagicKey,
   handleTitleEditKey,
   initChatSwipeNav,
+  initWorkflowMutationListener,
   hideAvatarPopup,
   loadConversations,
+  loadWorkflowManifest,
   newConvForChar,
   regenerate,
   renderMessages,
@@ -25,17 +27,17 @@ import {
   selectChar,
   selectConversation,
   selectReasoningPass,
+  selectWorkflowPipelinePass,
   sendMessage,
-  setCurrentTtsVolume,
+  setInspectorTab,
+  setToolsTab,
   showAvatarPopup,
   showCompressModal,
   showConvHistoryModal,
-  speakMessageAction,
   startEdit,
   startEditPending,
   startEditTitle,
   stopGeneration,
-  stopSpeaking,
   submitMagicRewrite,
   superRegenerate,
   switchBranch,
@@ -60,7 +62,6 @@ import {
   loadMoreInternet,
   loadDirectorFragments,
   loadMoodFragments,
-  loadVoiceProfileIntoTab,
   onCharBrowserSearch,
   refreshCharacters,
   renderCharacters,
@@ -68,7 +69,6 @@ import {
   saveDirectorFragment,
   saveImportedChar,
   saveMoodFragment,
-  saveVoiceProfileFromTab,
   searchInternet,
   setCharBrowserSort,
   setCharBrowserView,
@@ -135,13 +135,14 @@ import {
   toggleShowEditorDiff,
   toggleToolEnabled,
   toggleToolsPanel,
-  toggleTtsEnabled,
 } from "./settings.js";
 import { S } from "./state.js";
 import { initTabLock, setLockStateChangeCallback } from "./tabLock.js";
 import { $, formatBytes } from "./utils.js";
 import { validate } from "./validate.js";
-import { setTtsAutoSpeak, setTtsVolume, setTtsVolumeLive } from "./voice.js";
+import { loadWorkflowModules } from "./workflow_loader.js";
+import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
+import { initAudioPlayer } from "./audio_transport.js";
 
 // ── Sidebar toggle
 function toggleSection(header) {
@@ -367,6 +368,9 @@ Object.assign(window, {
   toggleReasoningPass,
   clearRefineDiff,
   saveInspectorOpenStates,
+  setInspectorTab,
+  setToolsTab,
+  selectWorkflowPipelinePass,
   // ui
   toggleSection,
   toggleMobileSidebar,
@@ -378,14 +382,6 @@ Object.assign(window, {
   updateAttachmentPreview,
   showAvatarPopup,
   hideAvatarPopup,
-  speakMessage: speakMessageAction,
-  stopSpeaking,
-  setCurrentTtsVolume,
-  // voice
-  setTtsVolumeLive,
-  setTtsVolume,
-  setTtsAutoSpeak,
-  toggleTtsEnabled,
   // worlds / lorebook
   showCreateWorldModal,
   createWorld,
@@ -461,6 +457,8 @@ initTheme();
 initThemeList();
 initAutoscroll();
 initChatSwipeNav();
+initWorkflowTextInteraction();
+initAudioPlayer();
 initTabLock();
 // Re-render messages when tab lock state changes to update toolbar buttons
 setLockStateChangeCallback((hasMultipleTabs) => {
@@ -468,6 +466,7 @@ setLockStateChangeCallback((hasMultipleTabs) => {
     renderMessages();
   }
 });
+initWorkflowMutationListener();
 
 // Load data independently to prevent failures from blocking other loads
 async function initAll() {
@@ -511,6 +510,18 @@ async function initAll() {
     await loadWorlds();
   } catch (e) {
     console.error("Failed to load worlds:", e);
+  }
+
+  try {
+    await loadWorkflowManifest();
+  } catch (e) {
+    console.error("Failed to load workflow manifest:", e);
+  }
+
+  try {
+    await loadWorkflowModules();
+  } catch (e) {
+    console.error("Failed to load workflow modules:", e);
   }
 }
 

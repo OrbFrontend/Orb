@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+from backend.kv_tracker import _KVCacheTracker
 from backend.llm_client import LLMClient
 from backend.orchestrator import _run_pipeline
 
@@ -19,6 +20,19 @@ _PREFIX = [{"role": "system", "content": "You are an assistant."}]
 
 def _make_client() -> LLMClient:
     return LLMClient("http://localhost:9999")
+
+
+def _pipeline_kwargs(enabled_tools: dict) -> dict:
+    """Bundle the keyword-only kwargs the orchestrator wrapper supplies to
+    ``_run_pipeline``: final pipeline prefix, merged enable map, per-turn
+    workflow scratch dict, and the KV tracker."""
+    return {
+        "prefix": _PREFIX,
+        "enabled_tools": dict(enabled_tools),
+        "turn_scratch": {},
+        "kv_tracker": _KVCacheTracker(),
+        "schema_overrides": {},
+    }
 
 
 async def _drain(gen) -> list[dict]:
@@ -50,7 +64,17 @@ class TestAbortPropagation:
         with patch("backend.orchestrator._director_pass", new=mock_director), patch(
             "backend.orchestrator._writer_pass", new=mock_writer
         ):
-            await _drain(_run_pipeline(client, settings, _DIRECTOR_STATE, [], [], _PREFIX, "hello"))
+            await _drain(
+                _run_pipeline(
+                    client,
+                    settings,
+                    _DIRECTOR_STATE,
+                    [],
+                    [],
+                    "hello",
+                    **_pipeline_kwargs(settings["enabled_tools"]),
+                )
+            )
 
         assert writer_calls[0] == 0, "writer pass must not fire after director-phase abort"
 
@@ -86,9 +110,9 @@ class TestAbortPropagation:
                     _DIRECTOR_STATE,
                     [],
                     [],
-                    _PREFIX,
                     "hello",
                     phrase_bank=[[]],
+                    **_pipeline_kwargs(settings["enabled_tools"]),
                 )
             )
 

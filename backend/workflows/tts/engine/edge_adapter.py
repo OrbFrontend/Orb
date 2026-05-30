@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 # Default voice for English female
 DEFAULT_VOICE = "en-US-JennyNeural"
 
+# edge-tts reports word offsets and durations in 100ns ticks; 10,000 ticks == 1ms.
+_TICKS_PER_MS = 10_000
+
 
 def _format_rate(rate: float) -> str:
     """Convert float rate (1.0 = normal) to edge-tts rate string."""
@@ -59,19 +62,43 @@ class EdgeTTSAdapter(TTSAdapter):
         if not text.strip():
             return SynthesisResult(audio_bytes=b"", content_type="audio/mpeg")
 
-        communicate = edge_tts.Communicate(
-            text,
-            voice_id or DEFAULT_VOICE,
-            rate=_format_rate(rate),
-            pitch=_format_pitch(pitch),
-        )
+        # boundary defaults to SentenceBoundary; request word-level events so the
+        # workflow can align per-word timings. Guarded for an older edge-tts that
+        # lacks the kwarg -- without word events the caller estimates timing.
+        try:
+            communicate = edge_tts.Communicate(
+                text,
+                voice_id or DEFAULT_VOICE,
+                rate=_format_rate(rate),
+                pitch=_format_pitch(pitch),
+                boundary="WordBoundary",
+            )
+        except TypeError:
+            communicate = edge_tts.Communicate(
+                text,
+                voice_id or DEFAULT_VOICE,
+                rate=_format_rate(rate),
+                pitch=_format_pitch(pitch),
+            )
 
         audio_parts = []
+        boundaries: list[dict] = []
         async for chunk in communicate.stream():
-            if chunk.get("type") == "audio":
+            ctype = chunk.get("type")
+            if ctype == "audio":
                 data = chunk.get("data")
                 if isinstance(data, bytes):
                     audio_parts.append(data)
+            elif ctype == "WordBoundary":
+                offset = chunk.get("offset") or 0
+                duration = chunk.get("duration") or 0
+                boundaries.append(
+                    {
+                        "text": chunk.get("text") or "",
+                        "start_ms": offset // _TICKS_PER_MS,
+                        "end_ms": (offset + duration) // _TICKS_PER_MS,
+                    }
+                )
 
         audio_bytes = b"".join(audio_parts)
         logger.info(
@@ -84,6 +111,7 @@ class EdgeTTSAdapter(TTSAdapter):
         return SynthesisResult(
             audio_bytes=audio_bytes,
             content_type="audio/mpeg",
+            word_boundaries=boundaries or None,
         )
 
     async def list_voices(self, language: str = "", **kwargs) -> list[dict]:

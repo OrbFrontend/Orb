@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from backend.tts.base import SpeakableChunk
-from backend.tts.elevenlabs_adapter import ElevenLabsAdapter
+from backend.workflows.tts.engine.base import SpeakableChunk
+from backend.workflows.tts.engine.elevenlabs_adapter import ElevenLabsAdapter
 
 
 class FakeResponse:
@@ -32,7 +32,7 @@ class FakeAsyncClient:
 
 @pytest.mark.asyncio
 async def test_elevenlabs_uses_profile_model_alias(monkeypatch):
-    import backend.tts.elevenlabs_adapter as adapter_module
+    import backend.workflows.tts.engine.elevenlabs_adapter as adapter_module
 
     FakeAsyncClient.requests.clear()
     monkeypatch.setattr(adapter_module.httpx, "AsyncClient", FakeAsyncClient)

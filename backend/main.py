@@ -10,7 +10,7 @@ import tempfile
 from contextlib import asynccontextmanager
 
 from typing import Annotated, Any, AsyncGenerator, Optional, List, cast
-from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
@@ -19,6 +19,8 @@ import os
 from .database.migrations import run_pending
 from .database import (
     DB_PATH,
+    get_db,
+    get_messages_before,
     init_db,
     get_settings,
     update_settings,
@@ -55,7 +57,6 @@ from .database import (
     sync_conversations_for_card,
     insert_alternate_greeting_swipes,
     add_message,
-    get_attachments_for_message,
     set_active_leaf,
     get_message_by_id,
     switch_to_branch,
@@ -88,12 +89,36 @@ from .database import (
     update_lorebook_entry,
     delete_lorebook_entry,
     get_active_lorebook_entries,
-    get_db,
     resolve_char_context,
     get_user_persona,
-    get_voice_profile,
-    upsert_voice_profile,
+    get_workflow_attachment_by_id,
 )
+from .workflows.attachment_cache import (
+    delete_workflow_attachments,
+    insert_workflow_attachment,
+    insert_workflow_attachments,
+    record_access,
+    rehydrate_attachment,
+    set_active_sibling,
+    validate_workflow_attachment_shape,
+    EVICTED_MARKER,
+    OVERSIZE_NO_METADATA_REASON,
+    RehydrateAlreadyDoneError,
+)
+from .endpoint_profiles import profile_for
+from .workflows import (
+    HookType,
+    OnDemandCtx,
+    RegenCtx,
+    RerollGenCtx,
+    _readonly,
+    get_subscription,
+    get_workflow,
+    get_workflow_config,
+    list_workflows,
+    set_workflow_config,
+)
+from .locks import workflow_character_state_lock, workflow_config_lock, workflow_state_lock
 from .orchestrator import (
     handle_turn,
     handle_regenerate,
@@ -101,27 +126,11 @@ from .orchestrator import (
     handle_magic_rewrite,
 )
 from .llm_client import LLMClient
-from .endpoint_profiles import profile_for
 from .macros import Macros
 from . import tavern_cards
 from . import card_downloader
 from . import prompt_builder
 from .summarizer import ConversationSummarizer
-from .tts import get_adapter, list_backends
-from .tts.cache import (
-    cache_chunk_path,
-    cache_media_type,
-    cache_meta_path,
-    cache_path,
-    cache_stats,
-    chunk_metadata,
-    invalidate_cache_for_card,
-    invalidate_cache_for_conversation,
-    metadata_headers,
-    run_eviction_cycle,
-    synthesize_and_cache,
-    synthesize_and_cache_chunk,
-)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -129,18 +138,46 @@ logger = logging.getLogger(__name__)
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
 
 
-_TTS_EVICT_INTERVAL = 30 * 60  # 30 minutes
+# Per-root_id serialization for mutations of workflow_attachments groups.
+# Regenerate, reroll-gen, and activate all write the root's
+# active_sibling_id. BEGIN IMMEDIATE prevents data corruption, but commit
+# order across concurrent transactions is indeterminate; the loser's API
+# response can name a sibling whose active-pointer status the winner has
+# already overwritten. The lock turns concurrent requests into sequential
+# ones so the loser proceeds against post-winner state.
+#
+# Dict grows over the process lifetime, bounded by distinct root_ids the
+# user has interacted with. Single-user localhost app, so cap is small
+# and process restart resets. dict.setdefault is a single CPython
+# bytecode with no await between read and write, so no guard lock is
+# needed around the dict itself.
+_workflow_root_locks: dict[int, asyncio.Lock] = {}
 
 
-async def _tts_eviction_loop() -> None:
-    """Background task: periodically evict stale / oversized TTS cache entries."""
-    # Run once at startup, then every N minutes.
-    while True:
-        try:
-            run_eviction_cycle()
-        except Exception:
-            logger.warning("TTS cache eviction cycle failed", exc_info=True)
-        await asyncio.sleep(_TTS_EVICT_INTERVAL)
+@asynccontextmanager
+async def _workflow_root_lock(root_id: int):
+    lock = _workflow_root_locks.setdefault(root_id, asyncio.Lock())
+    async with lock:
+        yield
+
+
+# Per-conversation serialization for the streaming pipeline. The five chat
+# streaming routes refuse a second POST against a held lock with an in-band
+# SSE error event; /edit, /delete, and /switch-branch share the same lock
+# but block on the stream instead of erroring, since they have no SSE
+# channel for an "already running" reply and the user expects them to take
+# effect rather than fail. Closes: doubled-LLM cost on concurrent /send,
+# FK cascade on mid-stream /delete, terminal set_active_leaf clobber of a
+# mid-stream /switch-branch, and pre-edit-prefix vs post-edit-DB skew on
+# mid-stream /edit. Dict growth shape matches _workflow_root_locks.
+_conversation_stream_locks: dict[str, asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def _conversation_stream_lock(cid: str):
+    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
+    async with lock:
+        yield
 
 
 @asynccontextmanager
@@ -148,13 +185,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     run_pending(DB_PATH)
     logger.info("Database initialized")
-    task = asyncio.create_task(_tts_eviction_loop())
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
 
 
 app = FastAPI(title="Orb", lifespan=lifespan)
@@ -206,10 +237,13 @@ class SettingsUpdate(BaseModel):
     agent_same_as_writer: Optional[bool] = None
     agent_endpoint_id: Optional[int] = None
     agent_shared_system_prompt: Optional[str] = None
-    tts_enabled: Optional[int] = None
-    tts_auto_speak: Optional[int] = None
-    tts_volume: Optional[float] = None
     inspector_open_states: Optional[dict] = None
+
+
+class WorkflowConfigUpdate(BaseModel):
+    # Required (no default): a body lacking "config" is a 422, not a silent
+    # clear; an explicit {"config": {}} is the intentional reset-to-defaults.
+    config: dict
 
 
 class EndpointCreate(BaseModel):
@@ -451,7 +485,6 @@ class SendMessage(BaseModel):
 
 class EditMessage(BaseModel):
     content: str
-    regenerate: bool = True
     enable_agent: bool = True
     attachments: List[AttachmentIn] = []
 
@@ -855,10 +888,6 @@ class ResetConfirm(BaseModel):
     confirm: bool
 
 
-class SpeakChunkRequest(BaseModel):
-    chunk_index: int
-
-
 @app.post("/api/reset")
 async def api_reset(data: ResetConfirm):
     """Reset mood_fragments, director_fragments, phrase_bank, and settings to defaults."""
@@ -910,7 +939,7 @@ async def api_create_conversation(data: ConversationCreate):
 
     # If there's a first message, auto-add it as the first assistant turn
     if first_mes.strip():
-        msg_id = await add_message(cid, "assistant", first_mes.strip(), 0, attachments=None)
+        msg_id, _ = await add_message(cid, "assistant", first_mes.strip(), 0, attachments=None)
         await set_active_leaf(cid, msg_id)
 
         # If we have a character card with alternate greetings, create swipe versions
@@ -929,7 +958,6 @@ async def api_create_conversation(data: ConversationCreate):
 async def api_delete_conversation(cid: str):
     if not await delete_conversation(cid):
         raise HTTPException(status_code=404, detail="Conversation not found")
-    invalidate_cache_for_conversation(cid)
     return {"ok": True}
 
 
@@ -1035,13 +1063,12 @@ async def api_compress_conversation(cid: str, data: CompressRequest):
         character_card_id=conv.get("character_card_id"),
     )
 
-    # Seed with the approved summary as the first assistant message
-    prev_id = await add_message(new_cid, "assistant", data.summary.strip(), 0)
+    prev_id, _ = await add_message(new_cid, "assistant", data.summary.strip(), 0)
     await set_active_leaf(new_cid, prev_id)
 
-    # Re-insert tail messages, chaining via parent_id
+    # Carry user uploads onto the fork; workflow attachments are regenerable and dropped.
     for i, msg in enumerate(tail):
-        atts = msg.get("attachments") or []
+        atts = msg.get("user_attachments") or []
         att_list = (
             [
                 {
@@ -1055,7 +1082,7 @@ async def api_compress_conversation(cid: str, data: CompressRequest):
             if atts
             else None
         )
-        prev_id = await add_message(
+        prev_id, _ = await add_message(
             new_cid,
             msg["role"],
             msg["content"],
@@ -1301,10 +1328,6 @@ async def _sse_stream(
     A background watcher also polls request.is_disconnected() as a fallback
     for cases like the user closing the browser tab without clicking Stop.
     """
-    if cid and client_ref:
-        # Will be populated after the first __anext__() drives handle_turn past
-        # _load_pipeline_context; register as soon as it appears.
-        pass  # registration happens inside the loop below
 
     async def _watch_disconnect() -> None:
         try:
@@ -1318,8 +1341,23 @@ async def _sse_stream(
         except asyncio.CancelledError:
             pass
 
-    watcher = asyncio.create_task(_watch_disconnect())
+    lock: asyncio.Lock | None = None
+    watcher: asyncio.Task | None = None
     try:
+        if cid is not None:
+            # locked()/acquire() are atomic across coroutines (no await between)
+            # so a held-lock loser deterministically takes the error branch and
+            # does not queue, while an open-lock winner acquires without ever
+            # suspending. Lock is set only after acquire() returns so the
+            # finally's release guard skips both the error branch and any
+            # acquire-cancelled path.
+            candidate = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
+            if candidate.locked():
+                yield "event: error\ndata: Another generation is already running\n\n"
+                return
+            await candidate.acquire()
+            lock = candidate
+        watcher = asyncio.create_task(_watch_disconnect())
         async for event in gen:
             # Register client in _active_clients on the first event (by which
             # point handle_turn has already populated client_ref).
@@ -1333,9 +1371,19 @@ async def _sse_stream(
                 evt_data = evt_data.replace("\n", "\\n")
             yield f"event: {evt_type}\ndata: {evt_data}\n\n"
     finally:
-        if cid:
+        if watcher is not None:
+            watcher.cancel()
+        if cid and lock is not None:
+            # `lock is not None` implies this coroutine won the acquire race and
+            # therefore owns whatever was lazy-registered into _active_clients.
+            # Gating the pop on the same sentinel keeps the rejected-loser path
+            # from deleting the winner's entry and silently no-opping /stop.
             _active_clients.pop(cid, None)
-        watcher.cancel()
+        if lock is not None:
+            # Release before gen.aclose() so a queued /edit, /delete, or
+            # /switch-branch can proceed in parallel with the inner generator's
+            # cleanup rather than waiting on it.
+            lock.release()
         # Shield aclose() from CancelledError so the orchestrator's finally
         # block (fallback persistence of incomplete messages) always runs.
         try:
@@ -1367,67 +1415,22 @@ async def api_get_messages(cid: str):
 
 
 @app.post("/api/conversations/{cid}/messages/{msg_id}/edit")
-async def api_edit_message(cid: str, msg_id: int, data: EditMessage, request: Request):
-    """Edit a message by creating a sibling branch. Old branches are preserved.
-    If editing a user message and regenerate=True, streams a new assistant response."""
+async def api_edit_message(cid: str, msg_id: int, data: EditMessage):
     conv = await get_conversation(cid)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    original = await get_message_by_id(msg_id)
-    if not original or original["conversation_id"] != cid:
-        raise HTTPException(status_code=404, detail="Message not found")
+    # Serialize against an in-flight streaming pipeline on this cid: the
+    # pipeline reads message content into the LLM prefix early and persists
+    # the assistant reply late, so a mid-stream edit would make the on-disk
+    # user message disagree with the prefix that produced the reply.
+    async with _conversation_stream_lock(cid):
+        original = await get_message_by_id(msg_id)
+        if not original or original["conversation_id"] != cid:
+            raise HTTPException(status_code=404, detail="Message not found")
 
-    # For edits with no regeneration, just update the content in-place
-    if not data.regenerate:
         await update_message_content(msg_id, data.content)
         return {"ok": True}
-
-    # Copy attachments from original message (if any)
-    original_attachments = await get_attachments_for_message(msg_id)
-    attachments = []
-    for att in original_attachments:
-        attachments.append(
-            {
-                "mime_type": att["mime_type"],
-                "data_b64": att["data_b64"],
-                "filename": att["filename"],
-                "size": att["size"],
-            }
-        )
-
-    # Create sibling (same parent_id as original)
-    new_msg_id = await add_message(
-        cid,
-        original["role"],
-        data.content,
-        original["turn_index"],
-        parent_id=original.get("parent_id"),
-        attachments=attachments if attachments else None,
-    )
-    await set_active_leaf(cid, new_msg_id)
-
-    should_stream_regen = original["role"] == "user" and data.regenerate
-
-    if should_stream_regen:
-        client_ref: list = []
-        return _CleanupStreamingResponse(
-            _sse_stream(
-                handle_turn(
-                    cid,
-                    data.content,
-                    skip_user_persist=True,
-                    attachments=attachments,
-                    client_ref=client_ref,
-                ),
-                request,
-                client_ref=client_ref,
-                cid=cid,
-            ),
-            media_type="text/event-stream",
-        )
-
-    return {"ok": True}
 
 
 @app.delete("/api/conversations/{cid}/messages/{msg_id}")
@@ -1436,9 +1439,14 @@ async def api_delete_message(cid: str, msg_id: int):
     conv = await get_conversation(cid)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    if not await delete_message_with_descendants(cid, msg_id):
-        raise HTTPException(status_code=404, detail="Message not found")
-    return await get_messages_with_branch_info(cid)
+    # Serialize against an in-flight streaming pipeline on this cid: ON
+    # DELETE CASCADE on messages.parent_id would otherwise wipe the
+    # in-flight assistant row mid-INSERT (IntegrityError) or right after
+    # commit (silent disappearance).
+    async with _conversation_stream_lock(cid):
+        if not await delete_message_with_descendants(cid, msg_id):
+            raise HTTPException(status_code=404, detail="Message not found")
+        return await get_messages_with_branch_info(cid)
 
 
 @app.post("/api/conversations/{cid}/messages/{msg_id}/switch-branch")
@@ -1447,10 +1455,14 @@ async def api_switch_branch(cid: str, msg_id: int):
     conv = await get_conversation(cid)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    success = await switch_to_branch(cid, msg_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Message not found")
-    return await get_messages_with_branch_info(cid)
+    # Serialize against an in-flight streaming pipeline on this cid: the
+    # pipeline's terminal set_active_leaf would otherwise overwrite the
+    # branch the user just selected.
+    async with _conversation_stream_lock(cid):
+        success = await switch_to_branch(cid, msg_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Message not found")
+        return await get_messages_with_branch_info(cid)
 
 
 @app.post("/api/conversations/{cid}/messages/{msg_id}/regenerate")
@@ -1675,257 +1687,555 @@ async def api_continue_from_user(cid: str, request: Request, data: Optional[Rege
     )
 
 
+# Workflows --
+
+
+@app.get("/api/workflows")
+async def api_list_workflows():
+    """Manifest the frontend reads once at boot to populate Secondary tabs and buttons."""
+    return [
+        {
+            "id": w.id,
+            "display_name": w.display_name,
+            "config_schema": w.config_schema,
+            "config_defaults": w.config_defaults,
+        }
+        for w in list_workflows()
+    ]
+
+
+@app.put("/api/workflows/{workflow_id}/config")
+async def api_set_workflow_config(workflow_id: str, data: WorkflowConfigUpdate):
+    """Persist a workflow's global config slot as a full replacement."""
+    if get_workflow(workflow_id) is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    # Serialize the replacement with workflow code that updates the same slot via
+    # a locked read-modify-write; a lock-free write here could be lost mid-RMW.
+    async with workflow_config_lock():
+        await set_workflow_config(workflow_id, data.config)
+        effective = await get_workflow_config(workflow_id)
+    logger.info("workflow %r config updated (%d keys)", workflow_id, len(data.config))
+    return {"config": effective}
+
+
+@app.get("/api/workflows/{workflow_id}/config")
+async def api_get_workflow_config(workflow_id: str):
+    """Return a workflow's effective config: persisted slot, else its defaults."""
+    if get_workflow(workflow_id) is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    return {"config": await get_workflow_config(workflow_id)}
+
+
+@app.post("/api/conversations/{cid}/workflows/{workflow_id}/trigger")
+async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(default={})):  # noqa: B008
+    """Run a workflow's on_demand hook against the current conversation state."""
+    sub = get_subscription(workflow_id, HookType.ON_DEMAND)
+    if sub is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    # Serialize against the pre/post hook iteration of an in-flight pipeline and
+    # against any other /trigger for the same (cid, workflow_id), so the prior
+    # workflow_state read the hook depends on cannot be clobbered between read
+    # and write by a concurrent caller.
+    async with workflow_state_lock(cid, workflow_id):
+        conv = await get_conversation(cid)
+        if conv is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        card_id = conv.get("character_card_id")
+        card = await get_character_card(card_id) if card_id else None
+        msgs = await get_messages(cid)
+        last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
+        settings_snapshot = await get_settings()
+        client = LLMClient(
+            settings_snapshot["endpoint_url"],
+            api_key=settings_snapshot.get("api_key", ""),
+            profile=profile_for(settings_snapshot["endpoint_url"], settings_snapshot.get("model_name", "")),
+        )
+        async with workflow_character_state_lock(conv.get("character_card_id") or "", workflow_id):
+            try:
+                od_ctx = OnDemandCtx(
+                    conversation_id=cid,
+                    history=_readonly(msgs),
+                    last_user_message=last_user,
+                    settings=_readonly(settings_snapshot),
+                    client=client,
+                    character_id=conv.get("character_card_id"),
+                    character=_readonly(card),
+                )
+                return await sub.callable(od_ctx, body)
+            except Exception:
+                logger.exception("on_demand hook %r failed", workflow_id)
+                raise HTTPException(status_code=500, detail="On-demand handler raised; see server logs")
+
+
+@app.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate")
+async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008
+    """Append a new sibling variant under a workflow-produced attachment's root."""
+    conv = await get_conversation(cid)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    att = await get_workflow_attachment_by_id(aid)
+    if att is None or att["message_id"] != mid:
+        raise HTTPException(status_code=404, detail="Attachment not found on this message")
+    wid = att.get("workflow_id")
+    sub = get_subscription(wid, HookType.REGENERATE) if wid else None
+    if sub is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workflow {wid!r} is not registered or has no regenerate handler",
+        )
+    # Single hop suffices: the dispatcher itself assigns parent_attachment_id = root_id
+    # on every write, so the variant tree is flat by construction (root + N siblings).
+    root_id = att["parent_attachment_id"] or aid
+
+    async with _workflow_root_lock(root_id):
+        anchor = await get_message_by_id(mid)
+        if anchor is None or anchor["conversation_id"] != cid:
+            raise HTTPException(status_code=404, detail="Message not found in conversation")
+        msgs = await get_messages_before(cid, mid)
+        last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
+        settings_snapshot = await get_settings()
+        client = LLMClient(
+            settings_snapshot["endpoint_url"],
+            api_key=settings_snapshot.get("api_key", ""),
+            profile=profile_for(settings_snapshot["endpoint_url"], settings_snapshot.get("model_name", "")),
+        )
+
+        card_id = conv.get("character_card_id")
+        card = await get_character_card(card_id) if card_id else None
+        try:
+            regen_ctx = RegenCtx(
+                conversation_id=cid,
+                message_id=mid,
+                attachment_id=aid,
+                original_attachment=_readonly(att),
+                history=_readonly(msgs),
+                last_user_message=last_user,
+                settings=_readonly(settings_snapshot),
+                client=client,
+                character_id=conv.get("character_card_id"),
+                character=_readonly(card),
+            )
+            new_dicts = await sub.callable(regen_ctx, body)
+        except Exception:
+            logger.exception("regenerate hook %r failed for attachment %r", wid, aid)
+            raise HTTPException(status_code=500, detail="Regenerate handler raised; see server logs")
+
+        if not isinstance(new_dicts, list):
+            logger.warning(
+                "regenerate hook %r returned non-list (%s); treating as empty",
+                wid,
+                type(new_dicts).__name__,
+            )
+            new_dicts = []
+
+        # Bad-shape entries are partitioned to rejected_workflow_atts so a
+        # single bad entry does not roll back the batch insert. Non-dict
+        # entries are dropped instead of rejected because the rejection
+        # record requires a filename to surface in the UI.
+        fixed: list[dict] = []
+        rejected_pre: list[dict] = []
+        for d in new_dicts:
+            if not isinstance(d, dict):
+                logger.warning("regenerate hook %r returned non-dict entry; skipping", wid)
+                continue
+            candidate = {**d, "workflow_id": sub.workflow_id, "parent_attachment_id": root_id}
+            ok, reason = validate_workflow_attachment_shape(candidate)
+            if not ok:
+                rejected_pre.append(
+                    {
+                        "filename": candidate.get("filename") if isinstance(candidate.get("filename"), str) else None,
+                        "workflow_id": sub.workflow_id,
+                        "mime": candidate.get("mime") if isinstance(candidate.get("mime"), str) else None,
+                        "reason": reason,
+                        "originating_attachment_id": root_id,
+                    }
+                )
+                logger.info(
+                    "regenerate hook %r returned attachment rejected by shape validator: %s",
+                    wid,
+                    reason,
+                )
+                continue
+            fixed.append(candidate)
+
+        if not fixed and not rejected_pre:
+            return {"attachments": [], "rejected_workflow_atts": []}
+
+        try:
+            new_ids, helper_rejected = await insert_workflow_attachments(mid, fixed)
+        except (ValueError, LookupError, OSError):
+            logger.exception("regenerate hook %r batch insert failed", wid)
+            raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs")
+
+        helper_rejected_projected = [
+            {
+                "filename": a.get("filename"),
+                "workflow_id": a.get("workflow_id"),
+                "mime": a.get("mime"),
+                "reason": a.get("reason") or OVERSIZE_NO_METADATA_REASON,
+                "originating_attachment_id": root_id,
+            }
+            for a in helper_rejected
+        ]
+        return {
+            "attachments": new_ids,
+            "rejected_workflow_atts": rejected_pre + helper_rejected_projected,
+        }
+
+
+def _decode_stored_consumption_metadata(att: dict) -> dict | None:
+    """Parse the parent attachment's stored consumption_metadata JSON.
+
+    Returns the decoded dict, or ``None`` for any malformed or non-dict value.
+    """
+    raw = att.get("consumption_metadata")
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, dict | None]:
+    """Split a reroll_gen hook return into ``(data, consumption_metadata)``.
+
+    A raw ``bytes`` return carries no metadata; a ``(bytes, dict | None)``
+    tuple supplies a fresh ``consumption_metadata``. A non-dict second element
+    is dropped with a warning. The caller validates that ``data`` is non-empty
+    bytes. Shared by the reroll-gen and rehydrate routes so both interpret the
+    hook return identically.
+    """
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], (bytes, bytearray)):
+        data, consumption_metadata = result
+        if consumption_metadata is not None and not isinstance(consumption_metadata, dict):
+            logger.warning(
+                "reroll_gen hook %r returned tuple with non-dict consumption_metadata (%s); coercing to None",
+                workflow_id,
+                type(consumption_metadata).__name__,
+            )
+            consumption_metadata = None
+        return data, consumption_metadata
+    return result, None
+
+
+def _build_reroll_gen_ctx(cid: str, mid: int, aid: int, att: dict, settings: dict, client) -> RerollGenCtx:
+    prior_cm = _decode_stored_consumption_metadata(att)
+    return RerollGenCtx(
+        conversation_id=cid,
+        message_id=mid,
+        attachment_id=aid,
+        original_attachment=_readonly(att),
+        settings=_readonly(settings),
+        client=client,
+        prior_consumption_metadata=_readonly(prior_cm) if prior_cm is not None else None,
+    )
+
+
+def _generated_seed() -> str:
+    import secrets
+
+    return secrets.token_hex(16)
+
+
+@app.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen")
+async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008, ARG001
+    """Generate a new sibling using the original's stored generation_metadata
+    with a freshly minted seed.
+
+    The new sibling persists the new seed alongside the inherited
+    generation_metadata so it is itself rehydratable; without that, an
+    evict-then-rehydrate cycle would lose the rerolled output.
+    """
+    conv = await get_conversation(cid)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    att = await get_workflow_attachment_by_id(aid)
+    if att is None or att["message_id"] != mid:
+        raise HTTPException(status_code=404, detail="Attachment not found on this message")
+    anchor = await get_message_by_id(mid)
+    if anchor is None or anchor["conversation_id"] != cid:
+        raise HTTPException(status_code=404, detail="Message not found in conversation")
+    wid = att.get("workflow_id")
+    sub = get_subscription(wid, HookType.REROLL_GEN) if wid else None
+    if sub is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
+        )
+
+    metadata_raw = att.get("generation_metadata")
+    try:
+        params = json.loads(metadata_raw) if metadata_raw else {}
+    except (TypeError, ValueError):
+        params = {}
+    if not isinstance(params, dict):
+        params = {}
+
+    root_id = att["parent_attachment_id"] or aid
+
+    async with _workflow_root_lock(root_id):
+        seed = _generated_seed()
+        settings_snapshot = await get_settings()
+        client = LLMClient(
+            settings_snapshot["endpoint_url"],
+            api_key=settings_snapshot.get("api_key", ""),
+            profile=profile_for(settings_snapshot["endpoint_url"], settings_snapshot.get("model_name", "")),
+        )
+
+        try:
+            ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
+            result = await sub.callable(ctx, params, seed)
+        except Exception:
+            logger.exception("reroll_gen hook %r failed for attachment %r", wid, aid)
+            raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs")
+
+        data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
+
+        if not isinstance(data, (bytes, bytearray)) or not data:
+            raise HTTPException(status_code=500, detail="reroll_gen handler returned no bytes")
+
+        new_attachment = {
+            "workflow_id": sub.workflow_id,
+            "parent_attachment_id": root_id,
+            "filename": att.get("filename") or sub.workflow_id,
+            "mime": att.get("mime_type") or "application/octet-stream",
+            "data": bytes(data),
+            "seed": seed,
+            "generation_metadata": params,
+            "consumption_metadata": new_consumption_metadata,
+            "annotation": att.get("annotation"),
+        }
+        try:
+            new_id, rejected = await insert_workflow_attachment(mid, new_attachment)
+        except (ValueError, LookupError, OSError):
+            logger.exception("reroll_gen hook %r yielded an attachment that failed insert", wid)
+            raise HTTPException(status_code=500, detail="reroll_gen insert failed; see server logs")
+
+        return {
+            "attachment_id": new_id,
+            "rejected_workflow_atts": (
+                [
+                    {
+                        "filename": rejected.get("filename"),
+                        "workflow_id": rejected.get("workflow_id"),
+                        "mime": rejected.get("mime"),
+                        "reason": rejected.get("reason") or OVERSIZE_NO_METADATA_REASON,
+                        "originating_attachment_id": root_id,
+                    }
+                ]
+                if rejected is not None
+                else []
+            ),
+        }
+
+
+@app.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate")
+async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008, ARG001
+    """Recover bytes for an evicted attachment using its stored seed + params.
+
+    Preconditions:
+      - The row's `data_b64` is the EVICTED_MARKER sentinel.
+      - The row has a non-NULL `seed`.
+
+    The framework calls the workflow's `reroll_gen` hook with the stored
+    params and stored seed, then writes the returned bytes back into the
+    same row's data_b64. No new sibling is created.
+    """
+    conv = await get_conversation(cid)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    att = await get_workflow_attachment_by_id(aid)
+    if att is None or att["message_id"] != mid:
+        raise HTTPException(status_code=404, detail="Attachment not found on this message")
+    anchor = await get_message_by_id(mid)
+    if anchor is None or anchor["conversation_id"] != cid:
+        raise HTTPException(status_code=404, detail="Message not found in conversation")
+    if att.get("data_b64") != EVICTED_MARKER:
+        raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate")
+    seed = att.get("seed")
+    if not seed:
+        raise HTTPException(status_code=409, detail="Attachment has no stored seed; cannot rehydrate")
+
+    # Serialize same-root rehydrates the way /regenerate, /reroll-gen, and
+    # /activate already do for their sibling-tree mutations. Without this,
+    # two concurrent callers would each run the full reroll_gen LLM call
+    # before the cache helper's transactional recheck deduplicates them at
+    # the DB layer -- doubling LLM cost even though the row stays consistent.
+    # parent_attachment_id is NULL on root rows, so `or aid` resolves to the
+    # root id whether the request targets a sibling or the root itself.
+    root_id = att["parent_attachment_id"] or aid
+    async with _workflow_root_lock(root_id):
+        # Re-read inside the lock so a concurrent caller that already
+        # rehydrated cannot slip past the snapshot check above and double
+        # the reroll_gen LLM call before the cache helper's transactional
+        # recheck deduplicates the bytes write.
+        att = await get_workflow_attachment_by_id(aid)
+        if att is None or att.get("data_b64") != EVICTED_MARKER:
+            raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate")
+        wid = att.get("workflow_id")
+        sub = get_subscription(wid, HookType.REROLL_GEN) if wid else None
+        if sub is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
+            )
+
+        metadata_raw = att.get("generation_metadata")
+        try:
+            params = json.loads(metadata_raw) if metadata_raw else {}
+        except (TypeError, ValueError):
+            params = {}
+        if not isinstance(params, dict):
+            params = {}
+
+        settings_snapshot = await get_settings()
+        client = LLMClient(
+            settings_snapshot["endpoint_url"],
+            api_key=settings_snapshot.get("api_key", ""),
+            profile=profile_for(settings_snapshot["endpoint_url"], settings_snapshot.get("model_name", "")),
+        )
+
+        try:
+            ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
+            result = await sub.callable(ctx, params, seed)
+        except Exception:
+            logger.exception("reroll_gen (rehydrate) %r failed for attachment %r", wid, aid)
+            raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs")
+
+        data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
+
+        if not isinstance(data, (bytes, bytearray)) or not data:
+            raise HTTPException(status_code=500, detail="reroll_gen handler returned no bytes")
+
+        try:
+            await rehydrate_attachment(aid, bytes(data), consumption_metadata=new_consumption_metadata)
+        except RehydrateAlreadyDoneError:
+            # Race with a concurrent rehydrate that already restored the bytes.
+            # End state is correct; surface as 409 so the client treats it as
+            # success rather than the generic 500.
+            raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate")
+        except (LookupError, ValueError):
+            logger.exception("rehydrate write failed for attachment %r", aid)
+            raise HTTPException(status_code=500, detail="rehydrate write failed; see server logs")
+
+        return {"attachment_id": aid}
+
+
+@app.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/activate")
+async def api_activate_workflow_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008
+    """Persist the user's active-sibling choice for a workflow attachment group.
+
+    ``aid`` is the ROOT attachment id (``parent_attachment_id IS NULL``).
+    Body shape: ``{"sibling_id": int | null}`` -- ``null`` clears the
+    column, which reverts to "newest sibling wins" in the renderer.
+    """
+    conv = await get_conversation(cid)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    anchor = await get_message_by_id(mid)
+    if anchor is None or anchor["conversation_id"] != cid:
+        raise HTTPException(status_code=404, detail="Message not found in conversation")
+
+    raw_sibling_id = body.get("sibling_id") if isinstance(body, dict) else None
+    if raw_sibling_id is not None and (not isinstance(raw_sibling_id, int) or isinstance(raw_sibling_id, bool)):
+        raise HTTPException(status_code=400, detail="sibling_id must be an integer or null")
+
+    try:
+        async with _workflow_root_lock(aid):
+            await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"active_sibling_id": raw_sibling_id}
+
+
+@app.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/delete")
+async def api_delete_workflow_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008
+    """Delete a workflow attachment: one variant, or the whole group.
+
+    ``aid`` is the acted-on row. Body: ``{"scope": "variant" | "group"}``.
+    Deleting the root variant of a multi-variant group promotes the oldest
+    survivor to root; the response ``root_id`` reports the resulting root.
+    """
+    conv = await get_conversation(cid)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    anchor = await get_message_by_id(mid)
+    if anchor is None or anchor["conversation_id"] != cid:
+        raise HTTPException(status_code=404, detail="Message not found in conversation")
+    scope = body.get("scope") if isinstance(body, dict) else None
+    if scope not in ("variant", "group"):
+        raise HTTPException(status_code=400, detail="scope must be 'variant' or 'group'")
+    att = await get_workflow_attachment_by_id(aid)
+    if att is None or att["message_id"] != mid:
+        raise HTTPException(status_code=404, detail="Attachment not found on this message")
+    root_id = att["parent_attachment_id"] or aid
+    try:
+        async with _workflow_root_lock(root_id):
+            result = await delete_workflow_attachments(aid, scope=scope, expected_message_id=mid)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
+
+
+@app.post("/api/conversations/{cid}/workflow-attachments/access")
+async def api_record_workflow_attachment_access(cid: str, body: dict = Body(default={})):  # noqa: B008
+    """Record access events for workflow attachments.
+
+    Body shape: ``{"ids": [int, ...]}``. Counter values are assigned in
+    input-list order, so callers can encode intra-call ordering.
+
+    Ids not belonging to this conversation are silently dropped rather
+    than raising: the frontend can legitimately hold stale ids around a
+    swipe / regen race, and a 400 there would be a user-visible failure
+    on an ignorable client/server skew.
+    """
+    conv = await get_conversation(cid)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    raw_ids = body.get("ids") if isinstance(body, dict) else None
+    if not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail="ids must be a list of integers")
+
+    int_ids: list[int] = []
+    for v in raw_ids:
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, int):
+            int_ids.append(v)
+
+    if not int_ids:
+        return {"ok": True, "recorded": 0}
+
+    placeholders = ",".join("?" * len(int_ids))
+    async with get_db() as db_conn:
+        rows = list(
+            await db_conn.execute_fetchall(
+                f"SELECT wa.id FROM workflow_attachments wa "  # nosec B608 -- placeholders only
+                f"JOIN messages m ON m.id = wa.message_id "
+                f"WHERE m.conversation_id = ? AND wa.id IN ({placeholders})",
+                (cid, *int_ids),
+            )
+        )
+    valid_ids_set = {r["id"] for r in rows}
+    ordered_valid = [i for i in int_ids if i in valid_ids_set]
+
+    await record_access(ordered_valid)
+    return {"ok": True, "recorded": len(ordered_valid)}
+
+
 # Frontend serving ──
 
 
 @app.get("/")
 async def serve_frontend():
     return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
-
-
-@app.get("/api/tts/backends")
-async def api_tts_backends():
-    """List available TTS backends."""
-    return list_backends()
-
-
-@app.get("/api/tts/cache/stats")
-async def api_tts_cache_stats():
-    """Return TTS cache usage statistics."""
-    return cache_stats()
-
-
-@app.post("/api/tts/cache/evict")
-async def api_tts_cache_evict():
-    """Manually trigger a cache eviction cycle (TTL + LRU)."""
-    return run_eviction_cycle()
-
-
-@app.get("/api/tts/voices")
-async def api_tts_voices(backend: str = "edge", language: str = "", api_url: str = "", api_key: str = ""):
-    """List available voices for a TTS backend."""
-    try:
-        adapter = get_adapter(backend)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return await adapter.list_voices(language, api_url=api_url, api_key=api_key or None)
-
-
-@app.get("/api/tts/models")
-async def api_tts_models(backend: str = "", api_url: str = "", api_key: str = ""):
-    """List available TTS models for a backend."""
-    if not backend:
-        return []
-    try:
-        adapter = get_adapter(backend)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    if not hasattr(adapter, "list_models"):
-        return []
-    return await adapter.list_models(api_url=api_url, api_key=api_key or None)
-
-
-@app.post("/api/tts/preview")
-async def api_tts_preview(body: dict):
-    """Quick TTS preview — synthesize short text without conversation context."""
-    text = body.get("text", "Preview.")
-    backend = body.get("backend", "edge")
-    voice_id = body.get("voice_id", "en-US-JennyNeural")
-    try:
-        adapter = get_adapter(backend)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    from .tts.base import SpeakableChunk
-
-    speed = float(body.get("speed", 1.0))
-    pitch = float(body.get("pitch", 1.0))
-
-    chunk = SpeakableChunk(text=text, emotion="neutral")
-    result = await adapter.synthesize(
-        [chunk],
-        voice_id=voice_id,
-        rate=speed,
-        pitch=pitch,
-        api_url=body.get("api_url", ""),
-        api_key=body.get("api_key", "") or None,
-        model=body.get("model", ""),
-    )
-    return Response(content=result.audio_bytes, media_type=result.content_type)
-
-
-@app.get("/api/characters/{card_id}/voice-profile")
-async def api_get_voice_profile(card_id: str):
-    """Get the TTS voice profile for a character."""
-    profile = await get_voice_profile(card_id)
-    if not profile:
-        return {"character_card_id": card_id, "enabled": 0}
-    return profile
-
-
-@app.put("/api/characters/{card_id}/voice-profile")
-async def api_update_voice_profile(card_id: str, body: dict):
-    """Create or update the TTS voice profile for a character."""
-    # Verify character exists
-    card = await get_character_card(card_id)
-    if not card:
-        raise HTTPException(404, "Character not found")
-
-    # Clear generated TTS files for all conversations using this character.
-    async with get_db() as _db:
-        _rows = await _db.execute(
-            "SELECT id FROM conversations WHERE character_card_id = ?",
-            (card_id,),
-        )
-        _conv_ids = [r["id"] for r in await _rows.fetchall()]
-    invalidate_cache_for_card(_conv_ids)
-
-    profile = await upsert_voice_profile(card_id, body)
-    return profile
-
-
-async def _get_tts_context(cid: str, msg_id: int) -> tuple:
-    """Shared validation for TTS endpoints.
-
-    Returns (msg, conv, card_id, profile, adapter).
-    Raises HTTPException on validation failure.
-    """
-    msg = await get_message_by_id(msg_id)
-    if not msg or msg["conversation_id"] != cid:
-        raise HTTPException(404, "Message not found")
-    if msg["role"] != "assistant":
-        raise HTTPException(400, "TTS is only available for assistant messages")
-
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
-
-    card_id = conv.get("character_card_id")
-    if not card_id:
-        raise HTTPException(400, "No character associated with this conversation")
-
-    settings = await get_settings()
-    if not settings.get("tts_enabled"):
-        raise HTTPException(403, "TTS is disabled in settings")
-
-    profile = await get_voice_profile(card_id)
-    if not profile or not profile.get("enabled"):
-        raise HTTPException(400, "TTS not enabled for this character")
-
-    try:
-        adapter = get_adapter(profile["backend"])
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-
-    return msg, conv, card_id, profile, adapter
-
-
-@app.post("/api/conversations/{cid}/messages/{msg_id}/speak")
-async def api_speak_message(cid: str, msg_id: int):
-    """Generate TTS audio for a message. Returns MP3 audio."""
-    msg, conv, card_id, profile, adapter = await _get_tts_context(cid, msg_id)
-
-    # Check cache
-    _cache_path = cache_path(cid, msg_id, profile, msg["content"])
-    if os.path.exists(_cache_path):
-        media_type, ext = cache_media_type(profile)
-        metadata: dict = {}
-        meta_path = cache_meta_path(_cache_path)
-        if os.path.exists(meta_path):
-            with open(meta_path, "r", encoding="utf-8") as f:
-                metadata = json.load(f)
-        return FileResponse(
-            _cache_path,
-            media_type=media_type,
-            filename=f"msg_{msg_id}.{ext}",
-            headers=metadata_headers(metadata),
-        )
-
-    # Synthesize and cache
-    try:
-        audio_bytes, content_type, metadata, _cp = await synthesize_and_cache(
-            cid=cid,
-            msg_id=msg_id,
-            profile=profile,
-            content=msg["content"],
-            adapter=adapter,
-        )
-    except ValueError:
-        raise HTTPException(400, "No dialogue found for TTS")
-
-    return Response(
-        content=audio_bytes,
-        media_type=content_type,
-        headers={
-            "Content-Length": str(len(audio_bytes)),
-            **metadata_headers(metadata),
-        },
-    )
-
-
-@app.get("/api/conversations/{cid}/messages/{msg_id}/chunks")
-async def api_get_message_chunks(cid: str, msg_id: int):
-    """Get chunk metadata for a message's TTS extraction."""
-    msg, conv, card_id, profile, adapter = await _get_tts_context(cid, msg_id)
-
-    chunks = chunk_metadata(msg["content"], profile, adapter)
-    return {
-        "chunks": chunks,
-        "extraction_method": "regex",
-    }
-
-
-@app.post("/api/conversations/{cid}/messages/{msg_id}/speak-chunk")
-async def api_speak_chunk(cid: str, msg_id: int, data: SpeakChunkRequest):
-    """Generate TTS audio for a single chunk of a message."""
-    msg, conv, card_id, profile, adapter = await _get_tts_context(cid, msg_id)
-
-    # Validate chunk_index before cache lookup
-    chunks_meta = chunk_metadata(msg["content"], profile, adapter)
-    if not chunks_meta:
-        raise HTTPException(400, "No speakable chunks in this message")
-    if data.chunk_index < 0 or data.chunk_index >= len(chunks_meta):
-        raise HTTPException(
-            400,
-            f"chunk_index {data.chunk_index} out of range (0-{len(chunks_meta) - 1})",
-        )
-
-    # Check per-chunk cache
-    _cp = cache_chunk_path(cid, msg_id, data.chunk_index, profile, msg["content"])
-    if os.path.exists(_cp):
-        media_type, ext = cache_media_type(profile)
-        metadata: dict = {}
-        meta_path = cache_meta_path(_cp)
-        if os.path.exists(meta_path):
-            with open(meta_path, "r", encoding="utf-8") as f:
-                metadata = json.load(f)
-        return FileResponse(
-            _cp,
-            media_type=media_type,
-            filename=f"msg_{msg_id}_chunk{data.chunk_index}.{ext}",
-            headers=metadata_headers(metadata),
-        )
-
-    # Synthesize single chunk
-    try:
-        audio_bytes, content_type, metadata, _cp = await synthesize_and_cache_chunk(
-            cid=cid,
-            msg_id=msg_id,
-            chunk_index=data.chunk_index,
-            profile=profile,
-            content=msg["content"],
-            adapter=adapter,
-        )
-    except ValueError:
-        raise HTTPException(400, "No dialogue found for TTS")
-
-    return Response(
-        content=audio_bytes,
-        media_type=content_type,
-        headers={
-            "Content-Length": str(len(audio_bytes)),
-            **metadata_headers(metadata),
-        },
-    )
 
 
 # Mount static files last

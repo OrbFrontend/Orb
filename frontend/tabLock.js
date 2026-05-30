@@ -4,13 +4,65 @@ import { toast } from "./utils.js";
 
 const CHANNEL_NAME = "orb-tab-lock";
 const TAB_ID = `${Date.now()}-${Math.random()}`;
+const HEARTBEAT_MS = 2000;
+const PEER_TIMEOUT_MS = 5000;
 
 let broadcastChannel = null;
 let onLockStateChange = null;
+let onWorkflowMutationCallback = null;
+const peers = new Map();
+let heartbeatTimer = null;
 
 // Register a callback to be called when the lock state changes
 export function setLockStateChangeCallback(callback) {
   onLockStateChange = callback;
+}
+
+// Payload shape is {convId, msgId}; the listener decides whether to refetch.
+export function setWorkflowMutationCallback(callback) {
+  onWorkflowMutationCallback = callback;
+}
+
+// Self-echo is filtered at the receiver via the TAB_ID check in onmessage, not here.
+export function broadcastWorkflowMutation(payload) {
+  if (!broadcastChannel) return;
+  broadcastChannel.postMessage({
+    type: "WORKFLOW_MUTATION",
+    tabId: TAB_ID,
+    timestamp: Date.now(),
+    payload,
+  });
+}
+
+function recordPeer(tabId) {
+  peers.set(tabId, Date.now());
+  recomputeLockState();
+}
+
+function dropPeer(tabId) {
+  peers.delete(tabId);
+  recomputeLockState();
+}
+
+function prunePeers() {
+  const cutoff = Date.now() - PEER_TIMEOUT_MS;
+  let removed = false;
+  for (const [id, lastSeen] of peers) {
+    if (lastSeen < cutoff) {
+      peers.delete(id);
+      removed = true;
+    }
+  }
+  if (removed) recomputeLockState();
+}
+
+// Sole writer of S.hasMultipleTabs; the boolean is a published cache of
+// (peers.size > 0) so external readers can stay synchronous.
+function recomputeLockState() {
+  const next = peers.size > 0;
+  if (next === S.hasMultipleTabs) return;
+  S.hasMultipleTabs = next;
+  updateTabLockUI();
 }
 
 // Initialize the tab lock system
@@ -30,47 +82,83 @@ export function initTabLock() {
     timestamp: Date.now(),
   });
 
-  // Listen for messages from other tabs
   broadcastChannel.onmessage = (event) => {
-    const { type, tabId, timestamp } = event.data;
+    const { type, tabId } = event.data;
 
-    // Ignore our own messages
     if (tabId === TAB_ID) return;
 
     switch (type) {
       case "TAB_OPENED":
-        // Another tab opened, we now have multiple tabs
-        S.hasMultipleTabs = true;
-        updateTabLockUI();
+        recordPeer(tabId);
         break;
 
       case "TAB_CLOSED":
-        // A tab closed, check if we're the only one left
-        // We'll handle this with a heartbeat mechanism
+        dropPeer(tabId);
         break;
 
       case "PING":
-        // Respond to ping to confirm we're still here
         broadcastChannel.postMessage({
           type: "PONG",
           tabId: TAB_ID,
           timestamp: Date.now(),
         });
-        S.hasMultipleTabs = true;
-        updateTabLockUI();
+        recordPeer(tabId);
+        break;
+
+      case "PONG":
+        // PONG carries no echo: PING already triggers a single PONG reply,
+        // so echoing here would create an unbounded ping-pong loop.
+        recordPeer(tabId);
+        break;
+
+      case "WORKFLOW_MUTATION":
+        recordPeer(tabId);
+        if (onWorkflowMutationCallback) {
+          try {
+            onWorkflowMutationCallback(event.data.payload);
+          } catch (err) {
+            console.warn("workflow mutation handler threw", err);
+          }
+        }
         break;
     }
   };
 
-  // Send initial ping to check for existing tabs
   broadcastChannel.postMessage({
     type: "PING",
     tabId: TAB_ID,
     timestamp: Date.now(),
   });
 
-  // Handle tab close
+  // Heartbeat refreshes peer liveness and prunes peers that vanished without
+  // posting TAB_CLOSED (crash, OS kill, mobile background eviction).
+  heartbeatTimer = setInterval(() => {
+    broadcastChannel.postMessage({
+      type: "PING",
+      tabId: TAB_ID,
+      timestamp: Date.now(),
+    });
+    prunePeers();
+  }, HEARTBEAT_MS);
+
+  // Background tabs throttle setInterval (Chrome down to ~1Hz, sometimes lower),
+  // so re-broadcast and re-prune on becoming visible to converge quickly after
+  // tab switching.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !broadcastChannel) return;
+    broadcastChannel.postMessage({
+      type: "PING",
+      tabId: TAB_ID,
+      timestamp: Date.now(),
+    });
+    prunePeers();
+  });
+
   window.addEventListener("beforeunload", () => {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
     if (broadcastChannel) {
       broadcastChannel.postMessage({
         type: "TAB_CLOSED",
@@ -80,7 +168,6 @@ export function initTabLock() {
     }
   });
 
-  // Update UI initially
   updateTabLockUI();
 }
 

@@ -200,9 +200,6 @@ DEFAULT_SETTINGS = {
     "prevent_prompt_overrides": 0,
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
-    "tts_enabled": 0,
-    "tts_auto_speak": 0,
-    "tts_volume": 0.75,
 }
 
 SEED_PHRASE_BANK = [

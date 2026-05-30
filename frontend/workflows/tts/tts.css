@@ -1,0 +1,231 @@
+/* TTS workflow appearance. Loaded via a <link> injected by index.js so the
+   workflow ships its own styling without editing the core stylesheet. All
+   colors, radii, and fonts come from the active Orb theme's CSS variables, so
+   the widget tracks every theme. The playback widget reads as a voice-memo
+   pill: a round play/pause control and an accent waveform that ripples while
+   the clip plays. */
+
+/* ---- attachment playback widget ---- */
+
+.tts-clip {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 9px 5px 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+}
+
+.tts-toggle {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  color: var(--accent);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.08s ease;
+}
+
+.tts-toggle:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.tts-toggle:active {
+  transform: scale(0.92);
+}
+
+.tts-toggle svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+/* Play by default; swap to pause only while this clip is the playing one. */
+.tts-toggle .tts-ic-pause {
+  display: none;
+}
+
+.tts-clip.is-playing .tts-toggle .tts-ic-play {
+  display: none;
+}
+
+.tts-clip.is-playing .tts-toggle .tts-ic-pause {
+  display: block;
+}
+
+.tts-wave {
+  flex: 1 1 auto;
+  min-width: 36px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.tts-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  max-width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.32;
+  transform: scaleY(0.5);
+  transform-origin: center;
+  transition: opacity 0.2s ease;
+}
+
+/* Negative per-bar delay desynchronizes the bars so the wave travels rather
+   than pulsing in lockstep. */
+.tts-clip.is-playing .tts-bar {
+  opacity: 0.85;
+  animation: tts-wave 0.95s ease-in-out infinite;
+  animation-delay: calc(var(--i) * -0.08s);
+}
+
+.tts-clip.is-paused .tts-bar {
+  opacity: 0.55;
+}
+
+@keyframes tts-wave {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.tts-clip-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Toolbar "generate speech" button: matches the message toolbar's icon buttons. */
+.tts-create-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius);
+}
+
+.tts-create-btn:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.tts-create-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---- config panel (Tools "Secondary" tab) ---- */
+
+/* Card button that opens the settings modal; matches Orb's small buttons. */
+.tts-settings-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 11px;
+  cursor: pointer;
+}
+
+.tts-settings-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.tts-config {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  font-family: var(--font-ui);
+}
+
+.tts-config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tts-config-heading {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+}
+
+.tts-config-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.tts-config-row input[type="text"],
+.tts-config-row input[type="password"],
+.tts-config-row select {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 4px 7px;
+  font: inherit;
+}
+
+.tts-config-row input[type="range"] {
+  flex: 1 1 auto;
+  accent-color: var(--accent);
+}
+
+.tts-config-row button {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  padding: 4px 11px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tts-config-row button:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.tts-config-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+#tts-pf-status {
+  font-size: 12px;
+  color: var(--text-muted);
+}

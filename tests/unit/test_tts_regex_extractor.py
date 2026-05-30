@@ -6,13 +6,29 @@ using pure heuristics — zero LLM calls.
 
 from __future__ import annotations
 
-from backend.tts.regex_extractor import (
+from backend.workflows.tts.engine.regex_extractor import (
     AUDIBLE_BEATS,
     AUDIBLE_EMOTION_MAP,
     _extract_beat_action,
     _infer_emotion,
     regex_extract,
 )
+
+
+class TestSpokenText:
+    """spoken_text carries the bare dialogue even when text gains a tag prefix."""
+
+    def test_untagged_spoken_text_equals_text(self):
+        chunks = regex_extract('"Hello there."', backend_type="edge", supports_emotion_tags=False)
+        assert len(chunks) == 1
+        assert chunks[0].text == "Hello there."
+        assert chunks[0].spoken_text == "Hello there."
+
+    def test_tagged_text_keeps_spoken_text_bare(self):
+        chunks = regex_extract('*laughs* "That is funny."', backend_type="elevenlabs", supports_emotion_tags=True)
+        assert len(chunks) == 1
+        assert chunks[0].text.startswith("[laugh]")
+        assert chunks[0].spoken_text == "That is funny."
 
 
 class TestBasicDialogue:

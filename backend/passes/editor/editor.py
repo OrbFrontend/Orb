@@ -280,6 +280,7 @@ async def editor_pass(
     ) = None,  # explicit previous-assistant list for repetition scanning; if None, derived from prefix
     model: str | None = None,
     writer_user_msg: "str | list | None" = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
+    schema_overrides: dict | None = None,
 ) -> AsyncIterator[dict]:
     """ReAct-style editor loop with optional audit and/or length guard.
 
@@ -334,12 +335,10 @@ async def editor_pass(
     length_guard_triggered = False
     length_guard_instruction = ""
 
-    # Start from the same enabled-tool set used by the director and writer
-    # passes so the KV-cache prefix stays aligned.  EDITOR_APPLY_PATCH_TOOL
-    # is included when audit_enabled is True; EDITOR_REWRITE_TOOL is included
-    # when length_guard is enabled — both injected by the orchestrator into
-    # enabled_tools before reaching this pass.
-    editor_tools: list[dict] = enabled_schemas(enabled_tools)
+    # Uses the same enabled-tool set as director and writer for KV-cache
+    # alignment. EDITOR_APPLY_PATCH_TOOL and EDITOR_REWRITE_TOOL are injected
+    # into enabled_tools by the orchestrator before this pass runs.
+    editor_tools: list[dict] = enabled_schemas(enabled_tools, schema_overrides)
 
     if length_guard and length_guard.get("enabled"):
         word_count = len(draft.split())
@@ -437,6 +436,8 @@ async def editor_pass(
                         yield {"type": "reasoning", "delta": event["delta"]}
                     elif event["type"] == "done":
                         resp = event["message"]
+                        if kv_tracker is not None and iteration == 0:
+                            kv_tracker.record_usage("editor", event.get("usage"))
             except Exception as llm_err:
                 logger.error(
                     "Editor iteration %d: client.complete() raised %s: %s",

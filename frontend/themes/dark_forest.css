@@ -1,11 +1,208 @@
+/* ═══════════════════════════════════════════════════════════
+   Dark Forest — deep woodland under a dense canopy. Warm dappled
+   light filters down from a gap in the leaves up top and gives way
+   to green shade and undergrowth below. Sister to Ocean Depths in
+   structure, but where that one is wet glass, this is matte and
+   organic: no blur, no gloss — earth, moss, and bark.
+
+   The core idea, shared with Ocean Depths: flat over glossy — dark
+   translucent fills, hairline green borders, no inset highlights or
+   gradients on controls.
+
+   Performance: no live backdrop-filter anywhere — flat fills only,
+   so nothing repaints on scroll.
+   ═══════════════════════════════════════════════════════════ */
 :root {
   --bg-deep:#030e04;--bg-primary:#091508;--bg-surface:#0f1e0e;--bg-elevated:#162816;
   --bg-hover:#1e2a14;--border:#2e3820;--border-light:#3d4428;
   --text-primary:#b4cc8c;--text-secondary:#5e9e48;--text-muted:#6b5030;
-  --accent:#46a852;--accent-dim:#2a6838;--accent-glow:rgba(70,168,82,0.06);
+  --accent:#46a852;--accent-dim:#2a6838;--accent-glow:rgba(70,168,82,0.08);
   --red:#c47060;
   --font-prose:'Crimson Text',Georgia,'Palatino Linotype',Palatino,serif;--font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --font-mono:'Menlo','Consolas','Courier New',monospace;--radius:6px;
   --font-prose-size:19px;
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
+
+/* ── The canopy: warm light leaks through a gap in the leaves up
+   top, two faint sun-shafts rake down through it, and the rest
+   sinks into deep green shade. Static, fixed — painted once. */
+body {
+  background:
+    linear-gradient(165deg, rgba(196,214,124,0.05) 0%, rgba(196,214,124,0) 22%),
+    linear-gradient(200deg, rgba(196,214,124,0.04) 0%, rgba(196,214,124,0) 20%),
+    radial-gradient(120% 72% at 50% -16%, rgba(154,198,98,0.12) 0%, rgba(154,198,98,0.03) 32%, rgba(154,198,98,0) 56%),
+    radial-gradient(65% 50% at 84% 4%, rgba(112,170,72,0.06) 0%, rgba(112,170,72,0) 52%),
+    linear-gradient(180deg, #0c1a0a 0%, #091408 36%, #060f06 68%, #030a04 100%)
+    !important;
+  background-attachment: fixed !important;
+}
+
+/* ── Side panels: matte forest-shade, hairline green edge. No blur,
+   no top highlight — just quiet dark wood. */
+#sidebar, #inspector, #tools-panel {
+  background: rgba(9,19,8,0.62) !important;
+  border-color: rgba(70,168,82,0.14) !important;
+}
+#sidebar { border-right: 1px solid rgba(70,168,82,0.14) !important; }
+#inspector, #tools-panel { border-left: 1px solid rgba(70,168,82,0.14) !important; }
+
+/* Headers: flat, just a hairline divider — no sheen. */
+.sidebar-header, #chat-header {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(70,168,82,0.12) !important;
+}
+
+/* The app title — a calm leaf green, no halo. */
+.sidebar-header h1 {
+  color: #6cbf63 !important;
+  text-shadow: none !important;
+}
+.sidebar-section-header:hover { color: #82d075 !important; }
+
+/* ── Buttons: flat matte tiles, hairline green edge. No gradient,
+   no shine — brighten and pick up a green rim on hover. */
+.btn {
+  background: rgba(20,38,18,0.6) !important;
+  border: 1px solid rgba(70,168,82,0.2) !important;
+  color: #b4cc8c !important;
+  box-shadow: none !important;
+  transition: background .15s ease, border-color .15s ease, color .15s ease !important;
+}
+.btn:hover {
+  background: rgba(30,52,24,0.72) !important;
+  border-color: rgba(70,168,82,0.5) !important;
+}
+.btn:active { background: rgba(15,30,14,0.72) !important; }
+
+/* Primary/accent: a flat moss green, calm at rest — brightens and
+   picks up only a faint glow on hover. */
+.btn-accent, .btn-active, #send-btn {
+  background: rgba(42,104,56,0.85) !important;
+  border: 1px solid var(--accent-dim) !important;
+  color: #eaf6dd !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+.btn-accent:hover, .btn-active:hover, #send-btn:hover {
+  background: rgba(54,130,68,0.92) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 8px rgba(70,168,82,0.2) !important;
+}
+
+/* Danger + chat Stop: flat warm clay-red. */
+.btn-danger, #stop-btn {
+  background: rgba(150,70,56,0.82) !important;
+  border: 1px solid var(--red) !important;
+  color: #fbe6df !important;
+  box-shadow: none !important;
+}
+.btn-danger:hover, #stop-btn:hover {
+  background: rgba(178,86,70,0.9) !important;
+  box-shadow: 0 0 12px rgba(196,112,96,0.3) !important;
+}
+
+/* Composer burger tile — matches the flat buttons. */
+#burger-btn {
+  background: rgba(20,38,18,0.6) !important;
+  border: 1px solid rgba(70,168,82,0.2) !important;
+  color: #6fa85a !important;
+  box-shadow: none !important;
+}
+#burger-btn:hover {
+  background: rgba(30,52,24,0.72) !important;
+  border-color: rgba(70,168,82,0.5) !important;
+  color: #96cf78 !important;
+}
+
+/* ── Composer dock: flat shade, hairline divider. */
+#chat-input-area {
+  background: rgba(7,16,6,0.6) !important;
+  border-top: 1px solid rgba(70,168,82,0.12) !important;
+}
+
+/* ── Toggle: flat recessed track, matte knob; floods green (faint
+   glow) when on. */
+.tog-slider {
+  background: rgba(9,20,8,0.9) !important;
+  border: 1px solid rgba(70,168,82,0.22) !important;
+  box-shadow: none !important;
+}
+.tog-slider:before {
+  background: #7c8a5c !important;
+  box-shadow: none !important;
+}
+.tog input:checked + .tog-slider {
+  background: var(--accent-dim) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 5px rgba(70,168,82,0.3) !important;
+}
+.tog input:checked + .tog-slider:before { background: #e2f0cf !important; }
+
+/* ── Messages: flat dark-foliage panels, hairline border, no shadow,
+   no shine. */
+.message .msg-body {
+  background: rgba(13,26,12,0.5) !important;
+  border: 1px solid rgba(70,168,82,0.12) !important;
+  box-shadow: none !important;
+}
+.message.user .msg-body {
+  background: rgba(42,104,56,0.16) !important;
+  border-color: rgba(70,168,82,0.26) !important;
+}
+.message .msg-body pre,
+.message .msg-body code.inline-code {
+  background: rgba(3,10,4,0.5) !important;
+  border-color: rgba(70,168,82,0.16) !important;
+}
+
+/* ── Three prose voices, three registers — distinctness by HUE, not
+   brightness. Dialogue breaks off the green and goes bark brown,
+   the lone warm tone against the foliage. The interface stays green;
+   only the spoken word is brown.
+     • Narration — leaf-pale green, the base you read straight through.
+     • Dialogue  — bark brown, the warm note the eye lands on first.
+     • Thought   — italic emphasis sits as dim moss, a step back. */
+.message .msg-body { color: #b5bdb9 !important; }
+.message .msg-body .quoted { color: #b07a3c !important; }
+.message .msg-body em {
+  color: #7f8f5e !important;
+  font-style: italic !important;
+}
+/* TTS "now speaking" highlight — a brighter flare of the same bark. */
+.message .msg-body .quoted.speaking { color: #d49a5a !important; }
+
+/* ── Modals: flat dark sheet on a shaded scrim; drop shadow reads
+   as depth, not gloss. */
+.modal-overlay { background: rgba(2,7,3,0.66) !important; }
+.modal, .modal-crop {
+  background: rgba(11,23,10,0.97) !important;
+  border: 1px solid rgba(70,168,82,0.18) !important;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.65) !important;
+}
+
+/* ── Toast: flat dark lozenge, faint green edge. */
+.toast {
+  background: rgba(11,23,10,0.97) !important;
+  border: 1px solid rgba(70,168,82,0.18) !important;
+  color: #b4cc8c !important;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.55) !important;
+}
+
+/* ── Slim, flat green scrollbars. */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(70,168,82,0.3); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(70,168,82,0.52); }
+* { scrollbar-width: thin; scrollbar-color: rgba(70,168,82,0.36) transparent; }
+
+::selection { background: rgba(70,168,82,0.3); color: #eaf6dd; }
+
+/* Text floating on the gradient. */
+.msg-role { color: #6fa85a !important; }
+.swipe-counter, .swipe-nav { color: #7a9a5e !important; }
+.swipe-nav:hover { color: var(--accent) !important; }
+.msg-toolbar { color: #5e9e48 !important; }
+
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }
