@@ -17,6 +17,7 @@ positional scheme would mis-bind queued responses.
 from __future__ import annotations
 
 import asyncio
+import copy
 from typing import Any, AsyncIterator
 
 
@@ -83,6 +84,12 @@ class FakeLLMClient:
         # dispatch order and invocation counts, so its shape is part of
         # the mock's contract -- do not rename or restructure.
         self.calls: list[tuple[str, Any]] = []
+        # Full wire payload of every ``complete()`` call, for KV-cache tests
+        # that need to compare the exact messages/tools each pass sent. Deep
+        # copies are taken at call time because the editor mutates its ``msgs``
+        # list in place across ReAct iterations -- a shallow reference would
+        # show the final state for every iteration, not what each one sent.
+        self.captured: list[dict] = []
 
     def enqueue_director(self, tool_calls: list[dict]) -> None:
         """Queue a director response.
@@ -138,6 +145,15 @@ class FakeLLMClient:
     ) -> AsyncIterator[dict]:
         pass_name = _pass_from_tool_choice(tool_choice)
         self.calls.append((pass_name, tool_choice))
+        self.captured.append(
+            {
+                "pass": pass_name,
+                "model": model,
+                "tool_choice": copy.deepcopy(tool_choice),
+                "messages": copy.deepcopy(messages),
+                "tools": copy.deepcopy(tools),
+            }
+        )
 
         gates = self._gates[pass_name]
         if gates:
