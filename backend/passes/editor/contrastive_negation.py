@@ -31,7 +31,7 @@ def _split_sentences(text: str) -> list[str]:
     # detectable terminator (or whose terminator is hidden behind markdown) can't
     # merge with the following paragraph into one oversized "sentence".
     sentences: list[str] = []
-    for line in re.split(r'\n+', text):
+    for line in re.split(r"\n+", text):
         sentences.extend(s.strip() for s in _SENTENCE_SPLIT_RE.split(line) if s.strip())
     return sentences
 

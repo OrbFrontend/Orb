@@ -1036,7 +1036,7 @@ const AUDIT_TYPE_DEFS = [
     label: "Repetitive templates",
     title: "Flag sentences sharing the same structural template.",
   },
-  { key: "contrastive_negation", label: "Contrastive negation", title: 'Flag `not X, but Y` constructions.' },
+  { key: "contrastive_negation", label: "Contrastive negation", title: "Flag `not X, but Y` constructions." },
   { key: "phrase_repetition", label: "Phrase repetition", title: "Flag exact phrases echoed across recent messages." },
   {
     key: "structural_repetition",
