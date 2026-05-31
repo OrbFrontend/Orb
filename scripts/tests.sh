@@ -15,27 +15,29 @@ source .venv/bin/activate
 echo "Installing dev dependencies..."
 pip install -q -r requirements-dev.txt
 
-# Usage: ./scripts/tests.sh [unit|integration|all] [extra pytest args...]
-#   unit        — run only tests/unit/
-#   integration — run only tests/integration/
-#   all         — run both suites (default)
+# Usage: ./scripts/tests.sh [unit|integration|all] [pytest args...]
+#   unit        -- run only tests/unit/
+#   integration -- run only tests/integration/
+#   all         -- run both suites (default; no arg)
+# Any other first arg is forwarded to pytest as a path or flag, along
+# with everything after it.
 SUITE="${1:-all}"
+# Guarded so a bare invocation (no positional args) does not trip `shift`
+# under `set -e`; shift returns 1 when $# is 0 and would kill the script.
+[ "$#" -gt 0 ] && shift
 
 case "$SUITE" in
     unit)
-        shift
         echo ""
         echo "=== Unit tests ==="
         python -m pytest tests/unit/ "$@"
         ;;
     integration)
-        shift
         echo ""
         echo "=== Integration tests ==="
         python -m pytest tests/integration/ "$@"
         ;;
     all)
-        shift
         echo ""
         echo "=== Unit tests ==="
         python -m pytest tests/unit/ "$@"
@@ -44,7 +46,6 @@ case "$SUITE" in
         python -m pytest tests/integration/ "$@"
         ;;
     *)
-        # No recognised suite keyword — pass everything straight to pytest
         echo ""
         python -m pytest "$SUITE" "$@"
         ;;

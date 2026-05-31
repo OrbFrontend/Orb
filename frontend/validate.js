@@ -541,6 +541,28 @@ export function validatePhraseVariants(variants) {
 }
 
 /**
+ * Validate a phrase-bank regex pattern by compiling it with the JS engine.
+ * Surfaces the engine's own error message so the field can show it live.
+ * @param {string} pattern - The regular expression source
+ * @returns {{ valid: boolean, error?: string }}
+ */
+export function validatePhraseRegex(pattern) {
+  const src = (pattern || "").trim();
+  if (!src) {
+    return { valid: false, error: "A regex pattern is required" };
+  }
+  if (src.length > MAX_PHRASE_VARIANT) {
+    return { valid: false, error: `Pattern must be ${MAX_PHRASE_VARIANT} characters or less` };
+  }
+  try {
+    new RegExp(src);
+    return { valid: true };
+  } catch (e) {
+    return { valid: false, error: e.message };
+  }
+}
+
+/**
  * Validate character browser search query.
  * @param {string} query - The search query
  * @returns {{ valid: boolean, error?: string }}
@@ -611,6 +633,7 @@ export const validate = {
   validateUserProfile,
   validatePersona,
   validatePhraseVariants,
+  validatePhraseRegex,
   validateBrowseSearch,
   validateEditMessage,
   validateConversationTitle,

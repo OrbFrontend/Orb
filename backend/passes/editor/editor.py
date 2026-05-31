@@ -11,7 +11,7 @@ import time
 from typing import AsyncIterator
 
 from .audit import run_audit, format_report, AuditReport
-from .slop_detector import DetectionResult
+from .slop_detector import DetectionResult, PhraseGroup
 from .opening_monotony import FlaggedOpener, MonotonyResult, _split_sentences
 from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
@@ -141,7 +141,7 @@ def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
 
 def _run_contextual_audit(
     draft: str,
-    phrase_bank: list[list[str]],
+    phrase_bank: list[PhraseGroup],
     previous_assistant_msgs: list[str],
 ) -> tuple[AuditReport, str]:
     """Run audit on *draft* with cross-message context, then filter results
@@ -190,6 +190,12 @@ def _normalize_quotes(text: str) -> str:
     return text.translate(_QUOTE_MAP)
 
 
+def _strip_outer_asterisks(text: str) -> str:
+    """Strip leading/trailing markdown emphasis asterisks (and the whitespace
+    just inside them).  Internal asterisks are left untouched."""
+    return text.strip().strip("*").strip()
+
+
 def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
     """Apply search/replace patches to *draft*.  Returns (updated_draft, error_messages)."""
     errors: list[str] = []
@@ -230,6 +236,29 @@ def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
                     f"Error: Multiple matches ({norm_count}) for {search[:80]!r} (after quote normalization). Use more context."
                 )
                 continue
+
+            # Fallback: the model often wraps a single sentence in its own
+            # `*...*` when the draft only has block-level asterisks around the
+            # whole narration span, so the outer `*` don't line up. Retry with
+            # leading/trailing asterisks stripped from both sides.
+            trimmed_search = _strip_outer_asterisks(search)
+            if trimmed_search and trimmed_search != search:
+                trimmed_count = draft.count(trimmed_search)
+                if trimmed_count == 1:
+                    draft = draft.replace(trimmed_search, _strip_outer_asterisks(replace), 1)
+                    logger.debug(
+                        "Patch %d OK (asterisk-trimmed): %r → %r",
+                        i,
+                        trimmed_search[:60],
+                        replace[:60],
+                    )
+                    continue
+                elif trimmed_count > 1:
+                    errors.append(
+                        f"Error: Multiple matches ({trimmed_count}) for {search[:80]!r} (after asterisk trimming). Use more context."
+                    )
+                    continue
+
             errors.append(f"Error: {search[:80]!r} not found in draft.")
 
         elif count > 1:
@@ -269,7 +298,7 @@ async def editor_pass(
     effective_msg: str,
     draft: str,
     settings: dict,
-    phrase_bank: list[list[str]],
+    phrase_bank: list[PhraseGroup],
     enabled_tools: dict,
     audit_enabled: bool = True,
     length_guard: dict | None = None,
@@ -280,6 +309,7 @@ async def editor_pass(
     ) = None,  # explicit previous-assistant list for repetition scanning; if None, derived from prefix
     model: str | None = None,
     writer_user_msg: "str | list | None" = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
+    schema_overrides: dict | None = None,
 ) -> AsyncIterator[dict]:
     """ReAct-style editor loop with optional audit and/or length guard.
 
@@ -334,12 +364,10 @@ async def editor_pass(
     length_guard_triggered = False
     length_guard_instruction = ""
 
-    # Start from the same enabled-tool set used by the director and writer
-    # passes so the KV-cache prefix stays aligned.  EDITOR_APPLY_PATCH_TOOL
-    # is included when audit_enabled is True; EDITOR_REWRITE_TOOL is included
-    # when length_guard is enabled — both injected by the orchestrator into
-    # enabled_tools before reaching this pass.
-    editor_tools: list[dict] = enabled_schemas(enabled_tools)
+    # Uses the same enabled-tool set as director and writer for KV-cache
+    # alignment. EDITOR_APPLY_PATCH_TOOL and EDITOR_REWRITE_TOOL are injected
+    # into enabled_tools by the orchestrator before this pass runs.
+    editor_tools: list[dict] = enabled_schemas(enabled_tools, schema_overrides)
 
     if length_guard and length_guard.get("enabled"):
         word_count = len(draft.split())
@@ -437,6 +465,8 @@ async def editor_pass(
                         yield {"type": "reasoning", "delta": event["delta"]}
                     elif event["type"] == "done":
                         resp = event["message"]
+                        if kv_tracker is not None and iteration == 0:
+                            kv_tracker.record_usage("editor", event.get("usage"))
             except Exception as llm_err:
                 logger.error(
                     "Editor iteration %d: client.complete() raised %s: %s",

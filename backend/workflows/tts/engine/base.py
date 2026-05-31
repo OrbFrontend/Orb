@@ -21,6 +21,11 @@ class SpeakableChunk:
     """
 
     text: str
+    # Dialogue without the optional emotion-tag prefix that `text` may carry for
+    # tag-aware backends. Word-timing alignment keys off this, because the
+    # highlighted on-screen words never include the tag; equals `text` when no
+    # tag was applied.
+    spoken_text: str = ""
     emotion: str = "neutral"
     pause_before_ms: int = 0
     pause_after_ms: int = 0
@@ -62,6 +67,10 @@ class SynthesisResult:
     content_type: str = "audio/mpeg"  # MIME type
     duration_ms: int = 0  # Estimated duration (0 if unknown)
     size_bytes: int = 0
+    # Per-word clip-local spans from a backend that natively reports them (edge's
+    # WordBoundary stream); None when the backend has no native timing, leaving
+    # the caller to estimate. Each entry: {text, start_ms, end_ms}.
+    word_boundaries: list[dict] | None = None
 
     def __post_init__(self):
         if not self.size_bytes:

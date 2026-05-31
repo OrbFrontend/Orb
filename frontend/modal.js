@@ -18,8 +18,17 @@ export function showModal(html) {
      </div>`;
 }
 
+let _modalCloseCallback = null;
+
 export function closeModal() {
   $("modal-root").innerHTML = "";
+  const cb = _modalCloseCallback;
+  _modalCloseCallback = null;
+  if (cb) cb();
+}
+
+export function setModalCloseCallback(cb) {
+  _modalCloseCallback = cb;
 }
 
 export function switchTab(tab, contentId) {

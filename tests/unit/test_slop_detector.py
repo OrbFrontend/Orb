@@ -86,3 +86,103 @@ class TestFormatReportPhrase:
         report_text = format_report(run_audit(text, phrase_bank))
 
         assert '"a dance of"' in report_text
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Regex groups — {"kind": "regex", "pattern": ...}
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestRegexGroups:
+    def test_alternation_matches_and_reports_matched_text(self):
+        """A regex group flags the sentence and reports the matched substring."""
+        phrase_bank = [{"kind": "regex", "pattern": r"the air (is|was) (thick|heavy|charged)"}]
+        text = "The air was thick between them."
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 1
+        assert result.flagged_sentences[0].cliches[0].phrase == "The air was thick"
+        assert result.unique_cliches == ["The air was thick"]
+
+    def test_case_insensitive(self):
+        phrase_bank = [{"kind": "regex", "pattern": r"\bvoid\b"}]
+        text = "A VOID opened beneath her."
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 1
+        assert result.flagged_sentences[0].cliches[0].phrase == "VOID"
+
+    def test_word_boundary_avoids_substring(self):
+        phrase_bank = [{"kind": "regex", "pattern": r"\bcat\b"}]
+        text = "The category was vague."
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 0
+
+    def test_flexible_spacing(self):
+        phrase_bank = [{"kind": "regex", "pattern": r"heart\s+racing"}]
+        text = "Her heart   racing, she ran."
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 1
+
+    def test_invalid_pattern_is_skipped_not_raised(self):
+        """A malformed pattern must not abort the audit; it is silently skipped."""
+        phrase_bank = [
+            {"kind": "regex", "pattern": r"(unclosed"},
+            ["a mix of"],
+        ]
+        text = "It was a mix of things."
+        result = detect_cliches(text, phrase_bank)
+
+        # The valid literal group still fires.
+        assert result.flagged_count == 1
+        assert result.flagged_sentences[0].cliches[0].phrase == "a mix of"
+
+    def test_literal_dict_shape_still_matches(self):
+        """A literal group expressed as a dict behaves like the legacy list form."""
+        phrase_bank = [{"kind": "literal", "variants": ["a mix of", "a mixture of"]}]
+        text = "It was a mixture of styles."
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 1
+        assert result.flagged_sentences[0].cliches[0].phrase == "a mixture of"
+
+    def test_regex_report_shows_matched_text(self):
+        phrase_bank = [{"kind": "regex", "pattern": r"the air (is|was) (thick|heavy)"}]
+        text = "The air is heavy with smoke."
+        report_text = format_report(run_audit(text, phrase_bank))
+
+        assert '"The air is heavy"' in report_text
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Single-sentence containment — a match never spans a sentence boundary
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestSingleSentenceContainment:
+    def test_greedy_pattern_does_not_cross_sentence_split(self):
+        """A `.*` pattern cannot match across a normal sentence boundary."""
+        phrase_bank = [{"kind": "regex", "pattern": r"the air.*thick"}]
+        text = "She breathed the air. The soup was thick."
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 0
+
+    def test_greedy_pattern_matches_within_one_sentence(self):
+        phrase_bank = [{"kind": "regex", "pattern": r"the air.*thick"}]
+        text = "The air grew thick with smoke."
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 1
+        assert result.flagged_sentences[0].cliches[0].phrase == "The air grew thick"
+
+    def test_match_rejected_when_it_bridges_an_undersplit_boundary(self):
+        """A no-space boundary ("clear.The") leaves the chunk un-split, but a
+        match that bridges it is still rejected by the boundary guard."""
+        phrase_bank = [{"kind": "regex", "pattern": r"air.*thick"}]
+        text = "The air was clear.The fog was thick."
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 0

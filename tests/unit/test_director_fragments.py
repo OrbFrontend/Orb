@@ -271,7 +271,7 @@ class TestBuildStyleInjection:
     def test_active_mood_rendered(self):
         active = [{"id": "tense", "prompt_text": "Write with tension.", "negative_prompt": ""}]
         result = build_style_injection(active, director_fragments=[], extra_fields={})
-        assert "Mood [tense]: Write with tension." in result
+        assert "Write with tension." in result
 
     def test_deactivated_mood_with_negative_prompt_rendered(self):
         deactivated = [
@@ -282,12 +282,12 @@ class TestBuildStyleInjection:
             }
         ]
         result = build_style_injection([], deactivated=deactivated, director_fragments=[], extra_fields={})
-        assert "Deactivated [terse]: Return to normal length." in result
+        assert "Return to normal length." in result
 
     def test_deactivated_mood_without_negative_prompt_skipped(self):
         deactivated = [{"id": "grounded", "prompt_text": "Be realistic.", "negative_prompt": ""}]
         result = build_style_injection([], deactivated=deactivated, director_fragments=[], extra_fields={})
-        assert "Deactivated [grounded]" not in result
+        assert result == "**Scene Direction**"
 
     def test_sort_order_respected(self):
         frags = [
@@ -348,7 +348,7 @@ class TestComputeStyleInjectionBlock:
     def test_suppresses_moods_when_direct_scene_disabled(self):
         frags = self._make_mood_frags()
         result = compute_style_injection_block(["tense"], [], frags, [], False, {"plot_summary": "x"})
-        assert "Mood [tense]" not in result
+        assert "Write with tension." not in result
 
     def test_suppresses_extra_fields_when_direct_scene_disabled(self):
         dir_frags = self._make_director_frags()
@@ -358,7 +358,7 @@ class TestComputeStyleInjectionBlock:
     def test_includes_moods_when_direct_scene_enabled(self):
         frags = self._make_mood_frags()
         result = compute_style_injection_block(["tense"], [], frags, [], True, {"plot_summary": "x"})
-        assert "Mood [tense]" in result
+        assert "Write with tension." in result
 
     def test_extra_fields_rendered_dynamically(self):
         dir_frags = self._make_director_frags()

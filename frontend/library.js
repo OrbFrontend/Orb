@@ -1,17 +1,9 @@
-import {
-  api,
-  getTtsBackends,
-  getTtsModels,
-  getTtsVoices,
-  getVoiceProfile,
-  saveVoiceProfile,
-  ttsPreview,
-} from "./api.js";
+import { api } from "./api.js";
 import { loadConversations, resetChatUI } from "./chat.js";
 import { loadWorlds } from "./lorebooks.js";
-import { closeModal, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
+import { closeModal, setModalCloseCallback, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
 import { S } from "./state.js";
-import { $, avatarUrl, esc, toast } from "./utils.js";
+import { $, avatarUrl, esc, formatRelativeDate, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // Pending avatar for the character create modal (cleared on submit or cancel)
@@ -26,13 +18,21 @@ let _pendingCharacterBook = null;
 const _avatarBust = new Map();
 
 // Character browser modal state
-let _browserViewMode = "grid"; // 'grid' or 'list'
+let _browserViewMode = "grid"; // 'grid', 'list', or 'internet'
 let _browserSearchQuery = "";
 let _browserCharacters = [];
 let _browserSortBy = "time-added"; // 'name', 'time-added', 'most-recent-chat', 'most-chats'
 let _browserConversations = [];
 let _browserSelectedTags = new Set();
 let _browserTopTags = []; // top 15 most popular tags
+
+// Internet character browse state
+let _internetSource = "characterhub";
+let _internetQuery = "";
+let _internetPage = 1;
+let _internetResults = [];
+let _internetLoading = false;
+let _internetHasMore = false;
 
 // ── Mood Fragments
 export async function loadMoodFragments() {
@@ -599,7 +599,6 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="tab" onclick="switchTab(this,'${prefix}-ts')">Scenario</div>
       <div class="tab" onclick="switchTab(this,'${prefix}-tm')">Messages</div>
       ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-ta')">Advanced</div>` : ""}
-      ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-tvoice')">Voice</div>` : ""}
     </div>
     <div id="${prefix}-tp" class="tab-content active">
       <div class="field"><label>Description</label><textarea id="${prefix}-desc" rows="5">${esc(d.description || "")}</textarea></div>
@@ -643,74 +642,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
     </div>`
         : ""
     }
-    ${
-      isEdit
-        ? `<div id="${prefix}-tvoice" class="tab-content">
-      <div id="${prefix}-voice-fields" class="voice-fields-wrap">
-        <div id="${prefix}-voice-loading" class="voice-loading-overlay hidden">
-          <div class="voice-loading-spinner"></div>
-          <span>Loading voice settings…</span>
-        </div>
-      <div class="field voice-enable-row">
-        <label>Voice</label>
-        <label class="modal-checkbox-label">
-          Enable speech generation for this character
-          <label class="tog" onclick="event.stopPropagation()">
-            <input type="checkbox" id="${prefix}-voice-enabled"
-              onchange="toggleVoiceFields('${prefix}', this.checked)">
-            <span class="tog-slider"></span>
-          </label>
-        </label>
-      </div>
-      <div id="${prefix}-voice-config" class="voice-config">
-      <div class="field"><label>TTS Backend</label>
-        <select id="${prefix}-voice-backend" onchange="onVoiceBackendChange('${prefix}')">
-          <option value="">Loading…</option>
-        </select>
-      </div>
-      <div class="field" id="${prefix}-voice-api-url-wrap"><label>API URL</label>
-        <input type="text" id="${prefix}-voice-api-url" placeholder="http://localhost:8080">
-      </div>
-      <div class="field" id="${prefix}-voice-api-key-wrap"><label>API Key</label>
-        <input type="password" id="${prefix}-voice-api-key" placeholder="Leave empty if not needed">
-      </div>
-      <div class="field" id="${prefix}-voice-model-wrap"><label>Model</label>
-        <input type="text" id="${prefix}-voice-model" placeholder="e.g. tts-1, fish-speech">
-      </div>
-      <div class="field" id="${prefix}-voice-lang-wrap"><label>Language</label>
-        <select id="${prefix}-voice-lang" onchange="onVoiceLangChange('${prefix}')">
-          <option value="en">English</option>
-          <option value="de">German</option>
-          <option value="es">Spanish</option>
-          <option value="fr">French</option>
-          <option value="ja">Japanese</option>
-          <option value="ko">Korean</option>
-          <option value="zh">Chinese</option>
-          <option value="pt">Portuguese</option>
-          <option value="ru">Russian</option>
-          <option value="it">Italian</option>
-        </select>
-      </div>
-      <div class="field" id="${prefix}-voice-id-wrap"><label>Voice</label>
-        <select id="${prefix}-voice-id"><option value="">Loading voices…</option></select>
-      </div>
-      <div class="field" id="${prefix}-voice-speed-wrap"><label>Speed <span id="${prefix}-voice-speed-val">1.0</span>x</label>
-        <input type="range" id="${prefix}-voice-speed" min="0.5" max="2.0" step="0.1" value="1.0"
-          oninput="document.getElementById('${prefix}-voice-speed-val').textContent=this.value">
-      </div>
-      <div class="field" id="${prefix}-voice-pitch-wrap"><label>Pitch <span id="${prefix}-voice-pitch-val">1.0</span></label>
-        <input type="range" id="${prefix}-voice-pitch" min="0.5" max="2.0" step="0.1" value="1.0"
-          oninput="document.getElementById('${prefix}-voice-pitch-val').textContent=this.value">
-      </div>
-      <div class="field" style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-sm" onclick="previewVoice('${prefix}')">🔊 Preview</button>
-        <span id="${prefix}-voice-preview-status" style="font-size:12px;color:var(--text-muted)"></span>
-      </div>
-      </div>
-      </div>
-    </div>`
-        : ""
-    }`;
+    `;
 }
 
 export function showCharCreateModal() {
@@ -911,8 +843,6 @@ export async function showCharEditModal(idOrData) {
       }
     </div>`);
   _renderCharTagChips("ce");
-  // Load voice profile into Voice tab
-  loadVoiceProfileIntoTab(c.id, "ce").catch((e) => console.warn("Voice profile load failed:", e));
 }
 
 export async function saveCharEdit(id, exportAfter = false) {
@@ -997,16 +927,6 @@ export async function saveCharEdit(id, exportAfter = false) {
         if (av)
           av.innerHTML = `<img src="${avatarUrl(id)}?v=${_avatarBust.get(id)}" onerror="this.parentElement.textContent='📜'">`;
       }
-    }
-    try {
-      await saveVoiceProfileFromTab(id, "ce");
-      if (S.activeCharId === id) {
-        const { loadVoiceProfile } = await import("./voice.js");
-        loadVoiceProfile();
-      }
-    } catch (e) {
-      toast("Character saved, but voice profile failed: " + e.message, true);
-      return;
     }
     closeModal();
     await loadCharacters();
@@ -1105,14 +1025,6 @@ export async function saveImportedChar() {
   _pendingCharacterBook = null;
   try {
     const created = await api.post("/characters", d);
-    try {
-      await saveVoiceProfileFromTab(created.id, "ce");
-    } catch (e) {
-      closeModal();
-      await Promise.all([loadCharacters(), loadWorlds()]);
-      toast(`Imported "${created.name}", but voice profile failed: ${e.message}`, true);
-      return;
-    }
     closeModal();
     await Promise.all([loadCharacters(), loadWorlds()]);
     toast(`Imported "${created.name}"`);
@@ -1141,7 +1053,7 @@ export async function showCharacterBrowserModal() {
   computeTopTags();
   _browserSelectedTags.clear();
   _browserSortBy = S.characterBrowserSort || "time-added";
-  _browserViewMode = S.characterBrowserView || "grid";
+  _browserViewMode = _browserViewMode === "internet" ? "internet" : S.characterBrowserView || "grid";
   _browserSearchQuery = "";
   renderCharacterBrowser();
   showModal(`
@@ -1154,6 +1066,7 @@ export async function showCharacterBrowserModal() {
         <div class="view-toggle" id="char-browser-view-toggle">
           <button class="view-toggle-btn${_browserViewMode === "grid" ? " active" : ""}" data-view="grid" onclick="setCharBrowserView('grid')">⊞ Grid</button>
           <button class="view-toggle-btn${_browserViewMode === "list" ? " active" : ""}" data-view="list" onclick="setCharBrowserView('list')">☰ List</button>
+          <button class="view-toggle-btn${_browserViewMode === "internet" ? " active" : ""}" data-view="internet" onclick="setCharBrowserView('internet')">🌐 Internet</button>
         </div>
       </div>
     </div>
@@ -1184,8 +1097,21 @@ export function setCharBrowserView(mode) {
   document.querySelectorAll("#char-browser-view-toggle .view-toggle-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === mode);
   });
+
+  const isInternet = mode === "internet";
+  const searchRow = document.querySelector(".char-browser-search-row");
+  const tagsRow = document.querySelector(".char-browser-tags-row");
+  if (searchRow) searchRow.style.display = isInternet ? "none" : "";
+  if (tagsRow) tagsRow.style.display = isInternet ? "none" : "";
+
   const container = $("char-browser-content");
   if (container) container.style.minHeight = "";
+
+  if (isInternet) {
+    renderInternetPanel();
+    return;
+  }
+
   // Measure natural height with no filters so minHeight reflects the full character set
   const prevSearch = _browserSearchQuery;
   const prevTags = _browserSelectedTags;
@@ -1367,253 +1293,164 @@ function renderCharBrowserListItem(c) {
     </div>`;
 }
 
+// ── Internet character browse
+
+function renderInternetPanel() {
+  const container = $("char-browser-content");
+  if (!container) return;
+  container.innerHTML = `
+    <div class="char-browser-internet">
+      <div class="internet-controls">
+        <select id="internet-source" onchange="setInternetSource(this.value)">
+          <option value="characterhub" ${_internetSource === "characterhub" ? "selected" : ""}>CharacterHub</option>
+          <option value="chararc" ${_internetSource === "chararc" ? "selected" : ""}>Character Archive</option>
+        </select>
+        <input id="internet-search-input" type="text"
+               placeholder="Search characters…"
+               value="${esc(_internetQuery)}"
+               onkeydown="if(event.key==='Enter')searchInternet()">
+        <button class="btn" onclick="searchInternet()">Search</button>
+        <button class="btn" onclick="randomizeInternet()" title="Show a random selection">🎲 Randomize</button>
+      </div>
+      <div id="internet-results">${renderInternetResultsBody()}</div>
+    </div>`;
+}
+
+function renderInternetResultsBody() {
+  if (_internetLoading && _internetResults.length === 0) {
+    return `<div class="internet-loading">Loading…</div>`;
+  }
+  if (!_internetLoading && _internetResults.length === 0) {
+    return `<div class="char-browser-empty">${_internetQuery ? "No results" : "Type a query and press Enter to search."}</div>`;
+  }
+  const cards = _internetResults.map((it) => renderInternetResultCard(it)).join("");
+  const more = _internetHasMore
+    ? `<button class="btn internet-load-more" onclick="loadMoreInternet()" ${_internetLoading ? "disabled" : ""}>${_internetLoading ? "Loading…" : "Load More"}</button>`
+    : "";
+  return `<div class="char-browser-grid">${cards}</div>${more}`;
+}
+
+function renderInternetResultCard(item) {
+  const av = item.avatar_url
+    ? `<img src="${item.avatar_url.replace(/"/g, "&quot;")}" onerror="this.parentElement.textContent='👤'">`
+    : "👤";
+  const fullPath = (item.full_path || "").replace(/'/g, "\\'");
+  const topics = (item.topics || []).slice(0, 12);
+  const updated = item.date_updated ? "Updated: " + formatRelativeDate(item.date_updated) : "";
+  const tooltipParts = [item.name, item.tagline, updated, topics.length ? "Tags: " + topics.join(", ") : ""].filter(
+    Boolean,
+  );
+  const tooltip = tooltipParts.map(esc).join("\n");
+  return `
+    <div class="char-browser-card internet-result-card">
+      <div class="char-browser-avatar" title="${tooltip}">${av}</div>
+      <div class="char-browser-card-name">${esc(item.name || "")}</div>
+      <div class="internet-result-meta">${esc(item.tagline || "")}</div>
+      <button class="internet-import-btn" onclick="importInternetChar('${fullPath}')">Import</button>
+    </div>`;
+}
+
+function refreshInternetResults() {
+  const el = $("internet-results");
+  if (el) el.innerHTML = renderInternetResultsBody();
+}
+
+export async function searchInternet(nextPage = false) {
+  if (_internetLoading) return;
+  const input = $("internet-search-input");
+  if (input) _internetQuery = input.value.trim();
+
+  if (!nextPage) {
+    _internetPage = 1;
+    _internetResults = [];
+    _internetHasMore = false;
+  }
+
+  _internetLoading = true;
+  refreshInternetResults();
+
+  try {
+    const data = await api.get(
+      `/characters/browse?source=${encodeURIComponent(_internetSource)}&q=${encodeURIComponent(_internetQuery)}&page=${_internetPage}`,
+    );
+    const results = Array.isArray(data?.results) ? data.results : [];
+    if (!nextPage) _internetResults = results;
+    else _internetResults = [..._internetResults, ...results];
+    _internetHasMore = !!data?.has_more;
+  } catch (e) {
+    toast("Search failed: " + e.message, true);
+  } finally {
+    _internetLoading = false;
+    refreshInternetResults();
+  }
+}
+
+export function loadMoreInternet() {
+  if (_internetLoading || !_internetHasMore) return;
+  _internetPage += 1;
+  searchInternet(true);
+}
+
+export async function randomizeInternet() {
+  if (_internetLoading) return;
+  const input = $("internet-search-input");
+  if (input) _internetQuery = input.value.trim();
+
+  _internetPage = 1;
+  _internetResults = [];
+  _internetHasMore = false;
+  _internetLoading = true;
+  refreshInternetResults();
+
+  try {
+    const data = await api.get(
+      `/characters/randomize?source=${encodeURIComponent(_internetSource)}&q=${encodeURIComponent(_internetQuery)}`,
+    );
+    _internetResults = Array.isArray(data?.results) ? data.results : [];
+    _internetHasMore = !!data?.has_more;
+  } catch (e) {
+    toast("Randomize failed: " + e.message, true);
+  } finally {
+    _internetLoading = false;
+    refreshInternetResults();
+  }
+}
+
+export function setInternetSource(val) {
+  _internetSource = val;
+  _internetQuery = "";
+  _internetResults = [];
+  _internetPage = 1;
+  _internetHasMore = false;
+  renderInternetPanel();
+}
+
+export async function importInternetChar(fullPath) {
+  try {
+    toast("Fetching card…");
+    const r = await api.post("/characters/import-url", { source: _internetSource, full_path: fullPath });
+    setModalCloseCallback(async () => {
+      _browserViewMode = "internet";
+      await showCharacterBrowserModal();
+    });
+    showCharEditModal(r);
+  } catch (e) {
+    toast("Import failed: " + e.message, true);
+  }
+}
+
 function renderCharacterBrowser() {
   setTimeout(() => {
+    if (_browserViewMode === "internet") {
+      const searchRow = document.querySelector(".char-browser-search-row");
+      const tagsRow = document.querySelector(".char-browser-tags-row");
+      if (searchRow) searchRow.style.display = "none";
+      if (tagsRow) tagsRow.style.display = "none";
+      renderInternetPanel();
+      return;
+    }
     renderCharBrowserItems();
     const container = $("char-browser-content");
     if (container) container.style.minHeight = container.offsetHeight + "px";
   }, 0);
-}
-
-// ── Voice profile tab helpers ──────────────────────────────────────────────
-
-// Backend capabilities: which fields to show
-const _BACKEND_FIELDS = {
-  edge: { provider: false, api_url: false, api_key: false, model: false, lang: true, speed: true, pitch: true },
-  kokoro: { provider: false, api_url: true, api_key: false, model: false, lang: true, speed: true, pitch: false },
-  openai: { provider: false, api_url: true, api_key: true, model: true, lang: false, speed: true, pitch: false },
-  fish: { provider: false, api_url: true, api_key: false, model: false, lang: false, speed: true, pitch: false },
-  elevenlabs: { provider: false, api_url: false, api_key: true, model: true, lang: false, speed: false, pitch: false },
-};
-
-let _backendsCache = null;
-
-window.toggleVoiceFields = (prefix, enabled) => {
-  const config = $(prefix + "-voice-config");
-  if (!config) return;
-  config.classList.toggle("voice-config-disabled", !enabled);
-  config.querySelectorAll("input, select, button").forEach((el) => {
-    el.disabled = !enabled;
-  });
-};
-
-window.onVoiceBackendChange = async (prefix) => {
-  _updateFieldVisibility(prefix);
-  // Auto-fill default API URL for backends that need one
-  const backend = $(prefix + "-voice-backend")?.value || "";
-  const apiUrl = $(prefix + "-voice-api-url");
-  if (apiUrl && !apiUrl.value) {
-    if (backend === "openai") apiUrl.value = "https://api.openai.com";
-    else if (backend === "fish") apiUrl.value = "http://localhost:8080";
-    else if (backend === "kokoro") apiUrl.value = "http://localhost:9200";
-  }
-  await Promise.all([_loadVoiceList(prefix), _loadModelList(prefix)]);
-};
-
-window.onVoiceLangChange = async (prefix) => {
-  await _loadVoiceList(prefix);
-};
-
-function _updateFieldVisibility(prefix) {
-  const backend = $(prefix + "-voice-backend")?.value || "edge";
-  const fields = _BACKEND_FIELDS[backend] || _BACKEND_FIELDS.edge;
-  const show = (id, visible) => {
-    const el = $(prefix + "-voice-" + id + "-wrap");
-    if (el) el.style.display = visible ? "" : "none";
-  };
-  show("api-url", fields.api_url);
-  show("api-key", fields.api_key);
-  show("model", fields.model);
-  show("lang", fields.lang);
-  show("speed", fields.speed);
-  show("pitch", fields.pitch);
-}
-
-async function _populateBackendDropdown(prefix) {
-  const sel = $(prefix + "-voice-backend");
-  if (!sel) return;
-  sel.innerHTML = '<option value="">Loading…</option>';
-  sel.disabled = true;
-  try {
-    _backendsCache = await getTtsBackends();
-  } catch (e) {
-    _backendsCache = [{ id: "edge", name: "Microsoft Edge TTS" }];
-  }
-  sel.innerHTML = _backendsCache.map((b) => `<option value="${esc(b.id)}">${esc(b.name)}</option>`).join("");
-  sel.disabled = false;
-}
-
-async function _loadModelList(prefix) {
-  const backend = $(prefix + "-voice-backend")?.value || "";
-  const apiUrl = $(prefix + "-voice-api-url")?.value || "";
-  const apiKey = $(prefix + "-voice-api-key")?.value || "";
-  const modelEl = $(prefix + "-voice-model");
-  if (!modelEl || !_BACKEND_FIELDS[backend]?.model) return;
-  try {
-    const models = await getTtsModels(backend, { apiUrl, apiKey });
-    if (models.length > 0) {
-      modelEl.outerHTML = `<select id="${prefix}-voice-model">${models
-        .map((m) => `<option value="${esc(m.id)}">${esc(m.name || m.id)}</option>`)
-        .join("")}</select>`;
-    } else {
-      modelEl.outerHTML = `<input type="text" id="${prefix}-voice-model" placeholder="Model name">`;
-    }
-  } catch (e) {
-    modelEl.outerHTML = `<input type="text" id="${prefix}-voice-model" placeholder="Model name">`;
-  }
-}
-
-async function _loadVoiceList(prefix) {
-  const backend = $(prefix + "-voice-backend")?.value || "edge";
-  const lang = $(prefix + "-voice-lang")?.value || "en";
-  const apiUrl = $(prefix + "-voice-api-url")?.value || "";
-  const apiKey = $(prefix + "-voice-api-key")?.value || "";
-  const sel = $(prefix + "-voice-id");
-  if (!sel) return;
-  // Show loading state
-  const isSelect = sel.tagName === "SELECT";
-  if (isSelect) {
-    sel.innerHTML = '<option value="">Loading voices…</option>';
-    sel.disabled = true;
-  } else {
-    sel.value = "";
-    sel.placeholder = "Loading voices…";
-    sel.disabled = true;
-  }
-  try {
-    const voices = await getTtsVoices(backend, lang, { apiUrl, apiKey });
-    if (voices.length > 0) {
-      sel.outerHTML = `<select id="${prefix}-voice-id">${voices
-        .map(
-          (v) =>
-            `<option value="${esc(v.id)}">${esc(v.name || v.id)} ${v.gender ? "(" + esc(v.gender) + ")" : ""}</option>`,
-        )
-        .join("")}</select>`;
-    } else {
-      sel.outerHTML = `<input type="text" id="${prefix}-voice-id" placeholder="Enter voice name (e.g. alloy)">`;
-    }
-  } catch (e) {
-    if (isSelect) {
-      sel.innerHTML = '<option value="">Error loading voices</option>';
-      sel.disabled = false;
-    } else {
-      sel.placeholder = "Error loading voices";
-      sel.disabled = false;
-    }
-  }
-}
-
-window.previewVoice = async (prefix) => {
-  const statusEl = $(prefix + "-voice-preview-status");
-  if (!statusEl) return;
-  const backend = $(prefix + "-voice-backend")?.value || "edge";
-  const voiceId = $(prefix + "-voice-id")?.value || "en-US-JennyNeural";
-  const apiUrl = $(prefix + "-voice-api-url")?.value || "";
-  const apiKey = $(prefix + "-voice-api-key")?.value || "";
-  const model = $(prefix + "-voice-model")?.value || "";
-  const speed = parseFloat($(prefix + "-voice-speed")?.value || "1.0");
-  const pitch = parseFloat($(prefix + "-voice-pitch")?.value || "1.0");
-  statusEl.textContent = "Generating preview…";
-  try {
-    const blob = await ttsPreview({
-      text: "Hey, this is a voice preview. How do I sound?",
-      voice_id: voiceId,
-      backend,
-      api_url: apiUrl,
-      api_key: apiKey,
-      model,
-      speed,
-      pitch,
-    });
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.onended = () => {
-      statusEl.textContent = "";
-      URL.revokeObjectURL(url);
-    };
-    audio.onerror = () => {
-      statusEl.textContent = "Playback error";
-      URL.revokeObjectURL(url);
-    };
-    audio.play();
-    statusEl.textContent = "Playing…";
-  } catch (e) {
-    statusEl.textContent = "Error: " + e.message;
-  }
-};
-
-function _setVoiceLoading(prefix, loading) {
-  const overlay = $(prefix + "-voice-loading");
-  if (overlay) overlay.classList.toggle("hidden", !loading);
-}
-
-export async function loadVoiceProfileIntoTab(charId, prefix) {
-  _setVoiceLoading(prefix, true);
-  try {
-    // Populate backend dropdown from API
-    await _populateBackendDropdown(prefix);
-    // Load voice list for current defaults
-    await _loadVoiceList(prefix);
-    // Load saved profile
-    try {
-      const profile = await getVoiceProfile(charId);
-      if (!profile || !profile.backend) {
-        _updateFieldVisibility(prefix);
-        toggleVoiceFields(prefix, false);
-        return;
-      }
-      const backend = $(prefix + "-voice-backend");
-      const lang = $(prefix + "-voice-lang");
-      const enabled = $(prefix + "-voice-enabled");
-      if (enabled) enabled.checked = profile.enabled === true || profile.enabled === 1;
-      if (backend) backend.value = profile.backend || "edge";
-      // Set language from voice_id locale (e.g. "en-US" → "en")
-      const langCode = (profile.language || "en-US").split("-")[0];
-      if (lang) lang.value = langCode;
-      await _loadVoiceList(prefix);
-      const voiceId = $(prefix + "-voice-id");
-      if (voiceId) voiceId.value = profile.voice_id || "";
-      const speed = $(prefix + "-voice-speed");
-      const speedVal = $(prefix + "-voice-speed-val");
-      if (speed) {
-        speed.value = profile.rate || 1.0;
-        if (speedVal) speedVal.textContent = speed.value;
-      }
-      const pitch = $(prefix + "-voice-pitch");
-      const pitchVal = $(prefix + "-voice-pitch-val");
-      if (pitch) {
-        pitch.value = profile.pitch || 1.0;
-        if (pitchVal) pitchVal.textContent = pitch.value;
-      }
-      const apiUrl = $(prefix + "-voice-api-url");
-      if (apiUrl) apiUrl.value = profile.api_url || "";
-      const apiKey = $(prefix + "-voice-api-key");
-      if (apiKey) apiKey.value = profile.api_key || "";
-      const model = $(prefix + "-voice-model");
-      if (model) model.value = profile.model || "";
-      _updateFieldVisibility(prefix);
-      toggleVoiceFields(prefix, enabled?.checked ?? false);
-    } catch (e) {
-      // No profile yet — that's fine, defaults are loaded
-      _updateFieldVisibility(prefix);
-      toggleVoiceFields(prefix, false);
-    }
-  } finally {
-    _setVoiceLoading(prefix, false);
-  }
-}
-
-export function saveVoiceProfileFromTab(charId, prefix) {
-  const data = {
-    enabled: $(prefix + "-voice-enabled")?.checked ? 1 : 0,
-    backend: $(prefix + "-voice-backend")?.value || "edge",
-    voice_id: $(prefix + "-voice-id")?.value || "",
-    language: $(prefix + "-voice-lang")?.value || "en",
-    rate: parseFloat($(prefix + "-voice-speed")?.value || "1.0"),
-    pitch: parseFloat($(prefix + "-voice-pitch")?.value || "1.0"),
-    api_url: $(prefix + "-voice-api-url")?.value || "",
-    api_key: $(prefix + "-voice-api-key")?.value || "",
-    model: $(prefix + "-voice-model")?.value || "",
-  };
-  return saveVoiceProfile(charId, data);
 }

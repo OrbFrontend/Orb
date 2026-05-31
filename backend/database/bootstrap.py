@@ -167,8 +167,16 @@ async def _seed_director_fragments(db) -> None:
 
 
 async def _seed_phrase_bank(db) -> None:
-    for variants in SEED_PHRASE_BANK:
-        await db.execute(
-            "INSERT INTO phrase_bank (variants) VALUES (?)",
-            (json.dumps(variants),),
-        )
+    # A seed entry is either a raw regex pattern (str) or a list of literal
+    # variant phrases.
+    for entry in SEED_PHRASE_BANK:
+        if isinstance(entry, str):
+            await db.execute(
+                "INSERT INTO phrase_bank (variants, kind, pattern) VALUES (?, 'regex', ?)",
+                (json.dumps([]), entry),
+            )
+        else:
+            await db.execute(
+                "INSERT INTO phrase_bank (variants, kind, pattern) VALUES (?, 'literal', NULL)",
+                (json.dumps(entry),),
+            )

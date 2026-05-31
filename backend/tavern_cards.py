@@ -153,6 +153,16 @@ def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
         logger.error(f"Invalid Tavern card format - 'chara' field does not contain valid JSON: {e}")
         raise ValueError(f"Invalid Tavern card format - 'chara' field does not contain valid JSON: {e}") from e
 
+    return from_json_obj(jobj)
+
+
+def from_json_obj(jobj: Dict[str, Any]) -> Union[TavernCardV2, TavernCardV1]:
+    """Build a Tavern card from an already-parsed JSON object.
+
+    Tries the V2 spec first and falls back to V1, mirroring :func:`parse`
+    but for callers that obtained the card JSON directly rather than embedded
+    in a PNG (e.g. an archive API that serves the definition as JSON).
+    """
     is_v2 = "spec" in jobj and jobj["spec"] == "chara_card_v2"
     logger.info(f"Detected card version: {'V2' if is_v2 else 'V1'}")
 
@@ -190,10 +200,10 @@ def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
         logger.info(f"V1 card fields: name={card.name}, first_mes={len(card.first_mes)} chars")
         return card
     except dacite.DaciteError as error:
-        logger.error(f"Error parsing TavernCardV1 data from {image_path!r}: {error}")
+        logger.error(f"Error parsing TavernCardV1 data: {error}")
         raise
     except Exception as error:
-        logger.error(f"An unexpected error occurred while parsing {image_path!r}: {error}")
+        logger.error(f"An unexpected error occurred while parsing card JSON: {error}")
         raise
 
 

@@ -137,12 +137,6 @@ export async function loadSettings() {
     if (typeof ios.context_size === "boolean") S.contextSizeOpen = ios.context_size;
   }
 
-  if (typeof S.settings.tts_enabled === "number") S.ttsEnabled = S.settings.tts_enabled !== 0;
-  else if (typeof S.settings.tts_enabled === "boolean") S.ttsEnabled = S.settings.tts_enabled;
-  document.body.classList.toggle("tts-enabled", S.ttsEnabled);
-  if (typeof S.settings.tts_auto_speak === "number") S.ttsAutoSpeak = S.settings.tts_auto_speak !== 0;
-  else if (typeof S.settings.tts_auto_speak === "boolean") S.ttsAutoSpeak = S.settings.tts_auto_speak;
-  if (typeof S.settings.tts_volume === "number") S.ttsVolume = S.settings.tts_volume;
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
   else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
 
@@ -321,33 +315,6 @@ export function renderSettings() {
         </label>
       </div>
       <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
-    </div>
-    <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Audio</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
-    <div class="tool-card ${S.ttsEnabled ? "tool-on" : ""}">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Enable TTS</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${S.ttsEnabled ? "checked" : ""} onchange="toggleTtsEnabled(this.checked)">
-          <span class="tog-slider"></span>
-        </label>
-      </div>
-      <div class="tool-card-desc">Read character dialogue aloud.</div>
-    </div>
-    <div id="tts-fields" style="${S.ttsEnabled ? "" : "display:none"}">
-      <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);margin:8px 0 0">
-        <span>Volume</span><span id="tts-volume-pct" style="margin-left:auto">${Math.round((S.ttsVolume ?? 0.75) * 100)}%</span>
-      </div>
-      <input class="voice-range" type="range" min="0" max="100" value="${Math.round((S.ttsVolume ?? 0.75) * 100)}" oninput="setTtsVolumeLive(this.value)" onchange="setTtsVolume(this.value)">
-      <div class="tool-card" style="margin-top:8px">
-        <div class="tool-card-header">
-          <span class="tool-card-name">Auto-speak</span>
-          <label class="tog" onclick="event.stopPropagation()">
-            <input type="checkbox" ${S.ttsAutoSpeak ? "checked" : ""} onchange="setTtsAutoSpeak(this.checked)">
-            <span class="tog-slider"></span>
-          </label>
-        </div>
-        <div class="tool-card-desc">Automatically speak new character messages.</div>
-      </div>
     </div>
     <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
       <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">Reset to Defaults</button>
@@ -1072,16 +1039,24 @@ export function toggleToolsPanel() {
   if (wasOpen) {
     panel.classList.remove("open");
     btn.classList.remove("btn-active");
-  } else {
+  } else if (switching) {
+    // Both panels are the same width: swap instantly with no slide animation.
+    panel.classList.add("no-anim");
+    inspector.classList.add("no-anim");
     inspector.classList.remove("open");
     inspectorBtn.classList.remove("btn-active");
-    const open = () => {
-      panel.classList.add("open");
-      btn.classList.add("btn-active");
-      renderToolsPanel();
-    };
-    if (switching) setTimeout(open, 180);
-    else open();
+    panel.classList.add("open");
+    btn.classList.add("btn-active");
+    renderToolsPanel();
+    // Force a synchronous reflow so the swapped state is committed with
+    // transitions disabled before we re-enable them.
+    void panel.offsetWidth;
+    panel.classList.remove("no-anim");
+    inspector.classList.remove("no-anim");
+  } else {
+    panel.classList.add("open");
+    btn.classList.add("btn-active");
+    renderToolsPanel();
   }
 }
 
@@ -1129,18 +1104,6 @@ export async function togglePreventPromptOverrides(on) {
   S.preventPromptOverrides = on;
   renderSettings();
   await persistSettings({ prevent_prompt_overrides: on });
-}
-
-export async function toggleTtsEnabled(checked) {
-  S.ttsEnabled = !!checked;
-  document.body.classList.toggle("tts-enabled", S.ttsEnabled);
-  renderSettings();
-  renderMessages();
-  try {
-    S.settings = await api.put("/settings", { tts_enabled: checked ? 1 : 0 });
-  } catch (e) {
-    toast("Failed to save TTS setting", true);
-  }
 }
 
 export async function saveLengthGuardConfig() {
@@ -1228,6 +1191,21 @@ export function renderToolsPanel() {
   </div>`;
 
   $("tools-list").innerHTML = toolCards + lengthGuardCard;
+
+  const secEl = $("tools-list-secondary");
+  if (secEl) {
+    let secHtml = "";
+    for (const fn of S.workflowToolsPanelRenderers) {
+      try {
+        const piece = fn();
+        if (typeof piece === "string" && piece) secHtml += piece;
+      } catch (e) {
+        console.error("workflow tools-panel renderer threw:", e);
+      }
+    }
+    secEl.innerHTML =
+      secHtml || `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">No workflows registered.</div>`;
+  }
 }
 
 // ── Phrase Bank
@@ -1236,75 +1214,130 @@ export async function showPhraseBankModal() {
   const groups = await api.get("/phrase-bank");
 
   const groupRows = groups
-    .map(
-      (g) => `
+    .map((g) => {
+      const isRegex = g.kind === "regex";
+      const body = isRegex
+        ? `<code class="phrase-regex-pattern">${esc(g.pattern)}</code>`
+        : g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join("");
+      const count = isRegex
+        ? `<span class="phrase-kind-badge">regex</span>`
+        : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
+      return `
     <div class="phrase-group-item" onclick="editPhraseGroup(${g.id})" data-id="${g.id}">
-      <div class="phrase-group-variants">
-        ${g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join(", ")}
-      </div>
-      <div class="phrase-group-count">${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}</div>
+      <div class="phrase-group-variants">${body}</div>
+      <div class="phrase-group-count">${count}</div>
     </div>
-  `,
-    )
+  `;
+    })
     .join("");
 
   showModal(`
     <div class="modal-title-row">
       <div>
         <h2>Phrase Bank</h2>
-        <p class="modal-subtitle">Manage banned/overused phrase groups. Each group contains variants that are considered equivalent. Click a group to edit it.</p>
+        <p class="modal-subtitle">Manage banned/overused phrase groups. A group is either a set of equivalent variants or a single regex. Click a group to edit it.</p>
       </div>
       <div class="modal-title-actions">
         <button class="btn btn-accent" onclick="showAddPhraseGroupModal()">+ Add Group</button>
       </div>
     </div>
-    
+
     <div id="phrase-bank-list" class="phrase-bank-list">
       ${groupRows.length ? groupRows : '<div class="phrase-bank-empty">No phrase groups yet</div>'}
     </div>
   `);
 }
 
-export function showAddPhraseGroupModal(editId = null, initialVariants = []) {
+export function showAddPhraseGroupModal(editId = null, group = null) {
   const isEdit = editId !== null;
-  const variantsHtml = initialVariants
-    .map(
-      (v) => `
+  const kind = group?.kind === "regex" ? "regex" : "literal";
+  const variants = group?.variants || [];
+  const pattern = group?.pattern || "";
+
+  const variantRow = (v = "") => `
     <div class="variant-row">
       <input type="text" class="variant-input" value="${esc(v)}" placeholder="e.g., a mix of">
       <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
-    </div>
-  `,
-    )
-    .join("");
+    </div>`;
 
-  const emptyRow = `<div class="variant-row">
-    <input type="text" class="variant-input" placeholder="e.g., a mix of">
-    <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
-  </div>`;
+  const variantsHtml = variants.map((v) => variantRow(v)).join("");
 
   const deleteButton = isEdit
-    ? `
-    <button class="btn btn-danger" onclick="deletePhraseGroup(${editId})">Delete</button>
-  `
+    ? `<button class="btn btn-danger" onclick="deletePhraseGroup(${editId})">Delete</button>`
     : "";
 
   showModal(`
     <h2>${isEdit ? "Edit" : "Add"} Phrase Group</h2>
-    <p class="modal-subtitle">Enter variant phrases that are considered equivalent. The first variant is treated as the canonical name.</p>
-    
-    <div id="variant-list" style="margin-bottom: 15px;">
-      ${variantsHtml || emptyRow}
+    <p class="modal-subtitle">A group is either a set of equivalent literal variants <em>or</em> a single regular expression — never both.</p>
+
+    <div class="phrase-mode-toggle" id="phrase-mode-toggle">
+      <button type="button" class="phrase-mode-btn ${kind === "literal" ? "active" : ""}" data-mode="literal" onclick="setPhraseGroupMode('literal')">Literal variants</button>
+      <button type="button" class="phrase-mode-btn ${kind === "regex" ? "active" : ""}" data-mode="regex" onclick="setPhraseGroupMode('regex')">Regular expression</button>
     </div>
-    
-    <button class="btn btn-sm" onclick="addVariantRow()" style="margin-bottom: 20px;">+ Add Another Variant</button>
-    
+
+    <div id="phrase-literal-panel" style="display:${kind === "regex" ? "none" : "block"}">
+      <div id="variant-list" style="margin-bottom: 15px;">
+        ${variantsHtml || variantRow("")}
+      </div>
+      <button class="btn btn-sm" onclick="addVariantRow()" style="margin-bottom: 20px;">+ Add Another Variant</button>
+    </div>
+
+    <div id="phrase-regex-panel" style="display:${kind === "regex" ? "block" : "none"}">
+      <input type="text" id="phrase-regex-input" class="variant-input phrase-regex-input" spellcheck="false"
+        value="${esc(pattern)}" placeholder="e.g., the air (is|was) (thick|heavy|charged)"
+        oninput="onPhraseRegexInput()">
+      <div id="phrase-regex-error" class="phrase-regex-error"></div>
+      <div class="phrase-regex-hint">
+        <p style="margin:0 0 6px;">Standard JS regex, matched case-insensitively, one sentence at a time. Common patterns:</p>
+        <ul style="list-style:none; margin:0; padding:0;">
+          <li style="margin-bottom:3px;"><code>(thick|heavy|charged)</code> &mdash; match any one of these words</li>
+          <li style="margin-bottom:3px;"><code>colou?r</code> &mdash; <code>?</code> makes the char before it optional (matches "color" or "colour")</li>
+          <li style="margin-bottom:3px;"><code>(ever so )?slightly</code> &mdash; <code>?</code> after a group makes the whole group optional</li>
+          <li style="margin-bottom:3px;"><code>\\s+</code> &mdash; flexible spacing (spaces, tabs, newlines)</li>
+          <li style="margin-bottom:3px;"><code>\\bword\\b</code> &mdash; whole word only, not inside another</li>
+          <li style="margin-bottom:3px;"><code>\\w+</code> &mdash; one word; <code>.*?</code> &mdash; any text in between (shortest match)</li>
+          <li style="margin-bottom:3px;"><code>[.,!?]</code> &mdash; any one of the listed characters</li>
+          <li style="margin-bottom:3px;"><code>\\.\\.\\.</code> &mdash; escape special chars with <code>\\</code> (here, a literal "...")</li>
+        </ul>
+      </div>
+    </div>
+
     <div class="modal-actions">
       ${deleteButton}
       <button class="btn" onclick="showPhraseBankModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Update" : "Save"}</button>
+      <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Update" : "Save"}</button>
     </div>
   `);
+
+  _refreshPhraseSaveState();
+}
+
+// Current mode is whichever toggle button carries the `active` class.
+function _phraseMode() {
+  const active = document.querySelector(".phrase-mode-btn.active");
+  return active ? active.dataset.mode : "literal";
+}
+
+// Live-validate the regex field and gate the Save/Update button on it.
+function _refreshPhraseSaveState() {
+  const saveBtn = document.getElementById("phrase-save-btn");
+  const errEl = document.getElementById("phrase-regex-error");
+  const input = document.getElementById("phrase-regex-input");
+
+  if (_phraseMode() !== "regex") {
+    if (errEl) errEl.textContent = "";
+    if (input) input.classList.remove("invalid");
+    if (saveBtn) saveBtn.disabled = false;
+    return;
+  }
+
+  const value = input ? input.value : "";
+  const result = validate.validatePhraseRegex(value);
+  // Only surface an error once the user has actually typed something.
+  const showError = !result.valid && value.trim().length > 0;
+  if (errEl) errEl.textContent = showError ? result.error : "";
+  if (input) input.classList.toggle("invalid", showError);
+  if (saveBtn) saveBtn.disabled = !result.valid;
 }
 
 // Helper functions exposed to window
@@ -1334,11 +1367,28 @@ window.removeVariantRow = (btn) => {
   }
 };
 
+window.setPhraseGroupMode = (mode) => {
+  document.querySelectorAll(".phrase-mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === mode);
+  });
+  const literalPanel = document.getElementById("phrase-literal-panel");
+  const regexPanel = document.getElementById("phrase-regex-panel");
+  if (literalPanel) literalPanel.style.display = mode === "literal" ? "block" : "none";
+  if (regexPanel) regexPanel.style.display = mode === "regex" ? "block" : "none";
+  _refreshPhraseSaveState();
+  if (mode === "regex") {
+    const input = document.getElementById("phrase-regex-input");
+    if (input) input.focus();
+  }
+};
+
+window.onPhraseRegexInput = () => _refreshPhraseSaveState();
+
 window.editPhraseGroup = async (groupId) => {
   const groups = await api.get("/phrase-bank");
   const group = groups.find((g) => g.id === groupId);
   if (group) {
-    showAddPhraseGroupModal(groupId, group.variants);
+    showAddPhraseGroupModal(groupId, group);
   }
 };
 
@@ -1362,27 +1412,42 @@ window.deletePhraseGroup = async (groupId) => {
 };
 
 window.savePhraseGroup = async (editId) => {
-  const variantInputs = document.querySelectorAll(".variant-input");
-  const rawVariants = Array.from(variantInputs).map((input) => input.value);
-  const variants = rawVariants.map((v) => v.trim()).filter((v) => v.length > 0);
+  const mode = _phraseMode();
+  let payload;
 
-  const validation = validate.validatePhraseVariants(rawVariants);
-  if (!validation.valid) {
-    toast(validation.error, true);
-    return;
-  }
+  if (mode === "regex") {
+    const input = document.getElementById("phrase-regex-input");
+    const pattern = input ? input.value.trim() : "";
+    const result = validate.validatePhraseRegex(pattern);
+    if (!result.valid) {
+      toast(result.error, true);
+      return;
+    }
+    payload = { kind: "regex", pattern, variants: [] };
+  } else {
+    // Exclude the regex field, which shares the .variant-input class.
+    const variantInputs = document.querySelectorAll(".variant-input:not(.phrase-regex-input)");
+    const rawVariants = Array.from(variantInputs).map((input) => input.value);
+    const variants = rawVariants.map((v) => v.trim()).filter((v) => v.length > 0);
 
-  if (variants.length === 0) {
-    toast("At least one variant is required", true);
-    return;
+    const validation = validate.validatePhraseVariants(rawVariants);
+    if (!validation.valid) {
+      toast(validation.error, true);
+      return;
+    }
+    if (variants.length === 0) {
+      toast("At least one variant is required", true);
+      return;
+    }
+    payload = { kind: "literal", variants, pattern: "" };
   }
 
   try {
     if (editId && editId !== "null") {
-      await api.put(`/phrase-bank/${editId}`, { variants });
+      await api.put(`/phrase-bank/${editId}`, payload);
       toast("Phrase group updated");
     } else {
-      await api.post("/phrase-bank", { variants });
+      await api.post("/phrase-bank", payload);
       toast("Phrase group added");
     }
     showPhraseBankModal(); // Refresh the main modal
