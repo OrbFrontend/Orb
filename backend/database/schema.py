@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS settings (
     character_library_view TEXT NOT NULL DEFAULT 'grid',
     character_library_sort TEXT NOT NULL DEFAULT 'time-added',
     show_editor_diff INTEGER NOT NULL DEFAULT 1,
+    editor_audit_toggles TEXT NOT NULL DEFAULT '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true}',
     hide_streaming_until_baked INTEGER NOT NULL DEFAULT 0,
     prevent_prompt_overrides INTEGER NOT NULL DEFAULT 0,
     agent_same_as_writer INTEGER NOT NULL DEFAULT 1,

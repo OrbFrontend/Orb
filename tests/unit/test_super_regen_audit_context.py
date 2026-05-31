@@ -60,7 +60,7 @@ async def test_audit_context_msgs_overrides_prefix():
 
     captured_prev_msgs: list[list[str]] = []
 
-    def fake_contextual_audit(draft, phrase_bank, previous_assistant_msgs):
+    def fake_contextual_audit(draft, phrase_bank, previous_assistant_msgs, audit_toggles=None):
         captured_prev_msgs.append(list(previous_assistant_msgs))
         return _clean_report(), ""
 
@@ -104,7 +104,7 @@ async def test_no_audit_context_msgs_falls_back_to_prefix():
 
     captured_prev_msgs: list[list[str]] = []
 
-    def fake_contextual_audit(draft, phrase_bank, previous_assistant_msgs):
+    def fake_contextual_audit(draft, phrase_bank, previous_assistant_msgs, audit_toggles=None):
         captured_prev_msgs.append(list(previous_assistant_msgs))
         return _clean_report(), ""
 
@@ -158,7 +158,7 @@ async def test_super_regen_prior_history_still_scanned():
 
     captured_prev_msgs: list[list[str]] = []
 
-    def fake_contextual_audit(draft, phrase_bank, previous_assistant_msgs):
+    def fake_contextual_audit(draft, phrase_bank, previous_assistant_msgs, audit_toggles=None):
         captured_prev_msgs.append(list(previous_assistant_msgs))
         return _clean_report(), ""
 
@@ -202,7 +202,7 @@ async def test_super_regen_does_not_flag_replaced_message():
         {"role": "assistant", "content": replaced_msg},
     ]
 
-    def fake_contextual_audit(draft, phrase_bank, previous_assistant_msgs):
+    def fake_contextual_audit(draft, phrase_bank, previous_assistant_msgs, audit_toggles=None):
         # Simulate the scanner flagging structural repetition when the replaced
         # message is present in the context, and clean otherwise.
         if replaced_msg in previous_assistant_msgs:

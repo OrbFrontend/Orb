@@ -140,6 +140,9 @@ export async function loadSettings() {
   if (typeof S.settings.show_editor_diff === "number") S.showEditorDiff = S.settings.show_editor_diff !== 0;
   else if (typeof S.settings.show_editor_diff === "boolean") S.showEditorDiff = S.settings.show_editor_diff;
 
+  if (S.settings.editor_audit_toggles && typeof S.settings.editor_audit_toggles === "object")
+    S.editorAuditToggles = { ...S.editorAuditToggles, ...S.settings.editor_audit_toggles };
+
   if (typeof S.settings.hide_streaming_until_baked === "number")
     S.hideUntilBaked = S.settings.hide_streaming_until_baked !== 0;
   else if (typeof S.settings.hide_streaming_until_baked === "boolean")
@@ -1016,7 +1019,29 @@ const TOOL_DEFS = [
   {
     id: "editor_apply_patch",
     name: "Output Auditor",
-    desc: "Scans for banned phrases, repetitive openers & templates, then surgically patches the draft",
+    desc: "Scans for LLM slop and repetition, then surgically patches the draft",
+  },
+];
+
+// Individual scanners the Output Auditor can run; keys match backend AUDIT_TYPES.
+const AUDIT_TYPE_DEFS = [
+  { key: "banned_phrases", label: "Banned phrases", title: "Flag phrases from the Phrase Bank." },
+  {
+    key: "repetitive_openers",
+    label: "Repetitive openers",
+    title: "Flag many consecutive sentences that start the same way.",
+  },
+  {
+    key: "repetitive_templates",
+    label: "Repetitive templates",
+    title: "Flag sentences sharing the same structural template.",
+  },
+  { key: "contrastive_negation", label: "Contrastive negation", title: "Flag `not X, but Y` constructions." },
+  { key: "phrase_repetition", label: "Phrase repetition", title: "Flag exact phrases echoed across recent messages." },
+  {
+    key: "structural_repetition",
+    label: "Structural repetition",
+    title: "Flag messages that share a similar block structure.",
   },
 ];
 
@@ -1093,6 +1118,12 @@ export async function toggleShowEditorDiff(on) {
   await persistSettings({ show_editor_diff: on });
 }
 
+export async function toggleAuditType(type, on) {
+  S.editorAuditToggles = { ...S.editorAuditToggles, [type]: on };
+  renderToolsPanel();
+  await persistSettings({ editor_audit_toggles: S.editorAuditToggles });
+}
+
 export async function toggleHideUntilBaked(on) {
   S.hideUntilBaked = on;
   renderMessages();
@@ -1134,9 +1165,16 @@ export function renderToolsPanel() {
   $("tools-panel-btn").style.opacity = S.agentEnabled ? "1" : "0.5";
   const toolCards = TOOL_DEFS.map((t) => {
     const on = !!S.enabledTools[t.id];
+    const auditChecks = AUDIT_TYPE_DEFS.map(
+      (a) => `<label class="lg-enforce-label" title="${a.title}">
+               <input type="checkbox" ${S.editorAuditToggles[a.key] !== false ? "checked" : ""} onchange="toggleAuditType('${a.key}',this.checked)">
+               ${a.label}
+             </label>`,
+    ).join("");
     const extras =
       t.id === "editor_apply_patch" && on
         ? `<div class="lg-config">
+             <div class="audit-types">${auditChecks}</div>
              <label class="lg-enforce-label" title="Highlight edited sentences with green/red strikethrough when the editor pass rewrites the writer's output.">
                <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} onchange="toggleShowEditorDiff(this.checked)">
                Show diff highlights

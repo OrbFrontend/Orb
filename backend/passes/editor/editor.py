@@ -115,14 +115,17 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
     # splits only on [.!?]), so use substring containment here too.
     filtered_not_but = [nb for nb in report.not_but_result if nb.get("sentence", "") in target_text]
 
-    # Structural repetition is a cross-message check, so it's always relevant
-    # when comparing the draft to previous messages. We keep it unfiltered.
+    # Structural repetition and exact phrase repetition are cross-message checks,
+    # so they're always relevant when comparing the draft to previous messages.
+    # Phrase repetition already focuses on the draft via require_last_message, so
+    # we keep both unfiltered.
 
     return AuditReport(
         cliche_result=filtered_cliche,
         monotony_result=filtered_monotony,
         template_result=filtered_template,
         not_but_result=filtered_not_but,
+        phrase_result=report.phrase_result,
         structural_repetition_result=report.structural_repetition_result,
     )
 
@@ -143,6 +146,7 @@ def _run_contextual_audit(
     draft: str,
     phrase_bank: list[PhraseGroup],
     previous_assistant_msgs: list[str],
+    audit_toggles: dict | None = None,
 ) -> tuple[AuditReport, str]:
     """Run audit on *draft* with cross-message context, then filter results
     to only include issues in the draft itself.  Returns (report, report_text)."""
@@ -153,6 +157,7 @@ def _run_contextual_audit(
         phrase_bank,
         assistant_messages=previous_assistant_msgs,
         structural_text=draft,
+        audit_toggles=audit_toggles,
     )
     filtered = filter_audit_report_to_text(raw_report, draft)
     return filtered, format_report(filtered)
@@ -320,6 +325,9 @@ async def editor_pass(
     t0 = time.monotonic()
     debug_parts: list[str] = []
 
+    # Per-scanner on/off map persisted in settings; None falls back to all-on.
+    audit_toggles = settings.get("editor_audit_toggles") or None
+
     # Collect previous assistant messages for cross-message context.
     # audit_context_msgs lets callers override which messages are used, so that
     # super-regenerate doesn't compare the new draft against the message it replaced.
@@ -342,16 +350,18 @@ async def editor_pass(
             len(assistant_messages),
             len(phrase_bank),
         )
-        report, report_text = _run_contextual_audit(draft, phrase_bank, assistant_messages)
+        report, report_text = _run_contextual_audit(draft, phrase_bank, assistant_messages, audit_toggles)
         structural_issues = (
             1 if report.structural_repetition_result and report.structural_repetition_result.is_repetitive else 0
         )
+        phrase_issues = len(report.phrase_result.flagged_phrases) if report.phrase_result else 0
         logger.info(
-            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d, structural=%d)",
+            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d, phrases=%d, structural=%d)",
             report.total_issues,
             report.cliche_result.flagged_count,
             len(report.monotony_result.flagged_openers),
             len(report.template_result.flagged_templates),
+            phrase_issues,
             structural_issues,
         )
         debug_parts.append(f"Initial audit ({report.total_issues} issues):\n{report_text}")
@@ -517,7 +527,7 @@ async def editor_pass(
                 debug_parts.append(f"Iteration {iteration + 1}: rewrite applied ({pre_len}→{len(current_draft)} chars)")
 
                 if audit_enabled:
-                    report, report_text = _run_contextual_audit(current_draft, phrase_bank, assistant_messages)
+                    report, report_text = _run_contextual_audit(current_draft, phrase_bank, assistant_messages, audit_toggles)
                     debug_parts.append(f"Post-rewrite audit ({report.total_issues} issues):\n{report_text}")
                 else:
                     report = AuditReport.clean()
@@ -591,7 +601,7 @@ async def editor_pass(
             for e in errors:
                 logger.warning("Editor iteration %d patch error: %s", iteration + 1, e)
 
-            report, report_text = _run_contextual_audit(current_draft, phrase_bank, assistant_messages)
+            report, report_text = _run_contextual_audit(current_draft, phrase_bank, assistant_messages, audit_toggles)
             logger.info(
                 "Editor iteration %d: post-audit — %d issues",
                 iteration + 1,

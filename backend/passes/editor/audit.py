@@ -8,10 +8,35 @@ from .slop_detector import detect_cliches, DetectionResult, PhraseGroup
 from .opening_monotony import detect_opening_monotony, MonotonyResult
 from .template_repetition import detect_template_repetition, TemplateResult
 from .contrastive_negation import detect_contrastive_negation
+from .phrase_repetition import detect_phrase_repetition, PhraseResult
 from .structural_repetition import (
     detect_structural_repetition,
     StructuralResult,
 )
+
+
+# Audit toggles
+#
+# Each key names one programmatic scanner that the Output Auditor can run. The
+# UI exposes a checkbox per type and persists the on/off state; the editor pass
+# passes the resulting dict to run_audit, which skips any disabled scanner.
+# Order here is the order the toggles render in the UI.
+AUDIT_TYPES = (
+    "banned_phrases",
+    "repetitive_openers",
+    "repetitive_templates",
+    "contrastive_negation",
+    "phrase_repetition",
+    "structural_repetition",
+)
+
+DEFAULT_AUDIT_TOGGLES = {t: True for t in AUDIT_TYPES}
+
+
+def _on(toggles: dict | None, key: str) -> bool:
+    """Whether scanner *key* is enabled. Missing key / None toggles → enabled,
+    so callers (and older databases) default to the prior all-on behaviour."""
+    return True if toggles is None else bool(toggles.get(key, True))
 
 
 # Data container
@@ -23,6 +48,7 @@ class AuditReport:
         "monotony_result",
         "template_result",
         "not_but_result",
+        "phrase_result",
         "structural_repetition_result",
     )
 
@@ -32,12 +58,14 @@ class AuditReport:
         monotony_result: MonotonyResult,
         template_result: TemplateResult,
         not_but_result: list[dict] | None = None,
+        phrase_result: PhraseResult | None = None,
         structural_repetition_result: StructuralResult | None = None,
     ):
         self.cliche_result = cliche_result
         self.monotony_result = monotony_result
         self.template_result = template_result
         self.not_but_result = not_but_result or []
+        self.phrase_result = phrase_result
         self.structural_repetition_result = structural_repetition_result
 
     @classmethod
@@ -48,28 +76,33 @@ class AuditReport:
             monotony_result=MonotonyResult([], {}, 0, 0.0),
             template_result=TemplateResult([], {}, 0, 0, 0.0),
             not_but_result=[],
+            phrase_result=None,
             structural_repetition_result=None,
         )
 
     @property
     def is_clean(self) -> bool:
         is_structural_clean = self.structural_repetition_result is None or not self.structural_repetition_result.is_repetitive
+        is_phrase_clean = self.phrase_result is None or len(self.phrase_result.flagged_phrases) == 0
         return (
             self.cliche_result.flagged_count == 0
             and len(self.monotony_result.flagged_openers) == 0
             and len(self.template_result.flagged_templates) == 0
             and len(self.not_but_result) == 0
+            and is_phrase_clean
             and is_structural_clean
         )
 
     @property
     def total_issues(self) -> int:
         structural_issues = 1 if self.structural_repetition_result and self.structural_repetition_result.is_repetitive else 0
+        phrase_issues = len(self.phrase_result.flagged_phrases) if self.phrase_result else 0
         return (
             self.cliche_result.flagged_count
             + len(self.monotony_result.flagged_openers)
             + len(self.template_result.flagged_templates)
             + len(self.not_but_result)
+            + phrase_issues
             + structural_issues
         )
 
@@ -87,10 +120,15 @@ def run_audit(
     template_flag_threshold: int = 2,
     structural_similarity_threshold: float = 0.75,
     structural_min_complexity: int = 2,
+    phrase_min_n: int = 3,
+    phrase_max_n: int = 5,
+    phrase_min_messages: int = 3,
+    phrase_min_content_words: int = 2,
     assistant_messages: list[str] | None = None,
     structural_text: str | None = None,
+    audit_toggles: dict | None = None,
 ) -> AuditReport:
-    """Run all audit scanners on the text.
+    """Run the enabled audit scanners on the text.
 
     Args:
         text: The current text to audit (may be concatenated context for
@@ -102,22 +140,51 @@ def run_audit(
             When provided, used instead of `text` so that callers that pass a
             concatenated context blob as `text` still get correct per-message
             comparison.  Defaults to `text` when omitted.
+        audit_toggles: Optional per-scanner on/off map keyed by AUDIT_TYPES.
+            Disabled scanners are skipped and return an empty result. None (the
+            default) runs every scanner.
     """
-    # Structural repetition detection needs multiple messages
+    # Structural repetition and exact phrase repetition are cross-message checks
+    # that need the draft as a standalone message plus the previous ones.
     structural_result = None
+    phrase_result = None
     if assistant_messages:
         current_msg = structural_text if structural_text is not None else text
-        structural_result = detect_structural_repetition(
-            assistant_messages + [current_msg],
-            similarity_threshold=structural_similarity_threshold,
-            min_complexity=structural_min_complexity,
-        )
+        if _on(audit_toggles, "structural_repetition"):
+            structural_result = detect_structural_repetition(
+                assistant_messages + [current_msg],
+                similarity_threshold=structural_similarity_threshold,
+                min_complexity=structural_min_complexity,
+            )
+        if _on(audit_toggles, "phrase_repetition"):
+            # The draft must be last so require_last_message focuses flags on it.
+            phrase_result = detect_phrase_repetition(
+                assistant_messages + [current_msg],
+                min_n=phrase_min_n,
+                max_n=phrase_max_n,
+                min_messages=phrase_min_messages,
+                min_content_words=phrase_min_content_words,
+                require_last_message=True,
+            )
 
     return AuditReport(
-        cliche_result=detect_cliches(text, phrase_bank, cliche_threshold),
-        monotony_result=detect_opening_monotony(text, opener_n_words, opener_min_consecutive),
-        template_result=detect_template_repetition(text, max_words=template_max_tags, flag_threshold=template_flag_threshold),
-        not_but_result=detect_contrastive_negation(text),
+        cliche_result=(
+            detect_cliches(text, phrase_bank, cliche_threshold)
+            if _on(audit_toggles, "banned_phrases")
+            else DetectionResult([], [], 0, 0)
+        ),
+        monotony_result=(
+            detect_opening_monotony(text, opener_n_words, opener_min_consecutive)
+            if _on(audit_toggles, "repetitive_openers")
+            else MonotonyResult([], {}, 0, 0.0)
+        ),
+        template_result=(
+            detect_template_repetition(text, max_words=template_max_tags, flag_threshold=template_flag_threshold)
+            if _on(audit_toggles, "repetitive_templates")
+            else TemplateResult([], {}, 0, 0, 0.0)
+        ),
+        not_but_result=(detect_contrastive_negation(text) if _on(audit_toggles, "contrastive_negation") else []),
+        phrase_result=phrase_result,
         structural_repetition_result=structural_result,
     )
 
@@ -170,7 +237,16 @@ def format_report(report: AuditReport) -> str:
             lines.append(f'   - Sentence: "{sentence}"{parallel_note}')
         sections.append("\n".join(lines))
 
-    # 5. Structural repetition
+    # 5. Exact phrase repetition (echoed across messages)
+    if report.phrase_result and report.phrase_result.flagged_phrases:
+        lines = ["Repeated Phrases (echoed across messages)"]
+        for fp in report.phrase_result.flagged_phrases:
+            lines.append(f'   - "{fp.phrase}" (in {fp.count} messages):')
+            for s in fp.example_sentences[:3]:
+                lines.append(f"     • {s}")
+        sections.append("\n".join(lines))
+
+    # 6. Structural repetition
     if report.structural_repetition_result and report.structural_repetition_result.is_repetitive:
         sr = report.structural_repetition_result
         lines = ["Structural Repetition"]
