@@ -1287,7 +1287,19 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
         value="${esc(pattern)}" placeholder="e.g., the air (is|was) (thick|heavy|charged)"
         oninput="onPhraseRegexInput()">
       <div id="phrase-regex-error" class="phrase-regex-error"></div>
-      <p class="phrase-regex-hint">Standard JS regex, matched case-insensitively. Alternation <code>(a|b)</code>, optional <code>x?</code>, boundaries <code>\\b</code> and flexible spacing <code>\\s+</code> all work.</p>
+      <div class="phrase-regex-hint">
+        <p style="margin:0 0 6px;">Standard JS regex, matched case-insensitively, one sentence at a time. Common patterns:</p>
+        <ul style="list-style:none; margin:0; padding:0;">
+          <li style="margin-bottom:3px;"><code>(thick|heavy|charged)</code> &mdash; match any one of these words</li>
+          <li style="margin-bottom:3px;"><code>colou?r</code> &mdash; <code>?</code> makes the char before it optional (matches "color" or "colour")</li>
+          <li style="margin-bottom:3px;"><code>(ever so )?slightly</code> &mdash; <code>?</code> after a group makes the whole group optional</li>
+          <li style="margin-bottom:3px;"><code>\\s+</code> &mdash; flexible spacing (spaces, tabs, newlines)</li>
+          <li style="margin-bottom:3px;"><code>\\bword\\b</code> &mdash; whole word only, not inside another</li>
+          <li style="margin-bottom:3px;"><code>\\w+</code> &mdash; one word; <code>.*?</code> &mdash; any text in between (shortest match)</li>
+          <li style="margin-bottom:3px;"><code>[.,!?]</code> &mdash; any one of the listed characters</li>
+          <li style="margin-bottom:3px;"><code>\\.\\.\\.</code> &mdash; escape special chars with <code>\\</code> (here, a literal "...")</li>
+        </ul>
+      </div>
     </div>
 
     <div class="modal-actions">
