@@ -39,9 +39,9 @@ the model only needs to write replacement for targeted sentences
 
 ### Single and Dual Model Modes
 
-In most local setups, the user doesn't have enough resource to load more than one model at a time. Single-model Mode addresses this by using a single model for both writing and agentic tasks. KV cache is respected by design so prompt reprocessing is avoided.
+In most local setups, the user doesn't have enough resource to load more than one model at a time. Single-Model Mode addresses this by using the same model for both writing and agentic tasks. KV cache is respected by design so prompt reprocessing is avoided.
 
-For the best experience, use Dual-Model Mode. Some harnesses are dropped in this mode, the models will perform better.
+For the best experience, use Dual-Model Mode. Some harnesses are dropped in this mode so the models should perform better.
 
 ### KV Cache Reuse Strategy
 
@@ -54,7 +54,7 @@ For optimal KV cache reuse, the following will remain consistent across passes:
 
 #### 2. Chat History
 - The conversation history (previous messages) is identical across all passes
-- Maintains exact same message content and ordering
+- Maintains exact same message content, attachments, and ordering
 
 #### 3. Tool Schemas
 - The same tool definitions must be sent in each LLM call for kv cache reuse
