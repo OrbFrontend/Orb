@@ -115,14 +115,17 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
     # splits only on [.!?]), so use substring containment here too.
     filtered_not_but = [nb for nb in report.not_but_result if nb.get("sentence", "") in target_text]
 
-    # Structural repetition is a cross-message check, so it's always relevant
-    # when comparing the draft to previous messages. We keep it unfiltered.
+    # Structural repetition and exact phrase repetition are cross-message checks,
+    # so they're always relevant when comparing the draft to previous messages.
+    # Phrase repetition already focuses on the draft via require_last_message, so
+    # we keep both unfiltered.
 
     return AuditReport(
         cliche_result=filtered_cliche,
         monotony_result=filtered_monotony,
         template_result=filtered_template,
         not_but_result=filtered_not_but,
+        phrase_result=report.phrase_result,
         structural_repetition_result=report.structural_repetition_result,
     )
 
@@ -346,12 +349,14 @@ async def editor_pass(
         structural_issues = (
             1 if report.structural_repetition_result and report.structural_repetition_result.is_repetitive else 0
         )
+        phrase_issues = len(report.phrase_result.flagged_phrases) if report.phrase_result else 0
         logger.info(
-            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d, structural=%d)",
+            "Editor: initial audit — %d issues (cliches=%d, openers=%d, templates=%d, phrases=%d, structural=%d)",
             report.total_issues,
             report.cliche_result.flagged_count,
             len(report.monotony_result.flagged_openers),
             len(report.template_result.flagged_templates),
+            phrase_issues,
             structural_issues,
         )
         debug_parts.append(f"Initial audit ({report.total_issues} issues):\n{report_text}")
