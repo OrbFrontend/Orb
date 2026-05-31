@@ -190,6 +190,12 @@ def _normalize_quotes(text: str) -> str:
     return text.translate(_QUOTE_MAP)
 
 
+def _strip_outer_asterisks(text: str) -> str:
+    """Strip leading/trailing markdown emphasis asterisks (and the whitespace
+    just inside them).  Internal asterisks are left untouched."""
+    return text.strip().strip("*").strip()
+
+
 def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
     """Apply search/replace patches to *draft*.  Returns (updated_draft, error_messages)."""
     errors: list[str] = []
@@ -230,6 +236,29 @@ def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
                     f"Error: Multiple matches ({norm_count}) for {search[:80]!r} (after quote normalization). Use more context."
                 )
                 continue
+
+            # Fallback: the model often wraps a single sentence in its own
+            # `*...*` when the draft only has block-level asterisks around the
+            # whole narration span, so the outer `*` don't line up. Retry with
+            # leading/trailing asterisks stripped from both sides.
+            trimmed_search = _strip_outer_asterisks(search)
+            if trimmed_search and trimmed_search != search:
+                trimmed_count = draft.count(trimmed_search)
+                if trimmed_count == 1:
+                    draft = draft.replace(trimmed_search, _strip_outer_asterisks(replace), 1)
+                    logger.debug(
+                        "Patch %d OK (asterisk-trimmed): %r → %r",
+                        i,
+                        trimmed_search[:60],
+                        replace[:60],
+                    )
+                    continue
+                elif trimmed_count > 1:
+                    errors.append(
+                        f"Error: Multiple matches ({trimmed_count}) for {search[:80]!r} (after asterisk trimming). Use more context."
+                    )
+                    continue
+
             errors.append(f"Error: {search[:80]!r} not found in draft.")
 
         elif count > 1:
