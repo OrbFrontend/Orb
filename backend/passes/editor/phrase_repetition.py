@@ -64,7 +64,11 @@ class PhraseResult:
 # ---------- text processing (mirrors template_repetition / opening_monotony) ----------
 
 _PARA_SPLIT = re.compile(r"\n\s*\n")
-_SENT_SPLIT = re.compile(r"(?<=[.!?…])[\"”’']?\s+")
+# Tolerate trailing closing markers between the terminator and the whitespace:
+# quotes and markdown emphasis/brackets (e.g. "Hiro.*" or 'done."'). Without
+# this, a terminator hidden behind a markdown marker fails to split, merging
+# adjacent sentences (and, across newlines, whole paragraphs) into one unit.
+_SENT_SPLIT = re.compile(r"(?<=[.!?…])[\"”’'*_)\]]*\s+")
 _TOKEN_RE = re.compile(r"[a-z0-9']+")
 
 # Curly directional quotes are unambiguous: left opens, right closes.

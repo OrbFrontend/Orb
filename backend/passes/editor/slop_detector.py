@@ -42,7 +42,7 @@ _WINDOW_PADDING = 2
 # whitespace or a capital letter — the latter catches the no-space boundaries
 # ("clear.The") that the sentence splitter leaves intact. Used to reject regex
 # matches that bridge two sentences.
-_SENTENCE_BOUNDARY = re.compile(r'[.!?]["”]?(\s|[A-Z])')
+_SENTENCE_BOUNDARY = re.compile(r'[.!?]["”’\'*_)\]]*(\s|[A-Z])')
 
 
 @dataclass
@@ -83,7 +83,7 @@ def _containment(phrase_grams: set, window_grams: set) -> float:
 
 
 def _split_sentences(text: str) -> list[str]:
-    raw = re.split(r'(?<=[.!?])["”]?\s+|\n+', text.strip())
+    raw = re.split(r'(?<=[.!?])["”’\'*_)\]]*\s+|\n+', text.strip())
     return [s.strip() for s in raw if s.strip()]
 
 
