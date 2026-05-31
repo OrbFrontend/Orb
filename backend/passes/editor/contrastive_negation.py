@@ -18,22 +18,14 @@ Avoids common false positives:
 from __future__ import annotations
 import re
 
+from .text_segmentation import split_sentences
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-
-# Closing markers that may trail a sentence terminator before the whitespace:
-# quotes and markdown emphasis/brackets (e.g. "Hiro.*" or 'done."').
-_SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?])["”’\'*_)\]]*\s+')
-
-
-def _split_sentences(text: str) -> list[str]:
-    # Hard-break on line/paragraph boundaries first, so a paragraph that lacks a
-    # detectable terminator (or whose terminator is hidden behind markdown) can't
-    # merge with the following paragraph into one oversized "sentence".
-    sentences: list[str] = []
-    for line in re.split(r"\n+", text):
-        sentences.extend(s.strip() for s in _SENTENCE_SPLIT_RE.split(line) if s.strip())
-    return sentences
+# Dialogue is intentionally kept: clause-grammar analysis must see quoted text.
+# Paragraph-first splitting (in text_segmentation) prevents a paragraph that
+# lacks a detectable terminator from merging into the next.
+_split_sentences = split_sentences
 
 
 def _tokenize(sent: str) -> list[str]:

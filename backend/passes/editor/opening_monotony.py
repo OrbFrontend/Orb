@@ -19,6 +19,8 @@ import re
 import sys
 from dataclasses import dataclass, field
 
+from .text_segmentation import split_narration_sentences
+
 DEBUG = "DEBUG_OPENING_MONOTONY" in os.environ
 # ---------- public dataclasses (unchanged) ----------
 
@@ -41,79 +43,15 @@ class MonotonyResult:
 
 
 # ---------- narration extraction ----------
-
-_PARA_SPLIT = re.compile(r"\n\s*\n")
-# Tolerate trailing closing markers between the terminator and the whitespace:
-# quotes and markdown emphasis/brackets (e.g. "Hiro.*" or 'done."'). Without
-# this, a terminator hidden behind a markdown marker fails to split, merging
-# adjacent sentences (and, across newlines, whole paragraphs) into one unit.
-_SENT_SPLIT = re.compile(r"(?<=[.!?\u2026])[\"\u201d\u2019'*_)\]]*\s+")
-
-# Curly directional quotes are unambiguous: left opens, right closes.
-_OPEN_QUOTES = {"\u201c"}  # "
-_CLOSE_QUOTES = {"\u201d"}  # "
-# Straight double quote has no direction; we toggle on each occurrence.
-# Note: Single quote is excluded to avoid issues with contractions like I'm, don't, etc.
-_TOGGLE_QUOTES = {'"'}
-
-
-def _extract_narration(paragraph: str) -> str:
-    """Return only the characters of `paragraph` that lie outside any quote.
-
-    State resets at the start of each paragraph (the caller splits first), so
-    an unclosed quote inside one paragraph cannot contaminate later ones.
-
-    Inserts spaces when stripping quotes to prevent word fusion.
-    """
-    out: list[str] = []
-    inside = False
-    prev_was_quote = False
-
-    for ch in paragraph:
-        if ch in _TOGGLE_QUOTES:
-            inside = not inside
-            prev_was_quote = True
-            continue
-        if ch in _OPEN_QUOTES:
-            inside = True
-            prev_was_quote = True
-            continue
-        if ch in _CLOSE_QUOTES:
-            inside = False
-            prev_was_quote = True
-            continue
-
-        if not inside:
-            # Insert space where quote was stripped to prevent fusion
-            if prev_was_quote and out and out[-1] not in " \t\n":
-                out.append(" ")
-            out.append(ch)
-        else:
-            # Inside quotes - still insert space to prevent fusion at boundary
-            if out and out[-1] not in " \t\n":
-                out.append(" ")
-
-        prev_was_quote = False
-
-    return " ".join("".join(out).split())  # Normalize whitespace
+# Paragraph/sentence/dialogue segmentation lives in text_segmentation so every
+# audit pass splits text identically.
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Paragraph-aware sentence splitter that strips dialogue in the process."""
+    """Paragraph-aware sentence splitter that strips dialogue (with DEBUG trace)."""
     if DEBUG:
         sys.stderr.write(f"[opening_monotony] splitting text: {repr(text)}\n")
-    sentences: list[str] = []
-    for para in _PARA_SPLIT.split(text.strip()):
-        narration = _extract_narration(para).strip()
-        if DEBUG:
-            sys.stderr.write(f"[opening_monotony] para: {repr(para)}\n")
-            sys.stderr.write(f"[opening_monotony] narration: {repr(narration)}\n")
-        if not narration:
-            continue
-        for raw in _SENT_SPLIT.split(narration):
-            s = raw.strip()
-            if s:
-                sentences.append(s)
+    sentences = split_narration_sentences(text)
     if DEBUG:
         sys.stderr.write(f"[opening_monotony] extracted sentences: {sentences}\n")
     return sentences

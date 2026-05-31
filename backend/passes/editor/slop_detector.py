@@ -30,6 +30,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Union
 
+from .text_segmentation import split_sentences
+
 # A group is either a list of literal variants or a {kind, ...} dict.
 PhraseGroup = Union[list[str], dict]
 
@@ -82,9 +84,8 @@ def _containment(phrase_grams: set, window_grams: set) -> float:
     return len(phrase_grams & window_grams) / len(phrase_grams)
 
 
-def _split_sentences(text: str) -> list[str]:
-    raw = re.split(r'(?<=[.!?])["”’\'*_)\]]*\s+|\n+', text.strip())
-    return [s.strip() for s in raw if s.strip()]
+# Dialogue is intentionally kept: cliché matching must see text inside quotes.
+_split_sentences = split_sentences
 
 
 def _group_kind(group: PhraseGroup) -> str:

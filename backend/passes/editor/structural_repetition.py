@@ -11,14 +11,13 @@ import difflib
 import re
 from dataclasses import dataclass, field
 
-__all__ = ["detect_structural_repetition", "StructuralResult", "MessageStructure"]
+from .text_segmentation import (
+    PARA_SPLIT as _PARA_SPLIT,
+    count_sentences as _count_sentences,
+    find_quote_spans as _find_quote_spans,
+)
 
-# ---------- shared quote constants (keep in sync with your other modules) ----------
-_OPEN_QUOTES = {"\u201c", "\u2018"}
-_CLOSE_QUOTES = {"\u201d", "\u2019"}
-_TOGGLE_QUOTES = {'"'}
-_PARA_SPLIT = re.compile(r"\n\s*\n")
-_SENT_SPLIT = re.compile(r"(?<=[.!?\u2026])\s+")
+__all__ = ["detect_structural_repetition", "StructuralResult", "MessageStructure"]
 
 # ---------- dataclasses ----------
 
@@ -39,46 +38,9 @@ class StructuralResult:
     messages: list[MessageStructure]
 
 
-# ---------- sentence counting ----------
-
-
-def _count_sentences(text: str) -> int:
-    """Count sentences in a block of text.
-
-    Non-empty text that contains no sentence terminator still counts as 1
-    (it is a fragment or short imperative).  Empty text returns 0.
-    """
-    stripped = text.strip()
-    if not stripped:
-        return 0
-    pieces = [s.strip() for s in _SENT_SPLIT.split(stripped) if s.strip()]
-    return len(pieces) if pieces else 1
-
-
 # ---------- block extraction ----------
-
-
-def _find_quote_spans(text: str) -> list[tuple[int, int]]:
-    spans = []
-    inside = False
-    start = 0
-    for i, ch in enumerate(text):
-        if ch in _TOGGLE_QUOTES:
-            if not inside:
-                inside = True
-                start = i
-            else:
-                spans.append((start, i + 1))
-                inside = False
-        elif ch in _OPEN_QUOTES:
-            if not inside:
-                inside = True
-                start = i
-        elif ch in _CLOSE_QUOTES:
-            if inside:
-                spans.append((start, i + 1))
-                inside = False
-    return spans
+# Sentence counting (_count_sentences) and quote-span finding (_find_quote_spans)
+# are shared with the other audit passes via text_segmentation.
 
 
 _EMPHASIS_RE = re.compile(

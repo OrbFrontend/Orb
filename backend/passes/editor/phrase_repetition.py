@@ -35,6 +35,8 @@ import re
 import sys
 from dataclasses import dataclass, field
 
+from .text_segmentation import split_narration_sentences
+
 DEBUG = "DEBUG_PHRASE_REPETITION" in os.environ
 
 __all__ = [
@@ -61,67 +63,13 @@ class PhraseResult:
     total_messages: int
 
 
-# ---------- text processing (mirrors template_repetition / opening_monotony) ----------
+# ---------- text processing ----------
+# Paragraph/sentence/dialogue segmentation lives in text_segmentation so every
+# audit pass splits text identically. `_split_sentences` strips dialogue.
 
-_PARA_SPLIT = re.compile(r"\n\s*\n")
-# Tolerate trailing closing markers between the terminator and the whitespace:
-# quotes and markdown emphasis/brackets (e.g. "Hiro.*" or 'done."'). Without
-# this, a terminator hidden behind a markdown marker fails to split, merging
-# adjacent sentences (and, across newlines, whole paragraphs) into one unit.
-_SENT_SPLIT = re.compile(r"(?<=[.!?…])[\"”’'*_)\]]*\s+")
+_split_sentences = split_narration_sentences
+
 _TOKEN_RE = re.compile(r"[a-z0-9']+")
-
-# Curly directional quotes are unambiguous: left opens, right closes.
-_OPEN_QUOTES = {"“", "‘"}
-_CLOSE_QUOTES = {"”", "’"}
-# Straight double quote toggles; single quote excluded so contractions survive.
-_TOGGLE_QUOTES = {'"'}
-
-
-def _extract_narration(paragraph: str) -> str:
-    """Return only the characters of `paragraph` that lie outside any quote."""
-    out: list[str] = []
-    inside = False
-    prev_was_quote = False
-
-    for ch in paragraph:
-        if ch in _TOGGLE_QUOTES:
-            inside = not inside
-            prev_was_quote = True
-            continue
-        if ch in _OPEN_QUOTES:
-            inside = True
-            prev_was_quote = True
-            continue
-        if ch in _CLOSE_QUOTES:
-            inside = False
-            prev_was_quote = True
-            continue
-
-        if not inside:
-            if prev_was_quote and out and out[-1] not in " \t\n":
-                out.append(" ")
-            out.append(ch)
-        else:
-            if out and out[-1] not in " \t\n":
-                out.append(" ")
-
-        prev_was_quote = False
-
-    return " ".join("".join(out).split())
-
-
-def _split_sentences(text: str) -> list[str]:
-    sentences: list[str] = []
-    for para in _PARA_SPLIT.split(text.strip()):
-        narration = _extract_narration(para).strip()
-        if not narration:
-            continue
-        for raw in _SENT_SPLIT.split(narration):
-            s = raw.strip()
-            if s:
-                sentences.append(s)
-    return sentences
 
 
 def _tokenize(sentence: str) -> list[str]:
