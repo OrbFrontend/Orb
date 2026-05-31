@@ -17,12 +17,14 @@ The user never sees the agentic layer. The writer model doesn't know it's being 
 1. **Clear direction for Writer**: Grounding the story + actively steering the writing style = better output
 2. **Customizability**: Customizable prompt injection that's automatically used by Director model
 3. **Anti-slop**: Get rid of overused words, phrases, and patterns often seen in LLM outputs
-4. **Length Guard**: Actively or passively protect from length degradation as context grows
-5. **Super-regenerate**: Normal regens may give samey outputs, ask for a different take
-6. **Magic Rewrite**: Rewrite the target message in a user-defined direction
-7. **Compress History**: Summarize chat context and move it to a new conversation
-8. **Mobile-compatibility**: UI for mobile devices
-9. **Integrated TTS**: Easy Text-to-speech that supports multiple providers
+4. **Anti-repetition**: Detect various types of repetition from outputs and surgically fix them
+5. **Length Guard**: Actively or passively protect from length degradation as context grows
+6. **Super-regenerate**: Normal regens may give samey outputs, ask for a different take
+7. **Magic Rewrite**: Rewrite the target message in a user-defined direction
+8. **Compress History**: Summarize chat context and move it to a new conversation
+9. **Mobile-compatibility**: UI for mobile devices
+10. **Integrated TTS**: Easy Text-to-speech that supports multiple providers
+11. **Character Browser**: Fetch character cards from various sites on the Internet
 
 ## Architecture
 
@@ -34,6 +36,12 @@ The system uses a three-pass architecture, with the agent and writer optionally 
 2. **Writer Pass** - Story generation phase where the LLM writes the actual roleplay response
 3. **Editor Pass** - A ReAct loop - Self-audit for slop and length optimization phase. This is surgical, errors will be programmatically detected, 
 the model only needs to write replacement for targeted sentences
+
+### Single and Dual Model Modes
+
+In most local setups, the user doesn't have enough resource to load more than one model at a time. Single-model Mode addresses this by using a single model for both writing and agentic tasks. KV cache is respected by design so prompt reprocessing is avoided.
+
+For the best experience, use Dual-Model Mode. Some harnesses are dropped in this mode, the models will perform better.
 
 ### KV Cache Reuse Strategy
 
@@ -50,15 +58,14 @@ For optimal KV cache reuse, the following will remain consistent across passes:
 
 #### 3. Tool Schemas
 - The same tool definitions must be sent in each LLM call for kv cache reuse
-- Tool schemas affect the model's internal representation
 - Inconsistent tool schemas break KV cache alignment
 
 ## Design Principles
 
-1. Prioritize small models - if a feature fails half of the time on Gemma-4-26B4A, it will be scrapped
+1. Prioritize small models - if a feature fails half of the time on Gemma-4-26B4A, it probably doesn't belong here
 2. Only use agentic functionalities when absolutely needed - we will not have useless tools like `dice_roll`
-3. Scanning should be algorithmic, avoid making LLMs eyeball for errors
-4. Keep agentic scope small, avoid giving the agent too much freedom of choice
+3. Algorithm-first - if something can be done with an algorithm, don't use LLMs. Avoid making LLMs eyeball for errors
+4. Keep agentic scope small to reduce hallucination, avoid giving agents too much freedom of choice
 
 ## Drawbacks
 
@@ -76,6 +83,6 @@ Full documentation is at **https://orbfrontend.github.io/Orb/**
 
 ## Contributing & Discussions
 
-Read this before opening a PR: https://github.com/OrbFrontend/Orb/blob/main/CONTRIBUTING.md
+Check this out before opening a PR: https://github.com/OrbFrontend/Orb/blob/main/CONTRIBUTING.md
 
 Ideas, help requests, and questions go here: https://github.com/OrbFrontend/Orb/discussions
