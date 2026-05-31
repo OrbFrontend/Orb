@@ -34,6 +34,7 @@ from .utils import extract_hyperparams
 from .passes.director import _director_pass
 from .passes.writer import _writer_pass, build_writer_content
 from .passes.editor import editor_pass
+from .passes.editor.slop_detector import PhraseGroup
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def _run_pipeline(
     director_fragments: list[dict],
     user_message: str,
     attachments: Optional[List[dict]] = None,
-    phrase_bank: list[list[str]] | None = None,
+    phrase_bank: list[PhraseGroup] | None = None,
     lorebook_block: str = "",
     editor_audit_msgs: list[str] | None = None,
     agent_client: LLMClient | None = None,

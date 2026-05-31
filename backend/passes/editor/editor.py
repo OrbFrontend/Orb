@@ -11,7 +11,7 @@ import time
 from typing import AsyncIterator
 
 from .audit import run_audit, format_report, AuditReport
-from .slop_detector import DetectionResult
+from .slop_detector import DetectionResult, PhraseGroup
 from .opening_monotony import FlaggedOpener, MonotonyResult, _split_sentences
 from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
@@ -141,7 +141,7 @@ def _build_audit_text(draft: str, previous_assistant_msgs: list[str]) -> str:
 
 def _run_contextual_audit(
     draft: str,
-    phrase_bank: list[list[str]],
+    phrase_bank: list[PhraseGroup],
     previous_assistant_msgs: list[str],
 ) -> tuple[AuditReport, str]:
     """Run audit on *draft* with cross-message context, then filter results
@@ -298,7 +298,7 @@ async def editor_pass(
     effective_msg: str,
     draft: str,
     settings: dict,
-    phrase_bank: list[list[str]],
+    phrase_bank: list[PhraseGroup],
     enabled_tools: dict,
     audit_enabled: bool = True,
     length_guard: dict | None = None,
