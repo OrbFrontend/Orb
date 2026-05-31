@@ -1,0 +1,61 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Sphere body gradient: lighter purple top-left, deep navy bottom -->
+    <radialGradient id="sphere" cx="42%" cy="36%" r="75%">
+      <stop offset="0%" stop-color="#4a3b78"/>
+      <stop offset="45%" stop-color="#332a5e"/>
+      <stop offset="100%" stop-color="#1c1638"/>
+    </radialGradient>
+
+    <!-- Subtle rim shading for 3D feel -->
+    <radialGradient id="innerShade" cx="50%" cy="50%" r="50%">
+      <stop offset="70%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.35"/>
+    </radialGradient>
+
+    <!-- Gold ring gradient -->
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe27a"/>
+      <stop offset="50%" stop-color="#f5b540"/>
+      <stop offset="100%" stop-color="#e09a2e"/>
+    </linearGradient>
+
+    <!-- Glow for the ring -->
+    <filter id="ringGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Glow for the star -->
+    <filter id="starGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <radialGradient id="starFill" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="70%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e6ddff"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Sphere body (solid, fills the favicon) -->
+  <circle cx="256" cy="256" r="232" fill="url(#sphere)"/>
+  <circle cx="256" cy="256" r="232" fill="url(#innerShade)"/>
+
+  <!-- Glowing gold ring -->
+  <circle cx="256" cy="256" r="232" fill="none" stroke="url(#gold)" stroke-width="10" filter="url(#ringGlow)"/>
+  <circle cx="256" cy="256" r="232" fill="none" stroke="#fff0b8" stroke-width="2.5" opacity="0.8"/>
+
+  <!-- Four-pointed sparkle, upper-right -->
+  <g filter="url(#starGlow)" transform="translate(350,170)">
+    <path d="M0,-58 C8,-18 18,-8 58,0 C18,8 8,18 0,58 C-8,18 -18,8 -58,0 C-18,-8 -8,-18 0,-58 Z"
+          fill="url(#starFill)"/>
+  </g>
+</svg>
