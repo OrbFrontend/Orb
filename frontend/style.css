@@ -2058,6 +2058,87 @@ input[type="range"]::-moz-range-track {
   border-color: var(--accent);
 }
 
+/* ── Phrase bank: regex mode ── */
+.phrase-mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 15px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px;
+}
+
+.phrase-mode-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  transition: all .15s ease;
+}
+
+.phrase-mode-btn:hover { color: var(--text-primary); }
+
+.phrase-mode-btn.active {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.phrase-regex-input {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+}
+
+.phrase-regex-input.invalid {
+  border-color: var(--red, #c45d5d);
+}
+
+.phrase-regex-error {
+  min-height: 16px;
+  margin-top: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--red, #c45d5d);
+  white-space: pre-wrap;
+}
+
+.phrase-regex-hint {
+  margin-top: 8px;
+  margin-bottom: 20px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.phrase-regex-hint code,
+.phrase-regex-pattern {
+  font-family: var(--font-mono, monospace);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 11px;
+}
+
+.phrase-regex-pattern {
+  display: inline-block;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.phrase-kind-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--accent);
+}
+
 /* ═══════════════════════════════════════════
    8. Buttons & Form Elements
    ═══════════════════════════════════════════ */

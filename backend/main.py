@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import uuid
 import logging
 import base64
@@ -498,11 +499,15 @@ class MagicRewriteMsg(BaseModel):
 
 
 class PhraseGroupCreate(BaseModel):
-    variants: list[str]
+    variants: list[str] = []
+    kind: str = "literal"
+    pattern: str = ""
 
 
 class PhraseGroupUpdate(BaseModel):
-    variants: list[str]
+    variants: list[str] = []
+    kind: str = "literal"
+    pattern: str = ""
 
 
 class UserPersonaCreate(BaseModel):
@@ -815,32 +820,45 @@ async def api_get_phrase_bank():
     return await get_phrase_bank_rows()
 
 
+def _validate_phrase_group(kind: str, variants: list[str], pattern: str) -> tuple[list[str], str]:
+    """Validate a phrase group by kind. Returns (variants, pattern) to persist.
+
+    A group is *either* literal variants *or* a single regex — never both.
+    """
+    if kind == "regex":
+        pattern = (pattern or "").strip()
+        if not pattern:
+            raise HTTPException(status_code=400, detail="A regex pattern is required")
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            raise HTTPException(status_code=400, detail=f"Invalid regular expression: {e}")
+        # Regex groups carry no literal variants.
+        return [], pattern
+
+    # Literal group.
+    cleaned = [v.strip() for v in (variants or []) if isinstance(v, str) and v.strip()]
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="At least one variant is required")
+    return cleaned, ""
+
+
 @app.post("/api/phrase-bank")
 async def api_create_phrase_group(data: PhraseGroupCreate):
-    """Create a new phrase variant group."""
-    if not data.variants or len(data.variants) == 0:
-        raise HTTPException(status_code=400, detail="At least one variant is required")
-    # Validate all variants are strings
-    for v in data.variants:
-        if not isinstance(v, str) or not v.strip():
-            raise HTTPException(status_code=400, detail="All variants must be non-empty strings")
-    group_id = await add_phrase_group(data.variants)
-    return {"id": group_id, "variants": data.variants}
+    """Create a new phrase group (literal variants or a single regex)."""
+    variants, pattern = _validate_phrase_group(data.kind, data.variants, data.pattern)
+    group_id = await add_phrase_group(variants, data.kind, pattern)
+    return {"id": group_id, "kind": data.kind, "variants": variants, "pattern": pattern}
 
 
 @app.put("/api/phrase-bank/{group_id}")
 async def api_update_phrase_group(group_id: int, data: PhraseGroupUpdate):
-    """Update an existing phrase variant group."""
-    if not data.variants or len(data.variants) == 0:
-        raise HTTPException(status_code=400, detail="At least one variant is required")
-    # Validate all variants are strings
-    for v in data.variants:
-        if not isinstance(v, str) or not v.strip():
-            raise HTTPException(status_code=400, detail="All variants must be non-empty strings")
-    success = await update_phrase_group(group_id, data.variants)
+    """Update an existing phrase group (literal variants or a single regex)."""
+    variants, pattern = _validate_phrase_group(data.kind, data.variants, data.pattern)
+    success = await update_phrase_group(group_id, variants, data.kind, pattern)
     if not success:
         raise HTTPException(status_code=404, detail="Phrase group not found")
-    return {"ok": True, "id": group_id, "variants": data.variants}
+    return {"ok": True, "id": group_id, "kind": data.kind, "variants": variants, "pattern": pattern}
 
 
 @app.delete("/api/phrase-bank/{group_id}")

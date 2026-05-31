@@ -1214,75 +1214,118 @@ export async function showPhraseBankModal() {
   const groups = await api.get("/phrase-bank");
 
   const groupRows = groups
-    .map(
-      (g) => `
+    .map((g) => {
+      const isRegex = g.kind === "regex";
+      const body = isRegex
+        ? `<code class="phrase-regex-pattern">${esc(g.pattern)}</code>`
+        : g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join("");
+      const count = isRegex
+        ? `<span class="phrase-kind-badge">regex</span>`
+        : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
+      return `
     <div class="phrase-group-item" onclick="editPhraseGroup(${g.id})" data-id="${g.id}">
-      <div class="phrase-group-variants">
-        ${g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join(", ")}
-      </div>
-      <div class="phrase-group-count">${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}</div>
+      <div class="phrase-group-variants">${body}</div>
+      <div class="phrase-group-count">${count}</div>
     </div>
-  `,
-    )
+  `;
+    })
     .join("");
 
   showModal(`
     <div class="modal-title-row">
       <div>
         <h2>Phrase Bank</h2>
-        <p class="modal-subtitle">Manage banned/overused phrase groups. Each group contains variants that are considered equivalent. Click a group to edit it.</p>
+        <p class="modal-subtitle">Manage banned/overused phrase groups. A group is either a set of equivalent variants or a single regex. Click a group to edit it.</p>
       </div>
       <div class="modal-title-actions">
         <button class="btn btn-accent" onclick="showAddPhraseGroupModal()">+ Add Group</button>
       </div>
     </div>
-    
+
     <div id="phrase-bank-list" class="phrase-bank-list">
       ${groupRows.length ? groupRows : '<div class="phrase-bank-empty">No phrase groups yet</div>'}
     </div>
   `);
 }
 
-export function showAddPhraseGroupModal(editId = null, initialVariants = []) {
+export function showAddPhraseGroupModal(editId = null, group = null) {
   const isEdit = editId !== null;
-  const variantsHtml = initialVariants
-    .map(
-      (v) => `
+  const kind = group?.kind === "regex" ? "regex" : "literal";
+  const variants = group?.variants || [];
+  const pattern = group?.pattern || "";
+
+  const variantRow = (v = "") => `
     <div class="variant-row">
       <input type="text" class="variant-input" value="${esc(v)}" placeholder="e.g., a mix of">
       <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
-    </div>
-  `,
-    )
-    .join("");
+    </div>`;
 
-  const emptyRow = `<div class="variant-row">
-    <input type="text" class="variant-input" placeholder="e.g., a mix of">
-    <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
-  </div>`;
+  const variantsHtml = variants.map((v) => variantRow(v)).join("");
 
   const deleteButton = isEdit
-    ? `
-    <button class="btn btn-danger" onclick="deletePhraseGroup(${editId})">Delete</button>
-  `
+    ? `<button class="btn btn-danger" onclick="deletePhraseGroup(${editId})">Delete</button>`
     : "";
 
   showModal(`
     <h2>${isEdit ? "Edit" : "Add"} Phrase Group</h2>
-    <p class="modal-subtitle">Enter variant phrases that are considered equivalent. The first variant is treated as the canonical name.</p>
-    
-    <div id="variant-list" style="margin-bottom: 15px;">
-      ${variantsHtml || emptyRow}
+    <p class="modal-subtitle">A group is either a set of equivalent literal variants <em>or</em> a single regular expression — never both.</p>
+
+    <div class="phrase-mode-toggle" id="phrase-mode-toggle">
+      <button type="button" class="phrase-mode-btn ${kind === "literal" ? "active" : ""}" data-mode="literal" onclick="setPhraseGroupMode('literal')">Literal variants</button>
+      <button type="button" class="phrase-mode-btn ${kind === "regex" ? "active" : ""}" data-mode="regex" onclick="setPhraseGroupMode('regex')">Regular expression</button>
     </div>
-    
-    <button class="btn btn-sm" onclick="addVariantRow()" style="margin-bottom: 20px;">+ Add Another Variant</button>
-    
+
+    <div id="phrase-literal-panel" style="display:${kind === "regex" ? "none" : "block"}">
+      <div id="variant-list" style="margin-bottom: 15px;">
+        ${variantsHtml || variantRow("")}
+      </div>
+      <button class="btn btn-sm" onclick="addVariantRow()" style="margin-bottom: 20px;">+ Add Another Variant</button>
+    </div>
+
+    <div id="phrase-regex-panel" style="display:${kind === "regex" ? "block" : "none"}">
+      <input type="text" id="phrase-regex-input" class="variant-input phrase-regex-input" spellcheck="false"
+        value="${esc(pattern)}" placeholder="e.g., the air (is|was) (thick|heavy|charged)"
+        oninput="onPhraseRegexInput()">
+      <div id="phrase-regex-error" class="phrase-regex-error"></div>
+      <p class="phrase-regex-hint">Standard JS regex, matched case-insensitively. Alternation <code>(a|b)</code>, optional <code>x?</code>, boundaries <code>\\b</code> and flexible spacing <code>\\s+</code> all work.</p>
+    </div>
+
     <div class="modal-actions">
       ${deleteButton}
       <button class="btn" onclick="showPhraseBankModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Update" : "Save"}</button>
+      <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Update" : "Save"}</button>
     </div>
   `);
+
+  _refreshPhraseSaveState();
+}
+
+// Current mode is whichever toggle button carries the `active` class.
+function _phraseMode() {
+  const active = document.querySelector(".phrase-mode-btn.active");
+  return active ? active.dataset.mode : "literal";
+}
+
+// Live-validate the regex field and gate the Save/Update button on it.
+function _refreshPhraseSaveState() {
+  const saveBtn = document.getElementById("phrase-save-btn");
+  const errEl = document.getElementById("phrase-regex-error");
+  const input = document.getElementById("phrase-regex-input");
+
+  if (_phraseMode() !== "regex") {
+    if (errEl) errEl.textContent = "";
+    if (input) input.classList.remove("invalid");
+    if (saveBtn) saveBtn.disabled = false;
+    return;
+  }
+
+  const value = input ? input.value : "";
+  const result = validate.validatePhraseRegex(value);
+  // Only surface an error once the user has actually typed something.
+  const showError = !result.valid && value.trim().length > 0;
+  if (errEl) errEl.textContent = showError ? result.error : "";
+  if (input) input.classList.toggle("invalid", showError);
+  if (saveBtn) saveBtn.disabled = !result.valid;
 }
 
 // Helper functions exposed to window
@@ -1312,11 +1355,28 @@ window.removeVariantRow = (btn) => {
   }
 };
 
+window.setPhraseGroupMode = (mode) => {
+  document.querySelectorAll(".phrase-mode-btn").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mode === mode);
+  });
+  const literalPanel = document.getElementById("phrase-literal-panel");
+  const regexPanel = document.getElementById("phrase-regex-panel");
+  if (literalPanel) literalPanel.style.display = mode === "literal" ? "block" : "none";
+  if (regexPanel) regexPanel.style.display = mode === "regex" ? "block" : "none";
+  _refreshPhraseSaveState();
+  if (mode === "regex") {
+    const input = document.getElementById("phrase-regex-input");
+    if (input) input.focus();
+  }
+};
+
+window.onPhraseRegexInput = () => _refreshPhraseSaveState();
+
 window.editPhraseGroup = async (groupId) => {
   const groups = await api.get("/phrase-bank");
   const group = groups.find((g) => g.id === groupId);
   if (group) {
-    showAddPhraseGroupModal(groupId, group.variants);
+    showAddPhraseGroupModal(groupId, group);
   }
 };
 
@@ -1340,27 +1400,42 @@ window.deletePhraseGroup = async (groupId) => {
 };
 
 window.savePhraseGroup = async (editId) => {
-  const variantInputs = document.querySelectorAll(".variant-input");
-  const rawVariants = Array.from(variantInputs).map((input) => input.value);
-  const variants = rawVariants.map((v) => v.trim()).filter((v) => v.length > 0);
+  const mode = _phraseMode();
+  let payload;
 
-  const validation = validate.validatePhraseVariants(rawVariants);
-  if (!validation.valid) {
-    toast(validation.error, true);
-    return;
-  }
+  if (mode === "regex") {
+    const input = document.getElementById("phrase-regex-input");
+    const pattern = input ? input.value.trim() : "";
+    const result = validate.validatePhraseRegex(pattern);
+    if (!result.valid) {
+      toast(result.error, true);
+      return;
+    }
+    payload = { kind: "regex", pattern, variants: [] };
+  } else {
+    // Exclude the regex field, which shares the .variant-input class.
+    const variantInputs = document.querySelectorAll(".variant-input:not(.phrase-regex-input)");
+    const rawVariants = Array.from(variantInputs).map((input) => input.value);
+    const variants = rawVariants.map((v) => v.trim()).filter((v) => v.length > 0);
 
-  if (variants.length === 0) {
-    toast("At least one variant is required", true);
-    return;
+    const validation = validate.validatePhraseVariants(rawVariants);
+    if (!validation.valid) {
+      toast(validation.error, true);
+      return;
+    }
+    if (variants.length === 0) {
+      toast("At least one variant is required", true);
+      return;
+    }
+    payload = { kind: "literal", variants, pattern: "" };
   }
 
   try {
     if (editId && editId !== "null") {
-      await api.put(`/phrase-bank/${editId}`, { variants });
+      await api.put(`/phrase-bank/${editId}`, payload);
       toast("Phrase group updated");
     } else {
-      await api.post("/phrase-bank", { variants });
+      await api.post("/phrase-bank", payload);
       toast("Phrase group added");
     }
     showPhraseBankModal(); // Refresh the main modal
