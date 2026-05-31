@@ -15,6 +15,30 @@ from .structural_repetition import (
 )
 
 
+# Audit toggles
+#
+# Each key names one programmatic scanner that the Output Auditor can run. The
+# UI exposes a checkbox per type and persists the on/off state; the editor pass
+# passes the resulting dict to run_audit, which skips any disabled scanner.
+# Order here is the order the toggles render in the UI.
+AUDIT_TYPES = (
+    "banned_phrases",
+    "repetitive_openers",
+    "repetitive_templates",
+    "contrastive_negation",
+    "phrase_repetition",
+    "structural_repetition",
+)
+
+DEFAULT_AUDIT_TOGGLES = {t: True for t in AUDIT_TYPES}
+
+
+def _on(toggles: dict | None, key: str) -> bool:
+    """Whether scanner *key* is enabled. Missing key / None toggles → enabled,
+    so callers (and older databases) default to the prior all-on behaviour."""
+    return True if toggles is None else bool(toggles.get(key, True))
+
+
 # Data container
 
 
@@ -102,8 +126,9 @@ def run_audit(
     phrase_min_content_words: int = 2,
     assistant_messages: list[str] | None = None,
     structural_text: str | None = None,
+    audit_toggles: dict | None = None,
 ) -> AuditReport:
-    """Run all audit scanners on the text.
+    """Run the enabled audit scanners on the text.
 
     Args:
         text: The current text to audit (may be concatenated context for
@@ -115,6 +140,9 @@ def run_audit(
             When provided, used instead of `text` so that callers that pass a
             concatenated context blob as `text` still get correct per-message
             comparison.  Defaults to `text` when omitted.
+        audit_toggles: Optional per-scanner on/off map keyed by AUDIT_TYPES.
+            Disabled scanners are skipped and return an empty result. None (the
+            default) runs every scanner.
     """
     # Structural repetition and exact phrase repetition are cross-message checks
     # that need the draft as a standalone message plus the previous ones.
@@ -122,26 +150,40 @@ def run_audit(
     phrase_result = None
     if assistant_messages:
         current_msg = structural_text if structural_text is not None else text
-        structural_result = detect_structural_repetition(
-            assistant_messages + [current_msg],
-            similarity_threshold=structural_similarity_threshold,
-            min_complexity=structural_min_complexity,
-        )
-        # The draft must be last so require_last_message focuses flags on it.
-        phrase_result = detect_phrase_repetition(
-            assistant_messages + [current_msg],
-            min_n=phrase_min_n,
-            max_n=phrase_max_n,
-            min_messages=phrase_min_messages,
-            min_content_words=phrase_min_content_words,
-            require_last_message=True,
-        )
+        if _on(audit_toggles, "structural_repetition"):
+            structural_result = detect_structural_repetition(
+                assistant_messages + [current_msg],
+                similarity_threshold=structural_similarity_threshold,
+                min_complexity=structural_min_complexity,
+            )
+        if _on(audit_toggles, "phrase_repetition"):
+            # The draft must be last so require_last_message focuses flags on it.
+            phrase_result = detect_phrase_repetition(
+                assistant_messages + [current_msg],
+                min_n=phrase_min_n,
+                max_n=phrase_max_n,
+                min_messages=phrase_min_messages,
+                min_content_words=phrase_min_content_words,
+                require_last_message=True,
+            )
 
     return AuditReport(
-        cliche_result=detect_cliches(text, phrase_bank, cliche_threshold),
-        monotony_result=detect_opening_monotony(text, opener_n_words, opener_min_consecutive),
-        template_result=detect_template_repetition(text, max_words=template_max_tags, flag_threshold=template_flag_threshold),
-        not_but_result=detect_contrastive_negation(text),
+        cliche_result=(
+            detect_cliches(text, phrase_bank, cliche_threshold)
+            if _on(audit_toggles, "banned_phrases")
+            else DetectionResult([], [], 0, 0)
+        ),
+        monotony_result=(
+            detect_opening_monotony(text, opener_n_words, opener_min_consecutive)
+            if _on(audit_toggles, "repetitive_openers")
+            else MonotonyResult([], {}, 0, 0.0)
+        ),
+        template_result=(
+            detect_template_repetition(text, max_words=template_max_tags, flag_threshold=template_flag_threshold)
+            if _on(audit_toggles, "repetitive_templates")
+            else TemplateResult([], {}, 0, 0, 0.0)
+        ),
+        not_but_result=(detect_contrastive_negation(text) if _on(audit_toggles, "contrastive_negation") else []),
         phrase_result=phrase_result,
         structural_repetition_result=structural_result,
     )

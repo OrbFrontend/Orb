@@ -1522,6 +1522,14 @@ input[type="range"]::-moz-range-track {
   color: var(--text-primary);
 }
 
+.audit-types {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
 .lg-enforce-label {
   display: flex;
   align-items: center;

@@ -72,6 +72,29 @@ async def test_show_editor_diff_default_and_roundtrip(client, db):
     assert resp.json()["show_editor_diff"] == 1
 
 
+async def test_editor_audit_toggles_default_and_roundtrip(client, db):
+    resp = await client.get("/api/settings")
+    assert resp.status_code == 200
+    toggles = resp.json()["editor_audit_toggles"]
+    assert toggles == {
+        "banned_phrases": True,
+        "repetitive_openers": True,
+        "repetitive_templates": True,
+        "contrastive_negation": True,
+        "phrase_repetition": True,
+        "structural_repetition": True,
+    }
+
+    updated = {**toggles, "banned_phrases": False, "structural_repetition": False}
+    resp = await client.put("/api/settings", json={"editor_audit_toggles": updated})
+    assert resp.status_code == 200
+    assert resp.json()["editor_audit_toggles"] == updated
+
+    async with db.execute("SELECT editor_audit_toggles FROM settings WHERE id = 1") as cur:
+        row = await cur.fetchone()
+    assert json.loads(row["editor_audit_toggles"]) == updated
+
+
 async def test_hide_streaming_until_baked_default_and_roundtrip(client, db):
     resp = await client.get("/api/settings")
     assert resp.status_code == 200

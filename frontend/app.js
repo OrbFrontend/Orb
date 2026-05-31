@@ -133,6 +133,7 @@ import {
   toggleLengthGuard,
   toggleLengthGuardEnforce,
   togglePreventPromptOverrides,
+  toggleAuditType,
   toggleShowEditorDiff,
   toggleToolEnabled,
   toggleToolsPanel,
@@ -289,6 +290,7 @@ Object.assign(window, {
   saveLengthGuardConfig,
   toggleLengthGuardEnforce,
   toggleShowEditorDiff,
+  toggleAuditType,
   toggleHideUntilBaked,
   togglePreventPromptOverrides,
   // phrase bank

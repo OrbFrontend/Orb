@@ -233,6 +233,7 @@ class SettingsUpdate(BaseModel):
     character_library_sort: Optional[str] = None
     active_endpoint_id: Optional[int] = None
     show_editor_diff: Optional[bool] = None
+    editor_audit_toggles: Optional[dict] = None
     hide_streaming_until_baked: Optional[bool] = None
     prevent_prompt_overrides: Optional[bool] = None
     agent_same_as_writer: Optional[bool] = None

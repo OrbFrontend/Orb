@@ -52,6 +52,15 @@ export const S = {
   reasoningEnabled: { director: true, writer: false, editor: false, scripter: false },
   pendingRefineDiff: null, // {original, ops} set on writer_rewrite, cleared on next stream
   showEditorDiff: true, // when false, editor-pass diff highlights + "clear diff" button are suppressed
+  editorAuditToggles: {
+    // per-scanner on/off for the Output Auditor; keys match backend AUDIT_TYPES
+    banned_phrases: true,
+    repetitive_openers: true,
+    repetitive_templates: true,
+    contrastive_negation: true,
+    phrase_repetition: true,
+    structural_repetition: true,
+  },
   hideUntilBaked: false, // when true, in-flight streaming message is kept detached from DOM until stream finalizes
   preventPromptOverrides: false, // when true, character card system_prompt and post_history_instructions are ignored
   autoscrollEnabled: true, // whether to auto-scroll chat to bottom during streaming

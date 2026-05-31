@@ -104,7 +104,7 @@ async def test_editor_iteration_exception_propagates():
 
     audit_call_count = 0
 
-    def fake_run_contextual_audit(draft, phrase_bank, prev_msgs):
+    def fake_run_contextual_audit(draft, phrase_bank, prev_msgs, audit_toggles=None):
         nonlocal audit_call_count
         audit_call_count += 1
         if audit_call_count == 1:
