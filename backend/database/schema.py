@@ -132,7 +132,9 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
 
 CREATE TABLE IF NOT EXISTS phrase_bank (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    variants TEXT NOT NULL
+    variants TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'literal',
+    pattern TEXT
 );
 
 CREATE TABLE IF NOT EXISTS user_personas (

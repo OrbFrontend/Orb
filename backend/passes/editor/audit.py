@@ -4,7 +4,7 @@ audit.py — Run all programmatic scanners and produce a consolidated AuditRepor
 
 from __future__ import annotations
 
-from .slop_detector import detect_cliches, DetectionResult
+from .slop_detector import detect_cliches, DetectionResult, PhraseGroup
 from .opening_monotony import detect_opening_monotony, MonotonyResult
 from .template_repetition import detect_template_repetition, TemplateResult
 from .contrastive_negation import detect_contrastive_negation
@@ -79,7 +79,7 @@ class AuditReport:
 
 def run_audit(
     text: str,
-    phrase_bank: list[list[str]],
+    phrase_bank: list[PhraseGroup],
     cliche_threshold: float = 0.25,
     opener_n_words: int = 1,
     opener_min_consecutive: int = 4,

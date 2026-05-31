@@ -1,29 +1,48 @@
 """
-slop_detector.py — Detect overused LLM phrases via exact + trigram containment matching.
+slop_detector.py — Detect overused LLM phrases via literal matching or regex.
 
-Short phrases (≤3 tokens): exact substring match.
-Longer phrases (4+ tokens): trigram containment scoring.
+A phrase bank is a list of *groups*. Each group is one of two kinds:
 
-Usage:
-    from slop_detector import detect_cliches
+* **literal** — a set of equivalent variant phrases. Short variants (≤3 tokens)
+  match by exact (comma-insensitive) substring; longer variants (4+ tokens)
+  match by trigram containment scoring.
+* **regex** — a single regular expression evaluated against each sentence
+  (case-insensitive). The matched text is reported verbatim. A pattern is only
+  ever run against one sentence at a time, and a match that would span a
+  sentence boundary (e.g. a greedy ``.*`` bridging two clauses across a ``.``)
+  is rejected — so the phrase handed to the LLM is always contained to a single
+  sentence.
 
-    SEED_PHRASE_BANK = [
-        ["a mix of", "a mixture of"],
-        ["tension in the air", "the air is thick"],
+Groups are accepted in two shapes for backwards compatibility:
+
+    [                                     # phrase bank
+        ["a mix of", "a mixture of"],     # legacy literal group (list of str)
+        {"kind": "literal", "variants": ["tension in the air"]},
+        {"kind": "regex", "pattern": r"the air (is|was) (thick|heavy|charged)"},
     ]
 
-    result = detect_cliches(text, SEED_PHRASE_BANK)
+    result = detect_cliches(text, phrase_bank)
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Union
+
+# A group is either a list of literal variants or a {kind, ...} dict.
+PhraseGroup = Union[list[str], dict]
 
 _N = 3
 _EXACT_MATCH_MAX_LEN = 3
 _DEFAULT_THRESHOLD = 0.4
 _WINDOW_PADDING = 2
+
+# A sentence-ending mark (optionally a closing quote) followed by either
+# whitespace or a capital letter — the latter catches the no-space boundaries
+# ("clear.The") that the sentence splitter leaves intact. Used to reject regex
+# matches that bridge two sentences.
+_SENTENCE_BOUNDARY = re.compile(r'[.!?]["”]?(\s|[A-Z])')
 
 
 @dataclass
@@ -68,17 +87,88 @@ def _split_sentences(text: str) -> list[str]:
     return [s.strip() for s in raw if s.strip()]
 
 
+def _group_kind(group: PhraseGroup) -> str:
+    """Return 'regex' or 'literal' for a phrase-bank group of either shape."""
+    if isinstance(group, dict):
+        return "regex" if group.get("kind") == "regex" else "literal"
+    return "literal"
+
+
+def _group_variants(group: PhraseGroup) -> list[str]:
+    """Literal variants for a group (empty for regex groups)."""
+    if isinstance(group, dict):
+        return [v for v in (group.get("variants") or []) if isinstance(v, str)]
+    return [v for v in group if isinstance(v, str)]
+
+
+def _group_pattern(group: PhraseGroup) -> str:
+    """Regex pattern string for a group ('' when not a regex group)."""
+    if isinstance(group, dict):
+        pat = group.get("pattern")
+        return pat if isinstance(pat, str) else ""
+    return ""
+
+
+def _compile_phrase_bank(phrase_bank: list[PhraseGroup]) -> list[tuple]:
+    """Normalise + pre-compile groups.
+
+    Returns a list of ('literal', variants) or ('regex', compiled_pattern).
+    Invalid regexes are skipped defensively so a single bad pattern can never
+    abort the whole audit — the UI validates patterns before they are saved.
+    """
+    compiled: list[tuple] = []
+    for group in phrase_bank:
+        if _group_kind(group) == "regex":
+            pattern = _group_pattern(group).strip()
+            if not pattern:
+                continue
+            try:
+                compiled.append(("regex", re.compile(pattern, re.IGNORECASE)))
+            except re.error:
+                continue
+        else:
+            variants = _group_variants(group)
+            if variants:
+                compiled.append(("literal", variants))
+    return compiled
+
+
+def _match_regex_group(rx: re.Pattern, sentence: str) -> ClicheHit | None:
+    """Search a sentence with a compiled pattern; report the matched text.
+
+    Matching is already scoped to a single sentence, but a greedy pattern can
+    still bridge two sentences inside a chunk the splitter under-split (e.g. an
+    abbreviation or ellipsis). Such matches are rejected so the reported phrase
+    never spans a sentence boundary.
+    """
+    m = rx.search(sentence)
+    if not m:
+        return None
+    matched = m.group(0).strip()
+    if not matched or _SENTENCE_BOUNDARY.search(matched):
+        return None
+    return ClicheHit(phrase=matched, score=1.0)
+
+
 def _match_sentence(
     sent_tokens: list[str],
     sent_lower: str,
-    phrase_bank: list[list[str]],
+    sentence: str,
+    compiled_groups: list[tuple],
     threshold: float,
 ) -> list[ClicheHit]:
     hits: list[ClicheHit] = []
     # Precompute normalised sentence for comma-insensitive short matches
     sent_normalised = " ".join(sent_tokens)
 
-    for variant_group in phrase_bank:
+    for kind, payload in compiled_groups:
+        if kind == "regex":
+            hit = _match_regex_group(payload, sentence)
+            if hit:
+                hits.append(hit)
+            continue
+
+        variant_group = payload
         best: ClicheHit | None = None
         best_score = 0.0
 
@@ -146,17 +236,18 @@ def _deduplicate_hits(hits: list[ClicheHit]) -> list[ClicheHit]:
 
 def detect_cliches(
     text: str,
-    phrase_bank: list[list[str]],
+    phrase_bank: list[PhraseGroup],
     threshold: float = _DEFAULT_THRESHOLD,
 ) -> DetectionResult:
     sentences = _split_sentences(text)
+    compiled_groups = _compile_phrase_bank(phrase_bank)
     flagged: list[FlaggedSentence] = []
     all_phrases: set[str] = set()
 
     for sentence in sentences:
         tokens = _tokenize(sentence)
         sent_lower = sentence.lower()
-        hits = _match_sentence(tokens, sent_lower, phrase_bank, threshold)
+        hits = _match_sentence(tokens, sent_lower, sentence, compiled_groups, threshold)
         if hits:
             flagged.append(FlaggedSentence(sentence=sentence, cliches=hits))
             all_phrases.update(h.phrase for h in hits)
