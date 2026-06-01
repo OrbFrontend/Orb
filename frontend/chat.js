@@ -1925,19 +1925,27 @@ export async function saveEdit(msgId, role) {
     toast(validation.error, true);
     return;
   }
-  const trimmed = content.trim();
   S.editingMsgId = null;
   S.editingPendingUserMsg = false;
+
+  // The /edit route blocks on the per-conversation stream lock for the whole
+  // turn (any stream: send, regen, super-regen, magic-rewrite, fork-edit), so
+  // awaiting a POST mid-stream would hang Save with no feedback. Queue the edit
+  // by message id and let afterStream() persist it once the lock frees; reflect
+  // it locally right away. (The id-less pending message goes via saveEditPending.)
+  if (S.isStreaming) {
+    const idx = S.messages.findIndex((m) => m.id === msgId);
+    if (idx >= 0) S.messages[idx].content = content;
+    S.queuedEdits[msgId] = content;
+    renderMessages();
+    return;
+  }
+
   try {
     await api.post(convUrl(S.activeConvId, "messages", msgId, "edit"), { content, regenerate: false });
-    if (S.isStreaming) {
-      // Don't replace S.messages during streaming — it would evict any pending
-      // user message that the server hasn't persisted yet, making it vanish from the DOM.
-      const idx = S.messages.findIndex((m) => m.id === msgId);
-      if (idx >= 0) S.messages[idx].content = content;
-    } else {
-      setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-    }
+    // setMessages preserves any id-less pending entries during streaming, so a
+    // refetch here won't evict an unpersisted user bubble.
+    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
     renderMessages();
     toast("Message edited");
   } catch (e) {
@@ -2059,13 +2067,6 @@ export function cancelEditPending() {
   renderMessages();
 }
 
-function updateUserMessageBody(msgId, content) {
-  const div = document.querySelector(`.message.user[data-msg-id="${msgId}"]`);
-  if (!div) return;
-  const body = div.querySelector(".msg-body");
-  if (body) body.innerHTML = formatProse(resolvePlaceholders(content));
-}
-
 // ── Streaming Helpers
 function setStreaming(active) {
   S.isStreaming = active;
@@ -2161,15 +2162,42 @@ async function afterStream() {
   }
 
   if (pendingUserMsg) {
-    const hasUserMsg = S.messages.some((m) => m.role === "user" && m.content === pendingUserMsg.content);
-    if (!hasUserMsg) {
-      if (S.pendingUserMsgEdit) {
-        pendingUserMsg.content = S.pendingUserMsgEdit;
-      }
+    // Identify by id once the message is persisted; fall back to content for the
+    // rare case where the turn errored before the user message was saved.
+    // Matching by content alone would mis-fire when an edit changed it mid-turn.
+    const present = pendingUserMsg.id
+      ? S.messages.some((m) => m.id === pendingUserMsg.id)
+      : S.messages.some((m) => m.role === "user" && m.content === pendingUserMsg.content);
+    if (!present) {
+      if (S.pendingUserMsgEdit != null) pendingUserMsg.content = S.pendingUserMsgEdit;
       S.messages.push(pendingUserMsg);
     }
   }
+
+  // Edits saved mid-stream were queued because the /edit route blocks on the
+  // stream lock for the whole turn. The lock is free now, so persist them and
+  // keep the local copies in sync (the refetch above reverted them to the
+  // server's pre-edit content). The id-less pending user message is queued
+  // separately (pendingUserMsgEdit) since it has no id to key on yet; it carries
+  // a real id by this point (user_message_created lands before the stream ends).
+  if (S.pendingUserMsgEdit != null) {
+    const target = pendingUserMsg?.id
+      ? S.messages.find((m) => m.id === pendingUserMsg.id)
+      : S.messages.findLast((m) => m.role === "user" && m.id);
+    // A later id-keyed edit of the same message (queued via saveEdit once the id
+    // arrived) supersedes this earlier id-less one, so don't clobber it.
+    if (target?.id && !(target.id in S.queuedEdits)) S.queuedEdits[target.id] = S.pendingUserMsgEdit;
+  }
   S.pendingUserMsgEdit = null;
+
+  for (const [id, content] of Object.entries(S.queuedEdits)) {
+    const target = S.messages.find((m) => m.id === Number(id));
+    if (target) target.content = content;
+    api
+      .post(convUrl(S.activeConvId, "messages", Number(id), "edit"), { content, regenerate: false })
+      .catch((e) => toast("Failed to save edit: " + e.message, true));
+  }
+  S.queuedEdits = {};
 
   if (preservedContent?.trim()) {
     const lastMsg = S.messages[S.messages.length - 1];
@@ -2449,21 +2477,9 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
             if (tb) tb.innerHTML = buildMsgToolbar({ id: realId, role: "user" });
           }
         }
-        // If an edit was already queued before the ID arrived, apply it now
-        if (S.pendingUserMsgEdit) {
-          api
-            .post(convUrl(S.activeConvId, "messages", realId, "edit"), {
-              content: S.pendingUserMsgEdit,
-              regenerate: false,
-            })
-            .catch((e) => toast("Failed to save pending edit: " + e.message, true));
-          // Optimistically update local content
-          if (pendingIdx >= 0) {
-            S.messages[pendingIdx].content = S.pendingUserMsgEdit;
-            updateUserMessageBody(realId, S.pendingUserMsgEdit);
-          }
-          S.pendingUserMsgEdit = null;
-        }
+        // A queued edit (S.pendingUserMsgEdit) is intentionally NOT POSTed here:
+        // mid-stream the /edit route blocks on the stream lock, so afterStream()
+        // persists it once the lock frees. The local copy already shows the edit.
       } catch (_) {}
       break;
     }
