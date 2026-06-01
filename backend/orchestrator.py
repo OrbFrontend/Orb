@@ -1140,6 +1140,31 @@ async def _shielded_fallback(
             logger.exception("Fallback persistence retry failed")
 
 
+async def _shielded_log_save(extra_on_result, res: dict, asst_id: int | None):
+    """Run the post-persist ``extra_on_result`` callback exactly once, under
+    ``asyncio.shield`` so a cancellation arriving mid-write cannot leave it
+    half-done.
+
+    ``add_conversation_log`` is a bare INSERT with no dedup, so a retry after a
+    partially-committed write would duplicate the row. ``shield`` guarantees the
+    inner write runs to completion even when the surrounding task is cancelled,
+    so we deliberately do *not* retry on ``CancelledError`` (unlike
+    ``_shielded_fallback``, whose ``add_message`` target is dedup-guarded): the
+    write has already happened once, and re-running it is exactly the duplicate
+    we are avoiding. Non-cancel errors are swallowed inside the shielded
+    coroutine so one failed log never crashes the turn."""
+
+    async def _run():
+        try:
+            await extra_on_result(res, asst_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Failed to save conversation log")
+
+    await asyncio.shield(_run())
+
+
 async def _consume_pipeline(
     pipeline: AsyncIterator[dict],
     conversation_id: str,
@@ -1158,7 +1183,6 @@ async def _consume_pipeline(
     res: dict = {}
     asst_id = None
     persisted = False
-    log_saved = False
     accumulated_text = ""
 
     try:
@@ -1197,10 +1221,11 @@ async def _consume_pipeline(
                     }
             else:
                 yield event
-        if extra_on_result and persisted:
-            await extra_on_result(res, asst_id)
-            log_saved = True
     finally:
+        # The conversation-log write lives only here so it runs exactly once on
+        # every exit path — normal completion, an in-loop exception after the
+        # message persisted, or cancellation — without the racy "write outside
+        # finally, retry inside" pattern that could double-insert the row.
         if not persisted:
             await _shielded_fallback(
                 conversation_id,
@@ -1210,11 +1235,8 @@ async def _consume_pipeline(
                 turn_index,
                 accumulated_text,
             )
-        elif extra_on_result and not log_saved:
-            try:
-                await extra_on_result(res, asst_id)
-            except Exception:
-                logger.exception("Failed to save conversation log after pipeline abort")
+        elif extra_on_result:
+            await _shielded_log_save(extra_on_result, res, asst_id)
 
     yield {"event": "done"}
 
@@ -1252,8 +1274,16 @@ async def handle_turn(
         user_parent_id = conv.get("active_leaf_id")
         next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
 
+        # The user turn this generation answers. For a fresh send it is the
+        # turn we mint the user row at (next_turn); for the /continue path
+        # (skip_user_persist) the user row already exists, so it is that row's
+        # own turn_index. The conversation log is filed at this index so it
+        # lands at the user turn in both cases, per _conversation_log_writer.
+        user_turn = next_turn
+
         if skip_user_persist and messages and messages[-1]["role"] == "user":
             history, user_msg_id = messages[:-1], messages[-1]["id"]
+            user_turn = messages[-1]["turn_index"]
 
         # Derive progressive_fields from the grandparent message node (branch-aware)
         # rather than conversation_logs which are indexed by turn_index and can
@@ -1285,7 +1315,7 @@ async def handle_turn(
             await db.set_active_leaf(conversation_id, user_msg_id)
             yield {"event": "user_message_created", "data": {"id": user_msg_id}}
 
-        asst_turn = next_turn + (0 if skip_user_persist else 1)
+        asst_turn = user_turn + 1
 
         # Shared turn setup. The lorebook scan includes the current user
         # message so its keywords are picked up, not just prior history.
@@ -1333,7 +1363,7 @@ async def handle_turn(
             settings,
             user_msg_id,
             asst_turn,
-            extra_on_result=_conversation_log_writer(conversation_id, next_turn),
+            extra_on_result=_conversation_log_writer(conversation_id, user_turn),
         ):
             yield event
 
