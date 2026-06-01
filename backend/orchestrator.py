@@ -95,9 +95,7 @@ async def _run_pipeline(
     ``PostCtx``; the passes read history through *prefix*, not this argument.
 
     The single ``_result`` event fires after the post-pipeline iteration and
-    carries both the final draft and any workflow-staged attachments. Earlier
-    (writer-done and editor-done) ``_result`` / ``_refined_result`` emissions
-    have been retired; persistence is deferred to one transaction.
+    carries both the final draft and any workflow-staged attachments.
     """
     if macros is None:
         macros = Macros("User", "")
@@ -199,8 +197,7 @@ async def _run_pipeline(
                     rewritten_msg,
                     extra_fields,
                 ) = event["result"]
-                progressive_ids = {df["id"] for df in director_fragments if df["field_type"] == "progressive"}
-                progressive_fields = {k: v for k, v in extra_fields.items() if k in progressive_ids}
+                progressive_fields = {k: v for k, v in extra_fields.items() if k in _valid_progressive_ids}
         if rewritten_msg:
             effective_msg = rewritten_msg
             yield {
@@ -456,9 +453,9 @@ async def _run_pipeline(
                         continue
                     # Underscore-prefixed event names are reserved by
                     # _consume_pipeline for internal persistence signals
-                    # (_result, _refined_result, _editor_reasoning). Refuse
-                    # them here so a hook cannot drive an extra db.add_message
-                    # or rewrite of the assistant row via impersonation.
+                    # (_result). Refuse them here so a hook cannot
+                    # drive an extra db.add_message or rewrite of the assistant
+                    # row via impersonation.
                     e_name = ev.get("event") if isinstance(ev, dict) else None
                     if isinstance(e_name, str) and e_name.startswith("_"):
                         logger.warning(
@@ -900,8 +897,22 @@ async def _persist_result(
         # whose id is only known now. The row is not yet the active leaf and
         # no other caller can name it, so each blind first write needs no lock.
         for wid, payload in (res.get("staged_message_state") or {}).items():
-            await db.set_workflow_message_state(asst_id, wid, payload)
-        await db.set_active_leaf(conversation_id, asst_id)
+            try:
+                await db.set_workflow_message_state(asst_id, wid, payload)
+            except Exception:
+                logger.exception(
+                    "Failed to persist workflow message state (wid=%r) for assistant message %s; "
+                    "row already committed, continuing",
+                    wid,
+                    asst_id,
+                )
+        try:
+            await db.set_active_leaf(conversation_id, asst_id)
+        except Exception:
+            logger.exception(
+                "Failed to set active leaf to assistant message %s; row already committed",
+                asst_id,
+            )
         return asst_id, rejected
     else:
         logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")
@@ -1044,12 +1055,6 @@ async def _consume_pipeline(
                             ],
                         },
                     }
-            elif etype == "_editor_reasoning":
-                res["reasoning_editor"] = event["data"]["reasoning_editor"]
-            elif etype == "_refined_result":
-                res["resp_text"] = event["data"]["resp_text"]
-                if asst_id:
-                    await db.update_message_content(asst_id, res["resp_text"])
             else:
                 yield event
         if extra_on_result and persisted:
