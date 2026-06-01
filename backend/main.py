@@ -122,6 +122,7 @@ from .workflows import (
 from .locks import workflow_character_state_lock, workflow_config_lock, workflow_state_lock
 from .orchestrator import (
     handle_turn,
+    handle_fork_edit,
     handle_regenerate,
     handle_super_regenerate,
     handle_magic_rewrite,
@@ -1456,6 +1457,25 @@ async def api_edit_message(cid: str, msg_id: int, data: EditMessage):
 
         await update_message_content(msg_id, data.content)
         return {"ok": True}
+
+
+@app.post("/api/conversations/{cid}/messages/{msg_id}/fork-edit")
+async def api_fork_edit_message(cid: str, msg_id: int, data: EditMessage, request: Request):
+    """Fork at a user message: persist an edited sibling and stream a fresh reply."""
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    client_ref: list = []
+    return _CleanupStreamingResponse(
+        _sse_stream(
+            handle_fork_edit(cid, msg_id, data.content, client_ref=client_ref),
+            request,
+            client_ref=client_ref,
+            cid=cid,
+        ),
+        media_type="text/event-stream",
+    )
 
 
 @app.delete("/api/conversations/{cid}/messages/{msg_id}")

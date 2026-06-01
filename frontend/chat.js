@@ -79,6 +79,7 @@ const ICON_CLEAR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const ICON_SUPER_REGEN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>`;
 const ICON_MAGIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>`;
 const ICON_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="6 9 12 15 18 9"/></svg>`;
+const ICON_FORK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
 
 function buildMsgToolbar(m) {
   const isAssistant = m.role === "assistant";
@@ -90,6 +91,17 @@ function buildMsgToolbar(m) {
   const editBtn = S.hasMultipleTabs
     ? `<button disabled title="Close other tabs to edit">${ICON_EDIT}</button>`
     : `<button onclick="${m.id ? `startEdit(${m.id})` : `startEditPending()`}" title="Edit">${ICON_EDIT}</button>`;
+
+  // Edit & Fork: only for persisted user messages. Forks the conversation by
+  // saving the edit as a new sibling and generating a fresh reply, leaving the
+  // original branch intact. The pending (unsaved) user bubble has no siblings
+  // to fork, so it's omitted there.
+  const forkBtn =
+    m.role === "user" && m.id
+      ? S.hasMultipleTabs
+        ? `<button disabled title="Close other tabs to fork">${ICON_FORK}</button>`
+        : `<button onclick="startForkEdit(${m.id})" title="Edit &amp; Fork">${ICON_FORK}</button>`
+      : "";
 
   const regenBtn = isGreeting
     ? ""
@@ -127,7 +139,7 @@ function buildMsgToolbar(m) {
       ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
       : "";
 
-  return `${editBtn}${regenBtn}${superRegenBtn}${magicBtn}${magicInput}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
+  return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${magicInput}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
 }
 
 function _renderExtraButtons(msg) {
@@ -720,7 +732,8 @@ export function initWorkflowMutationListener() {
   setWorkflowMutationCallback(async ({ convId, msgId }) => {
     if (convId !== S.activeConvId) return;
     if (S.isStreaming) return;
-    if (S.editingMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null) return;
+    if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
+      return;
     // All three in-flight maps gate per-msgId: refetching mid-POST on
     // the same message races with the op's own reconcile. Swipe also
     // paints active_sibling_id locally before its POST awaits, so the
@@ -759,7 +772,8 @@ export function initWorkflowMutationListener() {
 export async function refreshConversationMessages(msgId = null) {
   if (!S.activeConvId) return false;
   if (S.isStreaming) return false;
-  if (S.editingMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null) return false;
+  if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
+    return false;
   const inFlight = new Set([
     ..._workflowRehydrateInFlight.values(),
     ..._workflowActionInFlight.values(),
@@ -1414,7 +1428,9 @@ export function renderMessages() {
     }
     ct.innerHTML = msgs
       .map((m) => {
-        const isEditing = (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg);
+        const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
+        const isEditing =
+          (S.editingMsgId !== null && S.editingMsgId === m.id) || (!m.id && S.editingPendingUserMsg) || isForkEditing;
         const bc = m.branch_count || 1;
         const bi = m.branch_index || 0;
         const branchHtml =
@@ -1428,13 +1444,17 @@ export function renderMessages() {
             : "";
         const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
         const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
+        const editActions = isForkEditing
+          ? `<button class="btn btn-sm" onclick="cancelForkEdit()">Cancel</button>
+            <button class="btn btn-sm btn-accent" onclick="saveForkEdit(${m.id})">Fork</button>`
+          : `<button class="btn btn-sm" onclick="${m.id ? `cancelEdit()` : `cancelEditPending()`}">Cancel</button>
+            <button class="btn btn-sm btn-accent" onclick="${m.id ? `saveEdit(${m.id},'${m.role}')` : `saveEditPending()`}">Save</button>`;
         const body = isEditing
           ? `
         <div class="msg-edit-area">
           <textarea id="${taId}" rows="5">${esc(m.content)}</textarea>
           <div class="msg-edit-actions">
-            <button class="btn btn-sm" onclick="${m.id ? `cancelEdit()` : `cancelEditPending()`}">Cancel</button>
-            <button class="btn btn-sm btn-accent" onclick="${m.id ? `saveEdit(${m.id},'${m.role}')` : `saveEditPending()`}">Save</button>
+            ${editActions}
           </div>
         </div>`
           : `<div class="msg-body">${
@@ -1633,6 +1653,7 @@ function renderContextSize() {
 
 export function startEdit(msgId) {
   S.editingMsgId = msgId;
+  S.forkEditMsgId = null;
   S.editingPendingUserMsg = false;
   renderMessages();
   // If editing the latest message, scroll to bottom so it's at the bottom of view.
@@ -1654,6 +1675,32 @@ export function startEdit(msgId) {
 export function cancelEdit() {
   S.editingMsgId = null;
   S.editingPendingUserMsg = false;
+  renderMessages();
+}
+
+// Open the "Edit & Fork" textarea on a user message. Mirrors startEdit but
+// targets a separate state flag; submitting (saveForkEdit) forks the
+// conversation instead of editing in place.
+export function startForkEdit(msgId) {
+  S.forkEditMsgId = msgId;
+  S.editingMsgId = null;
+  S.editingPendingUserMsg = false;
+  renderMessages();
+  const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+  const isLatest = msgEl && !msgEl.nextElementSibling;
+  if (isLatest) {
+    scrollToBottom(true);
+  } else {
+    scrollToMessage(msgId);
+  }
+  focusEditTextarea($("edit-textarea-" + msgId), cancelForkEdit);
+  // Surface the director data for the reply that currently follows this message.
+  const childAssistant = S.messages.find((c) => c.parent_id === msgId && c.role === "assistant");
+  if (childAssistant) inspectMessage(childAssistant.id);
+}
+
+export function cancelForkEdit() {
+  S.forkEditMsgId = null;
   renderMessages();
 }
 
@@ -1763,7 +1810,7 @@ function isChatNavBlocked(target) {
   }
   if ($("modal-root")?.innerHTML || $("modal-crop-root")?.innerHTML) return true;
   if (!S.activeConvId) return true;
-  if (S.editingMsgId != null || S.editingPendingUserMsg) return true;
+  if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg) return true;
   return false;
 }
 
@@ -1898,10 +1945,82 @@ export async function saveEdit(msgId, role) {
   }
 }
 
+// Submit an "Edit & Fork": persist the edited text as a new sibling of the
+// user message and stream a fresh reply. Modeled on sendMessage — an optimistic
+// sibling bubble is spliced in front of the original and S.streamCutoffIndex
+// hides the original branch while the new one streams; afterStream re-syncs to
+// the server's canonical path. The trailing renderMessages() guarantees the
+// user row repaints with its sibling swipe-nav (afterStream's in-place finalize
+// fast path only adds nav to the assistant bubble).
+export async function saveForkEdit(msgId) {
+  const ta = $("edit-textarea-" + msgId);
+  if (!ta) return;
+  const content = ta.value;
+  const validation = validate.validateEditMessage(content);
+  if (!validation.valid) {
+    toast(validation.error, true);
+    return;
+  }
+  if (!S.activeConvId || !canStartGeneration()) return;
+
+  const original = S.messages.find((m) => m.id === msgId);
+  const resolved = resolvePlaceholders(content.trim());
+  S.forkEditMsgId = null;
+
+  // Optimistic sibling inserted just before the original; cut off rendering
+  // there so the original message and its descendants are hidden mid-stream.
+  const idx = S.messages.findIndex((m) => m.id === msgId);
+  const userMsg = {
+    role: "user",
+    content: resolved,
+    id: null,
+    branch_count: 1,
+    branch_index: 0,
+    prev_branch_id: null,
+    next_branch_id: null,
+    user_attachments: original?.user_attachments ? [...original.user_attachments] : [],
+  };
+  if (idx >= 0) {
+    S.messages.splice(idx, 0, userMsg);
+    S.streamCutoffIndex = idx + 1;
+  } else {
+    S.messages.push(userMsg);
+    S.streamCutoffIndex = S.messages.length;
+  }
+  S.pendingUserMsg = userMsg;
+  S.autoscrollEnabled = true;
+
+  setStreaming(true);
+  setGenerationPhase("pending");
+  $("send-btn").disabled = true;
+  renderMessages();
+
+  const ct = $("chat-messages");
+  const msgDiv = createStreamingDiv();
+  if (!S.hideUntilBaked) ct.appendChild(msgDiv);
+  scrollToBottom();
+
+  S.abortController = new AbortController();
+  try {
+    const resp = await streamPost(
+      convUrl(S.activeConvId, "messages", msgId, "fork-edit"),
+      { content: resolved, ...agentPayload() },
+      S.abortController.signal,
+    );
+    await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
+  } catch (e) {
+    if (e.name === "AbortError") S.wasAborted = true;
+    else toast("Error: " + e.message, true);
+  }
+  await afterStream();
+  renderMessages();
+}
+
 // ── Edit Pending Message
 export function startEditPending() {
   S.editingPendingUserMsg = true;
   S.editingMsgId = null;
+  S.forkEditMsgId = null;
   renderMessages();
   focusEditTextarea($("edit-textarea-pending"), cancelEditPending);
 }

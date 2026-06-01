@@ -1243,6 +1243,167 @@ async def handle_turn(
         yield {"event": "error", "data": str(e)}
 
 
+async def handle_fork_edit(
+    conversation_id: str,
+    user_msg_id: int,
+    new_content: str,
+    client_ref: list | None = None,
+) -> AsyncIterator[dict]:
+    """Fork the conversation at a user message.
+
+    Persists an edited copy of *user_msg_id* as a new sibling (same parent_id
+    and turn_index) and generates a fresh reply through the full
+    director→writer→editor pipeline -- i.e. a regenerate whose input the user
+    rewrote first. The original message and its whole subtree are left intact;
+    ``get_messages_with_branch_info`` then reports the user row as a multi-branch
+    node and the existing swipe-nav drives navigation between the siblings.
+
+    The user-message persistence mirrors ``handle_turn``; the mood/turn handling
+    mirrors ``handle_regenerate`` (moods reset to the branch point, assistant
+    logged at the branch turn) because ``conversation_logs.turn_index`` is shared
+    across branches -- logging at the assistant turn keeps the new branch's moods
+    distinguishable from the original turn's log at the user turn.
+    """
+    try:
+        ctx = await _load_pipeline_context(conversation_id)
+        if ctx is None:
+            yield {"event": "error", "data": "Conversation not found"}
+            return
+
+        if client_ref is not None:
+            client_ref.append(ctx["client"])
+            if ctx.get("agent_client"):
+                client_ref.append(ctx["agent_client"])
+
+        settings = ctx["settings"]
+        original = await db.get_message_by_id(user_msg_id)
+        if not original or original["conversation_id"] != conversation_id or original["role"] != "user":
+            yield {"event": "error", "data": "Invalid target message"}
+            return
+
+        parent_id: int | None = original["parent_id"]
+        turn_index = original["turn_index"]
+        asst_turn = turn_index + 1
+        history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
+
+        # Reset the director to the pre-turn baseline, exactly like a regenerate:
+        # moods as of the branch point, and progressive_fields read branch-aware
+        # from the grandparent assistant node (not conversation_logs, which are
+        # turn-indexed and can leak across branches).
+        ctx["director"]["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
+        grandparent = next((m for m in reversed(history) if m["role"] == "assistant"), None)
+        ctx["director"]["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
+
+        # Carry the original message's user attachments onto the new sibling and
+        # into the prompt. DB-format dicts (mime_type/data_b64) pass straight
+        # through add_message and build_multimodal_content, as in handle_regenerate.
+        carried_atts = await db.get_user_attachments_for_message(user_msg_id)
+
+        new_user_id, _ = await db.add_message(
+            conversation_id,
+            "user",
+            new_content,
+            turn_index,
+            parent_id=parent_id,
+            attachments=carried_atts,
+        )
+        await db.set_active_leaf(conversation_id, new_user_id)
+        yield {"event": "user_message_created", "data": {"id": new_user_id}}
+
+        prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
+
+        macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
+        lorebook_block = _compute_lorebook(macros, ctx, history + [{"role": "user", "content": new_content}])
+
+        turn_scratch: dict = {}
+        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
+        enabled_tools_setting = settings.get("enabled_tools") or {}
+        if settings.get("enable_agent", 1):
+            enabled_tools_pre_merge = dict(enabled_tools_setting)
+        else:
+            enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
+        accumulators = {
+            "merged_enabled_tools": dict(enabled_tools_pre_merge),
+            "extras": [],
+        }
+        async for ev in _iterate_pre_pipeline_hooks(
+            conversation_id=conversation_id,
+            character_id=ctx["conv"].get("character_card_id"),
+            card=ctx["card"],
+            history=history,
+            last_user_message=new_content,
+            settings=settings,
+            prefix_base=prefix_base,
+            enabled_tools_pre_merge=enabled_tools_pre_merge,
+            turn_scratch=turn_scratch,
+            client=ctx["client"],
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+            accumulators=accumulators,
+        ):
+            yield ev
+        merged_enabled_tools = accumulators["merged_enabled_tools"]
+        extras = accumulators["extras"]
+        if extras:
+            prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
+        else:
+            prefix, agent_prefix = prefix_base, agent_prefix_base
+
+        async def _on_result(res, asst_id):
+            await db.add_conversation_log(
+                conversation_id,
+                asst_turn,
+                res["agent_raw"],
+                res["calls"],
+                res["active_moods"],
+                res["inj_block"],
+                res["latency"],
+                res.get("progressive_fields"),
+                message_id=asst_id,
+                reasoning_director=res.get("reasoning_director", ""),
+                reasoning_writer=res.get("reasoning_writer", ""),
+                reasoning_editor=res.get("reasoning_editor", ""),
+            )
+
+        pipeline = _run_pipeline(
+            ctx["client"],
+            settings,
+            ctx["director"],
+            ctx["mood_fragments"],
+            ctx["director_fragments"],
+            new_content,
+            attachments=carried_atts,
+            phrase_bank=ctx["phrase_bank"],
+            lorebook_block=lorebook_block,
+            agent_client=ctx.get("agent_client"),
+            agent_prefix=agent_prefix,
+            macros=macros,
+            conversation_id=conversation_id,
+            character_id=ctx["conv"].get("character_card_id"),
+            card=ctx["card"],
+            prefix=prefix,
+            enabled_tools=merged_enabled_tools,
+            turn_scratch=turn_scratch,
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+            history=history,
+        )
+        async for event in _consume_pipeline(
+            pipeline,
+            conversation_id,
+            settings,
+            new_user_id,
+            asst_turn,
+            extra_on_result=_on_result,
+        ):
+            yield event
+
+    except Exception as e:
+        logger.exception("Fork edit error")
+        yield {"event": "error", "data": str(e)}
+
+
 async def handle_regenerate(
     conversation_id: str,
     assistant_msg_id: int,
