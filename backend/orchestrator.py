@@ -43,6 +43,98 @@ logger = logging.getLogger(__name__)
 # ── Core pipeline ─────────────────────────────────────────────────────────────
 
 
+@dataclass
+class _PipelineConfig:
+    """Resolved per-turn flags, clients, and prefixes for :func:`_run_pipeline`.
+
+    A pure derivation from *settings* plus the (possibly agent-zeroed)
+    enabled-tools map; it holds no mutable turn state. ``enabled_tools`` is the
+    final map with ``editor_rewrite`` folded in whenever the length guard is
+    active, so ``enabled_schemas()`` ships an identical tool blob across all
+    three passes (the KV-cache invariant).
+    """
+
+    agent_on: bool
+    enabled_tools: dict
+    director_reasoning_on: bool
+    writer_reasoning_on: bool
+    editor_reasoning_on: bool
+    audit_enabled: bool
+    length_guard_enabled: bool
+    length_guard_enforce: bool
+    length_guard: dict | None
+    do_edit: bool
+    writer_enabled_tools: dict
+    director_client: LLMClient
+    writer_client: LLMClient
+    editor_client: LLMClient
+    director_prefix: list[dict]
+    editor_prefix: list[dict]
+    agent_model: str
+
+
+def _resolve_pipeline_config(
+    settings: dict,
+    enabled_tools: dict,
+    *,
+    macros: Macros,
+    client: LLMClient,
+    agent_client: LLMClient | None,
+    agent_prefix: list[dict] | None,
+    prefix: list[dict],
+    phrase_bank: list[PhraseGroup] | None,
+) -> _PipelineConfig:
+    """Derive the per-turn pipeline configuration (see :class:`_PipelineConfig`)."""
+    agent_on = bool(settings.get("enable_agent", 1))
+    reasoning_passes = settings.get("reasoning_enabled_passes") or {}
+
+    audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
+
+    length_guard_enabled = bool(enabled_tools.get("length_guard", False)) if agent_on else False
+    # Mirror editor_rewrite into enabled_tools so enabled_schemas() includes its
+    # schema in all three passes — the same KV-cache approach as editor_apply_patch.
+    if length_guard_enabled:
+        enabled_tools = {**enabled_tools, "editor_rewrite": True}
+    length_guard_enforce = bool(enabled_tools.get("length_guard_enforce", False)) if agent_on else False
+
+    # length_guard_enabled already folds in agent_on (it is False whenever the
+    # agent is off), so no extra `and agent_on` guard is needed below.
+    length_guard = (
+        {
+            "enabled": length_guard_enabled,
+            "max_words": int(settings.get("length_guard_max_words", 240)),
+            "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
+        }
+        if length_guard_enabled
+        else None
+    )
+
+    # When the agent runs on a separate model/endpoint its KV cache is disjoint
+    # from the writer's; skip tool schemas and the OOC "no tools" notice from the
+    # writer call — neither is useful and both add unnecessary tokens.
+    writer_enabled_tools = {} if agent_client is not None else enabled_tools
+
+    return _PipelineConfig(
+        agent_on=agent_on,
+        enabled_tools=enabled_tools,
+        director_reasoning_on=bool(reasoning_passes.get("director", True)),
+        writer_reasoning_on=bool(reasoning_passes.get("writer", False)),
+        editor_reasoning_on=bool(reasoning_passes.get("editor", False)),
+        audit_enabled=audit_enabled,
+        length_guard_enabled=length_guard_enabled,
+        length_guard_enforce=length_guard_enforce,
+        length_guard=length_guard,
+        do_edit=audit_enabled or length_guard_enabled,
+        writer_enabled_tools=writer_enabled_tools,
+        director_client=macros.wrap_client(agent_client or client),
+        writer_client=macros.wrap_client(client),
+        editor_client=macros.wrap_client(agent_client or client),
+        director_prefix=agent_prefix or prefix,
+        editor_prefix=agent_prefix or prefix,
+        agent_model=(settings.get("agent_model_name", settings["model_name"]) if agent_client else settings["model_name"]),
+    )
+
+
 async def _run_pipeline(
     client: LLMClient,
     settings: dict,
@@ -105,13 +197,34 @@ async def _run_pipeline(
 
     user_message = macros.resolve_message(user_message)
 
-    agent_on = bool(settings.get("enable_agent", 1))
+    cfg = _resolve_pipeline_config(
+        settings,
+        enabled_tools,
+        macros=macros,
+        client=client,
+        agent_client=agent_client,
+        agent_prefix=agent_prefix,
+        prefix=prefix,
+        phrase_bank=phrase_bank,
+    )
+    agent_on = cfg.agent_on
+    enabled_tools = cfg.enabled_tools
+    director_reasoning_on = cfg.director_reasoning_on
+    writer_reasoning_on = cfg.writer_reasoning_on
+    editor_reasoning_on = cfg.editor_reasoning_on
+    audit_enabled = cfg.audit_enabled
+    length_guard_enforce = cfg.length_guard_enforce
+    length_guard = cfg.length_guard
+    do_edit = cfg.do_edit
+    writer_enabled_tools = cfg.writer_enabled_tools
+    director_client = cfg.director_client
+    writer_client = cfg.writer_client
+    editor_client = cfg.editor_client
+    director_prefix = cfg.director_prefix
+    editor_prefix = cfg.editor_prefix
+    agent_model = cfg.agent_model
 
-    reasoning_passes = settings.get("reasoning_enabled_passes") or {}
-    director_reasoning_on = bool(reasoning_passes.get("director", True))
-    writer_reasoning_on = bool(reasoning_passes.get("writer", False))
-    editor_reasoning_on = bool(reasoning_passes.get("editor", False))
-
+    # Mutable turn state, accumulated as the three passes run below.
     active_moods = director["active_moods"]
     _valid_progressive_ids = {df["id"] for df in director_fragments if df.get("field_type") == "progressive"}
     progressive_state: dict = {k: v for k, v in director.get("progressive_fields", {}).items() if k in _valid_progressive_ids}
@@ -123,46 +236,6 @@ async def _run_pipeline(
     reasoning_editor_text = ""
     progressive_fields: dict = {}
     effective_msg = user_message
-
-    audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
-
-    # Length guard
-    length_guard_enabled = bool(enabled_tools.get("length_guard", False)) if agent_on else False
-    # Mirror editor_rewrite into enabled_tools so enabled_schemas() includes its schema in all
-    # three passes — same KV-cache consistency approach as editor_apply_patch.
-    if length_guard_enabled:
-        enabled_tools = {**enabled_tools, "editor_rewrite": True}
-    length_guard_enforce = bool(enabled_tools.get("length_guard_enforce", False)) if agent_on else False
-
-    # length_guard_enabled already folds in agent_on (it is False whenever the
-    # agent is off), so no extra `and agent_on` guard is needed below.
-    length_guard = (
-        {
-            "enabled": length_guard_enabled,
-            "max_words": int(settings.get("length_guard_max_words", 240)),
-            "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
-        }
-        if length_guard_enabled
-        else None
-    )
-
-    do_edit = audit_enabled or length_guard_enabled
-
-    # When the agent runs on a separate model/endpoint, its KV cache is disjoint
-    # from the writer's.  Skip tool schemas and the OOC "no tools" notice from the
-    # writer call — neither is useful and both add unnecessary tokens.
-    agent_is_separate = agent_client is not None
-    writer_enabled_tools = {} if agent_is_separate else enabled_tools
-
-    def _wrap(c):
-        return macros.wrap_client(c)
-
-    director_client = _wrap(agent_client or client)
-    editor_client = _wrap(agent_client or client)
-    writer_client = _wrap(client)
-    director_prefix = agent_prefix or prefix
-    editor_prefix = agent_prefix or prefix
-    agent_model = settings.get("agent_model_name", settings["model_name"]) if agent_client else settings["model_name"]
 
     # --- Director pass ---
     has_pre_writer_tools = any(enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
@@ -353,14 +426,6 @@ async def _run_pipeline(
         logger.info("Editor pass skipped (do_edit=%s, draft=%d chars)", do_edit, len(resp_text))
 
     # --- Post-pipeline workflow iteration ---
-    # Each hook may yield `draft_replaced` (one applied per hook per turn) to
-    # mutate the draft for downstream hooks and final persistence, plus zero
-    # or more `attach_artifact` entries that are validated, path-normalized,
-    # and staged for the upcoming add_message transaction. Per-workflow
-    # exceptions are logged-and-skipped; one bad hook does not crash a turn.
-    draft = resp_text
-    staged_attachments: list[dict] = []
-    staged_message_state: dict[str, dict] = {}
     director_output = {
         "active_moods": active_moods,
         "raw": agent_raw,
@@ -370,6 +435,72 @@ async def _run_pipeline(
         "extra_fields": extra_fields,
         "progressive_fields": progressive_fields,
     }
+    post: _PostPipelineResult | None = None
+    async for ev in _run_post_pipeline(
+        draft=resp_text,
+        conversation_id=conversation_id,
+        character_id=character_id,
+        card=card,
+        history=history,
+        effective_msg=effective_msg,
+        director_output=director_output,
+        settings=settings,
+        prefix=prefix,
+        enabled_tools=enabled_tools,
+        turn_scratch=turn_scratch,
+        client=client,
+        kv_tracker=kv_tracker,
+        schema_overrides=schema_overrides,
+    ):
+        if isinstance(ev, _PostPipelineResult):
+            post = ev
+        else:
+            yield ev
+    assert post is not None
+
+    yield _make_result(post.draft, post.staged_attachments, post.staged_message_state)
+    kv_tracker.log_summary()
+
+
+@dataclass
+class _PostPipelineResult:
+    """Terminal value of :func:`_run_post_pipeline`: the (possibly hook-rewritten)
+    draft and the attachments / per-message state staged for persistence."""
+
+    draft: str
+    staged_attachments: list[dict]
+    staged_message_state: dict[str, dict]
+
+
+async def _run_post_pipeline(
+    *,
+    draft: str,
+    conversation_id: str | None,
+    character_id: str | None,
+    card: dict | None,
+    history: list[dict] | None,
+    effective_msg: str,
+    director_output: dict,
+    settings: dict,
+    prefix: list[dict],
+    enabled_tools: dict,
+    turn_scratch: dict,
+    client: LLMClient,
+    kv_tracker: _KVCacheTracker,
+    schema_overrides: dict,
+) -> AsyncIterator[dict | _PostPipelineResult]:
+    """Drive each POST_PIPELINE subscription over the finished *draft*, streaming
+    pass-through SSE events and yielding one terminal :class:`_PostPipelineResult`.
+
+    Each hook may yield ``draft_replaced`` (one applied per hook per turn) to
+    mutate the draft for downstream hooks and final persistence, plus zero or
+    more ``attach_artifact`` entries that are validated, path-normalized, and
+    staged for the upcoming add_message transaction, and ``set_message_state``
+    slots written once the assistant row id is known. Per-workflow exceptions are
+    logged-and-skipped; one bad hook does not crash a turn.
+    """
+    staged_attachments: list[dict] = []
+    staged_message_state: dict[str, dict] = {}
     for sub in iter_subscriptions(HookType.POST_PIPELINE):
         replaced_this_hook = False
         # Serialize same-(cid, workflow_id) writers against concurrent
@@ -471,8 +602,7 @@ async def _run_pipeline(
             except Exception:
                 logger.exception("post_pipeline hook %r failed", sub.workflow_id)
 
-    yield _make_result(draft, staged_attachments, staged_message_state)
-    kv_tracker.log_summary()
+    yield _PostPipelineResult(draft, staged_attachments, staged_message_state)
 
 
 def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
@@ -1243,6 +1373,97 @@ async def _consume_pipeline(
     yield {"event": "done"}
 
 
+def _register_clients(ctx: dict, client_ref: list | None, *, include_agent: bool = True) -> None:
+    """Expose the turn's LLM client(s) on *client_ref* so a /stop can abort them.
+
+    *include_agent* is False for magic-rewrite, which never spins up the agent.
+    """
+    if client_ref is None:
+        return
+    client_ref.append(ctx["client"])
+    if include_agent and ctx.get("agent_client"):
+        client_ref.append(ctx["agent_client"])
+
+
+async def _generate_reply(
+    ctx: dict,
+    conversation_id: str,
+    *,
+    history: list[dict],
+    pipeline_settings: dict,
+    last_user_message: str,
+    lorebook_messages: list[dict],
+    user_message: str,
+    attachments: list[dict],
+    user_msg_id: int | None,
+    asst_turn_index: int,
+    log_turn_index: int,
+    editor_audit_msgs: list[str] | None = None,
+    consume_settings: dict | None = None,
+) -> AsyncIterator[dict]:
+    """Shared tail for every generating entry point: run the pre-pipeline setup,
+    the three-pass pipeline, and result consumption, streaming all SSE events
+    through. The user row has already been persisted by the caller.
+
+    *pipeline_settings* feeds the setup and the passes (super-regenerate hands a
+    rewrite-disabled copy). *consume_settings* is what ``_consume_pipeline``
+    persists under; it defaults to *pipeline_settings* and diverges only for
+    super-regenerate. *user_message* is the message the writer answers, which is
+    not always *last_user_message* (super-regenerate generates from an OOC
+    steering message while seeding hooks with the real last user turn).
+    *asst_turn_index* is the turn the assistant row is filed at; *log_turn_index*
+    is where the conversation-log row lands (see :func:`_conversation_log_writer`).
+    """
+    setup: _TurnSetup | None = None
+    async for ev in _prepare_turn(
+        ctx,
+        conversation_id,
+        history=history,
+        settings=pipeline_settings,
+        last_user_message=last_user_message,
+        lorebook_messages=lorebook_messages,
+    ):
+        if isinstance(ev, _TurnSetup):
+            setup = ev
+        else:
+            yield ev
+    assert setup is not None
+
+    pipeline = _run_pipeline(
+        ctx["client"],
+        pipeline_settings,
+        ctx["director"],
+        ctx["mood_fragments"],
+        ctx["director_fragments"],
+        user_message,
+        attachments=attachments,
+        phrase_bank=ctx["phrase_bank"],
+        lorebook_block=setup.lorebook_block,
+        editor_audit_msgs=editor_audit_msgs,
+        agent_client=ctx.get("agent_client"),
+        agent_prefix=setup.agent_prefix,
+        macros=setup.macros,
+        conversation_id=conversation_id,
+        character_id=ctx["conv"].get("character_card_id"),
+        card=ctx["card"],
+        prefix=setup.prefix,
+        enabled_tools=setup.merged_enabled_tools,
+        turn_scratch=setup.turn_scratch,
+        kv_tracker=setup.kv_tracker,
+        schema_overrides=setup.schema_overrides,
+        history=history,
+    )
+    async for event in _consume_pipeline(
+        pipeline,
+        conversation_id,
+        consume_settings if consume_settings is not None else pipeline_settings,
+        user_msg_id,
+        asst_turn_index,
+        extra_on_result=_conversation_log_writer(conversation_id, log_turn_index),
+    ):
+        yield event
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Public entry points
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1263,10 +1484,7 @@ async def handle_turn(
             yield {"event": "error", "data": "Conversation not found"}
             return
 
-        if client_ref is not None:
-            client_ref.append(ctx["client"])
-            if ctx.get("agent_client"):
-                client_ref.append(ctx["agent_client"])
+        _register_clients(ctx, client_ref)
 
         settings = ctx["settings"]
         messages = await db.get_messages(conversation_id)
@@ -1319,53 +1537,20 @@ async def handle_turn(
 
         asst_turn = user_turn + 1
 
-        # Shared turn setup. The lorebook scan includes the current user
-        # message so its keywords are picked up, not just prior history.
-        setup: _TurnSetup | None = None
-        async for ev in _prepare_turn(
+        # The lorebook scan includes the current user message so its keywords
+        # are picked up, not just prior history.
+        async for event in _generate_reply(
             ctx,
             conversation_id,
             history=history,
-            settings=settings,
+            pipeline_settings=settings,
             last_user_message=user_message,
             lorebook_messages=history + [{"role": "user", "content": user_message}],
-        ):
-            if isinstance(ev, _TurnSetup):
-                setup = ev
-            else:
-                yield ev
-        assert setup is not None
-
-        pipeline = _run_pipeline(
-            ctx["client"],
-            settings,
-            ctx["director"],
-            ctx["mood_fragments"],
-            ctx["director_fragments"],
-            user_message,
+            user_message=user_message,
             attachments=attachments,
-            phrase_bank=ctx["phrase_bank"],
-            lorebook_block=setup.lorebook_block,
-            agent_client=ctx.get("agent_client"),
-            agent_prefix=setup.agent_prefix,
-            macros=setup.macros,
-            conversation_id=conversation_id,
-            character_id=ctx["conv"].get("character_card_id"),
-            card=ctx["card"],
-            prefix=setup.prefix,
-            enabled_tools=setup.merged_enabled_tools,
-            turn_scratch=setup.turn_scratch,
-            kv_tracker=setup.kv_tracker,
-            schema_overrides=setup.schema_overrides,
-            history=history,
-        )
-        async for event in _consume_pipeline(
-            pipeline,
-            conversation_id,
-            settings,
-            user_msg_id,
-            asst_turn,
-            extra_on_result=_conversation_log_writer(conversation_id, user_turn),
+            user_msg_id=user_msg_id,
+            asst_turn_index=asst_turn,
+            log_turn_index=user_turn,
         ):
             yield event
 
@@ -1401,10 +1586,7 @@ async def handle_fork_edit(
             yield {"event": "error", "data": "Conversation not found"}
             return
 
-        if client_ref is not None:
-            client_ref.append(ctx["client"])
-            if ctx.get("agent_client"):
-                client_ref.append(ctx["agent_client"])
+        _register_clients(ctx, client_ref)
 
         settings = ctx["settings"]
         original = await db.get_message_by_id(user_msg_id)
@@ -1441,52 +1623,19 @@ async def handle_fork_edit(
         await db.set_active_leaf(conversation_id, new_user_id)
         yield {"event": "user_message_created", "data": {"id": new_user_id}}
 
-        # Shared turn setup (mirrors handle_turn; logs at the assistant turn).
-        setup: _TurnSetup | None = None
-        async for ev in _prepare_turn(
+        # Mirrors handle_turn, but logs at the assistant turn (see docstring).
+        async for event in _generate_reply(
             ctx,
             conversation_id,
             history=history,
-            settings=settings,
+            pipeline_settings=settings,
             last_user_message=new_content,
             lorebook_messages=history + [{"role": "user", "content": new_content}],
-        ):
-            if isinstance(ev, _TurnSetup):
-                setup = ev
-            else:
-                yield ev
-        assert setup is not None
-
-        pipeline = _run_pipeline(
-            ctx["client"],
-            settings,
-            ctx["director"],
-            ctx["mood_fragments"],
-            ctx["director_fragments"],
-            new_content,
+            user_message=new_content,
             attachments=carried_atts,
-            phrase_bank=ctx["phrase_bank"],
-            lorebook_block=setup.lorebook_block,
-            agent_client=ctx.get("agent_client"),
-            agent_prefix=setup.agent_prefix,
-            macros=setup.macros,
-            conversation_id=conversation_id,
-            character_id=ctx["conv"].get("character_card_id"),
-            card=ctx["card"],
-            prefix=setup.prefix,
-            enabled_tools=setup.merged_enabled_tools,
-            turn_scratch=setup.turn_scratch,
-            kv_tracker=setup.kv_tracker,
-            schema_overrides=setup.schema_overrides,
-            history=history,
-        )
-        async for event in _consume_pipeline(
-            pipeline,
-            conversation_id,
-            settings,
-            new_user_id,
-            asst_turn,
-            extra_on_result=_conversation_log_writer(conversation_id, asst_turn),
+            user_msg_id=new_user_id,
+            asst_turn_index=asst_turn,
+            log_turn_index=asst_turn,
         ):
             yield event
 
@@ -1506,10 +1655,7 @@ async def handle_regenerate(
             yield {"event": "error", "data": "Conversation not found"}
             return
 
-        if client_ref is not None:
-            client_ref.append(ctx["client"])
-            if ctx.get("agent_client"):
-                client_ref.append(ctx["agent_client"])
+        _register_clients(ctx, client_ref)
 
         settings = ctx["settings"]
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
@@ -1521,53 +1667,18 @@ async def handle_regenerate(
         user_msg_id = target["parent_id"]
         history, attachments = await _prepare_regen_context(ctx, conversation_id, target, user_msg)
 
-        # Shared turn setup over the regenerate history.
-        setup: _TurnSetup | None = None
-        async for ev in _prepare_turn(
+        async for event in _generate_reply(
             ctx,
             conversation_id,
             history=history,
-            settings=settings,
+            pipeline_settings=settings,
             last_user_message=user_msg["content"],
             lorebook_messages=history + [{"role": "user", "content": user_msg["content"]}],
-        ):
-            if isinstance(ev, _TurnSetup):
-                setup = ev
-            else:
-                yield ev
-        assert setup is not None
-
-        pipeline = _run_pipeline(
-            ctx["client"],
-            settings,
-            ctx["director"],
-            ctx["mood_fragments"],
-            ctx["director_fragments"],
-            user_msg["content"],
-            attachments,
-            ctx["phrase_bank"],
-            lorebook_block=setup.lorebook_block,
-            agent_client=ctx.get("agent_client"),
-            agent_prefix=setup.agent_prefix,
-            macros=setup.macros,
-            conversation_id=conversation_id,
-            character_id=ctx["conv"].get("character_card_id"),
-            card=ctx["card"],
-            prefix=setup.prefix,
-            enabled_tools=setup.merged_enabled_tools,
-            turn_scratch=setup.turn_scratch,
-            kv_tracker=setup.kv_tracker,
-            schema_overrides=setup.schema_overrides,
-            history=history,
-        )
-
-        async for event in _consume_pipeline(
-            pipeline,
-            conversation_id,
-            settings,
-            user_msg_id,
-            target["turn_index"],
-            extra_on_result=_conversation_log_writer(conversation_id, target["turn_index"]),
+            user_message=user_msg["content"],
+            attachments=attachments,
+            user_msg_id=user_msg_id,
+            asst_turn_index=target["turn_index"],
+            log_turn_index=target["turn_index"],
         ):
             yield event
 
@@ -1590,10 +1701,7 @@ async def handle_super_regenerate(
             yield {"event": "error", "data": "Conversation not found"}
             return
 
-        if client_ref is not None:
-            client_ref.append(ctx["client"])
-            if ctx.get("agent_client"):
-                client_ref.append(ctx["agent_client"])
+        _register_clients(ctx, client_ref)
 
         settings = ctx["settings"]
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
@@ -1624,58 +1732,26 @@ async def handle_super_regenerate(
         # the editor doesn't flag the new draft for repeating the message it replaced.
         editor_audit_msgs = [msg["content"] for msg in reversed(history) if msg.get("role") == "assistant"][:3]
 
-        # Shared turn setup runs over the extended history and the
-        # rewrite-disabled settings; the lorebook probe is the OOC steering
-        # message. _consume_pipeline below keeps the original settings (only the
-        # pipeline itself needs the rewrite-disabled copy).
-        setup: _TurnSetup | None = None
-        async for ev in _prepare_turn(
+        # The pipeline runs over the extended history with the rewrite-disabled
+        # settings and the OOC steering message as the writer's input, while the
+        # hooks still see the real last user turn. The result is saved as a
+        # sibling of the original (same parent_id / turn_index), and
+        # _consume_pipeline persists under the *original* settings — only the
+        # pipeline itself needs the rewrite-disabled copy.
+        async for event in _generate_reply(
             ctx,
             conversation_id,
             history=extended_history,
-            settings=super_regen_settings,
+            pipeline_settings=super_regen_settings,
             last_user_message=user_msg["content"],
             lorebook_messages=extended_history,
-        ):
-            if isinstance(ev, _TurnSetup):
-                setup = ev
-            else:
-                yield ev
-        assert setup is not None
-
-        pipeline = _run_pipeline(
-            ctx["client"],
-            super_regen_settings,
-            ctx["director"],
-            ctx["mood_fragments"],
-            ctx["director_fragments"],
-            _SUPER_REGEN_MSG,
-            attachments,
-            ctx["phrase_bank"],
-            lorebook_block=setup.lorebook_block,
+            user_message=_SUPER_REGEN_MSG,
+            attachments=attachments,
+            user_msg_id=user_msg_id,
+            asst_turn_index=target["turn_index"],
+            log_turn_index=target["turn_index"],
             editor_audit_msgs=editor_audit_msgs,
-            agent_client=ctx.get("agent_client"),
-            agent_prefix=setup.agent_prefix,
-            macros=setup.macros,
-            conversation_id=conversation_id,
-            character_id=ctx["conv"].get("character_card_id"),
-            card=ctx["card"],
-            prefix=setup.prefix,
-            enabled_tools=setup.merged_enabled_tools,
-            turn_scratch=setup.turn_scratch,
-            kv_tracker=setup.kv_tracker,
-            schema_overrides=setup.schema_overrides,
-            history=extended_history,
-        )
-
-        # Save result as a sibling of the original: same parent_id and turn_index.
-        async for event in _consume_pipeline(
-            pipeline,
-            conversation_id,
-            settings,
-            user_msg_id,
-            target["turn_index"],
-            extra_on_result=_conversation_log_writer(conversation_id, target["turn_index"]),
+            consume_settings=settings,
         ):
             yield event
 
@@ -1696,8 +1772,7 @@ async def handle_magic_rewrite(
             yield {"event": "error", "data": "Conversation not found"}
             return
 
-        if client_ref is not None:
-            client_ref.append(ctx["client"])
+        _register_clients(ctx, client_ref, include_agent=False)
 
         settings = ctx["settings"]
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
