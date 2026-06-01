@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import AsyncIterator, List, Optional
 
 from . import database as db
@@ -818,6 +819,145 @@ def _compute_lorebook(macros: Macros, ctx: dict, messages: list[dict]) -> str:
     )
 
 
+@dataclass
+class _TurnSetup:
+    """Resolved per-turn pipeline inputs produced by :func:`_prepare_turn`.
+
+    Bundles everything the entry points compute identically between persisting
+    the user row and launching ``_run_pipeline``: the (writer, agent) prefixes
+    with any pre-pipeline ``system_prompt`` blocks already applied, the merged
+    tool-enable map, and the per-turn shared identities (macros, lorebook
+    block, scratch dict, KV tracker, dynamic-schema map).
+    """
+
+    prefix: list[dict]
+    agent_prefix: list[dict] | None
+    merged_enabled_tools: dict
+    macros: Macros
+    lorebook_block: str
+    turn_scratch: dict
+    kv_tracker: _KVCacheTracker
+    schema_overrides: dict
+
+
+async def _prepare_turn(
+    ctx: dict,
+    conversation_id: str,
+    *,
+    history: list[dict],
+    settings: dict,
+    last_user_message: str,
+    lorebook_messages: list[dict],
+) -> AsyncIterator[dict | _TurnSetup]:
+    """Run the turn-setup sequence shared by every entry point and stream its
+    pre-pipeline SSE events, then yield one terminal :class:`_TurnSetup`.
+
+    Drain it as::
+
+        setup = None
+        async for ev in _prepare_turn(...):
+            if isinstance(ev, _TurnSetup):
+                setup = ev
+            else:
+                yield ev
+        assert setup is not None
+
+    *history* builds the prefixes and seeds the hooks (the extended history for
+    super-regenerate). *settings* is the pipeline settings whose
+    ``enabled_tools`` seeds the pre-merge map and which the hooks receive
+    (super-regenerate passes its rewrite-disabled copy). *last_user_message* is
+    handed to the hooks; *lorebook_messages* is the full message list (history
+    plus the turn's probe message) scanned for lorebook keywords. Macros and
+    prefixes are always built from ``ctx["settings"]`` so the system body stays
+    byte-identical across passes regardless of per-call setting tweaks.
+    """
+    macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
+    lorebook_block = _compute_lorebook(macros, ctx, lorebook_messages)
+
+    prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
+
+    # Per-turn shared identities — ref-shared across the hooks and every pass.
+    turn_scratch: dict = {}
+    kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
+    schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
+
+    enabled_tools_setting = settings.get("enabled_tools") or {}
+    if settings.get("enable_agent", 1):
+        enabled_tools_pre_merge = dict(enabled_tools_setting)
+    else:
+        enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
+    accumulators = {
+        "merged_enabled_tools": dict(enabled_tools_pre_merge),
+        "extras": [],
+    }
+
+    # Workflow pre-pipeline iteration. Hooks may yield enable_tools or
+    # system_prompt yields that fold into the merged tool map and the extra
+    # system blocks below; any other yield passes through to the SSE stream.
+    async for ev in _iterate_pre_pipeline_hooks(
+        conversation_id=conversation_id,
+        character_id=ctx["conv"].get("character_card_id"),
+        card=ctx["card"],
+        history=history,
+        last_user_message=last_user_message,
+        settings=settings,
+        prefix_base=prefix_base,
+        enabled_tools_pre_merge=enabled_tools_pre_merge,
+        turn_scratch=turn_scratch,
+        client=ctx["client"],
+        kv_tracker=kv_tracker,
+        schema_overrides=schema_overrides,
+        accumulators=accumulators,
+    ):
+        yield ev
+
+    extras = accumulators["extras"]
+    if extras:
+        prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
+    else:
+        prefix, agent_prefix = prefix_base, agent_prefix_base
+
+    yield _TurnSetup(
+        prefix=prefix,
+        agent_prefix=agent_prefix,
+        merged_enabled_tools=accumulators["merged_enabled_tools"],
+        macros=macros,
+        lorebook_block=lorebook_block,
+        turn_scratch=turn_scratch,
+        kv_tracker=kv_tracker,
+        schema_overrides=schema_overrides,
+    )
+
+
+def _conversation_log_writer(conversation_id: str, log_turn_index: int):
+    """Build the post-persist ``extra_on_result`` callback that writes the
+    turn's ``conversation_logs`` row.
+
+    Every entry point logs the same director/reasoning payload; they differ
+    only in which ``turn_index`` the row is filed under — the user turn for a
+    fresh turn, the assistant turn for the branch-creating regenerate paths
+    (see ``handle_fork_edit``'s docstring for why branches log at the assistant
+    turn)."""
+
+    async def _on_result(res, asst_id):
+        await db.add_conversation_log(
+            conversation_id,
+            log_turn_index,
+            res["agent_raw"],
+            res["calls"],
+            res["active_moods"],
+            res["inj_block"],
+            res["latency"],
+            res.get("progressive_fields"),
+            message_id=asst_id,
+            reasoning_director=res.get("reasoning_director", ""),
+            reasoning_writer=res.get("reasoning_writer", ""),
+            reasoning_editor=res.get("reasoning_editor", ""),
+        )
+
+    return _on_result
+
+
 async def _resolve_target_and_parent(conversation_id: str, assistant_msg_id: int) -> tuple[dict, dict] | str:
     """Validate *assistant_msg_id* and load its parent user message.
 
@@ -1145,70 +1285,24 @@ async def handle_turn(
             await db.set_active_leaf(conversation_id, user_msg_id)
             yield {"event": "user_message_created", "data": {"id": user_msg_id}}
 
-        prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
         asst_turn = next_turn + (0 if skip_user_persist else 1)
 
-        macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
-
-        # Compute lorebook injection — include the current user message so its
-        # keywords are scanned, not just prior history.
-        lorebook_block = _compute_lorebook(macros, ctx, history + [{"role": "user", "content": user_message}])
-
-        # Workflow pre-pipeline iteration. Hooks may yield enable_tools or
-        # system_prompt yields that fold into the merged tool map and the
-        # extra system blocks below; any other yield passes through to the
-        # SSE stream verbatim. The kv_tracker is constructed once per turn
-        # and finalised after the pipeline prefix is known.
-        turn_scratch: dict = {}
-        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
-        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
-        enabled_tools_setting = settings.get("enabled_tools") or {}
-        if settings.get("enable_agent", 1):
-            enabled_tools_pre_merge = dict(enabled_tools_setting)
-        else:
-            enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
-        accumulators = {
-            "merged_enabled_tools": dict(enabled_tools_pre_merge),
-            "extras": [],
-        }
-        async for ev in _iterate_pre_pipeline_hooks(
-            conversation_id=conversation_id,
-            character_id=ctx["conv"].get("character_card_id"),
-            card=ctx["card"],
+        # Shared turn setup. The lorebook scan includes the current user
+        # message so its keywords are picked up, not just prior history.
+        setup: _TurnSetup | None = None
+        async for ev in _prepare_turn(
+            ctx,
+            conversation_id,
             history=history,
-            last_user_message=user_message,
             settings=settings,
-            prefix_base=prefix_base,
-            enabled_tools_pre_merge=enabled_tools_pre_merge,
-            turn_scratch=turn_scratch,
-            client=ctx["client"],
-            kv_tracker=kv_tracker,
-            schema_overrides=schema_overrides,
-            accumulators=accumulators,
+            last_user_message=user_message,
+            lorebook_messages=history + [{"role": "user", "content": user_message}],
         ):
-            yield ev
-        merged_enabled_tools = accumulators["merged_enabled_tools"]
-        extras = accumulators["extras"]
-        if extras:
-            prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
-        else:
-            prefix, agent_prefix = prefix_base, agent_prefix_base
-
-        async def _on_result(res, asst_id):
-            await db.add_conversation_log(
-                conversation_id,
-                next_turn,
-                res["agent_raw"],
-                res["calls"],
-                res["active_moods"],
-                res["inj_block"],
-                res["latency"],
-                res.get("progressive_fields"),
-                message_id=asst_id,
-                reasoning_director=res.get("reasoning_director", ""),
-                reasoning_writer=res.get("reasoning_writer", ""),
-                reasoning_editor=res.get("reasoning_editor", ""),
-            )
+            if isinstance(ev, _TurnSetup):
+                setup = ev
+            else:
+                yield ev
+        assert setup is not None
 
         pipeline = _run_pipeline(
             ctx["client"],
@@ -1219,18 +1313,18 @@ async def handle_turn(
             user_message,
             attachments=attachments,
             phrase_bank=ctx["phrase_bank"],
-            lorebook_block=lorebook_block,
+            lorebook_block=setup.lorebook_block,
             agent_client=ctx.get("agent_client"),
-            agent_prefix=agent_prefix,
-            macros=macros,
+            agent_prefix=setup.agent_prefix,
+            macros=setup.macros,
             conversation_id=conversation_id,
             character_id=ctx["conv"].get("character_card_id"),
             card=ctx["card"],
-            prefix=prefix,
-            enabled_tools=merged_enabled_tools,
-            turn_scratch=turn_scratch,
-            kv_tracker=kv_tracker,
-            schema_overrides=schema_overrides,
+            prefix=setup.prefix,
+            enabled_tools=setup.merged_enabled_tools,
+            turn_scratch=setup.turn_scratch,
+            kv_tracker=setup.kv_tracker,
+            schema_overrides=setup.schema_overrides,
             history=history,
         )
         async for event in _consume_pipeline(
@@ -1239,7 +1333,7 @@ async def handle_turn(
             settings,
             user_msg_id,
             asst_turn,
-            extra_on_result=_on_result,
+            extra_on_result=_conversation_log_writer(conversation_id, next_turn),
         ):
             yield event
 
@@ -1315,61 +1409,21 @@ async def handle_fork_edit(
         await db.set_active_leaf(conversation_id, new_user_id)
         yield {"event": "user_message_created", "data": {"id": new_user_id}}
 
-        prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
-
-        macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
-        lorebook_block = _compute_lorebook(macros, ctx, history + [{"role": "user", "content": new_content}])
-
-        turn_scratch: dict = {}
-        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
-        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
-        enabled_tools_setting = settings.get("enabled_tools") or {}
-        if settings.get("enable_agent", 1):
-            enabled_tools_pre_merge = dict(enabled_tools_setting)
-        else:
-            enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
-        accumulators = {
-            "merged_enabled_tools": dict(enabled_tools_pre_merge),
-            "extras": [],
-        }
-        async for ev in _iterate_pre_pipeline_hooks(
-            conversation_id=conversation_id,
-            character_id=ctx["conv"].get("character_card_id"),
-            card=ctx["card"],
+        # Shared turn setup (mirrors handle_turn; logs at the assistant turn).
+        setup: _TurnSetup | None = None
+        async for ev in _prepare_turn(
+            ctx,
+            conversation_id,
             history=history,
-            last_user_message=new_content,
             settings=settings,
-            prefix_base=prefix_base,
-            enabled_tools_pre_merge=enabled_tools_pre_merge,
-            turn_scratch=turn_scratch,
-            client=ctx["client"],
-            kv_tracker=kv_tracker,
-            schema_overrides=schema_overrides,
-            accumulators=accumulators,
+            last_user_message=new_content,
+            lorebook_messages=history + [{"role": "user", "content": new_content}],
         ):
-            yield ev
-        merged_enabled_tools = accumulators["merged_enabled_tools"]
-        extras = accumulators["extras"]
-        if extras:
-            prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
-        else:
-            prefix, agent_prefix = prefix_base, agent_prefix_base
-
-        async def _on_result(res, asst_id):
-            await db.add_conversation_log(
-                conversation_id,
-                asst_turn,
-                res["agent_raw"],
-                res["calls"],
-                res["active_moods"],
-                res["inj_block"],
-                res["latency"],
-                res.get("progressive_fields"),
-                message_id=asst_id,
-                reasoning_director=res.get("reasoning_director", ""),
-                reasoning_writer=res.get("reasoning_writer", ""),
-                reasoning_editor=res.get("reasoning_editor", ""),
-            )
+            if isinstance(ev, _TurnSetup):
+                setup = ev
+            else:
+                yield ev
+        assert setup is not None
 
         pipeline = _run_pipeline(
             ctx["client"],
@@ -1380,18 +1434,18 @@ async def handle_fork_edit(
             new_content,
             attachments=carried_atts,
             phrase_bank=ctx["phrase_bank"],
-            lorebook_block=lorebook_block,
+            lorebook_block=setup.lorebook_block,
             agent_client=ctx.get("agent_client"),
-            agent_prefix=agent_prefix,
-            macros=macros,
+            agent_prefix=setup.agent_prefix,
+            macros=setup.macros,
             conversation_id=conversation_id,
             character_id=ctx["conv"].get("character_card_id"),
             card=ctx["card"],
-            prefix=prefix,
-            enabled_tools=merged_enabled_tools,
-            turn_scratch=turn_scratch,
-            kv_tracker=kv_tracker,
-            schema_overrides=schema_overrides,
+            prefix=setup.prefix,
+            enabled_tools=setup.merged_enabled_tools,
+            turn_scratch=setup.turn_scratch,
+            kv_tracker=setup.kv_tracker,
+            schema_overrides=setup.schema_overrides,
             history=history,
         )
         async for event in _consume_pipeline(
@@ -1400,7 +1454,7 @@ async def handle_fork_edit(
             settings,
             new_user_id,
             asst_turn,
-            extra_on_result=_on_result,
+            extra_on_result=_conversation_log_writer(conversation_id, asst_turn),
         ):
             yield event
 
@@ -1434,45 +1488,22 @@ async def handle_regenerate(
 
         user_msg_id = target["parent_id"]
         history, attachments = await _prepare_regen_context(ctx, conversation_id, target, user_msg)
-        prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
 
-        macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
-        lorebook_block = _compute_lorebook(macros, ctx, history + [{"role": "user", "content": user_msg["content"]}])
-
-        turn_scratch: dict = {}
-        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
-        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
-        enabled_tools_setting = settings.get("enabled_tools") or {}
-        if settings.get("enable_agent", 1):
-            enabled_tools_pre_merge = dict(enabled_tools_setting)
-        else:
-            enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
-        accumulators = {
-            "merged_enabled_tools": dict(enabled_tools_pre_merge),
-            "extras": [],
-        }
-        async for ev in _iterate_pre_pipeline_hooks(
-            conversation_id=conversation_id,
-            character_id=ctx["conv"].get("character_card_id"),
-            card=ctx["card"],
+        # Shared turn setup over the regenerate history.
+        setup: _TurnSetup | None = None
+        async for ev in _prepare_turn(
+            ctx,
+            conversation_id,
             history=history,
-            last_user_message=user_msg["content"],
             settings=settings,
-            prefix_base=prefix_base,
-            enabled_tools_pre_merge=enabled_tools_pre_merge,
-            turn_scratch=turn_scratch,
-            client=ctx["client"],
-            kv_tracker=kv_tracker,
-            schema_overrides=schema_overrides,
-            accumulators=accumulators,
+            last_user_message=user_msg["content"],
+            lorebook_messages=history + [{"role": "user", "content": user_msg["content"]}],
         ):
-            yield ev
-        merged_enabled_tools = accumulators["merged_enabled_tools"]
-        extras = accumulators["extras"]
-        if extras:
-            prefix, agent_prefix = _build_prefixes(ctx, history, extra_system_blocks=extras)
-        else:
-            prefix, agent_prefix = prefix_base, agent_prefix_base
+            if isinstance(ev, _TurnSetup):
+                setup = ev
+            else:
+                yield ev
+        assert setup is not None
 
         pipeline = _run_pipeline(
             ctx["client"],
@@ -1483,36 +1514,20 @@ async def handle_regenerate(
             user_msg["content"],
             attachments,
             ctx["phrase_bank"],
-            lorebook_block=lorebook_block,
+            lorebook_block=setup.lorebook_block,
             agent_client=ctx.get("agent_client"),
-            agent_prefix=agent_prefix,
-            macros=macros,
+            agent_prefix=setup.agent_prefix,
+            macros=setup.macros,
             conversation_id=conversation_id,
             character_id=ctx["conv"].get("character_card_id"),
             card=ctx["card"],
-            prefix=prefix,
-            enabled_tools=merged_enabled_tools,
-            turn_scratch=turn_scratch,
-            kv_tracker=kv_tracker,
-            schema_overrides=schema_overrides,
+            prefix=setup.prefix,
+            enabled_tools=setup.merged_enabled_tools,
+            turn_scratch=setup.turn_scratch,
+            kv_tracker=setup.kv_tracker,
+            schema_overrides=setup.schema_overrides,
             history=history,
         )
-
-        async def _on_result(res, asst_id):
-            await db.add_conversation_log(
-                conversation_id,
-                target["turn_index"],
-                res["agent_raw"],
-                res["calls"],
-                res["active_moods"],
-                res["inj_block"],
-                res["latency"],
-                res.get("progressive_fields"),
-                message_id=asst_id,
-                reasoning_director=res.get("reasoning_director", ""),
-                reasoning_writer=res.get("reasoning_writer", ""),
-                reasoning_editor=res.get("reasoning_editor", ""),
-            )
 
         async for event in _consume_pipeline(
             pipeline,
@@ -1520,7 +1535,7 @@ async def handle_regenerate(
             settings,
             user_msg_id,
             target["turn_index"],
-            extra_on_result=_on_result,
+            extra_on_result=_conversation_log_writer(conversation_id, target["turn_index"]),
         ):
             yield event
 
@@ -1564,8 +1579,6 @@ async def handle_super_regenerate(
             {"role": "user", "content": user_msg["content"]},
             {"role": "assistant", "content": target["content"]},
         ]
-        prefix_base, agent_prefix_base = _build_prefixes(ctx, extended_history)
-
         # rewrite_user_prompt must not alter the OOC steering message.
         super_regen_settings = {
             **settings,
@@ -1575,51 +1588,28 @@ async def handle_super_regenerate(
             },
         }
 
-        macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
-        lorebook_block = _compute_lorebook(
-            macros,
-            ctx,
-            extended_history + [{"role": "user", "content": _SUPER_REGEN_MSG}],
-        )
-
         # Collect audit context from history only — exclude target["content"] so
         # the editor doesn't flag the new draft for repeating the message it replaced.
         editor_audit_msgs = [msg["content"] for msg in reversed(history) if msg.get("role") == "assistant"][:3]
 
-        turn_scratch: dict = {}
-        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
-        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
-        enabled_tools_setting = super_regen_settings.get("enabled_tools") or {}
-        if super_regen_settings.get("enable_agent", 1):
-            enabled_tools_pre_merge = dict(enabled_tools_setting)
-        else:
-            enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
-        accumulators = {
-            "merged_enabled_tools": dict(enabled_tools_pre_merge),
-            "extras": [],
-        }
-        async for ev in _iterate_pre_pipeline_hooks(
-            conversation_id=conversation_id,
-            character_id=ctx["conv"].get("character_card_id"),
-            card=ctx["card"],
+        # Shared turn setup runs over the extended history and the
+        # rewrite-disabled settings; the lorebook probe is the OOC steering
+        # message. _consume_pipeline below keeps the original settings (only the
+        # pipeline itself needs the rewrite-disabled copy).
+        setup: _TurnSetup | None = None
+        async for ev in _prepare_turn(
+            ctx,
+            conversation_id,
             history=extended_history,
-            last_user_message=user_msg["content"],
             settings=super_regen_settings,
-            prefix_base=prefix_base,
-            enabled_tools_pre_merge=enabled_tools_pre_merge,
-            turn_scratch=turn_scratch,
-            client=ctx["client"],
-            kv_tracker=kv_tracker,
-            schema_overrides=schema_overrides,
-            accumulators=accumulators,
+            last_user_message=user_msg["content"],
+            lorebook_messages=extended_history,
         ):
-            yield ev
-        merged_enabled_tools = accumulators["merged_enabled_tools"]
-        extras = accumulators["extras"]
-        if extras:
-            prefix, agent_prefix = _build_prefixes(ctx, extended_history, extra_system_blocks=extras)
-        else:
-            prefix, agent_prefix = prefix_base, agent_prefix_base
+            if isinstance(ev, _TurnSetup):
+                setup = ev
+            else:
+                yield ev
+        assert setup is not None
 
         pipeline = _run_pipeline(
             ctx["client"],
@@ -1630,37 +1620,21 @@ async def handle_super_regenerate(
             _SUPER_REGEN_MSG,
             attachments,
             ctx["phrase_bank"],
-            lorebook_block=lorebook_block,
+            lorebook_block=setup.lorebook_block,
             editor_audit_msgs=editor_audit_msgs,
             agent_client=ctx.get("agent_client"),
-            agent_prefix=agent_prefix,
-            macros=macros,
+            agent_prefix=setup.agent_prefix,
+            macros=setup.macros,
             conversation_id=conversation_id,
             character_id=ctx["conv"].get("character_card_id"),
             card=ctx["card"],
-            prefix=prefix,
-            enabled_tools=merged_enabled_tools,
-            turn_scratch=turn_scratch,
-            kv_tracker=kv_tracker,
-            schema_overrides=schema_overrides,
+            prefix=setup.prefix,
+            enabled_tools=setup.merged_enabled_tools,
+            turn_scratch=setup.turn_scratch,
+            kv_tracker=setup.kv_tracker,
+            schema_overrides=setup.schema_overrides,
             history=extended_history,
         )
-
-        async def _on_result(res, asst_id):
-            await db.add_conversation_log(
-                conversation_id,
-                target["turn_index"],
-                res["agent_raw"],
-                res["calls"],
-                res["active_moods"],
-                res["inj_block"],
-                res["latency"],
-                res.get("progressive_fields"),
-                message_id=asst_id,
-                reasoning_director=res.get("reasoning_director", ""),
-                reasoning_writer=res.get("reasoning_writer", ""),
-                reasoning_editor=res.get("reasoning_editor", ""),
-            )
 
         # Save result as a sibling of the original: same parent_id and turn_index.
         async for event in _consume_pipeline(
@@ -1669,7 +1643,7 @@ async def handle_super_regenerate(
             settings,
             user_msg_id,
             target["turn_index"],
-            extra_on_result=_on_result,
+            extra_on_result=_conversation_log_writer(conversation_id, target["turn_index"]),
         ):
             yield event
 
