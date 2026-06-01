@@ -68,7 +68,8 @@ export const S = {
   _programmaticScroll: false, // true while scrollToBottom() is executing — suppresses scroll listener
   hasMultipleTabs: false, // true if multiple tabs of the app are open
   editingPendingUserMsg: false, // true when the pending (not-yet-persisted) user message is in edit mode
-  pendingUserMsgEdit: null, // stores edited content for a pending user message to apply after streaming
+  pendingUserMsgEdit: null, // stores edited content for the id-less pending user message to apply after streaming
+  queuedEdits: {}, // { [msgId]: content } edits to persisted messages saved mid-stream, applied after the stream (the /edit route blocks on the stream lock)
   inspectedMsgId: null, // when set, Inspector shows director data for this message instead of current state
   inspectedDirectorData: null, // fetched director log data for the inspected message
 
