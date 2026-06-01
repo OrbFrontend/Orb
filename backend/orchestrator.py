@@ -134,17 +134,19 @@ async def _run_pipeline(
         enabled_tools = {**enabled_tools, "editor_rewrite": True}
     length_guard_enforce = bool(enabled_tools.get("length_guard_enforce", False)) if agent_on else False
 
+    # length_guard_enabled already folds in agent_on (it is False whenever the
+    # agent is off), so no extra `and agent_on` guard is needed below.
     length_guard = (
         {
             "enabled": length_guard_enabled,
             "max_words": int(settings.get("length_guard_max_words", 240)),
             "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
         }
-        if (length_guard_enabled and agent_on)
+        if length_guard_enabled
         else None
     )
 
-    do_edit = audit_enabled or (length_guard_enabled and agent_on)
+    do_edit = audit_enabled or length_guard_enabled
 
     # When the agent runs on a separate model/endpoint, its KV cache is disjoint
     # from the writer's.  Skip tool schemas and the OOC "no tools" notice from the
@@ -347,8 +349,8 @@ async def _run_pipeline(
                         }
         except Exception as e:
             logger.error("editor pass failed, keeping original: %s", e, exc_info=True)
-    elif not do_edit:
-        logger.info("Editor pass skipped (do_edit=%s)", do_edit)
+    else:
+        logger.info("Editor pass skipped (do_edit=%s, draft=%d chars)", do_edit, len(resp_text))
 
     # --- Post-pipeline workflow iteration ---
     # Each hook may yield `draft_replaced` (one applied per hook per turn) to
@@ -1725,15 +1727,23 @@ async def handle_magic_rewrite(
         async for item in ctx["client"].complete(messages=msgs, model=settings["model_name"], **extra, **hyperparams):
             if item["type"] == "done":
                 break
-            if item["type"] == "content":
+            if item["type"] == "reasoning":
+                # Stream reasoning deltas like the main pipeline does instead of
+                # dropping them; labelled "writer" since this is a writer-style
+                # rewrite with no director/editor passes.
+                yield {"event": "reasoning", "data": {"pass": "writer", "delta": item["delta"]}}
+            elif item["type"] == "content":
                 accumulated += item["delta"]
                 yield {"event": "token", "data": item["delta"]}
 
         if accumulated.strip():
             await db.update_message_content(assistant_msg_id, accumulated)
 
+        # Emitted on the success path only — on error we yield "error" and stop,
+        # matching the other entry points (whose "done" lives in _consume_pipeline
+        # and is skipped when an exception aborts the turn).
+        yield {"event": "done"}
+
     except Exception as e:
         logger.exception("Magic rewrite error")
         yield {"event": "error", "data": str(e)}
-
-    yield {"event": "done"}

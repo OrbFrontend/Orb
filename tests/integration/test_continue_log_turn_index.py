@@ -48,6 +48,5 @@ async def test_continue_logs_at_user_turn(client, db, llm_mock):
     logs = await dbmod.get_conversation_logs(cid)
     assert len(logs) == 1, f"expected exactly one log row, got {len(logs)}"
     assert logs[0]["turn_index"] == user_msg["turn_index"], (
-        f"conversation log filed at turn {logs[0]['turn_index']}, "
-        f"expected user turn {user_msg['turn_index']}"
+        f"conversation log filed at turn {logs[0]['turn_index']}, " f"expected user turn {user_msg['turn_index']}"
     )
