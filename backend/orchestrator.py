@@ -1811,7 +1811,9 @@ async def handle_magic_rewrite(
                 accumulated += item["delta"]
                 yield {"event": "token", "data": item["delta"]}
 
-        if accumulated.strip():
+        # On abort, keep the original message intact rather than overwriting it
+        # with the partial rewrite that streamed before the stop.
+        if accumulated.strip() and not ctx["client"].is_aborted:
             await db.update_message_content(assistant_msg_id, accumulated)
 
         # Emitted on the success path only — on error we yield "error" and stop,
