@@ -28,23 +28,38 @@ from ._llm_mock import FakeLLMClient, llm_factory
 
 @pytest.fixture(autouse=True)
 def _reset_module_locks():
-    """Clear backend.main's process-global lock dicts between tests.
+    """Clear the process-global asyncio.Lock dicts between tests.
 
-    ``_workflow_root_locks`` and ``_conversation_stream_locks`` cache
-    ``asyncio.Lock`` objects keyed by root_id / conversation id. Each test
-    gets a fresh temp DB, so autoincrement ids restart at 1 and those keys
-    collide across tests. A ``Lock`` binds to the event loop of its first
-    ``acquire``; reusing one cached under a prior test's (now closed) loop
-    raises "got Future attached to a different loop". Clearing forces a
-    fresh lock per test, bound to that test's loop.
+    Several lock caches key ``asyncio.Lock`` objects by id/key tuples:
+    ``backend.main._workflow_root_locks`` (root_id) and
+    ``_conversation_stream_locks`` (conversation id), plus
+    ``backend.locks._workflow_state_locks`` and
+    ``_workflow_character_state_locks`` (both ``(key, workflow_id)`` tuples)
+    which the orchestrator and ``/trigger`` route acquire. Each test gets a
+    fresh temp DB, so autoincrement ids restart at 1 and those keys collide
+    across tests. A ``Lock`` binds to the event loop of its first ``acquire``;
+    reusing one cached under a prior test's (now closed) loop raises "got
+    Future attached to a different loop" the moment a waiter Future is created
+    on the stale loop. That only bites when two tests contend on a shared key,
+    which today's UUID/one-off keys happen to avoid -- clearing all four dicts
+    removes the latent flake instead of relying on that coincidence.
+    (``workflow_config_lock`` is excluded: it already keys its dict by running
+    loop, so its entries are self-isolating.)
     """
     from backend import main
+    from backend import locks
 
-    main._workflow_root_locks.clear()
-    main._conversation_stream_locks.clear()
+    lock_dicts = (
+        main._workflow_root_locks,
+        main._conversation_stream_locks,
+        locks._workflow_state_locks,
+        locks._workflow_character_state_locks,
+    )
+    for d in lock_dicts:
+        d.clear()
     yield
-    main._workflow_root_locks.clear()
-    main._conversation_stream_locks.clear()
+    for d in lock_dicts:
+        d.clear()
 
 
 @pytest.fixture

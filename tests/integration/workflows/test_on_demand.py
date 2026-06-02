@@ -26,6 +26,9 @@ async def test_unregistered_workflow_returns_404(client):
 
 
 async def test_workflow_without_on_demand_hook_returns_404(client):
+    # The workflow IS registered -- it simply lacks an on_demand hook. The 404
+    # must say so, not claim the workflow is unregistered (which would be a lie
+    # and indistinguishable from the genuinely-missing case above).
     cid = await _make_conversation(client)
     wf = make_workflow("inert", display_name="Inert")
     with register_for_test(wf):
@@ -34,7 +37,7 @@ async def test_workflow_without_on_demand_hook_returns_404(client):
             json={},
         )
     assert resp.status_code == 404
-    assert resp.json() == {"detail": "Workflow 'inert' is not registered"}
+    assert resp.json() == {"detail": "Workflow 'inert' has no on_demand handler"}
 
 
 async def test_missing_conversation_returns_404(client):

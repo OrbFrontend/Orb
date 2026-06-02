@@ -15,6 +15,8 @@ from contextlib import contextmanager
 from copy import deepcopy
 from typing import Any, Iterator
 
+import pytest
+
 from backend.database.queries.conversations import get_workflow_state, set_workflow_state
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
 from backend.workflows import (
@@ -40,6 +42,29 @@ async def must_get_workflow_attachment(att_id: int) -> dict:
     row = await get_workflow_attachment_by_id(att_id)
     assert row is not None, f"workflow_attachment {att_id} should exist after seeding"
     return row
+
+
+@pytest.fixture(autouse=True)
+def _restore_registry():
+    """Snapshot the global workflow registry and tool tables, restore on exit.
+
+    Tests in these modules call ``register_workflow`` / ``set_workflow_config``
+    directly (not through ``register_for_test``'s ``with`` block), so without
+    this autouse guard their registrations leak into adjacent tests. Imported
+    by name into each such module -- pytest honours an imported fixture's
+    ``autouse`` flag within the importing module's scope, so the import alone
+    activates it.
+    """
+    by_id_snapshot = {k: deepcopy(v) for k, v in _registry._WORKFLOWS_BY_ID.items()}
+    tools_snapshot = {n: dict(spec) for n, spec in TOOLS.items()}
+    standalone_snapshot = set(STANDALONE_TOOLS)
+    yield
+    _registry._WORKFLOWS_BY_ID.clear()
+    _registry._WORKFLOWS_BY_ID.update(by_id_snapshot)
+    TOOLS.clear()
+    TOOLS.update(tools_snapshot)
+    STANDALONE_TOOLS.clear()
+    STANDALONE_TOOLS.update(standalone_snapshot)
 
 
 def make_workflow(
