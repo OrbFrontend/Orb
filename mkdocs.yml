@@ -73,6 +73,8 @@ nav:
       - features/index.md
       - Writer Direction: features/director.md
       - Anti-slop: features/anti-slop.md
+      - Anti-repetition: features/anti-repetition.md
+      - Fetch Cards from Internet: features/fetch-cards.md
       - Length Guard: features/length-guard.md
       - Super-regenerate: features/super-regenerate.md
       - Magic Rewrite: features/magic-rewrite.md

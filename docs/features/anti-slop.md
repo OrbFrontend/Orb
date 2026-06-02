@@ -1,13 +1,16 @@
 # Anti-slop
 
-Remove overused words, phrases, and patterns commonly seen in LLM outputs.
+Remove overused words, phrases, and the rhetorical patterns commonly seen in LLM outputs.
 
-- The user maintains a Slop Phrase Bank that they're allergic to.
-- The final Editor pass checks for phrases or words in the output and prompts the Agent model to surgically rewrite the sentences where the phrases are found.
+- The user maintains a Slop Phrase Bank of words and phrases they're allergic to.
+- The final Editor pass checks the output for those phrases and prompts the Agent model to surgically rewrite only the sentences where they're found.
 
-Detect and remove various types of reptition and patterns.
+## Slop Phrase Bank
 
-- **Structural repetition**: LLMs tend to keep repeating the same paragraph structure across turns. Detect and ask for an improved rewrite.
-- **Template repetition**: Repeated mentions of a subject or repetitive sentence starters (across paragraphs) can be detected and circumvented with this.
-- **Repetitive sentence openers**: Get rid of back-to-back samey sentence openers like `He A. He B. He C. He D.`
-- **Not X; but Y pattern**: Detect this pattern and ask for a rewrite. Only works within a single sentence boundary.
+A user-editable list of banned words and phrases. Entries can be literal variants or regex patterns, and matching is fuzzy enough to catch close paraphrases while staying contained to a single sentence so rewrites are surgical.
+
+## Contrastive negation ("Not X; but Y")
+
+Detect the `Not X; but Y` rhetorical pattern (and its kin, like `isn't X, it's Y`) and ask for a rewrite. Only works within a single sentence boundary.
+
+For repeated structure, sentence openers, and phrase reuse, see [Anti-repetition](anti-repetition.md).

@@ -313,15 +313,16 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 
 ```mermaid
 flowchart TD
-    settings["settings.active_endpoint_id"] --> endpoints["endpoints[id]"]
-    endpoints --> model_config["endpoints.active_model_config_id → model_configs[id]"]
-    model_config --> params["model_name, temperature, top_p, top_k, min_p,<br/>repetition_penalty, max_tokens, system_prompt"]
-    endpoints --> api_details["url, api_key"]
-
+    settings["settings (row)"] --> active_endpoint["settings.active_endpoint_id → endpoints[id]"]
     settings --> enabled_tools["settings.enabled_tools → JSON<br/>{direct_scene, rewrite_user_prompt, ...}"]
     settings --> reasoning["settings.reasoning_enabled_passes → JSON<br/>{director, writer, editor}"]
     settings --> persona["settings.active_persona_id → user_personas[id]"]
     settings --> agent["settings.agent_endpoint_id → endpoints[id]<br/>settings.agent_shared_system_prompt"]
+
+    active_endpoint --> endpoints["endpoints[id]"]
+    endpoints --> model_config["endpoints.active_model_config_id → model_configs[id]"]
+    endpoints --> api_details["url, api_key"]
+    model_config --> params["model_name, temperature, top_p, top_k, min_p,<br/>repetition_penalty, max_tokens, system_prompt"]
 ```
 
 Multiple model configs per endpoint. Active one selected via `endpoints.active_model_config_id`. Agent (Director) can use a separate endpoint (`agent_endpoint_id`) or share the writer's.

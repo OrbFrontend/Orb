@@ -6,6 +6,8 @@ Orb's notable features:
 |---|---|
 | [Writer Direction](director.md) | Prompt injection automatically used by the Director model |
 | [Anti-slop](anti-slop.md) | Remove overused words, phrases, and LLM-pattern boilerplate |
+| [Anti-repetition](anti-repetition.md) | Detect and rewrite repeated structure, openers, and phrasing |
+| [Fetch Cards from Internet](fetch-cards.md) | Browse and import character cards from online repositories |
 | [Length Guard](length-guard.md) | Active or passive protection against length degradation |
 | [Super-regenerate](super-regenerate.md) | Ask for a different take instead of a samey regen |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message in a user-defined direction |
