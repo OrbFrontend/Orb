@@ -10,7 +10,7 @@ import tempfile
 
 from contextlib import asynccontextmanager
 
-from typing import Annotated, Any, AsyncGenerator, Mapping, Optional, List, Sequence, cast
+from typing import Annotated, Any, AsyncGenerator, Mapping, Optional, List, cast
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -1314,9 +1314,7 @@ async def api_export_character(card_id: str):
 
     png_bytes = tavern_cards.to_png(export_card, avatar_bytes)
 
-    safe_name = (
-        "".join(c for c in export_card.get("name", "character") if c.isalnum() or c in " _-").strip() or "character"
-    )
+    safe_name = "".join(c for c in export_card.get("name", "character") if c.isalnum() or c in " _-").strip() or "character"
     return Response(
         content=png_bytes,
         media_type="image/png",
