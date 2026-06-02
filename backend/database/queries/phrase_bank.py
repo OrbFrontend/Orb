@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from ..connection import get_db
-from ..models import PhraseGroup
+from ..models import PhraseBankRow, PhraseGroup
 
 
 def _row_to_group(row) -> PhraseGroup:
@@ -20,17 +21,20 @@ async def get_phrase_bank() -> list[PhraseGroup]:
         return [_row_to_group(r) for r in rows]
 
 
-async def get_phrase_bank_rows() -> list[dict]:
+async def get_phrase_bank_rows() -> list[PhraseBankRow]:
     """Return phrase bank rows with ids for UI management."""
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT id, variants, kind, pattern FROM phrase_bank ORDER BY id ASC"))
         return [
-            {
-                "id": r["id"],
-                "kind": r["kind"] or "literal",
-                "variants": json.loads(r["variants"]),
-                "pattern": r["pattern"] or "",
-            }
+            cast(
+                PhraseBankRow,
+                {
+                    "id": r["id"],
+                    "kind": r["kind"] or "literal",
+                    "variants": json.loads(r["variants"]),
+                    "pattern": r["pattern"] or "",
+                },
+            )
             for r in rows
         ]
 

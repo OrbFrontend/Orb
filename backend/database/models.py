@@ -11,10 +11,40 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict, Union
 
-# A phrase-bank group is either a legacy list of literal variant strings, or a
-# {"kind": "literal"|"regex", ...} dict. The matching semantics that consume
-# this shape live in backend/passes/editor/slop_detector.py.
-PhraseGroup = Union[list[str], dict]
+
+# A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the
+# two ``{"kind": ...}`` dicts; the bare ``list[str]`` is a legacy literal group
+# still accepted by the detector for backwards compatibility. The matching
+# semantics that consume these shapes live in
+# backend/passes/editor/slop_detector.py.
+class LiteralPhraseGroup(TypedDict):
+    """A set of equivalent literal variant phrases."""
+
+    kind: Literal["literal"]
+    variants: list[str]
+
+
+class RegexPhraseGroup(TypedDict):
+    """A single regex, matched case-insensitively against each sentence."""
+
+    kind: Literal["regex"]
+    pattern: str
+
+
+PhraseGroup = Union[list[str], LiteralPhraseGroup, RegexPhraseGroup]
+
+
+class PhraseBankRow(TypedDict):
+    """A ``phrase_bank`` row as get_phrase_bank_rows() exposes it for UI
+    management -- distinct from :data:`PhraseGroup` (the detector-facing shape).
+    ``variants`` is the JSON-*decoded* list; ``kind`` is normalised to
+    ``"literal"`` when the column is NULL, and ``pattern`` to ``""``.
+    """
+
+    id: int
+    kind: str
+    variants: list[str]
+    pattern: str
 
 
 # ── Row contracts ──────────────────────────────────────────────────────────
@@ -167,11 +197,21 @@ class UserAttachmentRow(TypedDict, total=False):
     created_at: str
 
 
-class WorkflowAttachmentRow(TypedDict, total=False):
-    """A row from ``workflow_attachments`` (schema.py)."""
+class WorkflowAttachmentRowBase(TypedDict):
+    """The columns every ``workflow_attachments`` reader projects.
+
+    ``get_workflow_attachments_for_message()`` filters by ``message_id`` and
+    omits that redundant column, so it returns this base directly; the
+    single-row reader and the per-message attachment glue also project
+    ``message_id`` and return the fuller :class:`WorkflowAttachmentRow`. Split
+    out as a ``total=True`` base so those full-row readers can require the FK
+    (consumers subscript it) while the projection reader stays honest. Mirrors
+    the ``_SettingsBase`` / :class:`SettingsRow` split. ``data_b64`` is the
+    EVICTED_MARKER sentinel string once an artifact's bytes are evicted -- see
+    secondary-workflow.md §9.
+    """
 
     id: int
-    message_id: int
     mime_type: str
     data_b64: str
     filename: str | None
@@ -184,6 +224,15 @@ class WorkflowAttachmentRow(TypedDict, total=False):
     consumption_metadata: str | None
     active_sibling_id: int | None
     recent_accesses: str | None
+
+
+class WorkflowAttachmentRow(WorkflowAttachmentRowBase):
+    """A fully-projected ``workflow_attachments`` row -- the shared columns plus
+    the ``message_id`` FK -- as get_workflow_attachment_by_id() and the
+    per-message attachment glue return it.
+    """
+
+    message_id: int
 
 
 class MessageWithAttachments(MessageRow, total=False):
@@ -309,6 +358,33 @@ class DirectorStateRow(TypedDict):
     active_moods: list
     keywords: list
     progressive_fields: dict
+
+
+class ConversationLogRow(TypedDict):
+    """A ``conversation_logs`` row as get_conversation_logs() /
+    get_director_log_for_message() expose it.
+
+    ``tool_calls`` and ``active_moods_after`` are JSON-*decoded* to lists;
+    ``progressive_fields_after`` is left as the raw JSON string (neither reader
+    decodes it). The nullable TEXT/INTEGER columns come back ``None`` when unset
+    -- get_director_log_for_message() additionally defaults the ``reasoning_*``
+    keys to ``""``, but get_conversation_logs() leaves them as stored.
+    """
+
+    id: int
+    conversation_id: str
+    turn_index: int
+    agent_raw_output: str | None
+    tool_calls: list
+    active_moods_after: list
+    progressive_fields_after: str
+    injection_block: str | None
+    agent_latency_ms: int | None
+    created_at: str
+    message_id: int | None
+    reasoning_director: str | None
+    reasoning_writer: str | None
+    reasoning_editor: str | None
 
 
 class CharacterCardRow(TypedDict, total=False):

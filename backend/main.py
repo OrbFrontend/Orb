@@ -1947,7 +1947,7 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
         }
 
 
-def _decode_stored_consumption_metadata(att: dict) -> dict | None:
+def _decode_stored_consumption_metadata(att: Mapping[str, Any]) -> dict | None:
     """Parse the parent attachment's stored consumption_metadata JSON.
 
     Returns the decoded dict, or ``None`` for any malformed or non-dict value.
@@ -1984,7 +1984,9 @@ def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, d
     return result, None
 
 
-def _build_reroll_gen_ctx(cid: str, mid: int, aid: int, att: dict, settings: Mapping[str, Any], client) -> RerollGenCtx:
+def _build_reroll_gen_ctx(
+    cid: str, mid: int, aid: int, att: Mapping[str, Any], settings: Mapping[str, Any], client
+) -> RerollGenCtx:
     prior_cm = _decode_stored_consumption_metadata(att)
     return RerollGenCtx(
         conversation_id=cid,

@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
+from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ..tool_defs import (
@@ -86,7 +86,7 @@ async def _director_pass(
     mood_fragments: Sequence[Mapping[str, Any]],
     director_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: dict,
-    attachments: Optional[List[dict]] = None,
+    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     kv_tracker=None,
     reasoning_on: bool = True,
     lorebook_block: str = "",

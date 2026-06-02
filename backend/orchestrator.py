@@ -190,7 +190,7 @@ async def _run_pipeline(
     mood_fragments: Sequence[Mapping[str, Any]],
     director_fragments: Sequence[Mapping[str, Any]],
     user_message: str,
-    attachments: Optional[List[dict]] = None,
+    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     phrase_bank: list[PhraseGroup] | None = None,
     lorebook_block: str = "",
     editor_audit_msgs: list[str] | None = None,
@@ -1182,7 +1182,7 @@ async def _resolve_target_and_parent(
 
 async def _prepare_regen_context(
     ctx: PipelineContext, conversation_id: str, target: Mapping[str, Any], user_msg: Mapping[str, Any]
-) -> tuple[Sequence[Mapping[str, Any]], list[dict]]:
+) -> tuple[Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
     """Prepare history and attachments for a regeneration pass.
 
     Also resets director moods to the pre-turn baseline.
@@ -1472,7 +1472,7 @@ async def _generate_reply(
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
     user_message: str,
-    attachments: list[dict],
+    attachments: Sequence[Mapping[str, Any]],
     user_msg_id: int | None,
     asst_turn_index: int,
     log_turn_index: int,

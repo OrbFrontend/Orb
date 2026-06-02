@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, AsyncIterator, List, Mapping, Optional
+from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, reasoning_cfg
 from ..tool_defs import enabled_schemas
@@ -20,7 +20,7 @@ def build_writer_content(
     inj_block: str,
     enabled_tools: dict,
     effective_msg: str,
-    attachments: list[dict] | None,
+    attachments: Sequence[Mapping[str, Any]] | None,
     length_guard_enforce: bool,
     length_guard: dict | None,
 ) -> "str | list":
@@ -54,7 +54,7 @@ async def _writer_pass(
     inj_block: str = "",
     lorebook_block: str = "",
     effective_msg: str,
-    attachments: Optional[List[dict]] = None,
+    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     length_guard_enforce: bool = False,
     length_guard: dict | None = None,
     kv_tracker=None,

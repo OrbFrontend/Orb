@@ -18,8 +18,10 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from typing import cast
 
 from ..connection import get_db
+from ..models import WorkflowAttachmentRow
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +49,7 @@ def _encode_metadata_field(value: object, field_name: str, workflow_id: str, fil
         return None
 
 
-async def get_workflow_attachment_by_id(att_id: int) -> dict | None:
+async def get_workflow_attachment_by_id(att_id: int) -> WorkflowAttachmentRow | None:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -58,7 +60,7 @@ async def get_workflow_attachment_by_id(att_id: int) -> dict | None:
                 (att_id,),
             )
         )
-        return dict(rows[0]) if rows else None
+        return cast(WorkflowAttachmentRow, dict(rows[0])) if rows else None
 
 
 async def insert_workflow_attachment_row(

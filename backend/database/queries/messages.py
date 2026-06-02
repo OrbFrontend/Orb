@@ -3,10 +3,15 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
-from typing import List, Optional, cast
+from typing import Any, List, Mapping, Optional, Sequence, cast
 
 from ..connection import get_db
-from ..models import MessageRow, MessageWithAttachments
+from ..models import (
+    MessageRow,
+    MessageWithAttachments,
+    UserAttachmentRow,
+    WorkflowAttachmentRowBase,
+)
 from .conversations import get_conversation
 
 
@@ -161,7 +166,7 @@ async def add_message(
     content: str,
     turn_index: int,
     parent_id: int | None = None,
-    attachments: Optional[List[dict]] = None,
+    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     progressive_fields: dict | None = None,
 ) -> tuple[int, list[dict]]:
     """Add a message. Returns ``(message_id, rejected_workflow_atts)``.
@@ -187,12 +192,15 @@ async def add_message(
       'seed', and 'generation_metadata'. Lands in `workflow_attachments`
       through the cache module's batch entry point.
     """
+    # workflow atts are materialized into a fresh list[dict] the cache writer
+    # owns and mutates (it tags rejects with a 'reason' and shallow-copies); the
+    # read-only user atts stay as the caller's mappings.
     workflow_atts: list[dict] = []
-    user_atts: list[dict] = []
+    user_atts: list[Mapping[str, Any]] = []
     for att in attachments or []:
         src = att.get("source")
         if isinstance(src, str) and src.startswith("workflow:"):
-            workflow_atts.append(att)
+            workflow_atts.append(dict(att))
         else:
             user_atts.append(att)
 
@@ -247,7 +255,7 @@ async def add_message(
     return message_id, rejected_workflow_atts
 
 
-async def get_user_attachments_for_message(message_id: int) -> List[dict]:
+async def get_user_attachments_for_message(message_id: int) -> List[UserAttachmentRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -256,10 +264,10 @@ async def get_user_attachments_for_message(message_id: int) -> List[dict]:
                 (message_id,),
             )
         )
-        return [dict(r) for r in rows]
+        return [cast(UserAttachmentRow, dict(r)) for r in rows]
 
 
-async def get_workflow_attachments_for_message(message_id: int) -> List[dict]:
+async def get_workflow_attachments_for_message(message_id: int) -> List[WorkflowAttachmentRowBase]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -270,7 +278,7 @@ async def get_workflow_attachments_for_message(message_id: int) -> List[dict]:
                 (message_id,),
             )
         )
-        return [dict(r) for r in rows]
+        return [cast(WorkflowAttachmentRowBase, dict(r)) for r in rows]
 
 
 async def update_message_content(msg_id: int, content: str) -> None:

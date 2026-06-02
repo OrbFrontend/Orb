@@ -4,7 +4,7 @@ utils.py — Shared helpers.
 
 from __future__ import annotations
 
-from typing import Any, List, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 
 def extract_hyperparams(settings: Mapping[str, Any], *, defaults: Mapping[str, Any] | None = None) -> dict:
@@ -28,7 +28,7 @@ def extract_hyperparams(settings: Mapping[str, Any], *, defaults: Mapping[str, A
     return params
 
 
-def build_multimodal_content(text: str, attachments: Optional[List[dict]] = None) -> str | list:
+def build_multimodal_content(text: str, attachments: Optional[Sequence[Mapping[str, Any]]] = None) -> str | list:
     """Wrap *text* (and optional image attachments) into a multimodal content list.
 
     Returns a plain string when there are no attachments, or a list of content
