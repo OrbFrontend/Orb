@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from ..connection import _build_set_clause, get_db
+from ..models import SettingsRow
 from ..seeds import DEFAULT_SETTINGS
 
 
-async def get_settings() -> dict:
+async def get_settings() -> SettingsRow:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM settings WHERE id = 1"))
         if not rows:
-            return DEFAULT_SETTINGS
+            return cast(SettingsRow, DEFAULT_SETTINGS)
         s = dict(rows[0])
         s["enabled_tools"] = json.loads(s.get("enabled_tools") or "{}")
         s["reasoning_enabled_passes"] = json.loads(
@@ -111,7 +113,7 @@ async def get_settings() -> dict:
                                 s[f"agent_{field}"] = amc[field]
                         if amc.get("system_prompt") is not None:
                             s["agent_system_prompt"] = amc["system_prompt"]
-        return s
+        return cast(SettingsRow, s)
 
 
 # Empty slot returns {} here; per-workflow default fallback lives in the
@@ -167,7 +169,7 @@ async def set_workflow_config(workflow_id: str, payload: dict) -> None:
         await db.commit()
 
 
-async def update_settings(data: dict) -> dict:
+async def update_settings(data: dict) -> SettingsRow:
     async with get_db() as db:
         allowed = [
             "endpoint_url",
