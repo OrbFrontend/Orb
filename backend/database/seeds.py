@@ -193,6 +193,8 @@ DEFAULT_SETTINGS = {
     "enable_agent": True,
     "length_guard_max_words": 240,
     "length_guard_max_paragraphs": 4,
+    "length_guard_enabled": 0,
+    "length_guard_enforce": 0,
     "character_library_view": "grid",
     "character_library_sort": "time-added",
     "show_editor_diff": 1,

@@ -226,6 +226,7 @@ class SettingsUpdate(BaseModel):
     enabled_tools: Optional[dict] = None
     enable_agent: Optional[bool] = None
     length_guard_enabled: Optional[bool] = None
+    length_guard_enforce: Optional[bool] = None
     length_guard_max_words: Optional[int] = None
     length_guard_max_paragraphs: Optional[int] = None
     reasoning_enabled_passes: Optional[dict] = None
@@ -1774,9 +1775,14 @@ async def api_get_workflow_config(workflow_id: str):
 @app.post("/api/conversations/{cid}/workflows/{workflow_id}/trigger")
 async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(default={})):  # noqa: B008
     """Run a workflow's on_demand hook against the current conversation state."""
+    if get_workflow(workflow_id) is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
     sub = get_subscription(workflow_id, HookType.ON_DEMAND)
     if sub is None:
-        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workflow {workflow_id!r} has no on_demand handler",
+        )
     # Serialize against the pre/post hook iteration of an in-flight pipeline and
     # against any other /trigger for the same (cid, workflow_id), so the prior
     # workflow_state read the hook depends on cannot be clobbered between read

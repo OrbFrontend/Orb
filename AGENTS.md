@@ -171,7 +171,7 @@ Orb/
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON), length_guard_*, reasoning_enabled_passes, active_persona_id, active_endpoint_id, agent_*, workflow_config (JSON), attachment_cache_budget_bytes, attachment_access_counter |
+| `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON — registered tools only), length_guard_* (enabled/enforce/max_words/max_paragraphs), reasoning_enabled_passes, active_persona_id, active_endpoint_id, agent_*, workflow_config (JSON), attachment_cache_budget_bytes, attachment_access_counter |
 | `endpoints` | LLM API endpoints | url, api_key, active_model_config_id, agent_active_model_config_id → model_configs.id |
 | `model_configs` | Per-endpoint model settings | endpoint_id, model_name, temperature, top_p, top_k, min_p, repetition_penalty, max_tokens, system_prompt, role |
 | `conversations` | Chat sessions | character_card_id, character_name, character_scenario, post_history_instructions, active_leaf_id → messages.id, workflow_state (JSON) |
@@ -314,7 +314,7 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 ```mermaid
 flowchart TD
     settings["settings (row)"] --> active_endpoint["settings.active_endpoint_id → endpoints[id]"]
-    settings --> enabled_tools["settings.enabled_tools → JSON<br/>{direct_scene, rewrite_user_prompt, ...}"]
+    settings --> enabled_tools["settings.enabled_tools → JSON (model-callable tools only)<br/>{direct_scene, rewrite_user_prompt, editor_apply_patch, editor_rewrite}"]
     settings --> reasoning["settings.reasoning_enabled_passes → JSON<br/>{director, writer, editor}"]
     settings --> persona["settings.active_persona_id → user_personas[id]"]
     settings --> agent["settings.agent_endpoint_id → endpoints[id]<br/>settings.agent_shared_system_prompt"]
@@ -390,11 +390,27 @@ When running under Codex's filesystem/network sandbox, `aiosqlite` integration t
 
 ### Adding a New Tool
 
+A *tool* is a model-callable function schema. `settings.enabled_tools` holds
+**only** tools — `update_settings` sanitizes the JSON against the `TOOLS` registry,
+so a non-tool key there is dropped on save. For a UI toggle that is *not* a model
+function (a "feature flag"), see the next subsection instead.
+
 1. Define the tool schema in `tool_defs.py` (OpenAI function-calling format)
 2. Register in `TOOLS` dict with `choice` and `schema` entries
 3. Add to `PRE_WRITER_TOOLS` or `POST_WRITER_TOOLS` sets
 4. Handle the tool call response in the relevant pass
-5. Add toggle in `settings.enabled_tools` and frontend tools panel
+5. Add toggle in `settings.enabled_tools` (key == tool name) and the frontend `TOOL_DEFS` panel
+
+### Adding a Feature Flag (non-tool toggle)
+
+For a pipeline/UI feature that is *not* a model function (e.g. the length guard):
+
+1. Add a dedicated `settings` column (boolean → `INTEGER NOT NULL DEFAULT 0`) in
+   `database/schema.py`, `database/seeds.py`, and a numbered migration
+2. Add it to the `allowed` list in `database/queries/settings.py` and the
+   `SettingsUpdate` model in `main.py`
+3. Read it from `settings` (not `enabled_tools`) in the pipeline
+4. Persist it as a top-level field from the frontend (not via `enabled_tools`)
 
 ### Adding a New Secondary Workflow
 

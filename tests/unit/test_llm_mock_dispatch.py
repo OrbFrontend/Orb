@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from tests.integration._llm_mock import _pass_from_tool_choice
 
 
@@ -40,9 +42,13 @@ def test_arbitrary_function_name_routes_to_workflow():
     assert _pass_from_tool_choice(tc) == "workflow"
 
 
-def test_dict_without_function_name_falls_through_to_director():
-    assert _pass_from_tool_choice({"type": "function", "function": {}}) == "director"
+def test_dict_without_function_name_raises():
+    # No production pass forces a function without a name; treating this as a
+    # silent "director" route would mask a malformed tool_choice.
+    with pytest.raises(ValueError):
+        _pass_from_tool_choice({"type": "function", "function": {}})
 
 
-def test_unrecognized_string_falls_through_to_director():
-    assert _pass_from_tool_choice("required") == "director"
+def test_unrecognized_string_raises():
+    with pytest.raises(ValueError):
+        _pass_from_tool_choice("required")

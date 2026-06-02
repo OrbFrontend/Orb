@@ -209,8 +209,9 @@ def _base_settings(**overrides) -> dict:
     settings = {
         "model_name": "writer-model",
         "enable_agent": 1,
-        "enabled_tools": {"direct_scene": True, "editor_apply_patch": True, "length_guard": True},
+        "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
         "reasoning_enabled_passes": {},
+        "length_guard_enabled": 1,
         "length_guard_max_words": 5,  # tiny, so _WRITER_DRAFT always trips the guard
         "length_guard_max_paragraphs": 1,
     }

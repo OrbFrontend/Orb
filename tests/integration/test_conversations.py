@@ -96,7 +96,10 @@ async def test_touch_conversation_updates_timestamp(client, db):
     async with db.execute("SELECT updated_at FROM conversations WHERE id = ?", (cid,)) as cur:
         after = (await cur.fetchone())["updated_at"]
 
-    assert after >= before
+    # Strict >: touch must move the timestamp forward, not merely leave it
+    # unchanged. updated_at is an ISO string with microsecond resolution
+    # (touch_conversation), so the 0.01s sleep guarantees a later value.
+    assert after > before
 
 
 async def test_conversation_with_character_card(client, db):

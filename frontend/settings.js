@@ -112,17 +112,9 @@ export async function loadSettings() {
   if (S.settings.enabled_tools) S.enabledTools = { ...S.enabledTools, ...S.settings.enabled_tools };
   if (typeof S.settings.enable_agent === "number") S.agentEnabled = S.settings.enable_agent !== 0;
 
-  if (S.settings.enabled_tools && "length_guard" in S.settings.enabled_tools) {
-    S.lengthGuardEnabled = Boolean(S.settings.enabled_tools.length_guard);
-  } else {
-    S.lengthGuardEnabled = false;
-  }
-
-  if (S.settings.enabled_tools && "length_guard_enforce" in S.settings.enabled_tools) {
-    S.lengthGuardEnforce = Boolean(S.settings.enabled_tools.length_guard_enforce);
-  } else {
-    S.lengthGuardEnforce = false;
-  }
+  // Length guard is a feature flag, not a tool — its own settings columns, not enabled_tools.
+  S.lengthGuardEnabled = Boolean(S.settings.length_guard_enabled);
+  S.lengthGuardEnforce = Boolean(S.settings.length_guard_enforce);
 
   if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
@@ -1099,16 +1091,14 @@ export async function toggleToolEnabled(id, on) {
 
 export async function toggleLengthGuard(on) {
   S.lengthGuardEnabled = on;
-  S.enabledTools.length_guard = on;
   renderToolsPanel();
-  await persistSettings({ enabled_tools: S.enabledTools });
+  await persistSettings({ length_guard_enabled: on });
 }
 
 export async function toggleLengthGuardEnforce(on) {
   S.lengthGuardEnforce = on;
-  S.enabledTools.length_guard_enforce = on;
   renderToolsPanel();
-  await persistSettings({ enabled_tools: S.enabledTools });
+  await persistSettings({ length_guard_enforce: on });
 }
 
 export async function toggleShowEditorDiff(on) {

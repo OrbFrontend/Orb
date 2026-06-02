@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 from typing import AsyncIterator, List, Optional
 
 from . import database as db
@@ -90,12 +90,14 @@ def _resolve_pipeline_config(
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
 
-    length_guard_enabled = bool(enabled_tools.get("length_guard", False)) if agent_on else False
-    # Mirror editor_rewrite into enabled_tools so enabled_schemas() includes its
-    # schema in all three passes — the same KV-cache approach as editor_apply_patch.
+    length_guard_enabled = bool(settings.get("length_guard_enabled", 0)) if agent_on else False
+    # The length-guard *feature* requires the editor_rewrite *tool*: mirror it into
+    # enabled_tools so enabled_schemas() includes its schema in all three passes —
+    # the same KV-cache approach as editor_apply_patch. editor_rewrite is internal
+    # (not user-toggleable); this feature flag is its only enable path.
     if length_guard_enabled:
         enabled_tools = {**enabled_tools, "editor_rewrite": True}
-    length_guard_enforce = bool(enabled_tools.get("length_guard_enforce", False)) if agent_on else False
+    length_guard_enforce = bool(settings.get("length_guard_enforce", 0)) if agent_on else False
 
     # length_guard_enabled already folds in agent_on (it is False whenever the
     # agent is off), so no extra `and agent_on` guard is needed below.
@@ -133,6 +135,42 @@ def _resolve_pipeline_config(
         editor_prefix=agent_prefix or prefix,
         agent_model=(settings.get("agent_model_name", settings["model_name"]) if agent_client else settings["model_name"]),
     )
+
+
+@dataclass
+class _PipelineResult:
+    """Terminal payload of the pipeline's internal ``_result`` event: the final
+    draft plus everything the persistence path needs.
+
+    It crosses the SSE hop as a plain dict (``as_event_data()``) so the
+    ``_result`` event stays JSON-shaped for tests and inspectors, then is rebuilt
+    into this typed form by :func:`_consume_pipeline` before the persist helpers
+    read it. Every field defaults, so a turn aborted before ``_result`` ever
+    fires (or a test injecting a partial payload) still produces a usable
+    instance via the bare ``_PipelineResult()`` seed in :func:`_consume_pipeline`.
+    """
+
+    active_moods: list = field(default_factory=list)
+    agent_raw: str = ""
+    calls: list = field(default_factory=list)
+    latency: int = 0
+    rewritten_msg: str | None = None
+    effective_msg: str = ""
+    resp_text: str = ""
+    inj_block: str = ""
+    extra_fields: dict = field(default_factory=dict)
+    progressive_fields: dict = field(default_factory=dict)
+    reasoning_director: str = ""
+    reasoning_writer: str = ""
+    reasoning_editor: str = ""
+    staged_attachments: list = field(default_factory=list)
+    staged_message_state: dict = field(default_factory=dict)
+
+    def as_event_data(self) -> dict:
+        """Shallow field dict for the ``_result`` SSE envelope. Shallow on
+        purpose: ``staged_attachments`` carries raw artifact bytes that must not
+        be deep-copied."""
+        return {f.name: getattr(self, f.name) for f in fields(self)}
 
 
 async def _run_pipeline(
@@ -197,6 +235,10 @@ async def _run_pipeline(
 
     user_message = macros.resolve_message(user_message)
 
+    # Resolved per-turn config; referenced as cfg.* throughout so each use site
+    # reads as immutable derived config, distinct from the mutable turn state
+    # below. cfg.enabled_tools is the length-guard-folded map (not the bare
+    # *enabled_tools* parameter), so the pipeline reads tools through cfg.
     cfg = _resolve_pipeline_config(
         settings,
         enabled_tools,
@@ -207,22 +249,6 @@ async def _run_pipeline(
         prefix=prefix,
         phrase_bank=phrase_bank,
     )
-    agent_on = cfg.agent_on
-    enabled_tools = cfg.enabled_tools
-    director_reasoning_on = cfg.director_reasoning_on
-    writer_reasoning_on = cfg.writer_reasoning_on
-    editor_reasoning_on = cfg.editor_reasoning_on
-    audit_enabled = cfg.audit_enabled
-    length_guard_enforce = cfg.length_guard_enforce
-    length_guard = cfg.length_guard
-    do_edit = cfg.do_edit
-    writer_enabled_tools = cfg.writer_enabled_tools
-    director_client = cfg.director_client
-    writer_client = cfg.writer_client
-    editor_client = cfg.editor_client
-    director_prefix = cfg.director_prefix
-    editor_prefix = cfg.editor_prefix
-    agent_model = cfg.agent_model
 
     # Mutable turn state, accumulated as the three passes run below.
     active_moods = director["active_moods"]
@@ -238,23 +264,23 @@ async def _run_pipeline(
     effective_msg = user_message
 
     # --- Director pass ---
-    has_pre_writer_tools = any(enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
-    if agent_on and has_pre_writer_tools:
+    has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
+    if cfg.agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
         async for event in _director_pass(
-            director_client,
-            director_prefix,
+            cfg.director_client,
+            cfg.director_prefix,
             user_message,
             settings,
             director,
             mood_fragments,
             director_fragments,
-            enabled_tools,
+            cfg.enabled_tools,
             attachments=attachments,
             kv_tracker=kv_tracker,
-            reasoning_on=director_reasoning_on,
+            reasoning_on=cfg.director_reasoning_on,
             lorebook_block=lorebook_block,
-            model=agent_model,
+            model=cfg.agent_model,
             progressive_state=progressive_state,
             schema_overrides=schema_overrides,
         ):
@@ -286,7 +312,7 @@ async def _run_pipeline(
         return
 
     # Style injection
-    direct_scene_enabled = agent_on and bool(enabled_tools.get("direct_scene", False))
+    direct_scene_enabled = cfg.agent_on and bool(cfg.enabled_tools.get("direct_scene", False))
     inj_block = macros.resolve_message(
         compute_style_injection_block(
             active_moods,
@@ -314,26 +340,26 @@ async def _run_pipeline(
     writer_content = build_writer_content(
         lorebook_block,
         inj_block,
-        writer_enabled_tools,
+        cfg.writer_enabled_tools,
         effective_msg,
         attachments,
-        length_guard_enforce,
-        length_guard,
+        cfg.length_guard_enforce,
+        cfg.length_guard,
     )
     resp_text = ""
     async for item in _writer_pass(
-        writer_client,
+        cfg.writer_client,
         prefix,
         settings,
-        writer_enabled_tools,
+        cfg.writer_enabled_tools,
         inj_block=inj_block,
         lorebook_block=lorebook_block,
         effective_msg=effective_msg,
         attachments=attachments,
-        length_guard_enforce=length_guard_enforce,
-        length_guard=length_guard,
+        length_guard_enforce=cfg.length_guard_enforce,
+        length_guard=cfg.length_guard,
         kv_tracker=kv_tracker,
-        reasoning_on=writer_reasoning_on,
+        reasoning_on=cfg.writer_reasoning_on,
         schema_overrides=schema_overrides,
     ):
         if item["type"] == "reasoning":
@@ -349,23 +375,23 @@ async def _run_pipeline(
     def _make_result(final_text: str, staged: list[dict], staged_state: dict | None = None) -> dict:
         return {
             "event": "_result",
-            "data": {
-                "active_moods": active_moods,
-                "agent_raw": agent_raw,
-                "calls": calls,
-                "latency": latency,
-                "rewritten_msg": rewritten_msg,
-                "effective_msg": effective_msg,
-                "resp_text": final_text,
-                "inj_block": inj_block,
-                "extra_fields": extra_fields,
-                "progressive_fields": progressive_fields,
-                "reasoning_director": reasoning_director_text,
-                "reasoning_writer": reasoning_writer_text,
-                "reasoning_editor": reasoning_editor_text,
-                "staged_attachments": staged,
-                "staged_message_state": staged_state or {},
-            },
+            "data": _PipelineResult(
+                active_moods=active_moods,
+                agent_raw=agent_raw,
+                calls=calls,
+                latency=latency,
+                rewritten_msg=rewritten_msg,
+                effective_msg=effective_msg,
+                resp_text=final_text,
+                inj_block=inj_block,
+                extra_fields=extra_fields,
+                progressive_fields=progressive_fields,
+                reasoning_director=reasoning_director_text,
+                reasoning_writer=reasoning_writer_text,
+                reasoning_editor=reasoning_editor_text,
+                staged_attachments=staged,
+                staged_message_state=staged_state or {},
+            ).as_event_data(),
         }
 
     # If the turn was aborted during writer, persist what streamed so far and
@@ -377,7 +403,7 @@ async def _run_pipeline(
         return
 
     # --- Editor pass ---
-    if do_edit and resp_text:
+    if cfg.do_edit and resp_text:
         logger.info(
             "Editor pass starting (draft=%d chars, phrase_bank=%d groups)",
             len(resp_text),
@@ -385,19 +411,19 @@ async def _run_pipeline(
         )
         try:
             async for event in editor_pass(
-                editor_client,
-                editor_prefix,
+                cfg.editor_client,
+                cfg.editor_prefix,
                 effective_msg,
                 resp_text,
                 settings,
                 phrase_bank or [],
-                enabled_tools,
-                audit_enabled,
-                length_guard,
+                cfg.enabled_tools,
+                cfg.audit_enabled,
+                cfg.length_guard,
                 kv_tracker=kv_tracker,
-                reasoning_on=editor_reasoning_on,
+                reasoning_on=cfg.editor_reasoning_on,
                 audit_context_msgs=editor_audit_msgs,
-                model=agent_model,
+                model=cfg.agent_model,
                 writer_user_msg=writer_content,
                 schema_overrides=schema_overrides,
             ):
@@ -423,7 +449,7 @@ async def _run_pipeline(
         except Exception as e:
             logger.error("editor pass failed, keeping original: %s", e, exc_info=True)
     else:
-        logger.info("Editor pass skipped (do_edit=%s, draft=%d chars)", do_edit, len(resp_text))
+        logger.info("Editor pass skipped (do_edit=%s, draft=%d chars)", cfg.do_edit, len(resp_text))
 
     # --- Post-pipeline workflow iteration ---
     director_output = {
@@ -446,7 +472,7 @@ async def _run_pipeline(
         director_output=director_output,
         settings=settings,
         prefix=prefix,
-        enabled_tools=enabled_tools,
+        enabled_tools=cfg.enabled_tools,
         turn_scratch=turn_scratch,
         client=client,
         kv_tracker=kv_tracker,
@@ -1071,20 +1097,20 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
     (see ``handle_fork_edit``'s docstring for why branches log at the assistant
     turn)."""
 
-    async def _on_result(res, asst_id):
+    async def _on_result(res: _PipelineResult, asst_id):
         await db.add_conversation_log(
             conversation_id,
             log_turn_index,
-            res["agent_raw"],
-            res["calls"],
-            res["active_moods"],
-            res["inj_block"],
-            res["latency"],
-            res.get("progressive_fields"),
+            res.agent_raw,
+            res.calls,
+            res.active_moods,
+            res.inj_block,
+            res.latency,
+            res.progressive_fields,
             message_id=asst_id,
-            reasoning_director=res.get("reasoning_director", ""),
-            reasoning_writer=res.get("reasoning_writer", ""),
-            reasoning_editor=res.get("reasoning_editor", ""),
+            reasoning_director=res.reasoning_director,
+            reasoning_writer=res.reasoning_writer,
+            reasoning_editor=res.reasoning_editor,
         )
 
     return _on_result
@@ -1126,7 +1152,7 @@ async def _prepare_regen_context(
 
 async def _persist_result(
     conversation_id: str,
-    res: dict,
+    res: _PipelineResult,
     settings: dict,
     user_msg_id: int | None,
     turn_index: int,
@@ -1141,21 +1167,21 @@ async def _persist_result(
     if settings.get("enable_agent", 1):
         await db.update_director_state(
             conversation_id,
-            res["active_moods"],
-            progressive_fields=res.get("progressive_fields"),
+            res.active_moods,
+            progressive_fields=res.progressive_fields,
         )
-    if res.get("rewritten_msg") and user_msg_id:
-        await db.update_message_content(user_msg_id, res["effective_msg"])
+    if res.rewritten_msg and user_msg_id:
+        await db.update_message_content(user_msg_id, res.effective_msg)
 
     # Only create a message if there's actual content.
     # The writer pass can produce empty resp_text if the LLM completes
     # without generating any non‑reasoning tokens (e.g., reasoning‑only mode).
-    resp_text = res.get("resp_text", "")
+    resp_text = res.resp_text
     if resp_text.strip():
         # Workflow-staged attachments ride the same transaction as the row
         # INSERT so they persist iff the message persists; an aborted turn
         # that never reaches this call leaves no orphan attachment rows.
-        staged = res.get("staged_attachments") or None
+        staged = res.staged_attachments or None
         asst_id, rejected = await db.add_message(
             conversation_id,
             "assistant",
@@ -1163,12 +1189,12 @@ async def _persist_result(
             turn_index,
             parent_id=user_msg_id,
             attachments=staged,
-            progressive_fields=res.get("progressive_fields"),
+            progressive_fields=res.progressive_fields,
         )
         # Per-workflow state staged by post-pipeline hooks targets this row,
         # whose id is only known now. The row is not yet the active leaf and
         # no other caller can name it, so each blind first write needs no lock.
-        for wid, payload in (res.get("staged_message_state") or {}).items():
+        for wid, payload in res.staged_message_state.items():
             try:
                 await db.set_workflow_message_state(asst_id, wid, payload)
             except Exception:
@@ -1193,7 +1219,7 @@ async def _persist_result(
 
 async def _fallback_persist(
     conversation_id: str,
-    res: dict,
+    res: _PipelineResult,
     settings: dict,
     user_msg_id: int | None,
     turn_index: int,
@@ -1207,14 +1233,14 @@ async def _fallback_persist(
     included in accumulated_text.
     """
     try:
-        if res.get("active_moods") and settings.get("enable_agent", 1):
+        if res.active_moods and settings.get("enable_agent", 1):
             await db.update_director_state(
                 conversation_id,
-                res["active_moods"],
-                progressive_fields=res.get("progressive_fields"),
+                res.active_moods,
+                progressive_fields=res.progressive_fields,
             )
-        if res.get("rewritten_msg") and user_msg_id:
-            await db.update_message_content(user_msg_id, res["effective_msg"])
+        if res.rewritten_msg and user_msg_id:
+            await db.update_message_content(user_msg_id, res.effective_msg)
 
         # Only save if there's actual writer output (token events).
         # accumulated_text only contains streamed tokens from the writer pass;
@@ -1240,7 +1266,7 @@ async def _fallback_persist(
 
 async def _shielded_fallback(
     conversation_id: str,
-    res: dict,
+    res: _PipelineResult,
     settings: dict,
     user_msg_id: int | None,
     turn_index: int,
@@ -1272,7 +1298,7 @@ async def _shielded_fallback(
             logger.exception("Fallback persistence retry failed")
 
 
-async def _shielded_log_save(extra_on_result, res: dict, asst_id: int | None):
+async def _shielded_log_save(extra_on_result, res: _PipelineResult, asst_id: int | None):
     """Run the post-persist ``extra_on_result`` callback exactly once, under
     ``asyncio.shield`` so a cancellation arriving mid-write cannot leave it
     half-done.
@@ -1312,7 +1338,7 @@ async def _consume_pipeline(
     that runs right after the assistant message is persisted (for handle_turn's
     conversation-log write, for example).
     """
-    res: dict = {}
+    res = _PipelineResult()
     asst_id = None
     persisted = False
     accumulated_text = ""
@@ -1324,7 +1350,10 @@ async def _consume_pipeline(
                 accumulated_text += event["data"]
                 yield event
             elif etype == "_result":
-                res = event["data"]
+                # Rebuild the typed result from the dict-shaped SSE payload
+                # (see _PipelineResult.as_event_data). The bare _PipelineResult()
+                # seed above stays in place if the turn aborts before _result.
+                res = _PipelineResult(**event["data"])
                 asst_id, rejected = await _persist_result(conversation_id, res, settings, user_msg_id, turn_index)
                 persisted = True
                 if rejected and asst_id is not None:

@@ -59,8 +59,8 @@ async def _configure_all_features(client) -> None:
                 "direct_scene": True,
                 "rewrite_user_prompt": True,  # → director makes TWO calls
                 "editor_apply_patch": True,
-                "length_guard": True,
             },
+            "length_guard_enabled": True,
             "length_guard_max_words": 5,  # _LONG_DRAFT (60 words) always trips it
         },
     )
