@@ -839,11 +839,45 @@ async def _iterate_pre_pipeline_hooks(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def _load_pipeline_context(conversation_id: str) -> dict | None:
+@dataclass(frozen=True)
+class PipelineContext:
+    """Resolved per-conversation inputs the pipeline needs, loaded once by
+    :func:`_load_pipeline_context` and threaded through every entry point.
+
+    Frozen so the *binding* of each field is immutable; the optional fields make
+    explicit what was previously only implied by the ``ctx[...]`` vs
+    ``ctx.get(...)`` split in readers. ``card`` / ``active_persona`` are None when
+    the conversation has no character card / no active user persona; ``agent_client``
+    and ``agent_system_prompt`` are None unless a separate agent endpoint is
+    configured (they travel together). ``director`` is a mutable dict held by
+    reference and deliberately mutated in place — the regenerate paths reset its
+    ``active_moods`` / ``progressive_fields`` to the branch baseline before a turn,
+    which the frozen dataclass does not prevent (it guards rebinding the field,
+    not mutating the dict it points at).
+    """
+
+    settings: dict
+    conv: dict
+    card: Optional[dict]
+    director: dict
+    mood_fragments: list[dict]
+    director_fragments: list[dict]
+    phrase_bank: list[dict]
+    lorebook_entries: list[dict]
+    client: LLMClient
+    system_prompt: str
+    char_persona: str
+    mes_example: str
+    active_persona: Optional[dict]
+    agent_client: Optional[LLMClient]
+    agent_system_prompt: Optional[str]
+
+
+async def _load_pipeline_context(conversation_id: str) -> PipelineContext | None:
     """Load everything the pipeline needs: settings, conversation, director,
     mood_fragments, phrase_bank, and an LLMClient.
 
-    Returns a dict of resolved objects, or None if the conversation was not found.
+    Returns a :class:`PipelineContext`, or None if the conversation was not found.
     """
     settings = await db.get_settings()
     conv = await db.get_conversation(conversation_id)
@@ -898,50 +932,50 @@ async def _load_pipeline_context(conversation_id: str) -> dict | None:
             conv, settings, shared_key="agent_shared_system_prompt", card=card
         )
 
-    return {
-        "settings": settings,
-        "conv": conv,
-        "card": card,
-        "director": director,
-        "mood_fragments": mood_fragments,
-        "director_fragments": director_fragments,
-        "phrase_bank": phrase_bank,
-        "lorebook_entries": lorebook_entries,
-        "client": client,
-        "system_prompt": system_prompt,
-        "char_persona": char_persona,
-        "mes_example": mes_example,
-        "active_persona": active_persona,
-        "agent_client": agent_client,
-        "agent_system_prompt": agent_system_prompt,
-    }
+    return PipelineContext(
+        settings=settings,
+        conv=conv,
+        card=card,
+        director=director,
+        mood_fragments=mood_fragments,
+        director_fragments=director_fragments,
+        phrase_bank=phrase_bank,
+        lorebook_entries=lorebook_entries,
+        client=client,
+        system_prompt=system_prompt,
+        char_persona=char_persona,
+        mes_example=mes_example,
+        active_persona=active_persona,
+        agent_client=agent_client,
+        agent_system_prompt=agent_system_prompt,
+    )
 
 
 def _build_prefix_from_ctx(
-    ctx: dict,
+    ctx: PipelineContext,
     history: list[dict],
     *,
     system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
 ) -> list[dict]:
-    """Build the LLM prefix from a pipeline-context dict.
+    """Build the LLM prefix from a :class:`PipelineContext`.
 
-    When *system_prompt* is provided it overrides ``ctx["system_prompt"]``
+    When *system_prompt* is provided it overrides ``ctx.system_prompt``
     (used for the agent prefix when it has its own system prompt).
     *extra_system_blocks* appends contributions from pre-pipeline hooks; None
     or an empty list preserves baseline byte parity.
     """
-    conv = ctx["conv"]
-    active_persona = ctx.get("active_persona")
-    macros = Macros.from_settings(ctx["settings"], conv["character_name"], active_persona)
-    user_description = active_persona.get("description", "") if active_persona else ctx["settings"].get("user_description", "")
+    conv = ctx.conv
+    active_persona = ctx.active_persona
+    macros = Macros.from_settings(ctx.settings, conv["character_name"], active_persona)
+    user_description = active_persona.get("description", "") if active_persona else ctx.settings.get("user_description", "")
 
     return build_prefix(
-        system_prompt if system_prompt is not None else ctx["system_prompt"],
-        ctx["char_persona"],
+        system_prompt if system_prompt is not None else ctx.system_prompt,
+        ctx.char_persona,
         conv["character_scenario"],
-        ctx["mes_example"],
-        ("" if ctx["settings"].get("prevent_prompt_overrides") else conv.get("post_history_instructions", "")),
+        ctx.mes_example,
+        ("" if ctx.settings.get("prevent_prompt_overrides") else conv.get("post_history_instructions", "")),
         history,
         macros,
         user_description,
@@ -950,7 +984,7 @@ def _build_prefix_from_ctx(
 
 
 def _build_prefixes(
-    ctx: dict,
+    ctx: PipelineContext,
     history: list[dict],
     *,
     extra_system_blocks: list[str] | None = None,
@@ -962,7 +996,7 @@ def _build_prefixes(
     system body stays identical across director / writer / editor.
     """
     prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks)
-    agent_sp = ctx.get("agent_system_prompt")
+    agent_sp = ctx.agent_system_prompt
     agent_prefix = (
         _build_prefix_from_ctx(ctx, history, system_prompt=agent_sp, extra_system_blocks=extra_system_blocks)
         if agent_sp is not None
@@ -971,11 +1005,11 @@ def _build_prefixes(
     return prefix, agent_prefix
 
 
-def _compute_lorebook(macros: Macros, ctx: dict, messages: list[dict]) -> str:
+def _compute_lorebook(macros: Macros, ctx: PipelineContext, messages: list[dict]) -> str:
     """Compute the lorebook injection block for a sequence of *messages*."""
     return compute_lorebook_injection_block(
         messages,
-        ctx.get("lorebook_entries", []),
+        ctx.lorebook_entries,
         macros,
     )
 
@@ -1002,7 +1036,7 @@ class _TurnSetup:
 
 
 async def _prepare_turn(
-    ctx: dict,
+    ctx: PipelineContext,
     conversation_id: str,
     *,
     history: list[dict],
@@ -1029,10 +1063,10 @@ async def _prepare_turn(
     (super-regenerate passes its rewrite-disabled copy). *last_user_message* is
     handed to the hooks; *lorebook_messages* is the full message list (history
     plus the turn's probe message) scanned for lorebook keywords. Macros and
-    prefixes are always built from ``ctx["settings"]`` so the system body stays
+    prefixes are always built from ``ctx.settings`` so the system body stays
     byte-identical across passes regardless of per-call setting tweaks.
     """
-    macros = Macros.from_settings(ctx["settings"], ctx["conv"]["character_name"], ctx.get("active_persona"))
+    macros = Macros.from_settings(ctx.settings, ctx.conv["character_name"], ctx.active_persona)
     lorebook_block = _compute_lorebook(macros, ctx, lorebook_messages)
 
     prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
@@ -1040,7 +1074,7 @@ async def _prepare_turn(
     # Per-turn shared identities — ref-shared across the hooks and every pass.
     turn_scratch: dict = {}
     kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
-    schema_overrides = {"direct_scene": build_direct_scene_tool(ctx["director_fragments"])}
+    schema_overrides = {"direct_scene": build_direct_scene_tool(ctx.director_fragments)}
 
     enabled_tools_setting = settings.get("enabled_tools") or {}
     if settings.get("enable_agent", 1):
@@ -1057,15 +1091,15 @@ async def _prepare_turn(
     # system blocks below; any other yield passes through to the SSE stream.
     async for ev in _iterate_pre_pipeline_hooks(
         conversation_id=conversation_id,
-        character_id=ctx["conv"].get("character_card_id"),
-        card=ctx["card"],
+        character_id=ctx.conv.get("character_card_id"),
+        card=ctx.card,
         history=history,
         last_user_message=last_user_message,
         settings=settings,
         prefix_base=prefix_base,
         enabled_tools_pre_merge=enabled_tools_pre_merge,
         turn_scratch=turn_scratch,
-        client=ctx["client"],
+        client=ctx.client,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
         accumulators=accumulators,
@@ -1135,7 +1169,7 @@ async def _resolve_target_and_parent(conversation_id: str, assistant_msg_id: int
 
 
 async def _prepare_regen_context(
-    ctx: dict, conversation_id: str, target: dict, user_msg: dict
+    ctx: PipelineContext, conversation_id: str, target: dict, user_msg: dict
 ) -> tuple[list[dict], list[dict]]:
     """Prepare history and attachments for a regeneration pass.
 
@@ -1145,9 +1179,9 @@ async def _prepare_regen_context(
     parent_id: int | None = user_msg.get("parent_id")
     history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
     moods_before = await db.get_moods_before_turn(conversation_id, target["turn_index"] - 1)
-    ctx["director"]["active_moods"] = moods_before
+    ctx.director["active_moods"] = moods_before
     grandparent = next((m for m in reversed(history) if m["role"] == "assistant"), None)
-    ctx["director"]["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
+    ctx.director["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
     user_msg_id = target["parent_id"]
     attachments = await db.get_user_attachments_for_message(user_msg_id) if user_msg_id else []
     return history, attachments
@@ -1405,20 +1439,20 @@ async def _consume_pipeline(
     yield {"event": "done"}
 
 
-def _register_clients(ctx: dict, client_ref: list | None, *, include_agent: bool = True) -> None:
+def _register_clients(ctx: PipelineContext, client_ref: list | None, *, include_agent: bool = True) -> None:
     """Expose the turn's LLM client(s) on *client_ref* so a /stop can abort them.
 
     *include_agent* is False for magic-rewrite, which never spins up the agent.
     """
     if client_ref is None:
         return
-    client_ref.append(ctx["client"])
-    if include_agent and ctx.get("agent_client"):
-        client_ref.append(ctx["agent_client"])
+    client_ref.append(ctx.client)
+    if include_agent and ctx.agent_client:
+        client_ref.append(ctx.agent_client)
 
 
 async def _generate_reply(
-    ctx: dict,
+    ctx: PipelineContext,
     conversation_id: str,
     *,
     history: list[dict],
@@ -1462,22 +1496,22 @@ async def _generate_reply(
     assert setup is not None
 
     pipeline = _run_pipeline(
-        ctx["client"],
+        ctx.client,
         pipeline_settings,
-        ctx["director"],
-        ctx["mood_fragments"],
-        ctx["director_fragments"],
+        ctx.director,
+        ctx.mood_fragments,
+        ctx.director_fragments,
         user_message,
         attachments=attachments,
-        phrase_bank=ctx["phrase_bank"],
+        phrase_bank=ctx.phrase_bank,
         lorebook_block=setup.lorebook_block,
         editor_audit_msgs=editor_audit_msgs,
-        agent_client=ctx.get("agent_client"),
+        agent_client=ctx.agent_client,
         agent_prefix=setup.agent_prefix,
         macros=setup.macros,
         conversation_id=conversation_id,
-        character_id=ctx["conv"].get("character_card_id"),
-        card=ctx["card"],
+        character_id=ctx.conv.get("character_card_id"),
+        card=ctx.card,
         prefix=setup.prefix,
         enabled_tools=setup.merged_enabled_tools,
         turn_scratch=setup.turn_scratch,
@@ -1518,9 +1552,9 @@ async def handle_turn(
 
         _register_clients(ctx, client_ref)
 
-        settings = ctx["settings"]
+        settings = ctx.settings
         messages = await db.get_messages(conversation_id)
-        conv = ctx["conv"]
+        conv = ctx.conv
 
         history, user_msg_id = messages, None
         user_parent_id = conv.get("active_leaf_id")
@@ -1541,7 +1575,7 @@ async def handle_turn(
         # rather than conversation_logs which are indexed by turn_index and can
         # return data from a different branch after a branch switch.
         grandparent = next((m for m in reversed(messages) if m["role"] == "assistant"), None)
-        ctx["director"]["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
+        ctx.director["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
 
         # Save user message BEFORE pipeline
         if not skip_user_persist:
@@ -1620,7 +1654,7 @@ async def handle_fork_edit(
 
         _register_clients(ctx, client_ref)
 
-        settings = ctx["settings"]
+        settings = ctx.settings
         original = await db.get_message_by_id(user_msg_id)
         if not original or original["conversation_id"] != conversation_id or original["role"] != "user":
             yield {"event": "error", "data": "Invalid target message"}
@@ -1635,9 +1669,9 @@ async def handle_fork_edit(
         # moods as of the branch point, and progressive_fields read branch-aware
         # from the grandparent assistant node (not conversation_logs, which are
         # turn-indexed and can leak across branches).
-        ctx["director"]["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
+        ctx.director["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
         grandparent = next((m for m in reversed(history) if m["role"] == "assistant"), None)
-        ctx["director"]["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
+        ctx.director["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
 
         # Carry the original message's user attachments onto the new sibling and
         # into the prompt. DB-format dicts (mime_type/data_b64) pass straight
@@ -1689,7 +1723,7 @@ async def handle_regenerate(
 
         _register_clients(ctx, client_ref)
 
-        settings = ctx["settings"]
+        settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
             yield {"event": "error", "data": result}
@@ -1735,7 +1769,7 @@ async def handle_super_regenerate(
 
         _register_clients(ctx, client_ref)
 
-        settings = ctx["settings"]
+        settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
             yield {"event": "error", "data": result}
@@ -1806,7 +1840,7 @@ async def handle_magic_rewrite(
 
         _register_clients(ctx, client_ref, include_agent=False)
 
-        settings = ctx["settings"]
+        settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
             yield {"event": "error", "data": result}
@@ -1831,7 +1865,7 @@ async def handle_magic_rewrite(
         extra = reasoning_cfg(writer_reasoning_on)
 
         accumulated = ""
-        async for item in ctx["client"].complete(messages=msgs, model=settings["model_name"], **extra, **hyperparams):
+        async for item in ctx.client.complete(messages=msgs, model=settings["model_name"], **extra, **hyperparams):
             if item["type"] == "done":
                 break
             if item["type"] == "reasoning":
@@ -1845,7 +1879,7 @@ async def handle_magic_rewrite(
 
         # On abort, keep the original message intact rather than overwriting it
         # with the partial rewrite that streamed before the stop.
-        if accumulated.strip() and not ctx["client"].is_aborted:
+        if accumulated.strip() and not ctx.client.is_aborted:
             await db.update_message_content(assistant_msg_id, accumulated)
 
         # Emitted on the success path only — on error we yield "error" and stop,
