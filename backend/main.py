@@ -168,9 +168,9 @@ async def _workflow_root_lock(root_id: int):
 # SSE error event; /edit, /delete, and /switch-branch share the same lock
 # but block on the stream instead of erroring, since they have no SSE
 # channel for an "already running" reply and the user expects them to take
-# effect rather than fail. Closes: doubled-LLM cost on concurrent /send,
-# FK cascade on mid-stream /delete, terminal set_active_leaf clobber of a
-# mid-stream /switch-branch, and pre-edit-prefix vs post-edit-DB skew on
+# effect rather than fail. The lock prevents doubled-LLM cost on concurrent
+# /send, FK cascade on mid-stream /delete, terminal set_active_leaf clobber
+# of a mid-stream /switch-branch, and pre-edit-prefix vs post-edit-DB skew on
 # mid-stream /edit. Dict growth shape matches _workflow_root_locks.
 _conversation_stream_locks: dict[str, asyncio.Lock] = {}
 

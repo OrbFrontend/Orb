@@ -1803,9 +1803,9 @@ async def handle_magic_rewrite(
             if item["type"] == "done":
                 break
             if item["type"] == "reasoning":
-                # Stream reasoning deltas like the main pipeline does instead of
-                # dropping them; labelled "writer" since this is a writer-style
-                # rewrite with no director/editor passes.
+                # Stream reasoning deltas like the main pipeline does, labelled
+                # "writer" since this is a writer-style rewrite with no
+                # director/editor passes.
                 yield {"event": "reasoning", "data": {"pass": "writer", "delta": item["delta"]}}
             elif item["type"] == "content":
                 accumulated += item["delta"]
