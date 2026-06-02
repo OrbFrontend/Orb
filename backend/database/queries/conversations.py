@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import cast
 
 from ..connection import _build_set_clause, get_db
+from ..models import ConversationListRow, ConversationRow
 
 
-async def list_conversations() -> list[dict]:
+async def list_conversations() -> list[ConversationListRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -22,13 +24,13 @@ async def list_conversations() -> list[dict]:
         """
             )
         )
-        return [dict(r) for r in rows]
+        return [cast(ConversationListRow, dict(r)) for r in rows]
 
 
-async def get_conversation(cid: str) -> dict | None:
+async def get_conversation(cid: str) -> ConversationRow | None:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM conversations WHERE id = ?", (cid,)))
-        return dict(rows[0]) if rows else None
+        return cast(ConversationRow, dict(rows[0])) if rows else None
 
 
 async def create_conversation(
@@ -38,7 +40,7 @@ async def create_conversation(
     char_scenario: str,
     post_history_instructions: str = "",
     character_card_id: str | None = None,
-) -> dict:
+) -> ConversationRow:
     async with get_db() as db:
         now = datetime.now(timezone.utc).isoformat()
         await db.execute(
@@ -83,7 +85,7 @@ async def touch_conversation(cid: str) -> bool:
         return cur.rowcount > 0
 
 
-async def update_conversation(cid: str, data: dict) -> dict | None:
+async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
     async with get_db() as db:
         allowed = ["title"]
         sets, vals = _build_set_clause(allowed, data)

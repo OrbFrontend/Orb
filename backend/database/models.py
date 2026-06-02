@@ -94,6 +94,35 @@ class SettingsRow(TypedDict, total=False):
     agent_system_prompt: str
 
 
+class ConversationRow(TypedDict):
+    """A row from the ``conversations`` table (schema.py).
+
+    ``workflow_state`` is left as the raw JSON string; it is decoded per-slot by
+    get_workflow_state(), not eagerly here.
+    """
+
+    id: str
+    title: str
+    character_card_id: str | None
+    character_name: str
+    character_scenario: str
+    post_history_instructions: str
+    created_at: str
+    updated_at: str | None
+    active_leaf_id: int | None
+    workflow_state: str | None
+
+
+class ConversationListRow(ConversationRow, total=False):
+    """A ``ConversationRow`` plus the two aggregate columns list_conversations()
+    selects for the sidebar. ``total=False`` because they exist only on that
+    query's rows, not on the base table.
+    """
+
+    last_message_preview: str | None
+    message_count: int
+
+
 class MessageRow(TypedDict):
     """A row from the ``messages`` table.
 
