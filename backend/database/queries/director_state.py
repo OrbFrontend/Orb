@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from ..connection import get_db
+from ..models import DirectorStateRow
 
 
-async def get_director_state(cid: str) -> dict:
+async def get_director_state(cid: str) -> DirectorStateRow:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM director_state WHERE conversation_id = ?", (cid,)))
         if rows:
@@ -19,7 +21,7 @@ async def get_director_state(cid: str) -> dict:
             # Handle progressive_fields column (may be missing in older DBs)
             raw_pf = r.get("progressive_fields")
             r["progressive_fields"] = json.loads(raw_pf) if raw_pf else {}
-            return r
+            return cast(DirectorStateRow, r)
         return {
             "conversation_id": cid,
             "active_moods": [],

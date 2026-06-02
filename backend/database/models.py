@@ -187,3 +187,147 @@ class MessageWithAttachments(MessageRow, total=False):
     branch_index: int
     prev_branch_id: int | None
     next_branch_id: int | None
+
+
+# NOTE on the ``int`` columns below: SQLite has no boolean type. Columns the
+# schema declares ``BOOLEAN`` / flags (enabled, required, case_insensitive,
+# constant, ...) come back from ``dict(row)`` as 0/1 ints, so they are typed
+# ``int`` to match the runtime value, not ``bool``.
+
+
+class EndpointRow(TypedDict):
+    """A row from the ``endpoints`` table. Every query selects exactly these
+    five columns (avatar/secret columns are never projected here)."""
+
+    id: int
+    url: str
+    api_key: str
+    active_model_config_id: int | None
+    agent_active_model_config_id: int | None
+
+
+class ModelConfigRow(TypedDict):
+    """A row from the ``model_configs`` table (``SELECT *``)."""
+
+    id: int
+    endpoint_id: int
+    model_name: str
+    system_prompt: str
+    temperature: float
+    min_p: float
+    top_k: int
+    top_p: float
+    repetition_penalty: float
+    max_tokens: int
+    role: Literal["writer", "agent"]
+
+
+class WorldRow(TypedDict):
+    """A row from the ``worlds`` table (``SELECT *``)."""
+
+    id: str
+    name: str
+    enabled: int
+    created_at: str
+    updated_at: str
+
+
+class LorebookEntryRow(TypedDict):
+    """A row from ``lorebook_entries``. ``keywords`` is the JSON-*decoded* list
+    (every reader runs it through _parse_lorebook_entry / an inline decode)."""
+
+    id: int
+    world_id: str
+    name: str
+    content: str
+    keywords: list
+    case_insensitive: int
+    constant: int
+    priority: int
+    enabled: int
+    sort_order: int
+    created_at: str
+    updated_at: str
+
+
+class UserPersonaRow(TypedDict):
+    """A row from ``user_personas`` (the queries select these six columns)."""
+
+    id: int
+    name: str
+    description: str
+    avatar_color: str | None
+    created_at: str
+    updated_at: str
+
+
+class DirectorFragmentRow(TypedDict):
+    """A row from ``director_fragments`` (``SELECT *``)."""
+
+    id: str
+    label: str
+    description: str
+    field_type: str
+    required: int
+    enabled: int
+    injection_label: str
+    sort_order: int
+
+
+class MoodFragmentRow(TypedDict):
+    """A row from ``mood_fragments`` (``SELECT *``)."""
+
+    id: str
+    label: str
+    description: str
+    prompt_text: str
+    negative_prompt: str
+    enabled: int
+
+
+class DirectorStateRow(TypedDict):
+    """The director-state dict returned by ``get_director_state()``.
+
+    The JSON columns are decoded before return: ``active_moods`` and
+    ``keywords`` to lists, ``progressive_fields`` to a dict. When no row exists
+    the query synthesizes the same shape with empty containers.
+    """
+
+    conversation_id: str
+    active_moods: list
+    keywords: list
+    progressive_fields: dict
+
+
+class CharacterCardRow(TypedDict, total=False):
+    """A row from ``character_cards``.
+
+    ``total=False`` because the readers project different column subsets:
+    ``list_character_cards`` drops ``avatar_mime`` (and adds ``has_avatar``),
+    ``get_character_card`` includes ``avatar_b64`` only when ``include_avatar``.
+    ``tags`` and ``alternate_greetings`` are the JSON-*decoded* lists;
+    ``has_avatar`` is a derived bool, not a column.
+    """
+
+    id: str
+    name: str
+    description: str
+    personality: str
+    scenario: str
+    first_mes: str
+    mes_example: str
+    creator_notes: str
+    system_prompt: str
+    post_history_instructions: str
+    tags: list
+    creator: str
+    character_version: str
+    alternate_greetings: list
+    avatar_b64: str | None
+    avatar_mime: str | None
+    source_format: str
+    world_id: str | None
+    created_at: str
+    updated_at: str
+    workflow_state: str | None
+    has_avatar: bool

@@ -3,29 +3,31 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
+from typing import cast
 
 from ..connection import _build_set_clause, get_db
+from ..models import LorebookEntryRow, WorldRow
 
 
-async def get_worlds() -> list[dict]:
+async def get_worlds() -> list[WorldRow]:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM worlds ORDER BY created_at ASC"))
-        return [dict(r) for r in rows]
+        return [cast(WorldRow, dict(r)) for r in rows]
 
 
-async def get_world(world_id: str) -> dict | None:
+async def get_world(world_id: str) -> WorldRow | None:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM worlds WHERE id = ?", (world_id,)))
-        return dict(rows[0]) if rows else None
+        return cast(WorldRow, dict(rows[0])) if rows else None
 
 
-async def get_world_by_name(name: str) -> dict | None:
+async def get_world_by_name(name: str) -> WorldRow | None:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM worlds WHERE name = ? LIMIT 1", (name,)))
-        return dict(rows[0]) if rows else None
+        return cast(WorldRow, dict(rows[0])) if rows else None
 
 
-async def create_world(data: dict) -> dict:
+async def create_world(data: dict) -> WorldRow:
     async with get_db() as db:
         now = datetime.now(timezone.utc).isoformat()
         world_id = data.get("id") or str(uuid.uuid4())
@@ -45,7 +47,7 @@ async def create_world(data: dict) -> dict:
         return result
 
 
-async def update_world(world_id: str, data: dict) -> dict | None:
+async def update_world(world_id: str, data: dict) -> WorldRow | None:
     async with get_db() as db:
         allowed = ["name", "enabled"]
         sets, vals = _build_set_clause(allowed, data)
@@ -68,13 +70,13 @@ async def delete_world(world_id: str) -> bool:
         return cur.rowcount > 0
 
 
-def _parse_lorebook_entry(row) -> dict:
+def _parse_lorebook_entry(row) -> LorebookEntryRow:
     d = dict(row)
     d["keywords"] = json.loads(d["keywords"]) if d.get("keywords") else []
-    return d
+    return cast(LorebookEntryRow, d)
 
 
-async def get_lorebook_entries(world_id: str) -> list[dict]:
+async def get_lorebook_entries(world_id: str) -> list[LorebookEntryRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -85,13 +87,13 @@ async def get_lorebook_entries(world_id: str) -> list[dict]:
         return [_parse_lorebook_entry(r) for r in rows]
 
 
-async def get_lorebook_entry(entry_id: int) -> dict | None:
+async def get_lorebook_entry(entry_id: int) -> LorebookEntryRow | None:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM lorebook_entries WHERE id = ?", (entry_id,)))
         return _parse_lorebook_entry(rows[0]) if rows else None
 
 
-async def create_lorebook_entry(world_id: str, data: dict) -> dict:
+async def create_lorebook_entry(world_id: str, data: dict) -> LorebookEntryRow:
     async with get_db() as db:
         now = datetime.now(timezone.utc).isoformat()
         cur = await db.execute(
@@ -117,7 +119,7 @@ async def create_lorebook_entry(world_id: str, data: dict) -> dict:
         return result
 
 
-async def update_lorebook_entry(entry_id: int, data: dict) -> dict | None:
+async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow | None:
     async with get_db() as db:
         allowed = [
             "name",
@@ -149,7 +151,7 @@ async def delete_lorebook_entry(entry_id: int) -> bool:
         return cur.rowcount > 0
 
 
-async def get_active_lorebook_entries() -> list[dict]:
+async def get_active_lorebook_entries() -> list[LorebookEntryRow]:
     """Return all enabled entries from enabled worlds, ordered by priority DESC, sort_order ASC."""
     async with get_db() as db:
         rows = list(
@@ -162,9 +164,4 @@ async def get_active_lorebook_entries() -> list[dict]:
             """
             )
         )
-        result = []
-        for r in rows:
-            d = dict(r)
-            d["keywords"] = json.loads(d["keywords"]) if d.get("keywords") else []
-            result.append(d)
-        return result
+        return [_parse_lorebook_entry(r) for r in rows]
