@@ -73,9 +73,11 @@ Orb/
 │   ├── tool_defs.py         # Tool schemas (direct_scene, rewrite, editor tools), constants
 │   ├── endpoint_profiles.py # Per-provider quirks (url patterns, body transforms)
 │   ├── tavern_cards.py      # PNG card import (tEXt chunk extraction, V2 spec parsing)
+│   ├── card_downloader.py   # Download character cards from external sources (CharacterHub, etc.)
 │   ├── summarizer.py        # Narrative summary generation + compress flow
 │   ├── macros.py            # Macro resolution ({{user}}, {{char}}, {{roll}}, etc.)
 │   ├── kv_tracker.py        # Debug: logs messages/tools to JSON for inspection
+│   ├── locks.py             # Cross-module asyncio locks (workflow_state / character_state / config)
 │   ├── utils.py             # Shared utilities
 │   ├── passes/
 │   │   ├── director.py      # Director pass: LLM calls direct_scene tool
@@ -89,7 +91,18 @@ Orb/
 │   │       ├── structural_repetition.py # Same paragraph layout as previous msgs
 │   │       └── contrastive_negation.py # "not X, but Y" cliché detection
 │   ├── workflows/           # Secondary workflow framework + shipped workflows
-│   │                        # (see docs/architecture/secondary-workflow.md)
+│   │   │                    # (see docs/architecture/secondary-workflow.md)
+│   │   ├── __init__.py      # Registration site: register_workflow + subscribe + finalize_registry
+│   │   ├── registry.py      # Workflow dataclass, subscriptions, state-store wrappers
+│   │   ├── contracts.py     # HookType enum + per-hook Ctx dataclasses, ToolSpec
+│   │   ├── toolkit.py       # Stable author import surface (LLM, prompts, DB readers, state, locks)
+│   │   ├── _forced_call.py  # forced_tool_call(): one-shot single-tool forced LLM call
+│   │   ├── attachment_cache.py # Byte-budget LRU-3 artifact cache (insert/rehydrate/evict/siblings)
+│   │   └── tts/             # Shipped TTS workflow
+│   │       ├── __init__.py  # Workflow(...) instance
+│   │       ├── hooks.py     # post_pipeline / on_demand / regenerate / reroll_gen hooks
+│   │       ├── synth.py     # Synthesis driver
+│   │       └── engine/      # Per-provider TTS adapters (edge, elevenlabs, fish, kokoro, openai)
 │   └── data/                # Runtime: app.db (SQLite)
 ├── frontend/
 │   ├── index.html           # Single-page app shell
@@ -105,12 +118,21 @@ Orb/
 │   ├── utils.js             # $() helper, esc(), debounce, etc.
 │   ├── validate.js          # Input validation helpers
 │   ├── tabLock.js           # Browser tab visibility lock
+│   ├── workflow_loader.js   # Boot loader: dynamic-imports each workflow's index.js
+│   ├── workflow_segmentation.js     # .seg span wrapper enabling text effects / click handlers
+│   ├── workflow_text_effects.js     # startTextEffect / clearTextEffect paint loop
+│   ├── workflow_text_interaction.js # Click routing + multi-claimant chooser
+│   ├── default_widget.js    # Fallback MIME-routed attachment renderer (image/audio/video)
+│   ├── audio_player.js      # playAudio + channel controls (TTS playback)
+│   ├── audio_schedule.js    # Pure audio scheduling math
+│   ├── audio_transport.js   # Transport bar mount (channel selector + controls)
 │   ├── style.css            # Main stylesheet
 │   ├── mobile.css           # Mobile breakpoints
 │   ├── fonts.css            # Custom font declarations
 │   ├── fonts/               # Self-hosted: Crimson, Exo2, Lora, Playfair, Spectral, Fira Code
 │   ├── themes/              # 9 CSS theme files
 │   └── workflows/           # Frontend secondary workflow modules
+│       └── tts/             # Shipped TTS frontend (index, widget, karaoke, config_panel, extract, tts.css)
 ├── docs/
 │   ├── index.md             # Docs home / table of contents
 │   ├── getting-started.md   # Install & first run
@@ -119,7 +141,7 @@ Orb/
 │   │   ├── kv-cache.md      # How Orb reuses the LLM KV cache across passes & turns
 │   │   └── secondary-workflow.md # Workflow framework dev guide
 │   ├── features/            # Per-feature guides (director, anti-slop, length-guard,
-│   │                        # compress-history, magic-rewrite, super-regenerate, mobile)
+│   │                        # compress-history, magic-rewrite, super-regenerate, mobile, tts)
 │   └── assets/              # Doc images
 ├── tests/
 │   ├── unit/                # Unit tests (editor, fragments, etc.)
@@ -150,12 +172,12 @@ Orb/
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON), length_guard_*, reasoning_enabled_passes, active_persona_id, active_endpoint_id, agent_* |
+| `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON), length_guard_*, reasoning_enabled_passes, active_persona_id, active_endpoint_id, agent_*, workflow_config (JSON), attachment_cache_budget_bytes, attachment_access_counter |
 | `endpoints` | LLM API endpoints | url, api_key, active_model_config_id, agent_active_model_config_id → model_configs.id |
 | `model_configs` | Per-endpoint model settings | endpoint_id, model_name, temperature, top_p, top_k, min_p, repetition_penalty, max_tokens, system_prompt, role |
-| `conversations` | Chat sessions | character_card_id, character_name, character_scenario, post_history_instructions, active_leaf_id → messages.id |
-| `messages` | All messages (tree branching via parent_id) | conversation_id, role (user/assistant), content, turn_index, parent_id → messages.id, progressive_fields (JSON), created_at |
-| `character_cards` | Imported/created characters (V2 spec) | name, description, personality, scenario, first_mes, mes_example, system_prompt, avatar_b64, world_id |
+| `conversations` | Chat sessions | character_card_id, character_name, character_scenario, post_history_instructions, active_leaf_id → messages.id, workflow_state (JSON) |
+| `messages` | All messages (tree branching via parent_id) | conversation_id, role (user/assistant), content, turn_index, parent_id → messages.id, progressive_fields (JSON), created_at, workflow_state (JSON) |
+| `character_cards` | Imported/created characters (V2 spec) | name, description, personality, scenario, first_mes, mes_example, system_prompt, avatar_b64, world_id, workflow_state (JSON) |
 | `user_personas` | User profiles injected into system prompt | name, description, avatar_color |
 
 ### Agent/Auditor Tables
@@ -179,7 +201,9 @@ Orb/
 
 | Table | Purpose |
 |-------|---------|
-| `message_attachments` | Images attached to messages (mime_type, data_b64) |
+| `user_attachments` | User-uploaded images attached to messages (mime_type, data_b64, filename, size). Surfaced on a message dict as `user_attachments`. |
+| `workflow_attachments` | Byte artifacts produced by secondary workflows. Two-level variant/sibling groups (`parent_attachment_id`, `active_sibling_id`), backed by an LRU-3 byte-budget cache with eviction (`seed`, `generation_metadata`, `consumption_metadata`, `recent_accesses`; `data_b64` becomes `[evicted]` when evicted). See [secondary-workflow.md](docs/architecture/secondary-workflow.md) §9. |
+| `message_attachments` | **Vestigial.** Kept in the base schema only because migration 0002 deletes from it on fresh install before any table-creating migration runs. Migration 0020 copies surviving rows into `user_attachments` and **drops** this table — no rows persist in a fully-migrated DB. |
 
 ### Relationships
 
@@ -196,7 +220,9 @@ erDiagram
     conversations ||--|| director_state : has
     conversations ||--o{ conversation_logs : has
     messages ||--o{ conversation_logs : "message_id"
-    messages ||--o{ message_attachments : has
+    messages ||--o{ user_attachments : "user uploads"
+    messages ||--o{ workflow_attachments : "workflow artifacts"
+    workflow_attachments ||--o{ workflow_attachments : "parent_attachment_id (variant group)"
     character_cards }o--o| worlds : "world_id"
     worlds ||--o{ lorebook_entries : has
 ```
@@ -224,6 +250,7 @@ erDiagram
 - `POST /api/conversations/{cid}/send` — Send message (SSE stream response)
 - `POST /api/conversations/{cid}/continue` — Regenerate from last user msg
 - `POST .../messages/{id}/edit` — Edit message content
+- `POST .../messages/{id}/fork-edit` — Fork at a user message: persist edited sibling and stream a fresh reply (SSE)
 - `DELETE .../messages/{id}` — Delete message, its siblings, and all descendants
 - `POST .../messages/{id}/switch-branch` — Switch active branch
 - `POST .../messages/{id}/regenerate` — Regenerate single response
@@ -233,6 +260,9 @@ erDiagram
 ### Characters
 - `GET /api/characters` / `POST /api/characters` — List/create
 - `POST /api/characters/import` — Import from PNG (multipart upload)
+- `POST /api/characters/import-url` — Download a card from an external source and run it through the import parse pipeline
+- `GET /api/characters/browse` — Proxy external card-search providers (`source`, `q`, `page`); avoids browser CORS
+- `GET /api/characters/randomize` — Randomized selection from a source that supports it
 - `GET/PUT/DELETE /api/characters/{id}` — CRUD
 - `GET /api/characters/{id}/avatar` — Serve avatar image
 - `GET /api/characters/{id}/export` — Export as PNG card
@@ -263,6 +293,18 @@ erDiagram
 - `GET /api/conversations/{cid}/logs` — Conversation logs
 - `GET /api/conversations/{cid}/messages/{id}/director-log` — Per-message Director log
 
+### Secondary Workflows
+See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) §8 for per-route contracts (bodies, locks, error codes).
+- `GET /api/workflows` — Manifest: `[{id, display_name, config_schema, config_defaults}]` (registration order)
+- `GET/PUT /api/workflows/{wid}/config` — Read/write a workflow's global config slot
+- `POST /api/conversations/{cid}/workflows/{wid}/trigger` — Fire a workflow's on-demand hook out of turn
+- `POST .../messages/{mid}/workflow-attachments/{aid}/regenerate` — Produce new artifact variants (REGENERATE hook)
+- `POST .../messages/{mid}/workflow-attachments/{aid}/reroll-gen` — Produce one new sibling variant (REROLL_GEN hook)
+- `POST .../messages/{mid}/workflow-attachments/{aid}/rehydrate` — Re-synthesize an evicted artifact in place (REROLL_GEN hook)
+- `POST .../messages/{mid}/workflow-attachments/{aid}/activate` — Select the active sibling in a variant group
+- `POST .../messages/{mid}/workflow-attachments/{aid}/delete` — Delete a variant or the whole group (`scope`)
+- `POST /api/conversations/{cid}/workflow-attachments/access` — Record artifact access (drives LRU-3 eviction order)
+
 ### Other
 - `GET /` — Serve frontend (SPA shell)
 - `GET /api/themes` — Available CSS themes
@@ -289,7 +331,7 @@ Multiple model configs per endpoint. Active one selected via `endpoints.active_m
 
 - **State** (`state.js`): Single global `S` object. No reactive framework — components call `render*()` functions after state mutations.
 - **Rendering** (`chat.js`): `renderMessages()` rebuilds the entire message list from `S.messages`. Inspector panel rendered by `renderInspector()`.
-- **Streaming**: SSE events parsed in `chat.js` — `director_start`, `director_done`, `prompt_rewritten`, `token`, `reasoning`, `writer_rewrite`, `editor_done`, `user_message_created`, `done`, `error`. `_result` and `_refined_result` are backend-internal, consumed before reaching the frontend. Tokens accumulate into the current message div in real-time.
+- **Streaming**: SSE events parsed in `chat.js` — `director_start`, `director_done`, `prompt_rewritten`, `token`, `reasoning`, `writer_rewrite`, `editor_done`, `user_message_created`, `done`, `error`, plus workflow-driven events (`phase_status` for the phase pill, `workflow_attachments_rejected`, and any custom passthrough event a workflow hook yields, dispatched via `S.workflowEventHandlers`). `_result`, `_refined_result`, and other underscore-prefixed events are backend-internal, consumed before reaching the frontend. Tokens accumulate into the current message div in real-time.
 - **API** (`api.js`): All backend calls via `fetch()`. SSE streams handled by `EventSource`-like parsing in `chat.js`.
 - **Branching**: Messages use `parent_id` forming a tree. `conversations.active_leaf_id` selects the visible leaf. UI shows branch count/index with prev/next navigation buttons.
 
@@ -375,5 +417,3 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 11. **Agent endpoint separation** — Both the Director and Editor can use separate endpoints from the Writer (`agent_endpoint_id` in settings). If `agent_same_as_writer` is true, they share. When using a separate endpoint the writer and agent passes no longer share a KV cache and the writer drops its tool list; the instruction prompt also has a small difference. See [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) (Invariant 5 and the editor ReAct-loop section) for the full caching consequences. Make sure to check which endpoint you're targeting when modifying agent-related code.
 
 12. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire.
-
-13. **Never bypass lefthook with `--no-verify`** — The pre-commit hook runs `black --line-length 128`, `biome format`, and `flake8`. If a hook fails, fix the issue. Do not bypass it. CI runs the same checks and will catch formatting drift. Dirty working tree files can produce flake8 warnings that don't exist in committed code — verify before assuming a hook failure is legitimate.
