@@ -1,5 +1,6 @@
 import { api } from "./api.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
+import { S } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 
 // ── Module state
@@ -200,18 +201,31 @@ export async function toggleWorldEnabled(worldId, enabled) {
 }
 
 export async function deleteWorld(worldId) {
+  const linked = (S.allCharacters || S.characters || []).filter((c) => c.world_id === worldId);
+  let extraHtml = "";
+  if (linked.length) {
+    const names = linked.map((c) => `<li>${esc(c.name)}</li>`).join("");
+    extraHtml = `
+      <p style="margin-bottom:4px">Linked to ${linked.length} character${linked.length === 1 ? "" : "s"}, which will be unlinked:</p>
+      <ul style="margin:0;padding-left:20px;max-height:160px;overflow-y:auto">${names}</ul>`;
+  }
   showConfirmModal(
     {
       title: "Delete Lorebook",
       message: "⚠️ Delete this lorebook and all its entries?",
       confirmText: "Delete",
       confirmClass: "btn-danger",
+      extraHtml,
     },
     async () => {
       try {
         await api.del(`/worlds/${worldId}`);
         _worlds = _worlds.filter((w) => w.id !== worldId);
         delete _entries[worldId];
+        // Backend sets character_cards.world_id to NULL on delete; mirror that locally
+        for (const c of S.allCharacters || S.characters || []) {
+          if (c.world_id === worldId) c.world_id = null;
+        }
         if (_focusWorldId === worldId) closeLorebook();
         renderWorldsSidebar();
       } catch (e) {
