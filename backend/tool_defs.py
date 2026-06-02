@@ -167,8 +167,7 @@ EDITOR_PATCH_INSTRUCTIONS = (
     "- For repetitive openers: rewrite and replace flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.\n"
     "- For repetitive templates: restructure flagged sentences so they no longer follow the same POS pattern. Change clause order, combine sentences, or vary syntax.\n"
     "- For repetitive phrases: rewrite and replace flagged phrases with adjacent word choices.\n"
-    "- For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula.\n\n"
-    "Skip a fix only if the flagged text does not appear verbatim in the draft above."
+    "- For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula."
 )
 
 # Sent when only the length guard is triggered — no audit issues.
