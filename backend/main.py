@@ -226,6 +226,7 @@ class SettingsUpdate(BaseModel):
     enabled_tools: Optional[dict] = None
     enable_agent: Optional[bool] = None
     length_guard_enabled: Optional[bool] = None
+    length_guard_enforce: Optional[bool] = None
     length_guard_max_words: Optional[int] = None
     length_guard_max_paragraphs: Optional[int] = None
     reasoning_enabled_passes: Optional[dict] = None

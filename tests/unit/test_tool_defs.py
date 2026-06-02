@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from backend.database.seeds import DEFAULT_ENABLED_TOOLS, DEFAULT_SETTINGS
 from backend.tool_defs import (
     BUILTIN_TOOL_NAMES,
     STANDALONE_TOOLS,
@@ -49,6 +50,23 @@ class TestBuiltinToolNames:
 class TestStandaloneToolsBaseline:
     def test_empty_at_module_load(self):
         assert STANDALONE_TOOLS == set()
+
+
+class TestEnabledToolsHoldsOnlyTools:
+    """enabled_tools is a tool-registry switch, not a feature-flag bag. The
+    seeded default must only name registered tools — feature flags (length_guard,
+    length_guard_enforce, ...) live in their own settings columns."""
+
+    def test_default_enabled_tools_subset_of_registry(self):
+        assert set(DEFAULT_ENABLED_TOOLS) <= set(TOOLS)
+
+    def test_length_guard_flags_are_not_in_enabled_tools(self):
+        assert "length_guard" not in DEFAULT_ENABLED_TOOLS
+        assert "length_guard_enforce" not in DEFAULT_ENABLED_TOOLS
+
+    def test_length_guard_flags_are_top_level_settings(self):
+        assert "length_guard_enabled" in DEFAULT_SETTINGS
+        assert "length_guard_enforce" in DEFAULT_SETTINGS
 
 
 class TestEnabledSchemasBaseline:

@@ -90,12 +90,14 @@ def _resolve_pipeline_config(
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
 
-    length_guard_enabled = bool(enabled_tools.get("length_guard", False)) if agent_on else False
-    # Mirror editor_rewrite into enabled_tools so enabled_schemas() includes its
-    # schema in all three passes — the same KV-cache approach as editor_apply_patch.
+    length_guard_enabled = bool(settings.get("length_guard_enabled", 0)) if agent_on else False
+    # The length-guard *feature* requires the editor_rewrite *tool*: mirror it into
+    # enabled_tools so enabled_schemas() includes its schema in all three passes —
+    # the same KV-cache approach as editor_apply_patch. editor_rewrite is internal
+    # (not user-toggleable); this feature flag is its only enable path.
     if length_guard_enabled:
         enabled_tools = {**enabled_tools, "editor_rewrite": True}
-    length_guard_enforce = bool(enabled_tools.get("length_guard_enforce", False)) if agent_on else False
+    length_guard_enforce = bool(settings.get("length_guard_enforce", 0)) if agent_on else False
 
     # length_guard_enabled already folds in agent_on (it is False whenever the
     # agent is off), so no extra `and agent_on` guard is needed below.

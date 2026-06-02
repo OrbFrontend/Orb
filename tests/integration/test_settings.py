@@ -55,6 +55,37 @@ async def test_update_enabled_tools_json_field(client, db):
     assert json.loads(row["enabled_tools"]) == tools
 
 
+async def test_enabled_tools_sanitized_to_registered_tools(client, db):
+    # Non-tool keys (the former length_guard* feature flags, or anything else not
+    # in the tool registry) must never be persisted back into enabled_tools.
+    resp = await client.put(
+        "/api/settings",
+        json={"enabled_tools": {"direct_scene": True, "length_guard": True, "not_a_tool": True}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["enabled_tools"] == {"direct_scene": True}
+
+    async with db.execute("SELECT enabled_tools FROM settings WHERE id = 1") as cur:
+        row = await cur.fetchone()
+    assert json.loads(row["enabled_tools"]) == {"direct_scene": True}
+
+
+async def test_length_guard_flags_roundtrip(client, db):
+    resp = await client.put(
+        "/api/settings",
+        json={"length_guard_enabled": True, "length_guard_enforce": True},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["length_guard_enabled"] == 1
+    assert data["length_guard_enforce"] == 1
+
+    async with db.execute("SELECT length_guard_enabled, length_guard_enforce FROM settings WHERE id = 1") as cur:
+        row = await cur.fetchone()
+    assert row["length_guard_enabled"] == 1
+    assert row["length_guard_enforce"] == 1
+
+
 async def test_show_editor_diff_default_and_roundtrip(client, db):
     resp = await client.get("/api/settings")
     assert resp.status_code == 200
