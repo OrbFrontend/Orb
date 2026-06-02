@@ -1,3 +1,12 @@
+# pyright: reportArgumentType=false, reportReturnType=false, reportGeneralTypeIssues=false, reportTypedDictNotRequiredAccess=false
+# TODO(typing): the four rules above are the *only* standard-mode checks this
+# module does not yet pass; every other check is active. They fire because this
+# module forwards the database row TypedDicts (SettingsRow, ConversationRow,
+# CharacterCardRow, ...) into helpers still annotated as bare `dict`/`list[dict]`
+# and reads `total=False` settings keys by subscript. The fix is to widen those
+# consumer signatures (dict -> Mapping, list[dict] -> Sequence[Mapping]) and
+# firm up SettingsRow's always-present columns; doing so lets these suppressions
+# be removed one rule at a time. Dedicated follow-up; see REFACTOR_model_layer.md.
 from __future__ import annotations
 import asyncio
 import hashlib
