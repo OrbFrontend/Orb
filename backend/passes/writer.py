@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List, Mapping, Optional
 
 from ..llm_client import LLMClient, reasoning_cfg
 from ..tool_defs import enabled_schemas
@@ -48,7 +48,7 @@ def build_writer_content(
 async def _writer_pass(
     client: LLMClient,
     prefix: list[dict],
-    settings: dict,
+    settings: Mapping[str, Any],
     enabled_tools: dict,
     *,
     inj_block: str = "",

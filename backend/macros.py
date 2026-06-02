@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import random
 import re
-from typing import NamedTuple
+from typing import Any, Mapping, NamedTuple
 
 from .llm_client import LLMClient
 
@@ -105,9 +105,9 @@ class Macros(NamedTuple):
     @classmethod
     def from_settings(
         cls,
-        settings: dict,
+        settings: Mapping[str, Any],
         char_name: str,
-        active_persona: dict | None = None,
+        active_persona: Mapping[str, Any] | None = None,
     ) -> "Macros":
         user = active_persona.get("name", "User") if active_persona else settings.get("user_name", "User")
         return cls(user=user, char=char_name)

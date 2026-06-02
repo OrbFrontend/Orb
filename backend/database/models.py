@@ -29,22 +29,16 @@ PhraseGroup = Union[list[str], dict]
 # them -- see the per-field notes below.
 
 
-class SettingsRow(TypedDict, total=False):
-    """The merged settings dict returned by ``get_settings()``.
-
-    ``total=False`` on purpose: the dict is assembled from three sources and no
-    single key is guaranteed present everywhere --
-      1. the ``SELECT *`` row off the ``settings`` table,
-      2. the ``DEFAULT_SETTINGS`` fallback (seeds.py) when no row exists, which
-         omits several keys, and
-      3. the agent-endpoint cascade, which overlays the ``agent_*`` /
-         ``endpoint_url`` extras only when an active model config resolves.
-    So this catches key *typos* and value-*type* mismatches without falsely
-    asserting presence. The write side of the same table is the Pydantic
-    ``SettingsUpdate`` in backend/main.py -- keep the two in sync.
+class _SettingsBase(TypedDict):
+    """The keys ``get_settings()`` *always* returns, in either branch -- the
+    ``DEFAULT_SETTINGS`` fallback (seeds.py) supplies exactly this set, and the
+    ``SELECT *`` branch supplies them too (every one is a persisted column or a
+    field the query unconditionally sets). Splitting these out as a ``total=True``
+    base lets readers subscript them (``settings["endpoint_url"]``) without a
+    not-required-access warning, while genuinely-conditional keys stay optional
+    on ``SettingsRow`` below. Keep this set in lockstep with ``DEFAULT_SETTINGS``.
     """
 
-    # Persisted scalar columns (schema.py: settings).
     endpoint_url: str
     api_key: str
     model_name: str
@@ -63,23 +57,41 @@ class SettingsRow(TypedDict, total=False):
     length_guard_max_paragraphs: int
     length_guard_enabled: int
     length_guard_enforce: int
-    active_persona_id: int | None
-    active_endpoint_id: int | None
     character_library_view: str
     character_library_sort: str
     show_editor_diff: int
+    editor_audit_toggles: dict  # decoded to its in-memory shape by get_settings()
     hide_streaming_until_baked: int
     prevent_prompt_overrides: int
     agent_same_as_writer: bool
-    agent_endpoint_id: int | None
     agent_shared_system_prompt: str
+
+
+class SettingsRow(_SettingsBase, total=False):
+    """The merged settings dict returned by ``get_settings()``.
+
+    The always-present keys live on :class:`_SettingsBase`; the keys here are
+    ``total=False`` because they are *not* guaranteed present --
+      1. several columns / JSON fields appear only on the ``SELECT *`` branch and
+         are omitted by the ``DEFAULT_SETTINGS`` fallback, and
+      2. the agent-endpoint cascade overlays the ``agent_*`` / ``endpoint_url``
+         extras only when an active model config resolves.
+    So this catches key *typos* and value-*type* mismatches without falsely
+    asserting presence. The write side of the same table is the Pydantic
+    ``SettingsUpdate`` in backend/main.py -- keep the two in sync.
+    """
+
+    # Columns present on the SELECT * branch but omitted by DEFAULT_SETTINGS.
+    active_persona_id: int | None
+    active_endpoint_id: int | None
+    agent_endpoint_id: int | None
     attachment_cache_budget_bytes: int
     attachment_access_counter: int
-    # JSON columns, decoded to their in-memory shape by get_settings().
+    # JSON columns, decoded to their in-memory shape by get_settings() on the
+    # SELECT * branch only (DEFAULT_SETTINGS omits them).
     enabled_tools: dict
     reasoning_enabled_passes: dict
     inspector_open_states: dict
-    editor_audit_toggles: dict
     workflow_config: str  # left raw; decoded per-slot by get_workflow_config()
     # Agent-endpoint cascade overlays (present only when it resolves).
     agent_endpoint_url: str

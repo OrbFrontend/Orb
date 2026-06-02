@@ -5,6 +5,8 @@ and tool-call prompts for the orchestrator pipeline.
 
 from __future__ import annotations
 
+from typing import Any, Mapping, Sequence
+
 from .macros import Macros
 from .tool_defs import (
     TOOLS,
@@ -20,7 +22,7 @@ from .tool_defs import (
 LOREBOOK_SCAN_DEPTH = 6
 
 
-def format_message_with_attachments(message: dict, macros: Macros | None) -> dict:
+def format_message_with_attachments(message: Mapping[str, Any], macros: Macros | None) -> dict:
     """Convert a message dict with optional attachments to OpenAI vision format.
 
     Two attachment lists travel on the message dict:
@@ -73,7 +75,7 @@ def build_prefix(
     char_scenario: str,
     mes_example: str = "",
     post_history_instructions: str = "",
-    messages: list[dict] | None = None,
+    messages: Sequence[Mapping[str, Any]] | None = None,
     macros: Macros | None = None,
     user_description: str = "",
     *,
@@ -127,9 +129,9 @@ def build_director_tool_prompt(
     tool_name: str,
     user_message: str,
     active_moods: list[str],
-    mood_fragments: list[dict],
+    mood_fragments: Sequence[Mapping[str, Any]],
     reasoning_on: bool = False,
-    director_fragments: list[dict] | None = None,
+    director_fragments: Sequence[Mapping[str, Any]] | None = None,
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
 ) -> str:
@@ -197,8 +199,8 @@ def build_editor_prompt(
 def compute_style_injection_block(
     active_moods: list[str],
     prior_moods: list[str],
-    mood_fragments: list[dict],
-    director_fragments: list[dict],
+    mood_fragments: Sequence[Mapping[str, Any]],
+    director_fragments: Sequence[Mapping[str, Any]],
     direct_scene_enabled: bool,
     extra_fields: dict | None = None,
     prior_progressive_state: dict | None = None,
@@ -234,9 +236,9 @@ def compute_style_injection_block(
 
 
 def build_style_injection(
-    active: list[dict],
-    deactivated: list[dict] | None = None,
-    director_fragments: list[dict] | None = None,
+    active: Sequence[Mapping[str, Any]],
+    deactivated: Sequence[Mapping[str, Any]] | None = None,
+    director_fragments: Sequence[Mapping[str, Any]] | None = None,
     extra_fields: dict | None = None,
     prior_progressive_state: dict | None = None,
 ) -> str:
@@ -274,8 +276,8 @@ def build_style_injection(
 
 
 def compute_lorebook_injection_block(
-    messages: list[dict],
-    entries: list[dict],
+    messages: Sequence[Mapping[str, Any]],
+    entries: Sequence[Mapping[str, Any]],
     macros: Macros | None = None,
 ) -> str:
     """Compute the lorebook injection block from active entries.

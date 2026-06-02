@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import AsyncIterator, TYPE_CHECKING
+from typing import Any, AsyncIterator, Mapping, TYPE_CHECKING
 
 from .audit import run_audit, format_report, AuditReport
 from .slop_detector import DetectionResult
@@ -305,7 +305,7 @@ async def editor_pass(
     prefix: list[dict],
     effective_msg: str,
     draft: str,
-    settings: dict,
+    settings: Mapping[str, Any],
     phrase_bank: list[PhraseGroup],
     enabled_tools: dict,
     audit_enabled: bool = True,

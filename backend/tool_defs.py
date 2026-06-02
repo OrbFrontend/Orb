@@ -4,6 +4,8 @@ tool_defs.py — Tool schemas, constants, and helper lookups for the orchestrato
 
 from __future__ import annotations
 
+from typing import Any, Mapping, Sequence
+
 
 # ── Agent tool definitions (OpenAI function-calling format)
 
@@ -25,7 +27,7 @@ _DIRECT_SCENE_DESCRIPTION = (
 )
 
 
-def build_direct_scene_tool(director_fragments: list[dict]) -> dict:
+def build_direct_scene_tool(director_fragments: Sequence[Mapping[str, Any]]) -> dict:
     """Build the direct_scene tool schema from enabled director fragments.
 
     Director fragments provide dynamic string/array parameters beyond the fixed

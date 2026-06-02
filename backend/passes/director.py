@@ -10,7 +10,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ..tool_defs import (
@@ -81,10 +81,10 @@ async def _director_pass(
     client: LLMClient,
     prefix: list[dict],
     user_message: str,
-    settings: dict,
-    director: dict,
-    mood_fragments: list[dict],
-    director_fragments: list[dict],
+    settings: Mapping[str, Any],
+    director: Mapping[str, Any],
+    mood_fragments: Sequence[Mapping[str, Any]],
+    director_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: dict,
     attachments: Optional[List[dict]] = None,
     kv_tracker=None,

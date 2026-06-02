@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import json
 from datetime import datetime, timezone
-from typing import cast
+from typing import Any, Mapping, cast
 
 import aiosqlite
 
@@ -213,7 +213,10 @@ async def delete_character_card(card_id: str, delete_conversations: bool = False
 
 
 async def resolve_char_context(
-    conv: dict, settings: dict, shared_key: str = "shared_system_prompt", card: CharacterCardRow | None = None
+    conv: Mapping[str, Any],
+    settings: Mapping[str, Any],
+    shared_key: str = "shared_system_prompt",
+    card: CharacterCardRow | None = None,
 ) -> tuple[str, str, str]:
     """Resolve the effective system prompt, persona, and example messages.
 

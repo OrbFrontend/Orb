@@ -1,12 +1,3 @@
-# pyright: reportArgumentType=false, reportReturnType=false, reportGeneralTypeIssues=false, reportTypedDictNotRequiredAccess=false
-# TODO(typing): the four rules above are the *only* standard-mode checks this
-# module does not yet pass; every other check is active. They fire because the
-# pipeline coordinator forwards the database row TypedDicts (ConversationRow,
-# SettingsRow, DirectorStateRow, the message rows, ...) into prompt-building
-# helpers still annotated as bare `dict`/`list[dict]`. The fix is to widen those
-# consumer signatures (dict -> Mapping, list[dict] -> Sequence[Mapping]); doing
-# so lets these suppressions be removed one rule at a time. Dedicated follow-up;
-# see REFACTOR_model_layer.md.
 """
 orchestrator.py — Pipeline coordinator: director → writer → editor,
 plus the public entry points handle_turn() and handle_regenerate().
@@ -17,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field, fields
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 
 from . import database as db
 from .llm_client import LLMClient, reasoning_cfg
@@ -44,7 +35,17 @@ from .utils import extract_hyperparams
 from .passes.director import DirectorResult, _director_pass
 from .passes.writer import _writer_pass, build_writer_content
 from .passes.editor import editor_pass
-from .database.models import PhraseGroup
+from .database.models import (
+    CharacterCardRow,
+    ConversationRow,
+    DirectorFragmentRow,
+    DirectorStateRow,
+    LorebookEntryRow,
+    MoodFragmentRow,
+    PhraseGroup,
+    SettingsRow,
+    UserPersonaRow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ class _PipelineConfig:
 
 
 def _resolve_pipeline_config(
-    settings: dict,
+    settings: Mapping[str, Any],
     enabled_tools: dict,
     *,
     macros: Macros,
@@ -184,10 +185,10 @@ class _PipelineResult:
 
 async def _run_pipeline(
     client: LLMClient,
-    settings: dict,
-    director: dict,
-    mood_fragments: list[dict],
-    director_fragments: list[dict],
+    settings: Mapping[str, Any],
+    director: Mapping[str, Any],
+    mood_fragments: Sequence[Mapping[str, Any]],
+    director_fragments: Sequence[Mapping[str, Any]],
     user_message: str,
     attachments: Optional[List[dict]] = None,
     phrase_bank: list[PhraseGroup] | None = None,
@@ -198,14 +199,14 @@ async def _run_pipeline(
     macros: Macros | None = None,
     conversation_id: str | None = None,
     character_id: str | None = None,
-    card: dict | None = None,
+    card: Mapping[str, Any] | None = None,
     *,
     prefix: list[dict],
     enabled_tools: dict,
     turn_scratch: dict,
     kv_tracker: _KVCacheTracker,
     schema_overrides: dict,
-    history: list[dict] | None = None,
+    history: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
     """Three-pass pipeline: director → writer → editor, plus a post-pipeline
     workflow iteration before persistence.
@@ -515,11 +516,11 @@ async def _run_post_pipeline(
     draft: str,
     conversation_id: str | None,
     character_id: str | None,
-    card: dict | None,
-    history: list[dict] | None,
+    card: Mapping[str, Any] | None,
+    history: Sequence[Mapping[str, Any]] | None,
     effective_msg: str,
     director_output: dict,
-    settings: dict,
+    settings: Mapping[str, Any],
     prefix: list[dict],
     enabled_tools: dict,
     turn_scratch: dict,
@@ -736,10 +737,10 @@ async def _iterate_pre_pipeline_hooks(
     *,
     conversation_id: str,
     character_id: str | None = None,
-    card: dict | None = None,
-    history: list[dict],
+    card: Mapping[str, Any] | None = None,
+    history: Sequence[Mapping[str, Any]],
     last_user_message: str,
-    settings: dict,
+    settings: Mapping[str, Any],
     prefix_base: list[dict],
     enabled_tools_pre_merge: dict,
     turn_scratch: dict,
@@ -865,19 +866,19 @@ class PipelineContext:
     not mutating the dict it points at).
     """
 
-    settings: dict
-    conv: dict
-    card: Optional[dict]
-    director: dict
-    mood_fragments: list[dict]
-    director_fragments: list[dict]
+    settings: SettingsRow
+    conv: ConversationRow
+    card: Optional[CharacterCardRow]
+    director: DirectorStateRow
+    mood_fragments: list[MoodFragmentRow]
+    director_fragments: list[DirectorFragmentRow]
     phrase_bank: list[PhraseGroup]
-    lorebook_entries: list[dict]
+    lorebook_entries: list[LorebookEntryRow]
     client: LLMClient
     system_prompt: str
     char_persona: str
     mes_example: str
-    active_persona: Optional[dict]
+    active_persona: Optional[UserPersonaRow]
     agent_client: Optional[LLMClient]
     agent_system_prompt: Optional[str]
 
@@ -962,7 +963,7 @@ async def _load_pipeline_context(conversation_id: str) -> PipelineContext | None
 
 def _build_prefix_from_ctx(
     ctx: PipelineContext,
-    history: list[dict],
+    history: Sequence[Mapping[str, Any]],
     *,
     system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
@@ -994,7 +995,7 @@ def _build_prefix_from_ctx(
 
 def _build_prefixes(
     ctx: PipelineContext,
-    history: list[dict],
+    history: Sequence[Mapping[str, Any]],
     *,
     extra_system_blocks: list[str] | None = None,
 ) -> tuple[list[dict], list[dict] | None]:
@@ -1014,7 +1015,7 @@ def _build_prefixes(
     return prefix, agent_prefix
 
 
-def _compute_lorebook(macros: Macros, ctx: PipelineContext, messages: list[dict]) -> str:
+def _compute_lorebook(macros: Macros, ctx: PipelineContext, messages: Sequence[Mapping[str, Any]]) -> str:
     """Compute the lorebook injection block for a sequence of *messages*."""
     return compute_lorebook_injection_block(
         messages,
@@ -1048,10 +1049,10 @@ async def _prepare_turn(
     ctx: PipelineContext,
     conversation_id: str,
     *,
-    history: list[dict],
-    settings: dict,
+    history: Sequence[Mapping[str, Any]],
+    settings: Mapping[str, Any],
     last_user_message: str,
-    lorebook_messages: list[dict],
+    lorebook_messages: Sequence[Mapping[str, Any]],
 ) -> AsyncIterator[dict | _TurnSetup]:
     """Run the turn-setup sequence shared by every entry point and stream its
     pre-pipeline SSE events, then yield one terminal :class:`_TurnSetup`.
@@ -1162,7 +1163,9 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
     return _on_result
 
 
-async def _resolve_target_and_parent(conversation_id: str, assistant_msg_id: int) -> tuple[dict, dict] | str:
+async def _resolve_target_and_parent(
+    conversation_id: str, assistant_msg_id: int
+) -> tuple[Mapping[str, Any], Mapping[str, Any]] | str:
     """Validate *assistant_msg_id* and load its parent user message.
 
     Returns ``(target, user_msg)`` on success, or an error string on failure.
@@ -1178,8 +1181,8 @@ async def _resolve_target_and_parent(conversation_id: str, assistant_msg_id: int
 
 
 async def _prepare_regen_context(
-    ctx: PipelineContext, conversation_id: str, target: dict, user_msg: dict
-) -> tuple[list[dict], list[dict]]:
+    ctx: PipelineContext, conversation_id: str, target: Mapping[str, Any], user_msg: Mapping[str, Any]
+) -> tuple[Sequence[Mapping[str, Any]], list[dict]]:
     """Prepare history and attachments for a regeneration pass.
 
     Also resets director moods to the pre-turn baseline.
@@ -1199,7 +1202,7 @@ async def _prepare_regen_context(
 async def _persist_result(
     conversation_id: str,
     res: _PipelineResult,
-    settings: dict,
+    settings: Mapping[str, Any],
     user_msg_id: int | None,
     turn_index: int,
 ) -> tuple[int | None, list[dict]]:
@@ -1266,7 +1269,7 @@ async def _persist_result(
 async def _fallback_persist(
     conversation_id: str,
     res: _PipelineResult,
-    settings: dict,
+    settings: Mapping[str, Any],
     user_msg_id: int | None,
     turn_index: int,
     accumulated_text: str,
@@ -1313,7 +1316,7 @@ async def _fallback_persist(
 async def _shielded_fallback(
     conversation_id: str,
     res: _PipelineResult,
-    settings: dict,
+    settings: Mapping[str, Any],
     user_msg_id: int | None,
     turn_index: int,
     accumulated_text: str,
@@ -1372,7 +1375,7 @@ async def _shielded_log_save(extra_on_result, res: _PipelineResult, asst_id: int
 async def _consume_pipeline(
     pipeline: AsyncIterator[dict],
     conversation_id: str,
-    settings: dict,
+    settings: Mapping[str, Any],
     user_msg_id: int | None,
     turn_index: int,
     *,
@@ -1464,17 +1467,17 @@ async def _generate_reply(
     ctx: PipelineContext,
     conversation_id: str,
     *,
-    history: list[dict],
-    pipeline_settings: dict,
+    history: Sequence[Mapping[str, Any]],
+    pipeline_settings: Mapping[str, Any],
     last_user_message: str,
-    lorebook_messages: list[dict],
+    lorebook_messages: Sequence[Mapping[str, Any]],
     user_message: str,
     attachments: list[dict],
     user_msg_id: int | None,
     asst_turn_index: int,
     log_turn_index: int,
     editor_audit_msgs: list[str] | None = None,
-    consume_settings: dict | None = None,
+    consume_settings: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict]:
     """Shared tail for every generating entry point: run the pre-pipeline setup,
     the three-pass pipeline, and result consumption, streaming all SSE events
@@ -1748,7 +1751,7 @@ async def handle_regenerate(
             history=history,
             pipeline_settings=settings,
             last_user_message=user_msg["content"],
-            lorebook_messages=history + [{"role": "user", "content": user_msg["content"]}],
+            lorebook_messages=[*history, {"role": "user", "content": user_msg["content"]}],
             user_message=user_msg["content"],
             attachments=attachments,
             user_msg_id=user_msg_id,
@@ -1790,7 +1793,8 @@ async def handle_super_regenerate(
 
         # Extend history to include the original user+assistant exchange so the
         # model sees what it wrote before being asked to go a different direction.
-        extended_history = history + [
+        extended_history = [
+            *history,
             {"role": "user", "content": user_msg["content"]},
             {"role": "assistant", "content": target["content"]},
         ]
@@ -1859,7 +1863,8 @@ async def handle_magic_rewrite(
         parent_id: int | None = user_msg.get("parent_id")
         history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
 
-        extended_history = history + [
+        extended_history = [
+            *history,
             {"role": "user", "content": user_msg["content"]},
             {"role": "assistant", "content": target["content"]},
         ]

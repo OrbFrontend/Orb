@@ -4,10 +4,10 @@ utils.py — Shared helpers.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Mapping, Optional
 
 
-def extract_hyperparams(settings: dict, *, defaults: dict | None = None) -> dict:
+def extract_hyperparams(settings: Mapping[str, Any], *, defaults: Mapping[str, Any] | None = None) -> dict:
     """Extract LLM hyperparameters from a settings dict.
 
     Optionally fills in *defaults* for any keys not present in settings.
