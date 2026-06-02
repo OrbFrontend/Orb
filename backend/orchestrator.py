@@ -32,7 +32,7 @@ from .workflows import (
 )
 from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from .utils import extract_hyperparams
-from .passes.director import _director_pass
+from .passes.director import DirectorResult, _director_pass
 from .passes.writer import _writer_pass, build_writer_content
 from .passes.editor import editor_pass
 from .passes.editor.slop_detector import PhraseGroup
@@ -291,14 +291,13 @@ async def _run_pipeline(
                     "data": {"pass": "director", "delta": event["delta"]},
                 }
             elif event["type"] == "done":
-                (
-                    active_moods,
-                    agent_raw,
-                    calls,
-                    latency,
-                    rewritten_msg,
-                    extra_fields,
-                ) = event["result"]
+                result: DirectorResult = event["result"]
+                active_moods = result.active_moods
+                agent_raw = result.agent_raw
+                calls = result.calls
+                latency = result.latency
+                rewritten_msg = result.rewritten_msg
+                extra_fields = result.extra_fields
                 progressive_fields = {k: v for k, v in extra_fields.items() if k in _valid_progressive_ids}
         if rewritten_msg:
             effective_msg = rewritten_msg
@@ -452,9 +451,13 @@ async def _run_pipeline(
         logger.info("Editor pass skipped (do_edit=%s, draft=%d chars)", cfg.do_edit, len(resp_text))
 
     # --- Post-pipeline workflow iteration ---
+    # PostCtx.director_output is a read-only mapping (workflow contract), so this
+    # stays a dict rather than the DirectorResult dataclass. Keys mirror the
+    # dataclass field names — notably ``agent_raw`` (not ``raw``) — so a single
+    # name follows each value from the director pass through to every consumer.
     director_output = {
         "active_moods": active_moods,
-        "raw": agent_raw,
+        "agent_raw": agent_raw,
         "calls": calls,
         "latency": latency,
         "rewritten_msg": rewritten_msg,

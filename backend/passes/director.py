@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import AsyncIterator, List, Optional
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
@@ -21,6 +22,29 @@ from ..prompt_builder import build_director_tool_prompt
 from ..utils import extract_hyperparams, build_multimodal_content
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DirectorResult:
+    """Typed payload of the director pass's terminal ``done`` event.
+
+    Field names match the orchestrator's turn-state locals and
+    :class:`~backend.orchestrator._PipelineResult` (notably ``agent_raw``,
+    ``rewritten_msg``) so a single name follows each value end to end. This
+    replaces the former 6-positional ``result`` tuple: adding or reordering a
+    field can no longer silently transpose values at the unpack site.
+
+    ``progressive_fields`` is intentionally absent — it is derived in the
+    orchestrator from ``extra_fields`` filtered against the valid progressive
+    fragment ids, which the director pass does not know about.
+    """
+
+    active_moods: list = field(default_factory=list)
+    agent_raw: str = ""
+    calls: list = field(default_factory=list)
+    latency: int = 0
+    rewritten_msg: str | None = None
+    extra_fields: dict = field(default_factory=dict)
 
 
 # ── Tool-call result unpacking ────────────────────────────────────────────────
@@ -73,8 +97,8 @@ async def _director_pass(
     """Yields reasoning dicts during each tool call, then a single done dict.
 
     Yields:
-        {"type": "reasoning", "delta": str}   — zero or more reasoning chunks
-        {"type": "done", "result": tuple}     — final (moods, raw, calls, latency, refined, extra_fields)
+        {"type": "reasoning", "delta": str}        — zero or more reasoning chunks
+        {"type": "done", "result": DirectorResult}  — terminal pass result
     """
     active_moods = director["active_moods"]
     if attachments is None:
@@ -96,7 +120,7 @@ async def _director_pass(
     if not tool_names:
         yield {
             "type": "done",
-            "result": (active_moods, "", [], 0, None, {}),
+            "result": DirectorResult(active_moods=active_moods),
         }
         return
 
@@ -172,12 +196,12 @@ async def _director_pass(
 
     yield {
         "type": "done",
-        "result": (
-            active_moods,
-            last_raw,
-            all_calls,
-            int((time.monotonic() - t0) * 1000),
-            refined_msg,
-            extra_fields,
+        "result": DirectorResult(
+            active_moods=active_moods,
+            agent_raw=last_raw,
+            calls=all_calls,
+            latency=int((time.monotonic() - t0) * 1000),
+            rewritten_msg=refined_msg,
+            extra_fields=extra_fields,
         ),
     }
