@@ -50,8 +50,33 @@ async def init_db():
 
 
 async def reset_to_defaults() -> None:
-    """Delete all user-modified data and re-seed tables to defaults."""
+    """Delete all user-modified data and re-seed tables to defaults.
+
+    The settings row is rebuilt (DELETE + re-seed), but the two attachment-cache
+    bookkeeping columns are carried across the rebuild rather than snapped back to
+    their schema defaults. They describe the ``workflow_attachments`` rows, which
+    reset RETAINS, so resetting them would desync the cache from the data it
+    tracks -- and neither is a user-facing setting that "reset to defaults" is
+    meant to clear:
+
+      - ``attachment_access_counter`` is the monotonic LRU-3 clock. Resetting it
+        to 0 while retained rows still hold ``recent_accesses`` from the old
+        counter space would invert eviction order: old artifacts would look
+        freshest (high counter) and survive, while genuinely new post-reset
+        artifacts (low counter) would be evicted first.
+      - ``attachment_cache_budget_bytes`` is the cache size limit; dropping a
+        tuned budget back to the default would silently change eviction pressure
+        on retained rows.
+    """
     async with get_db() as db:
+        # Carry attachment-cache bookkeeping across the settings rebuild.
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT attachment_cache_budget_bytes, attachment_access_counter FROM settings WHERE id = 1"
+            )
+        )
+        cache_bookkeeping = dict(rows[0]) if rows else None
+
         await db.execute("DELETE FROM settings WHERE id = 1")
         await db.execute("DELETE FROM mood_fragments")
         await db.execute("DELETE FROM director_fragments")
@@ -64,6 +89,15 @@ async def reset_to_defaults() -> None:
         await _seed_mood_fragments(db)
         await _seed_director_fragments(db)
         await _seed_phrase_bank(db)
+
+        if cache_bookkeeping is not None:
+            await db.execute(
+                "UPDATE settings SET attachment_cache_budget_bytes = ?, attachment_access_counter = ? WHERE id = 1",
+                (
+                    cache_bookkeeping["attachment_cache_budget_bytes"],
+                    cache_bookkeeping["attachment_access_counter"],
+                ),
+            )
 
         await db.commit()
 
