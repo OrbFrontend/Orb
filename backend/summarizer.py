@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator, Mapping, Sequence
 
 from .llm_client import LLMClient
 from .macros import Macros
@@ -24,7 +24,7 @@ _LLM_PARAMS = (
 
 
 class ConversationSummarizer:
-    def __init__(self, client: LLMClient, settings: dict):
+    def __init__(self, client: LLMClient, settings: Mapping[str, Any]):
         self.client = client
         self.settings = settings
 
@@ -35,7 +35,7 @@ class ConversationSummarizer:
         char_scenario: str,
         mes_example: str,
         post_history_instructions: str,
-        history_slice: list[dict],
+        history_slice: Sequence[Mapping[str, Any]],
         macros: Macros,
         user_description: str,
         custom_instructions: str | None = None,

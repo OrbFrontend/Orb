@@ -164,7 +164,7 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         return await get_character_card(card_id)
 
 
-async def sync_conversations_for_card(card_id: str, card: dict, old_name: str | None = None) -> None:
+async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old_name: str | None = None) -> None:
     """Propagate mutable card fields to all conversations linked to this card.
 
     Only syncs fields that are denormalised onto the conversation row and

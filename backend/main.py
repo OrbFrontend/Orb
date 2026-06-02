@@ -1,12 +1,3 @@
-# pyright: reportArgumentType=false, reportReturnType=false, reportGeneralTypeIssues=false, reportTypedDictNotRequiredAccess=false
-# TODO(typing): the four rules above are the *only* standard-mode checks this
-# module does not yet pass; every other check is active. They fire because this
-# module forwards the database row TypedDicts (SettingsRow, ConversationRow,
-# CharacterCardRow, ...) into helpers still annotated as bare `dict`/`list[dict]`
-# and reads `total=False` settings keys by subscript. The fix is to widen those
-# consumer signatures (dict -> Mapping, list[dict] -> Sequence[Mapping]) and
-# firm up SettingsRow's always-present columns; doing so lets these suppressions
-# be removed one rule at a time. Dedicated follow-up; see REFACTOR_model_layer.md.
 from __future__ import annotations
 import asyncio
 import hashlib
@@ -19,7 +10,7 @@ import tempfile
 
 from contextlib import asynccontextmanager
 
-from typing import Annotated, Any, AsyncGenerator, Optional, List, cast
+from typing import Annotated, Any, AsyncGenerator, Mapping, Optional, List, Sequence, cast
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -722,14 +713,14 @@ async def api_delete_world(world_id: str):
 # Lorebook Entries ──
 
 
-async def require_world(world_id: str) -> dict:
+async def require_world(world_id: str) -> Mapping[str, Any]:
     world = await get_world(world_id)
     if not world:
         raise HTTPException(status_code=404, detail="World not found")
     return world
 
 
-async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_world)) -> dict:  # noqa: B008
+async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_world)) -> Mapping[str, Any]:  # noqa: B008
     entry = await get_lorebook_entry(entry_id)
     if not entry or entry.get("world_id") != world["id"]:
         raise HTTPException(status_code=404, detail="Entry not found")
@@ -957,7 +948,7 @@ async def api_create_conversation(data: ConversationCreate):
         card = await get_character_card(card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Character card not found")
-        char_name = card["name"]
+        char_name = card.get("name", "")
         char_scenario = card.get("scenario", "")
         first_mes = card.get("first_mes", "")
         post_hist = card.get("post_history_instructions", "")
@@ -1108,8 +1099,8 @@ async def api_compress_conversation(cid: str, data: CompressRequest):
         att_list = (
             [
                 {
-                    "mime_type": a["mime_type"],
-                    "data_b64": a["data_b64"],
+                    "mime_type": a.get("mime_type"),
+                    "data_b64": a.get("data_b64"),
                     "filename": a.get("filename"),
                     "size": a.get("size"),
                 }
@@ -1252,7 +1243,7 @@ async def api_update_character(card_id: str, data: CharacterCardUpdate):
     result = await update_character_card(card_id, update_data)
     if not result:
         raise HTTPException(status_code=404, detail="Character card not found")
-    old_name = old_card["name"] if old_card and "name" in update_data else None
+    old_name = old_card.get("name") if old_card and "name" in update_data else None
     await sync_conversations_for_card(card_id, result, old_name=old_name)
     return result
 
@@ -1280,21 +1271,28 @@ async def api_export_character(card_id: str):
     if not card:
         raise HTTPException(status_code=404, detail="Character not found")
 
+    # Materialize a mutable working copy: the export augments the row with fields
+    # that are not card columns (a forced ``id`` and an embedded ``character_book``),
+    # so it is a free-form dict here rather than a CharacterCardRow.
+    export_card: dict[str, Any] = dict(card)
+
     avatar_bytes: bytes | None = None
-    if card.get("avatar_b64"):
+    avatar_b64 = export_card.get("avatar_b64")
+    if avatar_b64:
         try:
-            avatar_bytes = base64.b64decode(card["avatar_b64"])
+            avatar_bytes = base64.b64decode(avatar_b64)
         except Exception:
             logger.warning("Avatar data for card %s is corrupt; exporting without avatar", card_id)
             avatar_bytes = None
 
-    card["id"] = card_id
+    export_card["id"] = card_id
 
     # If the character is linked to a lorebook, embed it as character_book
-    if card.get("world_id") and not card.get("character_book"):
-        world = await get_world(card["world_id"])
-        entries = await get_lorebook_entries(card["world_id"])
-        card["character_book"] = {
+    world_id = export_card.get("world_id")
+    if world_id and not export_card.get("character_book"):
+        world = await get_world(world_id)
+        entries = await get_lorebook_entries(world_id)
+        export_card["character_book"] = {
             "name": world["name"] if world else "",
             "extensions": {},
             "entries": [
@@ -1314,9 +1312,11 @@ async def api_export_character(card_id: str):
             ],
         }
 
-    png_bytes = tavern_cards.to_png(card, avatar_bytes)
+    png_bytes = tavern_cards.to_png(export_card, avatar_bytes)
 
-    safe_name = "".join(c for c in card.get("name", "character") if c.isalnum() or c in " _-").strip() or "character"
+    safe_name = (
+        "".join(c for c in export_card.get("name", "character") if c.isalnum() or c in " _-").strip() or "character"
+    )
     return Response(
         content=png_bytes,
         media_type="image/png",
@@ -1986,7 +1986,7 @@ def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, d
     return result, None
 
 
-def _build_reroll_gen_ctx(cid: str, mid: int, aid: int, att: dict, settings: dict, client) -> RerollGenCtx:
+def _build_reroll_gen_ctx(cid: str, mid: int, aid: int, att: dict, settings: Mapping[str, Any], client) -> RerollGenCtx:
     prior_cm = _decode_stored_consumption_metadata(att)
     return RerollGenCtx(
         conversation_id=cid,
