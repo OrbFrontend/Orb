@@ -26,6 +26,27 @@ from backend.database import init_db
 from ._llm_mock import FakeLLMClient, llm_factory
 
 
+@pytest.fixture(autouse=True)
+def _reset_module_locks():
+    """Clear backend.main's process-global lock dicts between tests.
+
+    ``_workflow_root_locks`` and ``_conversation_stream_locks`` cache
+    ``asyncio.Lock`` objects keyed by root_id / conversation id. Each test
+    gets a fresh temp DB, so autoincrement ids restart at 1 and those keys
+    collide across tests. A ``Lock`` binds to the event loop of its first
+    ``acquire``; reusing one cached under a prior test's (now closed) loop
+    raises "got Future attached to a different loop". Clearing forces a
+    fresh lock per test, bound to that test's loop.
+    """
+    from backend import main
+
+    main._workflow_root_locks.clear()
+    main._conversation_stream_locks.clear()
+    yield
+    main._workflow_root_locks.clear()
+    main._conversation_stream_locks.clear()
+
+
 @pytest.fixture
 async def db_path(tmp_path: Path) -> Path:
     return tmp_path / "test.db"
