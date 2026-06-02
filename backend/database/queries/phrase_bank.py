@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 
 from ..connection import get_db
+from ...passes.editor.slop_detector import PhraseGroup
 
 
-def _row_to_group(row) -> dict:
+def _row_to_group(row) -> PhraseGroup:
     """Normalise a DB row into a phrase-bank group dict for the detector."""
     if (row["kind"] or "literal") == "regex":
         return {"kind": "regex", "pattern": row["pattern"] or ""}
     return {"kind": "literal", "variants": json.loads(row["variants"])}
 
 
-async def get_phrase_bank() -> list[dict]:
+async def get_phrase_bank() -> list[PhraseGroup]:
     """Return phrase bank groups (literal or regex) for the slop detector."""
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT variants, kind, pattern FROM phrase_bank ORDER BY id ASC"))

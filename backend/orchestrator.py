@@ -862,7 +862,7 @@ class PipelineContext:
     director: dict
     mood_fragments: list[dict]
     director_fragments: list[dict]
-    phrase_bank: list[dict]
+    phrase_bank: list[PhraseGroup]
     lorebook_entries: list[dict]
     client: LLMClient
     system_prompt: str
