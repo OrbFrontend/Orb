@@ -4,7 +4,6 @@ import json
 
 from ..connection import _build_set_clause, get_db
 from ..seeds import DEFAULT_SETTINGS
-from ...tool_defs import TOOLS
 
 
 async def get_settings() -> dict:
@@ -169,13 +168,6 @@ async def set_workflow_config(workflow_id: str, payload: dict) -> None:
 
 
 async def update_settings(data: dict) -> dict:
-    # enabled_tools holds only model-callable tools. Drop any key that is not a
-    # registered tool so non-tool feature flags (e.g. the former length_guard*
-    # keys) can never be persisted back into it. Feature flags get their own
-    # columns; see migration 0023.
-    if isinstance(data.get("enabled_tools"), dict):
-        data = {**data, "enabled_tools": {k: v for k, v in data["enabled_tools"].items() if k in TOOLS}}
-
     async with get_db() as db:
         allowed = [
             "endpoint_url",

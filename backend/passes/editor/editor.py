@@ -8,10 +8,13 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import AsyncIterator
+from typing import AsyncIterator, TYPE_CHECKING
 
 from .audit import run_audit, format_report, AuditReport
-from .slop_detector import DetectionResult, PhraseGroup
+from .slop_detector import DetectionResult
+
+if TYPE_CHECKING:
+    from ...database.models import PhraseGroup
 from .opening_monotony import FlaggedOpener, MonotonyResult, _split_sentences
 from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg

@@ -128,6 +128,7 @@ from .orchestrator import (
     handle_magic_rewrite,
 )
 from .llm_client import LLMClient
+from .tool_defs import TOOLS
 from .macros import Macros
 from . import tavern_cards
 from . import card_downloader
@@ -542,7 +543,12 @@ async def api_get_settings():
 
 @app.put("/api/settings")
 async def api_update_settings(data: SettingsUpdate):
-    return await update_settings(data.model_dump(exclude_unset=True))
+    payload = data.model_dump(exclude_unset=True)
+    # enabled_tools holds only model-callable tools. Drop any key that is not a
+    # registered tool so non-tool feature flags can never be persisted into it.
+    if isinstance(payload.get("enabled_tools"), dict):
+        payload["enabled_tools"] = {k: v for k, v in payload["enabled_tools"].items() if k in TOOLS}
+    return await update_settings(payload)
 
 
 # Endpoints ──

@@ -4,7 +4,12 @@ audit.py — Run all programmatic scanners and produce a consolidated AuditRepor
 
 from __future__ import annotations
 
-from .slop_detector import detect_cliches, DetectionResult, PhraseGroup
+from typing import TYPE_CHECKING
+
+from .slop_detector import detect_cliches, DetectionResult
+
+if TYPE_CHECKING:
+    from ...database.models import PhraseGroup
 from .opening_monotony import detect_opening_monotony, MonotonyResult
 from .template_repetition import detect_template_repetition, TemplateResult
 from .contrastive_negation import detect_contrastive_negation

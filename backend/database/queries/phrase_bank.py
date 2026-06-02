@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from ..connection import get_db
-from ...passes.editor.slop_detector import PhraseGroup
+from ..models import PhraseGroup
 
 
 def _row_to_group(row) -> PhraseGroup:

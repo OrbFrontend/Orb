@@ -35,7 +35,7 @@ from .utils import extract_hyperparams
 from .passes.director import DirectorResult, _director_pass
 from .passes.writer import _writer_pass, build_writer_content
 from .passes.editor import editor_pass
-from .passes.editor.slop_detector import PhraseGroup
+from .database.models import PhraseGroup
 
 logger = logging.getLogger(__name__)
 
