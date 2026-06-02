@@ -26,13 +26,12 @@ graph TD
     subgraph Backend ["Backend (FastAPI + SQLite)"]
         orch["handle_turn() in orchestrator.py"]
 
-        pre["[Pre-Writer] Prompt Rewriter (optional)<br/>Rewrites vague user messages"]
-        dir["Director Pass (passes/director.py)<br/>LLM calls direct_scene tool → fills fragments<br/>Fragments are user-defined (director_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
+        dir["Director Pass (passes/director.py) — pre-writer phase (optional)<br/>Runs the enabled PRE_WRITER_TOOLS, each as its own LLM call:<br/>1. rewrite_user_prompt (optional) → rewrites vague user messages<br/>2. direct_scene → fills fragments<br/>Fragments are user-defined (director_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
         writer["Writer Pass (passes/writer.py)<br/>Main generation pass. System prompt + history +<br/>Lorebook entries + Scene Direction injection block + user message.<br/>Streams response tokens via SSE."]
-        editor["[Post-Writer] Editor Pass (passes/editor/) (optional)<br/>Checks: slop, banned phrases, repetitive openers,<br/>templates, structural repetition, length guard.<br/>Tools: editor_apply_patch or editor_rewrite.<br/>Up to 3 iterations."]
+        editor["[Post-Writer] Editor Pass (passes/editor/) (optional)<br/>Checks: slop/contrastive negation, banned phrases,<br/>repetitive openers, templates, phrase repetition,<br/>structural repetition, length guard.<br/>Tools: editor_apply_patch or editor_rewrite.<br/>Up to 3 iterations."]
         summarizer["Summarizer (summarizer.py)<br/>Narrative summary + compress flow<br/>Not part of the pipeline — triggered manually"]
 
-        orch --> pre --> dir --> writer --> editor
+        orch --> dir --> writer --> editor
     end
 
     Frontend -- "HTTP + SSE" --> Backend
@@ -49,7 +48,7 @@ flowchart LR
     writer_prefix --> pipeline["_run_pipeline()"]
     agent_prefix --> pipeline
     lorebook --> pipeline
-    pipeline --> style["Style injection computed inside _run_pipeline()<br/>via compute_style_injection_block()"]
+    pipeline --> style_inj["Style injection computed inside _run_pipeline()<br/>via compute_style_injection_block()"]
     pipeline --> writer["_writer_pass() receives prefix + inj_block + lorebook_block"]
 ```
 
@@ -327,6 +326,35 @@ flowchart TD
 
 Multiple model configs per endpoint. Active one selected via `endpoints.active_model_config_id`. Agent (Director) can use a separate endpoint (`agent_endpoint_id`) or share the writer's.
 
+## Single-Model vs Dual-Model Mode
+
+Orb routes its pipeline passes (Director → Writer → Editor) in one of two modes, controlled by `settings.agent_same_as_writer` (default `true`). "Agent" here means the **Director and Editor** passes; the Writer is always the main generation pass.
+
+### Single-model mode (default — `agent_same_as_writer = true`)
+
+All three passes run on the **same** endpoint and model — the Writer's (`settings.active_endpoint_id` → `endpoints.active_model_config_id`). Every pass sends the same system prompt, the same history, and the same tool schemas, so they share **one KV-cached prefix** on a single inference server. This is the configuration the cross-pass cache design is built around — see [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md).
+
+### Dual-model mode (`agent_same_as_writer = false` + `agent_endpoint_id` set)
+
+The agent passes (Director + Editor) run on a **separate** endpoint/model from the Writer:
+
+| Aspect | Single-model | Dual-model |
+|--------|--------------|------------|
+| Director/Editor endpoint | Writer's endpoint | `settings.agent_endpoint_id` |
+| Director/Editor model | Writer's `active_model_config_id` | endpoint's `agent_active_model_config_id` |
+| Agent system prompt | Writer's system prompt | `settings.agent_shared_system_prompt` (own prefix) |
+| Writer tool schemas | All enabled schemas (sent for byte-parity) | **None** — writer drops its tool list |
+| KV cache | One shared prefix across all passes | Writer prefix on writer server; agent prefix shared by Director + Editor on the agent server |
+
+Because the writer's KV cache now lives on a different server than the agent passes, shipping tool schemas (or the OOC "no tools" notice) to the writer buys nothing, so the writer drops them. The Director and Editor still share a cache with each other, built from their own `agent_prefix` (agent system prompt + history). The cross-pass hand-off into the editor's first iteration also differs in dual-model — see Invariant 5 and the editor ReAct-loop section of [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) for the full caching consequences.
+
+### Where it lives in code
+
+- **Resolution** — `_load_pipeline_context()` in `orchestrator.py` builds `agent_client` and `agent_system_prompt` only when `not agent_same_as_writer and agent_endpoint_id`; `_build_prefixes()` builds the separate `agent_prefix`.
+- **Routing** — the Director and Editor run on `agent_client or client` with `agent_prefix or prefix`; when `agent_client` is set, `writer_enabled_tools` is forced to `{}` (`orchestrator.py`).
+- **Config** — `settings.agent_same_as_writer`, `settings.agent_endpoint_id`, `settings.agent_shared_system_prompt`, and `endpoints.agent_active_model_config_id`.
+- **UI** — Settings → Endpoints → **Agent** section → "Same as Writer" toggle (`frontend/settings.js`). Unchecking reveals the agent endpoint/model fields and warns if they exactly match the writer's (which would make the split pointless).
+
 ## Frontend Architecture
 
 - **State** (`state.js`): Single global `S` object. No reactive framework — components call `render*()` functions after state mutations.
@@ -359,14 +387,6 @@ When running under Codex's filesystem/network sandbox, `aiosqlite` integration t
 
 ## Common Development Workflows
 
-### Adding a New Pipeline Pass
-
-1. Create `backend/passes/your_pass.py` — follow the pattern of `director.py` or `writer.py`
-2. Add tool schemas to `tool_defs.py` if the pass uses tool calling
-3. Integrate into `_run_pipeline()` in `orchestrator.py`
-4. Add SSE events for streaming output
-5. Handle in frontend `chat.js` event parser
-
 ### Adding a New Tool
 
 1. Define the tool schema in `tool_defs.py` (OpenAI function-calling format)
@@ -378,13 +398,6 @@ When running under Codex's filesystem/network sandbox, `aiosqlite` integration t
 ### Adding a New Secondary Workflow
 
 See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) for the full guide to authoring a secondary workflow — registration, hook contexts, HTTP routes, and the frontend module surface.
-
-### Adding a New UI Panel
-
-1. Add HTML structure to `index.html`
-2. Add toggle button with `onclick` handler
-3. Create `renderYourPanel()` function in the relevant JS file
-4. Wire into state updates (call `renderYourPanel()` after mutations)
 
 ### Adding a New Theme
 
@@ -406,14 +419,10 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 
 6. **Reasoning models** — Some models emit `reasoning_content` before `content`. The streaming handler separates these. `reasoning_enabled_passes` in settings controls which pipeline passes get reasoning enabled.
 
-7. **Migrations are sequential** — New migrations must use the next number in sequence. They run at app startup via `run_pending()` in `backend/database/migrations/__init__.py`. The runner imports each migration module via `importlib.import_module(f"backend.database.migrations.{name}")` — keep that path in sync if the package ever moves again.
+7. **Patching `DB_PATH` in tests** — The canonical `DB_PATH` lives in `backend/database/connection.py`. Tests must patch `backend.database.connection.DB_PATH` (which is what `get_db()` reads). Patching the package re-export `backend.database.DB_PATH` will *not* reach the connection module. See `tests/integration/conftest.py` for the working pattern.
 
-8. **Patching `DB_PATH` in tests** — The canonical `DB_PATH` lives in `backend/database/connection.py`. Tests must patch `backend.database.connection.DB_PATH` (which is what `get_db()` reads). Patching the package re-export `backend.database.DB_PATH` will *not* reach the connection module. See `tests/integration/conftest.py` for the working pattern.
+8. **Phrase bank format** — `phrase_bank.variants` is a JSON array of strings. The editor audit matches these against response text using case-insensitive regex.
 
-9. **Phrase bank format** — `phrase_bank.variants` is a JSON array of strings. The editor audit matches these against response text using case-insensitive regex.
+9. **Lorebook scan depth** — Hard-coded to 6 messages (`LOREBOOK_SCAN_DEPTH` in `prompt_builder.py`). Only the last 6 messages are scanned for lorebook keyword matches.
 
-10. **Lorebook scan depth** — Hard-coded to 6 messages (`LOREBOOK_SCAN_DEPTH` in `prompt_builder.py`). Only the last 6 messages are scanned for lorebook keyword matches.
-
-11. **Agent endpoint separation** — Both the Director and Editor can use separate endpoints from the Writer (`agent_endpoint_id` in settings). If `agent_same_as_writer` is true, they share. When using a separate endpoint the writer and agent passes no longer share a KV cache and the writer drops its tool list; the instruction prompt also has a small difference. See [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) (Invariant 5 and the editor ReAct-loop section) for the full caching consequences. Make sure to check which endpoint you're targeting when modifying agent-related code.
-
-12. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire.
+10. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire.
