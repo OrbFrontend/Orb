@@ -40,9 +40,9 @@ class DirectorResult:
     fragment ids, which the director pass does not know about.
     """
 
-    active_moods: list = field(default_factory=list)
+    active_moods: list[str] = field(default_factory=list)
     agent_raw: str = ""
-    calls: list = field(default_factory=list)
+    calls: list[dict] = field(default_factory=list)
     latency: int = 0
     rewritten_msg: str | None = None
     extra_fields: dict = field(default_factory=dict)

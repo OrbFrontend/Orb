@@ -162,9 +162,9 @@ class _PipelineResult:
     instance via the bare ``_PipelineResult()`` seed in :func:`_consume_pipeline`.
     """
 
-    active_moods: list = field(default_factory=list)
+    active_moods: list[str] = field(default_factory=list)
     agent_raw: str = ""
-    calls: list = field(default_factory=list)
+    calls: list[dict] = field(default_factory=list)
     latency: int = 0
     rewritten_msg: str | None = None
     effective_msg: str = ""
@@ -175,7 +175,7 @@ class _PipelineResult:
     reasoning_director: str = ""
     reasoning_writer: str = ""
     reasoning_editor: str = ""
-    staged_attachments: list = field(default_factory=list)
+    staged_attachments: list[dict] = field(default_factory=list)
     staged_message_state: dict = field(default_factory=dict)
 
     def as_event_data(self) -> dict:
