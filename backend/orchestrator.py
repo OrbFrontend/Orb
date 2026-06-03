@@ -55,16 +55,42 @@ logger = logging.getLogger(__name__)
 # ── Core pipeline ─────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class ModelLane:
+    """One model's call surface for the turn: a macro-wrapped client paired with
+    its byte-identical cached bottom (prefix + tools + model).
+
+    A turn has two lanes — ``writer`` and ``agent`` (director + editor). In
+    single-model mode they are the *same object* (the writer's lane is reused for
+    the agent), so the byte-identity invariant "director + editor + writer ride
+    the same base" is structural, not a convention each call site must honour. In
+    dual-model mode they are distinct: the agent lane carries the agent server's
+    client, its own prefix + tool blob, and the agent model; the writer lane
+    carries the writer client with an empty tools blob (Invariant 5).
+
+    ``reasoning`` stays per-pass (director and editor share the agent lane but
+    toggle reasoning independently), so it is not part of the lane.
+    """
+
+    client: LLMClient
+    base: CachedBase
+
+
+def is_dual_model(agent_client: LLMClient | None) -> bool:
+    """The pipeline runs in one of two modes:
+
+    * **single-model** — the writer and the agent (director + editor) share one
+      endpoint, prefix, tool blob, and KV cache; both lanes are the *same*
+      :class:`ModelLane` object.
+    * **dual-model** — a separate agent endpoint is configured, so the agent
+      runs on its own client/prefix/tools/model with a disjoint KV cache.
+    """
+    return agent_client is not None
+
+
 @dataclass
 class _PipelineConfig:
-    """Resolved per-turn flags, clients, and prefixes for :func:`_run_pipeline`.
-
-    A pure derivation from *settings* plus the (possibly agent-zeroed)
-    enabled-tools map; it holds no mutable turn state. ``enabled_tools`` is the
-    final map with ``editor_rewrite`` folded in whenever the length guard is
-    active, so ``enabled_schemas()`` ships an identical tool blob across all
-    three passes (the KV-cache invariant).
-    """
+    """Resolved per-turn flags, lanes, and prefixes for :func:`_run_pipeline`."""
 
     agent_on: bool
     enabled_tools: Mapping[str, bool]
@@ -77,16 +103,11 @@ class _PipelineConfig:
     length_guard: LengthGuard | None
     do_edit: bool
     writer_enabled_tools: Mapping[str, bool]
-    director_client: LLMClient
-    writer_client: LLMClient
-    editor_client: LLMClient
-    # The byte-identical cached bottoms, built once per server per turn. The
-    # director and editor share ``agent_base`` (same server, same prefix + tools
-    # + model); the writer rides ``writer_base``. In single-model mode the two
-    # are identical by construction; in dual-model the writer_base carries the
-    # writer's prefix and an empty tools blob (Invariant 5).
-    agent_base: CachedBase
-    writer_base: CachedBase
+    # The two call surfaces for the turn. ``writer_lane`` runs the writer pass;
+    # ``agent_lane`` runs director + editor. In single-model mode they are the
+    # same object by construction (see :class:`ModelLane`).
+    writer_lane: ModelLane
+    agent_lane: ModelLane
 
 
 def _resolve_pipeline_config(
@@ -128,27 +149,42 @@ def _resolve_pipeline_config(
         else None
     )
 
-    # When the agent runs on a separate model/endpoint its KV cache is disjoint
-    # from the writer's; skip tool schemas and the OOC "no tools" notice from the
-    # writer call — neither is useful and both add unnecessary tokens.
-    writer_enabled_tools = {} if agent_client is not None else enabled_tools
+    # In dual-model mode the agent's KV cache is disjoint from the writer's; skip
+    # tool schemas and the OOC "no tools" notice from the writer call — neither is
+    # useful and both add unnecessary tokens.
+    dual_model = is_dual_model(agent_client)
+    writer_enabled_tools = {} if dual_model else enabled_tools
 
-    # The two cached bottoms, computed once here. The director + editor share the
-    # agent base (same server, same prefix/tools/model); the writer has its own.
+    # The two lanes, computed once here. The writer lane carries the writer's
+    # client + base. The agent lane (director + editor) is the *same object* in
+    # single-model mode and a distinct one only when a separate agent endpoint is
+    # configured — so the byte-identity "director + editor + writer ride the same
+    # base" is structural, not a convention each pass must independently honour.
     # The tool blobs are built via enabled_schemas exactly once each so no pass
-    # can rebuild them differently — the byte-identity is structural, not a
-    # convention each pass must independently honour.
-    agent_model = settings.get("agent_model_name", settings["model_name"]) if agent_client else settings["model_name"]
-    agent_base = CachedBase(
-        prefix=tuple(agent_prefix or prefix),
-        tools=tuple(enabled_schemas(enabled_tools, schema_overrides)),
-        model=agent_model,
+    # can rebuild them differently.
+    writer_lane = ModelLane(
+        client=macros.wrap_client(client),
+        base=CachedBase(
+            prefix=tuple(prefix),
+            tools=tuple(enabled_schemas(writer_enabled_tools, schema_overrides)),
+            model=settings["model_name"],
+        ),
     )
-    writer_base = CachedBase(
-        prefix=tuple(prefix),
-        tools=tuple(enabled_schemas(writer_enabled_tools, schema_overrides)),
-        model=settings["model_name"],
-    )
+    if dual_model:
+        assert agent_client is not None  # dual_model is True iff agent_client was resolved
+        agent_lane = ModelLane(
+            client=macros.wrap_client(agent_client),
+            base=CachedBase(
+                prefix=tuple(agent_prefix or prefix),
+                tools=tuple(enabled_schemas(enabled_tools, schema_overrides)),
+                model=settings.get("agent_model_name", settings["model_name"]),
+            ),
+        )
+    else:
+        # Single-model mode: agent rides the writer's lane verbatim. In this mode
+        # agent_prefix is None and writer_enabled_tools == enabled_tools, so the
+        # writer base already carries exactly the bytes the agent needs.
+        agent_lane = writer_lane
 
     return _PipelineConfig(
         agent_on=agent_on,
@@ -162,11 +198,8 @@ def _resolve_pipeline_config(
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard_enabled,
         writer_enabled_tools=writer_enabled_tools,
-        director_client=macros.wrap_client(agent_client or client),
-        writer_client=macros.wrap_client(client),
-        editor_client=macros.wrap_client(agent_client or client),
-        agent_base=agent_base,
-        writer_base=writer_base,
+        writer_lane=writer_lane,
+        agent_lane=agent_lane,
     )
 
 
@@ -302,8 +335,8 @@ async def _run_pipeline(
     if cfg.agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
         async for event in _director_pass(
-            cfg.director_client,
-            cfg.agent_base,
+            cfg.agent_lane.client,
+            cfg.agent_lane.base,
             user_message,
             settings,
             director,
@@ -380,8 +413,8 @@ async def _run_pipeline(
     )
     resp_text = ""
     async for item in _writer_pass(
-        cfg.writer_client,
-        cfg.writer_base,
+        cfg.writer_lane.client,
+        cfg.writer_lane.base,
         settings,
         cfg.writer_enabled_tools,
         inj_block=inj_block,
@@ -442,8 +475,8 @@ async def _run_pipeline(
         )
         try:
             async for event in editor_pass(
-                cfg.editor_client,
-                cfg.agent_base,
+                cfg.agent_lane.client,
+                cfg.agent_lane.base,
                 effective_msg,
                 resp_text,
                 settings,
