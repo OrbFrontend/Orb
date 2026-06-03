@@ -21,8 +21,6 @@ from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...kv_tracker import cached_complete
 from ...tool_defs import (
     TOOLS,
-    EDITOR_APPLY_PATCH_TOOL,
-    EDITOR_REWRITE_TOOL,
     LENGTH_GUARD_INSTRUCTIONS,
     MAX_EDITOR_ITERATIONS,
     enabled_schemas,
@@ -385,8 +383,15 @@ async def editor_pass(
     length_guard_instruction = ""
 
     # Uses the same enabled-tool set as director and writer for KV-cache
-    # alignment. EDITOR_APPLY_PATCH_TOOL and EDITOR_REWRITE_TOOL are injected
-    # into enabled_tools by the orchestrator before this pass runs.
+    # alignment. The editor_apply_patch / editor_rewrite tools are folded into
+    # enabled_tools by the orchestrator before this pass runs.
+    #
+    # This blob is built ONCE and never reassigned for the life of the ReAct
+    # loop. Tool schemas live inside the cached prefix, so narrowing the list to
+    # a single tool mid-loop would bust the KV cache on every iteration. Which
+    # single tool the model must call is steered entirely by tool_choice (see
+    # _pick_tool_choice, recomputed each iteration) — it forces the right tool
+    # while the schema blob stays byte-identical across all iterations.
     editor_tools: list[dict] = enabled_schemas(enabled_tools, schema_overrides)
 
     if length_guard and length_guard["enabled"]:
@@ -548,12 +553,8 @@ async def editor_pass(
 
                 if report.total_issues <= 1:
                     break
-                if _structural_rewrite_needed(report):
-                    editor_tools = [EDITOR_REWRITE_TOOL]
-                elif audit_enabled:
-                    editor_tools = [EDITOR_APPLY_PATCH_TOOL]
-                else:
-                    editor_tools = []
+                # Next iteration's tool_choice (via _pick_tool_choice) forces the
+                # right tool; editor_tools stays the full, byte-identical blob.
                 prev_issues = report.total_issues
                 if reasoning_on:
                     rewrite_tool_calls = resp.get("tool_calls", [])
@@ -625,8 +626,11 @@ async def editor_pass(
             if report.total_issues <= 1:
                 if not length_guard_triggered:
                     break
+                # Audit clean but length guard still pending: next iteration's
+                # tool_choice forces editor_rewrite (length_guard_triggered is
+                # still True). The schema blob is left untouched so the KV cache
+                # survives the hand-off.
                 logger.info("Editor: audit within threshold, length guard still pending — queuing rewrite")
-                editor_tools = [EDITOR_REWRITE_TOOL]
 
             if report.total_issues >= prev_issues:
                 logger.info(
