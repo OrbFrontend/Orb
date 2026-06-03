@@ -27,7 +27,7 @@ from ...tool_defs import (
     enabled_schemas,
 )
 from ...prompt_builder import build_editor_prompt
-from ...utils import extract_hyperparams
+from ...utils import LengthGuard, extract_hyperparams
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +309,7 @@ async def editor_pass(
     phrase_bank: list[PhraseGroup],
     enabled_tools: Mapping[str, bool],
     audit_enabled: bool = True,
-    length_guard: dict | None = None,
+    length_guard: LengthGuard | None = None,
     kv_tracker=None,
     reasoning_on: bool = False,  # If true, use structured tool-use message format (role=tool) for iteration feedback; non-thinking models get a synthetic recap instead
     audit_context_msgs: (
@@ -382,10 +382,10 @@ async def editor_pass(
     # into enabled_tools by the orchestrator before this pass runs.
     editor_tools: list[dict] = enabled_schemas(enabled_tools, schema_overrides)
 
-    if length_guard and length_guard.get("enabled"):
+    if length_guard and length_guard["enabled"]:
         word_count = len(draft.split())
-        max_words = length_guard.get("max_words", 280)
-        max_paragraphs = length_guard.get("max_paragraphs", 3)
+        max_words = length_guard["max_words"]
+        max_paragraphs = length_guard["max_paragraphs"]
         if word_count > max_words:
             length_guard_triggered = True
             length_guard_instruction = LENGTH_GUARD_INSTRUCTIONS.format(

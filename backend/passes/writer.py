@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, reasoning_cfg
 from ..tool_defs import enabled_schemas
-from ..utils import extract_hyperparams, build_multimodal_content
+from ..utils import LengthGuard, extract_hyperparams, build_multimodal_content
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def build_writer_content(
     effective_msg: str,
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard_enforce: bool,
-    length_guard: dict | None,
+    length_guard: LengthGuard | None,
 ) -> "str | list":
     """Build the writer's user-message content (string or multimodal list).
 
@@ -36,9 +36,9 @@ def build_writer_content(
         tail += "___\n\n" + inj_block + "\n\n"
     if enabled_tools:
         tail += "**Do not use tool or function calls this turn.**\n\n"
-    if length_guard_enforce and length_guard and length_guard.get("enabled"):
-        max_words = length_guard.get("max_words", 240)
-        max_paragraphs = length_guard.get("max_paragraphs", 4)
+    if length_guard_enforce and length_guard and length_guard["enabled"]:
+        max_words = length_guard["max_words"]
+        max_paragraphs = length_guard["max_paragraphs"]
         tail += f"**Keep your response under {max_words} words and {max_paragraphs} paragraphs.**\n\n"
     tail += "___\n\n" + effective_msg + "\n\n"
 
@@ -56,7 +56,7 @@ async def _writer_pass(
     effective_msg: str,
     attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     length_guard_enforce: bool = False,
-    length_guard: dict | None = None,
+    length_guard: LengthGuard | None = None,
     kv_tracker=None,
     reasoning_on: bool = True,
     schema_overrides: dict | None = None,

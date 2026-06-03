@@ -31,7 +31,7 @@ from .workflows import (
     iter_subscriptions,
 )
 from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
-from .utils import extract_hyperparams
+from .utils import LengthGuard, extract_hyperparams
 from .passes.director import DirectorResult, _director_pass
 from .passes.writer import _writer_pass, build_writer_content
 from .passes.editor import editor_pass
@@ -72,7 +72,7 @@ class _PipelineConfig:
     audit_enabled: bool
     length_guard_enabled: bool
     length_guard_enforce: bool
-    length_guard: dict | None
+    length_guard: LengthGuard | None
     do_edit: bool
     writer_enabled_tools: Mapping[str, bool]
     director_client: LLMClient
@@ -111,7 +111,7 @@ def _resolve_pipeline_config(
 
     # length_guard_enabled already folds in agent_on (it is False whenever the
     # agent is off), so no extra `and agent_on` guard is needed below.
-    length_guard = (
+    length_guard: LengthGuard | None = (
         {
             "enabled": length_guard_enabled,
             "max_words": int(settings.get("length_guard_max_words", 240)),

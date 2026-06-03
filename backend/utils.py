@@ -4,7 +4,20 @@ utils.py — Shared helpers.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, TypedDict
+
+
+class LengthGuard(TypedDict):
+    """Resolved length-guard limits threaded through the pipeline.
+
+    Built by the orchestrator only when the length guard is enabled (``None``
+    otherwise) and consumed by the writer and editor passes. ``enabled`` mirrors
+    that on/off state so a hook receiving the dict need not re-derive it.
+    """
+
+    enabled: bool
+    max_words: int
+    max_paragraphs: int
 
 
 def extract_hyperparams(settings: Mapping[str, Any], *, defaults: Mapping[str, Any] | None = None) -> dict:
