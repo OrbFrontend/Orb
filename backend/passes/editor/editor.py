@@ -307,7 +307,7 @@ async def editor_pass(
     draft: str,
     settings: Mapping[str, Any],
     phrase_bank: list[PhraseGroup],
-    enabled_tools: dict,
+    enabled_tools: Mapping[str, bool],
     audit_enabled: bool = True,
     length_guard: dict | None = None,
     kv_tracker=None,

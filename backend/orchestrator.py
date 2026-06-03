@@ -65,7 +65,7 @@ class _PipelineConfig:
     """
 
     agent_on: bool
-    enabled_tools: dict
+    enabled_tools: Mapping[str, bool]
     director_reasoning_on: bool
     writer_reasoning_on: bool
     editor_reasoning_on: bool
@@ -74,7 +74,7 @@ class _PipelineConfig:
     length_guard_enforce: bool
     length_guard: dict | None
     do_edit: bool
-    writer_enabled_tools: dict
+    writer_enabled_tools: Mapping[str, bool]
     director_client: LLMClient
     writer_client: LLMClient
     editor_client: LLMClient
@@ -85,7 +85,7 @@ class _PipelineConfig:
 
 def _resolve_pipeline_config(
     settings: Mapping[str, Any],
-    enabled_tools: dict,
+    enabled_tools: Mapping[str, bool],
     *,
     macros: Macros,
     client: LLMClient,
@@ -202,7 +202,7 @@ async def _run_pipeline(
     card: Mapping[str, Any] | None = None,
     *,
     prefix: list[dict],
-    enabled_tools: dict,
+    enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
     kv_tracker: _KVCacheTracker,
     schema_overrides: dict,
@@ -522,7 +522,7 @@ async def _run_post_pipeline(
     director_output: dict,
     settings: Mapping[str, Any],
     prefix: list[dict],
-    enabled_tools: dict,
+    enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
     client: LLMClient,
     kv_tracker: _KVCacheTracker,
@@ -742,7 +742,7 @@ async def _iterate_pre_pipeline_hooks(
     last_user_message: str,
     settings: Mapping[str, Any],
     prefix_base: list[dict],
-    enabled_tools_pre_merge: dict,
+    enabled_tools_pre_merge: Mapping[str, bool],
     turn_scratch: dict,
     client,
     kv_tracker,
@@ -1037,7 +1037,7 @@ class _TurnSetup:
 
     prefix: list[dict]
     agent_prefix: list[dict] | None
-    merged_enabled_tools: dict
+    merged_enabled_tools: dict[str, bool]
     macros: Macros
     lorebook_block: str
     turn_scratch: dict

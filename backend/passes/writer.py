@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 def build_writer_content(
     lorebook_block: str,
     inj_block: str,
-    enabled_tools: dict,
+    enabled_tools: Mapping[str, bool],
     effective_msg: str,
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard_enforce: bool,
@@ -49,7 +49,7 @@ async def _writer_pass(
     client: LLMClient,
     prefix: list[dict],
     settings: Mapping[str, Any],
-    enabled_tools: dict,
+    enabled_tools: Mapping[str, bool],
     *,
     inj_block: str = "",
     lorebook_block: str = "",

@@ -224,7 +224,7 @@ class SettingsUpdate(BaseModel):
     system_prompt: Optional[str] = None
     user_name: Optional[str] = None
     user_description: Optional[str] = None
-    enabled_tools: Optional[dict] = None
+    enabled_tools: Optional[dict[str, bool]] = None
     enable_agent: Optional[bool] = None
     length_guard_enabled: Optional[bool] = None
     length_guard_enforce: Optional[bool] = None

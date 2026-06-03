@@ -119,7 +119,7 @@ class SettingsRow(_SettingsBase, total=False):
     attachment_access_counter: int
     # JSON columns, decoded to their in-memory shape by get_settings() on the
     # SELECT * branch only (DEFAULT_SETTINGS omits them).
-    enabled_tools: dict
+    enabled_tools: dict[str, bool]
     reasoning_enabled_passes: dict
     inspector_open_states: dict
     workflow_config: str  # left raw; decoded per-slot by get_workflow_config()
