@@ -31,6 +31,7 @@ from .workflows import (
     iter_subscriptions,
 )
 from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
+from .llm_types import ChatMessage
 from .utils import LengthGuard, extract_hyperparams
 from .passes.director import DirectorResult, _director_pass
 from .passes.writer import _writer_pass, build_writer_content
@@ -78,8 +79,8 @@ class _PipelineConfig:
     director_client: LLMClient
     writer_client: LLMClient
     editor_client: LLMClient
-    director_prefix: list[dict]
-    editor_prefix: list[dict]
+    director_prefix: list[ChatMessage]
+    editor_prefix: list[ChatMessage]
     agent_model: str
 
 
@@ -90,8 +91,8 @@ def _resolve_pipeline_config(
     macros: Macros,
     client: LLMClient,
     agent_client: LLMClient | None,
-    agent_prefix: list[dict] | None,
-    prefix: list[dict],
+    agent_prefix: list[ChatMessage] | None,
+    prefix: list[ChatMessage],
     phrase_bank: list[PhraseGroup] | None,
 ) -> _PipelineConfig:
     """Derive the per-turn pipeline configuration (see :class:`_PipelineConfig`)."""
@@ -195,13 +196,13 @@ async def _run_pipeline(
     lorebook_block: str = "",
     editor_audit_msgs: list[str] | None = None,
     agent_client: LLMClient | None = None,
-    agent_prefix: list[dict] | None = None,
+    agent_prefix: list[ChatMessage] | None = None,
     macros: Macros | None = None,
     conversation_id: str | None = None,
     character_id: str | None = None,
     card: Mapping[str, Any] | None = None,
     *,
-    prefix: list[dict],
+    prefix: list[ChatMessage],
     enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
     kv_tracker: _KVCacheTracker,
@@ -521,7 +522,7 @@ async def _run_post_pipeline(
     effective_msg: str,
     director_output: dict,
     settings: Mapping[str, Any],
-    prefix: list[dict],
+    prefix: list[ChatMessage],
     enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
     client: LLMClient,
@@ -741,7 +742,7 @@ async def _iterate_pre_pipeline_hooks(
     history: Sequence[Mapping[str, Any]],
     last_user_message: str,
     settings: Mapping[str, Any],
-    prefix_base: list[dict],
+    prefix_base: list[ChatMessage],
     enabled_tools_pre_merge: Mapping[str, bool],
     turn_scratch: dict,
     client,
@@ -967,7 +968,7 @@ def _build_prefix_from_ctx(
     *,
     system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
-) -> list[dict]:
+) -> list[ChatMessage]:
     """Build the LLM prefix from a :class:`PipelineContext`.
 
     When *system_prompt* is provided it overrides ``ctx.system_prompt``
@@ -998,7 +999,7 @@ def _build_prefixes(
     history: Sequence[Mapping[str, Any]],
     *,
     extra_system_blocks: list[str] | None = None,
-) -> tuple[list[dict], list[dict] | None]:
+) -> tuple[list[ChatMessage], list[ChatMessage] | None]:
     """Build (prefix, agent_prefix) from *ctx* and *history*.
 
     *agent_prefix* is ``None`` when no separate agent system prompt is
@@ -1035,8 +1036,8 @@ class _TurnSetup:
     block, scratch dict, KV tracker, dynamic-schema map).
     """
 
-    prefix: list[dict]
-    agent_prefix: list[dict] | None
+    prefix: list[ChatMessage]
+    agent_prefix: list[ChatMessage] | None
     merged_enabled_tools: dict[str, bool]
     macros: Macros
     lorebook_block: str

@@ -10,6 +10,7 @@ from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, reasoning_cfg
 from ..tool_defs import enabled_schemas
+from ..llm_types import ChatMessage, ContentPart
 from ..utils import LengthGuard, extract_hyperparams, build_multimodal_content
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ def build_writer_content(
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard_enforce: bool,
     length_guard: LengthGuard | None,
-) -> "str | list":
+) -> "str | list[ContentPart]":
     """Build the writer's user-message content (string or multimodal list).
 
     Extracted so the orchestrator can pass the exact value to the editor,
@@ -47,7 +48,7 @@ def build_writer_content(
 
 async def _writer_pass(
     client: LLMClient,
-    prefix: list[dict],
+    prefix: list[ChatMessage],
     settings: Mapping[str, Any],
     enabled_tools: Mapping[str, bool],
     *,
@@ -72,7 +73,7 @@ async def _writer_pass(
         length_guard,
     )
 
-    msgs = prefix + [{"role": "user", "content": content}]
+    msgs: list[ChatMessage] = [*prefix, {"role": "user", "content": content}]
 
     hyperparams = extract_hyperparams(settings)
     schemas = enabled_schemas(enabled_tools, schema_overrides)

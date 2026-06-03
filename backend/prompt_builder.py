@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from .macros import Macros
+from .llm_types import ChatMessage, ContentPart
 from .tool_defs import (
     TOOLS,
     DIRECTOR_PREAMBLE,
@@ -22,7 +23,7 @@ from .tool_defs import (
 LOREBOOK_SCAN_DEPTH = 6
 
 
-def format_message_with_attachments(message: Mapping[str, Any], macros: Macros | None) -> dict:
+def format_message_with_attachments(message: Mapping[str, Any], macros: Macros | None) -> ChatMessage:
     """Convert a message dict with optional attachments to OpenAI vision format.
 
     Two attachment lists travel on the message dict:
@@ -55,7 +56,7 @@ def format_message_with_attachments(message: Mapping[str, Any], macros: Macros |
     if not user_atts:
         return {"role": role, "content": combined_text}
 
-    parts: list[dict] = []
+    parts: list[ContentPart] = []
     if combined_text:
         parts.append({"type": "text", "text": combined_text})
     for att in user_atts:
@@ -80,7 +81,7 @@ def build_prefix(
     user_description: str = "",
     *,
     extra_system_blocks: list[str] | None = None,
-) -> list[dict]:
+) -> list[ChatMessage]:
     resolve = macros.resolve_message if macros else (lambda t: t)
     resolved = {
         key: resolve(val)
@@ -119,7 +120,8 @@ def build_prefix(
 
     processed_messages = [format_message_with_attachments(m, macros) for m in (messages or [])]
 
-    return [{"role": "system", "content": "".join(parts)}] + processed_messages
+    system_message: ChatMessage = {"role": "system", "content": "".join(parts)}
+    return [system_message] + processed_messages
 
 
 # ── Tool-call prompt

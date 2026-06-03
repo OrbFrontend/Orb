@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional, Sequence, TypedDict
 
+from .llm_types import ContentPart
+
 
 class LengthGuard(TypedDict):
     """Resolved length-guard limits threaded through the pipeline.
@@ -41,7 +43,7 @@ def extract_hyperparams(settings: Mapping[str, Any], *, defaults: Mapping[str, A
     return params
 
 
-def build_multimodal_content(text: str, attachments: Optional[Sequence[Mapping[str, Any]]] = None) -> str | list:
+def build_multimodal_content(text: str, attachments: Optional[Sequence[Mapping[str, Any]]] = None) -> str | list[ContentPart]:
     """Wrap *text* (and optional image attachments) into a multimodal content list.
 
     Returns a plain string when there are no attachments, or a list of content
@@ -49,7 +51,7 @@ def build_multimodal_content(text: str, attachments: Optional[Sequence[Mapping[s
     """
     if not attachments:
         return text
-    parts: list = [{"type": "text", "text": text}]
+    parts: list[ContentPart] = [{"type": "text", "text": text}]
     for att in attachments:
         mime = att.get("mime_type", att.get("mime", "image/jpeg"))
         b64 = att.get("data_b64", att.get("b64", ""))

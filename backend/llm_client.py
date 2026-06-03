@@ -4,7 +4,7 @@ import httpx
 import json
 import logging
 import re
-from typing import AsyncIterator
+from typing import Any, AsyncIterator, Mapping, Sequence
 
 from .endpoint_profiles import ModelProfile
 
@@ -66,7 +66,7 @@ class LLMClient:
 
     async def complete(
         self,
-        messages: list[dict],
+        messages: Sequence[Mapping[str, Any]],
         model: str,
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,

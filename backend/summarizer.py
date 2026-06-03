@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator, Mapping, Sequence
 
 from .llm_client import LLMClient
 from .macros import Macros
+from .llm_types import ChatMessage
 from . import prompt_builder
 
 DEFAULT_SUMMARY_INSTRUCTIONS = (
@@ -39,7 +40,7 @@ class ConversationSummarizer:
         macros: Macros,
         user_description: str,
         custom_instructions: str | None = None,
-    ) -> list[dict]:
+    ) -> list[ChatMessage]:
         prefix = prompt_builder.build_prefix(
             system_prompt,
             char_persona,
@@ -55,7 +56,7 @@ class ConversationSummarizer:
             instructions += f"\n{custom_instructions}"
         return prefix + [{"role": "user", "content": instructions}]
 
-    async def stream(self, llm_messages: list[dict], model: str) -> AsyncGenerator[str, None]:
+    async def stream(self, llm_messages: Sequence[Mapping[str, Any]], model: str) -> AsyncGenerator[str, None]:
         params = {k: v for k in _LLM_PARAMS if (v := self.settings.get(k)) is not None}
         async for chunk in self.client.complete(llm_messages, model, **params):
             if chunk["type"] == "content":

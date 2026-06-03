@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import random
 import re
-from typing import Any, Mapping, NamedTuple
+from typing import Any, Mapping, NamedTuple, Sequence
 
 from .llm_client import LLMClient
 
@@ -156,7 +156,7 @@ class _PlaceholderClient(LLMClient):
 
     async def complete(
         self,
-        messages: list[dict],
+        messages: Sequence[Mapping[str, Any]],
         model: str,
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,

@@ -19,6 +19,7 @@ from ..tool_defs import (
     enabled_schemas,
 )
 from ..prompt_builder import build_director_tool_prompt
+from ..llm_types import ChatMessage
 from ..utils import extract_hyperparams, build_multimodal_content
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ def apply_tool_calls(
 
 async def _director_pass(
     client: LLMClient,
-    prefix: list[dict],
+    prefix: list[ChatMessage],
     user_message: str,
     settings: Mapping[str, Any],
     director: Mapping[str, Any],
@@ -148,7 +149,7 @@ async def _director_pass(
         )
         tail = ("___\n\n" + lorebook_block + "\n\n" if lorebook_block else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
-        msgs = prefix + [{"role": "user", "content": content}]
+        msgs: list[ChatMessage] = [*prefix, {"role": "user", "content": content}]
         logger.info(
             "Agent tool=%s prompt:\n%s",
             name,

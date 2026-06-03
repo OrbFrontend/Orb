@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncIterator, Mapping, TYPE_CHECKING
+from typing import Any, AsyncIterator, Mapping, TYPE_CHECKING, cast
 
 from .audit import run_audit, format_report, AuditReport
 from .slop_detector import DetectionResult
@@ -27,6 +27,7 @@ from ...tool_defs import (
     enabled_schemas,
 )
 from ...prompt_builder import build_editor_prompt
+from ...llm_types import ChatMessage, ContentPart
 from ...utils import LengthGuard, extract_hyperparams
 
 logger = logging.getLogger(__name__)
@@ -302,7 +303,7 @@ def _editor_done_event(
 
 async def editor_pass(
     client: LLMClient,
-    prefix: list[dict],
+    prefix: list[ChatMessage],
     effective_msg: str,
     draft: str,
     settings: Mapping[str, Any],
@@ -316,7 +317,7 @@ async def editor_pass(
         list[str] | None
     ) = None,  # explicit previous-assistant list for repetition scanning; if None, derived from prefix
     model: str | None = None,
-    writer_user_msg: "str | list | None" = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
+    writer_user_msg: "str | list[ContentPart] | None" = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
     schema_overrides: dict | None = None,
 ) -> AsyncIterator[dict]:
     """ReAct-style editor loop with optional audit and/or length guard.
@@ -341,7 +342,12 @@ async def editor_pass(
         else:
             for msg in reversed(prefix):
                 if msg.get("role") == "assistant":
-                    assistant_messages.append(msg.get("content", ""))
+                    # Assistant history is always plain text; the multimodal
+                    # list form only ever rides user messages, so a non-str
+                    # body has nothing to contribute to the repetition window.
+                    content = msg.get("content", "")
+                    if isinstance(content, str):
+                        assistant_messages.append(content)
                     if len(assistant_messages) >= 3:
                         break
 
@@ -425,7 +431,11 @@ async def editor_pass(
 
     logger.info(final_prompt)
 
-    msgs = prefix + [
+    # The prefix is the closed ChatMessage shape; from here msgs becomes the
+    # broader wire buffer the ReAct loop mutates in place (assistant tool_calls,
+    # tool-role results), so it crosses into free-form dict at this boundary.
+    msgs: list[dict[str, Any]] = [
+        *cast("list[dict[str, Any]]", prefix),
         {
             "role": "user",
             "content": (writer_user_msg if writer_user_msg is not None else effective_msg),
