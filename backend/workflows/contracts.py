@@ -71,13 +71,16 @@ class PreCtx:
     """Inputs available to a workflow's pre-pipeline hook.
 
     Wrapped fields (``history``, ``settings``, ``prefix``,
-    ``enabled_tools_pre_merge``, ``schema_overrides``) are recursively
-    read-only at the point the orchestrator constructs this Ctx; mutation
-    attempts at any nesting depth raise immediately. ``turn_scratch``,
-    ``client``, and ``kv_tracker`` are intentionally not wrapped -- they
-    are the documented mutation channel, the per-turn LLM client, and the
-    per-turn cache aggregator respectively, ref-shared across every PreCtx
-    and PostCtx in the same turn.
+    ``enabled_tools_pre_merge``) are recursively read-only at the point the
+    orchestrator constructs this Ctx; mutation attempts at any nesting depth
+    raise immediately. ``schema_overrides`` is a ``MappingProxyType`` frozen
+    once at turn setup -- its top-level mapping cannot gain/lose/swap entries,
+    but its schema *values* stay plain dicts so they remain json-serializable
+    into the tools blob (only the values, never the container, are serialized).
+    ``turn_scratch``, ``client``, and ``kv_tracker`` are intentionally not
+    wrapped -- they are the documented mutation channel, the per-turn LLM
+    client, and the per-turn cache aggregator respectively, ref-shared across
+    every PreCtx and PostCtx in the same turn.
 
     ``prefix`` carries the pipeline prefix *before* extra system blocks
     contributed by pre-pipeline ``system_prompt`` yields have been

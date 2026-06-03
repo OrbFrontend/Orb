@@ -257,7 +257,7 @@ def register_tool(name: str, schema: dict, choice: dict, *, standalone: bool = F
 
 def enabled_schemas(
     enabled_tools: Mapping[str, bool] | None,
-    overrides: dict[str, dict] | None = None,
+    overrides: Mapping[str, dict] | None = None,
 ) -> list[dict]:
     """Return tool schemas for enabled, non-standalone tools, in TOOLS registry order.
 

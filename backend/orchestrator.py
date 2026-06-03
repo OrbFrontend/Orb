@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field, fields
+from types import MappingProxyType
 from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 
 from . import database as db
@@ -206,7 +207,7 @@ async def _run_pipeline(
     enabled_tools: Mapping[str, bool],
     turn_scratch: dict,
     kv_tracker: _KVCacheTracker,
-    schema_overrides: dict,
+    schema_overrides: Mapping[str, dict],
     history: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
     """Three-pass pipeline: director → writer → editor, plus a post-pipeline
@@ -527,7 +528,7 @@ async def _run_post_pipeline(
     turn_scratch: dict,
     client: LLMClient,
     kv_tracker: _KVCacheTracker,
-    schema_overrides: dict,
+    schema_overrides: Mapping[str, dict],
 ) -> AsyncIterator[dict | _PostPipelineResult]:
     """Drive each POST_PIPELINE subscription over the finished *draft*, streaming
     pass-through SSE events and yielding one terminal :class:`_PostPipelineResult`.
@@ -747,7 +748,7 @@ async def _iterate_pre_pipeline_hooks(
     turn_scratch: dict,
     client,
     kv_tracker,
-    schema_overrides: dict,
+    schema_overrides: Mapping[str, dict],
     accumulators: dict,
 ) -> AsyncIterator[dict]:
     """Drive each pre_pipeline subscription in priority-ascending order,
@@ -1043,7 +1044,7 @@ class _TurnSetup:
     lorebook_block: str
     turn_scratch: dict
     kv_tracker: _KVCacheTracker
-    schema_overrides: dict
+    schema_overrides: Mapping[str, dict]
 
 
 async def _prepare_turn(
@@ -1085,7 +1086,10 @@ async def _prepare_turn(
     # Per-turn shared identities — ref-shared across the hooks and every pass.
     turn_scratch: dict = {}
     kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
-    schema_overrides = {"direct_scene": build_direct_scene_tool(ctx.director_fragments)}
+    # Built once and never mutated for the rest of the turn -- frozen here so the
+    # ref shared across every pass and hook cannot have entries added/swapped/dropped.
+    # Values stay plain dicts so they remain json-serializable into the tools blob.
+    schema_overrides = MappingProxyType({"direct_scene": build_direct_scene_tool(ctx.director_fragments)})
 
     enabled_tools_setting = settings.get("enabled_tools") or {}
     if settings.get("enable_agent", 1):

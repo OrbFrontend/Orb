@@ -93,7 +93,7 @@ async def _director_pass(
     lorebook_block: str = "",
     model: str | None = None,
     progressive_state: dict | None = None,
-    schema_overrides: dict | None = None,
+    schema_overrides: Mapping[str, dict] | None = None,
 ) -> AsyncIterator[dict]:
     """Yields reasoning dicts during each tool call, then a single done dict.
 

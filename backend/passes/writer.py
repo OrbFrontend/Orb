@@ -60,7 +60,7 @@ async def _writer_pass(
     length_guard: LengthGuard | None = None,
     kv_tracker=None,
     reasoning_on: bool = True,
-    schema_overrides: dict | None = None,
+    schema_overrides: Mapping[str, dict] | None = None,
 ) -> AsyncIterator[dict]:
     """Yields {"type": "content"|"reasoning", "delta": str} dicts."""
     content = build_writer_content(

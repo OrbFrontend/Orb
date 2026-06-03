@@ -318,7 +318,7 @@ async def editor_pass(
     ) = None,  # explicit previous-assistant list for repetition scanning; if None, derived from prefix
     model: str | None = None,
     writer_user_msg: "str | list[ContentPart] | None" = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
-    schema_overrides: dict | None = None,
+    schema_overrides: Mapping[str, dict] | None = None,
 ) -> AsyncIterator[dict]:
     """ReAct-style editor loop with optional audit and/or length guard.
 
