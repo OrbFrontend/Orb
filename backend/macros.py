@@ -146,13 +146,11 @@ class _PlaceholderClient(LLMClient):
         self._inner = inner
         self._user_name = user_name
         self._char_name = char_name
-
-    def abort(self) -> None:
-        self._inner.abort()
-
-    @property
-    def is_aborted(self) -> bool:
-        return self._inner.is_aborted
+        # Share the inner client's abort token so the inherited abort()/
+        # is_aborted reflect the same turn-wide stop signal — no delegation
+        # overrides needed. Transport config (base_url/profile/…) is left unset
+        # since complete() delegates to the inner client rather than using it.
+        self.abort_token = inner.abort_token
 
     async def complete(
         self,

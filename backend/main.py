@@ -127,7 +127,7 @@ from .orchestrator import (
     handle_super_regenerate,
     handle_magic_rewrite,
 )
-from .llm_client import LLMClient
+from .llm_client import AbortToken, LLMClient
 from .tool_defs import TOOLS
 from .macros import Macros
 from . import tavern_cards
@@ -193,9 +193,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Orb", lifespan=lifespan)
 
-# Active LLM generations keyed by conversation ID.
-# Populated when streaming starts; cleared when it ends or is aborted.
-_active_clients: dict[str, list[LLMClient]] = {}
+# Per-conversation abort token for the active LLM generation. Set when streaming
+# starts; cleared when it ends or is aborted. One token covers every client in
+# the turn (writer + optional agent), so /stop signals them all at once.
+_active_aborts: dict[str, AbortToken] = {}
 
 
 @app.middleware("http")
@@ -1028,10 +1029,12 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
     macros = Macros.from_settings(settings, char_name, active_persona)
     user_description = active_persona.get("description", "") if active_persona else settings.get("user_description", "")
 
+    abort_token = AbortToken()
     client = LLMClient(
         settings["endpoint_url"],
         api_key=settings.get("api_key", ""),
         profile=profile_for(settings["endpoint_url"], settings.get("model_name", "")),
+        abort_token=abort_token,
     )
     summarizer = ConversationSummarizer(client, settings)
     llm_messages = summarizer.build_messages(
@@ -1056,7 +1059,7 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
             yield {"event": "error", "data": str(e)}
 
     return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, client_ref=[client], cid=cid),
+        _sse_stream(_gen(), request, abort_token=abort_token, cid=cid),
         media_type="text/event-stream",
     )
 
@@ -1322,6 +1325,20 @@ async def api_export_character(card_id: str):
     )
 
 
+async def _safe_aclose(gen: AsyncGenerator[Any, None]) -> None:
+    """Close *gen*, shielding the close from cancellation so the generator's own
+    finally blocks (e.g. the orchestrator's fallback persistence of incomplete
+    messages) always run to completion. If the shield itself is cancelled, retry
+    the close once unshielded and swallow any error."""
+    try:
+        await asyncio.shield(gen.aclose())
+    except asyncio.CancelledError:
+        try:
+            await gen.aclose()
+        except Exception:
+            pass
+
+
 class _CleanupStreamingResponse(StreamingResponse):
     """StreamingResponse that guarantees the body async generator is closed
     even when the client disconnects mid-stream.
@@ -1340,30 +1357,22 @@ class _CleanupStreamingResponse(StreamingResponse):
             # (e.g. client disconnected). This ensures the orchestrator's
             # finally block runs and saves any incomplete message.
             if hasattr(self.body_iterator, "aclose"):
-                gen = cast(AsyncGenerator[Any, None], self.body_iterator)
-                try:
-                    await asyncio.shield(gen.aclose())
-                except asyncio.CancelledError:
-                    # Shield was cancelled; try once more
-                    try:
-                        await gen.aclose()
-                    except Exception:
-                        pass
+                await _safe_aclose(cast(AsyncGenerator[Any, None], self.body_iterator))
 
 
 async def _sse_stream(
     gen,
     request: Request,
     *,
-    client_ref: list[LLMClient] | None = None,
+    abort_token: AbortToken | None = None,
     cid: str | None = None,
 ):
     """Wrap an event-dict async generator as SSE, stopping cleanly on client disconnect.
 
-    The primary stop path is the explicit POST /stop endpoint, which calls
-    LLMClient.abort() directly. That in turn breaks out of the asyncio.wait()
-    loop in complete() and lets the async-with block close the TCP connection
-    to the LLM server normally — no task cancellation needed.
+    The primary stop path is the explicit POST /stop endpoint, which signals
+    *abort_token*. That breaks out of the asyncio.wait() loop in complete() and
+    lets the async-with block close the TCP connection to the LLM server
+    normally — no task cancellation needed.
 
     A background watcher also polls request.is_disconnected() as a fallback
     for cases like the user closing the browser tab without clicking Stop.
@@ -1373,9 +1382,8 @@ async def _sse_stream(
         try:
             while True:
                 if await request.is_disconnected():
-                    if client_ref:
-                        for c in client_ref:
-                            c.abort()
+                    if abort_token is not None:
+                        abort_token.abort()
                     return
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
@@ -1397,12 +1405,13 @@ async def _sse_stream(
                 return
             await candidate.acquire()
             lock = candidate
+            # Register only after winning the lock, so a rejected loser never
+            # clobbers the winner's entry. `lock is not None` in the finally
+            # gates the matching pop to the same winner.
+            if abort_token is not None:
+                _active_aborts[cid] = abort_token
         watcher = asyncio.create_task(_watch_disconnect())
         async for event in gen:
-            # Register client in _active_clients on the first event (by which
-            # point handle_turn has already populated client_ref).
-            if cid and client_ref and cid not in _active_clients:
-                _active_clients[cid] = list(client_ref)
             evt_type = event["event"]
             evt_data = event.get("data", "")
             if isinstance(evt_data, dict):
@@ -1415,34 +1424,23 @@ async def _sse_stream(
             watcher.cancel()
         if cid and lock is not None:
             # `lock is not None` implies this coroutine won the acquire race and
-            # therefore owns whatever was lazy-registered into _active_clients.
-            # Gating the pop on the same sentinel keeps the rejected-loser path
-            # from deleting the winner's entry and silently no-opping /stop.
-            _active_clients.pop(cid, None)
+            # therefore owns the _active_aborts entry it registered above.
+            _active_aborts.pop(cid, None)
         if lock is not None:
             # Release before gen.aclose() so a queued /edit, /delete, or
             # /switch-branch can proceed in parallel with the inner generator's
             # cleanup rather than waiting on it.
             lock.release()
-        # Shield aclose() from CancelledError so the orchestrator's finally
-        # block (fallback persistence of incomplete messages) always runs.
-        try:
-            await asyncio.shield(gen.aclose())
-        except asyncio.CancelledError:
-            try:
-                await gen.aclose()
-            except Exception:
-                pass
+        await _safe_aclose(gen)
 
 
 @app.post("/api/conversations/{cid}/stop")
 async def api_stop_generation(cid: str):
     """Abort the active LLM generation for this conversation, if any."""
-    clients = _active_clients.get(cid)
-    if clients:
-        for c in clients:
-            c.abort()
-        logger.info("Stop requested for conversation %s — aborted", cid)
+    token = _active_aborts.get(cid)
+    if token is not None:
+        token.abort()
+        logger.info("Stop Generation requested for conversation %s — abort signalled", cid)
     return {"ok": True}
 
 
@@ -1480,12 +1478,12 @@ async def api_fork_edit_message(cid: str, msg_id: int, data: EditMessage, reques
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list[LLMClient] = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_fork_edit(cid, msg_id, data.content, client_ref=client_ref),
+            handle_fork_edit(cid, msg_id, data.content, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1531,12 +1529,12 @@ async def api_regenerate_msg(cid: str, msg_id: int, request: Request, data: Opti
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list[LLMClient] = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_regenerate(cid, msg_id, client_ref=client_ref),
+            handle_regenerate(cid, msg_id, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1550,12 +1548,12 @@ async def api_super_regenerate_msg(cid: str, msg_id: int, request: Request, data
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list[LLMClient] = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_super_regenerate(cid, msg_id, client_ref=client_ref),
+            handle_super_regenerate(cid, msg_id, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1569,12 +1567,12 @@ async def api_magic_rewrite_msg(cid: str, msg_id: int, request: Request, data: M
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list[LLMClient] = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_magic_rewrite(cid, msg_id, data.direction, client_ref=client_ref),
+            handle_magic_rewrite(cid, msg_id, data.direction, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1712,12 +1710,12 @@ async def api_send_message(cid: str, data: SendMessage, request: Request):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     attachments = [a.dict() for a in data.attachments]
-    client_ref: list[LLMClient] = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_turn(cid, data.content, attachments=attachments, client_ref=client_ref),
+            handle_turn(cid, data.content, attachments=attachments, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1734,12 +1732,12 @@ async def api_continue_from_user(cid: str, request: Request, data: Optional[Rege
     if not messages or messages[-1]["role"] != "user":
         raise HTTPException(status_code=400, detail="Last message is not a user message")
     user_content = messages[-1]["content"]
-    client_ref: list[LLMClient] = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_turn(cid, user_content, skip_user_persist=True, client_ref=client_ref),
+            handle_turn(cid, user_content, skip_user_persist=True, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",

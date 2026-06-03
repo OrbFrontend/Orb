@@ -11,6 +11,29 @@ from .endpoint_profiles import ModelProfile
 logger = logging.getLogger(__name__)
 
 
+class AbortToken:
+    """A single stop signal shared by every LLMClient in one turn.
+
+    A turn may spin up several physical clients (writer, separate agent, and
+    their macro-resolving wrappers). They all hold a reference to the same
+    token, so ``abort()`` is signalled once and ``is_aborted`` reads the same
+    state everywhere — no per-client fan-out, no list bookkeeping.
+    """
+
+    def __init__(self) -> None:
+        self._event = asyncio.Event()
+
+    def abort(self) -> None:
+        self._event.set()
+
+    @property
+    def is_aborted(self) -> bool:
+        return self._event.is_set()
+
+    async def wait(self) -> None:
+        await self._event.wait()
+
+
 def reasoning_cfg(on: bool) -> dict:
     """Complete reasoning params for a client.complete() call, spread with **.
 
@@ -40,21 +63,23 @@ class LLMClient:
         api_key: str = "",
         timeout: float = 120.0,
         profile: ModelProfile | None = None,
+        abort_token: AbortToken | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.profile = profile
-        self._abort: asyncio.Event = asyncio.Event()
+        # Shared across the turn's clients when passed in; otherwise a private
+        # token so a standalone client (e.g. a workflow hook) is still abortable.
+        self.abort_token = abort_token or AbortToken()
 
     def abort(self) -> None:
         """Signal all ongoing complete() calls to stop and close their connections."""
-        logger.info("Stop Generation button clicked — abort signal sent to LLM client")
-        self._abort.set()
+        self.abort_token.abort()
 
     @property
     def is_aborted(self) -> bool:
-        return self._abort.is_set()
+        return self.abort_token.is_aborted
 
     def _headers(self) -> dict:
         if self.api_key:
@@ -136,7 +161,7 @@ class LLMClient:
                 # server. (Using asyncio task cancellation instead would leave the
                 # connection open under Python 3.11+ strict cancellation semantics.)
                 aiter = resp.aiter_lines().__aiter__()
-                abort_wait = asyncio.create_task(self._abort.wait())
+                abort_wait = asyncio.create_task(self.abort_token.wait())
                 try:
                     while True:
                         line_task = asyncio.ensure_future(aiter.__anext__())

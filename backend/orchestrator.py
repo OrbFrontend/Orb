@@ -12,7 +12,7 @@ from types import MappingProxyType
 from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 
 from . import database as db
-from .llm_client import LLMClient, reasoning_cfg
+from .llm_client import AbortToken, LLMClient, reasoning_cfg
 from .endpoint_profiles import profile_for
 from .tool_defs import TOOLS, POST_WRITER_TOOLS, build_direct_scene_tool, enabled_schemas
 from .prompt_builder import (
@@ -338,8 +338,9 @@ async def _run_pipeline(
                 "data": {"refined_message": rewritten_msg},
             }
 
-    # Bail out if stop was clicked during the director pass
-    if client.is_aborted or (agent_client is not None and agent_client.is_aborted):
+    # Bail out if stop was clicked during the director pass. The writer and
+    # agent clients share one abort token, so checking either is equivalent.
+    if client.is_aborted:
         return
 
     # Style injection
@@ -427,7 +428,7 @@ async def _run_pipeline(
     # If the turn was aborted during writer, persist what streamed so far and
     # skip the editor + post-pipeline iteration. The single _result still
     # fires so the persistence path stays uniform.
-    if client.is_aborted or (agent_client is not None and agent_client.is_aborted):
+    if client.is_aborted:
         yield _make_result(resp_text, [])
         kv_tracker.log_summary()
         return
@@ -901,12 +902,17 @@ class PipelineContext:
     agent_system_prompt: Optional[str]
 
 
-async def _load_pipeline_context(conversation_id: str) -> PipelineContext | None:
+async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
     """Load everything the pipeline needs: settings, conversation, director,
     mood_fragments, phrase_bank, and an LLMClient.
 
+    *abort_token* is the turn-wide stop signal; both the writer and (optional)
+    agent clients share it so a single ``/stop`` aborts every pass. A private
+    token is created when the caller does not supply one.
+
     Returns a :class:`PipelineContext`, or None if the conversation was not found.
     """
+    abort_token = abort_token or AbortToken()
     settings = await db.get_settings()
     conv = await db.get_conversation(conversation_id)
     if not conv:
@@ -931,6 +937,7 @@ async def _load_pipeline_context(conversation_id: str) -> PipelineContext | None
             settings["endpoint_url"],
             settings.get("model_name", ""),
         ),
+        abort_token=abort_token,
     )
 
     card_id = conv.get("character_card_id")
@@ -955,6 +962,7 @@ async def _load_pipeline_context(conversation_id: str) -> PipelineContext | None
             agent_url,
             api_key=agent_api_key,
             profile=profile_for(agent_url, agent_model),
+            abort_token=abort_token,
         )
         agent_system_prompt, _, _ = await db.resolve_char_context(
             conv, settings, shared_key="agent_shared_system_prompt", card=card
@@ -1472,18 +1480,6 @@ async def _consume_pipeline(
     yield {"event": "done"}
 
 
-def _register_clients(ctx: PipelineContext, client_ref: list[LLMClient] | None, *, include_agent: bool = True) -> None:
-    """Expose the turn's LLM client(s) on *client_ref* so a /stop can abort them.
-
-    *include_agent* is False for magic-rewrite, which never spins up the agent.
-    """
-    if client_ref is None:
-        return
-    client_ref.append(ctx.client)
-    if include_agent and ctx.agent_client:
-        client_ref.append(ctx.agent_client)
-
-
 async def _generate_reply(
     ctx: PipelineContext,
     conversation_id: str,
@@ -1573,17 +1569,15 @@ async def handle_turn(
     user_message: str,
     skip_user_persist: bool = False,
     attachments: Optional[List[dict]] = None,
-    client_ref: list[LLMClient] | None = None,
+    abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
     try:
         if attachments is None:
             attachments = []
-        ctx = await _load_pipeline_context(conversation_id)
+        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
-
-        _register_clients(ctx, client_ref)
 
         settings = ctx.settings
         messages = await db.get_messages(conversation_id)
@@ -1662,7 +1656,7 @@ async def handle_fork_edit(
     conversation_id: str,
     user_msg_id: int,
     new_content: str,
-    client_ref: list[LLMClient] | None = None,
+    abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
     """Fork the conversation at a user message.
 
@@ -1680,12 +1674,10 @@ async def handle_fork_edit(
     distinguishable from the original turn's log at the user turn.
     """
     try:
-        ctx = await _load_pipeline_context(conversation_id)
+        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
-
-        _register_clients(ctx, client_ref)
 
         settings = ctx.settings
         original = await db.get_message_by_id(user_msg_id)
@@ -1746,15 +1738,13 @@ async def handle_fork_edit(
 async def handle_regenerate(
     conversation_id: str,
     assistant_msg_id: int,
-    client_ref: list[LLMClient] | None = None,
+    abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
     try:
-        ctx = await _load_pipeline_context(conversation_id)
+        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
-
-        _register_clients(ctx, client_ref)
 
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
@@ -1792,15 +1782,13 @@ _SUPER_REGEN_MSG = "[OOC: Your response was kind of meh, rewrite it in a slightl
 async def handle_super_regenerate(
     conversation_id: str,
     assistant_msg_id: int,
-    client_ref: list[LLMClient] | None = None,
+    abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
     try:
-        ctx = await _load_pipeline_context(conversation_id)
+        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
-
-        _register_clients(ctx, client_ref)
 
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
@@ -1864,15 +1852,13 @@ async def handle_magic_rewrite(
     conversation_id: str,
     assistant_msg_id: int,
     direction: str,
-    client_ref: list[LLMClient] | None = None,
+    abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
     try:
-        ctx = await _load_pipeline_context(conversation_id)
+        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
             yield {"event": "error", "data": "Conversation not found"}
             return
-
-        _register_clients(ctx, client_ref, include_agent=False)
 
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)

@@ -43,6 +43,7 @@ from typing import Any
 
 import pytest
 
+from backend.llm_client import AbortToken
 from backend.kv_tracker import (
     CachedBase,
     _KVCacheTracker,
@@ -113,7 +114,8 @@ class CapturingClient:
     def __init__(self, model: str) -> None:
         self.model = model
         self.calls: list[dict] = []
-        self._abort = False
+        # Shared with a wrapping _PlaceholderClient, mirroring LLMClient.
+        self.abort_token = AbortToken()
         # FIFO of editor tool-call messages to return, one per ReAct iteration.
         # Empty → the editor returns no tool call and the loop stops.
         self._editor_queue: list[dict] = []
@@ -161,10 +163,10 @@ class CapturingClient:
 
     @property
     def is_aborted(self) -> bool:
-        return self._abort
+        return self.abort_token.is_aborted
 
     def abort(self) -> None:
-        self._abort = True
+        self.abort_token.abort()
 
     def _label(self, tool_choice: Any) -> str:
         if tool_choice in (None, "none"):

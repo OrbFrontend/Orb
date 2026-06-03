@@ -20,6 +20,8 @@ import asyncio
 import copy
 from typing import Any, AsyncIterator
 
+from backend.llm_client import AbortToken
+
 
 _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
 _DIRECTOR_FUNCTION_NAMES = {"direct_scene", "rewrite_user_prompt"}
@@ -114,7 +116,9 @@ class FakeLLMClient:
     def __init__(self) -> None:
         self._queues: dict[str, list[dict]] = {"director": [], "writer": [], "editor": [], "workflow": []}
         self._gates: dict[str, list[PassGate]] = {"director": [], "writer": [], "editor": [], "workflow": []}
-        self._abort = asyncio.Event()
+        # Mirror LLMClient: a wrapping _PlaceholderClient shares this token, so
+        # an abort signalled on either is visible to both.
+        self.abort_token = AbortToken()
         # Public assertion surface: tests inspect ``calls`` directly for
         # dispatch order and invocation counts, so its shape is part of
         # the mock's contract -- do not rename or restructure.
@@ -168,11 +172,11 @@ class FakeLLMClient:
         """Mirror ``LLMClient.abort()``: makes in-flight ``complete()``
         calls exit at their next gate or yield boundary.
         """
-        self._abort.set()
+        self.abort_token.abort()
 
     @property
     def is_aborted(self) -> bool:
-        return self._abort.is_set()
+        return self.abort_token.is_aborted
 
     async def complete(
         self,
@@ -200,7 +204,7 @@ class FakeLLMClient:
             gate.reached.set()
             await gate.release.wait()
 
-        if self._abort.is_set():
+        if self.abort_token.is_aborted:
             return
 
         if pass_name == "writer":
