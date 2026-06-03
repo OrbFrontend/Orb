@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncIterator, Mapping, TYPE_CHECKING, cast
+from typing import Any, AsyncIterator, Mapping, TYPE_CHECKING
 
 from .audit import run_audit, format_report, AuditReport
 from .slop_detector import DetectionResult
@@ -27,7 +27,7 @@ from ...tool_defs import (
     enabled_schemas,
 )
 from ...prompt_builder import build_editor_prompt
-from ...llm_types import ChatMessage, ContentPart
+from ...llm_types import AssistantToolMessage, ChatMessage, ContentPart, WireMessage
 from ...utils import LengthGuard, extract_hyperparams
 
 logger = logging.getLogger(__name__)
@@ -431,11 +431,11 @@ async def editor_pass(
 
     logger.info(final_prompt)
 
-    # The prefix is the closed ChatMessage shape; from here msgs becomes the
-    # broader wire buffer the ReAct loop mutates in place (assistant tool_calls,
-    # tool-role results), so it crosses into free-form dict at this boundary.
-    msgs: list[dict[str, Any]] = [
-        *cast("list[dict[str, Any]]", prefix),
+    # The prefix is the closed ChatMessage shape; from here msgs is the broader
+    # WireMessage buffer the ReAct loop mutates in place (assistant tool_calls,
+    # tool-role results). ChatMessage widens into WireMessage, so no cast.
+    msgs: list[WireMessage] = [
+        *prefix,
         {
             "role": "user",
             "content": (writer_user_msg if writer_user_msg is not None else effective_msg),
@@ -557,7 +557,7 @@ async def editor_pass(
                 prev_issues = report.total_issues
                 if reasoning_on:
                     rewrite_tool_calls = resp.get("tool_calls", [])
-                    asst_msg = {
+                    asst_msg: AssistantToolMessage = {
                         "role": "assistant",
                         "content": resp.get("content") or "",
                         "tool_calls": rewrite_tool_calls,
@@ -701,7 +701,7 @@ def _pick_tool_choice(length_guard_triggered: bool, report: AuditReport, audit_e
 
 
 def _append_iteration_context(
-    msgs: list[dict],
+    msgs: list[WireMessage],
     resp: dict,
     patches: list[dict],
     errors: list[str],
@@ -719,7 +719,7 @@ def _append_iteration_context(
     tool_response = ("\n".join(errors) + "\n\n" if errors else "") + report_text
     if reasoning_on:
         tool_calls = resp.get("tool_calls", [])
-        asst_msg: dict = {
+        asst_msg: AssistantToolMessage = {
             "role": "assistant",
             "content": resp.get("content") or "",
             "tool_calls": tool_calls,

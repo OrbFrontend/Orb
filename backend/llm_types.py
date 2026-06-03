@@ -12,7 +12,9 @@ catch-all.
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict, Union
+from typing import Any, Literal, TypedDict, Union
+
+from typing_extensions import NotRequired
 
 
 class TextPart(TypedDict):
@@ -47,10 +49,45 @@ class ChatMessage(TypedDict):
 
     A closed shape: a prefix only ever holds these three roles with text or
     multimodal content. The broader wire messages a pass *appends* before a
-    call -- assistant turns carrying ``tool_calls``, ``tool``-role results --
-    are deliberately left as free-form ``dict`` (see the editor pass), mirroring
-    the model layer's rule that only fixed-schema shapes get a contract.
+    call -- assistant turns carrying ``tool_calls`` / ``reasoning_content`` and
+    ``tool``-role results -- are the other members of :data:`WireMessage`.
     """
 
     role: Literal["system", "user", "assistant"]
     content: str | list[ContentPart]
+
+
+class ToolCall(TypedDict):
+    """An OpenAI-format tool call carried on an assistant wire message."""
+
+    id: str
+    type: Literal["function"]
+    function: dict[str, Any]
+
+
+class AssistantToolMessage(TypedDict):
+    """An assistant turn that carries tool calls (and optional reasoning),
+    appended by the ReAct loops when ``reasoning_on`` is set."""
+
+    role: Literal["assistant"]
+    content: str | list[ContentPart]
+    tool_calls: list[ToolCall]
+    reasoning_content: NotRequired[str]
+
+
+class ToolResultMessage(TypedDict):
+    """A ``tool``-role result turn answering a prior :class:`ToolCall`."""
+
+    role: Literal["tool"]
+    tool_call_id: str
+    content: str
+
+
+# The full mutable wire buffer a pass ships to the model: a ``ChatMessage``
+# prefix plus the turns the ReAct loops append. Modelled as a union (not a
+# single open TypedDict) because adding optional keys would make a superset
+# TypedDict a *subtype* of ``ChatMessage`` -- the wrong direction -- so a
+# ``ChatMessage`` could not flow into it. As a union member it flows in
+# directly, letting a buffer be built ``[*prefix, ...]`` and typed
+# ``list[WireMessage]`` with no cast.
+WireMessage = Union[ChatMessage, AssistantToolMessage, ToolResultMessage]
