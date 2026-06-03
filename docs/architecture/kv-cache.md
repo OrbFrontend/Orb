@@ -102,6 +102,10 @@ The director picks moods, plot direction, progressive state, etc. None of that m
 
 If the director and editor are configured to run on a different model than the writer, the writer's KV cache lives on a different inference server and can't be shared with the agent passes. In that case, the writer sends no tools at all — including them would just waste tokens with no caching benefit. The agent passes still share a cache with each other on their own server.
 
+### How these invariants are enforced in code
+
+Invariants 1–3 and 5 are not left to each pass to honour by convention. The cached bottom — prefix + tools blob + model — is captured once per turn per server in a frozen `CachedBase` (`backend/kv_tracker.py`), built in `_resolve_pipeline_config`. A single-model turn has one base shared by all three passes; a dual-model turn has two (an agent base for director + editor, and a writer base whose tools blob is empty — that *is* Invariant 5). Passes never call `enabled_schemas` or assemble the prefix themselves; they call `base.complete(trailing=…, tool_choice=…)`, which extends the frozen bottom with only the per-pass top. Because the cache-relevant bytes are computed in exactly one place and the base is immutable, a pass cannot reconstruct them differently and so cannot silently diverge. `base.complete` routes through `cached_complete`, so the KV tracker always records the exact bytes that were sent (see §8).
+
 ---
 
 ## 5. Walk-through: one full turn

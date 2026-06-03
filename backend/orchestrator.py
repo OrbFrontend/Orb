@@ -14,13 +14,13 @@ from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 from . import database as db
 from .llm_client import LLMClient, reasoning_cfg
 from .endpoint_profiles import profile_for
-from .tool_defs import TOOLS, POST_WRITER_TOOLS, build_direct_scene_tool
+from .tool_defs import TOOLS, POST_WRITER_TOOLS, build_direct_scene_tool, enabled_schemas
 from .prompt_builder import (
     build_prefix,
     compute_style_injection_block,
     compute_lorebook_injection_block,
 )
-from .kv_tracker import _KVCacheTracker
+from .kv_tracker import _KVCacheTracker, CachedBase
 from .locks import workflow_character_state_lock, workflow_state_lock
 from .macros import Macros
 from .workflows import (
@@ -80,9 +80,13 @@ class _PipelineConfig:
     director_client: LLMClient
     writer_client: LLMClient
     editor_client: LLMClient
-    director_prefix: list[ChatMessage]
-    editor_prefix: list[ChatMessage]
-    agent_model: str
+    # The byte-identical cached bottoms, built once per server per turn. The
+    # director and editor share ``agent_base`` (same server, same prefix + tools
+    # + model); the writer rides ``writer_base``. In single-model mode the two
+    # are identical by construction; in dual-model the writer_base carries the
+    # writer's prefix and an empty tools blob (Invariant 5).
+    agent_base: CachedBase
+    writer_base: CachedBase
 
 
 def _resolve_pipeline_config(
@@ -95,6 +99,7 @@ def _resolve_pipeline_config(
     agent_prefix: list[ChatMessage] | None,
     prefix: list[ChatMessage],
     phrase_bank: list[PhraseGroup] | None,
+    schema_overrides: Mapping[str, dict],
 ) -> _PipelineConfig:
     """Derive the per-turn pipeline configuration (see :class:`_PipelineConfig`)."""
     agent_on = bool(settings.get("enable_agent", 1))
@@ -128,6 +133,23 @@ def _resolve_pipeline_config(
     # writer call — neither is useful and both add unnecessary tokens.
     writer_enabled_tools = {} if agent_client is not None else enabled_tools
 
+    # The two cached bottoms, computed once here. The director + editor share the
+    # agent base (same server, same prefix/tools/model); the writer has its own.
+    # The tool blobs are built via enabled_schemas exactly once each so no pass
+    # can rebuild them differently — the byte-identity is structural, not a
+    # convention each pass must independently honour.
+    agent_model = settings.get("agent_model_name", settings["model_name"]) if agent_client else settings["model_name"]
+    agent_base = CachedBase(
+        prefix=tuple(agent_prefix or prefix),
+        tools=tuple(enabled_schemas(enabled_tools, schema_overrides)),
+        model=agent_model,
+    )
+    writer_base = CachedBase(
+        prefix=tuple(prefix),
+        tools=tuple(enabled_schemas(writer_enabled_tools, schema_overrides)),
+        model=settings["model_name"],
+    )
+
     return _PipelineConfig(
         agent_on=agent_on,
         enabled_tools=enabled_tools,
@@ -143,9 +165,8 @@ def _resolve_pipeline_config(
         director_client=macros.wrap_client(agent_client or client),
         writer_client=macros.wrap_client(client),
         editor_client=macros.wrap_client(agent_client or client),
-        director_prefix=agent_prefix or prefix,
-        editor_prefix=agent_prefix or prefix,
-        agent_model=(settings.get("agent_model_name", settings["model_name"]) if agent_client else settings["model_name"]),
+        agent_base=agent_base,
+        writer_base=writer_base,
     )
 
 
@@ -260,6 +281,7 @@ async def _run_pipeline(
         agent_prefix=agent_prefix,
         prefix=prefix,
         phrase_bank=phrase_bank,
+        schema_overrides=schema_overrides,
     )
 
     # Mutable turn state, accumulated as the three passes run below.
@@ -281,7 +303,7 @@ async def _run_pipeline(
         yield {"event": "director_start"}
         async for event in _director_pass(
             cfg.director_client,
-            cfg.director_prefix,
+            cfg.agent_base,
             user_message,
             settings,
             director,
@@ -292,9 +314,7 @@ async def _run_pipeline(
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
             lorebook_block=lorebook_block,
-            model=cfg.agent_model,
             progressive_state=progressive_state,
-            schema_overrides=schema_overrides,
         ):
             if event["type"] == "reasoning":
                 reasoning_director_text += event["delta"]
@@ -360,7 +380,7 @@ async def _run_pipeline(
     resp_text = ""
     async for item in _writer_pass(
         cfg.writer_client,
-        prefix,
+        cfg.writer_base,
         settings,
         cfg.writer_enabled_tools,
         inj_block=inj_block,
@@ -371,7 +391,6 @@ async def _run_pipeline(
         length_guard=cfg.length_guard,
         kv_tracker=kv_tracker,
         reasoning_on=cfg.writer_reasoning_on,
-        schema_overrides=schema_overrides,
     ):
         if item["type"] == "reasoning":
             reasoning_writer_text += item["delta"]
@@ -423,20 +442,17 @@ async def _run_pipeline(
         try:
             async for event in editor_pass(
                 cfg.editor_client,
-                cfg.editor_prefix,
+                cfg.agent_base,
                 effective_msg,
                 resp_text,
                 settings,
                 phrase_bank or [],
-                cfg.enabled_tools,
                 cfg.audit_enabled,
                 cfg.length_guard,
                 kv_tracker=kv_tracker,
                 reasoning_on=cfg.editor_reasoning_on,
                 audit_context_msgs=editor_audit_msgs,
-                model=cfg.agent_model,
                 writer_user_msg=writer_content,
-                schema_overrides=schema_overrides,
             ):
                 if event["type"] == "reasoning":
                     reasoning_editor_text += event["delta"]

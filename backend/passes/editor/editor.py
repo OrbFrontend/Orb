@@ -18,15 +18,14 @@ if TYPE_CHECKING:
 from .opening_monotony import FlaggedOpener, MonotonyResult, _split_sentences
 from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ...kv_tracker import cached_complete
+from ...kv_tracker import CachedBase
 from ...tool_defs import (
     TOOLS,
     LENGTH_GUARD_INSTRUCTIONS,
     MAX_EDITOR_ITERATIONS,
-    enabled_schemas,
 )
 from ...prompt_builder import build_editor_prompt
-from ...llm_types import AssistantToolMessage, ChatMessage, ContentPart, WireMessage
+from ...llm_types import AssistantToolMessage, ContentPart, WireMessage
 from ...utils import LengthGuard, extract_hyperparams
 
 logger = logging.getLogger(__name__)
@@ -302,22 +301,19 @@ def _editor_done_event(
 
 async def editor_pass(
     client: LLMClient,
-    prefix: list[ChatMessage],
+    base: CachedBase,
     effective_msg: str,
     draft: str,
     settings: Mapping[str, Any],
     phrase_bank: list[PhraseGroup],
-    enabled_tools: Mapping[str, bool],
     audit_enabled: bool = True,
     length_guard: LengthGuard | None = None,
     kv_tracker=None,
     reasoning_on: bool = False,  # If true, use structured tool-use message format (role=tool) for iteration feedback; non-thinking models get a synthetic recap instead
     audit_context_msgs: (
         list[str] | None
-    ) = None,  # explicit previous-assistant list for repetition scanning; if None, derived from prefix
-    model: str | None = None,
+    ) = None,  # explicit previous-assistant list for repetition scanning; if None, derived from base.prefix
     writer_user_msg: "str | list[ContentPart] | None" = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
-    schema_overrides: Mapping[str, dict] | None = None,
 ) -> AsyncIterator[dict]:
     """ReAct-style editor loop with optional audit and/or length guard.
 
@@ -339,7 +335,7 @@ async def editor_pass(
         if audit_context_msgs is not None:
             assistant_messages = audit_context_msgs[:3]
         else:
-            for msg in reversed(prefix):
+            for msg in reversed(base.prefix):
                 if msg.get("role") == "assistant":
                     # Assistant history is always plain text; the multimodal
                     # list form only ever rides user messages, so a non-str
@@ -383,17 +379,12 @@ async def editor_pass(
     length_guard_instruction = ""
 
     # Uses the same enabled-tool set as director and writer for KV-cache
-    # alignment. The editor_apply_patch / editor_rewrite tools are folded into
-    # enabled_tools by the orchestrator before this pass runs.
-    #
-    # This blob is built ONCE and never reassigned for the life of the ReAct
-    # loop. Tool schemas live inside the cached prefix, so narrowing the list to
-    # a single tool mid-loop would bust the KV cache on every iteration. Which
-    # single tool the model must call is steered entirely by tool_choice (see
-    # _pick_tool_choice, recomputed each iteration) — it forces the right tool
-    # while the schema blob stays byte-identical across all iterations.
-    editor_tools: list[dict] = enabled_schemas(enabled_tools, schema_overrides)
-
+    # The tools blob lives on the shared ``base`` (built once by the orchestrator
+    # from the same enabled-tool set as the director and writer). The editor never
+    # rebuilds or narrows it: the schemas sit inside the cached prefix, so changing
+    # the list mid-loop would bust the KV cache every iteration. Which single tool
+    # the model must call is steered entirely by tool_choice (see _pick_tool_choice,
+    # recomputed each iteration) while base.tools stays byte-identical throughout.
     if length_guard and length_guard["enabled"]:
         word_count = len(draft.split())
         max_words = length_guard["max_words"]
@@ -420,7 +411,7 @@ async def editor_pass(
         yield _editor_done_event(None, debug_parts, t0)
         return
 
-    if not editor_tools:
+    if not base.tools:
         logger.info("Editor: no editor tools applicable, skipping LLM loop")
         yield _editor_done_event(None, debug_parts, t0)
         return
@@ -437,11 +428,11 @@ async def editor_pass(
 
     logger.info(final_prompt)
 
-    # The prefix is the closed ChatMessage shape; from here msgs is the broader
+    # base.prefix is the shared, frozen cached bottom; *trailing* is the broader
     # WireMessage buffer the ReAct loop mutates in place (assistant tool_calls,
-    # tool-role results). ChatMessage widens into WireMessage, so no cast.
-    msgs: list[WireMessage] = [
-        *prefix,
+    # tool-role results) and hands to base.complete() each iteration. Keeping the
+    # bottom on the base means the loop can only ever change the top of the stack.
+    trailing: list[WireMessage] = [
         {
             "role": "user",
             "content": (writer_user_msg if writer_user_msg is not None else effective_msg),
@@ -473,19 +464,17 @@ async def editor_pass(
             logger.debug(
                 "Editor iteration %d: sending %d messages to LLM:\n%s",
                 iteration + 1,
-                len(msgs),
-                json.dumps(msgs, default=str, indent=2),
+                len(base.prefix) + len(trailing),
+                json.dumps([*base.prefix, *trailing], default=str, indent=2),
             )
 
             resp: dict = {}
             try:
                 hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
-                async for event in cached_complete(
+                async for event in base.complete(
                     client,
                     label="editor",
-                    messages=msgs,
-                    model=model or settings["model_name"],
-                    tools=editor_tools,
+                    trailing=trailing,
                     tool_choice=_pick_tool_choice(length_guard_triggered, report, audit_enabled),
                     kv_tracker=kv_tracker,
                     **hyperparams,
@@ -554,7 +543,7 @@ async def editor_pass(
                 if report.total_issues <= 1:
                     break
                 # Next iteration's tool_choice (via _pick_tool_choice) forces the
-                # right tool; editor_tools stays the full, byte-identical blob.
+                # right tool; base.tools stays the full, byte-identical blob.
                 prev_issues = report.total_issues
                 if reasoning_on:
                     rewrite_tool_calls = resp.get("tool_calls", [])
@@ -565,9 +554,9 @@ async def editor_pass(
                     }
                     if resp.get("reasoning_content"):
                         asst_msg["reasoning_content"] = resp["reasoning_content"]
-                    msgs.append(asst_msg)
+                    trailing.append(asst_msg)
                     if rewrite_tool_calls:
-                        msgs.append(
+                        trailing.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": rewrite_tool_calls[0].get("id", ""),
@@ -575,8 +564,8 @@ async def editor_pass(
                             }
                         )
                 else:
-                    msgs[-2] = {"role": "assistant", "content": current_draft}
-                    msgs[-1] = {
+                    trailing[-2] = {"role": "assistant", "content": current_draft}
+                    trailing[-1] = {
                         "role": "user",
                         "content": build_editor_prompt(
                             audit_enabled and not report.is_clean,
@@ -646,10 +635,10 @@ async def editor_pass(
             # reasoning_on=False: replace the draft + prompt in-place (same as
             # the rewrite path) so the message list stays flat.
             if reasoning_on:
-                _append_iteration_context(msgs, resp, patches, errors, report_text, reasoning_on=True)
+                _append_iteration_context(trailing, resp, patches, errors, report_text, reasoning_on=True)
             else:
-                msgs[-2] = {"role": "assistant", "content": current_draft}
-                msgs[-1] = {
+                trailing[-2] = {"role": "assistant", "content": current_draft}
+                trailing[-1] = {
                     "role": "user",
                     "content": build_editor_prompt(
                         audit_enabled and not report.is_clean,

@@ -13,11 +13,10 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ..kv_tracker import cached_complete
+from ..kv_tracker import CachedBase
 from ..tool_defs import (
     TOOLS,
     POST_WRITER_TOOLS,
-    enabled_schemas,
 )
 from ..prompt_builder import build_director_tool_prompt
 from ..llm_types import ChatMessage
@@ -81,7 +80,7 @@ def apply_tool_calls(
 
 async def _director_pass(
     client: LLMClient,
-    prefix: list[ChatMessage],
+    base: CachedBase,
     user_message: str,
     settings: Mapping[str, Any],
     director: Mapping[str, Any],
@@ -92,9 +91,7 @@ async def _director_pass(
     kv_tracker=None,
     reasoning_on: bool = True,
     lorebook_block: str = "",
-    model: str | None = None,
     progressive_state: dict | None = None,
-    schema_overrides: Mapping[str, dict] | None = None,
 ) -> AsyncIterator[dict]:
     """Yields reasoning dicts during each tool call, then a single done dict.
 
@@ -126,7 +123,9 @@ async def _director_pass(
         }
         return
 
-    tool_schemas = enabled_schemas(enabled_tools, schema_overrides)
+    # The tools blob is resolved once into the shared base; the director reads it
+    # rather than rebuilding it, so it cannot drift from the writer/editor blobs.
+    tool_schemas = list(base.tools)
 
     logger.info(
         "Director pass: tools included=%s",
@@ -150,22 +149,20 @@ async def _director_pass(
         )
         tail = ("___\n\n" + lorebook_block + "\n\n" if lorebook_block else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
-        msgs: list[ChatMessage] = [*prefix, {"role": "user", "content": content}]
+        trailing: list[ChatMessage] = [{"role": "user", "content": content}]
         logger.info(
             "Agent tool=%s prompt:\n%s",
             name,
-            json.dumps(msgs, indent=2, ensure_ascii=False),
+            json.dumps([*base.prefix, *trailing], indent=2, ensure_ascii=False),
         )
         resp: dict = {}
         try:
             reasoning_params = reasoning_cfg(reasoning_on and name != "rewrite_user_prompt")
             hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
-            async for event in cached_complete(
+            async for event in base.complete(
                 client,
                 label=f"director:{name}",
-                messages=msgs,
-                model=model or settings["model_name"],
-                tools=tool_schemas,
+                trailing=trailing,
                 tool_choice=TOOLS[name]["choice"],
                 kv_tracker=kv_tracker,
                 **hyperparams,

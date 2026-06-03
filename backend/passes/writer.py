@@ -9,8 +9,7 @@ import logging
 from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, reasoning_cfg
-from ..kv_tracker import cached_complete
-from ..tool_defs import enabled_schemas
+from ..kv_tracker import CachedBase
 from ..llm_types import ChatMessage, ContentPart
 from ..utils import LengthGuard, extract_hyperparams, build_multimodal_content
 
@@ -49,7 +48,7 @@ def build_writer_content(
 
 async def _writer_pass(
     client: LLMClient,
-    prefix: list[ChatMessage],
+    base: CachedBase,
     settings: Mapping[str, Any],
     enabled_tools: Mapping[str, bool],
     *,
@@ -61,9 +60,13 @@ async def _writer_pass(
     length_guard: LengthGuard | None = None,
     kv_tracker=None,
     reasoning_on: bool = True,
-    schema_overrides: Mapping[str, dict] | None = None,
 ) -> AsyncIterator[dict]:
-    """Yields {"type": "content"|"reasoning", "delta": str} dicts."""
+    """Yields {"type": "content"|"reasoning", "delta": str} dicts.
+
+    *enabled_tools* still drives the in-prompt "do not use tools" notice; the
+    tool *schema* blob comes from ``base`` (built from the same enabled-tool set)
+    so it stays byte-identical with the director/editor passes.
+    """
     content = build_writer_content(
         lorebook_block,
         inj_block,
@@ -74,22 +77,22 @@ async def _writer_pass(
         length_guard,
     )
 
-    msgs: list[ChatMessage] = [*prefix, {"role": "user", "content": content}]
+    trailing: list[ChatMessage] = [{"role": "user", "content": content}]
 
     hyperparams = extract_hyperparams(settings)
-    schemas = enabled_schemas(enabled_tools, schema_overrides)
     logger.info(
         "Writer pass: tools included=%s",
-        json.dumps([s["function"]["name"] for s in schemas]) if schemas else "[]",
+        json.dumps([t["function"]["name"] for t in base.tools]) if base.tools else "[]",
     )
 
-    async for item in cached_complete(
+    async for item in base.complete(
         client,
         label="writer",
-        messages=msgs,
-        model=settings["model_name"],
-        tools=schemas or None,
-        tool_choice="none" if schemas else None,
+        trailing=trailing,
+        # base.tools is empty in dual-model (Invariant 5) → no tools, no
+        # tool_choice; otherwise the writer ships the shared blob but is barred
+        # from calling anything.
+        tool_choice="none" if base.tools else None,
         kv_tracker=kv_tracker,
         **reasoning_cfg(reasoning_on),
         **hyperparams,

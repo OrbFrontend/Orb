@@ -44,6 +44,7 @@ from typing import Any
 import pytest
 
 from backend.kv_tracker import (
+    CachedBase,
     _KVCacheTracker,
     _common_prefix_len,
     _serialize_messages,
@@ -530,21 +531,24 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
         client.enqueue_editor_patch(f"{lead} shiver ran down her spine.", f"{lead} hall stayed silent.")
 
     settings = {"model_name": "editor-model", "editor_audit_toggles": None}
+    base = CachedBase(
+        prefix=tuple(prefix),
+        tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
+        model="editor-model",
+    )
     async for _ in editor_pass(
         client,
-        prefix,
+        base,
         "I strike the anvil.",
         draft,
         settings,
         phrase_bank,
-        {"editor_apply_patch": True},
         audit_enabled=True,
         length_guard=None,
         kv_tracker=None,
         reasoning_on=reasoning_on,
         audit_context_msgs=[],
         writer_user_msg=writer_user,
-        schema_overrides={},
     ):
         pass
 
@@ -617,22 +621,25 @@ async def test_editor_tools_blob_constant_across_tool_switch():
 
     settings = {"model_name": "editor-model", "editor_audit_toggles": None}
     length_guard = {"enabled": True, "max_words": 5, "max_paragraphs": 1}
+    # 3-tool enabled set so a narrow-to-one would be visible as a byte change.
+    base = CachedBase(
+        prefix=tuple(prefix),
+        tools=tuple(enabled_schemas({"direct_scene": True, "editor_apply_patch": True, "editor_rewrite": True}, {})),
+        model="editor-model",
+    )
     async for _ in editor_pass(
         client,
-        prefix,
+        base,
         writer_user,
         draft,
         settings,
         phrase_bank,
-        # 3-tool enabled set so a narrow-to-one would be visible as a byte change.
-        {"direct_scene": True, "editor_apply_patch": True, "editor_rewrite": True},
         audit_enabled=True,
         length_guard=length_guard,
         kv_tracker=None,
         reasoning_on=False,
         audit_context_msgs=[],
         writer_user_msg=writer_user,
-        schema_overrides={},
     ):
         pass
 

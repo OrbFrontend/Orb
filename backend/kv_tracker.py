@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any, AsyncIterator, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
@@ -269,3 +270,59 @@ async def cached_complete(
         if event["type"] == "done" and kv_tracker is not None:
             kv_tracker.record_usage(label, event.get("usage"))
         yield event
+
+
+@dataclass(frozen=True)
+class CachedBase:
+    """The byte-identical bottom of the prompt stack for one turn on one
+    inference server: the system+history *prefix*, the *tools* blob, and the
+    *model*. Built once per server per turn and shared by every pass that runs
+    on that server, so the cache-relevant bytes are computed in exactly one
+    place and can never be reconstructed — and so silently diverge — per pass.
+
+    Passes EXTEND this base via :meth:`complete`; they never rebuild it. The
+    fields are frozen and stored as tuples so the shared instance cannot have
+    its prefix or tool list mutated, reordered, or swapped out mid-turn — the
+    failure mode the invariants in docs/architecture/kv-cache.md and
+    tests/unit/test_kv_cache_invariants.py exist to catch.
+
+    In dual-model turns there are two bases: one for the writer's server and one
+    for the agent (director + editor) server. Invariant 5 — "the writer drops
+    tools when it runs on a different server than the agent" — is then just a
+    property of how the writer's base is built (empty ``tools``), not a flag
+    threaded through the writer pass.
+    """
+
+    prefix: tuple[Mapping[str, Any], ...]
+    tools: tuple[dict, ...]
+    model: str
+
+    def complete(
+        self,
+        client: Any,
+        *,
+        label: str,
+        trailing: Sequence[Mapping[str, Any]],
+        tool_choice: "dict | str | None" = None,
+        kv_tracker: "_KVCacheTracker | None" = None,
+        record: bool = True,
+        **params: Any,
+    ) -> AsyncIterator[dict]:
+        """Issue one completion that extends this base with *trailing* (the
+        per-pass top of the stack). The cached bottom — prefix + tools + model —
+        comes solely from ``self``; only *trailing* and *tool_choice* vary.
+
+        Delegates to :func:`cached_complete` so the tracker snapshot is taken
+        from the exact bytes sent.
+        """
+        return cached_complete(
+            client,
+            label=label,
+            messages=[*self.prefix, *trailing],
+            model=self.model,
+            tools=list(self.tools) or None,
+            tool_choice=tool_choice,
+            kv_tracker=kv_tracker,
+            record=record,
+            **params,
+        )

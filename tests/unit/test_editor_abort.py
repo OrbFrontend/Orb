@@ -11,9 +11,11 @@ from unittest.mock import patch
 
 import pytest
 
+from backend.kv_tracker import CachedBase
 from backend.llm_client import LLMClient
 from backend.passes.editor.audit import AuditReport
 from backend.passes.editor.editor import editor_pass
+from backend.tool_defs import enabled_schemas
 from backend.passes.editor.opening_monotony import MonotonyResult
 from backend.passes.editor.slop_detector import (
     DetectionResult,
@@ -122,18 +124,22 @@ async def test_editor_iteration_exception_propagates():
         "backend.passes.editor.editor._run_contextual_audit",
         new=fake_run_contextual_audit,
     ):
+        base = CachedBase(
+            prefix=({"role": "system", "content": "sys"},),
+            tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
+            model="test-model",
+        )
         events = []
         with pytest.raises(RuntimeError, match="LLM API exploded"):
             async for event in editor_pass(
                 client,
-                prefix=[{"role": "system", "content": "sys"}],
+                base,
                 effective_msg="user msg",
                 draft="Sentence 0. Sentence 1.",
                 settings=settings,
                 phrase_bank=[[]],
                 audit_enabled=True,
                 length_guard=None,
-                enabled_tools={"editor_apply_patch": True},
             ):
                 events.append(event)
 
