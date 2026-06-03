@@ -28,12 +28,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Union
+from typing import TYPE_CHECKING
 
 from .text_segmentation import split_sentences
 
-# A group is either a list of literal variants or a {kind, ...} dict.
-PhraseGroup = Union[list[str], dict]
+if TYPE_CHECKING:
+    from ...database.models import PhraseGroup
 
 _N = 3
 _EXACT_MATCH_MAX_LEN = 3

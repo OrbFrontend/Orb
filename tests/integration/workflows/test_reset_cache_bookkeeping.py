@@ -65,9 +65,7 @@ async def test_reset_preserves_access_counter_and_budget(client, db):
         await record_access([att_id])
 
     before = list(
-        await db.execute_fetchall(
-            "SELECT attachment_cache_budget_bytes, attachment_access_counter FROM settings WHERE id = 1"
-        )
+        await db.execute_fetchall("SELECT attachment_cache_budget_bytes, attachment_access_counter FROM settings WHERE id = 1")
     )[0]
     assert before["attachment_cache_budget_bytes"] == 12345
     assert before["attachment_access_counter"] == 5
@@ -75,9 +73,7 @@ async def test_reset_preserves_access_counter_and_budget(client, db):
     await reset_to_defaults()
 
     after = list(
-        await db.execute_fetchall(
-            "SELECT attachment_cache_budget_bytes, attachment_access_counter FROM settings WHERE id = 1"
-        )
+        await db.execute_fetchall("SELECT attachment_cache_budget_bytes, attachment_access_counter FROM settings WHERE id = 1")
     )[0]
     assert after["attachment_cache_budget_bytes"] == 12345
     assert after["attachment_access_counter"] == 5
@@ -95,9 +91,7 @@ async def test_reset_keeps_counter_above_retained_recent_accesses(client, db):
     counter = list(await db.execute_fetchall("SELECT attachment_access_counter FROM settings WHERE id = 1"))[0][
         "attachment_access_counter"
     ]
-    ra_row = list(
-        await db.execute_fetchall("SELECT recent_accesses FROM workflow_attachments WHERE id = ?", (att_id,))
-    )[0]
+    ra_row = list(await db.execute_fetchall("SELECT recent_accesses FROM workflow_attachments WHERE id = ?", (att_id,)))[0]
     assert ra_row["recent_accesses"] is not None
     retained_max = max(json.loads(ra_row["recent_accesses"]))
     assert counter >= retained_max

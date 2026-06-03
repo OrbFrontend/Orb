@@ -3,30 +3,32 @@ from __future__ import annotations
 import base64
 import json
 from datetime import datetime, timezone
+from typing import Any, Mapping, cast
 
 import aiosqlite
 
 from ..connection import _build_set_clause, get_db
+from ..models import CharacterCardRow
 
 
-async def list_character_cards() -> list[dict]:
+async def list_character_cards() -> list[CharacterCardRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
                 "SELECT id, name, description, personality, scenario, first_mes, creator_notes, system_prompt, tags, creator, source_format, created_at, updated_at, avatar_mime, world_id FROM character_cards ORDER BY updated_at DESC"
             )
         )
-        result = []
+        result: list[CharacterCardRow] = []
         for r in rows:
             d = dict(r)
             d["tags"] = json.loads(d["tags"]) if d["tags"] else []
             d["has_avatar"] = d["avatar_mime"] is not None
             del d["avatar_mime"]
-            result.append(d)
+            result.append(cast(CharacterCardRow, d))
         return result
 
 
-async def get_character_card(card_id: str, include_avatar: bool = False) -> dict | None:
+async def get_character_card(card_id: str, include_avatar: bool = False) -> CharacterCardRow | None:
     async with get_db() as db:
         cols = (
             "*"
@@ -49,10 +51,10 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> dict
         d["tags"] = json.loads(d["tags"]) if d.get("tags") else []
         d["alternate_greetings"] = json.loads(d["alternate_greetings"]) if d.get("alternate_greetings") else []
         d["has_avatar"] = d.get("avatar_mime") is not None
-        return d
+        return cast(CharacterCardRow, d)
 
 
-async def create_character_card(data: dict) -> dict:
+async def create_character_card(data: dict) -> CharacterCardRow:
     async with get_db() as db:
         now = datetime.now(timezone.utc).isoformat()
         try:
@@ -119,7 +121,7 @@ async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[s
         return count
 
 
-async def update_character_card(card_id: str, data: dict) -> dict | None:
+async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | None:
     async with get_db() as db:
         allowed = [
             "name",
@@ -162,7 +164,7 @@ async def update_character_card(card_id: str, data: dict) -> dict | None:
         return await get_character_card(card_id)
 
 
-async def sync_conversations_for_card(card_id: str, card: dict, old_name: str | None = None) -> None:
+async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old_name: str | None = None) -> None:
     """Propagate mutable card fields to all conversations linked to this card.
 
     Only syncs fields that are denormalised onto the conversation row and
@@ -211,7 +213,10 @@ async def delete_character_card(card_id: str, delete_conversations: bool = False
 
 
 async def resolve_char_context(
-    conv: dict, settings: dict, shared_key: str = "shared_system_prompt", card: dict | None = None
+    conv: Mapping[str, Any],
+    settings: Mapping[str, Any],
+    shared_key: str = "shared_system_prompt",
+    card: CharacterCardRow | None = None,
 ) -> tuple[str, str, str]:
     """Resolve the effective system prompt, persona, and example messages.
 
@@ -235,8 +240,9 @@ async def resolve_char_context(
     if card:
         char_persona = "\n\n".join(filter(None, [card.get("description", ""), card.get("personality", "")]))
         mes_example = card.get("mes_example", "")
-        if card.get("system_prompt") and not settings.get("prevent_prompt_overrides"):
-            system_prompt = card["system_prompt"]
+        card_system_prompt = card.get("system_prompt")
+        if card_system_prompt and not settings.get("prevent_prompt_overrides"):
+            system_prompt = card_system_prompt
     return system_prompt, char_persona, mes_example
 
 

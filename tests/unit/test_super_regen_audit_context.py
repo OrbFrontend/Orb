@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
+from backend.kv_tracker import CachedBase
 from backend.passes.editor.audit import AuditReport
 from backend.passes.editor.editor import editor_pass
 from backend.passes.editor.opening_monotony import MonotonyResult
@@ -21,6 +22,18 @@ from backend.passes.editor.slop_detector import DetectionResult
 from backend.passes.editor.structural_repetition import StructuralResult
 from backend.passes.editor.template_repetition import TemplateResult
 from backend.llm_client import LLMClient
+from backend.tool_defs import enabled_schemas
+
+
+def _editor_base(prefix: list[dict]) -> CachedBase:
+    """Build a CachedBase wrapping *prefix* with the patch tool enabled, as the
+    super-regen path does. These tests only exercise audit-context derivation
+    (which reads base.prefix), so the tool blob just needs to be non-empty."""
+    return CachedBase(
+        prefix=tuple(prefix),
+        tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
+        model="test-model",
+    )
 
 
 def _clean_report() -> AuditReport:
@@ -71,14 +84,13 @@ async def test_audit_context_msgs_overrides_prefix():
         events = []
         async for event in editor_pass(
             client,
-            prefix=prefix,
+            _editor_base(prefix),
             effective_msg="user msg",
             draft="Some new draft text.",
             settings={"model_name": "test-model"},
             phrase_bank=[],
             audit_enabled=True,
             length_guard=None,
-            enabled_tools={"editor_apply_patch": True},
             audit_context_msgs=[],  # explicitly empty — no prior context
         ):
             events.append(event)
@@ -114,15 +126,14 @@ async def test_no_audit_context_msgs_falls_back_to_prefix():
     ):
         async for _ in editor_pass(
             client,
-            prefix=prefix,
+            _editor_base(prefix),
             effective_msg="user msg",
             draft="Some draft.",
             settings={"model_name": "test-model"},
             phrase_bank=[],
             audit_enabled=True,
             length_guard=None,
-            enabled_tools={"editor_apply_patch": True},
-            # audit_context_msgs omitted → derive from prefix
+            # audit_context_msgs omitted → derive from base.prefix
         ):
             pass
 
@@ -168,14 +179,13 @@ async def test_super_regen_prior_history_still_scanned():
     ):
         async for _ in editor_pass(
             client,
-            prefix=prefix,
+            _editor_base(prefix),
             effective_msg="[OOC: rewrite]",
             draft="Some new draft.",
             settings={"model_name": "test-model"},
             phrase_bank=[],
             audit_enabled=True,
             length_guard=None,
-            enabled_tools={"editor_apply_patch": True},
             audit_context_msgs=audit_context_msgs,
         ):
             pass
@@ -216,14 +226,13 @@ async def test_super_regen_does_not_flag_replaced_message():
         events = []
         async for event in editor_pass(
             client,
-            prefix=prefix,
+            _editor_base(prefix),
             effective_msg="[OOC: rewrite]",
             draft=new_draft,
             settings={"model_name": "test-model"},
             phrase_bank=[],
             audit_enabled=True,
             length_guard=None,
-            enabled_tools={"editor_apply_patch": True},
             audit_context_msgs=[],  # super-regen passes history-only context
         ):
             events.append(event)

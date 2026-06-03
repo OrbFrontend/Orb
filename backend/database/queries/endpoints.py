@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+from typing import cast
+
 from ..connection import _build_set_clause, get_db
+from ..models import EndpointRow, ModelConfigRow
 
 
-async def get_endpoints() -> list[dict]:
+async def get_endpoints() -> list[EndpointRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
                 "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints ORDER BY id ASC"
             )
         )
-        return [dict(r) for r in rows]
+        return [cast(EndpointRow, dict(r)) for r in rows]
 
 
-async def get_endpoint(endpoint_id: int) -> dict | None:
+async def get_endpoint(endpoint_id: int) -> EndpointRow | None:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -21,10 +24,10 @@ async def get_endpoint(endpoint_id: int) -> dict | None:
                 (endpoint_id,),
             )
         )
-        return dict(rows[0]) if rows else None
+        return cast(EndpointRow, dict(rows[0])) if rows else None
 
 
-async def create_endpoint(url: str, api_key: str = "") -> dict:
+async def create_endpoint(url: str, api_key: str = "") -> EndpointRow:
     async with get_db() as db:
         cur = await db.execute("INSERT INTO endpoints (url, api_key) VALUES (?, ?)", (url, api_key))
         endpoint_id = cur.lastrowid
@@ -47,10 +50,10 @@ async def create_endpoint(url: str, api_key: str = "") -> dict:
                 (endpoint_id,),
             )
         )
-        return dict(rows[0])
+        return cast(EndpointRow, dict(rows[0]))
 
 
-async def update_endpoint(endpoint_id: int, data: dict) -> dict | None:
+async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
     async with get_db() as db:
         allowed = [
             "url",
@@ -72,7 +75,7 @@ async def update_endpoint(endpoint_id: int, data: dict) -> dict | None:
                 (endpoint_id,),
             )
         )
-        return dict(rows[0]) if rows else None
+        return cast(EndpointRow, dict(rows[0])) if rows else None
 
 
 async def delete_endpoint(endpoint_id: int) -> bool:
@@ -82,7 +85,7 @@ async def delete_endpoint(endpoint_id: int) -> bool:
         return cur.rowcount > 0
 
 
-async def get_model_configs(endpoint_id: int) -> list[dict]:
+async def get_model_configs(endpoint_id: int) -> list[ModelConfigRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -90,10 +93,10 @@ async def get_model_configs(endpoint_id: int) -> list[dict]:
                 (endpoint_id,),
             )
         )
-        return [dict(r) for r in rows]
+        return [cast(ModelConfigRow, dict(r)) for r in rows]
 
 
-async def create_model_config(endpoint_id: int, data: dict) -> dict:
+async def create_model_config(endpoint_id: int, data: dict) -> ModelConfigRow:
     async with get_db() as db:
         cur = await db.execute(
             "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -112,10 +115,10 @@ async def create_model_config(endpoint_id: int, data: dict) -> dict:
         )
         await db.commit()
         rows = list(await db.execute_fetchall("SELECT * FROM model_configs WHERE id = ?", (cur.lastrowid,)))
-        return dict(rows[0])
+        return cast(ModelConfigRow, dict(rows[0]))
 
 
-async def update_model_config(config_id: int, data: dict) -> dict | None:
+async def update_model_config(config_id: int, data: dict) -> ModelConfigRow | None:
     async with get_db() as db:
         allowed = [
             "model_name",
@@ -136,7 +139,7 @@ async def update_model_config(config_id: int, data: dict) -> dict | None:
             )
             await db.commit()
         rows = list(await db.execute_fetchall("SELECT * FROM model_configs WHERE id = ?", (config_id,)))
-        return dict(rows[0]) if rows else None
+        return cast(ModelConfigRow, dict(rows[0])) if rows else None
 
 
 async def delete_model_config(config_id: int) -> bool:

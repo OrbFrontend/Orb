@@ -3,16 +3,22 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Mapping, Optional, Sequence, cast
 
 from ..connection import get_db
+from ..models import (
+    MessageRow,
+    MessageWithAttachments,
+    UserAttachmentRow,
+    WorkflowAttachmentRowBase,
+)
 from .conversations import get_conversation
 
 
-async def get_path_to_leaf(cid: str, leaf_id: int) -> list[dict]:
+async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachments]:
     """Walk parent_id chain from leaf to root, return ordered root→leaf."""
     async with get_db() as db:
-        path = []
+        path: list[MessageWithAttachments] = []
         current_id = leaf_id
         while current_id is not None:
             rows = list(
@@ -23,16 +29,20 @@ async def get_path_to_leaf(cid: str, leaf_id: int) -> list[dict]:
             )
             if not rows:
                 break
+            # Raw row: progressive_fields is still the JSON string here. Decode
+            # it before labeling the dict a MessageWithAttachments, whose
+            # progressive_fields is typed as the decoded dict.
             msg = dict(rows[0])
             raw_pf = msg.get("progressive_fields")
             msg["progressive_fields"] = json.loads(raw_pf) if raw_pf else {}
-            path.append(msg)
-            current_id = msg.get("parent_id")
+            typed_msg = cast(MessageWithAttachments, msg)
+            path.append(typed_msg)
+            current_id = typed_msg.get("parent_id")
         path.reverse()
         return path
 
 
-async def _attach_user_attachments(messages: list[dict]) -> None:
+async def _attach_user_attachments(messages: list[MessageWithAttachments]) -> None:
     if not messages:
         return
     ids = [m["id"] for m in messages]
@@ -52,7 +62,7 @@ async def _attach_user_attachments(messages: list[dict]) -> None:
         m["user_attachments"] = by_msg[m["id"]]
 
 
-async def _attach_workflow_attachments(messages: list[dict]) -> None:
+async def _attach_workflow_attachments(messages: list[MessageWithAttachments]) -> None:
     if not messages:
         return
     ids = [m["id"] for m in messages]
@@ -74,12 +84,12 @@ async def _attach_workflow_attachments(messages: list[dict]) -> None:
         m["workflow_attachments"] = by_msg[m["id"]]
 
 
-async def _attach_attachments(messages: list[dict]) -> None:
+async def _attach_attachments(messages: list[MessageWithAttachments]) -> None:
     await _attach_user_attachments(messages)
     await _attach_workflow_attachments(messages)
 
 
-async def get_messages(cid: str) -> list[dict]:
+async def get_messages(cid: str) -> list[MessageWithAttachments]:
     """Get active path messages (root→leaf) for LLM prompt construction."""
     conv = await get_conversation(cid)
     if not conv:
@@ -92,7 +102,7 @@ async def get_messages(cid: str) -> list[dict]:
     return messages
 
 
-async def get_messages_before(cid: str, message_id: int) -> list[dict]:
+async def get_messages_before(cid: str, message_id: int) -> list[MessageWithAttachments]:
     """Return active-path messages strictly before ``message_id``.
 
     The result is shaped to pass through ``format_message_with_attachments``
@@ -119,7 +129,7 @@ async def get_messages_before(cid: str, message_id: int) -> list[dict]:
     return messages
 
 
-async def get_messages_with_branch_info(cid: str) -> list[dict]:
+async def get_messages_with_branch_info(cid: str) -> list[MessageWithAttachments]:
     """Get active path messages with branch navigation metadata for the frontend."""
     messages = await get_messages(cid)
     if not messages:
@@ -156,7 +166,7 @@ async def add_message(
     content: str,
     turn_index: int,
     parent_id: int | None = None,
-    attachments: Optional[List[dict]] = None,
+    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     progressive_fields: dict | None = None,
 ) -> tuple[int, list[dict]]:
     """Add a message. Returns ``(message_id, rejected_workflow_atts)``.
@@ -182,12 +192,15 @@ async def add_message(
       'seed', and 'generation_metadata'. Lands in `workflow_attachments`
       through the cache module's batch entry point.
     """
+    # workflow atts are materialized into a fresh list[dict] the cache writer
+    # owns and mutates (it tags rejects with a 'reason' and shallow-copies); the
+    # read-only user atts stay as the caller's mappings.
     workflow_atts: list[dict] = []
-    user_atts: list[dict] = []
+    user_atts: list[Mapping[str, Any]] = []
     for att in attachments or []:
         src = att.get("source")
         if isinstance(src, str) and src.startswith("workflow:"):
-            workflow_atts.append(att)
+            workflow_atts.append(dict(att))
         else:
             user_atts.append(att)
 
@@ -242,7 +255,7 @@ async def add_message(
     return message_id, rejected_workflow_atts
 
 
-async def get_user_attachments_for_message(message_id: int) -> List[dict]:
+async def get_user_attachments_for_message(message_id: int) -> List[UserAttachmentRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -251,10 +264,10 @@ async def get_user_attachments_for_message(message_id: int) -> List[dict]:
                 (message_id,),
             )
         )
-        return [dict(r) for r in rows]
+        return [cast(UserAttachmentRow, dict(r)) for r in rows]
 
 
-async def get_workflow_attachments_for_message(message_id: int) -> List[dict]:
+async def get_workflow_attachments_for_message(message_id: int) -> List[WorkflowAttachmentRowBase]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -265,7 +278,7 @@ async def get_workflow_attachments_for_message(message_id: int) -> List[dict]:
                 (message_id,),
             )
         )
-        return [dict(r) for r in rows]
+        return [cast(WorkflowAttachmentRowBase, dict(r)) for r in rows]
 
 
 async def update_message_content(msg_id: int, content: str) -> None:
@@ -275,11 +288,16 @@ async def update_message_content(msg_id: int, content: str) -> None:
         await db.commit()
 
 
-async def get_message_by_id(msg_id: int) -> dict | None:
-    """Fetch a single message by its primary key."""
+async def get_message_by_id(msg_id: int) -> MessageRow | None:
+    """Fetch a single message by its primary key.
+
+    NOTE: unlike get_path_to_leaf(), this does not JSON-decode
+    ``progressive_fields``; it stays the raw string at runtime even though
+    ``MessageRow`` types it as the decoded dict. See MessageRow's docstring.
+    """
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM messages WHERE id = ?", (msg_id,)))
-        return dict(rows[0]) if rows else None
+        return cast(MessageRow, dict(rows[0])) if rows else None
 
 
 async def set_active_leaf(cid: str, leaf_id: int | None):

@@ -1,21 +1,24 @@
 from __future__ import annotations
 
+from typing import cast
+
 from ..connection import _build_set_clause, get_db
+from ..models import DirectorFragmentRow
 
 
-async def get_director_fragments() -> list[dict]:
+async def get_director_fragments() -> list[DirectorFragmentRow]:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM director_fragments ORDER BY sort_order ASC, label ASC"))
-        return [dict(r) for r in rows]
+        return [cast(DirectorFragmentRow, dict(r)) for r in rows]
 
 
-async def get_director_fragment(fid: str) -> dict | None:
+async def get_director_fragment(fid: str) -> DirectorFragmentRow | None:
     async with get_db() as db:
         rows = list(await db.execute_fetchall("SELECT * FROM director_fragments WHERE id = ?", (fid,)))
-        return dict(rows[0]) if rows else None
+        return cast(DirectorFragmentRow, dict(rows[0])) if rows else None
 
 
-async def create_director_fragment(data: dict) -> dict | None:
+async def create_director_fragment(data: dict) -> DirectorFragmentRow | None:
     async with get_db() as db:
         await db.execute(
             "INSERT INTO director_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -34,7 +37,7 @@ async def create_director_fragment(data: dict) -> dict | None:
         return await get_director_fragment(data["id"])
 
 
-async def update_director_fragment(fid: str, data: dict) -> dict | None:
+async def update_director_fragment(fid: str, data: dict) -> DirectorFragmentRow | None:
     async with get_db() as db:
         allowed = [
             "label",

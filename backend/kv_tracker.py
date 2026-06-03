@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
+from typing import Any, AsyncIterator, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ logger = logging.getLogger(__name__)
 _prev_turn_entries: dict[str, list[dict]] = {}
 
 
-def _serialize_messages(messages: list[dict]) -> str:
+def _serialize_messages(messages: Sequence[Mapping[str, Any]]) -> str:
     """Compact JSON serialization of a messages list; sort_keys for byte-stable output regardless of dict construction order."""
     return "\n".join(json.dumps(m, separators=(",", ":"), sort_keys=True) for m in messages)
 
@@ -127,7 +129,7 @@ class _KVCacheTracker:
     def record(
         self,
         label: str,
-        messages: list[dict],
+        messages: Sequence[Mapping[str, Any]],
         tools: list[dict] | None,
         model: str = "",
     ) -> None:
@@ -225,3 +227,102 @@ class _KVCacheTracker:
 
         if self._conversation_id:
             _prev_turn_entries[self._conversation_id] = list(self._entries)
+
+
+async def cached_complete(
+    client: Any,
+    *,
+    label: str,
+    messages: Sequence[Mapping[str, Any]],
+    model: str,
+    tools: list[dict] | None = None,
+    tool_choice: "dict | str | None" = None,
+    kv_tracker: "_KVCacheTracker | None" = None,
+    record: bool = True,
+    **params: Any,
+) -> AsyncIterator[dict]:
+    """Run ``client.complete`` and snapshot the KV-cache view from the *same*
+    arguments it is called with, so the tracker can never drift from what was
+    actually sent to the model.
+
+    This is the single chokepoint every pipeline pass funnels its completions
+    through. ``record()`` (the prompt snapshot) and ``record_usage()`` (provider
+    truth) are bound to the one ``client.complete`` call here, eliminating the
+    old failure mode where a pass recorded one ``messages``/``tools`` blob and
+    then sent a different one.
+
+    ``record=True`` (default) snapshots the prompt before issuing the call, so
+    each call appends one tracker entry. A multi-call loop (the editor's ReAct
+    iterations) therefore shows *every* iteration — surfacing any mid-loop change
+    to the tools blob that would otherwise be invisible. Provider ``usage`` from
+    the terminal ``done`` event is attached to the latest entry for *label*. All
+    events from ``client.complete`` are yielded through unchanged.
+    """
+    if kv_tracker is not None and record:
+        kv_tracker.record(label, messages, tools, model=model)
+    async for event in client.complete(
+        messages=messages,
+        model=model,
+        tools=tools,
+        tool_choice=tool_choice,
+        **params,
+    ):
+        if event["type"] == "done" and kv_tracker is not None:
+            kv_tracker.record_usage(label, event.get("usage"))
+        yield event
+
+
+@dataclass(frozen=True)
+class CachedBase:
+    """The byte-identical bottom of the prompt stack for one turn on one
+    inference server: the system+history *prefix*, the *tools* blob, and the
+    *model*. Built once per server per turn and shared by every pass that runs
+    on that server, so the cache-relevant bytes are computed in exactly one
+    place and can never be reconstructed — and so silently diverge — per pass.
+
+    Passes EXTEND this base via :meth:`complete`; they never rebuild it. The
+    fields are frozen and stored as tuples so the shared instance cannot have
+    its prefix or tool list mutated, reordered, or swapped out mid-turn — the
+    failure mode the invariants in docs/architecture/kv-cache.md and
+    tests/unit/test_kv_cache_invariants.py exist to catch.
+
+    In dual-model turns there are two bases: one for the writer's server and one
+    for the agent (director + editor) server. Invariant 5 — "the writer drops
+    tools when it runs on a different server than the agent" — is then just a
+    property of how the writer's base is built (empty ``tools``), not a flag
+    threaded through the writer pass.
+    """
+
+    prefix: tuple[Mapping[str, Any], ...]
+    tools: tuple[dict, ...]
+    model: str
+
+    def complete(
+        self,
+        client: Any,
+        *,
+        label: str,
+        trailing: Sequence[Mapping[str, Any]],
+        tool_choice: "dict | str | None" = None,
+        kv_tracker: "_KVCacheTracker | None" = None,
+        record: bool = True,
+        **params: Any,
+    ) -> AsyncIterator[dict]:
+        """Issue one completion that extends this base with *trailing* (the
+        per-pass top of the stack). The cached bottom — prefix + tools + model —
+        comes solely from ``self``; only *trailing* and *tool_choice* vary.
+
+        Delegates to :func:`cached_complete` so the tracker snapshot is taken
+        from the exact bytes sent.
+        """
+        return cached_complete(
+            client,
+            label=label,
+            messages=[*self.prefix, *trailing],
+            model=self.model,
+            tools=list(self.tools) or None,
+            tool_choice=tool_choice,
+            kv_tracker=kv_tracker,
+            record=record,
+            **params,
+        )

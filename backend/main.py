@@ -10,7 +10,7 @@ import tempfile
 
 from contextlib import asynccontextmanager
 
-from typing import Annotated, Any, AsyncGenerator, Optional, List, cast
+from typing import Annotated, Any, AsyncGenerator, Mapping, Optional, List, cast
 from fastapi import Body, Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import StreamingResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -127,7 +127,8 @@ from .orchestrator import (
     handle_super_regenerate,
     handle_magic_rewrite,
 )
-from .llm_client import LLMClient
+from .llm_client import AbortToken, LLMClient
+from .tool_defs import TOOLS
 from .macros import Macros
 from . import tavern_cards
 from . import card_downloader
@@ -192,9 +193,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Orb", lifespan=lifespan)
 
-# Active LLM generations keyed by conversation ID.
-# Populated when streaming starts; cleared when it ends or is aborted.
-_active_clients: dict[str, list[LLMClient]] = {}
+# Per-conversation abort token for the active LLM generation. Set when streaming
+# starts; cleared when it ends or is aborted. One token covers every client in
+# the turn (writer + optional agent), so /stop signals them all at once.
+_active_aborts: dict[str, AbortToken] = {}
 
 
 @app.middleware("http")
@@ -223,7 +225,7 @@ class SettingsUpdate(BaseModel):
     system_prompt: Optional[str] = None
     user_name: Optional[str] = None
     user_description: Optional[str] = None
-    enabled_tools: Optional[dict] = None
+    enabled_tools: Optional[dict[str, bool]] = None
     enable_agent: Optional[bool] = None
     length_guard_enabled: Optional[bool] = None
     length_guard_enforce: Optional[bool] = None
@@ -542,7 +544,12 @@ async def api_get_settings():
 
 @app.put("/api/settings")
 async def api_update_settings(data: SettingsUpdate):
-    return await update_settings(data.model_dump(exclude_unset=True))
+    payload = data.model_dump(exclude_unset=True)
+    # enabled_tools holds only model-callable tools. Drop any key that is not a
+    # registered tool so non-tool feature flags can never be persisted into it.
+    if isinstance(payload.get("enabled_tools"), dict):
+        payload["enabled_tools"] = {k: v for k, v in payload["enabled_tools"].items() if k in TOOLS}
+    return await update_settings(payload)
 
 
 # Endpoints ──
@@ -707,14 +714,14 @@ async def api_delete_world(world_id: str):
 # Lorebook Entries ──
 
 
-async def require_world(world_id: str) -> dict:
+async def require_world(world_id: str) -> Mapping[str, Any]:
     world = await get_world(world_id)
     if not world:
         raise HTTPException(status_code=404, detail="World not found")
     return world
 
 
-async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_world)) -> dict:  # noqa: B008
+async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_world)) -> Mapping[str, Any]:  # noqa: B008
     entry = await get_lorebook_entry(entry_id)
     if not entry or entry.get("world_id") != world["id"]:
         raise HTTPException(status_code=404, detail="Entry not found")
@@ -942,7 +949,7 @@ async def api_create_conversation(data: ConversationCreate):
         card = await get_character_card(card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Character card not found")
-        char_name = card["name"]
+        char_name = card.get("name", "")
         char_scenario = card.get("scenario", "")
         first_mes = card.get("first_mes", "")
         post_hist = card.get("post_history_instructions", "")
@@ -1022,10 +1029,12 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
     macros = Macros.from_settings(settings, char_name, active_persona)
     user_description = active_persona.get("description", "") if active_persona else settings.get("user_description", "")
 
+    abort_token = AbortToken()
     client = LLMClient(
         settings["endpoint_url"],
         api_key=settings.get("api_key", ""),
         profile=profile_for(settings["endpoint_url"], settings.get("model_name", "")),
+        abort_token=abort_token,
     )
     summarizer = ConversationSummarizer(client, settings)
     llm_messages = summarizer.build_messages(
@@ -1050,7 +1059,7 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
             yield {"event": "error", "data": str(e)}
 
     return _CleanupStreamingResponse(
-        _sse_stream(_gen(), request, client_ref=[client], cid=cid),
+        _sse_stream(_gen(), request, abort_token=abort_token, cid=cid),
         media_type="text/event-stream",
     )
 
@@ -1093,8 +1102,8 @@ async def api_compress_conversation(cid: str, data: CompressRequest):
         att_list = (
             [
                 {
-                    "mime_type": a["mime_type"],
-                    "data_b64": a["data_b64"],
+                    "mime_type": a.get("mime_type"),
+                    "data_b64": a.get("data_b64"),
                     "filename": a.get("filename"),
                     "size": a.get("size"),
                 }
@@ -1237,7 +1246,7 @@ async def api_update_character(card_id: str, data: CharacterCardUpdate):
     result = await update_character_card(card_id, update_data)
     if not result:
         raise HTTPException(status_code=404, detail="Character card not found")
-    old_name = old_card["name"] if old_card and "name" in update_data else None
+    old_name = old_card.get("name") if old_card and "name" in update_data else None
     await sync_conversations_for_card(card_id, result, old_name=old_name)
     return result
 
@@ -1265,21 +1274,28 @@ async def api_export_character(card_id: str):
     if not card:
         raise HTTPException(status_code=404, detail="Character not found")
 
+    # Materialize a mutable working copy: the export augments the row with fields
+    # that are not card columns (a forced ``id`` and an embedded ``character_book``),
+    # so it is a free-form dict here rather than a CharacterCardRow.
+    export_card: dict[str, Any] = dict(card)
+
     avatar_bytes: bytes | None = None
-    if card.get("avatar_b64"):
+    avatar_b64 = export_card.get("avatar_b64")
+    if avatar_b64:
         try:
-            avatar_bytes = base64.b64decode(card["avatar_b64"])
+            avatar_bytes = base64.b64decode(avatar_b64)
         except Exception:
             logger.warning("Avatar data for card %s is corrupt; exporting without avatar", card_id)
             avatar_bytes = None
 
-    card["id"] = card_id
+    export_card["id"] = card_id
 
     # If the character is linked to a lorebook, embed it as character_book
-    if card.get("world_id") and not card.get("character_book"):
-        world = await get_world(card["world_id"])
-        entries = await get_lorebook_entries(card["world_id"])
-        card["character_book"] = {
+    world_id = export_card.get("world_id")
+    if world_id and not export_card.get("character_book"):
+        world = await get_world(world_id)
+        entries = await get_lorebook_entries(world_id)
+        export_card["character_book"] = {
             "name": world["name"] if world else "",
             "extensions": {},
             "entries": [
@@ -1299,14 +1315,28 @@ async def api_export_character(card_id: str):
             ],
         }
 
-    png_bytes = tavern_cards.to_png(card, avatar_bytes)
+    png_bytes = tavern_cards.to_png(export_card, avatar_bytes)
 
-    safe_name = "".join(c for c in card.get("name", "character") if c.isalnum() or c in " _-").strip() or "character"
+    safe_name = "".join(c for c in export_card.get("name", "character") if c.isalnum() or c in " _-").strip() or "character"
     return Response(
         content=png_bytes,
         media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}.png"'},
     )
+
+
+async def _safe_aclose(gen: AsyncGenerator[Any, None]) -> None:
+    """Close *gen*, shielding the close from cancellation so the generator's own
+    finally blocks (e.g. the orchestrator's fallback persistence of incomplete
+    messages) always run to completion. If the shield itself is cancelled, retry
+    the close once unshielded and swallow any error."""
+    try:
+        await asyncio.shield(gen.aclose())
+    except asyncio.CancelledError:
+        try:
+            await gen.aclose()
+        except Exception:
+            pass
 
 
 class _CleanupStreamingResponse(StreamingResponse):
@@ -1327,30 +1357,22 @@ class _CleanupStreamingResponse(StreamingResponse):
             # (e.g. client disconnected). This ensures the orchestrator's
             # finally block runs and saves any incomplete message.
             if hasattr(self.body_iterator, "aclose"):
-                gen = cast(AsyncGenerator[Any, None], self.body_iterator)
-                try:
-                    await asyncio.shield(gen.aclose())
-                except asyncio.CancelledError:
-                    # Shield was cancelled; try once more
-                    try:
-                        await gen.aclose()
-                    except Exception:
-                        pass
+                await _safe_aclose(cast(AsyncGenerator[Any, None], self.body_iterator))
 
 
 async def _sse_stream(
     gen,
     request: Request,
     *,
-    client_ref: list | None = None,
+    abort_token: AbortToken | None = None,
     cid: str | None = None,
 ):
     """Wrap an event-dict async generator as SSE, stopping cleanly on client disconnect.
 
-    The primary stop path is the explicit POST /stop endpoint, which calls
-    LLMClient.abort() directly. That in turn breaks out of the asyncio.wait()
-    loop in complete() and lets the async-with block close the TCP connection
-    to the LLM server normally — no task cancellation needed.
+    The primary stop path is the explicit POST /stop endpoint, which signals
+    *abort_token*. That breaks out of the asyncio.wait() loop in complete() and
+    lets the async-with block close the TCP connection to the LLM server
+    normally — no task cancellation needed.
 
     A background watcher also polls request.is_disconnected() as a fallback
     for cases like the user closing the browser tab without clicking Stop.
@@ -1360,9 +1382,8 @@ async def _sse_stream(
         try:
             while True:
                 if await request.is_disconnected():
-                    if client_ref:
-                        for c in client_ref:
-                            c.abort()
+                    if abort_token is not None:
+                        abort_token.abort()
                     return
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
@@ -1384,12 +1405,13 @@ async def _sse_stream(
                 return
             await candidate.acquire()
             lock = candidate
+            # Register only after winning the lock, so a rejected loser never
+            # clobbers the winner's entry. `lock is not None` in the finally
+            # gates the matching pop to the same winner.
+            if abort_token is not None:
+                _active_aborts[cid] = abort_token
         watcher = asyncio.create_task(_watch_disconnect())
         async for event in gen:
-            # Register client in _active_clients on the first event (by which
-            # point handle_turn has already populated client_ref).
-            if cid and client_ref and cid not in _active_clients:
-                _active_clients[cid] = list(client_ref)
             evt_type = event["event"]
             evt_data = event.get("data", "")
             if isinstance(evt_data, dict):
@@ -1402,34 +1424,23 @@ async def _sse_stream(
             watcher.cancel()
         if cid and lock is not None:
             # `lock is not None` implies this coroutine won the acquire race and
-            # therefore owns whatever was lazy-registered into _active_clients.
-            # Gating the pop on the same sentinel keeps the rejected-loser path
-            # from deleting the winner's entry and silently no-opping /stop.
-            _active_clients.pop(cid, None)
+            # therefore owns the _active_aborts entry it registered above.
+            _active_aborts.pop(cid, None)
         if lock is not None:
             # Release before gen.aclose() so a queued /edit, /delete, or
             # /switch-branch can proceed in parallel with the inner generator's
             # cleanup rather than waiting on it.
             lock.release()
-        # Shield aclose() from CancelledError so the orchestrator's finally
-        # block (fallback persistence of incomplete messages) always runs.
-        try:
-            await asyncio.shield(gen.aclose())
-        except asyncio.CancelledError:
-            try:
-                await gen.aclose()
-            except Exception:
-                pass
+        await _safe_aclose(gen)
 
 
 @app.post("/api/conversations/{cid}/stop")
 async def api_stop_generation(cid: str):
     """Abort the active LLM generation for this conversation, if any."""
-    clients = _active_clients.get(cid)
-    if clients:
-        for c in clients:
-            c.abort()
-        logger.info("Stop requested for conversation %s — aborted", cid)
+    token = _active_aborts.get(cid)
+    if token is not None:
+        token.abort()
+        logger.info("Stop Generation requested for conversation %s — abort signalled", cid)
     return {"ok": True}
 
 
@@ -1467,12 +1478,12 @@ async def api_fork_edit_message(cid: str, msg_id: int, data: EditMessage, reques
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_fork_edit(cid, msg_id, data.content, client_ref=client_ref),
+            handle_fork_edit(cid, msg_id, data.content, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1518,12 +1529,12 @@ async def api_regenerate_msg(cid: str, msg_id: int, request: Request, data: Opti
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_regenerate(cid, msg_id, client_ref=client_ref),
+            handle_regenerate(cid, msg_id, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1537,12 +1548,12 @@ async def api_super_regenerate_msg(cid: str, msg_id: int, request: Request, data
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_super_regenerate(cid, msg_id, client_ref=client_ref),
+            handle_super_regenerate(cid, msg_id, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1556,12 +1567,12 @@ async def api_magic_rewrite_msg(cid: str, msg_id: int, request: Request, data: M
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_magic_rewrite(cid, msg_id, data.direction, client_ref=client_ref),
+            handle_magic_rewrite(cid, msg_id, data.direction, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1699,12 +1710,12 @@ async def api_send_message(cid: str, data: SendMessage, request: Request):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     attachments = [a.dict() for a in data.attachments]
-    client_ref: list = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_turn(cid, data.content, attachments=attachments, client_ref=client_ref),
+            handle_turn(cid, data.content, attachments=attachments, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1721,12 +1732,12 @@ async def api_continue_from_user(cid: str, request: Request, data: Optional[Rege
     if not messages or messages[-1]["role"] != "user":
         raise HTTPException(status_code=400, detail="Last message is not a user message")
     user_content = messages[-1]["content"]
-    client_ref: list = []
+    abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
-            handle_turn(cid, user_content, skip_user_persist=True, client_ref=client_ref),
+            handle_turn(cid, user_content, skip_user_persist=True, abort_token=abort_token),
             request,
-            client_ref=client_ref,
+            abort_token=abort_token,
             cid=cid,
         ),
         media_type="text/event-stream",
@@ -1934,7 +1945,7 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
         }
 
 
-def _decode_stored_consumption_metadata(att: dict) -> dict | None:
+def _decode_stored_consumption_metadata(att: Mapping[str, Any]) -> dict | None:
     """Parse the parent attachment's stored consumption_metadata JSON.
 
     Returns the decoded dict, or ``None`` for any malformed or non-dict value.
@@ -1971,7 +1982,9 @@ def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, d
     return result, None
 
 
-def _build_reroll_gen_ctx(cid: str, mid: int, aid: int, att: dict, settings: dict, client) -> RerollGenCtx:
+def _build_reroll_gen_ctx(
+    cid: str, mid: int, aid: int, att: Mapping[str, Any], settings: Mapping[str, Any], client
+) -> RerollGenCtx:
     prior_cm = _decode_stored_consumption_metadata(att)
     return RerollGenCtx(
         conversation_id=cid,

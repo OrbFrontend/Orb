@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import cast
 
 from ..connection import _build_set_clause, get_db
+from ..models import UserPersonaRow
 
 
-async def get_user_personas() -> list[dict]:
+async def get_user_personas() -> list[UserPersonaRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
                 "SELECT id, name, description, avatar_color, created_at, updated_at FROM user_personas ORDER BY name ASC"
             )
         )
-        return [dict(r) for r in rows]
+        return [cast(UserPersonaRow, dict(r)) for r in rows]
 
 
-async def get_user_persona(persona_id: int) -> dict | None:
+async def get_user_persona(persona_id: int) -> UserPersonaRow | None:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -23,10 +25,10 @@ async def get_user_persona(persona_id: int) -> dict | None:
                 (persona_id,),
             )
         )
-        return dict(rows[0]) if rows else None
+        return cast(UserPersonaRow, dict(rows[0])) if rows else None
 
 
-async def create_user_persona(data: dict) -> dict:
+async def create_user_persona(data: dict) -> UserPersonaRow:
     async with get_db() as db:
         now = datetime.now(timezone.utc).isoformat()
         cur = await db.execute(
@@ -47,7 +49,7 @@ async def create_user_persona(data: dict) -> dict:
         return result
 
 
-async def update_user_persona(persona_id: int, data: dict) -> dict | None:
+async def update_user_persona(persona_id: int, data: dict) -> UserPersonaRow | None:
     async with get_db() as db:
         allowed = ["name", "description", "avatar_color"]
         sets, vals = _build_set_clause(allowed, data)

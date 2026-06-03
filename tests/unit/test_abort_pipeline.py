@@ -12,6 +12,7 @@ from unittest.mock import patch
 from backend.kv_tracker import _KVCacheTracker
 from backend.llm_client import LLMClient
 from backend.orchestrator import _run_pipeline
+from backend.passes.director import DirectorResult
 
 
 _DIRECTOR_STATE = {"active_moods": []}
@@ -48,7 +49,7 @@ class TestAbortPropagation:
 
         async def mock_director(c, *args, **kwargs):
             c.abort()
-            yield {"type": "done", "result": ([], "", [], 0, None, {})}
+            yield {"type": "done", "result": DirectorResult()}
 
         async def mock_writer(*args, **kwargs):
             writer_calls[0] += 1

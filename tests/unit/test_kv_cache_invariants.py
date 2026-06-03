@@ -43,7 +43,9 @@ from typing import Any
 
 import pytest
 
+from backend.llm_client import AbortToken
 from backend.kv_tracker import (
+    CachedBase,
     _KVCacheTracker,
     _common_prefix_len,
     _serialize_messages,
@@ -51,7 +53,7 @@ from backend.kv_tracker import (
 )
 from backend.orchestrator import _run_pipeline
 from backend.passes.editor.editor import editor_pass
-from backend.tool_defs import build_direct_scene_tool
+from backend.tool_defs import build_direct_scene_tool, enabled_schemas
 
 
 def _wire_tools(tools: Any) -> str:
@@ -112,7 +114,8 @@ class CapturingClient:
     def __init__(self, model: str) -> None:
         self.model = model
         self.calls: list[dict] = []
-        self._abort = False
+        # Shared with a wrapping _PlaceholderClient, mirroring LLMClient.
+        self.abort_token = AbortToken()
         # FIFO of editor tool-call messages to return, one per ReAct iteration.
         # Empty → the editor returns no tool call and the loop stops.
         self._editor_queue: list[dict] = []
@@ -137,12 +140,33 @@ class CapturingClient:
             }
         )
 
+    def enqueue_editor_rewrite(self, text: str) -> None:
+        """Queue an ``editor_rewrite`` call returning *text* as the new draft.
+        Used to drive the rewrite branch of the ReAct loop (length guard /
+        structural rewrite), which is where the tool list used to be narrowed."""
+        self._editor_queue.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": f"r{len(self._editor_queue)}",
+                        "type": "function",
+                        "function": {
+                            "name": "editor_rewrite",
+                            "arguments": json.dumps({"rewritten_text": text}),
+                        },
+                    }
+                ],
+            }
+        )
+
     @property
     def is_aborted(self) -> bool:
-        return self._abort
+        return self.abort_token.is_aborted
 
     def abort(self) -> None:
-        self._abort = True
+        self.abort_token.abort()
 
     def _label(self, tool_choice: Any) -> str:
         if tool_choice in (None, "none"):
@@ -509,21 +533,24 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
         client.enqueue_editor_patch(f"{lead} shiver ran down her spine.", f"{lead} hall stayed silent.")
 
     settings = {"model_name": "editor-model", "editor_audit_toggles": None}
+    base = CachedBase(
+        prefix=tuple(prefix),
+        tools=tuple(enabled_schemas({"editor_apply_patch": True}, {})),
+        model="editor-model",
+    )
     async for _ in editor_pass(
         client,
-        prefix,
+        base,
         "I strike the anvil.",
         draft,
         settings,
         phrase_bank,
-        {"editor_apply_patch": True},
         audit_enabled=True,
         length_guard=None,
         kv_tracker=None,
         reasoning_on=reasoning_on,
         audit_context_msgs=[],
         writer_user_msg=writer_user,
-        schema_overrides={},
     ):
         pass
 
@@ -541,6 +568,16 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
             "prefix is re-billed on every editor round."
         )
 
+    # Inv-3 across iterations — the tools blob must stay byte-identical every
+    # round. The schema list lives in the cached prefix; narrowing it mid-loop
+    # would re-bill the tools region each iteration. (This particular path never
+    # narrows, but the assertion documents the invariant cheaply; the rewrite
+    # path is covered by test_editor_tools_blob_constant_across_tool_switch.)
+    iter_blobs = {c["tools_wire"] for c in editor_calls}
+    assert len(iter_blobs) == 1, "CACHE BUST: editor tools blob changed between iterations. " + json.dumps(
+        sorted(len(b) for b in iter_blobs)
+    )
+
     if reasoning_on:
         # Append-only: every iteration extends the previous prompt verbatim, so
         # even the writer's draft pancake stays cached (the doc §7 ideal).
@@ -556,3 +593,68 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
             "flat-mode editor changed its message count between iterations — it must "
             "rewrite the top two pancakes in place, not grow or rebuild the list."
         )
+
+
+async def test_editor_tools_blob_constant_across_tool_switch():
+    """Inv-3 regression: when the ReAct loop switches which tool it forces
+    (rewrite on one iteration, patch on the next), the tools *blob* must NOT
+    change — only ``tool_choice`` may. The loop used to narrow ``editor_tools``
+    to a single-tool list when changing tools mid-flight, shrinking the schema
+    blob (e.g. 3 tools → 1) and re-billing the tools region every iteration.
+
+    This drives that exact path: a 3-tool enabled set, a length-guard-forced
+    rewrite on iteration 1 whose result still carries a banned phrase, so the
+    loop continues to iteration 2 now forcing ``editor_apply_patch``. Before the
+    fix the two iterations shipped different-sized blobs; this asserts they don't.
+    """
+    prefix = _make_prefix("You are the editor's bench.", n_pairs=2)
+    writer_user = "I strike the anvil."
+    banned = "shiver ran down her spine"
+    # Long enough to trip the (tiny) length guard, and banned-phrase-laden so the
+    # initial audit has issues too.
+    draft = " ".join([f"The {banned}."] * 6)
+    phrase_bank = [[banned]]
+
+    client = CapturingClient("editor-model")
+    # Iteration 1 is force-rewrite (length guard). Return a rewrite that clears
+    # the word limit but still repeats the banned phrase, so audit issues remain
+    # and the loop advances to a patch-forced iteration 2 (queue then empty → stop).
+    client.enqueue_editor_rewrite(" ".join([f"A {banned}."] * 4))
+
+    settings = {"model_name": "editor-model", "editor_audit_toggles": None}
+    length_guard = {"enabled": True, "max_words": 5, "max_paragraphs": 1}
+    # 3-tool enabled set so a narrow-to-one would be visible as a byte change.
+    base = CachedBase(
+        prefix=tuple(prefix),
+        tools=tuple(enabled_schemas({"direct_scene": True, "editor_apply_patch": True, "editor_rewrite": True}, {})),
+        model="editor-model",
+    )
+    async for _ in editor_pass(
+        client,
+        base,
+        writer_user,
+        draft,
+        settings,
+        phrase_bank,
+        audit_enabled=True,
+        length_guard=length_guard,
+        kv_tracker=None,
+        reasoning_on=False,
+        audit_context_msgs=[],
+        writer_user_msg=writer_user,
+    ):
+        pass
+
+    editor_calls = [c for c in client.calls if c["label"] == "editor"]
+    assert len(editor_calls) >= 2, f"expected ≥2 editor iterations (rewrite then patch), got {len(editor_calls)}"
+
+    # The forced tool changed across iterations — but the blob must be constant.
+    blobs = {c["tools_wire"] for c in editor_calls}
+    assert len(blobs) == 1, (
+        "CACHE BUST: the editor narrowed its tools blob when switching the forced "
+        "tool mid-loop. Tool selection must go through tool_choice alone; the "
+        "schema list must stay byte-identical. Distinct blob sizes: " + json.dumps(sorted(len(b) for b in blobs))
+    )
+    # And it must genuinely be the full 3-tool set, not a coincidental match.
+    full_blob = _wire_tools(enabled_schemas({"direct_scene": True, "editor_apply_patch": True, "editor_rewrite": True}, {}))
+    assert next(iter(blobs)) == full_blob, "editor shipped a tools blob that is not the full enabled set"

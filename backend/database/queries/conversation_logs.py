@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import cast
 
 from ..connection import get_db
+from ..models import ConversationLogRow
 
 
 async def add_conversation_log(
@@ -57,7 +59,7 @@ async def get_moods_before_turn(cid: str, turn_index: int) -> list[str]:
         return []
 
 
-async def get_conversation_logs(cid: str) -> list[dict]:
+async def get_conversation_logs(cid: str) -> list[ConversationLogRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -70,11 +72,11 @@ async def get_conversation_logs(cid: str) -> list[dict]:
             d = dict(r)
             d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
             d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []
-            result.append(d)
+            result.append(cast(ConversationLogRow, d))
         return result
 
 
-async def get_director_log_for_message(message_id: int) -> dict | None:
+async def get_director_log_for_message(message_id: int) -> ConversationLogRow | None:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -90,4 +92,4 @@ async def get_director_log_for_message(message_id: int) -> dict | None:
         d.setdefault("reasoning_director", "")
         d.setdefault("reasoning_writer", "")
         d.setdefault("reasoning_editor", "")
-        return d
+        return cast(ConversationLogRow, d)

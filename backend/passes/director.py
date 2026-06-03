@@ -9,18 +9,43 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import AsyncIterator, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ..kv_tracker import CachedBase
 from ..tool_defs import (
     TOOLS,
     POST_WRITER_TOOLS,
-    enabled_schemas,
 )
 from ..prompt_builder import build_director_tool_prompt
+from ..llm_types import ChatMessage
 from ..utils import extract_hyperparams, build_multimodal_content
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DirectorResult:
+    """Typed payload of the director pass's terminal ``done`` event.
+
+    Field names match the orchestrator's turn-state locals and
+    :class:`~backend.orchestrator._PipelineResult` (notably ``agent_raw``,
+    ``rewritten_msg``) so a single name follows each value end to end. This
+    replaces the former 6-positional ``result`` tuple: adding or reordering a
+    field can no longer silently transpose values at the unpack site.
+
+    ``progressive_fields`` is intentionally absent — it is derived in the
+    orchestrator from ``extra_fields`` filtered against the valid progressive
+    fragment ids, which the director pass does not know about.
+    """
+
+    active_moods: list[str] = field(default_factory=list)
+    agent_raw: str = ""
+    calls: list[dict] = field(default_factory=list)
+    latency: int = 0
+    rewritten_msg: str | None = None
+    extra_fields: dict = field(default_factory=dict)
 
 
 # ── Tool-call result unpacking ────────────────────────────────────────────────
@@ -55,26 +80,24 @@ def apply_tool_calls(
 
 async def _director_pass(
     client: LLMClient,
-    prefix: list[dict],
+    base: CachedBase,
     user_message: str,
-    settings: dict,
-    director: dict,
-    mood_fragments: list[dict],
-    director_fragments: list[dict],
-    enabled_tools: dict,
-    attachments: Optional[List[dict]] = None,
+    settings: Mapping[str, Any],
+    director: Mapping[str, Any],
+    mood_fragments: Sequence[Mapping[str, Any]],
+    director_fragments: Sequence[Mapping[str, Any]],
+    enabled_tools: Mapping[str, bool],
+    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     kv_tracker=None,
     reasoning_on: bool = True,
     lorebook_block: str = "",
-    model: str | None = None,
     progressive_state: dict | None = None,
-    schema_overrides: dict | None = None,
 ) -> AsyncIterator[dict]:
     """Yields reasoning dicts during each tool call, then a single done dict.
 
     Yields:
-        {"type": "reasoning", "delta": str}   — zero or more reasoning chunks
-        {"type": "done", "result": tuple}     — final (moods, raw, calls, latency, refined, extra_fields)
+        {"type": "reasoning", "delta": str}        — zero or more reasoning chunks
+        {"type": "done", "result": DirectorResult}  — terminal pass result
     """
     active_moods = director["active_moods"]
     if attachments is None:
@@ -96,11 +119,13 @@ async def _director_pass(
     if not tool_names:
         yield {
             "type": "done",
-            "result": (active_moods, "", [], 0, None, {}),
+            "result": DirectorResult(active_moods=active_moods),
         }
         return
 
-    tool_schemas = enabled_schemas(enabled_tools, schema_overrides)
+    # The tools blob is resolved once into the shared base; the director reads it
+    # rather than rebuilding it, so it cannot drift from the writer/editor blobs.
+    tool_schemas = list(base.tools)
 
     logger.info(
         "Director pass: tools included=%s",
@@ -124,28 +149,22 @@ async def _director_pass(
         )
         tail = ("___\n\n" + lorebook_block + "\n\n" if lorebook_block else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
-        msgs = prefix + [{"role": "user", "content": content}]
+        trailing: list[ChatMessage] = [{"role": "user", "content": content}]
         logger.info(
             "Agent tool=%s prompt:\n%s",
             name,
-            json.dumps(msgs, indent=2, ensure_ascii=False),
+            json.dumps([*base.prefix, *trailing], indent=2, ensure_ascii=False),
         )
-        if kv_tracker is not None:
-            kv_tracker.record(
-                f"director:{name}",
-                msgs,
-                tool_schemas,
-                model=model or settings["model_name"],
-            )
         resp: dict = {}
         try:
             reasoning_params = reasoning_cfg(reasoning_on and name != "rewrite_user_prompt")
             hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
-            async for event in client.complete(
-                messages=msgs,
-                model=model or settings["model_name"],
-                tools=tool_schemas,
+            async for event in base.complete(
+                client,
+                label=f"director:{name}",
+                trailing=trailing,
                 tool_choice=TOOLS[name]["choice"],
+                kv_tracker=kv_tracker,
                 **hyperparams,
                 **reasoning_params,
             ):
@@ -153,8 +172,6 @@ async def _director_pass(
                     yield {"type": "reasoning", "delta": event["delta"]}
                 elif event["type"] == "done":
                     resp = event["message"]
-                    if kv_tracker is not None:
-                        kv_tracker.record_usage(f"director:{name}", event.get("usage"))
             last_raw = json.dumps(resp, default=str)
             logger.info("Agent tool=%s output:\n%s", name, last_raw)
             if parsed := parse_tool_calls(resp):
@@ -172,12 +189,12 @@ async def _director_pass(
 
     yield {
         "type": "done",
-        "result": (
-            active_moods,
-            last_raw,
-            all_calls,
-            int((time.monotonic() - t0) * 1000),
-            refined_msg,
-            extra_fields,
+        "result": DirectorResult(
+            active_moods=active_moods,
+            agent_raw=last_raw,
+            calls=all_calls,
+            latency=int((time.monotonic() - t0) * 1000),
+            rewritten_msg=refined_msg,
+            extra_fields=extra_fields,
         ),
     }

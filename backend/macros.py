@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import random
 import re
-from typing import NamedTuple
+from typing import Any, Mapping, NamedTuple, Sequence
 
 from .llm_client import LLMClient
 
@@ -105,9 +105,9 @@ class Macros(NamedTuple):
     @classmethod
     def from_settings(
         cls,
-        settings: dict,
+        settings: Mapping[str, Any],
         char_name: str,
-        active_persona: dict | None = None,
+        active_persona: Mapping[str, Any] | None = None,
     ) -> "Macros":
         user = active_persona.get("name", "User") if active_persona else settings.get("user_name", "User")
         return cls(user=user, char=char_name)
@@ -146,17 +146,15 @@ class _PlaceholderClient(LLMClient):
         self._inner = inner
         self._user_name = user_name
         self._char_name = char_name
-
-    def abort(self) -> None:
-        self._inner.abort()
-
-    @property
-    def is_aborted(self) -> bool:
-        return self._inner.is_aborted
+        # Share the inner client's abort token so the inherited abort()/
+        # is_aborted reflect the same turn-wide stop signal — no delegation
+        # overrides needed. Transport config (base_url/profile/…) is left unset
+        # since complete() delegates to the inner client rather than using it.
+        self.abort_token = inner.abort_token
 
     async def complete(
         self,
-        messages: list[dict],
+        messages: Sequence[Mapping[str, Any]],
         model: str,
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
