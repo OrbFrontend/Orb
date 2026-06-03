@@ -9,6 +9,7 @@ import logging
 from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, reasoning_cfg
+from ..kv_tracker import cached_complete
 from ..tool_defs import enabled_schemas
 from ..llm_types import ChatMessage, ContentPart
 from ..utils import LengthGuard, extract_hyperparams, build_multimodal_content
@@ -81,15 +82,18 @@ async def _writer_pass(
         "Writer pass: tools included=%s",
         json.dumps([s["function"]["name"] for s in schemas]) if schemas else "[]",
     )
-    extra: dict = {"tools": schemas, "tool_choice": "none"} if schemas else {}
-    extra.update(reasoning_cfg(reasoning_on))
 
-    if kv_tracker is not None:
-        kv_tracker.record("writer", msgs, schemas if schemas else None, model=settings["model_name"])
-
-    async for item in client.complete(messages=msgs, model=settings["model_name"], **extra, **hyperparams):
+    async for item in cached_complete(
+        client,
+        label="writer",
+        messages=msgs,
+        model=settings["model_name"],
+        tools=schemas or None,
+        tool_choice="none" if schemas else None,
+        kv_tracker=kv_tracker,
+        **reasoning_cfg(reasoning_on),
+        **hyperparams,
+    ):
         if item["type"] == "done":
-            if kv_tracker is not None:
-                kv_tracker.record_usage("writer", item.get("usage"))
             return
         yield item

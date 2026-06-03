@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any, AsyncIterator, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ logger = logging.getLogger(__name__)
 _prev_turn_entries: dict[str, list[dict]] = {}
 
 
-def _serialize_messages(messages: list[dict]) -> str:
+def _serialize_messages(messages: Sequence[Mapping[str, Any]]) -> str:
     """Compact JSON serialization of a messages list; sort_keys for byte-stable output regardless of dict construction order."""
     return "\n".join(json.dumps(m, separators=(",", ":"), sort_keys=True) for m in messages)
 
@@ -127,7 +128,7 @@ class _KVCacheTracker:
     def record(
         self,
         label: str,
-        messages: list[dict],
+        messages: Sequence[Mapping[str, Any]],
         tools: list[dict] | None,
         model: str = "",
     ) -> None:
@@ -225,3 +226,46 @@ class _KVCacheTracker:
 
         if self._conversation_id:
             _prev_turn_entries[self._conversation_id] = list(self._entries)
+
+
+async def cached_complete(
+    client: Any,
+    *,
+    label: str,
+    messages: Sequence[Mapping[str, Any]],
+    model: str,
+    tools: list[dict] | None = None,
+    tool_choice: "dict | str | None" = None,
+    kv_tracker: "_KVCacheTracker | None" = None,
+    record: bool = True,
+    **params: Any,
+) -> AsyncIterator[dict]:
+    """Run ``client.complete`` and snapshot the KV-cache view from the *same*
+    arguments it is called with, so the tracker can never drift from what was
+    actually sent to the model.
+
+    This is the single chokepoint every pipeline pass funnels its completions
+    through. ``record()`` (the prompt snapshot) and ``record_usage()`` (provider
+    truth) are bound to the one ``client.complete`` call here, eliminating the
+    old failure mode where a pass recorded one ``messages``/``tools`` blob and
+    then sent a different one.
+
+    ``record=True`` (default) snapshots the prompt before issuing the call, so
+    each call appends one tracker entry. A multi-call loop (the editor's ReAct
+    iterations) therefore shows *every* iteration — surfacing any mid-loop change
+    to the tools blob that would otherwise be invisible. Provider ``usage`` from
+    the terminal ``done`` event is attached to the latest entry for *label*. All
+    events from ``client.complete`` are yielded through unchanged.
+    """
+    if kv_tracker is not None and record:
+        kv_tracker.record(label, messages, tools, model=model)
+    async for event in client.complete(
+        messages=messages,
+        model=model,
+        tools=tools,
+        tool_choice=tool_choice,
+        **params,
+    ):
+        if event["type"] == "done" and kv_tracker is not None:
+            kv_tracker.record_usage(label, event.get("usage"))
+        yield event

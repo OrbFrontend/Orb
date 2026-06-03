@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ..kv_tracker import cached_complete
 from ..tool_defs import (
     TOOLS,
     POST_WRITER_TOOLS,
@@ -155,22 +156,18 @@ async def _director_pass(
             name,
             json.dumps(msgs, indent=2, ensure_ascii=False),
         )
-        if kv_tracker is not None:
-            kv_tracker.record(
-                f"director:{name}",
-                msgs,
-                tool_schemas,
-                model=model or settings["model_name"],
-            )
         resp: dict = {}
         try:
             reasoning_params = reasoning_cfg(reasoning_on and name != "rewrite_user_prompt")
             hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
-            async for event in client.complete(
+            async for event in cached_complete(
+                client,
+                label=f"director:{name}",
                 messages=msgs,
                 model=model or settings["model_name"],
                 tools=tool_schemas,
                 tool_choice=TOOLS[name]["choice"],
+                kv_tracker=kv_tracker,
                 **hyperparams,
                 **reasoning_params,
             ):
@@ -178,8 +175,6 @@ async def _director_pass(
                     yield {"type": "reasoning", "delta": event["delta"]}
                 elif event["type"] == "done":
                     resp = event["message"]
-                    if kv_tracker is not None:
-                        kv_tracker.record_usage(f"director:{name}", event.get("usage"))
             last_raw = json.dumps(resp, default=str)
             logger.info("Agent tool=%s output:\n%s", name, last_raw)
             if parsed := parse_tool_calls(resp):

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 from .opening_monotony import FlaggedOpener, MonotonyResult, _split_sentences
 from .template_repetition import FlaggedTemplate, TemplateResult
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ...kv_tracker import cached_complete
 from ...tool_defs import (
     TOOLS,
     EDITOR_APPLY_PATCH_TOOL,
@@ -459,8 +460,6 @@ async def editor_pass(
             MAX_EDITOR_ITERATIONS,
             report.total_issues,
         )
-        if kv_tracker is not None and iteration == 0:
-            kv_tracker.record("editor", msgs, editor_tools, model=model or settings["model_name"])
         try:
             reasoning_params = reasoning_cfg(reasoning_on)
             if not reasoning_params["reasoning"].get("enabled", True):
@@ -476,11 +475,14 @@ async def editor_pass(
             resp: dict = {}
             try:
                 hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
-                async for event in client.complete(
+                async for event in cached_complete(
+                    client,
+                    label="editor",
                     messages=msgs,
                     model=model or settings["model_name"],
                     tools=editor_tools,
                     tool_choice=_pick_tool_choice(length_guard_triggered, report, audit_enabled),
+                    kv_tracker=kv_tracker,
                     **hyperparams,
                     **reasoning_params,
                 ):
@@ -488,8 +490,6 @@ async def editor_pass(
                         yield {"type": "reasoning", "delta": event["delta"]}
                     elif event["type"] == "done":
                         resp = event["message"]
-                        if kv_tracker is not None and iteration == 0:
-                            kv_tracker.record_usage("editor", event.get("usage"))
             except Exception as llm_err:
                 logger.error(
                     "Editor iteration %d: client.complete() raised %s: %s",
