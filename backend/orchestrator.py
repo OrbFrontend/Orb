@@ -1456,7 +1456,7 @@ async def _consume_pipeline(
     yield {"event": "done"}
 
 
-def _register_clients(ctx: PipelineContext, client_ref: list | None, *, include_agent: bool = True) -> None:
+def _register_clients(ctx: PipelineContext, client_ref: list[LLMClient] | None, *, include_agent: bool = True) -> None:
     """Expose the turn's LLM client(s) on *client_ref* so a /stop can abort them.
 
     *include_agent* is False for magic-rewrite, which never spins up the agent.
@@ -1557,7 +1557,7 @@ async def handle_turn(
     user_message: str,
     skip_user_persist: bool = False,
     attachments: Optional[List[dict]] = None,
-    client_ref: list | None = None,
+    client_ref: list[LLMClient] | None = None,
 ) -> AsyncIterator[dict]:
     try:
         if attachments is None:
@@ -1646,7 +1646,7 @@ async def handle_fork_edit(
     conversation_id: str,
     user_msg_id: int,
     new_content: str,
-    client_ref: list | None = None,
+    client_ref: list[LLMClient] | None = None,
 ) -> AsyncIterator[dict]:
     """Fork the conversation at a user message.
 
@@ -1730,7 +1730,7 @@ async def handle_fork_edit(
 async def handle_regenerate(
     conversation_id: str,
     assistant_msg_id: int,
-    client_ref: list | None = None,
+    client_ref: list[LLMClient] | None = None,
 ) -> AsyncIterator[dict]:
     try:
         ctx = await _load_pipeline_context(conversation_id)
@@ -1776,7 +1776,7 @@ _SUPER_REGEN_MSG = "[OOC: Your response was kind of meh, rewrite it in a slightl
 async def handle_super_regenerate(
     conversation_id: str,
     assistant_msg_id: int,
-    client_ref: list | None = None,
+    client_ref: list[LLMClient] | None = None,
 ) -> AsyncIterator[dict]:
     try:
         ctx = await _load_pipeline_context(conversation_id)
@@ -1848,7 +1848,7 @@ async def handle_magic_rewrite(
     conversation_id: str,
     assistant_msg_id: int,
     direction: str,
-    client_ref: list | None = None,
+    client_ref: list[LLMClient] | None = None,
 ) -> AsyncIterator[dict]:
     try:
         ctx = await _load_pipeline_context(conversation_id)

@@ -1355,7 +1355,7 @@ async def _sse_stream(
     gen,
     request: Request,
     *,
-    client_ref: list | None = None,
+    client_ref: list[LLMClient] | None = None,
     cid: str | None = None,
 ):
     """Wrap an event-dict async generator as SSE, stopping cleanly on client disconnect.
@@ -1480,7 +1480,7 @@ async def api_fork_edit_message(cid: str, msg_id: int, data: EditMessage, reques
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list = []
+    client_ref: list[LLMClient] = []
     return _CleanupStreamingResponse(
         _sse_stream(
             handle_fork_edit(cid, msg_id, data.content, client_ref=client_ref),
@@ -1531,7 +1531,7 @@ async def api_regenerate_msg(cid: str, msg_id: int, request: Request, data: Opti
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list = []
+    client_ref: list[LLMClient] = []
     return _CleanupStreamingResponse(
         _sse_stream(
             handle_regenerate(cid, msg_id, client_ref=client_ref),
@@ -1550,7 +1550,7 @@ async def api_super_regenerate_msg(cid: str, msg_id: int, request: Request, data
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list = []
+    client_ref: list[LLMClient] = []
     return _CleanupStreamingResponse(
         _sse_stream(
             handle_super_regenerate(cid, msg_id, client_ref=client_ref),
@@ -1569,7 +1569,7 @@ async def api_magic_rewrite_msg(cid: str, msg_id: int, request: Request, data: M
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    client_ref: list = []
+    client_ref: list[LLMClient] = []
     return _CleanupStreamingResponse(
         _sse_stream(
             handle_magic_rewrite(cid, msg_id, data.direction, client_ref=client_ref),
@@ -1712,7 +1712,7 @@ async def api_send_message(cid: str, data: SendMessage, request: Request):
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     attachments = [a.dict() for a in data.attachments]
-    client_ref: list = []
+    client_ref: list[LLMClient] = []
     return _CleanupStreamingResponse(
         _sse_stream(
             handle_turn(cid, data.content, attachments=attachments, client_ref=client_ref),
@@ -1734,7 +1734,7 @@ async def api_continue_from_user(cid: str, request: Request, data: Optional[Rege
     if not messages or messages[-1]["role"] != "user":
         raise HTTPException(status_code=400, detail="Last message is not a user message")
     user_content = messages[-1]["content"]
-    client_ref: list = []
+    client_ref: list[LLMClient] = []
     return _CleanupStreamingResponse(
         _sse_stream(
             handle_turn(cid, user_content, skip_user_persist=True, client_ref=client_ref),
