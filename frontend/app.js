@@ -248,9 +248,21 @@ function updateAttachmentPreview() {
 $("attach-image-input").addEventListener("change", handleAttachmentSelect);
 
 // ── Input events
+// Auto-grow the composer. Reading scrollHeight right after writing height
+// forces a synchronous reflow; doing that on every keystroke (against a long
+// chat DOM) is what makes typing feel laggy. Defer it to an animation frame so
+// the keypress paints first and bursts of input coalesce into one layout pass.
+let _resizeScheduled = false;
+function _resizeChatInput() {
+  _resizeScheduled = false;
+  const el = $("chat-input");
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 150) + "px";
+}
 $("chat-input").addEventListener("input", function () {
-  this.style.height = "auto";
-  this.style.height = Math.min(this.scrollHeight, 150) + "px";
+  if (_resizeScheduled) return;
+  _resizeScheduled = true;
+  requestAnimationFrame(_resizeChatInput);
 });
 $("chat-input").addEventListener("keydown", function (e) {
   if (e.key === "Enter" && !e.shiftKey) {
