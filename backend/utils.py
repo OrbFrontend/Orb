@@ -24,6 +24,18 @@ class LengthGuard(TypedDict):
     max_paragraphs: int
 
 
+#: Heuristic characters-per-token ratio used for rough context-size estimates.
+#: This is the one convention referenced throughout (see AGENTS.md → Context
+#: Management); keep all chars→token estimation going through ``estimate_tokens``
+#: rather than re-spelling the constant.
+CHARS_PER_TOKEN = 4
+
+
+def estimate_tokens(chars: int) -> int:
+    """Rough token estimate from a character count (min 1 for any non-empty text)."""
+    return max(1, round(chars / CHARS_PER_TOKEN))
+
+
 def extract_hyperparams(settings: Mapping[str, Any], *, defaults: Mapping[str, Any] | None = None) -> dict:
     """Extract LLM hyperparameters from a settings dict.
 
