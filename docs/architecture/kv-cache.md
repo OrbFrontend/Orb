@@ -4,7 +4,7 @@ This doc explains, in plain English, how Orb keeps each LLM call fast and cheap 
 
 Audience: someone who can read code but isn't deep in LLM internals. No tokenisation math, no transformer diagrams.
 
-> **Animation:** [kv-cache-animation.html](kv-cache-animation.html) is a stepped, self-contained walkthrough of the mechanism across all three passes and two turns — and of the reasoning-mode fork that silently splits the cache when `reasoning_enabled_passes` differs across passes (the default: director on, writer/editor off). Open it in a browser.
+> **Animation:** [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) is a stepped, self-contained walkthrough of the mechanism across all three passes and two turns — and of the reasoning-mode fork that silently splits the cache when `reasoning_enabled_passes` differs across passes (the default: director on, writer/editor off). Open it in a browser.
 
 ---
 
@@ -231,7 +231,7 @@ The tell is the gap between the two tracker views (§8): the local `msgs_overlap
 
 **This is intentional, not a bug.** The director reasons on purpose, and the cache still pays off **across turns within each lane** — you're just keeping two warm prefixes instead of one. To collapse the lanes back into a single shared cache, make the reasoning mode uniform across the passes (set all three the same in `reasoning_enabled_passes`), accepting the trade-off: either the director loses its reasoning, or the writer pays for thinking on the main generation. On backends that *don't* fork the cache by thinking mode, the split is free and this whole section is moot.
 
-A stepped, click-through walkthrough of the mechanism and this fork lives in [kv-cache-animation.html](kv-cache-animation.html).
+A stepped, click-through walkthrough of the mechanism and this fork lives in [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html).
 
 ---
 
