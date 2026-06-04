@@ -25,6 +25,13 @@ from ..models import WorkflowAttachmentRow
 
 logger = logging.getLogger(__name__)
 
+# Sentinel string written into ``data_b64`` when an artifact's bytes are
+# evicted (the other columns stay intact so a later rehydrate can recover the
+# bytes from stored parameters). Defined here -- in the database boundary --
+# because it describes the persisted shape of the column, not cache policy.
+# ``backend.workflows.attachment_cache`` re-exports it for the eviction layer.
+EVICTED_MARKER = "[evicted]"
+
 
 def _encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
     """JSON-encode a dict-shaped metadata field, or return None for absent/bad shape.
@@ -133,9 +140,6 @@ async def insert_workflow_attachment_row(
             raise ValueError("attachment data is empty")
 
     if insert_as_evicted:
-        # Lazy import keeps queries module free of attachment_cache cycle.
-        from backend.workflows.attachment_cache import EVICTED_MARKER
-
         data_b64 = EVICTED_MARKER
     elif has_path:
         with open(attachment["path"], "rb") as f:

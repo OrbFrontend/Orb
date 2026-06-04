@@ -18,13 +18,20 @@ import os
 from typing import Any
 
 from backend.database.connection import get_db
-from backend.database.queries.workflow_attachments import _encode_metadata_field, insert_workflow_attachment_row
+from backend.database.queries.messages import register_workflow_attachment_persister
+from backend.database.queries.workflow_attachments import (
+    EVICTED_MARKER,
+    _encode_metadata_field,
+    insert_workflow_attachment_row,
+)
 
 from .registry import get_workflow
 
 logger = logging.getLogger(__name__)
 
-EVICTED_MARKER = "[evicted]"
+# EVICTED_MARKER is re-exported from the database boundary above (where it
+# describes the persisted ``data_b64`` shape) so the eviction layer here and
+# the route layer in main.py can keep importing it from this module.
 
 
 class RehydrateAlreadyDoneError(ValueError):
@@ -949,3 +956,10 @@ async def delete_workflow_attachments(
             "root_id": new_root,
             "active_sibling_id": new_active,
         }
+
+
+# Wire this module's batch persister into the database layer's add_message
+# seam (dependency inversion -- the DB layer must not import up into
+# backend.workflows). Registered at import; backend.workflows is always
+# imported before any workflow attachment reaches add_message.
+register_workflow_attachment_persister(insert_workflow_attachments)
