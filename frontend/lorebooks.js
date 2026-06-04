@@ -337,7 +337,7 @@ function renderLorebookDrawer() {
 <button class="btn btn-sm btn-block" style="color:var(--red);margin-top:4px" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
         </div>
       </div>
-      <div class="lb-editor" id="lb-editor">
+      <div class="lb-editor" id="lb-editor" data-has-selection="${!!_selectedEntryId}">
         ${editorHtml}
       </div>
     </div>`;
@@ -513,6 +513,28 @@ export function lbSelectEntry(entryId) {
     return;
   }
   _doSelectEntry(entryId);
+}
+
+// ── Deselect the current entry, returning to the entry list
+export function lbBackToList() {
+  if (_dirty) {
+    showConfirmModal(
+      {
+        title: "Unsaved changes",
+        message: "Discard changes to this entry and go back?",
+        confirmText: "Discard & go back",
+        confirmClass: "btn-danger",
+      },
+      () => {
+        _selectedEntryId = null;
+        _dirty = false;
+        renderLorebookDrawer();
+      },
+    );
+    return;
+  }
+  _selectedEntryId = null;
+  renderLorebookDrawer();
 }
 
 function _doSelectEntry(entryId) {

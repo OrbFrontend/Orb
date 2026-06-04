@@ -267,6 +267,66 @@ body {
     flex-wrap: wrap;
     row-gap: 8px;
   }
+
+  /* ── Lorebook drawer: single-pane master/detail ──
+     The desktop drawer is a two-pane layout (260px entry list + editor side by
+     side). That doesn't fit a phone, so collapse it to one full-width pane at a
+     time: the entry list by default, swapping to the editor (with a back button)
+     once an entry is selected. The swap is driven by CSS :has() — no JS class
+     toggle needed. */
+  #lorebook-drawer .lb-entry-list {
+    width: 100%;
+    min-width: 0;
+    border-right: none;
+  }
+
+  #lorebook-drawer .lb-editor {
+    display: none;
+  }
+
+  #lorebook-drawer:has(.lb-editor[data-has-selection="true"]) .lb-entry-list {
+    display: none;
+  }
+
+  #lorebook-drawer:has(.lb-editor[data-has-selection="true"]) .lb-editor {
+    display: flex;
+  }
+
+  #lorebook-drawer .lb-back-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Larger tap targets and roomier rows for touch. */
+  #lorebook-drawer .lb-entry-item {
+    padding: 10px 10px;
+  }
+
+  #lorebook-drawer .lb-entry-name {
+    font-size: 14px;
+  }
+
+  /* Let the editor header and keyword footer wrap instead of overflowing the
+     narrow column. */
+  #lorebook-drawer .lb-editor-header {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  #lorebook-drawer .lb-entry-name-input {
+    flex: 1 1 60%;
+  }
+
+  #lorebook-drawer .lb-keyword-footer {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  #lorebook-drawer .lb-keyword-hint {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
 }
 
 /* ── Small-phone compaction ── */

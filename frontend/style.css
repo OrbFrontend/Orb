@@ -3010,6 +3010,15 @@ mark.cb-hl {
   flex-shrink: 0;
 }
 
+/* Back-to-list button is a mobile-only affordance (master/detail nav). */
+.lb-back-btn {
+  display: none;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
 .lb-entry-name-input {
   flex: 1;
   background: transparent;
