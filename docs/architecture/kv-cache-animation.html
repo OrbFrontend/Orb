@@ -72,7 +72,7 @@
   .badge.off { color: #9fb0c2; }
 
   .stack {
-    display: flex; flex-direction: column-reverse; /* bottom = first = system */
+    display: flex; flex-direction: column; /* top = first = system; newest grows downward, matching chat history */
     height: 340px; gap: 4px;
     border: 1px dashed var(--line); border-radius: 10px; padding: 8px;
     background: #11161d;
@@ -130,13 +130,13 @@
     overflow: hidden;
   }
   .fill {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(180deg, var(--prefix) 0%, #1f4f9c 100%);
-    border-top: 2px solid #9cc2ff;
+    position: absolute; left: 0; right: 0; top: 0;
+    background: linear-gradient(0deg, var(--prefix) 0%, #1f4f9c 100%);
+    border-bottom: 2px solid #9cc2ff;
     transition: height .7s cubic-bezier(.22,.61,.36,1), background .5s ease;
     display: flex; align-items: flex-start; justify-content: center;
   }
-  .fill.warming { background: linear-gradient(180deg, var(--accent) 0%, #5a3a8a 100%); border-top-color:#caa6ff; }
+  .fill.warming { background: linear-gradient(0deg, var(--accent) 0%, #5a3a8a 100%); border-bottom-color:#caa6ff; }
   .fill .ftok {
     font-family: var(--mono); font-size: 11px; font-weight: 700; color: #eaf1ff; margin-top: 6px;
     text-shadow: 0 1px 2px rgba(0,0,0,.5);
@@ -223,8 +223,8 @@
   .pass-toggle .pmode.on  { color: #d7b4ff; border-color: #5a3a8a; background: #251a38; }
   .pass-toggle .pmode.off { color: #9fb0c2; background: #11161d; }
   .lane-chips {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    display: flex; flex-direction: column-reverse; gap: 4px; padding: 8px;
+    position: absolute; left: 0; right: 0; top: 0;
+    display: flex; flex-direction: column; gap: 4px; padding: 8px;
   }
   .lane-chip {
     border-radius: 7px; padding: 6px 10px; font-size: 11.5px; font-weight: 700;
@@ -294,7 +294,7 @@
     <!-- Right: the server's cache lanes -->
     <div class="server">
       <div class="server-head" id="serverHead">The inference server</div>
-      <div class="server-sub" id="serverSub">A prompt's cache only reuses a <em>matching prefix</em>, from the bottom up.</div>
+      <div class="server-sub" id="serverSub">A prompt's cache only reuses a <em>matching prefix</em>, from the top down.</div>
       <div class="lanes" id="lanes">
         <div class="lane on hidden" id="laneOn">
           <div class="lane-label">thinking&nbsp;ON</div>
@@ -323,7 +323,7 @@
 // ── Token model (schematic; fill heights are illustrative, not exact token counts) ─
 const LANE_MAX = 5600; // px-scale ceiling for the fill meters
 
-// A "call" stack is described bottom→top. flex = relative token height.
+// A "call" stack is described top→bottom (oldest → newest, like chat history). flex = relative token height.
 // state: 'hit' | 'miss' | 'ghost'. flag = optional red callout.
 // detail = optional click-to-inspect explanation for that layer.
 function seg(label, tok, flex, state, flag, detail) { return { label, tok, flex, state, flag, detail }; }
@@ -334,8 +334,8 @@ const STEPS = [
     phase: "Concept",
     title: "Every LLM call is a stack",
     badge: null,
-    serverHead: "The prompt, bottom-up",
-    serverSub: "Bottom = the shared prefix. Top = the one pancake that changes per pass.",
+    serverHead: "The prompt, top-down",
+    serverSub: "Top = the shared prefix. Bottom = the one pancake that changes per pass.",
     lanes: { on: "hidden", off: "hidden" },
     stack: [
       seg("system prompt", "≈1.2k", 3, "ghost", null, "Character card, persona, scenario, example dialogue, post-history instructions — concatenated once per turn. Identical bytes for all three passes."),
@@ -344,7 +344,7 @@ const STEPS = [
       seg("trailing user message", "varies", 3, "ghost", null, "The only pancake that changes per pass: a tool instruction, the user's line, or an editor note. Cache misses here are cheap and bounded."),
     ],
     stats: `<b>The prefix</b> = system prompt + chat history + tool schemas. It's built once per turn and is <b>byte-identical</b> across Director, Writer, and Editor.`,
-    narration: `Picture every call as a stack of pancakes. The <span class="k">bottom</span> — system prompt, chat history, tool schemas — is the same for all three passes. Only the <strong>top pancake</strong> (the trailing message: a tool instruction, the user's line, an editor note) changes per pass. Orb's golden rule: <strong>keep the bottom identical, only change the top.</strong> <em>(Tip: click a layer to inspect it.)</em>`,
+    narration: `Picture every call as a stack of pancakes. The <span class="k">top</span> — system prompt, chat history, tool schemas — is the same for all three passes. Only the <strong>bottom pancake</strong> (the trailing message: a tool instruction, the user's line, an editor note) changes per pass. Orb's golden rule: <strong>keep the top identical, only change the bottom.</strong> <em>(Tip: click a layer to inspect it.)</em>`,
   },
 
   // 1 ── Concept: the prefix rule
@@ -357,12 +357,12 @@ const STEPS = [
     lanes: { on: "hidden", off: "hidden" },
     stack: [
       seg("system prompt", "hit", 3, "hit", null, "Unchanged from the previous call, so it's served straight from the server's scratchpad — no recompute."),
-      seg("tool schemas", "hit", 2, "hit", null, "Same schemas as last call, so the prefix match keeps climbing past the system prompt."),
-      seg("chat history", "hit", 4, "hit", null, "Still byte-identical, so the match keeps growing upward from the bottom."),
-      seg("trailing user message", "new", 3, "miss", null, "The first byte that differs. Everything from here up must be recomputed — but that's just the top pancake."),
+      seg("tool schemas", "hit", 2, "hit", null, "Same schemas as last call, so the prefix match keeps extending past the system prompt."),
+      seg("chat history", "hit", 4, "hit", null, "Still byte-identical, so the match keeps growing downward from the top."),
+      seg("trailing user message", "new", 3, "miss", null, "The first byte that differs. Everything from here down must be recomputed — but that's just the bottom pancake."),
     ],
-    stats: `Cache hit grows from the <span class="g">bottom</span>. The moment two prompts differ, everything <span class="o">above</span> that point must be recomputed.`,
-    narration: `The server keeps a scratchpad as it reads a prompt. If the next prompt <strong>starts with the same text</strong>, it skips rebuilding that part — but only as a <span class="k">prefix</span>: matching runs bottom-up and stops at the first byte that differs. So a shared bottom (<span class="hitword">green</span>) is reused; the differing top (<span class="misword">orange</span>) is recomputed. This is the entire reason Orb keeps the bottom sacred.`,
+    stats: `Cache hit grows from the <span class="g">top</span>. The moment two prompts differ, everything <span class="o">below</span> that point must be recomputed.`,
+    narration: `The server keeps a scratchpad as it reads a prompt. If the next prompt <strong>starts with the same text</strong>, it skips rebuilding that part — but only as a <span class="k">prefix</span>: matching runs top-down and stops at the first byte that differs. So a shared top (<span class="hitword">green</span>) is reused; the differing bottom (<span class="misword">orange</span>) is recomputed. This is the entire reason Orb keeps the top sacred.`,
   },
 
   // 2 ── Concept: single-model mode
@@ -377,7 +377,7 @@ const STEPS = [
       seg("system prompt", "", 3, "ghost", null, "Same string for Director, Writer, and Editor — Orb builds it once and reuses it."),
       seg("tool schemas", "", 2, "ghost", null, "One tool list, shared by every pass — sent even where a pass uses no tool, for byte-parity."),
       seg("chat history", "", 4, "ghost", null, "One history list, shared by every pass."),
-      seg("trailing user message", "", 3, "ghost", null, "The per-pass top. Everything below it is the one shared prefix this mode is built around."),
+      seg("trailing user message", "", 3, "ghost", null, "The per-pass bottom. Everything above it is the one shared prefix this mode is built around."),
     ],
     stats: `This walkthrough is <b>single-model mode</b> (<code>agent_same_as_writer = true</code>, the default): Director, Writer, and Editor all run on the <b>same</b> endpoint and model.`,
     narration: `Everything here is <span class="k">single-model mode</span> — the default. Director, Writer, and Editor all hit the <strong>same endpoint and model</strong>, sending the same system prompt, history, and tool schemas. In principle that means <strong>one shared, KV-cached prefix</strong> serves all three passes on a single server. The rest of this walkthrough shows the one thing that can quietly split that single prefix in two.`,
@@ -585,12 +585,12 @@ function renderReasoningBar() {
 // ── Build a pass's pancake stack from its simulated view ──────────────────────
 function buildPassStack(view) {
   const { turn, role, kind, editorSharesWriter } = view;
-  const bottom = kind === "cold" ? "miss" : "hit";
+  const prefix = kind === "cold" ? "miss" : "hit";
   if (role === "editor") {
     return [
-      seg("system prompt", "", 3, bottom),
-      seg("tool schemas", "", 1.5, bottom),
-      seg("chat history", "", 3, bottom),
+      seg("system prompt", "", 3, prefix),
+      seg("tool schemas", "", 1.5, prefix),
+      seg("chat history", "", 3, prefix),
       seg("writer's user message", "", 1.5, editorSharesWriter ? "hit" : "miss",
         editorSharesWriter ? null : "other lane than Writer",
         editorSharesWriter
@@ -607,9 +607,9 @@ function buildPassStack(view) {
     ? seg("OOC + direct_scene instruction", "", 3, "miss", null, "The Director's trailing pancake: an OOC note, the forced direct_scene instruction, and the user's line.")
     : seg("lorebook + scene direction + user msg", "", 2, "miss", null, "The Writer's trailing pancake: lorebook entries, the Director's scene-direction injection, and the user's message.");
   const layers = [
-    seg("system prompt", "", 3, bottom),
-    seg("tool schemas", "", 2, bottom),
-    seg("chat history" + (turn > 1 ? " (through prev turn)" : ""), "", 4, bottom),
+    seg("system prompt", "", 3, prefix),
+    seg("tool schemas", "", 2, prefix),
+    seg("chat history" + (turn > 1 ? " (through prev turn)" : ""), "", 4, prefix),
   ];
   if (turn > 1 && kind === "cross") {
     layers.push(seg("+ new prev-turn exchange", "", 1.4, "miss", null, "The previous turn's user+assistant pair, now folded into history — new bytes even though the reply was generated last turn. It was cached behind the Writer's injected pancake (lorebook + scene direction), not behind the bare user message that enters history, and the Editor may have rewritten it. KV reuse is prefix-bound and positional, so it's recomputed in this clean-history slot."));
@@ -635,8 +635,8 @@ function passStats(view) {
   if (view.kind === "cold")
     return `Cold lane → <span class="o">full recompute</span>. This call warms the lane for later passes and turns.`;
   if (view.kind === "within")
-    return `Bottom <span class="g">served from cache</span> — reused from <b>this turn's ${PASS_LABEL[view.reuseFrom]}</b> in the same lane.`;
-  return `Bottom <span class="g">served from cache</span> — reused from the <b>previous turn's ${PASS_LABEL[view.role]}</b> in this lane (cross-turn).`;
+    return `Top <span class="g">served from cache</span> — reused from <b>this turn's ${PASS_LABEL[view.reuseFrom]}</b> in the same lane.`;
+  return `Top <span class="g">served from cache</span> — reused from the <b>previous turn's ${PASS_LABEL[view.role]}</b> in this lane (cross-turn).`;
 }
 
 function passNarration(view) {
@@ -648,16 +648,16 @@ function passNarration(view) {
   if (kind === "cold") {
     body = `runs <span class="k">${mode}</span> and lands in the <span class="warnword">${laneWord}</span>, which is cold here — the whole prompt is computed (<span class="misword">orange</span>). Afterwards this lane holds a warm copy of the prefix.`;
   } else if (kind === "within") {
-    body = `runs <span class="k">${mode}</span>, sharing the <span class="k">${laneWord}</span> that this turn's ${PASS_LABEL[reuseFrom]} just warmed. The shared bottom is a <span class="hitword">cache hit</span> — only the top pancake is new.`;
+    body = `runs <span class="k">${mode}</span>, sharing the <span class="k">${laneWord}</span> that this turn's ${PASS_LABEL[reuseFrom]} just warmed. The shared top is a <span class="hitword">cache hit</span> — only the bottom pancake is new.`;
   } else {
-    body = `runs <span class="k">${mode}</span> and reuses the <span class="k">${laneWord}</span> from the <strong>previous turn's ${PASS_LABEL[role]}</strong> — not from anything earlier this turn. The bottom is a <span class="hitword">hit</span>; the new exchange and trailing message are new.`;
+    body = `runs <span class="k">${mode}</span> and reuses the <span class="k">${laneWord}</span> from the <strong>previous turn's ${PASS_LABEL[role]}</strong> — not from anything earlier this turn. The top is a <span class="hitword">hit</span>; the new exchange and trailing message are new.`;
   }
   let extra = "";
   if (role === "editor") {
     if (editorSharesWriter)
       extra = ` Because it shares the Writer's lane, the Writer's message <em>and</em> draft are already warm — the draft's tokens were cached as the Writer streamed them — so only the <span class="misword">editor instruction</span> is new. This is the cross-pass hand-off the editor is designed around.`;
     else if (kind !== "cold")
-      extra = ` But it's <span class="warnword">not</span> in the Writer's lane, so the Writer's message and draft are recomputed even though the bottom is cached.`;
+      extra = ` But it's <span class="warnword">not</span> in the Writer's lane, so the Writer's message and draft are recomputed even though the top is cached.`;
   }
   return `${who} ${body}${extra}`;
 }
@@ -699,7 +699,7 @@ function renderReasoningStep(step) {
   const note = writerThinks
     ? `Here the Writer thinks, so the reply that re-enters history carries a <span class="k">reasoning block</span> — Orb keeps it for the inspector, but it <strong>does not send the reasoning block back to the provider</strong>.`
     : `Here the Writer — whose reply is the one that re-enters history — runs thinking-off, so the stored reply has no reasoning block. (The Director may think, but its tool-call output never enters history anyway.) The moment the Writer thinks, its reasoning block is kept for the inspector but still <strong>not</strong> replayed.`;
-  narrEl.innerHTML = `Before the next turn, what crosses the boundary matters for the cache. ${note} The next turn's history is rebuilt from <code>role + content</code> only, so the shared bottom stays byte-identical turn over turn. If the reasoning <em>were</em> replayed, those bytes would shift the prefix and break cross-turn reuse.`;
+  narrEl.innerHTML = `Before the next turn, what crosses the boundary matters for the cache. ${note} The next turn's history is rebuilt from <code>role + content</code> only, so the shared top stays byte-identical turn over turn. If the reasoning <em>were</em> replayed, those bytes would shift the prefix and break cross-turn reuse.`;
 }
 
 // ── Step 10: how to read the numbers (depends on whether lanes split) ──────────
