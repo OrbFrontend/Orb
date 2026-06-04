@@ -622,7 +622,7 @@ async def test_editor_tools_blob_constant_across_tool_switch():
     client.enqueue_editor_rewrite(" ".join([f"A {banned}."] * 4))
 
     settings = {"model_name": "editor-model", "editor_audit_toggles": None}
-    length_guard = {"enabled": True, "max_words": 5, "max_paragraphs": 1}
+    length_guard = {"enforce": False, "max_words": 5, "max_paragraphs": 1}
     # 3-tool enabled set so a narrow-to-one would be visible as a byte change.
     base = CachedBase(
         prefix=tuple(prefix),

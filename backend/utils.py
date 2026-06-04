@@ -12,12 +12,14 @@ from .llm_types import ContentPart
 class LengthGuard(TypedDict):
     """Resolved length-guard limits threaded through the pipeline.
 
-    Built by the orchestrator only when the length guard is enabled (``None``
-    otherwise) and consumed by the writer and editor passes. ``enabled`` mirrors
-    that on/off state so a hook receiving the dict need not re-derive it.
+    Built by the orchestrator only when the length guard is enabled, so its mere
+    presence *is* the on/off state — ``None`` means disabled, and any non-None
+    value means enabled. Consumed by the writer (preventive nudge, only when
+    ``enforce``) and the editor (corrective rewrite). ``enforce`` carries the
+    enforce-mode flag so it travels with the limits instead of as a sidecar.
     """
 
-    enabled: bool
+    enforce: bool
     max_words: int
     max_paragraphs: int
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, AsyncIterator, Mapping, Optional, Sequence
+from typing import Any, AsyncIterator, Mapping, Sequence
 
 from ..llm_client import LLMClient, reasoning_cfg
 from ..kv_tracker import CachedBase
@@ -22,13 +22,15 @@ def build_writer_content(
     enabled_tools: Mapping[str, bool],
     effective_msg: str,
     attachments: Sequence[Mapping[str, Any]] | None,
-    length_guard_enforce: bool,
     length_guard: LengthGuard | None,
 ) -> "str | list[ContentPart]":
     """Build the writer's user-message content (string or multimodal list).
 
-    Extracted so the orchestrator can pass the exact value to the editor,
-    letting it replicate the writer's last user message for KV-cache reuse.
+    Built once by the orchestrator and threaded into both the writer pass and
+    the editor, which replays it verbatim to reuse the writer's KV-cached prefix.
+    The length-guard nudge is the *preventive* arm: it fires only in enforce mode
+    (``length_guard["enforce"]``); a non-None ``length_guard`` already means the
+    feature is enabled.
     """
     tail = ""
     if lorebook_block:
@@ -37,7 +39,7 @@ def build_writer_content(
         tail += "___\n\n" + inj_block + "\n\n"
     if enabled_tools:
         tail += "**Do not use tool or function calls this turn.**\n\n"
-    if length_guard_enforce and length_guard and length_guard["enabled"]:
+    if length_guard and length_guard["enforce"]:
         max_words = length_guard["max_words"]
         max_paragraphs = length_guard["max_paragraphs"]
         tail += f"**Keep your response under {max_words} words and {max_paragraphs} paragraphs.**\n\n"
@@ -50,33 +52,17 @@ async def _writer_pass(
     client: LLMClient,
     base: CachedBase,
     settings: Mapping[str, Any],
-    enabled_tools: Mapping[str, bool],
+    content: "str | list[ContentPart]",
     *,
-    inj_block: str = "",
-    lorebook_block: str = "",
-    effective_msg: str,
-    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
-    length_guard_enforce: bool = False,
-    length_guard: LengthGuard | None = None,
     kv_tracker=None,
     reasoning_on: bool = True,
 ) -> AsyncIterator[dict]:
     """Yields {"type": "content"|"reasoning", "delta": str} dicts.
 
-    *enabled_tools* still drives the in-prompt "do not use tools" notice; the
-    tool *schema* blob comes from ``base`` (built from the same enabled-tool set)
-    so it stays byte-identical with the director/editor passes.
+    *content* is the writer's user-message body, prebuilt by the orchestrator via
+    ``build_writer_content`` (and shared with the editor). The tool *schema* blob
+    comes from ``base`` so it stays byte-identical with the director/editor passes.
     """
-    content = build_writer_content(
-        lorebook_block,
-        inj_block,
-        enabled_tools,
-        effective_msg,
-        attachments,
-        length_guard_enforce,
-        length_guard,
-    )
-
     trailing: list[ChatMessage] = [{"role": "user", "content": content}]
 
     hyperparams = extract_hyperparams(settings)

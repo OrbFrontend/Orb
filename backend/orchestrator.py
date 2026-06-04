@@ -98,8 +98,6 @@ class _PipelineConfig:
     writer_reasoning_on: bool
     editor_reasoning_on: bool
     audit_enabled: bool
-    length_guard_enabled: bool
-    length_guard_enforce: bool
     length_guard: LengthGuard | None
     do_edit: bool
     writer_enabled_tools: Mapping[str, bool]
@@ -135,13 +133,13 @@ def _resolve_pipeline_config(
     # (not user-toggleable); this feature flag is its only enable path.
     if length_guard_enabled:
         enabled_tools = {**enabled_tools, "editor_rewrite": True}
-    length_guard_enforce = bool(settings.get("length_guard_enforce", 0)) if agent_on else False
 
     # length_guard_enabled already folds in agent_on (it is False whenever the
-    # agent is off), so no extra `and agent_on` guard is needed below.
+    # agent is off). The dict is built *only* when enabled, so its presence is the
+    # on/off state downstream — `cfg.length_guard is not None` means enabled.
     length_guard: LengthGuard | None = (
         {
-            "enabled": length_guard_enabled,
+            "enforce": bool(settings.get("length_guard_enforce", 0)),
             "max_words": int(settings.get("length_guard_max_words", 240)),
             "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
         }
@@ -193,8 +191,6 @@ def _resolve_pipeline_config(
         writer_reasoning_on=bool(reasoning_passes.get("writer", False)),
         editor_reasoning_on=bool(reasoning_passes.get("editor", False)),
         audit_enabled=audit_enabled,
-        length_guard_enabled=length_guard_enabled,
-        length_guard_enforce=length_guard_enforce,
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard_enabled,
         writer_enabled_tools=writer_enabled_tools,
@@ -402,13 +398,14 @@ async def _run_pipeline(
     }
 
     # --- Writer pass ---
+    # Built once here and threaded into both the writer pass and (later) the
+    # editor, which replays it verbatim to extend the writer's KV-cached prefix.
     writer_content = build_writer_content(
         lorebook_block,
         inj_block,
         cfg.writer_enabled_tools,
         effective_msg,
         attachments,
-        cfg.length_guard_enforce,
         cfg.length_guard,
     )
     resp_text = ""
@@ -416,13 +413,7 @@ async def _run_pipeline(
         cfg.writer_lane.client,
         cfg.writer_lane.base,
         settings,
-        cfg.writer_enabled_tools,
-        inj_block=inj_block,
-        lorebook_block=lorebook_block,
-        effective_msg=effective_msg,
-        attachments=attachments,
-        length_guard_enforce=cfg.length_guard_enforce,
-        length_guard=cfg.length_guard,
+        writer_content,
         kv_tracker=kv_tracker,
         reasoning_on=cfg.writer_reasoning_on,
     ):

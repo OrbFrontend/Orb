@@ -385,7 +385,7 @@ async def editor_pass(
     # the list mid-loop would bust the KV cache every iteration. Which single tool
     # the model must call is steered entirely by tool_choice (see _pick_tool_choice,
     # recomputed each iteration) while base.tools stays byte-identical throughout.
-    if length_guard and length_guard["enabled"]:
+    if length_guard is not None:
         word_count = len(draft.split())
         max_words = length_guard["max_words"]
         max_paragraphs = length_guard["max_paragraphs"]
