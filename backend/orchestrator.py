@@ -39,8 +39,8 @@ from .workflows import (
 from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from .llm_types import ChatMessage
 from .utils import LengthGuard, extract_hyperparams
-from .passes.director import DirectorResult, _director_pass
-from .passes.writer import _writer_pass, build_writer_content
+from .passes.director import DirectorResult, director_pass
+from .passes.writer import writer_pass, build_writer_content
 from .passes.editor import editor_pass
 from .database.models import (
     CharacterCardRow,
@@ -338,7 +338,7 @@ async def _run_pipeline(
     has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
     if cfg.agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
-        async for event in _director_pass(
+        async for event in director_pass(
             cfg.agent_lane.client,
             cfg.agent_lane.base,
             user_message,
@@ -417,7 +417,7 @@ async def _run_pipeline(
         cfg.length_guard,
     )
     resp_text = ""
-    async for item in _writer_pass(
+    async for item in writer_pass(
         cfg.writer_lane.client,
         cfg.writer_lane.base,
         settings,

@@ -95,7 +95,7 @@ async def test_post_pipeline_ctx_carries_readonly_card_snapshot():
 
     w = make_workflow("cf_post", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             await _drain(
                 _run_pipeline(
                     LLMClient("http://localhost:9999"),

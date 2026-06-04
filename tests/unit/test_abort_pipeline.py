@@ -62,8 +62,8 @@ class TestAbortPropagation:
             "reasoning_enabled_passes": {},
         }
 
-        with patch("backend.orchestrator._director_pass", new=mock_director), patch(
-            "backend.orchestrator._writer_pass", new=mock_writer
+        with patch("backend.orchestrator.director_pass", new=mock_director), patch(
+            "backend.orchestrator.writer_pass", new=mock_writer
         ):
             await _drain(
                 _run_pipeline(
@@ -101,7 +101,7 @@ class TestAbortPropagation:
             "reasoning_enabled_passes": {},
         }
 
-        with patch("backend.orchestrator._writer_pass", new=mock_writer), patch(
+        with patch("backend.orchestrator.writer_pass", new=mock_writer), patch(
             "backend.orchestrator.editor_pass", new=mock_editor
         ):
             await _drain(

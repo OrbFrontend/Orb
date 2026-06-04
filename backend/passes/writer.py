@@ -48,7 +48,7 @@ def build_writer_content(
     return build_multimodal_content(tail, attachments)
 
 
-async def _writer_pass(
+async def writer_pass(
     client: LLMClient,
     base: CachedBase,
     settings: Mapping[str, Any],
