@@ -15,8 +15,9 @@ from .slop_detector import DetectionResult
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
-from .opening_monotony import FlaggedOpener, MonotonyResult, _split_sentences
+from .opening_monotony import FlaggedOpener, MonotonyResult
 from .template_repetition import FlaggedTemplate, TemplateResult
+from .text_segmentation import split_narration_sentences
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...kv_tracker import CachedBase
 from ...tool_defs import (
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 def _split_target_sentences(target_text: str) -> set[str]:
     """Split *target_text* into a sentence set using the same heuristic as the detectors."""
-    return set(_split_sentences(target_text))
+    return set(split_narration_sentences(target_text))
 
 
 def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_field: str):

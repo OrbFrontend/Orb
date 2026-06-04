@@ -15,11 +15,10 @@ Internals rewritten:
 from __future__ import annotations
 
 import os
-import re
 import sys
 from dataclasses import dataclass, field
 
-from .text_segmentation import split_narration_sentences
+from .text_segmentation import normalize_word, split_narration_sentences
 
 DEBUG = "DEBUG_OPENING_MONOTONY" in os.environ
 # ---------- public dataclasses (unchanged) ----------
@@ -44,31 +43,19 @@ class MonotonyResult:
 
 # ---------- narration extraction ----------
 # Paragraph/sentence/dialogue segmentation lives in text_segmentation so every
-# audit pass splits text identically.
+# audit pass splits text identically. `_split_sentences` strips dialogue.
 
-
-def _split_sentences(text: str) -> list[str]:
-    """Paragraph-aware sentence splitter that strips dialogue (with DEBUG trace)."""
-    if DEBUG:
-        sys.stderr.write(f"[opening_monotony] splitting text: {repr(text)}\n")
-    sentences = split_narration_sentences(text)
-    if DEBUG:
-        sys.stderr.write(f"[opening_monotony] extracted sentences: {sentences}\n")
-    return sentences
+_split_sentences = split_narration_sentences
 
 
 # ---------- opener analysis (unchanged logic) ----------
-
-
-def _normalize(word: str) -> str:
-    return re.sub(r"[^a-z0-9']", "", word.lower())
 
 
 def _get_opener(sentence: str, n_words: int) -> str | None:
     words = sentence.split()
     if len(words) < n_words:
         return None
-    normalized = [_normalize(w) for w in words[:n_words]]
+    normalized = [normalize_word(w) for w in words[:n_words]]
     if any(w == "" for w in normalized):
         return None
     return " ".join(normalized)

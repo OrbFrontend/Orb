@@ -10,7 +10,7 @@ engine stays independently importable and testable.
 
 from __future__ import annotations
 
-from backend.workflows.registry import Workflow
+from ..registry import Workflow
 
 
 _CONFIG_SCHEMA = {

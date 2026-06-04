@@ -17,9 +17,9 @@ import logging
 import os
 from typing import Any
 
-from backend.database.connection import get_db
-from backend.database.queries.messages import register_workflow_attachment_persister
-from backend.database.queries.workflow_attachments import (
+from ..database.connection import get_db
+from ..database.queries.messages import register_workflow_attachment_persister
+from ..database.queries.workflow_attachments import (
     EVICTED_MARKER,
     _encode_metadata_field,
     insert_workflow_attachment_row,
