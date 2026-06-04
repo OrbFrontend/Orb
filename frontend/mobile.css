@@ -234,6 +234,14 @@ body {
     flex-basis: 100%;
     order: 1;
   }
+  /* Let the source dropdown shrink so it shares a row with the Search and
+     Randomize buttons instead of pushing Randomize onto its own line. In a
+     flex-wrap row, wrapping is decided by flex-basis before shrink applies, so
+     the basis must be 0 (not auto) to keep the select from forcing a wrap. */
+  .internet-controls select {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 
   /* Character create/edit modal: stop inner content forcing horizontal overflow. */
   .modal-char-header > div {
