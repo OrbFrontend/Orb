@@ -22,12 +22,11 @@ Example target pattern:
 from __future__ import annotations
 
 import os
-import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from .text_segmentation import split_narration_sentences
+from .text_segmentation import normalize_word, split_narration_sentences
 
 DEBUG = "DEBUG_TEMPLATE_REPETITION" in os.environ
 
@@ -59,25 +58,12 @@ class TemplateResult:
 
 # ---------- text processing ----------
 # Paragraph/sentence/dialogue segmentation lives in text_segmentation so every
-# audit pass splits text identically.
+# audit pass splits text identically. `_split_sentences` strips dialogue.
 
-
-def _split_sentences(text: str) -> list[str]:
-    """Paragraph-aware sentence splitter that strips dialogue (with DEBUG trace)."""
-    if DEBUG:
-        sys.stderr.write(f"[template_repetition] splitting text: {repr(text)}\n")
-    sentences = split_narration_sentences(text)
-    if DEBUG:
-        sys.stderr.write(f"[template_repetition] extracted sentences: {sentences}\n")
-    return sentences
+_split_sentences = split_narration_sentences
 
 
 # ---------- template analysis ----------
-
-
-def _normalize(word: str) -> str:
-    """Normalize a word for template matching."""
-    return re.sub(r"[^a-z0-9']", "", word.lower())
 
 
 def _get_template(sentence: str, max_words: int) -> str | None:
@@ -87,7 +73,7 @@ def _get_template(sentence: str, max_words: int) -> str | None:
         return None
     # Take up to max_words words
     template_words = words[:max_words]
-    normalized = [_normalize(w) for w in template_words]
+    normalized = [normalize_word(w) for w in template_words]
     # Filter out empty words after normalization
     normalized = [w for w in normalized if w]
     if len(normalized) < 3:

@@ -14,7 +14,12 @@ from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 from . import database as db
 from .llm_client import AbortToken, LLMClient, reasoning_cfg
 from .endpoint_profiles import profile_for
-from .tool_defs import TOOLS, POST_WRITER_TOOLS, build_direct_scene_tool, enabled_schemas
+from .tool_defs import (
+    TOOLS,
+    POST_WRITER_TOOLS,
+    build_direct_scene_tool,
+    enabled_schemas,
+)
 from .prompt_builder import (
     build_prefix,
     compute_style_injection_block,
@@ -34,8 +39,8 @@ from .workflows import (
 from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from .llm_types import ChatMessage
 from .utils import LengthGuard, extract_hyperparams
-from .passes.director import DirectorResult, _director_pass
-from .passes.writer import _writer_pass, build_writer_content
+from .passes.director import DirectorResult, director_pass
+from .passes.writer import writer_pass, build_writer_content
 from .passes.editor import editor_pass
 from .database.models import (
     CharacterCardRow,
@@ -57,8 +62,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ModelLane:
-    """One model's call surface for the turn: a macro-wrapped client paired with
-    its byte-identical cached bottom (prefix + tools + model).
+    """One model's call surface for the turn: a client paired with its
+    byte-identical cached bottom (prefix + tools + model + the macro ``resolve``
+    hook that scrubs placeholders from the final wire bytes).
 
     A turn has two lanes — ``writer`` and ``agent`` (director + editor). In
     single-model mode they are the *same object* (the writer's lane is reused for
@@ -98,8 +104,6 @@ class _PipelineConfig:
     writer_reasoning_on: bool
     editor_reasoning_on: bool
     audit_enabled: bool
-    length_guard_enabled: bool
-    length_guard_enforce: bool
     length_guard: LengthGuard | None
     do_edit: bool
     writer_enabled_tools: Mapping[str, bool]
@@ -135,13 +139,13 @@ def _resolve_pipeline_config(
     # (not user-toggleable); this feature flag is its only enable path.
     if length_guard_enabled:
         enabled_tools = {**enabled_tools, "editor_rewrite": True}
-    length_guard_enforce = bool(settings.get("length_guard_enforce", 0)) if agent_on else False
 
     # length_guard_enabled already folds in agent_on (it is False whenever the
-    # agent is off), so no extra `and agent_on` guard is needed below.
+    # agent is off). The dict is built *only* when enabled, so its presence is the
+    # on/off state downstream — `cfg.length_guard is not None` means enabled.
     length_guard: LengthGuard | None = (
         {
-            "enabled": length_guard_enabled,
+            "enforce": bool(settings.get("length_guard_enforce", 0)),
             "max_words": int(settings.get("length_guard_max_words", 240)),
             "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
         }
@@ -163,21 +167,23 @@ def _resolve_pipeline_config(
     # The tool blobs are built via enabled_schemas exactly once each so no pass
     # can rebuild them differently.
     writer_lane = ModelLane(
-        client=macros.wrap_client(client),
+        client=client,
         base=CachedBase(
             prefix=tuple(prefix),
             tools=tuple(enabled_schemas(writer_enabled_tools, schema_overrides)),
             model=settings["model_name"],
+            resolve=macros.resolve_prompt_messages,
         ),
     )
     if dual_model:
         assert agent_client is not None  # dual_model is True iff agent_client was resolved
         agent_lane = ModelLane(
-            client=macros.wrap_client(agent_client),
+            client=agent_client,
             base=CachedBase(
                 prefix=tuple(agent_prefix or prefix),
                 tools=tuple(enabled_schemas(enabled_tools, schema_overrides)),
                 model=settings.get("agent_model_name", settings["model_name"]),
+                resolve=macros.resolve_prompt_messages,
             ),
         )
     else:
@@ -193,8 +199,6 @@ def _resolve_pipeline_config(
         writer_reasoning_on=bool(reasoning_passes.get("writer", False)),
         editor_reasoning_on=bool(reasoning_passes.get("editor", False)),
         audit_enabled=audit_enabled,
-        length_guard_enabled=length_guard_enabled,
-        length_guard_enforce=length_guard_enforce,
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard_enabled,
         writer_enabled_tools=writer_enabled_tools,
@@ -334,7 +338,7 @@ async def _run_pipeline(
     has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
     if cfg.agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
-        async for event in _director_pass(
+        async for event in director_pass(
             cfg.agent_lane.client,
             cfg.agent_lane.base,
             user_message,
@@ -402,27 +406,22 @@ async def _run_pipeline(
     }
 
     # --- Writer pass ---
+    # Built once here and threaded into both the writer pass and (later) the
+    # editor, which replays it verbatim to extend the writer's KV-cached prefix.
     writer_content = build_writer_content(
         lorebook_block,
         inj_block,
         cfg.writer_enabled_tools,
         effective_msg,
         attachments,
-        cfg.length_guard_enforce,
         cfg.length_guard,
     )
     resp_text = ""
-    async for item in _writer_pass(
+    async for item in writer_pass(
         cfg.writer_lane.client,
         cfg.writer_lane.base,
         settings,
-        cfg.writer_enabled_tools,
-        inj_block=inj_block,
-        lorebook_block=lorebook_block,
-        effective_msg=effective_msg,
-        attachments=attachments,
-        length_guard_enforce=cfg.length_guard_enforce,
-        length_guard=cfg.length_guard,
+        writer_content,
         kv_tracker=kv_tracker,
         reasoning_on=cfg.writer_reasoning_on,
     ):
@@ -510,7 +509,11 @@ async def _run_pipeline(
         except Exception as e:
             logger.error("editor pass failed, keeping original: %s", e, exc_info=True)
     else:
-        logger.info("Editor pass skipped (do_edit=%s, draft=%d chars)", cfg.do_edit, len(resp_text))
+        logger.info(
+            "Editor pass skipped (do_edit=%s, draft=%d chars)",
+            cfg.do_edit,
+            len(resp_text),
+        )
 
     # --- Post-pipeline workflow iteration ---
     # PostCtx.director_output is a read-only mapping (workflow contract), so this
@@ -639,7 +642,10 @@ async def _run_post_pipeline(
                             continue
                         draft = new_draft
                         replaced_this_hook = True
-                        yield {"event": "writer_rewrite", "data": {"refined_text": draft}}
+                        yield {
+                            "event": "writer_rewrite",
+                            "data": {"refined_text": draft},
+                        }
                         continue
                     if t == "attach_artifact":
                         # Only workflows declared with produces_artifacts=True
@@ -1067,7 +1073,12 @@ def _build_prefixes(
     prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks)
     agent_sp = ctx.agent_system_prompt
     agent_prefix = (
-        _build_prefix_from_ctx(ctx, history, system_prompt=agent_sp, extra_system_blocks=extra_system_blocks)
+        _build_prefix_from_ctx(
+            ctx,
+            history,
+            system_prompt=agent_sp,
+            extra_system_blocks=extra_system_blocks,
+        )
         if agent_sp is not None
         else None
     )
@@ -1243,7 +1254,10 @@ async def _resolve_target_and_parent(
 
 
 async def _prepare_regen_context(
-    ctx: PipelineContext, conversation_id: str, target: Mapping[str, Any], user_msg: Mapping[str, Any]
+    ctx: PipelineContext,
+    conversation_id: str,
+    target: Mapping[str, Any],
+    user_msg: Mapping[str, Any],
 ) -> tuple[Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
     """Prepare history and attachments for a regeneration pass.
 
@@ -1795,7 +1809,10 @@ async def handle_regenerate(
             history=history,
             pipeline_settings=settings,
             last_user_message=user_msg["content"],
-            lorebook_messages=[*history, {"role": "user", "content": user_msg["content"]}],
+            lorebook_messages=[
+                *history,
+                {"role": "user", "content": user_msg["content"]},
+            ],
             user_message=user_msg["content"],
             attachments=attachments,
             user_msg_id=user_msg_id,
@@ -1926,7 +1943,10 @@ async def handle_magic_rewrite(
                 # Stream reasoning deltas like the main pipeline does, labelled
                 # "writer" since this is a writer-style rewrite with no
                 # director/editor passes.
-                yield {"event": "reasoning", "data": {"pass": "writer", "delta": item["delta"]}}
+                yield {
+                    "event": "reasoning",
+                    "data": {"pass": "writer", "delta": item["delta"]},
+                }
             elif item["type"] == "content":
                 accumulated += item["delta"]
                 yield {"event": "token", "data": item["delta"]}

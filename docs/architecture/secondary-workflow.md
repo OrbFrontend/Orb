@@ -404,7 +404,7 @@ Runs unconditionally (subject to each step's own guard):
 
 Then, only when `resp_text.strip()`:
 
-3. `db.add_message(..., attachments=staged, ...)` -- single transaction. Internally lazy-imports `insert_workflow_attachments` from cache. Returns `(asst_id, rejected_workflow_atts)`.
+3. `db.add_message(..., attachments=staged, ...)` -- single transaction. It persists workflow attachments by calling through a registered persister seam (the database layer must not import "up" into `backend.workflows`; `attachment_cache` registers `insert_workflow_attachments` via `register_workflow_attachment_persister` at import time). Returns `(asst_id, rejected_workflow_atts)`.
 4. For each post-pipeline `set_message_state` entry, `db.set_workflow_message_state(asst_id, wid, payload)`. The assistant `mid` is first known here; unlocked because the row is not yet the active leaf and no other caller can name it.
 5. `db.set_active_leaf(conversation_id, asst_id)`.
 

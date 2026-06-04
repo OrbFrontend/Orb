@@ -134,6 +134,7 @@ from . import tavern_cards
 from . import card_downloader
 from . import prompt_builder
 from .summarizer import ConversationSummarizer
+from .utils import estimate_tokens
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1674,9 +1675,6 @@ async def api_get_context_size(cid: str):
     recent_messages = messages[-scan_depth:] if len(messages) >= scan_depth else messages
     lorebook_block = prompt_builder.compute_lorebook_injection_block(recent_messages, lorebook_entries, macros)
 
-    def est(chars):
-        return max(1, round(chars / 3.5))
-
     breakdown = {}
     for label, chars in [
         ("system_prompt", len(sys_text)),
@@ -1689,12 +1687,12 @@ async def api_get_context_size(cid: str):
         ("director_injection", len(inj_block)),
         ("lorebook", len(lorebook_block)),
     ]:
-        breakdown[label] = {"chars": chars, "tokens_est": est(chars)}
+        breakdown[label] = {"chars": chars, "tokens_est": estimate_tokens(chars)}
 
     total_chars = sum(v["chars"] for v in breakdown.values())
     return {
         "total_chars": total_chars,
-        "total_tokens_est": est(total_chars),
+        "total_tokens_est": estimate_tokens(total_chars),
         "breakdown": breakdown,
         "message_count": len(messages),
     }

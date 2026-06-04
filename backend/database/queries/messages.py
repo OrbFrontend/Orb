@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any, List, Mapping, Optional, Sequence, cast
+from typing import Any, List, Mapping, Optional, Protocol, Sequence, cast
 
 from ..connection import get_db
 from ..models import (
@@ -13,6 +13,36 @@ from ..models import (
     WorkflowAttachmentRowBase,
 )
 from .conversations import get_conversation
+
+
+class _WorkflowAttachmentPersister(Protocol):
+    """Persists workflow attachments inside ``add_message``'s transaction.
+
+    Implemented by ``backend.workflows.attachment_cache.insert_workflow_attachments``
+    and registered at import time -- see the dependency-inversion note below.
+    """
+
+    async def __call__(self, message_id: int, attachments: list[dict], *, db: Any = None) -> tuple[list[int], list[dict]]: ...
+
+
+# Dependency-inversion seam. ``add_message`` must insert workflow attachments
+# inside its own write transaction (the cache layer's read->evict->insert runs
+# under the same lock as the message INSERT), yet the database layer must never
+# import "up" into ``backend.workflows``. So the workflow layer registers its
+# persister here at import time and ``add_message`` calls through this slot.
+# Left None in DB-only contexts that never produce workflow attachments; in
+# that state a workflow attachment reaching ``add_message`` is a wiring bug, so
+# we fail loudly rather than silently dropping bytes.
+_workflow_attachment_persister: "_WorkflowAttachmentPersister | None" = None
+
+
+def register_workflow_attachment_persister(fn: "_WorkflowAttachmentPersister") -> None:
+    """Wire the workflow-attachment persister into ``add_message``.
+
+    Called once, at import of ``backend.workflows.attachment_cache``.
+    """
+    global _workflow_attachment_persister
+    _workflow_attachment_persister = fn
 
 
 async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachments]:
@@ -243,12 +273,16 @@ async def add_message(
                     now,
                 ),
             )
-        # Lazy import: the database package must not depend on
-        # workflows at import time (would invert the layering).
+        # Persist workflow attachments through the registered persister
+        # (see register_workflow_attachment_persister) so the database layer
+        # never imports up into backend.workflows.
         if workflow_atts:
-            from backend.workflows.attachment_cache import insert_workflow_attachments
-
-            _, rejected_workflow_atts = await insert_workflow_attachments(message_id, workflow_atts, db=db)
+            if _workflow_attachment_persister is None:
+                raise RuntimeError(
+                    "workflow attachments supplied to add_message but no persister is "
+                    "registered -- import backend.workflows before producing them"
+                )
+            _, rejected_workflow_atts = await _workflow_attachment_persister(message_id, workflow_atts, db=db)
         await db.execute("UPDATE conversations SET updated_at = ? WHERE id = ?", (now, cid))
         await db.commit()
 

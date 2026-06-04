@@ -487,7 +487,7 @@ async def test_run_pipeline_emits_single_result_with_staged_attachments():
         reroll_gen=lambda ctx, params, seed: b"",
     )
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             events = await _drain(
                 _run_pipeline(
                     client,
@@ -534,7 +534,7 @@ async def test_run_pipeline_drops_attach_artifact_with_mismatched_source():
         reroll_gen=lambda ctx, params, seed: b"",
     )
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             events = await _drain(
                 _run_pipeline(
                     client,
@@ -564,7 +564,7 @@ async def test_run_pipeline_draft_replaced_emits_writer_rewrite_and_updates_resu
 
     w = make_workflow("rewriter", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             events = await _drain(
                 _run_pipeline(
                     client,
@@ -623,7 +623,7 @@ async def test_run_pipeline_turn_scratch_ref_shared_pre_to_post():
         ):
             pass
 
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             await _drain(
                 _run_pipeline(
                     client,
@@ -658,7 +658,7 @@ async def test_run_pipeline_turn_scratch_fresh_across_turns():
 
     w = make_workflow("scratch_lifetime", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             for _ in range(2):
                 await _drain(
                     _run_pipeline(
@@ -687,7 +687,7 @@ async def test_run_pipeline_empty_registry_emits_single_result_no_staged():
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "plain draft"}
 
-    with patch("backend.orchestrator._writer_pass", new=mock_writer):
+    with patch("backend.orchestrator.writer_pass", new=mock_writer):
         events = await _drain(
             _run_pipeline(
                 client,
@@ -720,7 +720,7 @@ async def test_run_pipeline_post_hook_exception_logged_and_pipeline_completes():
 
     w = make_workflow("crasher", post_pipeline=crasher)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             events = await _drain(
                 _run_pipeline(
                     client,
@@ -755,7 +755,7 @@ async def test_run_pipeline_writer_abort_emits_result_skips_post_pipeline():
 
     w = make_workflow("never_runs", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             events = await _drain(
                 _run_pipeline(
                     client,
@@ -785,7 +785,7 @@ async def test_run_pipeline_set_message_state_collected_and_not_forwarded():
 
     w = make_workflow("ms", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             events = await _drain(
                 _run_pipeline(
                     client,
@@ -815,7 +815,7 @@ async def test_run_pipeline_set_message_state_non_dict_dropped():
 
     w = make_workflow("ms", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             events = await _drain(
                 _run_pipeline(
                     client,
@@ -847,7 +847,7 @@ async def test_run_pipeline_set_message_state_keyed_per_workflow():
     wa = make_workflow("wf_a", post_pipeline=hook_a)
     wb = make_workflow("wf_b", post_pipeline=hook_b)
     with register_for_test(wa), register_for_test(wb):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             events = await _drain(
                 _run_pipeline(
                     client,
@@ -877,7 +877,7 @@ async def test_post_pipeline_ctx_carries_readonly_history():
 
     w = make_workflow("hist", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             await _drain(
                 _run_pipeline(
                     client,
@@ -913,7 +913,7 @@ async def test_post_pipeline_set_message_state_persists_to_assistant_row(client)
 
     w = make_workflow("ms_persist", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             pipeline = _run_pipeline(
                 _make_client(),
                 _SETTINGS,
@@ -945,7 +945,7 @@ async def test_post_pipeline_set_message_state_dropped_when_no_message_persisted
 
     w = make_workflow("ms_empty", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.orchestrator._writer_pass", new=mock_writer):
+        with patch("backend.orchestrator.writer_pass", new=mock_writer):
             pipeline = _run_pipeline(
                 _make_client(),
                 _SETTINGS,

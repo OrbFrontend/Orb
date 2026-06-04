@@ -68,8 +68,8 @@ async def _configure_all_features(client) -> None:
 
 
 async def _make_conversation(client) -> str:
-    # Macros in the card text exercise the per-pass macro-resolving client
-    # wrapper; they must resolve identically on every pass and every turn.
+    # Macros in the card text exercise the cached base's macro ``resolve`` hook;
+    # they must resolve identically on every pass and every turn.
     card = await client.post(
         "/api/characters",
         json={
@@ -130,6 +130,17 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
             "shared prefix — build_prefix or a pass rendered the system/history differently across passes."
         )
 
+    # The base's macro ``resolve`` hook must scrub every {{char}}/{{user}} from
+    # the bytes each pass actually shipped — including the card text carried in
+    # the shared prefix. The recorded messages are post-resolution, so a raw
+    # placeholder surviving here means the hook was dropped.
+    for c in calls:
+        sent = _serialize_messages(c["messages"])
+        assert (
+            "{{char}}" not in sent and "{{user}}" not in sent
+        ), f"MACRO LEAK: pass {c['pass']!r} shipped an unresolved placeholder to the model."
+        assert "Aria" in prefix_bytes  # {{char}} → the card name, resolved in the shared prefix
+
     # Inv-3 — wire-faithful tools blob identical across every pass, non-empty.
     blobs = {_wire_tools(c["tools"]) for c in calls}
     assert len(blobs) == 1, f"CACHE BUST: tools blob differs across passes; distinct sizes {sorted(len(b) for b in blobs)}"
@@ -178,7 +189,11 @@ async def test_cross_turn_prefix_is_append_only_through_persistence(client, llm_
 
     # Sanity: the DB really did persist the turn-1 exchange.
     roles = [m["role"] for m in await get_messages(cid)]
-    assert roles[:3] == ["assistant", "user", "assistant"], f"unexpected persisted history: {roles}"
+    assert roles[:3] == [
+        "assistant",
+        "user",
+        "assistant",
+    ], f"unexpected persisted history: {roles}"
 
     # Director's dynamic schema, rebuilt from get_director_fragments() each turn,
     # must be byte-identical across turns (this is the ONLY place a DB row-order

@@ -78,7 +78,7 @@ def apply_tool_calls(
 # ── Agent pass ────────────────────────────────────────────────────────────────
 
 
-async def _director_pass(
+async def director_pass(
     client: LLMClient,
     base: CachedBase,
     user_message: str,

@@ -114,7 +114,7 @@ class CapturingClient:
     def __init__(self, model: str) -> None:
         self.model = model
         self.calls: list[dict] = []
-        # Shared with a wrapping _PlaceholderClient, mirroring LLMClient.
+        # The turn's clients share one abort token, mirroring LLMClient.
         self.abort_token = AbortToken()
         # FIFO of editor tool-call messages to return, one per ReAct iteration.
         # Empty → the editor returns no tool call and the loop stops.
@@ -199,7 +199,10 @@ class CapturingClient:
 
         if label == "writer":
             yield {"type": "content", "delta": _WRITER_DRAFT}
-            yield {"type": "done", "message": {"role": "assistant", "content": _WRITER_DRAFT}}
+            yield {
+                "type": "done",
+                "message": {"role": "assistant", "content": _WRITER_DRAFT},
+            }
             return
 
         if label == "editor":
@@ -216,7 +219,13 @@ class CapturingClient:
             "message": {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{"id": "c1", "type": "function", "function": {"name": name, "arguments": args}}],
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": name, "arguments": args},
+                    }
+                ],
             },
         }
 
@@ -397,7 +406,9 @@ async def test_single_model_prefix_and_tools_are_byte_identical_across_passes():
 
 
 @pytest.mark.parametrize("system_prompt", ["You are a narrator.", "ANOTHER totally different system body."])
-async def test_dual_model_agent_passes_share_agent_prefix_and_writer_drops_tools(system_prompt):
+async def test_dual_model_agent_passes_share_agent_prefix_and_writer_drops_tools(
+    system_prompt,
+):
     """Dual-model: director+editor run on the agent server and must share the
     agent prefix + a byte-identical tools blob; the writer runs on its own
     server and must send NO tools (Inv-5)."""
@@ -622,11 +633,20 @@ async def test_editor_tools_blob_constant_across_tool_switch():
     client.enqueue_editor_rewrite(" ".join([f"A {banned}."] * 4))
 
     settings = {"model_name": "editor-model", "editor_audit_toggles": None}
-    length_guard = {"enabled": True, "max_words": 5, "max_paragraphs": 1}
+    length_guard = {"enforce": False, "max_words": 5, "max_paragraphs": 1}
     # 3-tool enabled set so a narrow-to-one would be visible as a byte change.
     base = CachedBase(
         prefix=tuple(prefix),
-        tools=tuple(enabled_schemas({"direct_scene": True, "editor_apply_patch": True, "editor_rewrite": True}, {})),
+        tools=tuple(
+            enabled_schemas(
+                {
+                    "direct_scene": True,
+                    "editor_apply_patch": True,
+                    "editor_rewrite": True,
+                },
+                {},
+            )
+        ),
         model="editor-model",
     )
     async for _ in editor_pass(
@@ -656,5 +676,10 @@ async def test_editor_tools_blob_constant_across_tool_switch():
         "schema list must stay byte-identical. Distinct blob sizes: " + json.dumps(sorted(len(b) for b in blobs))
     )
     # And it must genuinely be the full 3-tool set, not a coincidental match.
-    full_blob = _wire_tools(enabled_schemas({"direct_scene": True, "editor_apply_patch": True, "editor_rewrite": True}, {}))
+    full_blob = _wire_tools(
+        enabled_schemas(
+            {"direct_scene": True, "editor_apply_patch": True, "editor_rewrite": True},
+            {},
+        )
+    )
     assert next(iter(blobs)) == full_blob, "editor shipped a tools blob that is not the full enabled set"

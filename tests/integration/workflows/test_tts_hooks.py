@@ -124,7 +124,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": '"Hello there."'}
 
-    with patch("backend.orchestrator._writer_pass", new=mock_writer):
+    with patch("backend.orchestrator.writer_pass", new=mock_writer):
         events = [
             ev
             async for ev in _run_pipeline(
