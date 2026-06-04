@@ -4,6 +4,8 @@ This doc explains, in plain English, how Orb keeps each LLM call fast and cheap 
 
 Audience: someone who can read code but isn't deep in LLM internals. No tokenisation math, no transformer diagrams.
 
+> **Animation:** [../kv-cache-animation.html](../kv-cache-animation.html) is a stepped, self-contained walkthrough of the mechanism across all three passes and two turns — and of the reasoning-mode fork that silently splits the cache when `reasoning_enabled_passes` differs across passes (the default: director on, writer/editor off). Open it in a browser.
+
 ---
 
 ## 1. What is a KV cache, in one paragraph
@@ -106,6 +108,8 @@ If the director and editor are configured to run on a different model than the w
 
 Invariants 1–3 and 5 are not left to each pass to honour by convention. The cached bottom — prefix + tools blob + model — is captured once per turn per server in a frozen `CachedBase` (`backend/kv_tracker.py`), built in `_resolve_pipeline_config`. A single-model turn has one base shared by all three passes; a dual-model turn has two (an agent base for director + editor, and a writer base whose tools blob is empty — that *is* Invariant 5). Passes never call `enabled_schemas` or assemble the prefix themselves; they call `base.complete(trailing=…, tool_choice=…)`, which extends the frozen bottom with only the per-pass top. Because the cache-relevant bytes are computed in exactly one place and the base is immutable, a pass cannot reconstruct them differently and so cannot silently diverge. `base.complete` routes through `cached_complete`, so the KV tracker always records the exact bytes that were sent (see §8).
 
+> **What the base does *not* capture: the reasoning mode.** A shared `CachedBase` guarantees identical prefix bytes, but reasoning is toggled per pass outside the base (`reasoning_cfg(on)` in the `complete` call). On backends that route thinking-on and thinking-off down separate KV caches, a per-pass `reasoning_enabled_passes` split forks the cache *underneath* an otherwise-correct single base — the bytes match, but they land in different lanes. This is the one way single-model mode can stop behaving like "one shared prefix." See §9.
+
 ---
 
 ## 5. Walk-through: one full turn
@@ -180,7 +184,9 @@ How well that bottom is *already* cached when the loop starts depends on whether
 
 ### Single-model mode (writer + agent on the same server)
 
-The editor's iteration-1 bottom is already hot: system + history was cached by the director and the writer, and the writer's trailing user message + draft were cached when the writer streamed its response. Iteration 1 only pays a cache miss for the editor instruction itself; iterations 2+ pay a miss only for the new tool-call/tool-result turn at the top.
+The editor's iteration-1 bottom is already hot: system + history + the writer's trailing user message + draft were cached when the writer streamed its response. Iteration 1 only pays a cache miss for the editor instruction itself; iterations 2+ pay a miss only for the new tool-call/tool-result turn at the top.
+
+This holds because the editor and writer default to the **same reasoning mode** (both thinking-off), so they share a cache lane. The director does *not* contribute to this warmth: with the default `reasoning_enabled_passes` it runs thinking-on, in a separate lane (see §9). So the pre-warming credit here belongs to the writer, not the director.
 
 ### Dual-model mode (`agent_same_as_writer = false`)
 
@@ -205,7 +211,31 @@ The tracker also remembers the previous turn's snapshot per conversation, so the
 
 ---
 
-## 9. TL;DR
+## 9. Caveat: a per-pass reasoning split forks the cache
+
+Everything above assumes that passes sharing a base also share a **reasoning mode**. By default they don't. `reasoning_enabled_passes` ships as `{"director": true, "writer": false, "editor": false}` — the director thinks, the writer and editor don't.
+
+On a backend that routes thinking-on and thinking-off down different paths with **separate KV caches** (DeepSeek is the one we've measured), that single setting splits the single-model cache in two:
+
+- **thinking-ON lane** — the director.
+- **thinking-OFF lane** — the writer and the editor.
+
+Both lanes hold byte-identical prefixes (same system + history + tools, from the same `CachedBase`), but they **cannot reuse each other's cache**. So within a turn the writer does *not* inherit the director's freshly-warmed prefix, even though single-model mode put them on the same endpoint. Each pass instead reuses its own same-mode call from the **previous** turn. From a real log:
+
+```
+director:direct_scene   cached=3072/5257 tok (58.4%)   ← from the previous turn's director (ON lane)
+writer                  cached=2176/4297 tok (50.6%)   ← from the previous turn's writer (OFF lane), NOT this turn's director
+```
+
+The tell is the gap between the two tracker views (§8): the local `msgs_overlap` reads ~91% (the prefix bytes *are* shared) while the provider `cached` sits far lower — exactly the "msgs_overlap high, provider lower, template-dependent" case the tracker is built to surface. The counter-intuitive result — the director showing *more* cached than the writer that ran right after it — is not cross-pass reuse at all; it's two independent lineages, each warmed by its own prior-turn call.
+
+**This is intentional, not a bug.** The director reasons on purpose, and the cache still pays off **across turns within each lane** — you're just keeping two warm prefixes instead of one. To collapse the lanes back into a single shared cache, make the reasoning mode uniform across the passes (set all three the same in `reasoning_enabled_passes`), accepting the trade-off: either the director loses its reasoning, or the writer pays for thinking on the main generation. On backends that *don't* fork the cache by thinking mode, the split is free and this whole section is moot.
+
+A stepped, click-through walkthrough of the mechanism and this fork lives in [../kv-cache-animation.html](../kv-cache-animation.html).
+
+---
+
+## 10. TL;DR
 
 - Treat the prompt like a stack: bottom is sacred (system + history + tool schemas), top is freely mutable.
 - Same tool schemas everywhere, even when a pass can't use them. Dynamic schemas are built once per turn from configuration, not per pass.
@@ -213,3 +243,4 @@ The tracker also remembers the previous turn's snapshot per conversation, so the
 - The editor extends the writer's stack, not the bare prefix — that's where most editor-pass savings come from.
 - Across turns, the new prefix is "old prefix + one (user, assistant) pair," so cache flows naturally turn-over-turn.
 - Provider `usage` is the truth; the local tracker is an indicator, deliberately unfused so it doesn't lie.
+- A per-pass reasoning split forks the cache on backends that separate thinking-on/off (DeepSeek): the director (thinking on) rides one lane, the writer + editor (thinking off) another, so they don't share *within* a turn — only across turns within each lane. Make `reasoning_enabled_passes` uniform to collapse them. See §9.

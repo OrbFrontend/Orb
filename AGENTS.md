@@ -354,7 +354,7 @@ Orb routes its pipeline passes (Director → Writer → Editor) in one of two mo
 
 ### Single-model mode (default — `agent_same_as_writer = true`)
 
-All three passes run on the **same** endpoint and model — the Writer's (`settings.active_endpoint_id` → `endpoints.active_model_config_id`). Every pass sends the same system prompt, the same history, and the same tool schemas, so they share **one KV-cached prefix** on a single inference server. This is the configuration the cross-pass cache design is built around — see [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md).
+All three passes run on the **same** endpoint and model — the Writer's (`settings.active_endpoint_id` → `endpoints.active_model_config_id`). Every pass sends the same system prompt, the same history, and the same tool schemas, so they share **one KV-cached prefix** on a single inference server. This is the configuration the cross-pass cache design is built around — see [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md). (Caveat: a per-pass `reasoning_enabled_passes` split — the default has the Director thinking and the Writer/Editor not — forks that one prefix into separate caches on backends that route thinking-on/off differently, e.g. DeepSeek, so the passes stop sharing *within* a turn. See that doc's §9 and the [animation](docs/kv-cache-animation.html).)
 
 ### Dual-model mode (`agent_same_as_writer = false` + `agent_endpoint_id` set)
 
