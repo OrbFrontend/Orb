@@ -114,10 +114,20 @@ class FakeLLMClient:
     """
 
     def __init__(self) -> None:
-        self._queues: dict[str, list[dict]] = {"director": [], "writer": [], "editor": [], "workflow": []}
-        self._gates: dict[str, list[PassGate]] = {"director": [], "writer": [], "editor": [], "workflow": []}
-        # Mirror LLMClient: a wrapping _PlaceholderClient shares this token, so
-        # an abort signalled on either is visible to both.
+        self._queues: dict[str, list[dict]] = {
+            "director": [],
+            "writer": [],
+            "editor": [],
+            "workflow": [],
+        }
+        self._gates: dict[str, list[PassGate]] = {
+            "director": [],
+            "writer": [],
+            "editor": [],
+            "workflow": [],
+        }
+        # Mirror LLMClient: the turn's clients share one abort token, so an
+        # abort signalled on any of them is visible to all.
         self.abort_token = AbortToken()
         # Public assertion surface: tests inspect ``calls`` directly for
         # dispatch order and invocation counts, so its shape is part of
@@ -228,7 +238,11 @@ class FakeLLMClient:
         payload = self._queues["director"].pop(0) if self._queues["director"] else {"tool_calls": []}
         yield {
             "type": "done",
-            "message": {"role": "assistant", "content": "", "tool_calls": payload.get("tool_calls", [])},
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": payload.get("tool_calls", []),
+            },
         }
 
 
