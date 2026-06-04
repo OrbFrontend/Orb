@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Orb — KV Cache in single-model mode</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c2430;
+    --line: #2a3340;
+    --text: #d7e0ea;
+    --muted: #8b97a6;
+    --hit: #2ea043;
+    --hit-soft: #1f6f33;
+    --miss: #d4862a;
+    --miss-soft: #8a5a1d;
+    --prefix: #3b82f6;
+    --accent: #a371f7;
+    --warn: #f0556a;
+    --mono: ui-monospace, "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: radial-gradient(1200px 700px at 70% -10%, #18202b 0%, var(--bg) 55%);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 28px 20px 48px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .2px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+  header a { color: var(--accent); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+
+  .phase-pill {
+    display: inline-block; margin-top: 14px; padding: 4px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  }
+
+  .stage {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: minmax(320px, 1.1fr) 1.3fr;
+    gap: 20px;
+    align-items: stretch;
+  }
+  @media (max-width: 820px) { .stage { grid-template-columns: 1fr; } }
+
+  .card, .server {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+  }
+
+  /* ── Call card (the prompt stack) ───────────────────────────── */
+  .call-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; min-height: 26px; }
+  .call-title { font-weight: 700; font-size: 15px; }
+  .badge {
+    font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px;
+    border: 1px solid var(--line); color: var(--muted); background: var(--panel-2);
+    white-space: nowrap;
+  }
+  .badge.on  { color: #d7b4ff; border-color: #5a3a8a; background: #251a38; }
+  .badge.off { color: #9fb0c2; }
+
+  .stack {
+    display: flex; flex-direction: column-reverse; /* bottom = first = system */
+    height: 340px; gap: 4px;
+    border: 1px dashed var(--line); border-radius: 10px; padding: 8px;
+    background: #11161d;
+  }
+  .seg {
+    flex: 1 1 auto; border-radius: 8px; padding: 6px 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 12px; font-weight: 600; color: #07120a;
+    overflow: hidden; position: relative;
+    transition: background .55s ease, color .55s ease, flex-grow .55s ease, opacity .4s ease, border-color .55s ease;
+    border: 1px solid transparent;
+  }
+  .seg .tok { font-family: var(--mono); font-size: 11px; opacity: .8; font-weight: 700; }
+  .seg.hit  { background: linear-gradient(90deg, var(--hit) 0%, var(--hit-soft) 100%); color: #eafff0; }
+  .seg.miss { background: linear-gradient(90deg, var(--miss) 0%, var(--miss-soft) 100%); color: #fff6ea; }
+  .seg.ghost {
+    background: transparent; color: var(--muted); border: 1px dashed var(--line);
+  }
+  .seg .flag {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    font-size: 10px; font-weight: 700; color: var(--warn); background: #2a1014;
+    border: 1px solid #5a2026; border-radius: 5px; padding: 1px 6px; white-space: nowrap;
+  }
+
+  .stats {
+    margin-top: 12px; font-family: var(--mono); font-size: 12px; color: var(--muted);
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; min-height: 42px;
+  }
+  .stats b { color: var(--text); }
+  .stats .g { color: var(--hit); }
+  .stats .o { color: var(--miss); }
+
+  /* ── Server / cache lanes ───────────────────────────────────── */
+  .server-head { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+  .server-sub { color: var(--muted); font-size: 12.5px; margin-bottom: 14px; }
+  .lanes { display: flex; gap: 18px; height: 300px; align-items: flex-end; transition: gap .5s ease; }
+  .lane {
+    flex: 1; height: 100%; display: flex; flex-direction: column;
+    transition: opacity .45s ease, flex .5s ease;
+  }
+  .lane.dim { opacity: .32; }
+  .lane.hidden { opacity: 0; pointer-events: none; }
+  .lane-label {
+    text-align: center; font-size: 12px; font-weight: 700; margin-bottom: 8px;
+    padding: 4px 6px; border-radius: 7px; border: 1px solid var(--line);
+    transition: background .4s ease, border-color .4s ease, color .4s ease;
+  }
+  .lane.active .lane-label { border-color: var(--accent); color: #fff; background: #241a36; }
+  .lane.on  .lane-label::before  { content: "🧠 "; }
+  .lane.off .lane-label::before  { content: "💤 "; }
+  .meter {
+    flex: 1; position: relative; border: 1px solid var(--line); border-radius: 10px;
+    background: repeating-linear-gradient(0deg, #0d1218 0 1px, transparent 1px 26px);
+    overflow: hidden;
+  }
+  .fill {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(180deg, var(--prefix) 0%, #1f4f9c 100%);
+    border-top: 2px solid #9cc2ff;
+    transition: height .7s cubic-bezier(.22,.61,.36,1), background .5s ease;
+    display: flex; align-items: flex-start; justify-content: center;
+  }
+  .fill.warming { background: linear-gradient(180deg, var(--accent) 0%, #5a3a8a 100%); border-top-color:#caa6ff; }
+  .fill .ftok {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; color: #eaf1ff; margin-top: 6px;
+    text-shadow: 0 1px 2px rgba(0,0,0,.5);
+  }
+  .lane-empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 12px; font-style: italic;
+  }
+
+  /* ── Narration + controls ───────────────────────────────────── */
+  .narration {
+    margin-top: 20px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 16px 18px; font-size: 14.5px; min-height: 96px;
+  }
+  .narration strong { color: #fff; }
+  .narration .k { color: var(--accent); font-weight: 700; }
+  .narration .hitword { color: var(--hit); font-weight: 700; }
+  .narration .misword { color: var(--miss); font-weight: 700; }
+  .narration .warnword { color: var(--warn); font-weight: 700; }
+  .narration code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); padding: 1px 6px; border-radius: 5px; }
+
+  .controls {
+    margin-top: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  button {
+    font: inherit; font-weight: 600; font-size: 13px; color: var(--text);
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 16px; cursor: pointer; transition: background .15s, border-color .15s, transform .05s;
+  }
+  button:hover:not(:disabled) { background: #243040; border-color: #3a4658; }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #2b3a55; border-color: #3f5681; }
+  button.primary:hover { background: #33476a; }
+
+  .dots { display: flex; gap: 7px; margin-left: auto; align-items: center; }
+  .dot {
+    width: 11px; height: 11px; border-radius: 50%; background: var(--panel-2);
+    border: 1px solid var(--line); cursor: pointer; transition: background .2s, transform .2s;
+  }
+  .dot.active { background: var(--accent); border-color: var(--accent); transform: scale(1.25); }
+  .step-count { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 13px; height: 13px; border-radius: 4px; display: inline-block; }
+  .sw.hit { background: var(--hit); }
+  .sw.miss { background: var(--miss); }
+  .sw.prefix { background: var(--prefix); }
+
+  /* ── Clickable layer inspector ───────────────────────────────── */
+  .seg.clickable { cursor: pointer; }
+  .seg.clickable::after {
+    content: "?"; position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 15px; height: 15px; border-radius: 50%; font-size: 10px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.28); color: inherit; opacity: .55;
+  }
+  .seg.clickable.has-flag::after { display: none; }
+  .seg.clickable:hover { filter: brightness(1.08); }
+  .seg.picked { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .inspect {
+    margin-top: 10px; font-size: 12.5px; color: var(--muted);
+    background: var(--panel-2); border: 1px dashed var(--line); border-radius: 8px;
+    padding: 9px 12px; min-height: 38px; transition: border-color .2s, color .2s;
+  }
+  .inspect b { color: var(--text); }
+  .inspect.live { border-color: var(--accent); color: var(--text); }
+
+  /* ── Reasoning-mode sandbox ──────────────────────────────────── */
+  .sandbox-intro { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .pass-toggles { display: flex; flex-direction: column; gap: 8px; }
+  .pass-toggle {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .pass-toggle:hover { border-color: #3a4658; }
+  .pass-toggle .pname { font-weight: 700; font-size: 13.5px; }
+  .pass-toggle .pmode {
+    font-family: var(--mono); font-size: 11.5px; font-weight: 700; padding: 3px 10px;
+    border-radius: 999px; border: 1px solid var(--line); white-space: nowrap;
+  }
+  .pass-toggle .pmode.on  { color: #d7b4ff; border-color: #5a3a8a; background: #251a38; }
+  .pass-toggle .pmode.off { color: #9fb0c2; background: #11161d; }
+  .lane-chips {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    display: flex; flex-direction: column-reverse; gap: 4px; padding: 8px;
+  }
+  .lane-chip {
+    border-radius: 7px; padding: 6px 10px; font-size: 11.5px; font-weight: 700;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .lane-chip.miss { background: linear-gradient(90deg, var(--miss) 0%, var(--miss-soft) 100%); color: #fff6ea; }
+  .lane-chip.hit  { background: linear-gradient(90deg, var(--hit) 0%, var(--hit-soft) 100%); color: #eafff0; }
+  .lane-chip .ctag { font-family: var(--mono); font-size: 10px; opacity: .85; }
+
+  /* ── Persistent per-pass reasoning toggle bar ────────────────── */
+  .reasoning-bar {
+    margin-top: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px;
+  }
+  .reasoning-bar .rb-label { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-right: 2px; }
+  .rb-toggle {
+    display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 6px 5px 12px;
+    transition: border-color .15s, background .15s;
+  }
+  .rb-toggle:hover { border-color: #3a4658; background: #1a2230; }
+  .rb-toggle .rb-name { font-weight: 700; font-size: 12.5px; }
+  .rb-toggle .rb-mode {
+    font-family: var(--mono); font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line);
+  }
+  .rb-toggle .rb-mode.on  { color:#d7b4ff; border-color:#5a3a8a; background:#251a38; }
+  .rb-toggle .rb-mode.off { color:#9fb0c2; background:#11161d; }
+  .rb-hint { font-size: 11.5px; color: var(--muted); margin-left: auto; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>How Orb reuses the LLM KV cache — and where the reasoning toggle forks it</h1>
+    <p>A companion to <a href="architecture/kv-cache.md">docs/architecture/kv-cache.md</a>. This walkthrough is <strong>single-model mode</strong>: Director, Writer, and Editor all run on the <em>same</em> endpoint and model. Step through a full turn (Director → Writer → Editor), then across turns, then try the toggles at the end.</p>
+    <div class="phase-pill" id="phasePill">Concept</div>
+  </header>
+
+  <div class="reasoning-bar" id="reasoningBar">
+    <span class="rb-label">Reasoning per pass:</span>
+    <!-- toggles injected by JS -->
+    <span class="rb-hint">click to flip · the passes below redraw live</span>
+  </div>
+
+  <div class="stage">
+    <!-- Left: the current LLM call as a stack of pancakes -->
+    <div class="card">
+      <div class="call-head">
+        <span class="call-title" id="callTitle">An LLM call</span>
+        <span class="badge" id="callBadge" style="display:none"></span>
+      </div>
+      <div class="stack" id="stack"></div>
+      <div id="sandboxPanel" style="display:none">
+        <div class="sandbox-intro">Use the <strong>Reasoning per pass</strong> bar at the top to flip any pass. The lanes on the right show what ends up sharing a cache for the config you picked.</div>
+        <div class="pass-toggles" id="passToggles"></div>
+      </div>
+      <div class="stats" id="stats"></div>
+      <div class="inspect" id="inspect"></div>
+      <div class="legend" id="legend">
+        <span><i class="sw hit"></i> served from cache (hit)</span>
+        <span><i class="sw miss"></i> computed now (miss)</span>
+        <span><i class="sw prefix"></i> warm prefix on server</span>
+      </div>
+    </div>
+
+    <!-- Right: the server's cache lanes -->
+    <div class="server">
+      <div class="server-head" id="serverHead">The inference server</div>
+      <div class="server-sub" id="serverSub">A prompt's cache only reuses a <em>matching prefix</em>, from the bottom up.</div>
+      <div class="lanes" id="lanes">
+        <div class="lane on hidden" id="laneOn">
+          <div class="lane-label">thinking&nbsp;ON</div>
+          <div class="meter"><div class="lane-empty">cold</div><div class="fill" style="height:0"><span class="ftok"></span></div></div>
+        </div>
+        <div class="lane off hidden" id="laneOff">
+          <div class="lane-label">thinking&nbsp;OFF</div>
+          <div class="meter"><div class="lane-empty">cold</div><div class="fill" style="height:0"><span class="ftok"></span></div></div>
+        </div>
+      </div>
+      <div class="lanes" id="sandboxLanes" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="narration" id="narration"></div>
+
+  <div class="controls">
+    <button id="prevBtn">◀ Prev</button>
+    <button id="nextBtn" class="primary">Next ▶</button>
+    <span class="step-count" id="stepCount"></span>
+    <div class="dots" id="dots"></div>
+  </div>
+</div>
+
+<script>
+// ── Token model (schematic; fill heights are illustrative, not exact token counts) ─
+const LANE_MAX = 5600; // px-scale ceiling for the fill meters
+
+// A "call" stack is described bottom→top. flex = relative token height.
+// state: 'hit' | 'miss' | 'ghost'. flag = optional red callout.
+// detail = optional click-to-inspect explanation for that layer.
+function seg(label, tok, flex, state, flag, detail) { return { label, tok, flex, state, flag, detail }; }
+
+const STEPS = [
+  // 0 ── Concept: the stack
+  {
+    phase: "Concept",
+    title: "Every LLM call is a stack",
+    badge: null,
+    serverHead: "The prompt, bottom-up",
+    serverSub: "Bottom = the shared prefix. Top = the one pancake that changes per pass.",
+    lanes: { on: "hidden", off: "hidden" },
+    stack: [
+      seg("system prompt", "≈1.2k", 3, "ghost", null, "Character card, persona, scenario, example dialogue, post-history instructions — concatenated once per turn. Identical bytes for all three passes."),
+      seg("tool schemas", "≈0.6k", 2, "ghost", null, "The same tool list ships on every pass — even passes that can't call a tool — because servers serialise it into the cached region, typically right after the system prompt and ahead of the conversation."),
+      seg("chat history", "≈2.0k", 4, "ghost", null, "The active message path, oldest → newest. Built once per turn and handed unchanged to Director, Writer, and Editor."),
+      seg("trailing user message", "varies", 3, "ghost", null, "The only pancake that changes per pass: a tool instruction, the user's line, or an editor note. Cache misses here are cheap and bounded."),
+    ],
+    stats: `<b>The prefix</b> = system prompt + chat history + tool schemas. It's built once per turn and is <b>byte-identical</b> across Director, Writer, and Editor.`,
+    narration: `Picture every call as a stack of pancakes. The <span class="k">bottom</span> — system prompt, chat history, tool schemas — is the same for all three passes. Only the <strong>top pancake</strong> (the trailing message: a tool instruction, the user's line, an editor note) changes per pass. Orb's golden rule: <strong>keep the bottom identical, only change the top.</strong> <em>(Tip: click a layer to inspect it.)</em>`,
+  },
+
+  // 1 ── Concept: the prefix rule
+  {
+    phase: "Concept",
+    title: "The cache reuses a matching prefix",
+    badge: null,
+    serverHead: "The prefix rule",
+    serverSub: "Matching starts at character zero and stops at the first difference.",
+    lanes: { on: "hidden", off: "hidden" },
+    stack: [
+      seg("system prompt", "hit", 3, "hit", null, "Unchanged from the previous call, so it's served straight from the server's scratchpad — no recompute."),
+      seg("tool schemas", "hit", 2, "hit", null, "Same schemas as last call, so the prefix match keeps climbing past the system prompt."),
+      seg("chat history", "hit", 4, "hit", null, "Still byte-identical, so the match keeps growing upward from the bottom."),
+      seg("trailing user message", "new", 3, "miss", null, "The first byte that differs. Everything from here up must be recomputed — but that's just the top pancake."),
+    ],
+    stats: `Cache hit grows from the <span class="g">bottom</span>. The moment two prompts differ, everything <span class="o">above</span> that point must be recomputed.`,
+    narration: `The server keeps a scratchpad as it reads a prompt. If the next prompt <strong>starts with the same text</strong>, it skips rebuilding that part — but only as a <span class="k">prefix</span>: matching runs bottom-up and stops at the first byte that differs. So a shared bottom (<span class="hitword">green</span>) is reused; the differing top (<span class="misword">orange</span>) is recomputed. This is the entire reason Orb keeps the bottom sacred.`,
+  },
+
+  // 2 ── Concept: single-model mode
+  {
+    phase: "Concept",
+    title: "Single-model mode: one endpoint, one prefix",
+    badge: null,
+    serverHead: "One server, one prefix",
+    serverSub: "All three passes target the same endpoint + model, so one cached prefix serves them all.",
+    lanes: { on: "hidden", off: "hidden" },
+    stack: [
+      seg("system prompt", "", 3, "ghost", null, "Same string for Director, Writer, and Editor — Orb builds it once and reuses it."),
+      seg("tool schemas", "", 2, "ghost", null, "One tool list, shared by every pass — sent even where a pass uses no tool, for byte-parity."),
+      seg("chat history", "", 4, "ghost", null, "One history list, shared by every pass."),
+      seg("trailing user message", "", 3, "ghost", null, "The per-pass top. Everything below it is the one shared prefix this mode is built around."),
+    ],
+    stats: `This walkthrough is <b>single-model mode</b> (<code>agent_same_as_writer = true</code>, the default): Director, Writer, and Editor all run on the <b>same</b> endpoint and model.`,
+    narration: `Everything here is <span class="k">single-model mode</span> — the default. Director, Writer, and Editor all hit the <strong>same endpoint and model</strong>, sending the same system prompt, history, and tool schemas. In principle that means <strong>one shared, KV-cached prefix</strong> serves all three passes on a single server. The rest of this walkthrough shows the one thing that can quietly split that single prefix in two.`,
+  },
+
+  // 3 ── Concept: two lanes
+  {
+    phase: "Concept",
+    title: "The thinking flag can fork the cache",
+    badge: null,
+    serverHead: "One server, sometimes two caches",
+    serverSub: "On some backends, toggling reasoning on/off routes the call down a separate path with its own cache.",
+    lanes: { on: { fill: 0, label: false, dim: false }, off: { fill: 0, label: false, dim: false } },
+    stack: [
+      seg("system prompt", "", 3, "ghost", null, "Identical bytes whether thinking is on or off — but identical bytes in different lanes still don't share a cache."),
+      seg("tool schemas", "", 2, "ghost"),
+      seg("chat history", "", 4, "ghost"),
+      seg("trailing user message", "", 3, "ghost"),
+    ],
+    stats: `Orb's per-pass <code>reasoning_enabled_passes</code> defaults to <b>director: on</b>, <b>writer: off</b>, <b>editor: off</b> — so the passes don't all use the same thinking mode.`,
+    narration: `Here's the subtlety. On <strong>some backends</strong> (a DeepSeek-style model is the one we've measured), sending <code>thinking: on</code> vs <code>off</code> routes the request down a <strong>different path with its own KV cache</strong> — even on the same endpoint. So one server can hold <span class="k">two cache lanes</span>. Identical prompt bytes in different lanes <strong>do not share a cache</strong>. Since Orb defaults the Director to thinking-on and the Writer/Editor to thinking-off, watch what that does within a turn.`,
+  },
+
+  // 4 ── Turn N, Director (dynamic — driven by the toggle bar)
+  { phase: "Turn N", title: "Director pass", pass: { turn: 1, role: "director" },
+    serverHead: "The inference server" },
+
+  // 5 ── Turn N, Writer
+  { phase: "Turn N", title: "Writer pass", pass: { turn: 1, role: "writer" },
+    serverHead: "The inference server" },
+
+  // 6 ── Turn N, Editor
+  { phase: "Turn N", title: "Editor pass", pass: { turn: 1, role: "editor" },
+    serverHead: "The inference server" },
+
+  // 7 ── Across turns: reasoning block stays out of history
+  {
+    phase: "Across turns",
+    title: "The reasoning block isn't sent back",
+    badge: null,
+    dynamic: "reasoning",
+    serverHead: "What crosses into next turn",
+    serverSub: "Only the visible reply re-enters history. The reasoning text is stored but not replayed to the provider.",
+    stats: `History is rebuilt from each message's <b>role + content</b> only. Any <code>reasoning_content</code> a thinking pass emits is stored for inspection but <b>not</b> fed back into the next turn's prompt.`,
+  },
+
+  // 8 ── Turn N+1, Director
+  { phase: "Turn N+1", title: "Director pass", pass: { turn: 2, role: "director" },
+    serverHead: "The inference server" },
+
+  // 9 ── Turn N+1, Writer
+  { phase: "Turn N+1", title: "Writer pass", pass: { turn: 2, role: "writer" },
+    serverHead: "The inference server" },
+
+  // 10 ── The reading (dynamic)
+  {
+    phase: "The reading",
+    title: "How to read the cache numbers",
+    badge: null,
+    dynamic: "reading",
+    serverHead: "Lineages, side by side",
+    serverSub: "Each lane is warmed by its own same-mode call from the previous turn.",
+  },
+
+  // 11 ── Interactive summary
+  {
+    phase: "Try it",
+    title: "Lanes for your configuration",
+    badge: null,
+    interactive: "sandbox",
+    serverHead: "Cache lanes this turn",
+    serverSub: "Passes that share a thinking mode share a lane — and can reuse each other within the turn.",
+    stats: ``,
+    narration: ``,
+  },
+];
+
+// ── Per-pass reasoning state (driven by the persistent toggle bar) ────────────
+const thinking = { director: true, writer: false, editor: false };
+const PASS_ORDER = ["director", "writer", "editor"];
+const PASS_LABEL = { director: "Director", writer: "Writer", editor: "Editor" };
+// Turns are simulated as 1 and 2 internally, but displayed as the generic
+// pair "N" and "N+1" (matching docs/architecture/kv-cache.md §6).
+const turnLabel = (t) => (t === 1 ? "N" : "N+1");
+// The fixed pass sequence the walkthrough simulates: two consecutive turns.
+const SEQ = [[1, "director"], [1, "writer"], [1, "editor"], [2, "director"], [2, "writer"]];
+
+// Replay the whole sequence under the current toggles and classify each pass:
+//   kind = "cold"   → its lane was never warmed before, full recompute
+//        = "within" → reuses a pass earlier *this turn* in the same lane
+//        = "cross"  → reuses its own same-mode call from a *previous turn*
+// warmBefore records which lanes already held a warm prefix when the pass ran.
+function simulate() {
+  const views = {};
+  const prevTurnWarm = { on: false, off: false };
+  let thisTurnWarm = { on: null, off: null };
+  let curTurn = null;
+  for (const [turn, role] of SEQ) {
+    if (turn !== curTurn) {
+      if (curTurn !== null) {
+        if (thisTurnWarm.on) prevTurnWarm.on = true;
+        if (thisTurnWarm.off) prevTurnWarm.off = true;
+      }
+      thisTurnWarm = { on: null, off: null };
+      curTurn = turn;
+    }
+    const lane = thinking[role] ? "on" : "off";
+    const warmBefore = {
+      on: !!thisTurnWarm.on || prevTurnWarm.on,
+      off: !!thisTurnWarm.off || prevTurnWarm.off,
+    };
+    let kind, reuseFrom = null;
+    if (thisTurnWarm[lane]) { kind = "within"; reuseFrom = thisTurnWarm[lane]; }
+    else if (prevTurnWarm[lane]) { kind = "cross"; }
+    else { kind = "cold"; }
+    // The editor "extends" the writer only if the writer warmed this lane this turn.
+    const editorSharesWriter = role === "editor" && thisTurnWarm[lane] === "writer";
+    views[`${turn}:${role}`] = { turn, role, lane, kind, reuseFrom, editorSharesWriter, warmBefore };
+    thisTurnWarm[lane] = role;
+  }
+  return views;
+}
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const stackEl = $("stack"), statsEl = $("stats"), narrEl = $("narration");
+const inspectEl = $("inspect");
+const titleEl = $("callTitle"), badgeEl = $("callBadge"), phaseEl = $("phasePill");
+const lanesEl = $("lanes"), laneOn = $("laneOn"), laneOff = $("laneOff");
+const serverHeadEl = $("serverHead"), serverSubEl = $("serverSub");
+const stepCountEl = $("stepCount"), dotsEl = $("dots");
+const legendEl = $("legend"), sandboxPanel = $("sandboxPanel");
+const passTogglesEl = $("passToggles"), sandboxLanesEl = $("sandboxLanes");
+const reasoningBar = $("reasoningBar");
+
+let cur = 0;
+let passViews = {};
+const DEFAULT_INSPECT = `<span style="opacity:.7">Click any layer above to see what it holds.</span>`;
+
+function renderStack(segs) {
+  stackEl.innerHTML = "";
+  let anyDetail = false;
+  for (const s of segs) {
+    const d = document.createElement("div");
+    d.className = "seg " + s.state;
+    if (s.detail) d.classList.add("clickable");
+    if (s.flag) d.classList.add("has-flag");
+    d.style.flexGrow = s.flex;
+    const tok = s.tok ? `<span class="tok">${s.tok}</span>` : "";
+    d.innerHTML = `<span>${s.label}</span>${tok}`;
+    if (s.flag) {
+      const f = document.createElement("span");
+      f.className = "flag"; f.textContent = s.flag;
+      d.appendChild(f);
+    }
+    if (s.detail) {
+      anyDetail = true;
+      d.onclick = () => {
+        [...stackEl.children].forEach((c) => c.classList.remove("picked"));
+        d.classList.add("picked");
+        inspectEl.classList.add("live");
+        inspectEl.innerHTML = `<b>${s.label}:</b> ${s.detail}`;
+      };
+    }
+    stackEl.appendChild(d);
+  }
+  inspectEl.classList.remove("live");
+  inspectEl.innerHTML = anyDetail ? DEFAULT_INSPECT : "";
+  inspectEl.style.display = anyDetail ? "block" : "none";
+}
+
+function renderLane(el, cfg) {
+  const fill = el.querySelector(".fill");
+  const ftok = el.querySelector(".ftok");
+  const empty = el.querySelector(".lane-empty");
+  if (cfg === "hidden") { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  el.classList.toggle("dim", !!cfg.dim);
+  el.classList.toggle("active", !!cfg.active);
+  const pct = Math.max(0, Math.min(100, (cfg.fill / LANE_MAX) * 100));
+  fill.style.height = pct + "%";
+  fill.classList.toggle("warming", !!cfg.warming);
+  ftok.textContent = cfg.fill > 0 ? "warm prefix" : "";
+  empty.style.display = cfg.fill > 0 ? "none" : "flex";
+}
+
+// ── Persistent per-pass reasoning toggle bar ──────────────────────────────────
+function renderReasoningBar() {
+  const toggles = PASS_ORDER.map((p) => {
+    const on = thinking[p];
+    return `<span class="rb-toggle" data-pass="${p}" role="button" tabindex="0" title="Flip ${PASS_LABEL[p]} reasoning">
+      <span class="rb-name">${PASS_LABEL[p]}</span>
+      <span class="rb-mode ${on ? "on" : "off"}">${on ? "🧠 ON" : "💤 OFF"}</span></span>`;
+  }).join("");
+  reasoningBar.innerHTML =
+    `<span class="rb-label">Reasoning per pass:</span>${toggles}` +
+    `<span class="rb-hint">click any pass to flip · the view redraws live</span>`;
+  reasoningBar.querySelectorAll(".rb-toggle").forEach((el) => {
+    const flip = () => { const p = el.dataset.pass; thinking[p] = !thinking[p]; renderReasoningBar(); render(cur); };
+    el.onclick = flip;
+    el.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } };
+  });
+}
+
+// ── Build a pass's pancake stack from its simulated view ──────────────────────
+function buildPassStack(view) {
+  const { turn, role, kind, editorSharesWriter } = view;
+  const bottom = kind === "cold" ? "miss" : "hit";
+  if (role === "editor") {
+    return [
+      seg("system prompt", "", 3, bottom),
+      seg("tool schemas", "", 1.5, bottom),
+      seg("chat history", "", 3, bottom),
+      seg("writer's user message", "", 1.5, editorSharesWriter ? "hit" : "miss",
+        editorSharesWriter ? null : "other lane than Writer",
+        editorSharesWriter
+          ? "The Editor reuses the Writer's exact trailing message — warmed moments ago in this same lane."
+          : "The Writer ran in the other lane, so its message isn't cached here and must be recomputed."),
+      seg("writer's draft", "", 2, editorSharesWriter ? "hit" : "miss", null,
+        editorSharesWriter
+          ? "The prose the Writer just produced — its tokens were cached as the Writer streamed them, so in the same lane the Editor reads the draft straight from cache too."
+          : "The prose the Writer just produced. The Writer ran in the other lane, so the draft isn't cached here and must be recomputed."),
+      seg("editor instruction", "", 1.5, "miss", null, "The OOC editor note plus the forced patch/rewrite tool instruction."),
+    ];
+  }
+  const trailing = role === "director"
+    ? seg("OOC + direct_scene instruction", "", 3, "miss", null, "The Director's trailing pancake: an OOC note, the forced direct_scene instruction, and the user's line.")
+    : seg("lorebook + scene direction + user msg", "", 2, "miss", null, "The Writer's trailing pancake: lorebook entries, the Director's scene-direction injection, and the user's message.");
+  const layers = [
+    seg("system prompt", "", 3, bottom),
+    seg("tool schemas", "", 2, bottom),
+    seg("chat history" + (turn > 1 ? " (through prev turn)" : ""), "", 4, bottom),
+  ];
+  if (turn > 1 && kind === "cross") {
+    layers.push(seg("+ new prev-turn exchange", "", 1.4, "miss", null, "The previous turn's user+assistant pair, now folded into history — new bytes even though the reply was generated last turn. It was cached behind the Writer's injected pancake (lorebook + scene direction), not behind the bare user message that enters history, and the Editor may have rewritten it. KV reuse is prefix-bound and positional, so it's recomputed in this clean-history slot."));
+  }
+  layers.push(trailing);
+  return layers;
+}
+
+function passLanes(view) {
+  const base = view.turn === 1 ? 4600 : 5200;
+  const cfg = {};
+  for (const L of ["on", "off"]) {
+    const isCur = view.lane === L;
+    const warm = view.warmBefore[L] || isCur;
+    cfg[L] = warm
+      ? { fill: isCur ? base : Math.round(base * 0.85), active: isCur, dim: !isCur, warming: isCur && view.kind === "cold" }
+      : "hidden";
+  }
+  return cfg;
+}
+
+function passStats(view) {
+  if (view.kind === "cold")
+    return `Cold lane → <span class="o">full recompute</span>. This call warms the lane for later passes and turns.`;
+  if (view.kind === "within")
+    return `Bottom <span class="g">served from cache</span> — reused from <b>this turn's ${PASS_LABEL[view.reuseFrom]}</b> in the same lane.`;
+  return `Bottom <span class="g">served from cache</span> — reused from the <b>previous turn's ${PASS_LABEL[view.role]}</b> in this lane (cross-turn).`;
+}
+
+function passNarration(view) {
+  const { role, turn, kind, lane, reuseFrom, editorSharesWriter } = view;
+  const mode = thinking[role] ? "thinking ON" : "thinking OFF";
+  const laneWord = lane === "on" ? "thinking-ON lane" : "thinking-OFF lane";
+  const who = `<strong>Turn ${turnLabel(turn)}, ${PASS_LABEL[role]}</strong>`;
+  let body;
+  if (kind === "cold") {
+    body = `runs <span class="k">${mode}</span> and lands in the <span class="warnword">${laneWord}</span>, which is cold here — the whole prompt is computed (<span class="misword">orange</span>). Afterwards this lane holds a warm copy of the prefix.`;
+  } else if (kind === "within") {
+    body = `runs <span class="k">${mode}</span>, sharing the <span class="k">${laneWord}</span> that this turn's ${PASS_LABEL[reuseFrom]} just warmed. The shared bottom is a <span class="hitword">cache hit</span> — only the top pancake is new.`;
+  } else {
+    body = `runs <span class="k">${mode}</span> and reuses the <span class="k">${laneWord}</span> from the <strong>previous turn's ${PASS_LABEL[role]}</strong> — not from anything earlier this turn. The bottom is a <span class="hitword">hit</span>; the new exchange and trailing message are new.`;
+  }
+  let extra = "";
+  if (role === "editor") {
+    if (editorSharesWriter)
+      extra = ` Because it shares the Writer's lane, the Writer's message <em>and</em> draft are already warm — the draft's tokens were cached as the Writer streamed them — so only the <span class="misword">editor instruction</span> is new. This is the cross-pass hand-off the editor is designed around.`;
+    else if (kind !== "cold")
+      extra = ` But it's <span class="warnword">not</span> in the Writer's lane, so the Writer's message and draft are recomputed even though the bottom is cached.`;
+  }
+  return `${who} ${body}${extra}`;
+}
+
+function renderPassStep(step) {
+  const view = passViews[`${step.pass.turn}:${step.pass.role}`];
+  const on = thinking[step.pass.role];
+  badgeEl.style.display = "inline-block";
+  badgeEl.className = "badge " + (on ? "on" : "off");
+  badgeEl.textContent = on ? "🧠 thinking ON" : "💤 thinking OFF";
+  serverSubEl.innerHTML = `This pass runs <b>${on ? "thinking ON" : "thinking OFF"}</b>, so it lands in the <b>${on ? "ON" : "OFF"}</b> lane.`;
+  renderStack(buildPassStack(view));
+  statsEl.innerHTML = passStats(view);
+  narrEl.innerHTML = passNarration(view);
+  const lc = passLanes(view);
+  renderLane(laneOn, lc.on);
+  renderLane(laneOff, lc.off);
+}
+
+// ── Step 7: reasoning block across the turn boundary (lanes follow turn N) ─────
+function renderReasoningStep(step) {
+  // The assistant message that re-enters history is the *writer's* visible reply,
+  // so a dropped reasoning block only exists on it when the writer thinks. The
+  // director may think, but its tool-call output never enters history at all.
+  const writerThinks = thinking.writer;
+  const segs = [
+    seg("system prompt", "hit", 3, "hit"),
+    seg("chat history", "hit", 4, "hit"),
+    seg("assistant: final reply", "kept", 2, "hit", null, "The visible reply (the Writer's) is appended to history as the assistant turn — these bytes re-enter the prefix next turn."),
+  ];
+  if (writerThinks)
+    segs.push(seg("assistant: reasoning block", "dropped", 1.5, "ghost", "not replayed to provider", "The Writer's reasoning_content is captured for the inspector and stored, but Orb rebuilds history from role + content only — reasoning never goes back into the prefix."));
+  renderStack(segs);
+  statsEl.innerHTML = step.stats;
+  const turnNWarm = passViews["2:director"].warmBefore; // lanes warmed during turn N
+  const mk = (w) => (w ? { fill: 4600, dim: false, active: false, warming: false } : "hidden");
+  renderLane(laneOn, mk(turnNWarm.on));
+  renderLane(laneOff, mk(turnNWarm.off));
+  const note = writerThinks
+    ? `Here the Writer thinks, so the reply that re-enters history carries a <span class="k">reasoning block</span> — Orb keeps it for the inspector, but it <strong>does not send the reasoning block back to the provider</strong>.`
+    : `Here the Writer — whose reply is the one that re-enters history — runs thinking-off, so the stored reply has no reasoning block. (The Director may think, but its tool-call output never enters history anyway.) The moment the Writer thinks, its reasoning block is kept for the inspector but still <strong>not</strong> replayed.`;
+  narrEl.innerHTML = `Before the next turn, what crosses the boundary matters for the cache. ${note} The next turn's history is rebuilt from <code>role + content</code> only, so the shared bottom stays byte-identical turn over turn. If the reasoning <em>were</em> replayed, those bytes would shift the prefix and break cross-turn reuse.`;
+}
+
+// ── Step 10: how to read the numbers (depends on whether lanes split) ──────────
+function renderReadingStep() {
+  const onPasses = PASS_ORDER.filter((p) => thinking[p]).map((p) => PASS_LABEL[p]);
+  const offPasses = PASS_ORDER.filter((p) => !thinking[p]).map((p) => PASS_LABEL[p]);
+  const count = (onPasses.length ? 1 : 0) + (offPasses.length ? 1 : 0);
+
+  const segs = [];
+  if (onPasses.length) segs.push(seg(`ON lane: ${onPasses.join(", ")}`, "warmed across turns", 2, "hit", null, "These passes share the thinking-ON cache, warmed by their own prior-turn calls."));
+  if (onPasses.length && offPasses.length) segs.push(seg("(separate cache lineages)", "", 0.6, "ghost"));
+  if (offPasses.length) segs.push(seg(`OFF lane: ${offPasses.join(", ")}`, "warmed across turns", 2, "hit", null, "These passes share the thinking-OFF cache — a separate lineage from the ON lane."));
+  renderStack(segs);
+
+  const mk = (w) => (w ? { fill: 5200, dim: false, active: false, warming: false } : "hidden");
+  renderLane(laneOn, mk(onPasses.length > 0));
+  renderLane(laneOff, mk(offPasses.length > 0));
+
+  if (count === 2) {
+    statsEl.innerHTML = `Two lanes are live, so a pass's cache rate reflects <b>its own prior-turn call</b> — not the pass that ran just before it this turn.`;
+    narrEl.innerHTML = `With the passes split across <span class="k">two lanes</span>, a surprising reading can show up — e.g. the <strong>Director caching more than the Writer that ran right after it</strong>. That's not within-turn cross-pass reuse; each pass reused its own same-mode call from the previous turn. The cache still helps <em>across turns</em> within each lane — you're just keeping two warm prefixes instead of one.`;
+  } else {
+    const only = onPasses.length ? "thinking-ON" : "thinking-OFF";
+    statsEl.innerHTML = `All passes share <b>one ${only} lane</b>, so within a turn each pass reuses the one before it — a single shared prefix.`;
+    narrEl.innerHTML = `You've put all three passes in <span class="k">one lane</span> (${only}). Within a turn the Writer reuses the Director's just-warmed prefix and the Editor extends it — the single shared cache single-model mode was built around. The trade-off: every pass uses the same thinking mode, so either the Director gives up reasoning or the Writer pays to think on the main generation.`;
+  }
+}
+
+// ── Step 11: lane-grouping summary for the chosen configuration ────────────────
+function renderSummary() {
+  passTogglesEl.innerHTML = "";
+  const laneDefs = [
+    { label: "🧠 thinking ON",  test: (p) => thinking[p] },
+    { label: "💤 thinking OFF", test: (p) => !thinking[p] },
+  ];
+  sandboxLanesEl.innerHTML = "";
+  let activeLanes = 0;
+  const withinTurnReuse = [];
+  for (const def of laneDefs) {
+    const members = PASS_ORDER.filter(def.test);
+    if (!members.length) continue;
+    activeLanes++;
+    const lane = document.createElement("div");
+    lane.className = "lane active";
+    const chips = members.map((p, idx) => {
+      const hit = idx > 0; // not first in this lane → reuses the earlier pass within the turn
+      if (hit) withinTurnReuse.push(`${PASS_LABEL[p]} reuses ${PASS_LABEL[members[idx - 1]]}`);
+      return `<div class="lane-chip ${hit ? "hit" : "miss"}">
+          <span>${PASS_LABEL[p]}</span>
+          <span class="ctag">${hit ? "reuses lane ▲" : "warms lane"}</span>
+        </div>`;
+    }).join("");
+    lane.innerHTML = `<div class="lane-label">${def.label}</div>
+      <div class="meter"><div class="lane-chips">${chips}</div></div>`;
+    sandboxLanesEl.appendChild(lane);
+  }
+
+  let verdict;
+  if (activeLanes === 1) {
+    verdict = `All three passes share <strong>one lane</strong>. Within a turn, the Writer reuses the Director's just-warmed prefix and the Editor extends it — the single shared cache single-model mode is built around. The cost: every pass now uses the same thinking mode, so either the Director stops reasoning or the Writer pays to think on the main generation.`;
+  } else {
+    verdict = `The passes split across <strong>two lanes</strong>, so within a turn they <span class="warnword">don't share</span> — each reuses only its own same-mode call from the previous turn. You keep two warm prefixes instead of one.` +
+      (withinTurnReuse.length ? ` Within-turn reuse that still happens: ${withinTurnReuse.join("; ")}.` : ` No within-turn cross-pass reuse at all.`);
+  }
+  statsEl.innerHTML = `<b>${activeLanes}</b> cache lane${activeLanes > 1 ? "s" : ""} this turn on a backend that forks by thinking mode.`;
+  narrEl.innerHTML = `On a backend that routes thinking-on/off to separate caches: ${verdict} <em>On a backend that doesn't fork by thinking mode, it's always one lane and this choice is free.</em>`;
+}
+
+function render(i) {
+  const s = STEPS[i];
+  passViews = simulate();
+  phaseEl.textContent = s.phase;
+  titleEl.textContent = s.title;
+
+  badgeEl.style.display = "none";
+  if (s.badge) {
+    badgeEl.style.display = "inline-block";
+    badgeEl.className = "badge " + s.badge.cls;
+    badgeEl.textContent = s.badge.text;
+  }
+
+  const summary = s.interactive === "sandbox";
+  stackEl.style.display = summary ? "none" : "flex";
+  legendEl.style.display = summary ? "none" : "flex";
+  sandboxPanel.style.display = summary ? "block" : "none";
+  lanesEl.style.display = summary ? "none" : "flex";
+  sandboxLanesEl.style.display = summary ? "flex" : "none";
+  serverHeadEl.textContent = s.serverHead;
+  if (s.serverSub) serverSubEl.innerHTML = s.serverSub;
+
+  if (s.pass) {
+    renderPassStep(s);
+  } else if (s.dynamic === "reasoning") {
+    renderReasoningStep(s);
+  } else if (s.dynamic === "reading") {
+    renderReadingStep();
+  } else if (summary) {
+    inspectEl.style.display = "none";
+    renderSummary();
+  } else {
+    renderStack(s.stack);
+    statsEl.innerHTML = s.stats;
+    narrEl.innerHTML = s.narration;
+    renderLane(laneOn, s.lanes.on);
+    renderLane(laneOff, s.lanes.off);
+  }
+
+  stepCountEl.textContent = `${i + 1} / ${STEPS.length}`;
+  [...dotsEl.children].forEach((d, k) => d.classList.toggle("active", k === i));
+  $("prevBtn").disabled = i === 0;
+  $("nextBtn").disabled = i === STEPS.length - 1;
+}
+
+function go(i) {
+  cur = Math.max(0, Math.min(STEPS.length - 1, i));
+  render(cur);
+}
+
+// dots
+STEPS.forEach((_, k) => {
+  const d = document.createElement("div");
+  d.className = "dot"; d.title = `Step ${k + 1}`;
+  d.onclick = () => go(k);
+  dotsEl.appendChild(d);
+});
+
+$("prevBtn").onclick = () => go(cur - 1);
+$("nextBtn").onclick = () => go(cur + 1);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); go(cur + 1); }
+  else if (e.key === "ArrowLeft") { go(cur - 1); }
+});
+
+renderReasoningBar();
+render(0);
+</script>
+</body>
+</html>

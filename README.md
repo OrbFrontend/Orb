@@ -45,6 +45,8 @@ For the best experience, use Dual-Model Mode. Some harnesses are dropped in this
 
 ### KV Cache Reuse Strategy
 
+For a stepped visual walkthrough of the cache mechanism across all three passes and the reasoning-mode fork, open [docs/architecture/kv-cache-animation.html](docs/architecture/kv-cache-animation.html) in a browser. The full write-up is in [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md).
+
 For optimal KV cache reuse, the following will remain consistent across passes:
 
 #### 1. System Prompt
