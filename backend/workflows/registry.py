@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Mapping, Optional
 
-from backend.database import (
+from ..database import (
     get_workflow_character_state as _db_get_workflow_character_state,
     get_workflow_config as _db_get_workflow_config,
     get_workflow_message_state as _db_get_workflow_message_state,
@@ -28,7 +28,7 @@ from backend.database import (
     set_workflow_message_state as _db_set_workflow_message_state,
     set_workflow_state as _db_set_workflow_state,
 )
-from backend.tool_defs import (
+from ..tool_defs import (
     BUILTIN_TOOL_NAMES,
     STANDALONE_TOOLS,
     TOOLS,

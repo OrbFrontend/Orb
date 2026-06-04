@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Mapping, Sequence
+from typing import Any, AsyncIterator, Callable, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +208,11 @@ class _KVCacheTracker:
             elif stats["source"] in ("unrecognized", "no_cache_fields"):
                 provider_note = f"provider: prompt={stats['prompt_tokens']} tok  cached=N/A [{stats['source']}]"
             else:
-                pt, ct, cw = stats["prompt_tokens"], stats["cached_tokens"], stats["cache_write_tokens"]
+                pt, ct, cw = (
+                    stats["prompt_tokens"],
+                    stats["cached_tokens"],
+                    stats["cache_write_tokens"],
+                )
                 total_cached += ct
                 total_prompt += pt
                 pct = (ct / pt * 100) if pt else 0.0
@@ -291,11 +295,20 @@ class CachedBase:
     tools when it runs on a different server than the agent" — is then just a
     property of how the writer's base is built (empty ``tools``), not a flag
     threaded through the writer pass.
+
+    ``resolve`` is the last step of turning the assembled stack into the literal
+    bytes on the wire: an opaque ``messages -> messages`` transform applied to
+    ``[*prefix, *trailing]`` immediately before the call (in practice
+    ``Macros.resolve_prompt_messages``, scrubbing ``{{user}}``/``{{char}}`` from
+    whatever a pass appended). Keeping it on the base means the tracker snapshot
+    is taken from the *resolved* bytes — the same ones sent — so it cannot drift.
+    ``None`` means send the assembled stack unchanged.
     """
 
     prefix: tuple[Mapping[str, Any], ...]
     tools: tuple[dict, ...]
     model: str
+    resolve: Callable[[Sequence[Mapping[str, Any]]], list[dict]] | None = None
 
     def complete(
         self,
@@ -312,13 +325,17 @@ class CachedBase:
         per-pass top of the stack). The cached bottom — prefix + tools + model —
         comes solely from ``self``; only *trailing* and *tool_choice* vary.
 
-        Delegates to :func:`cached_complete` so the tracker snapshot is taken
-        from the exact bytes sent.
+        The assembled stack is run through ``self.resolve`` (if set) to produce
+        the final wire bytes, then handed to :func:`cached_complete` so the
+        tracker snapshot is taken from the exact bytes sent.
         """
+        messages: Sequence[Mapping[str, Any]] = [*self.prefix, *trailing]
+        if self.resolve is not None:
+            messages = self.resolve(messages)
         return cached_complete(
             client,
             label=label,
-            messages=[*self.prefix, *trailing],
+            messages=messages,
             model=self.model,
             tools=list(self.tools) or None,
             tool_choice=tool_choice,

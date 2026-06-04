@@ -1,6 +1,13 @@
 """
 macros.py — Macro resolution for prompts and messages.
 
+A dependency-free leaf: it turns ``{{user}}``/``{{char}}`` and inline macros
+like ``{{roll}}`` into literal text and imports nothing else in the codebase.
+It knows about *strings and message dicts*, not about the LLM client — the
+pipeline applies :meth:`Macros.resolve_prompt_messages` at the transport
+boundary (the cached-base ``resolve`` hook in ``kv_tracker.py``) rather than
+this module reaching up into the client layer.
+
 Public API:
     resolve_message(text, user_name, char_name) — Full resolution
         ({{user}}/{{char}} + inline macros like {{roll}}).
@@ -15,7 +22,8 @@ Public API:
     Macros.resolve_message(text)      — instance method, full resolution
     Macros.resolve_prompt(text)       — instance method, substitution only
     Macros.resolve_prompt_messages(msgs) — batch prompt-level res on message list
-    Macros.wrap_client(client)        — wraps LLMClient for prompt-level resolution
+        (the transport-boundary catch-all that guarantees no placeholder
+        reaches the model, whatever a pass assembled)
     Macros.from_settings(...)         — factory from app settings
 """
 
@@ -24,8 +32,6 @@ from __future__ import annotations
 import random
 import re
 from typing import Any, Mapping, NamedTuple, Sequence
-
-from .llm_client import LLMClient
 
 
 # ---------------------------------------------------------------------------
@@ -120,55 +126,22 @@ class Macros(NamedTuple):
         """Only {{user}}/{{char}} substitution (no inline macros)."""
         return resolve_prompt(text, self.user, self.char)
 
-    def _resolve_prompt_on_message(self, msg: dict) -> dict:
+    def _resolve_prompt_on_message(self, msg: Mapping[str, Any]) -> dict:
         """Apply prompt-level resolution (substitution only) to a single message dict."""
         return {
             **msg,
             "content": _apply_content(msg.get("content"), lambda t: self.resolve_prompt(t)),
         }
 
-    def resolve_prompt_messages(self, messages: list[dict]) -> list[dict]:
-        """Apply prompt-level resolution to a list of message dicts."""
+    def resolve_prompt_messages(self, messages: Sequence[Mapping[str, Any]]) -> list[dict]:
+        """Apply prompt-level resolution to every message in a list.
+
+        This is the transport-boundary catch-all: passed to a cached base's
+        ``resolve`` hook so the fully-assembled wire messages are scrubbed of
+        ``{{user}}``/``{{char}}`` just before they are sent, no matter which
+        pass built them (e.g. the director's tool prompt embeds user-authored
+        fragment text that can carry ``{{char}}``). Inline macros like
+        ``{{roll}}`` are intentionally *not* fired here — those are resolved on
+        the latest user message and prefix content when it is built.
+        """
         return [self._resolve_prompt_on_message(m) for m in messages]
-
-    def wrap_client(self, client: LLMClient) -> "_PlaceholderClient":
-        return _PlaceholderClient(client, self.user, self.char)
-
-
-class _PlaceholderClient(LLMClient):
-    """Wraps LLMClient to resolve {{user}}/{{char}} on all messages before completion.
-
-    Only applies prompt-level resolution (no inline macros) — inline macros
-    must be resolved on the latest user message before it reaches this client.
-    """
-
-    def __init__(self, inner: LLMClient, user_name: str, char_name: str) -> None:
-        self._inner = inner
-        self._user_name = user_name
-        self._char_name = char_name
-        # Share the inner client's abort token so the inherited abort()/
-        # is_aborted reflect the same turn-wide stop signal — no delegation
-        # overrides needed. Transport config (base_url/profile/…) is left unset
-        # since complete() delegates to the inner client rather than using it.
-        self.abort_token = inner.abort_token
-
-    async def complete(
-        self,
-        messages: Sequence[Mapping[str, Any]],
-        model: str,
-        tools: list[dict] | None = None,
-        tool_choice: dict | str | None = None,
-        **params,
-    ):
-        msgs = [
-            {
-                **msg,
-                "content": _apply_content(
-                    msg.get("content"),
-                    lambda t: resolve_prompt(t, self._user_name, self._char_name),
-                ),
-            }
-            for msg in messages
-        ]
-        async for item in self._inner.complete(msgs, model, tools=tools, tool_choice=tool_choice, **params):
-            yield item

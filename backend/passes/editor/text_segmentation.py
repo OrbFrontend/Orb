@@ -39,7 +39,20 @@ __all__ = [
     "split_narration_sentences",
     "find_quote_spans",
     "count_sentences",
+    "normalize_word",
 ]
+
+
+# ---------- word normalization ----------
+
+
+def normalize_word(word: str) -> str:
+    """Lowercase a word and strip everything but ``a-z0-9'``.
+
+    Shared by the opener/template scanners so they key on the same normalized
+    token form.
+    """
+    return re.sub(r"[^a-z0-9']", "", word.lower())
 
 
 # ---------- canonical patterns ----------

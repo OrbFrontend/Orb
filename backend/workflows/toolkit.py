@@ -20,7 +20,7 @@ through one chokepoint.
 
 from __future__ import annotations
 
-from backend.database import (
+from ..database import (
     get_character_card,
     get_conversation,
     get_director_fragments,
@@ -31,18 +31,18 @@ from backend.database import (
     get_phrase_bank,
     get_user_personas,
 )
-from backend.llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from backend.macros import Macros
-from backend.passes.editor.audit import format_report, run_audit
-from backend.prompt_builder import (
+from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ..macros import Macros
+from ..passes.editor.audit import format_report, run_audit
+from ..prompt_builder import (
     build_prefix,
     compute_lorebook_injection_block,
     compute_style_injection_block,
     format_message_with_attachments,
 )
-from backend.tool_defs import STANDALONE_TOOLS, TOOLS, enabled_schemas
+from ..tool_defs import STANDALONE_TOOLS, TOOLS, enabled_schemas
 
-from backend.locks import (
+from ..locks import (
     workflow_character_state_lock,
     workflow_config_lock,
     workflow_state_lock,
