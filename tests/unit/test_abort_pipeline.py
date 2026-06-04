@@ -3,11 +3,18 @@ Regression tests for stop-generation abort propagation through the pipeline.
 
 Verifies that aborting during the director pass prevents the writer pass from
 firing, and aborting during the writer pass prevents the editor pass from firing.
+
+Also verifies the error-abort corner case: a genuine error in any of the three
+passes aborts the pipeline (the exception propagates out of ``_run_pipeline``)
+rather than being swallowed, so a failed pass ends the turn just like a manual
+abort does — never producing a half-processed draft.
 """
 
 from __future__ import annotations
 
 from unittest.mock import patch
+
+import pytest
 
 from backend.kv_tracker import _KVCacheTracker
 from backend.llm_client import LLMClient
@@ -118,3 +125,84 @@ class TestAbortPropagation:
             )
 
         assert editor_calls[0] == 0, "editor pass must not fire after writer-phase abort"
+
+
+class TestErrorAborts:
+    """A genuine error in any pass aborts the turn (exception escapes
+    _run_pipeline) instead of being swallowed and pressed on."""
+
+    async def test_director_error_aborts_and_skips_writer(self):
+        """An error in the director pass propagates and the writer never runs."""
+        client = _make_client()
+        writer_calls = [0]
+
+        async def mock_director(*args, **kwargs):
+            raise RuntimeError("director endpoint exploded")
+            yield  # pragma: no cover — makes this an async generator
+
+        async def mock_writer(*args, **kwargs):
+            writer_calls[0] += 1
+            yield {"type": "content", "delta": "should not appear"}
+
+        settings = {
+            "model_name": "test",
+            "enable_agent": 1,
+            "enabled_tools": {"direct_scene": True},
+            "reasoning_enabled_passes": {},
+        }
+
+        with patch("backend.orchestrator.director_pass", new=mock_director), patch(
+            "backend.orchestrator.writer_pass", new=mock_writer
+        ):
+            with pytest.raises(RuntimeError, match="director endpoint exploded"):
+                await _drain(
+                    _run_pipeline(
+                        client,
+                        settings,
+                        _DIRECTOR_STATE,
+                        [],
+                        [],
+                        "hello",
+                        **_pipeline_kwargs(settings["enabled_tools"]),
+                    )
+                )
+
+        assert writer_calls[0] == 0, "writer must not fire after a director-pass error"
+
+    async def test_editor_error_aborts_pipeline(self):
+        """An error in the editor pass propagates out instead of keeping the
+        original draft and completing the turn."""
+        client = _make_client()
+
+        async def mock_writer(*args, **kwargs):
+            yield {"type": "content", "delta": "the full draft"}
+
+        async def mock_editor(*args, **kwargs):
+            raise RuntimeError("editor endpoint exploded")
+            yield  # pragma: no cover — makes this an async generator
+
+        # editor_apply_patch is a POST_WRITER_TOOL → director skipped; phrase_bank
+        # not None makes do_edit=True so the editor runs over the writer draft.
+        settings = {
+            "model_name": "test",
+            "enable_agent": 1,
+            "enabled_tools": {"editor_apply_patch": True},
+            "reasoning_enabled_passes": {},
+        }
+
+        with patch("backend.orchestrator.writer_pass", new=mock_writer), patch(
+            "backend.orchestrator.editor_pass", new=mock_editor
+        ):
+            with pytest.raises(RuntimeError, match="editor endpoint exploded"):
+                await _drain(
+                    _run_pipeline(
+                        client,
+                        settings,
+                        _DIRECTOR_STATE,
+                        [],
+                        [],
+                        "hello",
+                        phrase_bank=[[]],
+                        **_pipeline_kwargs(settings["enabled_tools"]),
+                    )
+                )

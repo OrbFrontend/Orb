@@ -472,42 +472,42 @@ async def _run_pipeline(
             len(resp_text),
             len(phrase_bank) if phrase_bank else 0,
         )
-        try:
-            async for event in editor_pass(
-                cfg.agent_lane.client,
-                cfg.agent_lane.base,
-                effective_msg,
-                resp_text,
-                settings,
-                phrase_bank or [],
-                cfg.audit_enabled,
-                cfg.length_guard,
-                kv_tracker=kv_tracker,
-                reasoning_on=cfg.editor_reasoning_on,
-                audit_context_msgs=editor_audit_msgs,
-                writer_user_msg=writer_content,
-            ):
-                if event["type"] == "reasoning":
-                    reasoning_editor_text += event["delta"]
+        # Errors are not caught here: an editor failure propagates and aborts
+        # the turn, like the director/writer passes. _consume_pipeline's finally
+        # still fallback-persists whatever the writer already streamed.
+        async for event in editor_pass(
+            cfg.agent_lane.client,
+            cfg.agent_lane.base,
+            effective_msg,
+            resp_text,
+            settings,
+            phrase_bank or [],
+            cfg.audit_enabled,
+            cfg.length_guard,
+            kv_tracker=kv_tracker,
+            reasoning_on=cfg.editor_reasoning_on,
+            audit_context_msgs=editor_audit_msgs,
+            writer_user_msg=writer_content,
+        ):
+            if event["type"] == "reasoning":
+                reasoning_editor_text += event["delta"]
+                yield {
+                    "event": "reasoning",
+                    "data": {"pass": "editor", "delta": event["delta"]},
+                }
+            elif event["type"] == "done":
+                refined_draft = event["draft"]
+                if refined_draft and refined_draft != resp_text:
+                    resp_text = refined_draft
                     yield {
-                        "event": "reasoning",
-                        "data": {"pass": "editor", "delta": event["delta"]},
+                        "event": "writer_rewrite",
+                        "data": {"refined_text": resp_text},
                     }
-                elif event["type"] == "done":
-                    refined_draft = event["draft"]
-                    if refined_draft and refined_draft != resp_text:
-                        resp_text = refined_draft
-                        yield {
-                            "event": "writer_rewrite",
-                            "data": {"refined_text": resp_text},
-                        }
-                    if event.get("tool_calls"):
-                        yield {
-                            "event": "editor_done",
-                            "data": {"tool_calls": event["tool_calls"]},
-                        }
-        except Exception as e:
-            logger.error("editor pass failed, keeping original: %s", e, exc_info=True)
+                if event.get("tool_calls"):
+                    yield {
+                        "event": "editor_done",
+                        "data": {"tool_calls": event["tool_calls"]},
+                    }
     else:
         logger.info(
             "Editor pass skipped (do_edit=%s, draft=%d chars)",

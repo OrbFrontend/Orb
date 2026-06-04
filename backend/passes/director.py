@@ -156,36 +156,34 @@ async def director_pass(
             json.dumps([*base.prefix, *trailing], indent=2, ensure_ascii=False),
         )
         resp: dict = {}
-        try:
-            reasoning_params = reasoning_cfg(reasoning_on and name != "rewrite_user_prompt")
-            hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
-            async for event in base.complete(
-                client,
-                label=f"director:{name}",
-                trailing=trailing,
-                tool_choice=TOOLS[name]["choice"],
-                kv_tracker=kv_tracker,
-                **hyperparams,
-                **reasoning_params,
-            ):
-                if event["type"] == "reasoning":
-                    yield {"type": "reasoning", "delta": event["delta"]}
-                elif event["type"] == "done":
-                    resp = event["message"]
-            last_raw = json.dumps(resp, default=str)
-            logger.info("Agent tool=%s output:\n%s", name, last_raw)
-            if parsed := parse_tool_calls(resp):
-                all_calls.extend(parsed)
-                active_moods, new_refined, new_extra = apply_tool_calls(parsed, active_moods)
-                if new_refined:
-                    refined_msg = new_refined
-                if new_extra:
-                    extra_fields.update(new_extra)
-            else:
-                logger.info("Agent tool=%s: model skipped", name)
-        except Exception as e:
-            logger.error("Agent tool=%s failed: %s", name, e)
-            last_raw = f"ERROR: {e}"
+        # Errors are not caught here: a failed tool call propagates out of the
+        # pass and aborts the turn, like the writer/editor passes.
+        reasoning_params = reasoning_cfg(reasoning_on and name != "rewrite_user_prompt")
+        hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
+        async for event in base.complete(
+            client,
+            label=f"director:{name}",
+            trailing=trailing,
+            tool_choice=TOOLS[name]["choice"],
+            kv_tracker=kv_tracker,
+            **hyperparams,
+            **reasoning_params,
+        ):
+            if event["type"] == "reasoning":
+                yield {"type": "reasoning", "delta": event["delta"]}
+            elif event["type"] == "done":
+                resp = event["message"]
+        last_raw = json.dumps(resp, default=str)
+        logger.info("Agent tool=%s output:\n%s", name, last_raw)
+        if parsed := parse_tool_calls(resp):
+            all_calls.extend(parsed)
+            active_moods, new_refined, new_extra = apply_tool_calls(parsed, active_moods)
+            if new_refined:
+                refined_msg = new_refined
+            if new_extra:
+                extra_fields.update(new_extra)
+        else:
+            logger.info("Agent tool=%s: model skipped", name)
 
     yield {
         "type": "done",
