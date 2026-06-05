@@ -1928,15 +1928,56 @@ async def handle_magic_rewrite(
         prefix = _build_prefix_from_ctx(ctx, extended_history)
 
         direction_msg = f"[OOC: Rewrite the above response. Direction: {direction}]"
-        msgs = prefix + [{"role": "user", "content": direction_msg}]
+
+        # Magic rewrite is a writer-style call with no director/editor passes, so
+        # it must ride the *writer lane* to stay byte-identical with the cached
+        # prefix the conversation's normal turns leave on the server. Reusing
+        # _resolve_pipeline_config's writer lane (rather than calling the client
+        # directly) gives us the right tool blob for free in both modes:
+        #   * single-model — the writer ships the full shared tool schemas (with
+        #     tool_choice="none"); sending tools=None here was diverging the
+        #     prompt at the tool section near the top and busting the whole cache.
+        #   * dual-model — the writer lane's tools are empty (Invariant 5), so the
+        #     rewrite drops tools to match the writer server's tool-less cache.
+        # The writer lane also runs on the writer client/model/system-prompt,
+        # which is the endpoint that generated (and cached) the message we rewrite.
+        macros = Macros.from_settings(settings, ctx.conv["character_name"], ctx.active_persona)
+        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx.director_fragments)}
+        enabled_tools_setting = settings.get("enabled_tools") or {}
+        enabled_tools = (
+            dict(enabled_tools_setting) if settings.get("enable_agent", 1) else {k: False for k in enabled_tools_setting}
+        )
+        cfg = _resolve_pipeline_config(
+            settings,
+            enabled_tools,
+            macros=macros,
+            client=ctx.client,
+            agent_client=ctx.agent_client,
+            agent_prefix=None,  # agent lane is unused by the rewrite
+            prefix=prefix,
+            phrase_bank=ctx.phrase_bank,
+            schema_overrides=schema_overrides,
+        )
+        writer_lane = cfg.writer_lane
 
         hyperparams = extract_hyperparams(settings)
 
         writer_reasoning_on = bool((settings.get("reasoning_enabled_passes") or {}).get("writer", False))
         extra = reasoning_cfg(writer_reasoning_on)
 
+        kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
         accumulated = ""
-        async for item in ctx.client.complete(messages=msgs, model=settings["model_name"], **extra, **hyperparams):
+        async for item in writer_lane.base.complete(
+            writer_lane.client,
+            label="magic_rewrite",
+            trailing=[{"role": "user", "content": direction_msg}],
+            # base.tools is empty in dual-model → no tools/tool_choice; otherwise
+            # ship the shared blob but bar the rewrite from calling anything.
+            tool_choice="none" if writer_lane.base.tools else None,
+            kv_tracker=kv_tracker,
+            **extra,
+            **hyperparams,
+        ):
             if item["type"] == "done":
                 break
             if item["type"] == "reasoning":
@@ -1950,6 +1991,8 @@ async def handle_magic_rewrite(
             elif item["type"] == "content":
                 accumulated += item["delta"]
                 yield {"event": "token", "data": item["delta"]}
+
+        kv_tracker.log_summary()
 
         # On abort, keep the original message intact rather than overwriting it
         # with the partial rewrite that streamed before the stop.
