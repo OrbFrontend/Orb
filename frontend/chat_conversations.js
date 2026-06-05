@@ -1,8 +1,9 @@
 // Conversation lifecycle: load / select / create / delete, the conversation
 // history modal, history compression, and inline title editing. Split out of
 // chat.js; the public surface is re-exported from chat.js.
-import { api, stopConversation, summarizeConversation } from "./api.js";
+import { api } from "./api.js";
 import { onConvSwitch, stopAll as stopAllAudio } from "./audio_player.js";
+import { stopConversation } from "./chat_stream.js";
 import { renderMessages, setMessages } from "./chat_core.js";
 import { renderInspector } from "./chat_inspector.js";
 import { clearInspectedMessage, inspectMessage } from "./chat_messages.js";
@@ -299,6 +300,17 @@ export function cancelCompression() {
   }
   if (S.activeConvId) stopConversation(S.activeConvId);
   closeModal();
+}
+
+// Streams an SSE summary, so it returns the raw Response for resp.body.getReader()
+// and takes an abort signal — neither of which the `api` helper supports.
+function summarizeConversation(convId, { keepCount, customInstructions }, signal) {
+  return fetch(`/api/conversations/${convId}/summarize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keep_count: keepCount, custom_instructions: customInstructions }),
+    signal,
+  });
 }
 
 export async function generateCompressionSummary() {

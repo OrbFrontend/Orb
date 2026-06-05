@@ -3,7 +3,7 @@
 // low-level pieces the feature modules (workflow, inspector, stream, messages,
 // conversations) build on. Split out of chat.js; the public surface is
 // re-exported from chat.js.
-import { api, getContextSize } from "./api.js";
+import { api } from "./api.js";
 import {
   _refreshWorkflowViewportObserver,
   _renderWorkflowArtifacts,
@@ -288,6 +288,14 @@ function refreshMessageToolbar(msgId) {
 
 export function updateContextCounter() {
   fetchContextSize();
+}
+
+// Soft-fails to null instead of throwing: the context counter is a non-critical
+// HUD value, so a failed fetch should leave the display untouched, not error.
+async function getContextSize(convId) {
+  const r = await fetch(`/api/conversations/${convId}/context-size`);
+  if (!r.ok) return null;
+  return r.json();
 }
 
 async function fetchContextSize() {

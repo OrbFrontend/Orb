@@ -2,7 +2,7 @@
 // inspection, delete, branch switching, and the keyboard / touch branch
 // navigation. Split out of chat.js; the public surface is re-exported from
 // chat.js.
-import { api, streamPost } from "./api.js";
+import { api } from "./api.js";
 import { canStartGeneration, renderMessages, setMessages } from "./chat_core.js";
 import { renderInspector } from "./chat_inspector.js";
 import {
@@ -12,6 +12,7 @@ import {
   processSSEStream,
   setGenerationPhase,
   setStreaming,
+  streamPost,
 } from "./chat_stream.js";
 import { showConfirmModal } from "./modal.js";
 import { S } from "./state.js";

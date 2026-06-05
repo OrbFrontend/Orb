@@ -3,7 +3,7 @@
 // facing send / continue / regenerate / super-regenerate / magic-rewrite
 // entry points. Split out of chat.js; the public surface is re-exported from
 // chat.js.
-import { api, stopConversation, streamPost } from "./api.js";
+import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import {
   ICON_DEL,
@@ -41,6 +41,23 @@ import {
   sentenceDiff,
   toast,
 } from "./utils.js";
+
+// ── Streaming transport
+// These bypass the `api` helper deliberately: SSE responses must be read off
+// the raw `Response` (api._req would consume the body with .json()), and stop
+// is fire-and-forget. Domain-specific, so they live with the stream machinery.
+export function streamPost(path, body, signal) {
+  return fetch("/api" + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
+
+export function stopConversation(convId) {
+  fetch(`/api/conversations/${convId}/stop`, { method: "POST" }).catch(() => {});
+}
 
 // ── Generation Phase
 const PHASE_ORDER = { pending: 0, directing: 0, generating: 1, refining: 2 };

@@ -27,31 +27,3 @@ export const api = {
     return this._req(p, { method: "POST", body: fd });
   },
 };
-
-export function stopConversation(convId) {
-  fetch(`/api/conversations/${convId}/stop`, { method: "POST" }).catch(() => {});
-}
-
-export async function getContextSize(convId) {
-  const r = await fetch(`/api/conversations/${convId}/context-size`);
-  if (!r.ok) return null;
-  return r.json();
-}
-
-export function summarizeConversation(convId, { keepCount, customInstructions }, signal) {
-  return fetch(`/api/conversations/${convId}/summarize`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keep_count: keepCount, custom_instructions: customInstructions }),
-    signal,
-  });
-}
-
-export function streamPost(path, body, signal) {
-  return fetch("/api" + path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
-}
