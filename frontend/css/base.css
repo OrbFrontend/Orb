@@ -1,0 +1,75 @@
+/* ═══════════════════════════════════════════
+   0. Reset & Base
+   ═══════════════════════════════════════════ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-ui);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  height: 100vh;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+.hidden { display: none !important; }
+
+/* ═══════════════════════════════════════════
+   1. Layout Shell
+   ═══════════════════════════════════════════ */
+#sidebar {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#inspector {
+  width: 0;
+  min-width: 0;
+  background: var(--bg-primary);
+  overflow: hidden;
+  transition: width .25s, min-width .25s;
+}
+
+#inspector.open {
+  width: var(--inspector-width);
+  min-width: var(--inspector-width);
+  border-left: 1px solid var(--border);
+}
+
+#tools-panel {
+  width: 0;
+  min-width: 0;
+  background: var(--bg-primary);
+  overflow: hidden;
+  transition: width .25s, min-width .25s;
+}
+
+#tools-panel.open {
+  width: var(--inspector-width);
+  min-width: var(--inspector-width);
+  border-left: 1px solid var(--border);
+}
+
+/* Suppress the slide animation when swapping between the two panels;
+   closing a panel entirely still animates. */
+#inspector.no-anim,
+#tools-panel.no-anim {
+  transition: none;
+}
+

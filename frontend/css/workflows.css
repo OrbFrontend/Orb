@@ -1,0 +1,388 @@
+/* Workflows ----------------------- */
+
+/* Bookmark/folder tabs: active tab carries an accent top edge and merges into
+   the content panel below by overlapping the shelf line. */
+.tab-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-button {
+  flex: 1;
+  padding: 8px 10px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  position: relative;
+  transition: border-color .15s, color .15s, background .15s;
+}
+
+.tab-button:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.tab-button-active {
+  margin-bottom: -1px;                       /* pull down over the shelf line */
+  color: var(--text-primary);
+  background: var(--accent-glow);
+  border-color: var(--accent-dim);
+  border-bottom-color: var(--bg-primary);    /* match panel bg so tab merges into content */
+  box-shadow: inset 0 2px 0 var(--accent);   /* bookmark accent edge on top */
+}
+
+.workflow-card {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+  background: var(--bg-surface);
+}
+
+.workflow-card > h4 {
+  margin: 0 0 8px 0;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--text-secondary);
+}
+
+.workflow-pipeline-card .reasoning-stepper {
+  margin-bottom: 8px;
+}
+
+.workflow-artifacts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.workflow-artifact-swipe {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.workflow-artifact-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workflow-artifact-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.workflow-widget {
+  display: contents;
+}
+
+.workflow-artifact-image {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: var(--radius);
+  display: block;
+}
+
+.workflow-artifact-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.workflow-artifact-link:hover {
+  background: var(--bg-elevated);
+}
+
+.workflow-swipe-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-swipe-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.workflow-swipe-btn:disabled {
+  opacity: .35;
+  cursor: default;
+}
+
+.workflow-artifact-counter {
+  align-self: center;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.workflow-regen-button {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-regen-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.workflow-regen-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.workflow-regen-error {
+  font-size: 11px;
+  color: var(--danger, #c66);
+  margin-top: 6px;
+  width: 100%;
+}
+
+.workflow-reroll-button {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-reroll-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.workflow-reroll-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.workflow-reroll-error {
+  font-size: 11px;
+  color: var(--danger, #c66);
+  margin-top: 6px;
+  width: 100%;
+}
+
+.workflow-artifact-evicted {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.workflow-artifact-evicted-label {
+  font-style: italic;
+}
+
+.workflow-rehydrate-button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.workflow-rehydrate-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.workflow-rehydrate-button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.workflow-rehydrate-disabled {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.workflow-rehydrate-error {
+  font-size: 11px;
+  color: var(--danger, #c66);
+  margin-top: 6px;
+  width: 100%;
+}
+
+.workflow-rejected-warning {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Framework chrome header on every workflow-artifact widget: label left,
+   minimize + delete controls right. */
+.workflow-artifact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-artifact-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.workflow-artifact-label-count {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.workflow-artifact-controls {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Lighter than the regen/reroll body buttons so chrome reads below content. */
+.workflow-chrome-btn {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.workflow-chrome-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border);
+  background: var(--bg-elevated);
+}
+
+.workflow-min-btn svg {
+  transition: transform .15s;
+}
+
+.workflow-min-btn.collapsed svg {
+  transform: rotate(-90deg);
+}
+
+.workflow-del-btn:hover {
+  color: var(--red);
+  border-color: var(--red);
+  background: rgba(196, 93, 93, .12);
+}
+
+/* Collapsed widget is just the header strip -- no body, nav, or counter. */
+.workflow-artifact-swipe.minimized {
+  gap: 0;
+}
+
+/* Delete dialog actions: Cancel pinned left, destructive choices grouped right.
+   Own class so the global `.modal-actions .btn-danger { margin-right: auto }`
+   single-action rule does not split the two delete buttons apart. */
+.workflow-delete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.workflow-delete-actions .btn:first-child {
+  margin-right: auto;
+}
+
+.gen-text-secondary {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-left: 8px;
+  margin-left: 4px;
+  border-left: 1px solid var(--border);
+}
+
+.gen-text-secondary:empty {
+  display: none;
+}
+
+/* Out-of-turn workflow status pill: only the secondary label shows, so hide the
+   turn-generation chrome and the label's left divider. */
+.gen-status.pill-only .gen-bar,
+.gen-status.pill-only .gen-dot,
+.gen-status.pill-only .gen-text {
+  display: none;
+}
+
+.gen-status.pill-only .gen-text-secondary {
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+}
+

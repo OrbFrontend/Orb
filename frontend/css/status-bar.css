@@ -1,0 +1,67 @@
+/* ═══════════════════════════════════════════
+   6. Generation Status Bar
+   ═══════════════════════════════════════════ */
+.gen-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  transition: height .3s ease, opacity .3s ease, border-top .3s ease;
+}
+
+.gen-status.hidden {
+  height: 0;
+  opacity: 0;
+  border-top-color: transparent;
+}
+
+.gen-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: gen-bar-slide 1.8s ease-in-out infinite;
+}
+
+@keyframes gen-bar-slide {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(350%); }
+}
+
+.gen-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  animation: gen-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes gen-pulse {
+  0%, 100% { opacity: .3; transform: scale(.8); }
+  50%      { opacity: 1;  transform: scale(1.2); }
+}
+
+.gen-dot.spin {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent);
+  border-top-color: transparent;
+  border-radius: 50%;
+  background: none;
+  animation: gen-spin .8s linear infinite;
+}
+
+@keyframes gen-spin {
+  to { transform: rotate(360deg); }
+}
+
