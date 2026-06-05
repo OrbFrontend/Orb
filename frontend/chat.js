@@ -54,6 +54,8 @@ export {
   clearInspectedMessage,
   deleteMessage,
   handleChatKeyNav,
+  initAutoscroll,
+  initChatKeyNav,
   initChatSwipeNav,
   inspectMessage,
   saveEdit,

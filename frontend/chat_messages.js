@@ -220,6 +220,57 @@ export function handleChatKeyNav(e) {
   ct.scrollTop += key === "ArrowUp" ? -60 : 60;
 }
 
+// Register the document-level chat keyboard navigation hook. Call once at startup.
+export function initChatKeyNav() {
+  document.addEventListener("keydown", handleChatKeyNav);
+}
+
+// ── Smart autoscroll: follow the stream until the user scrolls up; re-enable
+// once they scroll back to the bottom. Call once at startup.
+export function initAutoscroll() {
+  const ct = $("chat-messages");
+  if (!ct) return;
+  const THRESHOLD = 20;
+  let scrollDebounce = null;
+
+  // Wheel: immediately cut autoscroll on any upward scroll intent
+  ct.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.deltaY < 0) S.autoscrollEnabled = false;
+    },
+    { passive: true },
+  );
+
+  // Touch: disable on upward swipe
+  let touchStartY = 0;
+  ct.addEventListener(
+    "touchstart",
+    (e) => {
+      touchStartY = e.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  ct.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches[0].clientY > touchStartY) S.autoscrollEnabled = false;
+    },
+    { passive: true },
+  );
+
+  // Re-enable only once the user has scrolled back to the bottom (debounced to
+  // avoid false positives from rapid programmatic scroll events during streaming)
+  ct.addEventListener("scroll", () => {
+    if (S._programmaticScroll) return;
+    clearTimeout(scrollDebounce);
+    scrollDebounce = setTimeout(() => {
+      const atBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight <= THRESHOLD;
+      if (atBottom) S.autoscrollEnabled = true;
+    }, 100);
+  });
+}
+
 // ── Touch swipe navigation: horizontal swipe on the chat area switches
 // branches, mirroring the ←/→ keyboard behavior. Vertical-dominant motion is
 // ignored so scrolling still works.

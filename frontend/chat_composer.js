@@ -1,15 +1,14 @@
-// input.js — everything between the user's keyboard/pointer and the message list.
+// chat_composer.js — the message composer: everything the user types or attaches
+// before a send.
 //
 //   • the composer textarea (auto-grow, Enter-to-send)
 //   • image attachments (file picker, preview chips)
-//   • smart autoscroll (follow the stream until the user scrolls up)
-//   • the document-level chat keyboard navigation hook
 //
-// app.js calls initInput() once at startup. triggerAttachImage and
-// updateAttachmentPreview are also bridged onto window for inline handlers —
-// and chat_stream.js reads updateAttachmentPreview off the global after a send.
+// app.js calls initComposer() once at startup and bridges triggerAttachImage
+// onto window for the inline "Attach Image" handler. chat_stream.js imports
+// updateAttachmentPreview to clear the chips after a send.
 
-import { handleChatKeyNav, sendMessage } from "./chat.js";
+import { sendMessage } from "./chat_stream.js";
 import { S } from "./state.js";
 import { $, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -121,60 +120,11 @@ function onComposerKeydown(e) {
   }
 }
 
-// ── Smart autoscroll: disable on upward scroll, re-enable when back at bottom
-function initAutoscroll() {
-  const ct = $("chat-messages");
-  if (!ct) return;
-  const THRESHOLD = 20;
-  let scrollDebounce = null;
-
-  // Wheel: immediately cut autoscroll on any upward scroll intent
-  ct.addEventListener(
-    "wheel",
-    (e) => {
-      if (e.deltaY < 0) S.autoscrollEnabled = false;
-    },
-    { passive: true },
-  );
-
-  // Touch: disable on upward swipe
-  let touchStartY = 0;
-  ct.addEventListener(
-    "touchstart",
-    (e) => {
-      touchStartY = e.touches[0].clientY;
-    },
-    { passive: true },
-  );
-  ct.addEventListener(
-    "touchmove",
-    (e) => {
-      if (e.touches[0].clientY > touchStartY) S.autoscrollEnabled = false;
-    },
-    { passive: true },
-  );
-
-  // Re-enable only once the user has scrolled back to the bottom (debounced to
-  // avoid false positives from rapid programmatic scroll events during streaming)
-  ct.addEventListener("scroll", () => {
-    if (S._programmaticScroll) return;
-    clearTimeout(scrollDebounce);
-    scrollDebounce = setTimeout(() => {
-      const atBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight <= THRESHOLD;
-      if (atBottom) S.autoscrollEnabled = true;
-    }, 100);
-  });
-}
-
-// ── Wiring: register every input/scroll listener. Call once at startup.
-export function initInput() {
+// ── Wiring: register the composer's input listeners. Call once at startup.
+export function initComposer() {
   $("attach-image-input").addEventListener("change", handleAttachmentSelect);
 
   const input = $("chat-input");
   input.addEventListener("input", onComposerInput);
   input.addEventListener("keydown", onComposerKeydown);
-
-  document.addEventListener("keydown", handleChatKeyNav);
-
-  initAutoscroll();
 }

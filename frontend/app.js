@@ -12,6 +12,8 @@ import {
   generateCompressionSummary,
   handleMagicKey,
   handleTitleEditKey,
+  initAutoscroll,
+  initChatKeyNav,
   initChatSwipeNav,
   initWorkflowMutationListener,
   hideAvatarPopup,
@@ -111,7 +113,7 @@ import {
   showRenameWorldModal,
   toggleWorldEnabled,
 } from "./lorebooks.js";
-import { initInput, triggerAttachImage, updateAttachmentPreview } from "./input.js";
+import { initComposer, triggerAttachImage } from "./chat_composer.js";
 import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
 import { closeCropModal, closeModal, runConfirmCb, showConfirmModal, switchTab } from "./modal.js";
 import {
@@ -290,7 +292,6 @@ Object.assign(window, {
   toggleBurger,
   closeBurger,
   triggerAttachImage,
-  updateAttachmentPreview,
   showAvatarPopup,
   hideAvatarPopup,
   // worlds / lorebook
@@ -322,7 +323,9 @@ Object.assign(window, {
 // ── Init
 initTheme();
 initThemeList();
-initInput();
+initComposer();
+initChatKeyNav();
+initAutoscroll();
 initChatSwipeNav();
 initWorkflowTextInteraction();
 initAudioPlayer();

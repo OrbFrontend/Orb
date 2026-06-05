@@ -5,6 +5,7 @@
 // chat.js.
 import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
+import { updateAttachmentPreview } from "./chat_composer.js";
 import {
   ICON_DEL,
   ICON_EDIT,
