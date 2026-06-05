@@ -360,7 +360,7 @@ export function renderToolsPanel() {
           <input id="lg-max-words" type="number" min="50" max="4000" step="50" value="${S.lengthGuardMaxWords}" onchange="saveLengthGuardConfig()">
         </div>
         <div class="lg-field">
-          <label>Max sections</label>
+          <label>Max paragraphs</label>
           <input id="lg-max-paragraphs" type="number" min="1" max="20" step="1" value="${S.lengthGuardMaxParagraphs}" onchange="saveLengthGuardConfig()">
         </div>
       </div>
@@ -379,7 +379,7 @@ export function renderToolsPanel() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Reigns the model's response length by word count. MAX SECTIONS is suggested to the AI in rewrite pass.</div>
+    <div class="tool-card-desc">Reigns the model's response length by word count. MAX PARAGRAPHS is suggested to the AI in rewrite pass.</div>
     ${lgConfig}
   </div>`;
 
