@@ -211,7 +211,10 @@ function handleDocumentClick(event) {
 
   if (!isMobileSidebarViewport()) return;
 
-  if (sidebarOpen && matcher.matches(".char-item")) {
+  // Tapping a character or a world/lorebook opens content in the main pane, so
+  // get the off-canvas sidebar out of the way. (The world toggle switch lives
+  // outside .world-item-main, so flipping a lorebook on/off won't close it.)
+  if (sidebarOpen && matcher.matches(".char-item, .world-item-main")) {
     setTimeout(closeMobileSidebar, 0);
   }
 
@@ -304,6 +307,20 @@ export function initMobileUi(deps) {
 
   observeChildChanges([IDS.modalRoot, IDS.cropModalRoot], () => {
     if (!_handlingMobilePop) armMobileBackIfNeeded();
+  });
+
+  observeChildChanges(["lorebook-drawer"], () => {
+    const header = document.querySelector("#lorebook-drawer .lb-editor-header");
+    if (!header || header.querySelector(".lb-back-btn")) return;
+    const btn = document.createElement("button");
+    btn.className = "btn btn-sm lb-back-btn";
+    btn.title = "Back to entries";
+    btn.setAttribute("aria-label", "Back to entries");
+    btn.textContent = "←";
+    btn.onclick = () => {
+      if (typeof lbBackToList === "function") lbBackToList();
+    };
+    header.insertBefore(btn, header.firstChild);
   });
 
   syncMobilePanelState();

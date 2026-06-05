@@ -1,0 +1,231 @@
+/* Workflow audio player transport (frontend/audio_transport.js). A floating
+   control bar pinned just above the composer and out of the message flow, so
+   #chat-messages keeps its full height and its scrollbar runs the whole column.
+   It lives inside #chat-input-area; the chat re-render only rebuilds
+   #chat-messages, so the bar survives it. */
+.audio-transport {
+  /* Fluid scale: every size below derives from one of these viewport-tracked
+     tokens (the repo's min(82vw, ...) mobile-token idiom), clamped so the bar
+     shrinks on small screens and caps out instead of ballooning on 4K. Retune
+     the whole widget here. */
+  --at-mx: clamp(10px, 1.4vw, 22px);
+  --at-my: clamp(6px, 0.6vw, 11px);
+  --at-px: clamp(12px, 1.3vw, 24px);
+  --at-py: clamp(6px, 0.55vw, 11px);
+  --at-gap: clamp(6px, 0.6vw, 11px);
+  --at-fs: clamp(11px, 0.85vw, 15px);
+  --at-fs-sm: clamp(10px, 0.78vw, 14px);
+  --at-btn-px: clamp(7px, 0.7vw, 13px);
+  --at-btn-py: clamp(2px, 0.25vw, 5px);
+  --at-track: clamp(7px, 0.7vw, 12px);
+  --at-vol-w: clamp(64px, 7vw, 116px);
+  --at-thumb: clamp(10px, 1vw, 15px);
+
+  /* Pinned to the composer's top edge: bottom:100% tracks the composer as its
+     textarea grows (the idiom #burger-dropdown already uses), and absolute
+     positioning keeps the bar out of the message flow so #chat-messages keeps
+     its full height and scrollbar. The inset card floats over the bottom of the
+     message list; audio_transport.js reserves matching scroll space so the
+     newest message clears it instead of hiding behind it. */
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--at-gap) * 0.75);
+  /* left/right are re-set per-frame by audio_transport.js to align with the
+     message bubbles (assistant left / user right, scrollbar included); --at-mx is
+     the pre-sync fallback. Top/bottom stay fluid here. */
+  margin: var(--at-my) var(--at-mx);
+  padding: var(--at-py) var(--at-px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  font-size: var(--at-fs);
+  color: var(--text-secondary);
+}
+.audio-transport.hidden { display: none; }
+.audio-transport-suspended::before {
+  content: "tap to enable audio";
+  color: var(--text-muted);
+  font-style: italic;
+}
+.audio-transport-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--at-gap) * 0.5);
+}
+.audio-transport-tab {
+  flex: 0 0 auto;
+  max-width: clamp(90px, 9vw, 150px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px var(--at-btn-px);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: var(--at-fs-sm);
+  cursor: pointer;
+}
+.audio-transport-tab.selected {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+.audio-transport-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--at-gap);
+}
+.audio-transport-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--at-gap) calc(var(--at-gap) * 1.2);
+}
+.audio-transport-playpause,
+.audio-transport-repeat,
+.audio-transport-stop {
+  flex: 0 0 auto;
+  padding: var(--at-btn-py) var(--at-btn-px);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: var(--at-fs-sm);
+  cursor: pointer;
+}
+.audio-transport-playpause:hover,
+.audio-transport-repeat:hover,
+.audio-transport-stop:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+.audio-transport-repeat.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.audio-transport-playpause {
+  min-width: clamp(48px, 5vw, 84px);
+  text-align: center;
+}
+.audio-transport-time {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: var(--at-fs-sm);
+  white-space: nowrap;
+}
+.audio-transport-progress {
+  width: 100%;
+  height: var(--at-track);
+  background: var(--bg-hover);
+  border-radius: calc(var(--at-track) / 2);
+  overflow: hidden;
+  cursor: pointer;
+  transition: height 0.1s ease;
+}
+.audio-transport-progress:hover {
+  height: calc(var(--at-track) + 3px);
+}
+.audio-transport-fill {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+}
+.audio-transport-vol {
+  flex: 0 0 auto;
+  width: var(--at-vol-w);
+  height: calc(var(--at-track) * 0.8);
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-hover);
+  border-radius: calc(var(--at-track) * 0.4);
+  cursor: pointer;
+}
+.audio-transport-vol::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--at-thumb);
+  height: var(--at-thumb);
+  border-radius: 50%;
+  background: var(--text-secondary);
+  cursor: pointer;
+}
+.audio-transport-vol:hover::-webkit-slider-thumb {
+  background: var(--text-primary);
+}
+.audio-transport-vol::-moz-range-thumb {
+  width: var(--at-thumb);
+  height: var(--at-thumb);
+  border: none;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  cursor: pointer;
+}
+.audio-transport-vol::-moz-range-track {
+  height: calc(var(--at-track) * 0.8);
+  background: var(--bg-hover);
+  border-radius: calc(var(--at-track) * 0.4);
+}
+/* Close (x) at the right end of the tab row -- dismisses the bar without stopping
+   playback (audio_transport.js). Inherits the --at-* scale from .audio-transport. */
+.audio-transport-close {
+  margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px var(--at-btn-px);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.audio-transport-close:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+.audio-transport-close svg {
+  width: 1.1em;
+  height: 1.1em;
+  display: block;
+}
+/* Floating button that restores a dismissed bar (audio_transport.js): same anchor
+   as the bar -- above the composer -- but a small corner control. Standalone, so
+   it uses literal clamps rather than the bar-scoped --at-* tokens. */
+.audio-reopen {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin: 0 clamp(12px, 1.4vw, 24px) clamp(6px, 0.6vw, 11px) 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(30px, 3vw, 42px);
+  height: clamp(30px, 3vw, 42px);
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.audio-reopen:hover {
+  color: var(--text-primary);
+  border-color: var(--accent-dim);
+}
+.audio-reopen svg {
+  width: 58%;
+  height: 58%;
+  display: block;
+}
+

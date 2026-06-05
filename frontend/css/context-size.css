@@ -1,0 +1,64 @@
+/* Context Size */
+.ctx-section {
+  border: none;
+}
+.ctx-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+  user-select: none;
+}
+.ctx-summary::-webkit-details-marker { display: none; }
+.ctx-section[open] .reasoning-summary-arrow { transform: rotate(90deg); }
+.ctx-rows { margin-top: 8px; }
+.ctx-total {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 0;
+}
+.ctx-total .ctx-msgs {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.ctx-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 0;
+}
+.ctx-label {
+  width: 110px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--border, #333);
+  border-radius: 2px;
+  min-width: 40px;
+}
+.ctx-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent, #6c8);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+.ctx-tokens {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+

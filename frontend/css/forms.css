@@ -1,0 +1,231 @@
+/* ═══════════════════════════════════════════
+   8. Buttons & Form Elements
+   ═══════════════════════════════════════════ */
+button {
+  font-family: var(--font-ui);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  transition: all .15s;
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+.btn-accent {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-accent:hover { background: var(--accent); }
+
+.btn-active {
+  background: var(--accent-glow);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+.btn-active:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-icon { background: none; border: none; cursor: pointer; color: var(--text-secondary); padding: 2px; display: inline-flex; align-items: center; justify-content: center; }
+.btn-icon:hover { color: var(--text-primary); }
+.btn-xs { padding: 2px 6px; font-size: 10px; }
+
+.btn-danger { color: var(--red); }
+.btn-danger:hover { background: rgba(196, 93, 93, .15); }
+
+.btn-block { width: 100%; justify-content: center; }
+
+.btn-row { display: flex; gap: 4px; }
+
+/* Toggle switch */
+.tog {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.tog input { opacity: 0; width: 0; height: 0; }
+
+.tog-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  transition: .2s;
+}
+
+.tog-slider:before {
+  position: absolute;
+  content: "";
+  height: 12px;
+  width: 12px;
+  left: 2px;
+  bottom: 2px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: .2s;
+}
+
+.tog input:checked + .tog-slider {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.tog input:checked + .tog-slider:before {
+  transform: translateX(14px);
+  background: #fff;
+}
+
+/* Form fields */
+input,
+textarea,
+select {
+  font-family: var(--font-ui);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  font-size: 13px;
+  outline: none;
+  width: 100%;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):hover,
+textarea:hover,
+select:hover {
+  border-color: var(--border-light);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 14px var(--accent-glow);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+textarea[data-key="system_prompt"] {
+  min-height: 30px;
+  height: 30px;
+}
+
+label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+.field { margin-bottom: 10px; }
+
+.field-warning {
+  font-size: 11px;
+  color: #c8a84b;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.field-row { display: flex; gap: 8px; }
+.field-row .field { flex: 1; }
+
+
+
+/* ═══════════════════════════════════════════
+   9. Toast Notifications
+   ═══════════════════════════════════════════ */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-primary);
+  z-index: 200;
+  animation: toastIn .2s ease, toastOut .3s ease 2.7s forwards;
+}
+
+.toast.error {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* ═══════════════════════════════════════════
+   9.5 Tab Lock Banner
+   ═══════════════════════════════════════════ */
+.tab-lock-banner {
+  background: var(--red);
+  color: var(--text-on-accent);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tab-lock-banner.hidden {
+  display: none !important;
+}
+
+.tab-lock-icon {
+  font-size: 16px;
+}
+
