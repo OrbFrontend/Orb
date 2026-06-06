@@ -280,3 +280,14 @@ async def test_import_rejects_non_db(client):
         files={"file": ("notes.txt", b"hello", "text/plain")},
     )
     assert resp.status_code == 400
+
+
+def test_library_path_rejects_traversal():
+    """A request-supplied name must stay inside the snapshots dir."""
+    import pytest
+
+    from backend import presets
+
+    for bad in ("../secret.db", "sub/dir.db", "/etc/passwd", "..\\evil.db", "noext"):
+        with pytest.raises(presets.PresetError):
+            presets._library_path(bad)

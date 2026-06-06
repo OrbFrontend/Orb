@@ -74,11 +74,27 @@ def _snapshots_dir() -> str:
 
 
 def _library_path(name: str) -> str:
-    """Resolve a library entry by file name, rejecting path traversal."""
-    safe = os.path.basename(name)
-    if safe != name or not safe.endswith(".db"):
+    """Resolve a library entry by file name, rejecting path traversal.
+
+    ``name`` arrives straight from a request path parameter, so it is validated
+    against a strict filename allowlist before reaching any filesystem sink. The
+    pattern admits only the characters our own ``_unique_name`` emits (letters,
+    digits, ``-``, ``_``) plus the literal ``.db`` suffix, so ``/``, ``\\`` and
+    any ``.`` outside that suffix -- hence every path separator and ``..`` -- are
+    rejected up front; this whole-string allowlist is what CodeQL
+    ``py/path-injection`` recognises as the barrier. The repetition is length-
+    bounded (a real name's stem is a 15-char timestamp plus a slug capped at 40)
+    so the match cannot backtrack on a long run of ``-`` (CodeQL
+    ``py/polynomial-redos``). The ``realpath`` containment test then keeps the
+    runtime guard authoritative against a symlink planted in the library,
+    inlined right before the stat sink.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}\.db", name):
         raise PresetError("Invalid preset name")
-    path = os.path.join(_snapshots_dir(), safe)
+    root = os.path.realpath(_snapshots_dir())
+    path = os.path.realpath(os.path.join(root, name))
+    if path != root and not path.startswith(root + os.sep):
+        raise PresetError("Invalid preset name")
     if not os.path.isfile(path):
         raise PresetError("Preset not found")
     return path
