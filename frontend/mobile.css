@@ -327,6 +327,44 @@ body {
     flex-basis: 100%;
     margin-left: 0;
   }
+
+  /* ── Backup & Presets modal ──
+     The library row is a "title/meta on the left, action buttons on the
+     right" layout on desktop. On a phone the text buttons (Apply/Restore)
+     don't shrink and crowd — then overlap — the title, so stack each row:
+     title, meta and chips first, then a full-width action strip below. */
+  #preset-top-actions {
+    flex-wrap: wrap;
+  }
+  #preset-top-actions .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+  }
+
+  .preset-item-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  /* Let a long label wrap under the kind chip instead of overflowing. */
+  .preset-item-title {
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* Actions drop to their own row as even, comfortable tap targets. */
+  .preset-item-actions {
+    width: 100%;
+    gap: 6px;
+  }
+  .preset-item-actions .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 8px 6px;
+    justify-content: center;
+  }
 }
 
 /* ── Small-phone compaction ── */
