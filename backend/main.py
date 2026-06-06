@@ -1401,11 +1401,20 @@ async def api_apply_preset(name: str):
 async def api_restore_preset(name: str):
     async with maintenance_lock():
         try:
+            path = presets._library_path(name)
+            meta = presets.read_meta(path) or {}
+            if meta.get("kind") == "imported":
+                raise HTTPException(status_code=400, detail="Imported presets can only be applied (merged), not restored.")
             backup = await asyncio.to_thread(presets.create_snapshot, "before restore")
-            await asyncio.to_thread(presets.restore_full, name)
+            full = set(meta.get("included_domains") or presets.ALL_DOMAINS) >= set(presets.ALL_DOMAINS)
+            if full:
+                await asyncio.to_thread(presets.restore_full, name)
+                summary = None
+            else:
+                summary = await asyncio.to_thread(presets.restore_partial, path)
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    return {"backup": backup, "ok": True}
+    return {"backup": backup, "ok": True, "summary": summary}
 
 
 @app.delete("/api/presets/{name}")

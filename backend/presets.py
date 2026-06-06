@@ -13,7 +13,12 @@ Two ways to bring a file's data into the live DB:
     rows that are *referenced* by other tables are reinserted with fresh ids and
     the references translated. Existing data the preset doesn't mention is left
     alone.
-  * **restore** -- full-file replace (a clean rollback).
+  * **restore** -- roll the live DB back to the file. A *full-coverage* file is
+    swapped in whole (``restore_full``). A *partial* file is restored
+    domain-scoped (``restore_partial``): the same merge machinery as apply, but
+    each covered domain is emptied first, so those domains end up *exactly*
+    matching the file (rows added since are dropped) while domains the file
+    doesn't carry are left untouched.
 
 All logic here is synchronous ``sqlite3`` (mirroring the migration runner) so it
 can ``ATTACH`` databases and run ``VACUUM INTO``; routes invoke it via
@@ -526,9 +531,36 @@ def _merge_configs(conn: sqlite3.Connection) -> None:
             )
 
 
-def apply_preset(preset_path: str) -> dict:
+# Domains whose apply-merge is additive (upsert / per-parent replace). A
+# domain-scoped *restore* must empty these before merging so the file's rows
+# land in an empty domain and the domain ends up exactly matching the file.
+# `configs` (overwrites the settings singleton in place) and `phrase_bank`
+# (its merge already deletes first) are full replacements on apply already, so
+# they are deliberately absent.
+_REPLACE_WIPE_DOMAINS = ("characters", "chats", "lorebooks", "fragments")
+
+
+def _replace_wipe(conn: sqlite3.Connection, included: set[str]) -> None:
+    """Empty each covered additive domain ahead of its merge (restore only).
+
+    Deletes child-first (``reversed(DOMAIN_TABLES)``) to stay correct even if
+    foreign keys are ever on; apply runs FK-off, so the final
+    ``foreign_key_check`` is what actually guards the committed state.
+    """
+    for domain in _REPLACE_WIPE_DOMAINS:
+        if domain in included:
+            for table in reversed(DOMAIN_TABLES[domain]):
+                conn.execute(f"DELETE FROM main.{table}")
+
+
+def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
     """Merge a preset's data into the live DB by identity. Returns row counts
-    per merged domain. Raises PresetError on schema-version skew or FK failure."""
+    per merged domain. Raises PresetError on schema-version skew or FK failure.
+
+    With ``replace=True`` (the partial-restore path) each covered domain is
+    emptied before its merge, so the domain ends up exactly matching the file
+    rather than merged into existing rows; domains the file doesn't carry are
+    left untouched."""
     check_and_upgrade(preset_path)
     included = set(preset_domains(preset_path))
 
@@ -538,6 +570,8 @@ def apply_preset(preset_path: str) -> dict:
         conn.execute("PRAGMA foreign_keys=OFF")
         conn.execute("ATTACH DATABASE ? AS preset", (preset_path,))
         conn.execute("BEGIN")
+        if replace:
+            _replace_wipe(conn, included)
         if "lorebooks" in included:
             _merge_lorebooks(conn)
             summary["lorebooks"] = conn.execute("SELECT COUNT(*) FROM preset.worlds").fetchone()[0]
@@ -562,6 +596,15 @@ def apply_preset(preset_path: str) -> dict:
             _merge_configs(conn)
             summary["configs"] = 1
 
+        if replace and "lorebooks" in included:
+            # Worlds were replaced wholesale; null any character link to a world
+            # the file didn't carry. (When characters was also covered,
+            # _merge_characters already ran this; harmless to repeat.)
+            conn.execute(
+                "UPDATE main.character_cards SET world_id = NULL "
+                "WHERE world_id IS NOT NULL AND world_id NOT IN (SELECT id FROM main.worlds)"
+            )
+
         problems = conn.execute("PRAGMA foreign_key_check").fetchall()
         if problems:
             conn.execute("ROLLBACK")
@@ -580,6 +623,15 @@ def apply_preset(preset_path: str) -> dict:
             pass
         conn.close()
     return summary
+
+
+def restore_partial(preset_path: str) -> dict:
+    """Roll the covered domains back to a partial file (domain-scoped restore).
+
+    Replaces each domain the file carries to match it exactly and leaves the
+    rest untouched. The full-coverage counterpart is ``restore_full``.
+    """
+    return apply_preset(preset_path, replace=True)
 
 
 # ── snapshots / restore / library ─────────────────────────────────────────
