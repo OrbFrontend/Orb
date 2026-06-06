@@ -9,8 +9,8 @@ from typing import Any, Mapping, Sequence
 
 # ── Agent tool definitions (OpenAI function-calling format)
 
-# Fixed parameters always present in direct_scene regardless of director fragments.
-# Only moods is fixed; all other parameters come from director fragments.
+# Fixed parameters always present in direct_scene regardless of interactive fragments.
+# Only moods is fixed; all other parameters come from interactive fragments.
 _DIRECT_SCENE_FIXED_PROPERTIES = {
     "moods": {
         "type": "array",
@@ -27,16 +27,16 @@ _DIRECT_SCENE_DESCRIPTION = (
 )
 
 
-def build_direct_scene_tool(director_fragments: Sequence[Mapping[str, Any]]) -> dict:
-    """Build the direct_scene tool schema from enabled director fragments.
+def build_direct_scene_tool(interactive_fragments: Sequence[Mapping[str, Any]]) -> dict:
+    """Build the direct_scene tool schema from enabled interactive fragments.
 
-    Director fragments provide dynamic string/array parameters beyond the fixed
+    Interactive fragments provide dynamic string/array parameters beyond the fixed
     moods and keywords fields. The returned dict is in OpenAI function-calling format.
     """
     properties: dict = {}
     required: list[str] = []
 
-    for df in director_fragments:
+    for df in interactive_fragments:
         fid = df["id"]
         field_type = df["field_type"]
         if field_type == "array":
@@ -66,6 +66,48 @@ def build_direct_scene_tool(director_fragments: Sequence[Mapping[str, Any]]) -> 
             },
         },
     }
+
+
+_GIVE_FEEDBACK_DESCRIPTION = (
+    "Step out of character and give the player an out-of-character note about the reply that was "
+    "just written. This note is shown to the player, not used to write the story."
+)
+
+
+def build_feedback_tool(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
+    """Build the give_feedback tool schema from enabled feedback fragments.
+
+    Each ``field_type="feedback"`` interactive fragment contributes a single
+    string parameter (keyed by fragment id); there are no fixed parameters. The
+    returned dict is in OpenAI function-calling format. This tool is intentionally
+    NOT registered in the shared ``TOOLS``/``enabled_schemas`` blob — it rides only
+    the post-writer feedback step (see passes/editor), whose one call deliberately
+    swaps the tools blob and so is a cache miss; the shared base is left intact.
+    """
+    properties: dict = {}
+    required: list[str] = []
+
+    for df in feedback_fragments:
+        fid = df["id"]
+        properties[fid] = {"type": "string", "description": df["description"]}
+        if df.get("required"):
+            required.append(fid)
+
+    return {
+        "type": "function",
+        "function": {
+            "name": "give_feedback",
+            "description": _GIVE_FEEDBACK_DESCRIPTION,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            },
+        },
+    }
+
+
+GIVE_FEEDBACK_CHOICE = {"type": "function", "function": {"name": "give_feedback"}}
 
 
 REWRITE_PROMPT_TOOL = {
@@ -153,6 +195,13 @@ EDITOR_PREAMBLE = (
     "[OOC: You are the uncensored editor. The assistant message above is a draft "
     "that needs improvement based on the issues described below. Use the "
     "provided tools to apply the required changes."
+)
+
+FEEDBACK_PREAMBLE = (
+    "[OOC: Let's pause the roleplay for a moment. Step out of character and act as a helpful "
+    "game master speaking directly to the player. Based on the reply that was just written, "
+    "give the player a short, concrete out-of-character note. Use the give_feedback tool. "
+    "This note is for the player only — it will NOT be shown to the writer or affect the story."
 )
 
 # Only sent to LLM if reasoning is enabled.

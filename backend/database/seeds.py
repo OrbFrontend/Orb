@@ -78,7 +78,7 @@ SEED_MOOD_FRAGMENTS = [
     },
 ]
 
-SEED_DIRECTOR_FRAGMENTS = [
+SEED_INTERACTIVE_FRAGMENTS = [
     {
         "id": "plot_summary",
         "label": "Plot Summary",
@@ -167,6 +167,21 @@ SEED_DIRECTOR_FRAGMENTS = [
         "injection_label": "Avoid repeating",
         "sort_order": 5,
     },
+    {
+        # Editor Feedback: a post-writer note shown to the *user* rather than fed
+        # to the writer. The "feedback" field_type is what routes a fragment to the
+        # post-writer feedback step (see passes/editor); it carries a single
+        # string. Seeded disabled so it is purely discoverable; turning it on (plus
+        # the feedback_enabled setting) runs the feedback step after each reply.
+        "id": "next_actions",
+        "label": "Next Actions",
+        "description": "Suggest 2-3 concrete things the player could do or say next, as a single short note.",
+        "field_type": "feedback",
+        "required": False,
+        "injection_label": "What you could do next",
+        "sort_order": 6,
+        "enabled": False,
+    },
 ]
 
 DEFAULT_ENABLED_TOOLS = {
@@ -210,6 +225,7 @@ DEFAULT_SETTINGS = {
     "prevent_prompt_overrides": 0,
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
+    "feedback_enabled": 0,
 }
 
 

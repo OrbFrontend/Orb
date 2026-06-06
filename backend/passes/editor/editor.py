@@ -8,9 +8,10 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncIterator, Mapping, TYPE_CHECKING
+from typing import Any, AsyncIterator, Mapping, Sequence, TYPE_CHECKING
 
 from .audit import run_audit, format_report, AuditReport
+from .feedback import feedback_step, FeedbackResult
 from .slop_detector import DetectionResult
 
 if TYPE_CHECKING:
@@ -301,6 +302,86 @@ def _editor_done_event(
 
 
 async def editor_pass(
+    client: LLMClient,
+    base: CachedBase,
+    effective_msg: str,
+    draft: str,
+    settings: Mapping[str, Any],
+    phrase_bank: list[PhraseGroup],
+    audit_enabled: bool = True,
+    length_guard: LengthGuard | None = None,
+    kv_tracker=None,
+    reasoning_on: bool = False,
+    audit_context_msgs: list[str] | None = None,
+    writer_user_msg: "str | list[ContentPart] | None" = None,
+    feedback_fragments: "Sequence[Mapping[str, Any]] | None" = None,
+    feedback_reasoning_on: bool = False,
+) -> AsyncIterator[dict]:
+    """Editor pass = the ReAct edit loop, then an optional post-writer feedback step.
+
+    The edit loop fixes audit/length-guard issues in *draft*. Afterwards, if any
+    ``field_type='feedback'`` interactive fragments are passed, a feedback step
+    runs on the final (edited) text to produce an out-of-character note for the
+    user. Feedback is post-processing, so it lives here rather than as its own
+    top-level pass; its single LLM call deliberately busts the KV cache (it swaps
+    the tools blob) but leaves the shared base intact.
+
+    Yields:
+        {"type": "reasoning", "delta": str, "pass": "editor"|"feedback"}
+        {"type": "done", "draft": str|None, "debug": str, "elapsed": int,
+         "tool_calls": list (when the edit loop ran),
+         "feedback": dict, "feedback_latency": int}
+    """
+    edit_done: dict | None = None
+    async for ev in _run_edit_loop(
+        client,
+        base,
+        effective_msg,
+        draft,
+        settings,
+        phrase_bank,
+        audit_enabled,
+        length_guard,
+        kv_tracker=kv_tracker,
+        reasoning_on=reasoning_on,
+        audit_context_msgs=audit_context_msgs,
+        writer_user_msg=writer_user_msg,
+    ):
+        if ev["type"] == "reasoning":
+            yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
+        elif ev["type"] == "done":
+            edit_done = ev
+
+    # _run_edit_loop yields exactly one done event. A None draft means "unchanged",
+    # so the feedback step reads the original text in that case.
+    final_text = (edit_done.get("draft") if edit_done else None) or draft
+
+    feedback_values: dict = {}
+    feedback_latency = 0
+    if feedback_fragments and final_text and not client.is_aborted:
+        async for ev in feedback_step(
+            client,
+            base,
+            final_text,
+            settings,
+            feedback_fragments,
+            kv_tracker=kv_tracker,
+            reasoning_on=feedback_reasoning_on,
+        ):
+            if ev["type"] == "reasoning":
+                yield {"type": "reasoning", "delta": ev["delta"], "pass": "feedback"}
+            elif ev["type"] == "done":
+                fb: FeedbackResult = ev["result"]
+                feedback_values = fb.values
+                feedback_latency = fb.latency
+
+    done = dict(edit_done) if edit_done else {"type": "done", "draft": None, "debug": "", "elapsed": 0}
+    done["feedback"] = feedback_values
+    done["feedback_latency"] = feedback_latency
+    yield done
+
+
+async def _run_edit_loop(
     client: LLMClient,
     base: CachedBase,
     effective_msg: str,

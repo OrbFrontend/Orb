@@ -4,7 +4,7 @@ export const S = {
   activeCharId: null,
   messages: [],
   moodFragments: [],
-  directorFragments: [],
+  interactiveFragments: [],
   characters: [],
   personas: [],
   activePersonaId: null,
@@ -43,6 +43,9 @@ export const S = {
   reasoningDirector: "",
   reasoningWriter: "",
   reasoningEditor: "",
+  reasoningFeedback: "", // accumulated reasoning deltas from the post-writer feedback pass
+  lastFeedback: null, // {values: {...}} from the feedback pass for the current/streamed turn (null when none)
+  feedbackEnabled: false,
   reasoningPassActive: 0,
   reasoningPassSelected: 0,
   reasoningUserOverride: false,

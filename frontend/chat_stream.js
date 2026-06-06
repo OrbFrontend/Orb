@@ -365,6 +365,8 @@ export async function processSSEStream(resp, container, msgDiv, signal) {
   S.reasoningDirector = "";
   S.reasoningWriter = "";
   S.reasoningEditor = "";
+  S.reasoningFeedback = "";
+  S.lastFeedback = null;
   S.reasoningByPass = {};
   S.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
   S.reasoningPassSelected = 0; // tracks what the user is viewing
@@ -501,6 +503,13 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
           // next time it runs.
           break;
         }
+        if (passKey === "feedback") {
+          // Post-writer feedback pass: not a dot on the reasoning rail; its
+          // reasoning accumulates silently and is surfaced in the inspector's
+          // Feedback block when present.
+          S.reasoningFeedback = (S.reasoningFeedback || "") + delta;
+          break;
+        }
         const pipeline = S.workflowPipelines.find((p) => p.passes.some((pp) => pp.id === passKey));
         if (pipeline) {
           // Pre-write read: the dot/line lit-state changes only on this empty ->
@@ -518,6 +527,17 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
           break;
         }
         console.warn("Unrouted reasoning event for pass id:", passKey, d);
+      } catch (_) {}
+      break;
+    }
+    case "feedback": {
+      // Post-writer, user-facing note. Display-only (no click-to-insert in v1):
+      // stored on the turn and surfaced in the inspector's Feedback block, which
+      // re-renders here live and again from the director-log on message revisit.
+      try {
+        const d = JSON.parse(data);
+        S.lastFeedback = { values: d.values || {} };
+        renderInspector();
       } catch (_) {}
       break;
     }

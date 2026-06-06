@@ -329,6 +329,38 @@ function _buildToolCallsHtml(tc) {
   </details>`;
 }
 
+// Map feedback-pass values ({fragment_id: string|array}) to display rows using
+// each interactive fragment's injection_label as the heading. Shared by the live
+// stream note and the inspector block so both render identically.
+export function feedbackRows(values) {
+  if (!values || typeof values !== "object") return [];
+  const frags = S.interactiveFragments || [];
+  return Object.entries(values)
+    .filter(([, v]) => v && (Array.isArray(v) ? v.length : true))
+    .map(([id, v]) => {
+      const frag = frags.find((f) => f.id === id);
+      const label = (frag && frag.injection_label) || (frag && frag.label) || id;
+      return { label, value: v };
+    });
+}
+
+export function buildFeedbackHtml(values) {
+  const rows = feedbackRows(values);
+  if (!rows.length) return "";
+  const body = rows
+    .map(({ label, value }) => {
+      const valHtml = Array.isArray(value)
+        ? `<ul style="margin:2px 0 0;padding-left:18px">${value.map((it) => `<li>${esc(String(it))}</li>`).join("")}</ul>`
+        : `<div style="margin-top:2px">${esc(String(value))}</div>`;
+      return `<div style="margin-bottom:6px"><strong style="font-size:11px;color:var(--text-secondary)">${esc(label)}</strong>${valHtml}</div>`;
+    })
+    .join("");
+  return `<div class="inspector-block">
+    <h4>Feedback</h4>
+    <div style="font-size:12px;color:var(--text-secondary)">${body}</div>
+  </div>`;
+}
+
 function _buildInjectionBlockHtml(inj) {
   const openAttr = S.injectionBlockOpen ? " open" : "";
   return `<details class="inspector-block"${openAttr} ontoggle="S.injectionBlockOpen=this.open;saveInspectorOpenStates()">
@@ -423,6 +455,7 @@ function _renderInspectorMain() {
         <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
       </div>
       ${_buildReasoningHtml()}
+      ${buildFeedbackHtml(insp.feedback)}
       ${tc.length ? _buildToolCallsHtml(tc) : ""}
       ${inj ? _buildInjectionBlockHtml(inj) : ""}
       ${
@@ -443,11 +476,11 @@ function _renderInspectorMain() {
     (S.lastDirectorData && Object.keys(S.lastDirectorData).length > 0);
 
   if (!hasDirectorData) {
+    const fbHtml = buildFeedbackHtml(S.lastFeedback && S.lastFeedback.values);
     $("inspector-content").innerHTML = `${_buildReasoningHtml()}
        <div class="inspector-block" id="inspector-context-size"></div>
-       <div style="color:var(--text-muted);font-size:12px;">
-         Send a message to see director output
-       </div>`;
+       ${fbHtml}
+       ${fbHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
     return;
   }
 
@@ -466,6 +499,7 @@ function _renderInspectorMain() {
       <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
     </div>
     ${_buildReasoningHtml()}
+    ${buildFeedbackHtml(S.lastFeedback && S.lastFeedback.values)}
     ${tc.length ? _buildToolCallsHtml(tc) : ""}
     ${inj ? _buildInjectionBlockHtml(inj) : ""}
     ${

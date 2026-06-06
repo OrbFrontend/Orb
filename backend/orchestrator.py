@@ -45,7 +45,7 @@ from .passes.editor import editor_pass
 from .database.models import (
     CharacterCardRow,
     ConversationRow,
-    DirectorFragmentRow,
+    InteractiveFragmentRow,
     DirectorStateRow,
     LorebookEntryRow,
     MoodFragmentRow,
@@ -233,6 +233,9 @@ class _PipelineResult:
     reasoning_director: str = ""
     reasoning_writer: str = ""
     reasoning_editor: str = ""
+    feedback: dict = field(default_factory=dict)
+    reasoning_feedback: str = ""
+    feedback_latency: int = 0
     staged_attachments: list[dict] = field(default_factory=list)
     staged_message_state: dict = field(default_factory=dict)
 
@@ -248,7 +251,7 @@ async def _run_pipeline(
     settings: Mapping[str, Any],
     director: Mapping[str, Any],
     mood_fragments: Sequence[Mapping[str, Any]],
-    director_fragments: Sequence[Mapping[str, Any]],
+    interactive_fragments: Sequence[Mapping[str, Any]],
     user_message: str,
     attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     phrase_bank: list[PhraseGroup] | None = None,
@@ -275,7 +278,7 @@ async def _run_pipeline(
     schema list returned by ``enabled_schemas(enabled_tools, schema_overrides)``
     are kept byte-identical across all three passes so the LLM can reuse cached
     KV entries. ``direct_scene`` is dynamic per character; its schema is built
-    once by the caller via ``build_direct_scene_tool(director_fragments)`` and
+    once by the caller via ``build_direct_scene_tool(interactive_fragments)`` and
     threaded as ``schema_overrides`` to every pass so the tools blob matches.
     Only ``tool_choice`` and the trailing user message differ per pass.
     ``editor_rewrite`` is included in the schema set whenever the length guard
@@ -290,7 +293,7 @@ async def _run_pipeline(
     turn. *kv_tracker* is likewise constructed by the caller and finalised
     here via ``log_summary()`` after the post-pipeline loop closes.
     *schema_overrides* is the per-turn dynamic-schema map the caller builds
-    (today: ``{"direct_scene": build_direct_scene_tool(director_fragments)}``)
+    (today: ``{"direct_scene": build_direct_scene_tool(interactive_fragments)}``)
     and threads here so every pass receives it for byte-identical tools.
     *history* is the prior-message list forwarded read-only onto each
     ``PostCtx``; the passes read history through *prefix*, not this argument.
@@ -321,9 +324,18 @@ async def _run_pipeline(
         schema_overrides=schema_overrides,
     )
 
+    # Interactive fragments split on field_type, where they are consumed: only
+    # non-feedback fragments reach the writer (direct_scene tool + Scene Direction
+    # block); field_type="feedback" fragments drive the post-writer feedback step
+    # (run inside the editor pass) and never enter the writer prompt. (The
+    # direct_scene schema in schema_overrides is already filtered to writer
+    # fragments by the caller.)
+    writer_fragments = [df for df in interactive_fragments if df.get("field_type") != "feedback"]
+    feedback_fragments = [df for df in interactive_fragments if df.get("field_type") == "feedback"]
+
     # Mutable turn state, accumulated as the three passes run below.
     active_moods = director["active_moods"]
-    _valid_progressive_ids = {df["id"] for df in director_fragments if df.get("field_type") == "progressive"}
+    _valid_progressive_ids = {df["id"] for df in writer_fragments if df.get("field_type") == "progressive"}
     progressive_state: dict = {k: v for k, v in director.get("progressive_fields", {}).items() if k in _valid_progressive_ids}
     agent_raw, calls, latency = "", [], 0
     rewritten_msg: str | None = None
@@ -331,6 +343,9 @@ async def _run_pipeline(
     reasoning_director_text = ""
     reasoning_writer_text = ""
     reasoning_editor_text = ""
+    reasoning_feedback_text = ""
+    feedback_values: dict = {}
+    feedback_latency = 0
     progressive_fields: dict = {}
     effective_msg = user_message
 
@@ -345,7 +360,7 @@ async def _run_pipeline(
             settings,
             director,
             mood_fragments,
-            director_fragments,
+            writer_fragments,
             cfg.enabled_tools,
             attachments=attachments,
             kv_tracker=kv_tracker,
@@ -387,7 +402,7 @@ async def _run_pipeline(
             active_moods,
             director["active_moods"],
             mood_fragments,
-            director_fragments,
+            writer_fragments,
             direct_scene_enabled,
             extra_fields,
             progressive_state,
@@ -452,6 +467,9 @@ async def _run_pipeline(
                 reasoning_director=reasoning_director_text,
                 reasoning_writer=reasoning_writer_text,
                 reasoning_editor=reasoning_editor_text,
+                feedback=feedback_values,
+                reasoning_feedback=reasoning_feedback_text,
+                feedback_latency=feedback_latency,
                 staged_attachments=staged,
                 staged_message_state=staged_state or {},
             ).as_event_data(),
@@ -465,12 +483,23 @@ async def _run_pipeline(
         kv_tracker.log_summary()
         return
 
-    # --- Editor pass ---
-    if cfg.do_edit and resp_text:
+    # --- Editor pass (edit loop + post-writer feedback step) ---
+    # The feedback step is post-processing, so it now lives inside the editor pass
+    # rather than as its own top-level pass. It is gated on the feedback_enabled
+    # setting AND at least one enabled feedback-type fragment, so the extra LLM
+    # call is fully opt-in. Because feedback is folded in here, we still enter the
+    # editor pass (with editing disabled) when only feedback is wanted.
+    feedback_enabled = bool(settings.get("feedback_enabled", 0))
+    feedback_needed = feedback_enabled and bool(feedback_fragments)
+    feedback_reasoning_on = bool((settings.get("reasoning_enabled_passes") or {}).get("feedback", False))
+
+    if resp_text and (cfg.do_edit or feedback_needed):
         logger.info(
-            "Editor pass starting (draft=%d chars, phrase_bank=%d groups)",
+            "Editor pass starting (draft=%d chars, phrase_bank=%d groups, edit=%s, feedback=%s)",
             len(resp_text),
             len(phrase_bank) if phrase_bank else 0,
+            cfg.do_edit,
+            feedback_needed,
         )
         # Errors are not caught here: an editor failure propagates and aborts
         # the turn, like the director/writer passes. _consume_pipeline's finally
@@ -482,19 +511,28 @@ async def _run_pipeline(
             resp_text,
             settings,
             phrase_bank or [],
-            cfg.audit_enabled,
-            cfg.length_guard,
+            cfg.audit_enabled if cfg.do_edit else False,
+            cfg.length_guard if cfg.do_edit else None,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.editor_reasoning_on,
             audit_context_msgs=editor_audit_msgs,
             writer_user_msg=writer_content,
+            feedback_fragments=feedback_fragments if feedback_needed else None,
+            feedback_reasoning_on=feedback_reasoning_on,
         ):
             if event["type"] == "reasoning":
-                reasoning_editor_text += event["delta"]
-                yield {
-                    "event": "reasoning",
-                    "data": {"pass": "editor", "delta": event["delta"]},
-                }
+                if event.get("pass") == "feedback":
+                    reasoning_feedback_text += event["delta"]
+                    yield {
+                        "event": "reasoning",
+                        "data": {"pass": "feedback", "delta": event["delta"]},
+                    }
+                else:
+                    reasoning_editor_text += event["delta"]
+                    yield {
+                        "event": "reasoning",
+                        "data": {"pass": "editor", "delta": event["delta"]},
+                    }
             elif event["type"] == "done":
                 refined_draft = event["draft"]
                 if refined_draft and refined_draft != resp_text:
@@ -508,10 +546,18 @@ async def _run_pipeline(
                         "event": "editor_done",
                         "data": {"tool_calls": event["tool_calls"]},
                     }
+                feedback_values = event.get("feedback", {}) or {}
+                feedback_latency = event.get("feedback_latency", 0)
+                if feedback_values:
+                    yield {
+                        "event": "feedback",
+                        "data": {"values": feedback_values, "latency": feedback_latency},
+                    }
     else:
         logger.info(
-            "Editor pass skipped (do_edit=%s, draft=%d chars)",
+            "Editor pass skipped (do_edit=%s, feedback=%s, draft=%d chars)",
             cfg.do_edit,
+            feedback_needed,
             len(resp_text),
         )
 
@@ -929,7 +975,7 @@ class PipelineContext:
     card: Optional[CharacterCardRow]
     director: DirectorStateRow
     mood_fragments: list[MoodFragmentRow]
-    director_fragments: list[DirectorFragmentRow]
+    interactive_fragments: list[InteractiveFragmentRow]
     phrase_bank: list[PhraseGroup]
     lorebook_entries: list[LorebookEntryRow]
     client: LLMClient
@@ -965,8 +1011,8 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
-    director_fragments = await db.get_director_fragments()
-    director_fragments = [df for df in director_fragments if df.get("enabled", True)]
+    interactive_fragments = await db.get_interactive_fragments()
+    interactive_fragments = [df for df in interactive_fragments if df.get("enabled", True)]
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     client = LLMClient(
@@ -1013,7 +1059,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         card=card,
         director=director,
         mood_fragments=mood_fragments,
-        director_fragments=director_fragments,
+        interactive_fragments=interactive_fragments,
         phrase_bank=phrase_bank,
         lorebook_entries=lorebook_entries,
         client=client,
@@ -1157,7 +1203,10 @@ async def _prepare_turn(
     # Built once and never mutated for the rest of the turn -- frozen here so the
     # ref shared across every pass and hook cannot have entries added/swapped/dropped.
     # Values stay plain dicts so they remain json-serializable into the tools blob.
-    schema_overrides = MappingProxyType({"direct_scene": build_direct_scene_tool(ctx.director_fragments)})
+    # Only writer fragments shape direct_scene; feedback (field_type="feedback")
+    # fragments are excluded so they never reach the writer or perturb the cache.
+    writer_fragments = [df for df in ctx.interactive_fragments if df.get("field_type") != "feedback"]
+    schema_overrides = MappingProxyType({"direct_scene": build_direct_scene_tool(writer_fragments)})
 
     enabled_tools_setting = settings.get("enabled_tools") or {}
     if settings.get("enable_agent", 1):
@@ -1231,6 +1280,9 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
             reasoning_director=res.reasoning_director,
             reasoning_writer=res.reasoning_writer,
             reasoning_editor=res.reasoning_editor,
+            feedback=res.feedback,
+            reasoning_feedback=res.reasoning_feedback,
+            feedback_latency_ms=res.feedback_latency,
         )
 
     return _on_result
@@ -1576,7 +1628,7 @@ async def _generate_reply(
         pipeline_settings,
         ctx.director,
         ctx.mood_fragments,
-        ctx.director_fragments,
+        ctx.interactive_fragments,
         user_message,
         attachments=attachments,
         phrase_bank=ctx.phrase_bank,
@@ -1942,7 +1994,8 @@ async def handle_magic_rewrite(
         # The writer lane also runs on the writer client/model/system-prompt,
         # which is the endpoint that generated (and cached) the message we rewrite.
         macros = Macros.from_settings(settings, ctx.conv["character_name"], ctx.active_persona)
-        schema_overrides = {"direct_scene": build_direct_scene_tool(ctx.director_fragments)}
+        writer_fragments = [df for df in ctx.interactive_fragments if df.get("field_type") != "feedback"]
+        schema_overrides = {"direct_scene": build_direct_scene_tool(writer_fragments)}
         enabled_tools_setting = settings.get("enabled_tools") or {}
         enabled_tools = (
             dict(enabled_tools_setting) if settings.get("enable_agent", 1) else {k: False for k in enabled_tools_setting}

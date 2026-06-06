@@ -85,7 +85,7 @@ async def director_pass(
     settings: Mapping[str, Any],
     director: Mapping[str, Any],
     mood_fragments: Sequence[Mapping[str, Any]],
-    director_fragments: Sequence[Mapping[str, Any]],
+    interactive_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: Mapping[str, bool],
     attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     kv_tracker=None,
@@ -143,7 +143,7 @@ async def director_pass(
             active_moods,
             mood_fragments,
             reasoning_on=reasoning_on,
-            director_fragments=director_fragments,
+            interactive_fragments=interactive_fragments,
             progressive_state=progressive_state,
             tool_schema=tool_schema,
         )

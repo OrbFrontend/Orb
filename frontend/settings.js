@@ -76,6 +76,10 @@ export async function loadSettings() {
   S.lengthGuardEnabled = Boolean(S.settings.length_guard_enabled);
   S.lengthGuardEnforce = Boolean(S.settings.length_guard_enforce);
 
+  // Editor Feedback: a feature flag (post-writer user-facing note). Gated here
+  // and again by at least one enabled feedback-type interactive fragment server-side.
+  S.feedbackEnabled = Boolean(S.settings.feedback_enabled);
+
   if (S.settings.length_guard_max_words) S.lengthGuardMaxWords = S.settings.length_guard_max_words;
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
   if (S.settings.reasoning_enabled_passes)
@@ -268,6 +272,12 @@ export async function toggleLengthGuardEnforce(on) {
   await persistSettings({ length_guard_enforce: on });
 }
 
+export async function toggleFeedbackEnabled(on) {
+  S.feedbackEnabled = on;
+  renderToolsPanel();
+  await persistSettings({ feedback_enabled: on });
+}
+
 export async function toggleShowEditorDiff(on) {
   S.showEditorDiff = on;
   renderMessages();
@@ -385,7 +395,19 @@ export function renderToolsPanel() {
     ${lgConfig}
   </div>`;
 
-  $("tools-list").innerHTML = toolCards + lengthGuardCard;
+  const fbOn = S.feedbackEnabled;
+  const feedbackCard = `<div class="tool-card ${fbOn ? "tool-on" : ""}">
+    <div class="tool-card-header">
+      <span class="tool-card-name">Editor Feedback</span>
+      <label class="tog" onclick="event.stopPropagation()">
+        <input type="checkbox" ${fbOn ? "checked" : ""} onchange="toggleFeedbackEnabled(this.checked)">
+        <span class="tog-slider"></span>
+      </label>
+    </div>
+    <div class="tool-card-desc">After each reply, surfaces a note to you (e.g. what you could do next). Runs only when at least one interactive fragment has its Field Type set to "feedback".</div>
+  </div>`;
+
+  $("tools-list").innerHTML = toolCards + lengthGuardCard + feedbackCard;
 
   const secEl = $("tools-list-secondary");
   if (secEl) {
@@ -659,7 +681,7 @@ export async function showResetConfirmModal() {
     {
       title: "Reset to Defaults",
       message:
-        "This will reset Mood Fragments, Director Fragments, Phrase Bank, and all Settings to their original default values. All custom data will be lost.<br><br>The following will be retained: Characters, Conversations, Lorebooks.",
+        "This will reset Mood Fragments, Interactive Fragments, Phrase Bank, and all Settings to their original default values. All custom data will be lost.<br><br>The following will be retained: Characters, Conversations, Lorebooks.",
       confirmText: "Reset Everything",
     },
     async () => {
