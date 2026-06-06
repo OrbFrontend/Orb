@@ -136,23 +136,16 @@ export async function handlePresetImportFile(inp) {
   const f = inp.files[0];
   if (!f) return;
   inp.value = "";
-  showSubConfirmModal(
-    {
-      title: "Import preset",
-      message: `Merge "${esc(f.name)}" into your data? Matching items are overwritten, new ones added. An automatic backup is taken first.`,
-      confirmText: "Import",
-      confirmClass: "btn-accent",
-    },
-    async () => {
-      try {
-        toast("Importing…");
-        const r = await api.upload("/presets/import", f);
-        finishApply(r);
-      } catch (e) {
-        toast("Import failed: " + e.message, true);
-      }
-    },
-  );
+  // Import just adds the file to the library (non-destructive); the user then
+  // chooses Apply (merge) or Restore (overwrite) from the list.
+  try {
+    toast("Importing…");
+    await api.upload("/presets/import", f);
+    toast("Added to library");
+    refreshPresetLibrary();
+  } catch (e) {
+    toast("Import failed: " + e.message, true);
+  }
 }
 
 export function downloadPreset(name) {

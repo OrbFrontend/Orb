@@ -322,7 +322,7 @@ async def test_restore_overwrites_imported(client, db_path):
 # ── import upload + version skew ───────────────────────────────────────────
 
 
-async def test_import_upload_merges(client, db_path):
+async def test_import_lands_in_library_non_destructively(client, db_path):
     cid = (await client.post("/api/characters", json={"name": "Imported"})).json()["id"]
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
     blob = (_snap_dir(db_path) / name).read_bytes()
@@ -333,8 +333,10 @@ async def test_import_upload_merges(client, db_path):
         files={"file": ("shared.db", blob, "application/octet-stream")},
     )
     assert resp.status_code == 200
+    # Import only stocks the library -- it does not touch live data, so the
+    # deleted character is NOT brought back (the user applies/restores to do that).
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
-    assert "Imported" in names
+    assert "Imported" not in names
 
     # The uploaded file was a "manual" export, but in this library it is now an
     # imported preset -- the "imported" kind overrides the embedded one, while

@@ -1375,14 +1375,12 @@ async def api_import_preset(file: Annotated[UploadFile, File(...)]):
     async with maintenance_lock():
         try:
             stored = await asyncio.to_thread(presets.ingest_upload, tmp_path, label)
-            backup = await asyncio.to_thread(presets.create_snapshot, "before import")
-            summary = await asyncio.to_thread(presets.apply_preset, presets._library_path(stored))
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-    return {"name": stored, "backup": backup, "summary": summary}
+    return {"name": stored}
 
 
 @app.post("/api/presets/{name}/apply")
