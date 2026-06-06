@@ -155,7 +155,11 @@ export async function selectConversation(id) {
   resetWorkflowViewportState();
   clearTextEffect();
   onConvSwitch();
-  renderMessages();
+  // Fresh conversation: re-enable autoscroll (the prior conv may have disabled it
+  // by scrolling up) and snap to the bottom on the first synchronous paint so the
+  // chat opens at the latest message with no visible top-to-bottom scroll.
+  S.autoscrollEnabled = true;
+  renderMessages(true);
   const lastAsst = [...S.messages].reverse().find((m) => m.role === "assistant" && m.id);
   if (lastAsst) {
     await inspectMessage(lastAsst.id);

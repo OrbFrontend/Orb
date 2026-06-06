@@ -51,7 +51,9 @@ export function scrollToBottom(smooth = false) {
         S._programmaticScroll = false;
       }, 400);
     } else {
-      ct.scrollTop = ct.scrollHeight;
+      // behavior:"instant" overrides #chat-messages' CSS scroll-behavior:smooth;
+      // a bare scrollTop assignment would animate instead of snapping.
+      ct.scrollTo({ top: ct.scrollHeight, behavior: "instant" });
       S._programmaticScroll = false;
     }
   });
