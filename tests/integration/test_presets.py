@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 
-import pytest
-
 
 def _snap_dir(db_path):
     return db_path.parent / "snapshots"
@@ -31,9 +29,7 @@ async def _make_conv_with_tree(db, cid="conv-1"):
     )
     m2 = cur.lastrowid
     await db.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (m2, cid))
-    await db.execute(
-        "INSERT INTO director_state (conversation_id, active_moods) VALUES (?, '[]')", (cid,)
-    )
+    await db.execute("INSERT INTO director_state (conversation_id, active_moods) VALUES (?, '[]')", (cid,))
     await db.commit()
     return m1, m2
 
@@ -63,9 +59,7 @@ async def test_export_empty_domains_rejected(client):
 async def test_chats_export_forces_characters(client, db_path):
     resp = await client.post("/api/presets/export", json={"domains": ["chats"]})
     name = resp.json()["name"]
-    meta = sqlite3.connect(str(_snap_dir(db_path) / name)).execute(
-        "SELECT included_domains FROM orb_preset_meta"
-    ).fetchone()[0]
+    meta = sqlite3.connect(str(_snap_dir(db_path) / name)).execute("SELECT included_domains FROM orb_preset_meta").fetchone()[0]
     assert "characters" in meta and "chats" in meta
 
 
@@ -79,7 +73,7 @@ async def test_apply_readds_deleted_and_preserves_new(client, db):
 
     await client.delete(f"/api/characters/{keep}")
     await client.delete(f"/api/characters/{temp}")
-    fresh = (await client.post("/api/characters", json={"name": "Fresh"})).json()["id"]
+    await client.post("/api/characters", json={"name": "Fresh"})
 
     resp = await client.post(f"/api/presets/{name}/apply", json={})
     assert resp.status_code == 200
@@ -128,9 +122,7 @@ async def test_apply_restores_chat_tree(client, db):
 
 async def test_export_strips_api_keys_by_default(client, db_path):
     await client.put("/api/settings", json={"api_key": "sk-secret"})
-    name = (
-        await client.post("/api/presets/export", json={"domains": ["configs"], "strip_keys": True})
-    ).json()["name"]
+    name = (await client.post("/api/presets/export", json={"domains": ["configs"], "strip_keys": True})).json()["name"]
     conn = sqlite3.connect(str(_snap_dir(db_path) / name))
     assert conn.execute("SELECT api_key FROM settings WHERE id=1").fetchone()[0] == ""
     assert all(r[0] == "" for r in conn.execute("SELECT api_key FROM endpoints").fetchall())
@@ -138,9 +130,7 @@ async def test_export_strips_api_keys_by_default(client, db_path):
 
 async def test_export_keeps_keys_when_not_stripped(client, db_path):
     await client.put("/api/settings", json={"api_key": "sk-secret"})
-    name = (
-        await client.post("/api/presets/export", json={"domains": ["configs"], "strip_keys": False})
-    ).json()["name"]
+    name = (await client.post("/api/presets/export", json={"domains": ["configs"], "strip_keys": False})).json()["name"]
     conn = sqlite3.connect(str(_snap_dir(db_path) / name))
     assert conn.execute("SELECT api_key FROM settings WHERE id=1").fetchone()[0] == "sk-secret"
 
@@ -159,7 +149,7 @@ async def test_restore_is_full_rollback(client, db):
     await client.post("/api/characters", json={"name": "Before"})
     snap = (await client.post("/api/presets/snapshot", json={"label": "safe"})).json()["name"]
 
-    after = (await client.post("/api/characters", json={"name": "After"})).json()["id"]
+    await client.post("/api/characters", json={"name": "After"})
     await client.post(f"/api/presets/{snap}/restore", json={})
 
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
