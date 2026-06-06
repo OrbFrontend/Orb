@@ -56,7 +56,10 @@
   margin-top: 20px;
 }
 
-.modal-actions .btn-danger { margin-right: auto; }
+/* To push a destructive button to the far left of the row (editor modals with
+   a Delete alongside Cancel/Save), put an explicit `<div style="flex:1"></div>`
+   spacer after it — see library.js. Button colour must not drive alignment, so
+   confirm modals stay consistently right-aligned regardless of confirmClass. */
 
 /* Modal title row — title left, actions top-right */
 .modal-title-row {
