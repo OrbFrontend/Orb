@@ -63,3 +63,34 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
+          # Wait until GitHub has finished ingesting the uploaded SARIF so the
+          # alert-gate job below reads an up-to-date alert state (this is the
+          # action's default; pinned explicitly because the gate depends on it).
+          wait-for-processing: true
+
+  # The analyze jobs go green whenever the scan completes, even with findings,
+  # so the badge stayed green while alerts were open. This job reads the
+  # repository's open code-scanning alerts after analysis and fails when any
+  # remain — turning the CodeQL badge red until the Security tab is clean.
+  alert-gate:
+    name: Fail on open code scanning alerts
+    needs: analyze
+    runs-on: ubuntu-latest
+
+    permissions:
+      security-events: read   # read the code-scanning alerts API
+
+    steps:
+      - name: Check for open alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          open=$(gh api --paginate \
+            "repos/$REPO/code-scanning/alerts?state=open&per_page=100" \
+            --jq '.[].number' | wc -l)
+          if [ "$open" -gt 0 ]; then
+            echo "::error::$open open code scanning alert(s); see the Security tab."
+            exit 1
+          fi
+          echo "No open code scanning alerts."
