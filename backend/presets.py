@@ -595,6 +595,23 @@ def restore_full(name: str) -> None:
     below fail with "database is locked". After the swap, any still-open
     connection keeps running on the now-unlinked old inode and finishes
     cleanly, while new connections see the restored file.
+
+    The swapped-in file is in rollback (DELETE) journal mode, but the *old*
+    live DB ran in WAL mode, so its ``-wal``/``-shm`` are still sitting at the
+    live path beside the freshly restored file. Clearing the ``-wal`` is NOT
+    cosmetic: SQLite replays a ``-wal`` it finds next to a database on open
+    *regardless of that database's own journal mode* (verified on 3.45), so a
+    surviving stale ``-wal`` is recovered over the restored file and silently
+    reverts the restore to the previous database's contents (a truncated one
+    can instead leave a malformed file). We therefore treat the removal as
+    mandatory and raise if the ``-wal`` cannot be cleared, rather than letting
+    a latent revert surface on the next restart.
+
+    Residual race, not closed here: a reader that opens the live path in the
+    brief window between the ``os.replace`` and the removal below can itself
+    replay the stale ``-wal``. Fully closing it means gating ``get_db`` opens
+    for the duration of the swap (a process-wide reader/writer barrier), which
+    is out of scope for this file-swap helper.
     """
     src = _library_path(name)
     live = _db_path()
@@ -615,9 +632,13 @@ def restore_full(name: str) -> None:
         if os.path.exists(tmp):
             os.remove(tmp)
         raise
-    # Stale WAL/SHM belong to the previous inode; new connections recreate
-    # them. A rollback-mode restored file ignores them until then, so removal
-    # is just cleanup and safe even if a prior connection still has them open.
+    # Clear the previous inode's WAL/SHM left at the live path. Removing the
+    # -wal is mandatory (see above): SQLite would otherwise replay it over the
+    # restored file on the next open and silently revert the restore. -shm
+    # alone is inert, so its removal stays best-effort. On Linux the unlink
+    # succeeds even while a finishing connection holds the file open; if the
+    # -wal still cannot be cleared, fail loudly so the user retries instead of
+    # discovering the revert only after a restart.
     for sfx in ("-wal", "-shm"):
         p = live + sfx
         if os.path.exists(p):
@@ -625,6 +646,12 @@ def restore_full(name: str) -> None:
                 os.remove(p)
             except OSError:
                 pass
+    wal = live + "-wal"
+    if os.path.exists(wal):
+        raise PresetError(
+            f"Restore finished but a stale WAL file could not be cleared ({os.path.basename(wal)}); "
+            "the database may revert on the next restart. Close other connections and restore again."
+        )
 
 
 def list_library() -> list[dict]:
