@@ -10,6 +10,7 @@ Voice list is static for OpenAI; compatible endpoints fall back to a generic set
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 
 import httpx
 
@@ -44,8 +45,17 @@ _DEFAULT_API_URL = "https://api.openai.com"
 
 
 def _is_openai(api_url: str) -> bool:
-    """Check whether the URL points to the official OpenAI API."""
-    return "api.openai.com" in api_url
+    """Check whether the URL points to the official OpenAI API.
+
+    Matches on the parsed host, not a substring, so look-alike URLs such as
+    ``https://api.openai.com.evil.com`` or ``https://evil.com/api.openai.com``
+    are not mistaken for the official endpoint (which would leak the static
+    voice list / TTS-only model filtering to an untrusted host). A missing
+    scheme is tolerated by parsing the value as a bare authority.
+    """
+    parsed = urlparse(api_url if "://" in api_url else f"//{api_url}", scheme="https")
+    host = (parsed.hostname or "").lower()
+    return host == "api.openai.com" or host.endswith(".api.openai.com")
 
 
 class OpenAISpeechAdapter(TTSAdapter):

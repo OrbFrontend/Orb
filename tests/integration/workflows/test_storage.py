@@ -157,6 +157,28 @@ async def test_insert_workflow_attachment_row_rejects_missing_message(client):  
         )
 
 
+async def test_insert_workflow_attachment_row_rejects_path_outside_staging_root(client):
+    """A path-shape attachment pointing outside the staging root is refused
+    before any open()/stat(), so a workflow cannot disclose arbitrary files."""
+    cid, mid = await _seed_message(client)
+    with pytest.raises(ValueError, match="staging root"):
+        await insert_workflow_attachment_row(
+            mid,
+            {"filename": "passwd", "mime": "text/plain", "path": "/etc/passwd", "workflow_id": "wf"},
+        )
+
+
+async def test_insert_workflow_attachment_row_rejects_traversal_escape(client):
+    """``..`` segments that resolve outside the staging root are refused."""
+    cid, mid = await _seed_message(client)
+    escape = os.path.join(tempfile.gettempdir(), "..", "etc", "passwd")
+    with pytest.raises(ValueError, match="staging root"):
+        await insert_workflow_attachment_row(
+            mid,
+            {"filename": "passwd", "mime": "text/plain", "path": escape, "workflow_id": "wf"},
+        )
+
+
 async def test_insert_workflow_attachment_row_path_shape_reads_bytes(client):
     cid, mid = await _seed_message(client)
     payload = b"DATA_FROM_PATH"
