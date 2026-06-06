@@ -22,8 +22,8 @@ from ..database.queries.messages import register_workflow_attachment_persister
 from ..database.queries.workflow_attachments import (
     EVICTED_MARKER,
     _encode_metadata_field,
+    _staging_root,
     insert_workflow_attachment_row,
-    staged_attachment_path,
 )
 
 from .registry import get_workflow
@@ -351,10 +351,11 @@ def _estimate_size(attachment: dict) -> int:
         return len(raw)
     path = attachment.get("path")
     if isinstance(path, str):
-        safe = staged_attachment_path(path)
-        if safe is None:
+        # Confine to the staging root before stat (see _staging_root).
+        resolved = os.path.realpath(path)
+        if not resolved.startswith(_staging_root() + os.sep):
             raise ValueError("path escapes the workflow staging root")
-        return os.path.getsize(safe)
+        return os.path.getsize(resolved)
     return 0
 
 
@@ -418,13 +419,14 @@ def validate_workflow_attachment_shape(attachment: Any) -> tuple[bool, str | Non
         path = attachment["path"]
         if not isinstance(path, str):
             return False, "path must be a string"
-        safe = staged_attachment_path(path)
-        if safe is None:
+        # Confine to the staging root before stat (see _staging_root).
+        resolved = os.path.realpath(path)
+        if not resolved.startswith(_staging_root() + os.sep):
             return False, "path is outside the workflow staging area"
         try:
-            if not os.path.isfile(safe):
+            if not os.path.isfile(resolved):
                 return False, "path does not exist or is not a regular file"
-            if os.path.getsize(safe) == 0:
+            if os.path.getsize(resolved) == 0:
                 return False, "path points at an empty file"
         except OSError:
             return False, "path is not stat-able"

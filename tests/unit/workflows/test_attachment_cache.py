@@ -202,11 +202,13 @@ def test_validator_rejects_path_wrong_type():
 
 
 def test_validator_rejects_missing_path():
+    # Path inside staging root so the "does not exist" check triggers, not containment.
+    missing_path = os.path.join(tempfile.gettempdir(), "orb-validator-nonexistent-dir", "missing.png")
     att = {
         "workflow_id": "wf",
         "filename": "x.png",
         "mime": "image/png",
-        "path": "/nonexistent/orb-validator-test",
+        "path": missing_path,
     }
     ok, reason = validate_workflow_attachment_shape(att)
     assert ok is False

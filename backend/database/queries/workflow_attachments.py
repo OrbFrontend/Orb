@@ -35,36 +35,16 @@ EVICTED_MARKER = "[evicted]"
 
 
 def _staging_root() -> str:
-    """Canonical root that path-shape attachment files must live under.
+    """Canonical root directory for path-shape attachments.
 
-    The system temp dir by default (where workflows naturally stage large
-    artifacts), overridable via ``ORB_WORKFLOW_STAGING_DIR`` for deployments
-    that stage elsewhere. Resolved with ``realpath`` so the containment test
-    in ``staged_attachment_path`` compares two canonical paths.
+    Path-shape attachments let a workflow reference a file on disk instead of
+    inlining bytes. Since the path can be influenced by user input, each
+    ``open()``/``stat()`` call normalizes it with ``realpath`` and rejects it
+    unless it lives under this root. Inlined (not a shared helper) so CodeQL
+    ``py/path-injection`` can trace the guard to the sink.
     """
     configured = os.environ.get("ORB_WORKFLOW_STAGING_DIR") or tempfile.gettempdir()
     return os.path.realpath(configured)
-
-
-def staged_attachment_path(path: str) -> str | None:
-    """Confine a path-shape attachment path to the workflow staging root.
-
-    Path-shape attachments let a workflow hand us a filesystem path to stage
-    large bytes instead of inlining them. That path originates in a regenerate
-    hook whose output is influenced by the (user-controlled) request body, so
-    an unconfined ``open()``/``stat()`` on it is a path-injection primitive: a
-    hostile or buggy workflow could disclose arbitrary server files (SSH keys,
-    the app database, ``/etc/passwd``). ``os.path.realpath`` collapses symlinks
-    and ``..`` segments before the containment test, so neither can escape.
-
-    Returns the resolved real path when it lies inside the staging root, else
-    ``None`` so callers can reject (raise or partition) per their contract.
-    """
-    resolved = os.path.realpath(path)
-    root = _staging_root()
-    if resolved == root or resolved.startswith(root + os.sep):
-        return resolved
-    return None
 
 
 def _encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
@@ -165,9 +145,11 @@ async def insert_workflow_attachment_row(
         path = attachment["path"]
         if not isinstance(path, str):
             raise ValueError(f"path must be a string; got {type(path).__name__}")
-        safe_path = staged_attachment_path(path)
-        if safe_path is None:
+        # Confine to the staging root before any stat/open (see _staging_root).
+        resolved = os.path.realpath(path)
+        if not resolved.startswith(_staging_root() + os.sep):
             raise ValueError("path escapes the workflow staging root")
+        safe_path = resolved
         if os.path.getsize(safe_path) == 0:
             raise ValueError("attachment data is empty")
     else:
@@ -180,10 +162,6 @@ async def insert_workflow_attachment_row(
     if insert_as_evicted:
         data_b64 = EVICTED_MARKER
     elif has_path:
-        # safe_path was resolved and confined to the staging root in the
-        # has_path emptiness check above; reuse it so open() never touches
-        # the unvalidated caller-supplied string. The assert narrows the
-        # Optional for the type checker -- has_path guarantees it is set.
         assert safe_path is not None
         with open(safe_path, "rb") as f:
             data_b64 = base64.b64encode(f.read()).decode("ascii")
