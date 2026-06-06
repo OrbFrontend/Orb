@@ -1336,10 +1336,6 @@ class PresetExportRequest(BaseModel):
     label: str = ""
 
 
-class SnapshotRequest(BaseModel):
-    label: str = ""
-
-
 @app.get("/api/presets")
 async def api_list_presets():
     return await asyncio.to_thread(presets.list_library)
@@ -1349,16 +1345,9 @@ async def api_list_presets():
 async def api_export_preset(data: PresetExportRequest):
     async with maintenance_lock():
         try:
-            name = await asyncio.to_thread(presets.build_preset, data.domains, data.strip_keys, data.label, "export")
+            name = await asyncio.to_thread(presets.build_preset, data.domains, data.strip_keys, data.label)
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    return {"name": name}
-
-
-@app.post("/api/presets/snapshot")
-async def api_create_snapshot(data: SnapshotRequest):
-    async with maintenance_lock():
-        name = await asyncio.to_thread(presets.create_snapshot, data.label, "manual")
     return {"name": name}
 
 
@@ -1386,7 +1375,7 @@ async def api_import_preset(file: Annotated[UploadFile, File(...)]):
     async with maintenance_lock():
         try:
             stored = await asyncio.to_thread(presets.ingest_upload, tmp_path, label)
-            backup = await asyncio.to_thread(presets.create_snapshot, "before import", "auto")
+            backup = await asyncio.to_thread(presets.create_snapshot, "before import")
             summary = await asyncio.to_thread(presets.apply_preset, presets._library_path(stored))
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -1401,7 +1390,7 @@ async def api_apply_preset(name: str):
     async with maintenance_lock():
         try:
             path = presets._library_path(name)
-            backup = await asyncio.to_thread(presets.create_snapshot, f"before applying {name}", "auto")
+            backup = await asyncio.to_thread(presets.create_snapshot, f"before applying {name}")
             summary = await asyncio.to_thread(presets.apply_preset, path)
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -1412,7 +1401,7 @@ async def api_apply_preset(name: str):
 async def api_restore_preset(name: str):
     async with maintenance_lock():
         try:
-            backup = await asyncio.to_thread(presets.create_snapshot, "before restore", "auto")
+            backup = await asyncio.to_thread(presets.create_snapshot, "before restore")
             await asyncio.to_thread(presets.restore_full, name)
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
