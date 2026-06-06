@@ -7,7 +7,7 @@ import { api } from "./api.js";
 import { _avatarBust, showCharEditModal } from "./library.js";
 import { closeModal, setModalCloseCallback, showModal } from "./modal.js";
 import { S } from "./state.js";
-import { $, avatarUrl, esc, formatRelativeDate, toast } from "./utils.js";
+import { $, avatarUrl, esc, escAttr, escHandlerArg, formatRelativeDate, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // Character browser modal state
@@ -77,7 +77,7 @@ export async function showCharacterBrowserModal() {
     </div>
     <div class="char-browser-tags-row">
       <div class="char-tags">
-        ${_browserTopTags.map((tag) => `<button class="char-tag ${_browserSelectedTags.has(tag) ? "active" : ""}" data-tag="${tag}" onclick="toggleTagSelection('${tag.replace(/'/g, "\\'")}')">${tag}</button>`).join("")}
+        ${_browserTopTags.map((tag) => `<button class="char-tag ${_browserSelectedTags.has(tag) ? "active" : ""}" data-tag="${escAttr(tag)}" onclick="toggleTagSelection('${escHandlerArg(tag)}')">${esc(tag)}</button>`).join("")}
       </div>
     </div>
     <div id="char-browser-content"></div>`);
@@ -325,9 +325,9 @@ function renderInternetResultsBody() {
 
 function renderInternetResultCard(item) {
   const av = item.avatar_url
-    ? `<img src="${item.avatar_url.replace(/"/g, "&quot;")}" onerror="this.parentElement.textContent='👤'">`
+    ? `<img src="${escAttr(item.avatar_url)}" onerror="this.parentElement.textContent='👤'">`
     : "👤";
-  const fullPath = (item.full_path || "").replace(/'/g, "\\'");
+  const fullPath = escHandlerArg(item.full_path || "");
   const topics = (item.topics || []).slice(0, 12);
   const updated = item.date_updated ? "Updated: " + formatRelativeDate(item.date_updated) : "";
   const tooltipParts = [item.name, item.tagline, updated, topics.length ? "Tags: " + topics.join(", ") : ""].filter(

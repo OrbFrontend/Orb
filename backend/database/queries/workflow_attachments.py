@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timezone
 from typing import cast
 
@@ -31,6 +32,19 @@ logger = logging.getLogger(__name__)
 # because it describes the persisted shape of the column, not cache policy.
 # ``backend.workflows.attachment_cache`` re-exports it for the eviction layer.
 EVICTED_MARKER = "[evicted]"
+
+
+def _staging_root() -> str:
+    """Canonical root directory for path-shape attachments.
+
+    Path-shape attachments let a workflow reference a file on disk instead of
+    inlining bytes. Since the path can be influenced by user input, each
+    ``open()``/``stat()`` call normalizes it with ``realpath`` and rejects it
+    unless it lives under this root. Inlined (not a shared helper) so CodeQL
+    ``py/path-injection`` can trace the guard to the sink.
+    """
+    configured = os.environ.get("ORB_WORKFLOW_STAGING_DIR") or tempfile.gettempdir()
+    return os.path.realpath(configured)
 
 
 def _encode_metadata_field(value: object, field_name: str, workflow_id: str, filename: str) -> str | None:
@@ -126,11 +140,17 @@ async def insert_workflow_attachment_row(
     # the enclosing BEGIN IMMEDIATE transaction is open. Path-branch
     # emptiness check is stat-driven, matching attachment_cache's
     # _estimate_size and validate_workflow_attachment_shape.
+    safe_path: str | None = None
     if has_path:
         path = attachment["path"]
         if not isinstance(path, str):
             raise ValueError(f"path must be a string; got {type(path).__name__}")
-        if os.path.getsize(path) == 0:
+        # Confine to the staging root before any stat/open (see _staging_root).
+        resolved = os.path.realpath(path)
+        if not resolved.startswith(_staging_root() + os.sep):
+            raise ValueError("path escapes the workflow staging root")
+        safe_path = resolved
+        if os.path.getsize(safe_path) == 0:
             raise ValueError("attachment data is empty")
     else:
         raw = attachment["data"]
@@ -142,7 +162,8 @@ async def insert_workflow_attachment_row(
     if insert_as_evicted:
         data_b64 = EVICTED_MARKER
     elif has_path:
-        with open(attachment["path"], "rb") as f:
+        assert safe_path is not None
+        with open(safe_path, "rb") as f:
             data_b64 = base64.b64encode(f.read()).decode("ascii")
     else:
         data_b64 = base64.b64encode(bytes(attachment["data"])).decode("ascii")

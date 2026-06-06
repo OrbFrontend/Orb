@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+
 from backend.database import (
     add_message,
     insert_workflow_attachment_row,
@@ -344,10 +347,14 @@ async def test_regenerate_per_entry_skip_on_unreadable_path_continues(client):
     cid, mid = await _seed_conv_with_message(client)
     aid = await _seed_workflow_attachment(mid, wid="badpath")
 
+    # Nonexistent path inside the staging root so the "does not exist" gate
+    # (not the staging-root containment gate) is what rejects it.
+    missing_path = os.path.join(tempfile.gettempdir(), "orb-test-nonexistent-dir", "missing.png")
+
     async def regen(ctx, body):
         return [
             {"filename": "good.png", "mime": "image/png", "data": b"OK"},
-            {"filename": "missing.png", "mime": "image/png", "path": "/nonexistent/orb-test-path"},
+            {"filename": "missing.png", "mime": "image/png", "path": missing_path},
         ]
 
     wf = make_workflow(
