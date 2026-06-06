@@ -78,7 +78,9 @@ Orb/
 │   ├── summarizer.py        # Narrative summary generation + compress flow
 │   ├── macros.py            # Macro resolution ({{user}}, {{char}}, {{roll}}, etc.)
 │   ├── kv_tracker.py        # Debug: logs messages/tools to JSON for inspection
-│   ├── locks.py             # Cross-module asyncio locks (workflow_state / character_state / config)
+│   ├── presets.py           # Preset/backup engine: selective export, merge-import,
+│   │                        # full snapshots/restore (sqlite ATTACH + VACUUM INTO)
+│   ├── locks.py             # Cross-module asyncio locks (workflow_state / character_state / config / maintenance)
 │   ├── utils.py             # Shared utilities
 │   ├── passes/
 │   │   ├── director.py      # Director pass: LLM calls direct_scene tool
@@ -112,6 +114,7 @@ Orb/
 │   ├── api.js               # All fetch() calls to backend
 │   ├── chat.js              # Chat rendering, message display, Inspector, streaming
 │   ├── library.js           # Character card grid/list, CRUD UI
+│   ├── presets.js           # Presets/backups UI: export, import, apply, restore, snapshot library
 │   ├── settings.js          # Settings panel, endpoint/model config UI
 │   ├── lorebooks.js         # World/lorebook entry management
 │   ├── modal.js             # Generic modal utilities
@@ -228,6 +231,25 @@ erDiagram
     worlds ||--o{ lorebook_entries : has
 ```
 
+### Presets & Backups
+
+`backend/presets.py` exports, imports, and snapshots the database as standalone
+SQLite `.db` files (built with `VACUUM INTO`, merged via `ATTACH`). Tables are
+grouped into coarse **domains** (`characters`, `chats`, `lorebooks`, `fragments`,
+`phrase_bank`, `configs`); a *preset* carries a chosen subset, a *snapshot* is a
+full-domain preset, and both live in one on-disk library described by an
+`orb_preset_meta` row. Three ways data crosses back in: **apply** (merge by
+identity — UUID rows upsert, child collections replace wholesale, integer-PK rows
+reinsert with remapped references), **restore** (full-file rollback), and
+**import** (upload + apply an external file). Destructive ops auto-snapshot first.
+
+The single source of truth for *which tables belong to which domain* is the
+`DOMAIN_TABLES` map at the top of `presets.py`. **When you add a table** (or a
+table sprouts a cross-domain FK), update that map and the per-domain merge logic
+there — keep the domain grouping current rather than expanding this section. Runs
+synchronously off the event loop via `asyncio.to_thread` under
+`backend.locks.maintenance_lock`.
+
 ## Data Contracts (the model layer)
 
 `backend/database/models.py` is the **model layer**: domain data contracts (a `TypedDict` per table-group row, plus the `PhraseGroup` union — `list[str] | LiteralPhraseGroup | RegexPhraseGroup`, a discriminated union keyed on `kind`) that describe the *shape* of persisted data and depend on nothing else in the codebase. The dependency rule is one-way — every other layer points its dependencies **inward**, toward the data, and `backend/database/` must never import "up" into `passes/`, `orchestrator.py`, or `workflows/`. (The introducing commit moved `PhraseGroup` *down* into `models.py` from `slop_detector.py` to kill the last upward import; anything in `database/` that reaches up for a shared shape is an architectural inversion — put the shape here instead.) When the database layer genuinely needs higher-layer *behavior* at a fixed seam — `add_message` persisting workflow attachments inside its own write transaction — it declares the contract and the higher layer registers an implementation (dependency inversion): `database/queries/messages.py` owns `register_workflow_attachment_persister`, and `workflows/attachment_cache.py` registers `insert_workflow_attachments` into it at import. Don't reintroduce a lazy `import backend.workflows` inside a `database/` function to dodge the rule — that hides the inversion from the import graph without removing it.
@@ -324,6 +346,15 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 - `POST .../messages/{mid}/workflow-attachments/{aid}/activate` — Select the active sibling in a variant group
 - `POST .../messages/{mid}/workflow-attachments/{aid}/delete` — Delete a variant or the whole group (`scope`)
 - `POST /api/conversations/{cid}/workflow-attachments/access` — Record artifact access (drives LRU-3 eviction order)
+
+### Presets & Backups
+- `GET /api/presets` — List the snapshot library (exports, imports, auto-backups)
+- `POST /api/presets/export` — Build a preset from selected domains (`domains`, `strip_keys`, `label`)
+- `GET /api/presets/{name}/download` — Download a library file
+- `POST /api/presets/import` — Upload + merge an external `.db` (auto-snapshots first)
+- `POST /api/presets/{name}/apply` — Merge a library file's data by identity (auto-snapshots first)
+- `POST /api/presets/{name}/restore` — Full-file replace / rollback (auto-snapshots first)
+- `DELETE /api/presets/{name}` — Delete a library entry
 
 ### Other
 - `GET /` — Serve frontend (SPA shell)

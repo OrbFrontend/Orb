@@ -441,6 +441,13 @@
 }
 
 /* ── Presets / backups ─────────────────────────────────────────────── */
+.snapshot-modal .modal-subtitle { margin-bottom: 12px; }
+.snapshot-modal .field { margin-bottom: 12px; }
+.snapshot-modal .modal-checkbox-label { margin-bottom: 10px; }
+.snapshot-modal .field .modal-checkbox-label:last-child { margin-bottom: 0; }
+.snapshot-modal .preset-warning .modal-checkbox-label { margin: 8px 0 0; }
+.snapshot-modal .modal-actions { margin-top: 16px; }
+
 .preset-section-label {
   display: block;
   font-size: 12px;

@@ -53,6 +53,7 @@ export function showSnapshotModal() {
   ).join("");
 
   showSubModal(`
+    <div class="snapshot-modal">
     <h2>Snapshot current</h2>
     <p class="modal-subtitle">Pick what to include. Everything checked makes a full backup you can restore from.</p>
     <div class="field">
@@ -61,7 +62,7 @@ export function showSnapshotModal() {
     </div>
     <div id="preset-key-warning" class="preset-warning hidden">
       ⚠️ This snapshot includes your endpoints. API keys are sensitive.
-      <label class="modal-checkbox-label" style="margin-top:6px">
+      <label class="modal-checkbox-label">
         <input type="checkbox" id="exp-strip-keys" checked> Strip API keys (recommended for sharing)
       </label>
     </div>
@@ -72,6 +73,7 @@ export function showSnapshotModal() {
     <div class="modal-actions">
       <button class="btn" onclick="closeSubModal()">Cancel</button>
       <button class="btn btn-accent" onclick="doCreateSnapshot()">Create</button>
+    </div>
     </div>
   `);
 }
