@@ -293,7 +293,6 @@ def _merge_chats(conn: sqlite3.Connection) -> None:
     old_msgs = f"SELECT id FROM main.messages WHERE conversation_id IN ({conv_ph})"
     conn.execute(f"DELETE FROM main.workflow_attachments WHERE message_id IN ({old_msgs})", conv_ids)
     conn.execute(f"DELETE FROM main.user_attachments WHERE message_id IN ({old_msgs})", conv_ids)
-    conn.execute(f"DELETE FROM main.message_attachments WHERE message_id IN ({old_msgs})", conv_ids)
     conn.execute(f"DELETE FROM main.conversation_logs WHERE conversation_id IN ({conv_ph})", conv_ids)
     conn.execute(f"DELETE FROM main.director_state WHERE conversation_id IN ({conv_ph})", conv_ids)
     conn.execute(f"DELETE FROM main.messages WHERE conversation_id IN ({conv_ph})", conv_ids)
