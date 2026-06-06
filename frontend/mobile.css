@@ -180,6 +180,13 @@ body {
   .char-item-actions {
     opacity: 1;
   }
+
+  /* Avatar popup: the sidebar is usually collapsed on mobile, so center the
+     enlarged avatar over the whole screen (the chat area) instead. */
+  .avatar-popup {
+    width: 100%;
+    z-index: 120;
+  }
 }
 
 /* ── Tablet modal/layout tightening ── */
