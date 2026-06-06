@@ -9,6 +9,10 @@ document.addEventListener("keydown", (e) => {
     closeCropModal();
     return;
   }
+  if ($("modal-sub-root")?.innerHTML) {
+    closeSubModal();
+    return;
+  }
   if ($("modal-root")?.innerHTML) closeModal();
 });
 
@@ -61,6 +65,51 @@ export function runConfirmCb() {
   window._confirmCb = null;
   if (cb) cb();
   closeModal();
+}
+
+// ── Secondary modal layer (#modal-sub-root)
+// A single second overlay rendered above the main modal, so a sub-modal or a
+// yes/no confirmation opened from within a modal does not tear down its parent.
+// Use this — not showModal/showConfirmModal — for anything launched while
+// another modal must stay open underneath.
+//
+// This is a fixed depth-2 layer, NOT an arbitrary stack: it holds one modal at
+// a time. Opening a second sub-modal while one is already up replaces it, so do
+// not nest (e.g. a confirmation launched from within a sub-modal would destroy
+// that sub-modal). The guard below makes such misuse loud instead of silent.
+
+export function showSubModal(html) {
+  const root = $("modal-sub-root");
+  if (root.innerHTML) console.warn("modal-sub-root already in use; the sub-modal layer does not nest");
+  root.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeSubModal()">
+       <div class="modal">${html}</div>
+     </div>`;
+}
+
+export function closeSubModal() {
+  $("modal-sub-root").innerHTML = "";
+}
+
+export function showSubConfirmModal(
+  { title, message, confirmText = "Confirm", confirmClass = "btn-danger", extraHtml = "" },
+  onConfirm,
+) {
+  window._subConfirmCb = onConfirm;
+  showSubModal(`
+    <h2>${title}</h2>
+    <p>${message}</p>
+    ${extraHtml}
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSubModal()">Cancel</button>
+      <button class="btn ${confirmClass}" onclick="runSubConfirmCb()">${confirmText}</button>
+    </div>`);
+}
+
+export function runSubConfirmCb() {
+  const cb = window._subConfirmCb;
+  window._subConfirmCb = null;
+  if (cb) cb();
+  closeSubModal();
 }
 
 // ── Image crop modal

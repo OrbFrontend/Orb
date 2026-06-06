@@ -89,6 +89,19 @@
   flex-shrink: 0;
 }
 
+/* Secondary modal — rendered in #modal-sub-root above the main modal, so a
+   sub-modal or confirmation doesn't tear down its parent. Single depth-2 layer,
+   not an arbitrary stack (see modal.js). */
+#modal-sub-root {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  pointer-events: none;
+}
+#modal-sub-root:not(:empty) {
+  pointer-events: auto;
+}
+
 /* Crop modal — rendered in #modal-crop-root above the main modal */
 #modal-crop-root {
   position: fixed;
