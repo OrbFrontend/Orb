@@ -157,6 +157,29 @@ async def test_restore_is_full_rollback(client, db):
     assert "After" not in names  # full replace drops post-snapshot additions
 
 
+async def test_restore_succeeds_with_open_connection(client, db_path):
+    """Regression: restoring while another connection holds the live DB open
+    (as the running app does for any overlapping request) used to fail with
+    'database is locked' because the file/WAL was swapped out from under it."""
+    from backend import presets
+
+    await client.post("/api/characters", json={"name": "Before"})
+    snap = (await client.post("/api/presets/snapshot", json={"label": "safe"})).json()["name"]
+    await client.post("/api/characters", json={"name": "After"})
+
+    holder = sqlite3.connect(str(db_path))
+    try:
+        holder.execute("PRAGMA journal_mode=WAL")
+        holder.execute("SELECT 1 FROM character_cards").fetchall()  # hold a read lock
+        presets.restore_full(snap)  # must not raise OperationalError
+    finally:
+        holder.close()
+
+    names = {c["name"] for c in (await client.get("/api/characters")).json()}
+    assert "Before" in names
+    assert "After" not in names
+
+
 async def test_apply_takes_auto_backup(client):
     await client.post("/api/characters", json={"name": "X"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]

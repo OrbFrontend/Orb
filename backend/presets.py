@@ -401,7 +401,11 @@ def _merge_workflow_attachments(conn: sqlite3.Connection, msg_map: dict[int, int
     for new_id, old_parent, old_sib in deferred:
         conn.execute(
             f"UPDATE main.{table} SET parent_attachment_id = ?, active_sibling_id = ? WHERE id = ?",
-            (attach_map.get(old_parent) if old_parent is not None else None, attach_map.get(old_sib) if old_sib is not None else None, new_id),
+            (
+                attach_map.get(old_parent) if old_parent is not None else None,
+                attach_map.get(old_sib) if old_sib is not None else None,
+                new_id,
+            ),
         )
 
 
@@ -567,27 +571,46 @@ def create_snapshot(label: str = "", kind: str = "manual") -> str:
 
 
 def restore_full(name: str) -> None:
-    """Replace the live DB file with a library file (clean rollback)."""
+    """Replace the live DB file with a library file (clean rollback).
+
+    The replacement is prepared out-of-place and swapped in with an atomic
+    ``os.replace``. We never write to (or delete the WAL/SHM of) the live path
+    while it is open: the running app serves overlapping requests on their own
+    short-lived connections, and overwriting the file or removing its ``-wal``
+    out from under one leaves it holding a lock, which made the prep writes
+    below fail with "database is locked". After the swap, any still-open
+    connection keeps running on the now-unlinked old inode and finishes
+    cleanly, while new connections see the restored file.
+    """
     src = _library_path(name)
     live = _db_path()
-    conn = sqlite3.connect(live)
+    tmp = f"{live}.restore-{os.getpid()}"
+    shutil.copyfile(src, tmp)
     try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    finally:
-        conn.close()
-    shutil.copyfile(src, live)
+        # Drop the preset marker so it doesn't ride along in the live DB, and
+        # bring the file up to the current schema -- all on the temp copy, which
+        # nothing else has open.
+        conn = sqlite3.connect(tmp, isolation_level=None)
+        try:
+            conn.execute(f"DROP TABLE IF EXISTS {META_TABLE}")
+        finally:
+            conn.close()
+        run_pending(tmp)
+        os.replace(tmp, live)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+    # Stale WAL/SHM belong to the previous inode; new connections recreate
+    # them. A rollback-mode restored file ignores them until then, so removal
+    # is just cleanup and safe even if a prior connection still has them open.
     for sfx in ("-wal", "-shm"):
         p = live + sfx
         if os.path.exists(p):
-            os.remove(p)
-    # Drop the preset marker so it doesn't ride along in the live DB, and make
-    # sure the restored file is at the current schema.
-    conn = sqlite3.connect(live, isolation_level=None)
-    try:
-        conn.execute(f"DROP TABLE IF EXISTS {META_TABLE}")
-    finally:
-        conn.close()
-    run_pending(live)
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 def list_library() -> list[dict]:
