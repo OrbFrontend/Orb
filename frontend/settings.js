@@ -497,6 +497,7 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
 
     <div class="modal-actions">
       ${deleteButton}
+      <div style="flex:1"></div>
       <button class="btn" onclick="showPhraseBankModal()">Cancel</button>
       <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Update" : "Save"}</button>
     </div>
