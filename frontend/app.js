@@ -114,6 +114,19 @@ import {
   toggleWorldEnabled,
 } from "./lorebooks.js";
 import { initComposer, triggerAttachImage } from "./chat_composer.js";
+import {
+  showPresetsModal,
+  onPresetDomainChange,
+  doPresetExport,
+  doPresetSnapshot,
+  triggerPresetImport,
+  handlePresetImportFile,
+  downloadPreset,
+  applyPreset,
+  restorePreset,
+  deletePreset,
+  refreshPresetLibrary,
+} from "./presets.js";
 import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
 import { closeCropModal, closeModal, runConfirmCb, showConfirmModal, switchTab } from "./modal.js";
 import {
@@ -202,6 +215,18 @@ Object.assign(window, {
   // phrase bank
   showPhraseBankModal,
   showAddPhraseGroupModal,
+  // presets / backups
+  showPresetsModal,
+  onPresetDomainChange,
+  doPresetExport,
+  doPresetSnapshot,
+  triggerPresetImport,
+  handlePresetImportFile,
+  downloadPreset,
+  applyPreset,
+  restorePreset,
+  deletePreset,
+  refreshPresetLibrary,
   // mood fragments
   showMoodFragmentModal,
   saveMoodFragment,

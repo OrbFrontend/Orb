@@ -76,3 +76,29 @@ async def workflow_config_lock():
     lock = _workflow_config_locks.setdefault(loop, asyncio.Lock())
     async with lock:
         yield
+
+
+_maintenance_locks: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def maintenance_lock():
+    """Serialize whole-database maintenance: preset export/import/apply,
+    snapshot create, and full-file restore.
+
+    These operations read the entire DB file (``VACUUM INTO``) or swap it on
+    disk, so two running concurrently -- or one running while another is
+    mid-swap -- would observe or produce a torn database. Keyed by running
+    event loop for the same reason as ``workflow_config_lock`` (a ``Lock``
+    binds to the loop of its first acquire; pytest-asyncio hands each test a
+    fresh loop).
+
+    Routine CRUD routes do NOT take this lock. On this single-user local app
+    these maintenance actions are deliberate, user-initiated, and not issued
+    concurrently with active generation, so gating only the maintenance side
+    is sufficient.
+    """
+    loop = asyncio.get_running_loop()
+    lock = _maintenance_locks.setdefault(loop, asyncio.Lock())
+    async with lock:
+        yield
