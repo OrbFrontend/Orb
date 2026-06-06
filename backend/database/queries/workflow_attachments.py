@@ -23,6 +23,7 @@ from typing import cast
 
 from ..connection import get_db
 from ..models import WorkflowAttachmentRow
+from ...utils import scrub_log
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,8 @@ def _encode_metadata_field(value: object, field_name: str, workflow_id: str, fil
     except TypeError:
         logger.warning(
             "workflow %r attachment %r %s contains non-JSON-serializable values; storing NULL",
-            workflow_id,
-            filename,
+            scrub_log(workflow_id),
+            scrub_log(filename),
             field_name,
         )
         return None

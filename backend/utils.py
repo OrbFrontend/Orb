@@ -36,6 +36,16 @@ def estimate_tokens(chars: int) -> int:
     return max(1, round(chars / CHARS_PER_TOKEN))
 
 
+def scrub_log(value: object) -> str:
+    """Sanitize a value for safe inclusion in a log message (CWE-117).
+
+    User-controlled values can carry newlines or carriage returns that would
+    otherwise let an attacker forge extra log lines. Coerce to text and strip
+    the line breaks so each value stays confined to a single log record.
+    """
+    return str(value).replace("\r", "").replace("\n", "")
+
+
 def extract_hyperparams(settings: Mapping[str, Any], *, defaults: Mapping[str, Any] | None = None) -> dict:
     """Extract LLM hyperparameters from a settings dict.
 

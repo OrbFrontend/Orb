@@ -134,7 +134,7 @@ from . import tavern_cards
 from . import card_downloader
 from . import prompt_builder
 from .summarizer import ConversationSummarizer
-from .utils import estimate_tokens
+from .utils import estimate_tokens, scrub_log
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1057,7 +1057,7 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
             yield {"event": "done", "data": ""}
         except Exception as e:
             logger.error("Summarize error: %s", e)
-            yield {"event": "error", "data": str(e)}
+            yield {"event": "error", "data": "Summarize failed; see server logs"}
 
     return _CleanupStreamingResponse(
         _sse_stream(_gen(), request, abort_token=abort_token, cid=cid),
@@ -1286,7 +1286,7 @@ async def api_export_character(card_id: str):
         try:
             avatar_bytes = base64.b64decode(avatar_b64)
         except Exception:
-            logger.warning("Avatar data for card %s is corrupt; exporting without avatar", card_id)
+            logger.warning("Avatar data for card %s is corrupt; exporting without avatar", scrub_log(card_id))
             avatar_bytes = None
 
     export_card["id"] = card_id
@@ -1441,7 +1441,7 @@ async def api_stop_generation(cid: str):
     token = _active_aborts.get(cid)
     if token is not None:
         token.abort()
-        logger.info("Stop Generation requested for conversation %s — abort signalled", cid)
+        logger.info("Stop Generation requested for conversation %s — abort signalled", scrub_log(cid))
     return {"ok": True}
 
 
@@ -1769,7 +1769,7 @@ async def api_set_workflow_config(workflow_id: str, data: WorkflowConfigUpdate):
     async with workflow_config_lock():
         await set_workflow_config(workflow_id, data.config)
         effective = await get_workflow_config(workflow_id)
-    logger.info("workflow %r config updated (%d keys)", workflow_id, len(data.config))
+    logger.info("workflow %r config updated (%d keys)", scrub_log(workflow_id), len(data.config))
     return {"config": effective}
 
 
@@ -1823,7 +1823,7 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                 )
                 return await sub.callable(od_ctx, body)
             except Exception:
-                logger.exception("on_demand hook %r failed", workflow_id)
+                logger.exception("on_demand hook %r failed", scrub_log(workflow_id))
                 raise HTTPException(status_code=500, detail="On-demand handler raised; see server logs")
 
 
@@ -1877,7 +1877,7 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
             )
             new_dicts = await sub.callable(regen_ctx, body)
         except Exception:
-            logger.exception("regenerate hook %r failed for attachment %r", wid, aid)
+            logger.exception("regenerate hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
             raise HTTPException(status_code=500, detail="Regenerate handler raised; see server logs")
 
         if not isinstance(new_dicts, list):
@@ -2050,7 +2050,7 @@ async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = B
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
             result = await sub.callable(ctx, params, seed)
         except Exception:
-            logger.exception("reroll_gen hook %r failed for attachment %r", wid, aid)
+            logger.exception("reroll_gen hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
             raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs")
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
@@ -2163,7 +2163,7 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
             result = await sub.callable(ctx, params, seed)
         except Exception:
-            logger.exception("reroll_gen (rehydrate) %r failed for attachment %r", wid, aid)
+            logger.exception("reroll_gen (rehydrate) %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
             raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs")
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
@@ -2179,7 +2179,7 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
             # success rather than the generic 500.
             raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate")
         except (LookupError, ValueError):
-            logger.exception("rehydrate write failed for attachment %r", aid)
+            logger.exception("rehydrate write failed for attachment %r", scrub_log(aid))
             raise HTTPException(status_code=500, detail="rehydrate write failed; see server logs")
 
         return {"attachment_id": aid}
