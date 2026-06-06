@@ -23,7 +23,10 @@ export function updateUserBtn() {
     const activePersona = S.personas.find((p) => p.id === S.activePersonaId);
     if (activePersona) displayName = activePersona.name;
   }
-  $("user-profile-btn").textContent = "👤 " + displayName;
+  const label = "👤 " + displayName;
+  $("user-profile-btn").textContent = label;
+  const mobileBtn = $("mobile-user-profile-btn");
+  if (mobileBtn) mobileBtn.textContent = label;
 }
 
 export function showUserModal() {
