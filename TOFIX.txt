@@ -6,12 +6,9 @@
 [Done]  + Tag-based search.
   + Update button for Character Card => Select a new card and replace the existing one with it, keep everything in DB the same (esp UUID) except for new card data. Update lorebook as well if it has changed.
 
-- Improvement: Director Fragments already have data types, update examples in input boxes on type change/selection.
-
 - Feature: Tabs for left sidepanel, switch buttons at the bottom.
 - Feature: Editor Fragments, custom instructions in editor pass to edit the message (html rendering special effects for keywords, etc.).
 - Feature: New Director Fragment type - Feedback, which is a note from AI to user, example: a list of next actions for user to take
-- Feature: Fetch character cards from https://chararc.bernkastel.pictures, random button hook for sites that support randomizer
 
 -- Not yet --
 - Feature: Tags and search for Convos.

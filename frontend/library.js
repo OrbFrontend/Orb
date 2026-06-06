@@ -25,6 +25,7 @@ export {
   showMoodFragmentModal,
   toggleDirectorFragmentEnabled,
   toggleMoodFragmentEnabled,
+  updateDirectorFragmentExample,
 } from "./library_fragments.js";
 export {
   importInternetChar,

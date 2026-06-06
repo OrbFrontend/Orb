@@ -267,6 +267,41 @@ function setupDragAndDrop(container) {
   }
 }
 
+// Example placeholders per field_type, shown across the modal's empty inputs
+// and refreshed when the Field Type dropdown changes.
+const DIRECTOR_FRAGMENT_EXAMPLES = {
+  string: {
+    id: "e.g. pacing",
+    label: "e.g. Pacing",
+    injection_label: "e.g. Pacing",
+    description: "Set the pace of the narration, e.g. 'slow', 'fast', 'time-skip'",
+  },
+  array: {
+    id: "e.g. plot_threads",
+    label: "e.g. Plot Threads",
+    injection_label: "e.g. Active Threads",
+    description: "List the active plot threads, e.g. 'unresolved rivalry', 'looming deadline'",
+  },
+  progressive: {
+    id: "e.g. tension",
+    label: "e.g. Tension",
+    injection_label: "e.g. Tension",
+    description: "Track a value that evolves each turn, e.g. 'calm' -> 'uneasy' -> 'breaking point'",
+  },
+};
+
+export function updateDirectorFragmentExample(fieldType) {
+  const ex = DIRECTOR_FRAGMENT_EXAMPLES[fieldType] || DIRECTOR_FRAGMENT_EXAMPLES.string;
+  const set = (elId, placeholder) => {
+    const el = document.getElementById(elId);
+    if (el) el.placeholder = placeholder;
+  };
+  set("dir-frag-id", ex.id);
+  set("dir-frag-label", ex.label);
+  set("dir-frag-inj-label", ex.injection_label);
+  set("dir-frag-desc", ex.description);
+}
+
 export function showDirectorFragmentModal(fragId = null) {
   const f = fragId ? S.directorFragments.find((x) => x.id === fragId) : null;
   const isEdit = !!f;
@@ -279,20 +314,21 @@ export function showDirectorFragmentModal(fragId = null) {
     injection_label: "",
     sort_order: 0,
   };
+  const ex = DIRECTOR_FRAGMENT_EXAMPLES[d.field_type] || DIRECTOR_FRAGMENT_EXAMPLES.string;
 
   showModal(`
     <h2>${isEdit ? "Edit" : "New"} Director Fragment</h2>
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
-        <input id="dir-frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. pacing"></div>
+        <input id="dir-frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${esc(ex.id)}"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
-        <input id="dir-frag-label" value="${esc(d.label)}"></div>
+        <input id="dir-frag-label" value="${esc(d.label)}" placeholder="${esc(ex.label)}"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Injection Label</label>
-        <input id="dir-frag-inj-label" value="${esc(d.injection_label)}" placeholder="e.g. Pacing"></div>
+        <input id="dir-frag-inj-label" value="${esc(d.injection_label)}" placeholder="${esc(ex.injection_label)}"></div>
       <div class="field"><label>Field Type</label>
-        <select id="dir-frag-type">
+        <select id="dir-frag-type" onchange="updateDirectorFragmentExample(this.value)">
           <option value="string" ${d.field_type === "string" ? "selected" : ""}>single</option>
           <option value="array" ${d.field_type === "array" ? "selected" : ""}>list</option>
           <option value="progressive" ${d.field_type === "progressive" ? "selected" : ""}>progressive</option>
@@ -300,7 +336,7 @@ export function showDirectorFragmentModal(fragId = null) {
       </div>
     </div>
     <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(shown to the LLM in the tool schema)</span></label>
-      <textarea id="dir-frag-desc" rows="4" placeholder="Set the pace of the narration, e.g. &#39;slow&#39;, &#39;fast&#39;, &#39;time-skip&#39;">${esc(d.description)}</textarea></div>
+      <textarea id="dir-frag-desc" rows="4" placeholder="${esc(ex.description)}">${esc(d.description)}</textarea></div>
     <div class="field-row">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
