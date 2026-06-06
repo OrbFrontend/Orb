@@ -14,6 +14,10 @@ const DOMAINS = [
   { id: "configs", label: "Settings & endpoints" },
 ];
 
+// Last-fetched library entries by file name, so restorePreset() can tailor its
+// warning to the backup's domain coverage. Populated by refreshPresetLibrary().
+let libraryByName = {};
+
 function fmtSize(bytes) {
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
@@ -132,23 +136,16 @@ export async function handlePresetImportFile(inp) {
   const f = inp.files[0];
   if (!f) return;
   inp.value = "";
-  showSubConfirmModal(
-    {
-      title: "Import preset",
-      message: `Merge "${esc(f.name)}" into your data? Matching items are overwritten, new ones added. An automatic backup is taken first.`,
-      confirmText: "Import",
-      confirmClass: "btn-accent",
-    },
-    async () => {
-      try {
-        toast("Importing…");
-        const r = await api.upload("/presets/import", f);
-        finishApply(r);
-      } catch (e) {
-        toast("Import failed: " + e.message, true);
-      }
-    },
-  );
+  // Import just adds the file to the library (non-destructive); the user then
+  // chooses Apply (merge) or Restore (overwrite) from the list.
+  try {
+    toast("Importing…");
+    await api.upload("/presets/import", f);
+    toast("Added to library");
+    refreshPresetLibrary();
+  } catch (e) {
+    toast("Import failed: " + e.message, true);
+  }
 }
 
 export function downloadPreset(name) {
@@ -181,10 +178,16 @@ export function applyPreset(name) {
 }
 
 export function restorePreset(name) {
+  const domains = libraryByName[name]?.included_domains || [];
+  const full = !domains.length || domains.length >= DOMAINS.length;
+  const labels = domains.map((d) => DOMAINS.find((x) => x.id === d)?.label || d).join(", ");
+  const message = full
+    ? `Replace ALL current data with "${esc(name)}"? This is a full rollback. An automatic backup of the current state is taken first.`
+    : `Restore <b>${esc(labels)}</b> from "${esc(name)}"? This <b>replaces</b> them to exactly match the backup — anything added since is removed. Other data is left untouched. An automatic backup is taken first.`;
   showSubConfirmModal(
     {
       title: "Restore backup",
-      message: `Replace ALL current data with "${esc(name)}"? This is a full rollback. An automatic backup of the current state is taken first.`,
+      message,
       confirmText: "Restore",
       confirmClass: "btn-danger",
     },
@@ -228,6 +231,7 @@ export async function refreshPresetLibrary() {
   if (!el) return;
   try {
     const items = await api.get("/presets");
+    libraryByName = Object.fromEntries(items.map((it) => [it.name, it]));
     if (!items.length) {
       el.innerHTML = '<div class="phrase-bank-empty">No presets or backups yet</div>';
       return;
@@ -242,11 +246,10 @@ export async function refreshPresetLibrary() {
 function presetRow(it) {
   const chips = (it.included_domains || []).map((d) => `<span class="preset-chip">${esc(d)}</span>`).join("");
   const title = it.label || it.name;
-  // Restore replaces the whole DB, so only offer it for full-coverage backups we
-  // made ourselves: a partial snapshot would wipe the domains it lacks, and an
-  // imported preset is foreign data that should only ever be merged in (Apply).
-  const restore =
-    it.kind !== "imported" && (it.kind === "auto" || (it.included_domains || []).length === DOMAINS.length);
+  // Restore rolls the covered domains back to this file, offered for every
+  // backup: a full-coverage file is swapped in whole, a partial file replaces
+  // just the domains it carries (leaving the rest alone). Imported files are
+  // overwritten the same way -- the auto-backup taken first makes it reversible.
   return `
     <div class="preset-item">
       <div class="preset-item-top">
@@ -260,7 +263,7 @@ function presetRow(it) {
         <div class="preset-item-actions">
           <button class="btn btn-sm" onclick="downloadPreset('${esc(it.name)}')" title="Download">⬇</button>
           <button class="btn btn-sm" onclick="applyPreset('${esc(it.name)}')" title="Merge into current data">Apply</button>
-          ${restore ? `<button class="btn btn-sm" onclick="restorePreset('${esc(it.name)}')" title="Replace everything">Restore</button>` : ""}
+          <button class="btn btn-sm" onclick="restorePreset('${esc(it.name)}')" title="Replace everything">Restore</button>
           <button class="btn btn-sm btn-danger" onclick="deletePreset('${esc(it.name)}')" title="Delete">✕</button>
         </div>
       </div>

@@ -238,10 +238,16 @@ SQLite `.db` files (built with `VACUUM INTO`, merged via `ATTACH`). Tables are
 grouped into coarse **domains** (`characters`, `chats`, `lorebooks`, `fragments`,
 `phrase_bank`, `configs`); a *preset* carries a chosen subset, a *snapshot* is a
 full-domain preset, and both live in one on-disk library described by an
-`orb_preset_meta` row. Three ways data crosses back in: **apply** (merge by
+`orb_preset_meta` row. Two ways data crosses back in: **apply** (merge by
 identity — UUID rows upsert, child collections replace wholesale, integer-PK rows
-reinsert with remapped references), **restore** (full-file rollback), and
-**import** (upload + apply an external file). Destructive ops auto-snapshot first.
+reinsert with remapped references) and **restore** (roll back to the file — a
+full-coverage file is swapped in whole via `restore_full`; a partial file is
+restored *domain-scoped* via `restore_partial`/`apply_preset(replace=True)`,
+which empties each covered domain before the merge so those domains match the
+file exactly while uncovered ones are untouched). Both work on any library file —
+imported ones included; restore's auto-snapshot makes the overwrite reversible.
+**Import** is non-destructive: it just lands an external `.db` in the library
+(the user then applies or restores it). Destructive ops auto-snapshot first.
 
 The single source of truth for *which tables belong to which domain* is the
 `DOMAIN_TABLES` map at the top of `presets.py`. **When you add a table** (or a
@@ -351,9 +357,9 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 - `GET /api/presets` — List the snapshot library (exports, imports, auto-backups)
 - `POST /api/presets/export` — Build a preset from selected domains (`domains`, `strip_keys`, `label`)
 - `GET /api/presets/{name}/download` — Download a library file
-- `POST /api/presets/import` — Upload + merge an external `.db` (auto-snapshots first)
+- `POST /api/presets/import` — Upload an external `.db` into the library (non-destructive; apply/restore separately)
 - `POST /api/presets/{name}/apply` — Merge a library file's data by identity (auto-snapshots first)
-- `POST /api/presets/{name}/restore` — Full-file replace / rollback (auto-snapshots first)
+- `POST /api/presets/{name}/restore` — Roll back to a library file: full-file replace for full-coverage backups, domain-scoped wholesale replace for partial ones (imported included; auto-snapshots first)
 - `DELETE /api/presets/{name}` — Delete a library entry
 
 ### Other

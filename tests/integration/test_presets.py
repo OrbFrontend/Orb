@@ -232,10 +232,97 @@ async def test_apply_takes_auto_backup(client):
     assert lst[backup]["kind"] == "auto"
 
 
+# ── partial restore (domain-scoped replace) ────────────────────────────────
+
+
+async def test_partial_restore_replaces_covered_domain(client):
+    """Restoring a characters-only backup makes characters match the file
+    exactly: post-backup additions are dropped and edits reverted -- unlike
+    apply, which keeps them (see test_apply_readds_deleted_and_preserves_new)."""
+    keep = (await client.post("/api/characters", json={"name": "Keep"})).json()["id"]
+    await client.post("/api/characters", json={"name": "Temp"})
+    name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
+
+    await client.put(f"/api/characters/{keep}", json={"name": "Edited"})
+    await client.post("/api/characters", json={"name": "Fresh"})
+
+    resp = await client.post(f"/api/presets/{name}/restore", json={})
+    assert resp.status_code == 200, resp.json()
+
+    names = {c["name"] for c in (await client.get("/api/characters")).json()}
+    assert names == {"Keep", "Temp"}  # Fresh dropped, Keep reverted
+
+
+async def test_partial_restore_leaves_other_domains_untouched(client, db):
+    """A characters-only restore must not disturb an uncovered domain (chats)."""
+    await _make_conv_with_tree(db)
+    await client.post("/api/characters", json={"name": "Solo"})
+    name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
+
+    resp = await client.post(f"/api/presets/{name}/restore", json={})
+    assert resp.status_code == 200, resp.json()
+
+    async with db.execute("SELECT COUNT(*) AS n FROM conversations WHERE id = 'conv-1'") as cur:
+        assert (await cur.fetchone())["n"] == 1
+    async with db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = 'conv-1'") as cur:
+        assert (await cur.fetchone())["n"] == 2
+
+
+async def test_partial_restore_nulls_dangling_world(client, db):
+    """Restoring a lorebooks backup that no longer carries a world a character
+    points at nulls the dangling link rather than corrupting foreign keys."""
+    await client.post("/api/worlds", json={"name": "W1"})
+    name = (await client.post("/api/presets/export", json={"domains": ["lorebooks"]})).json()["name"]
+
+    # A world (and character link) created *after* the backup: the restore must
+    # drop W2 (worlds end up matching the file = {W1}) and null the stale link.
+    w2 = (await client.post("/api/worlds", json={"name": "W2"})).json()["id"]
+    ch = (await client.post("/api/characters", json={"name": "Linked"})).json()["id"]
+    await client.put(f"/api/characters/{ch}", json={"world_id": w2})
+
+    resp = await client.post(f"/api/presets/{name}/restore", json={})
+    assert resp.status_code == 200, resp.json()
+
+    async with db.execute("SELECT world_id FROM character_cards WHERE id = ?", (ch,)) as cur:
+        assert (await cur.fetchone())["world_id"] is None
+    async with db.execute("SELECT COUNT(*) AS n FROM worlds") as cur:
+        assert (await cur.fetchone())["n"] == 1  # only W1 survives
+    async with db.execute("PRAGMA foreign_key_check") as cur:
+        assert await cur.fetchall() == []
+
+
+async def test_partial_restore_takes_auto_backup(client):
+    await client.post("/api/characters", json={"name": "X"})
+    name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
+    resp = await client.post(f"/api/presets/{name}/restore", json={})
+    backup = resp.json()["backup"]
+    lst = {e["name"]: e for e in (await client.get("/api/presets")).json()}
+    assert lst[backup]["kind"] == "auto"
+
+
+async def test_restore_overwrites_imported(client, db_path):
+    """Imported backups can be restored (overwrite), not just applied: the
+    covered domain ends up matching the file, with the auto-backup as the
+    safety net that makes that reversible."""
+    await client.post("/api/characters", json={"name": "Keep"})
+    name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
+    blob = (_snap_dir(db_path) / name).read_bytes()
+    stored = (await client.post("/api/presets/import", files={"file": ("ext.db", blob, "application/octet-stream")})).json()[
+        "name"
+    ]
+
+    await client.post("/api/characters", json={"name": "Fresh"})  # added after the backup
+    resp = await client.post(f"/api/presets/{stored}/restore", json={})
+    assert resp.status_code == 200, resp.json()
+
+    names = {c["name"] for c in (await client.get("/api/characters")).json()}
+    assert names == {"Keep"}  # Fresh dropped -- characters match the imported file
+
+
 # ── import upload + version skew ───────────────────────────────────────────
 
 
-async def test_import_upload_merges(client, db_path):
+async def test_import_lands_in_library_non_destructively(client, db_path):
     cid = (await client.post("/api/characters", json={"name": "Imported"})).json()["id"]
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
     blob = (_snap_dir(db_path) / name).read_bytes()
@@ -246,8 +333,10 @@ async def test_import_upload_merges(client, db_path):
         files={"file": ("shared.db", blob, "application/octet-stream")},
     )
     assert resp.status_code == 200
+    # Import only stocks the library -- it does not touch live data, so the
+    # deleted character is NOT brought back (the user applies/restores to do that).
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
-    assert "Imported" in names
+    assert "Imported" not in names
 
     # The uploaded file was a "manual" export, but in this library it is now an
     # imported preset -- the "imported" kind overrides the embedded one, while

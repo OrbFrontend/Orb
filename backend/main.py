@@ -1375,14 +1375,12 @@ async def api_import_preset(file: Annotated[UploadFile, File(...)]):
     async with maintenance_lock():
         try:
             stored = await asyncio.to_thread(presets.ingest_upload, tmp_path, label)
-            backup = await asyncio.to_thread(presets.create_snapshot, "before import")
-            summary = await asyncio.to_thread(presets.apply_preset, presets._library_path(stored))
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-    return {"name": stored, "backup": backup, "summary": summary}
+    return {"name": stored}
 
 
 @app.post("/api/presets/{name}/apply")
@@ -1401,11 +1399,18 @@ async def api_apply_preset(name: str):
 async def api_restore_preset(name: str):
     async with maintenance_lock():
         try:
+            path = presets._library_path(name)
+            meta = presets.read_meta(path) or {}
             backup = await asyncio.to_thread(presets.create_snapshot, "before restore")
-            await asyncio.to_thread(presets.restore_full, name)
+            full = set(meta.get("included_domains") or presets.ALL_DOMAINS) >= set(presets.ALL_DOMAINS)
+            if full:
+                await asyncio.to_thread(presets.restore_full, name)
+                summary = None
+            else:
+                summary = await asyncio.to_thread(presets.restore_partial, path)
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    return {"backup": backup, "ok": True}
+    return {"backup": backup, "ok": True, "summary": summary}
 
 
 @app.delete("/api/presets/{name}")

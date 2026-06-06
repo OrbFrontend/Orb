@@ -79,6 +79,7 @@ nav:
       - Super-regenerate: features/super-regenerate.md
       - Magic Rewrite: features/magic-rewrite.md
       - Compress History: features/compress-history.md
+      - Backups & Presets: features/backups-presets.md
       - Mobile Compatibility: features/mobile.md
       - Integrated TTS: features/tts.md
   - Contributing: contributing.md
