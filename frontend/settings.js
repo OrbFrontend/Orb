@@ -155,7 +155,8 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
     </div>
-    <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim);display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Data</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+    <div class="field" style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-block btn-sm" onclick="showPresetsModal()">💾 Backup &amp; Presets</button>
       <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>
     </div>
