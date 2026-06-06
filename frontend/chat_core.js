@@ -174,7 +174,7 @@ export function getCharName() {
   return c?.character_name || "Assistant";
 }
 
-export function renderMessages() {
+export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   const distFromBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight;
   let streamingEl = null;
@@ -243,12 +243,16 @@ export function renderMessages() {
   // Keep streaming box visible while editing; only hide if explicitly flagged
   if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
   // Restore scroll position synchronously so the browser never paints a jump.
-  // Near-bottom → snap to bottom; otherwise preserve distance from bottom.
-  if (distFromBottom <= 50) {
-    ct.scrollTop = ct.scrollHeight;
-  } else {
-    ct.scrollTop = Math.max(0, ct.scrollHeight - ct.clientHeight - distFromBottom);
-  }
+  // behavior:"instant" is required because #chat-messages sets scroll-behavior:
+  // smooth in CSS — a plain scrollTop assignment would animate.
+  // Fresh conversation loads pass forceBottom so they land at the bottom on the
+  // first paint instead of relying on the prior conversation's scroll state.
+  // Otherwise: near-bottom → snap to bottom; else preserve distance from bottom.
+  const targetTop =
+    forceBottom || distFromBottom <= 50
+      ? ct.scrollHeight
+      : Math.max(0, ct.scrollHeight - ct.clientHeight - distFromBottom);
+  ct.scrollTo({ top: targetTop, behavior: "instant" });
   if (!S.isStreaming) updateContextCounter();
   _refreshWorkflowViewportObserver();
   _segmentRenderedMessages();
