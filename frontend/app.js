@@ -89,6 +89,7 @@ import {
   toggleTagSelection,
   triggerAvatarCrop,
   triggerImport,
+  updateDirectorFragmentExample,
 } from "./library.js";
 import {
   closeLorebook,
@@ -247,6 +248,7 @@ Object.assign(window, {
   saveDirectorFragment,
   deleteDirectorFragment,
   toggleDirectorFragmentEnabled,
+  updateDirectorFragmentExample,
   // characters
   selectChar,
   triggerImport,
