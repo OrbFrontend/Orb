@@ -1877,7 +1877,7 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
             )
             new_dicts = await sub.callable(regen_ctx, body)
         except Exception:
-            logger.exception("regenerate hook %r failed for attachment %r", scrub_log(wid), aid)
+            logger.exception("regenerate hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
             raise HTTPException(status_code=500, detail="Regenerate handler raised; see server logs")
 
         if not isinstance(new_dicts, list):
@@ -2050,7 +2050,7 @@ async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = B
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
             result = await sub.callable(ctx, params, seed)
         except Exception:
-            logger.exception("reroll_gen hook %r failed for attachment %r", scrub_log(wid), aid)
+            logger.exception("reroll_gen hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
             raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs")
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
@@ -2163,7 +2163,7 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
             result = await sub.callable(ctx, params, seed)
         except Exception:
-            logger.exception("reroll_gen (rehydrate) %r failed for attachment %r", scrub_log(wid), aid)
+            logger.exception("reroll_gen (rehydrate) %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
             raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs")
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
