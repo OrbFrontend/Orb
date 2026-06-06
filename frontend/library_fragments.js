@@ -296,7 +296,8 @@ const INTERACTIVE_FRAGMENT_EXAMPLES = {
     id: "e.g. next_actions",
     label: "e.g. Next Actions",
     injection_label: "e.g. What you could do next",
-    description: "A short out-of-character note shown to you after each reply, e.g. 'suggest what the player could do or say next'",
+    description:
+      "A short out-of-character note shown to you after each reply, e.g. 'suggest what the player could do or say next'",
   },
 };
 

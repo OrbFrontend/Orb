@@ -83,6 +83,7 @@ class TestEnabledSchemasBaseline:
             "rewrite_user_prompt",
             "editor_apply_patch",
             "editor_rewrite",
+            "give_feedback",
         ]
 
     def test_dict_filter_returns_insertion_order_subset(self):
@@ -138,4 +139,5 @@ class TestRegisterTool:
             "rewrite_user_prompt",
             "editor_apply_patch",
             "editor_rewrite",
+            "give_feedback",
         ]

@@ -94,7 +94,8 @@ Inference servers serialise the tool schema list into the cached prefix (where i
 This has two consequences worth knowing about:
 
 - **Schemas for tools a pass can't use are still sent.** If `direct_scene`, `editor_apply_patch`, and length guard are all on, every pass — including the director, which can only call `direct_scene` — ships schemas for `direct_scene`, `editor_apply_patch`, **and** `editor_rewrite`.
-- **Dynamic schemas are built once per turn, not once per pass.** `direct_scene` is assembled at runtime from the user's enabled director fragments, which inject custom string/array properties into the function's parameters. The schema is built one time per turn from the current fragment set and then threaded through every pass. The shape of `direct_scene` depends only on the fragment configuration, never on per-turn state — so the same fragment set produces the same schema bytes turn after turn.
+- **Dynamic schemas are built once per turn, not once per pass.** `direct_scene` and `give_feedback` are both assembled at runtime from the user's enabled interactive fragments, which inject custom string/array properties into each function's parameters. Each schema is built one time per turn from the current fragment set and then threaded through every pass. Their shapes depend only on the fragment configuration, never on per-turn state — so the same fragment set produces the same schema bytes turn after turn.
+- **The post-writer feedback step is not a cache exception.** `give_feedback` produces the out-of-character note shown to the player. It rides the shared per-turn tools blob exactly like `direct_scene` (built once from the enabled `feedback`-type fragments, threaded to every pass), so the feedback step reuses the same frozen cached base as the director/writer/editor and merely forces `tool_choice=give_feedback`. It used to swap the tools blob onto a copy of the base, making one deliberate cache miss — that is gone. The step must also extend the stack on the *message* side: it replays the writer's exact user message and the reply as a real `assistant` turn (mirroring the editor), so it continues the warm writer/editor prefix. Appending a single fresh user message after `base.prefix` instead — the original feedback shape — forks the stack and collapses the provider's prefix-cache hit to just the system+tools block, even though the prefix bytes are identical; servers reuse a prefix you *continue from*, not one you fork off. (It also leaves a clean turn continuation for the next turn's director to extend, so a forked feedback call busts the following director too.)
 
 ### Invariant 4 — Director output rides on the trailing message, never on the system prompt
 
@@ -238,7 +239,7 @@ A stepped, click-through walkthrough of the mechanism and this fork lives in [kv
 ## 10. TL;DR
 
 - Treat the prompt like a stack: bottom is sacred (system + history + tool schemas), top is freely mutable.
-- Same tool schemas everywhere, even when a pass can't use them. Dynamic schemas are built once per turn from configuration, not per pass.
+- Same tool schemas everywhere, even when a pass can't use them. Dynamic schemas (`direct_scene`, `give_feedback`) are built once per turn from configuration, not per pass. The post-writer feedback step shares the base too — it is no longer a cache exception.
 - Director output rides on the trailing user message, not the system prompt.
 - The editor extends the writer's stack, not the bare prefix — that's where most editor-pass savings come from.
 - Across turns, the new prefix is "old prefix + one (user, assistant) pair," so cache flows naturally turn-over-turn.

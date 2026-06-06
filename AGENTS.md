@@ -372,7 +372,7 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 ```mermaid
 flowchart TD
     settings["settings (row)"] --> active_endpoint["settings.active_endpoint_id → endpoints[id]"]
-    settings --> enabled_tools["settings.enabled_tools → JSON (model-callable tools only)<br/>{direct_scene, rewrite_user_prompt, editor_apply_patch, editor_rewrite}"]
+    settings --> enabled_tools["settings.enabled_tools → JSON (model-callable tools only)<br/>{direct_scene, rewrite_user_prompt, editor_apply_patch, editor_rewrite}<br/>(internal, flag-gated, not in this UI map: editor_rewrite via length guard, give_feedback via feedback flag)"]
     settings --> reasoning["settings.reasoning_enabled_passes → JSON<br/>{director, writer, editor}"]
     settings --> persona["settings.active_persona_id → user_personas[id]"]
     settings --> agent["settings.agent_endpoint_id → endpoints[id]<br/>settings.agent_shared_system_prompt"]

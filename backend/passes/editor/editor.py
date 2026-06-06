@@ -323,8 +323,9 @@ async def editor_pass(
     ``field_type='feedback'`` interactive fragments are passed, a feedback step
     runs on the final (edited) text to produce an out-of-character note for the
     user. Feedback is post-processing, so it lives here rather than as its own
-    top-level pass; its single LLM call deliberately busts the KV cache (it swaps
-    the tools blob) but leaves the shared base intact.
+    top-level pass. Its single LLM call reuses the shared base: give_feedback
+    rides the shared tools blob, and the call replays writer_user_msg + reply so
+    it extends the writer/editor KV-cached prefix rather than busting it.
 
     Yields:
         {"type": "reasoning", "delta": str, "pass": "editor"|"feedback"}
@@ -365,6 +366,9 @@ async def editor_pass(
             final_text,
             settings,
             feedback_fragments,
+            # Same value the edit loop replays, so feedback extends the writer's
+            # KV-cached prefix instead of forking off the bare base.prefix.
+            writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
             kv_tracker=kv_tracker,
             reasoning_on=feedback_reasoning_on,
         ):

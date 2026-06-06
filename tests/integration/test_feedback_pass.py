@@ -92,17 +92,25 @@ async def test_feedback_does_not_leak_into_writer_prompt(client, db, llm_mock):
     assert len(writer_calls) == 1
     wc = writer_calls[0]
 
-    # The give_feedback tool is never in the writer's tools blob.
+    # give_feedback now rides the shared per-turn tools blob (Invariant 3), so in
+    # single-model mode the writer ships it too — byte-identical with the feedback
+    # call's blob. It is the *schema* that rides the blob, not the prompt.
     tool_names = [t["function"]["name"] for t in (wc["tools"] or [])]
-    assert "give_feedback" not in tool_names
+    assert "give_feedback" in tool_names
 
-    # Nor does the feedback fragment's id / description reach the writer prompt.
+    # The schema rides the tools blob, not the writer's messages: neither the tool
+    # name nor the feedback fragment's id reach the writer prompt.
     writer_text = json.dumps(wc["messages"])
     assert "give_feedback" not in writer_text
     assert "next_actions" not in writer_text
 
-    # The feedback step did carry the tool, on its own call.
+    # The feedback step carries the full shared blob (not a swapped give_feedback-
+    # only blob) and forces tool_choice to give_feedback.
     feedback_calls = [c for c in llm_mock.captured if c["pass"] == "feedback"]
     assert len(feedback_calls) == 1
     fb_tool_names = [t["function"]["name"] for t in (feedback_calls[0]["tools"] or [])]
-    assert fb_tool_names == ["give_feedback"]
+    assert "give_feedback" in fb_tool_names
+    assert feedback_calls[0]["tool_choice"] == {"type": "function", "function": {"name": "give_feedback"}}
+
+    # The feedback step reuses the writer's cached base verbatim: same tools blob.
+    assert feedback_calls[0]["tools"] == wc["tools"]

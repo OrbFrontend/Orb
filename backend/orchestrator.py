@@ -16,8 +16,9 @@ from .llm_client import AbortToken, LLMClient, reasoning_cfg
 from .endpoint_profiles import profile_for
 from .tool_defs import (
     TOOLS,
-    POST_WRITER_TOOLS,
+    NON_DIRECTOR_TOOLS,
     build_direct_scene_tool,
+    build_feedback_tool,
     enabled_schemas,
 )
 from .prompt_builder import (
@@ -350,7 +351,7 @@ async def _run_pipeline(
     effective_msg = user_message
 
     # --- Director pass ---
-    has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in TOOLS if n not in POST_WRITER_TOOLS)
+    has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in TOOLS if n not in NON_DIRECTOR_TOOLS)
     if cfg.agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
         async for event in director_pass(
@@ -1206,13 +1207,29 @@ async def _prepare_turn(
     # Only writer fragments shape direct_scene; feedback (field_type="feedback")
     # fragments are excluded so they never reach the writer or perturb the cache.
     writer_fragments = [df for df in ctx.interactive_fragments if df.get("field_type") != "feedback"]
-    schema_overrides = MappingProxyType({"direct_scene": build_direct_scene_tool(writer_fragments)})
+    feedback_fragments = [df for df in ctx.interactive_fragments if df.get("field_type") == "feedback"]
+    overrides: dict = {"direct_scene": build_direct_scene_tool(writer_fragments)}
 
     enabled_tools_setting = settings.get("enabled_tools") or {}
     if settings.get("enable_agent", 1):
         enabled_tools_pre_merge = dict(enabled_tools_setting)
     else:
         enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
+
+    # give_feedback rides the shared tools blob exactly like direct_scene: build
+    # its schema once from the enabled feedback fragments and thread it via
+    # schema_overrides so every pass ships byte-identical bytes (Invariant 3) and
+    # the post-writer feedback step reuses the cached base instead of swapping it.
+    # Feedback is independent of enable_agent (it runs even with the agent off),
+    # so its enable bit is mirrored in *after* the agent-zeroing above, and into
+    # the full enabled_tools map (the agent lane's) — not writer_enabled_tools,
+    # which _resolve_pipeline_config blanks in dual-model mode (Invariant 5).
+    feedback_needed = bool(settings.get("feedback_enabled", 0)) and bool(feedback_fragments)
+    if feedback_needed:
+        overrides["give_feedback"] = build_feedback_tool(feedback_fragments)
+        enabled_tools_pre_merge["give_feedback"] = True
+
+    schema_overrides = MappingProxyType(overrides)
     accumulators = {
         "merged_enabled_tools": dict(enabled_tools_pre_merge),
         "extras": [],
@@ -1995,11 +2012,21 @@ async def handle_magic_rewrite(
         # which is the endpoint that generated (and cached) the message we rewrite.
         macros = Macros.from_settings(settings, ctx.conv["character_name"], ctx.active_persona)
         writer_fragments = [df for df in ctx.interactive_fragments if df.get("field_type") != "feedback"]
+        feedback_fragments = [df for df in ctx.interactive_fragments if df.get("field_type") == "feedback"]
         schema_overrides = {"direct_scene": build_direct_scene_tool(writer_fragments)}
         enabled_tools_setting = settings.get("enabled_tools") or {}
         enabled_tools = (
             dict(enabled_tools_setting) if settings.get("enable_agent", 1) else {k: False for k in enabled_tools_setting}
         )
+        # The rewrite reuses the writer lane to match the cache normal turns leave
+        # on the server. In single-model with feedback on, those turns ship
+        # give_feedback in the writer blob (Invariant 3), so mirror it here too or
+        # this call would diverge the tools section and bust the cache. (No
+        # feedback step runs here — this is purely for cross-turn byte-parity; in
+        # dual-model the writer blob is empty so this is a no-op.)
+        if bool(settings.get("feedback_enabled", 0)) and feedback_fragments:
+            schema_overrides["give_feedback"] = build_feedback_tool(feedback_fragments)
+            enabled_tools["give_feedback"] = True
         cfg = _resolve_pipeline_config(
             settings,
             enabled_tools,

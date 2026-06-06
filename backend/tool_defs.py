@@ -79,10 +79,14 @@ def build_feedback_tool(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict
 
     Each ``field_type="feedback"`` interactive fragment contributes a single
     string parameter (keyed by fragment id); there are no fixed parameters. The
-    returned dict is in OpenAI function-calling format. This tool is intentionally
-    NOT registered in the shared ``TOOLS``/``enabled_schemas`` blob — it rides only
-    the post-writer feedback step (see passes/editor), whose one call deliberately
-    swaps the tools blob and so is a cache miss; the shared base is left intact.
+    returned dict is in OpenAI function-calling format.
+
+    ``give_feedback`` is registered in ``TOOLS`` (internal, feedback-flag-gated)
+    so its schema rides the shared per-turn tools blob exactly like
+    ``direct_scene``: the orchestrator builds it once from the enabled feedback
+    fragments and threads it via ``schema_overrides`` to every pass, keeping the
+    blob byte-identical. The post-writer feedback step then just forces
+    ``tool_choice=give_feedback`` on the unchanged shared base — no cache miss.
     """
     properties: dict = {}
     required: list[str] = []
@@ -271,6 +275,15 @@ TOOLS: dict[str, dict] = {
         "choice": {"type": "function", "function": {"name": "editor_rewrite"}},
         "schema": EDITOR_REWRITE_TOOL,
     },
+    # Internal, feedback-flag-gated (never user-toggleable, like editor_rewrite).
+    # The empty-properties placeholder schema is always overridden per-turn via
+    # schema_overrides with build_feedback_tool(feedback_fragments) when feedback
+    # is enabled; registering it here is what lets enabled_schemas() emit its
+    # bytes into the shared blob so the feedback step reuses the cached base.
+    "give_feedback": {
+        "choice": GIVE_FEEDBACK_CHOICE,
+        "schema": build_feedback_tool([]),
+    },
 }
 
 # Built-in tool names declared as a literal and asserted equal to TOOLS keys at
@@ -282,6 +295,7 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         "rewrite_user_prompt",
         "editor_apply_patch",
         "editor_rewrite",
+        "give_feedback",
     }
 )
 assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys()), "BUILTIN_TOOL_NAMES drift vs TOOLS literal keys"
@@ -293,6 +307,13 @@ STANDALONE_TOOLS: set[str] = set()
 
 PRE_WRITER_TOOLS = {"rewrite_user_prompt"}
 POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite"}
+
+# Tools the director must never see or trigger on. give_feedback rides the shared
+# blob (Invariant 3) but is a post-writer feedback-step tool — it is not a
+# pre-writer director tool, so it must be excluded from the director's enable
+# check and tool-selection list (otherwise feedback-only turns would spuriously
+# run the director, and the director would try to call give_feedback).
+NON_DIRECTOR_TOOLS = POST_WRITER_TOOLS | {"give_feedback"}
 
 
 def register_tool(name: str, schema: dict, choice: dict, *, standalone: bool = False) -> None:

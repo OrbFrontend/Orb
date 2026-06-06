@@ -168,17 +168,18 @@ def build_director_tool_prompt(
 
 
 def build_feedback_prompt(
-    reply_text: str,
     feedback_fragments: Sequence[Mapping[str, Any]],
     reasoning_on: bool = False,
     tool_schema: dict | None = None,
 ) -> str:
-    """Build the trailing user message for the post-writer feedback step.
+    """Build the trailing *request* message for the post-writer feedback step.
 
-    The step runs after the reply is generated, so the just-written reply is not
-    in the cached prefix; it is quoted here instead. *tool_schema* is the dynamic
-    ``give_feedback`` schema (from :func:`build_feedback_tool`); its parameter
-    order is echoed so the model fills fields in schema order, mirroring
+    The just-written reply is supplied to the model as its own ``assistant``
+    message (so the feedback step extends the writer/editor KV-cached stack
+    instead of forking off the bare prefix — see :func:`feedback_step`), so it is
+    deliberately NOT quoted here. *tool_schema* is the dynamic ``give_feedback``
+    schema (from :func:`build_feedback_tool`); its parameter order is echoed so
+    the model fills fields in schema order, mirroring
     :func:`build_director_tool_prompt`.
     """
     preamble = FEEDBACK_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
@@ -191,7 +192,6 @@ def build_feedback_prompt(
             f"Call ONLY this tool, ensuring parameters follow the schema order: "
             f"give_feedback - {desc}\nParameter order: ({param_order})"
         )
-    parts.append(f'The reply that was just written:\n"""{reply_text}"""')
     return "\n\n".join(parts)
 
 
