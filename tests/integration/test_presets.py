@@ -117,6 +117,38 @@ async def test_apply_restores_chat_tree(client, db):
         assert await cur.fetchall() == []
 
 
+async def test_apply_chats_does_not_duplicate_tree(client, db):
+    """Applying a chats preset over the same live data replaces the subtree
+    rather than stacking a second copy beside it (apply runs FK-off, so the
+    cascade that was meant to clear the old messages never fires)."""
+    await _make_conv_with_tree(db)
+    name = (await client.post("/api/presets/export", json={"domains": ["chats"]})).json()["name"]
+
+    resp = await client.post(f"/api/presets/{name}/apply", json={})
+    assert resp.status_code == 200
+
+    async with db.execute("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = 'conv-1'") as cur:
+        assert (await cur.fetchone())["n"] == 2  # not 4
+    async with db.execute("PRAGMA foreign_key_check") as cur:
+        assert await cur.fetchall() == []
+
+
+async def test_apply_configs_leaves_no_orphaned_model_configs(client, db):
+    """A full-domain preset including configs must merge without the FK check
+    aborting on model_configs whose endpoint was deleted but not cascaded."""
+    eid = (await client.post("/api/endpoints", json={"url": "http://x"})).json()["id"]
+    await client.post(f"/api/endpoints/{eid}/models", json={"model_name": "m1"})
+    name = (await client.post("/api/presets/export", json={"domains": ["configs"]})).json()["name"]
+
+    resp = await client.post(f"/api/presets/{name}/apply", json={})
+    assert resp.status_code == 200, resp.json()
+
+    async with db.execute("SELECT COUNT(*) AS n FROM model_configs WHERE endpoint_id NOT IN (SELECT id FROM endpoints)") as cur:
+        assert (await cur.fetchone())["n"] == 0
+    async with db.execute("PRAGMA foreign_key_check") as cur:
+        assert await cur.fetchall() == []
+
+
 # ── configs / key stripping ────────────────────────────────────────────────
 
 

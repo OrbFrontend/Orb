@@ -280,13 +280,23 @@ def _merge_chats(conn: sqlite3.Connection) -> None:
     if not conv_ids:
         return
 
-    # 1. Replace each conversation wholesale (cascade clears its old subtree).
+    # 1. Replace each conversation wholesale. apply runs with foreign_keys=OFF,
+    #    so ON DELETE CASCADE does not fire -- clear the old subtree by hand
+    #    (child rows first) or the previous messages/logs/attachments survive
+    #    alongside the freshly imported ones.
     conv_cols = _cols(conn, "conversations")
     ali = conv_cols.index("active_leaf_id")
     collist = ",".join(conv_cols)
     ph = ",".join("?" * len(conv_cols))
-    for cid in conv_ids:
-        conn.execute("DELETE FROM main.conversations WHERE id = ?", (cid,))
+    conv_ph = ",".join("?" * len(conv_ids))
+    old_msgs = f"SELECT id FROM main.messages WHERE conversation_id IN ({conv_ph})"
+    conn.execute(f"DELETE FROM main.workflow_attachments WHERE message_id IN ({old_msgs})", conv_ids)
+    conn.execute(f"DELETE FROM main.user_attachments WHERE message_id IN ({old_msgs})", conv_ids)
+    conn.execute(f"DELETE FROM main.message_attachments WHERE message_id IN ({old_msgs})", conv_ids)
+    conn.execute(f"DELETE FROM main.conversation_logs WHERE conversation_id IN ({conv_ph})", conv_ids)
+    conn.execute(f"DELETE FROM main.director_state WHERE conversation_id IN ({conv_ph})", conv_ids)
+    conn.execute(f"DELETE FROM main.messages WHERE conversation_id IN ({conv_ph})", conv_ids)
+    conn.execute(f"DELETE FROM main.conversations WHERE id IN ({conv_ph})", conv_ids)
     for row in conn.execute(f"SELECT {collist} FROM preset.conversations").fetchall():
         vals = list(row)
         vals[ali] = None  # set after messages exist
@@ -325,7 +335,7 @@ def _merge_chats(conn: sqlite3.Connection) -> None:
         assert cur.lastrowid is not None
         msg_map[r[id_i]] = cur.lastrowid
 
-    # 3. director_state keyed by conversation_id (already cleared by cascade).
+    # 3. director_state keyed by conversation_id (cleared above).
     _insert_no_id_keep_all(conn, "director_state")
 
     # 4. conversation_logs: drop id, remap nullable message_id.
@@ -416,7 +426,11 @@ def _merge_configs(conn: sqlite3.Connection) -> None:
         "SELECT attachment_cache_budget_bytes, attachment_access_counter FROM main.settings WHERE id = 1"
     ).fetchone()
 
-    conn.execute("DELETE FROM main.endpoints")  # cascades model_configs; SET NULL on settings refs
+    # apply runs with foreign_keys=OFF, so deleting endpoints does NOT cascade to
+    # model_configs -- clear them by hand or the old rows are left orphaned (their
+    # endpoint gone), which trips the foreign_key_check at the end of apply.
+    conn.execute("DELETE FROM main.model_configs")
+    conn.execute("DELETE FROM main.endpoints")
     conn.execute("DELETE FROM main.user_personas")
 
     # personas
