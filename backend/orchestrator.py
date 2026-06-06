@@ -1694,9 +1694,9 @@ async def handle_turn(
         ):
             yield event
 
-    except Exception as e:
+    except Exception:
         logger.exception("Pipeline error")
-        yield {"event": "error", "data": str(e)}
+        yield {"event": "error", "data": "Generation failed; see server logs"}
 
 
 async def handle_fork_edit(
@@ -1777,9 +1777,9 @@ async def handle_fork_edit(
         ):
             yield event
 
-    except Exception as e:
+    except Exception:
         logger.exception("Fork edit error")
-        yield {"event": "error", "data": str(e)}
+        yield {"event": "error", "data": "Generation failed; see server logs"}
 
 
 async def handle_regenerate(
@@ -1821,9 +1821,9 @@ async def handle_regenerate(
         ):
             yield event
 
-    except Exception as e:
+    except Exception:
         logger.exception("Regenerate error")
-        yield {"event": "error", "data": str(e)}
+        yield {"event": "error", "data": "Generation failed; see server logs"}
 
 
 _SUPER_REGEN_MSG = "[OOC: Your response was kind of meh, rewrite it in a slightly different but still realistic direction.]"
@@ -1893,9 +1893,9 @@ async def handle_super_regenerate(
         ):
             yield event
 
-    except Exception as e:
+    except Exception:
         logger.exception("Super-regenerate error")
-        yield {"event": "error", "data": str(e)}
+        yield {"event": "error", "data": "Generation failed; see server logs"}
 
 
 async def handle_magic_rewrite(
@@ -2004,6 +2004,6 @@ async def handle_magic_rewrite(
         # and is skipped when an exception aborts the turn).
         yield {"event": "done"}
 
-    except Exception as e:
+    except Exception:
         logger.exception("Magic rewrite error")
-        yield {"event": "error", "data": str(e)}
+        yield {"event": "error", "data": "Generation failed; see server logs"}
