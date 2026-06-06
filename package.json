@@ -3,7 +3,7 @@
   "private": true,
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
-    "@evilmartians/lefthook": "^1.11.0"
+    "@evilmartians/lefthook": "^2.1.9"
   },
   "scripts": {
     "prepare": "lefthook install",
