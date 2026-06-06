@@ -374,6 +374,11 @@
   overflow-y: auto;
 }
 
+/* The preset/backup library is its own, taller scroll area. */
+#preset-library-list {
+  max-height: 460px;
+}
+
 .phrase-group-item {
   display: flex;
   justify-content: space-between;
@@ -457,14 +462,19 @@
 
 .preset-item {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
+  flex-direction: column;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 8px;
   background: var(--bg-surface);
+}
+
+.preset-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .preset-item-main { min-width: 0; flex: 1; }
@@ -479,7 +489,7 @@
 
 .preset-item-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 
-.preset-chips { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; }
+.preset-chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
 
 .preset-chip {
   font-size: 10px;

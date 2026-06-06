@@ -247,19 +247,21 @@ function presetRow(it) {
     it.kind !== "imported" && (it.kind === "auto" || (it.included_domains || []).length === DOMAINS.length);
   return `
     <div class="preset-item">
-      <div class="preset-item-main">
-        <div class="preset-item-title">
-          <span class="preset-kind preset-kind-${esc(it.kind)}">${esc(it.kind)}</span>
-          ${esc(title)}
+      <div class="preset-item-top">
+        <div class="preset-item-main">
+          <div class="preset-item-title">
+            <span class="preset-kind preset-kind-${esc(it.kind)}">${esc(it.kind)}</span>
+            ${esc(title)}
+          </div>
+          <div class="preset-item-meta">${fmtDate(it.created_at)} · ${fmtSize(it.size)}</div>
         </div>
-        <div class="preset-item-meta">${fmtDate(it.created_at)} · ${fmtSize(it.size)}</div>
-        <div class="preset-chips">${chips}</div>
+        <div class="preset-item-actions">
+          <button class="btn btn-sm" onclick="downloadPreset('${esc(it.name)}')" title="Download">⬇</button>
+          <button class="btn btn-sm" onclick="applyPreset('${esc(it.name)}')" title="Merge into current data">Apply</button>
+          ${restore ? `<button class="btn btn-sm" onclick="restorePreset('${esc(it.name)}')" title="Replace everything">Restore</button>` : ""}
+          <button class="btn btn-sm btn-danger" onclick="deletePreset('${esc(it.name)}')" title="Delete">✕</button>
+        </div>
       </div>
-      <div class="preset-item-actions">
-        <button class="btn btn-sm" onclick="downloadPreset('${esc(it.name)}')" title="Download">⬇</button>
-        <button class="btn btn-sm" onclick="applyPreset('${esc(it.name)}')" title="Merge into current data">Apply</button>
-        ${restore ? `<button class="btn btn-sm" onclick="restorePreset('${esc(it.name)}')" title="Replace everything">Restore</button>` : ""}
-        <button class="btn btn-sm btn-danger" onclick="deletePreset('${esc(it.name)}')" title="Delete">✕</button>
-      </div>
+      <div class="preset-chips">${chips}</div>
     </div>`;
 }
