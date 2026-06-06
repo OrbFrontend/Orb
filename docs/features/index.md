@@ -12,5 +12,6 @@ Orb's notable features:
 | [Super-regenerate](super-regenerate.md) | Ask for a different take instead of a samey regen |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message in a user-defined direction |
 | [Compress History](compress-history.md) | Summarize chat context into a new conversation |
+| [Backups & Presets](backups-presets.md) | Snapshot, share, and restore your data |
 | [Mobile Compatibility](mobile.md) | UI built for mobile devices |
 | [Integrated TTS](tts.md) | Text-to-speech with multiple provider backends |
