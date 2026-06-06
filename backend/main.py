@@ -1403,8 +1403,6 @@ async def api_restore_preset(name: str):
         try:
             path = presets._library_path(name)
             meta = presets.read_meta(path) or {}
-            if meta.get("kind") == "imported":
-                raise HTTPException(status_code=400, detail="Imported presets can only be applied (merged), not restored.")
             backup = await asyncio.to_thread(presets.create_snapshot, "before restore")
             full = set(meta.get("included_domains") or presets.ALL_DOMAINS) >= set(presets.ALL_DOMAINS)
             if full:

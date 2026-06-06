@@ -300,17 +300,23 @@ async def test_partial_restore_takes_auto_backup(client):
     assert lst[backup]["kind"] == "auto"
 
 
-async def test_restore_rejects_imported(client, db_path):
-    """Imported presets are foreign data -- merge-only; restore must refuse."""
+async def test_restore_overwrites_imported(client, db_path):
+    """Imported backups can be restored (overwrite), not just applied: the
+    covered domain ends up matching the file, with the auto-backup as the
+    safety net that makes that reversible."""
+    await client.post("/api/characters", json={"name": "Keep"})
     name = (await client.post("/api/presets/export", json={"domains": ["characters"]})).json()["name"]
     blob = (_snap_dir(db_path) / name).read_bytes()
     stored = (await client.post("/api/presets/import", files={"file": ("ext.db", blob, "application/octet-stream")})).json()[
         "name"
     ]
 
+    await client.post("/api/characters", json={"name": "Fresh"})  # added after the backup
     resp = await client.post(f"/api/presets/{stored}/restore", json={})
-    assert resp.status_code == 400
-    assert "imported" in resp.json()["detail"].lower()
+    assert resp.status_code == 200, resp.json()
+
+    names = {c["name"] for c in (await client.get("/api/characters")).json()}
+    assert names == {"Keep"}  # Fresh dropped -- characters match the imported file
 
 
 # ── import upload + version skew ───────────────────────────────────────────

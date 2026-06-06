@@ -253,11 +253,10 @@ export async function refreshPresetLibrary() {
 function presetRow(it) {
   const chips = (it.included_domains || []).map((d) => `<span class="preset-chip">${esc(d)}</span>`).join("");
   const title = it.label || it.name;
-  // Restore rolls the covered domains back to this file. Offered for any backup
-  // we hold except imported ones: a full-coverage file is swapped in whole, a
-  // partial file replaces just the domains it carries (leaving the rest alone).
-  // Imported presets are foreign data that should only ever be merged in (Apply).
-  const restore = it.kind !== "imported";
+  // Restore rolls the covered domains back to this file, offered for every
+  // backup: a full-coverage file is swapped in whole, a partial file replaces
+  // just the domains it carries (leaving the rest alone). Imported files are
+  // overwritten the same way -- the auto-backup taken first makes it reversible.
   return `
     <div class="preset-item">
       <div class="preset-item-top">
@@ -271,7 +270,7 @@ function presetRow(it) {
         <div class="preset-item-actions">
           <button class="btn btn-sm" onclick="downloadPreset('${esc(it.name)}')" title="Download">⬇</button>
           <button class="btn btn-sm" onclick="applyPreset('${esc(it.name)}')" title="Merge into current data">Apply</button>
-          ${restore ? `<button class="btn btn-sm" onclick="restorePreset('${esc(it.name)}')" title="Replace everything">Restore</button>` : ""}
+          <button class="btn btn-sm" onclick="restorePreset('${esc(it.name)}')" title="Replace everything">Restore</button>
           <button class="btn btn-sm btn-danger" onclick="deletePreset('${esc(it.name)}')" title="Delete">✕</button>
         </div>
       </div>

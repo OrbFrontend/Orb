@@ -244,9 +244,10 @@ reinsert with remapped references), **restore** (roll back to the file — a
 full-coverage file is swapped in whole via `restore_full`; a partial file is
 restored *domain-scoped* via `restore_partial`/`apply_preset(replace=True)`,
 which empties each covered domain before the merge so those domains match the
-file exactly while uncovered ones are untouched — imported files are merge-only),
-and **import** (upload + apply an external file). Destructive ops auto-snapshot
-first.
+file exactly while uncovered ones are untouched), and **import** (upload + apply
+an external file). Restore works on any library file — imported ones included,
+since the auto-snapshot taken first makes the overwrite reversible. Destructive
+ops auto-snapshot first.
 
 The single source of truth for *which tables belong to which domain* is the
 `DOMAIN_TABLES` map at the top of `presets.py`. **When you add a table** (or a
@@ -358,7 +359,7 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 - `GET /api/presets/{name}/download` — Download a library file
 - `POST /api/presets/import` — Upload + merge an external `.db` (auto-snapshots first)
 - `POST /api/presets/{name}/apply` — Merge a library file's data by identity (auto-snapshots first)
-- `POST /api/presets/{name}/restore` — Roll back to a library file: full-file replace for full-coverage backups, domain-scoped wholesale replace for partial ones (imported rejected; auto-snapshots first)
+- `POST /api/presets/{name}/restore` — Roll back to a library file: full-file replace for full-coverage backups, domain-scoped wholesale replace for partial ones (imported included; auto-snapshots first)
 - `DELETE /api/presets/{name}` — Delete a library entry
 
 ### Other
