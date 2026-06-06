@@ -1,5 +1,7 @@
 # Orb - Agentic RP Frontend
 
+[![CodeQL](https://github.com/OrbFrontend/Orb/actions/workflows/codeql.yml/badge.svg)](https://github.com/OrbFrontend/Orb/actions/workflows/codeql.yml)
+
 ![Orb](Orb.png)
 ## Problem Statement
 
