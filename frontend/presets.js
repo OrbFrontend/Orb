@@ -240,7 +240,11 @@ export async function refreshPresetLibrary() {
 function presetRow(it) {
   const chips = (it.included_domains || []).map((d) => `<span class="preset-chip">${esc(d)}</span>`).join("");
   const title = it.label || it.name;
-  const restore = it.kind === "auto" || it.kind === "manual" || (it.included_domains || []).length === DOMAINS.length;
+  // Restore replaces the whole DB, so only offer it for full-coverage backups we
+  // made ourselves: a partial snapshot would wipe the domains it lacks, and an
+  // imported preset is foreign data that should only ever be merged in (Apply).
+  const restore =
+    it.kind !== "imported" && (it.kind === "auto" || (it.included_domains || []).length === DOMAINS.length);
   return `
     <div class="preset-item">
       <div class="preset-item-main">

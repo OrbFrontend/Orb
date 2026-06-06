@@ -205,9 +205,10 @@ def _scrub_configs(conn: sqlite3.Connection) -> None:
     )
 
 
-def build_preset(selected_domains, strip_keys: bool, label: str = "", kind: str = "export") -> str:
+def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
     """Clone the live DB, prune unselected domains, tag with meta, store in the
     library. Returns the on-disk file name."""
+    kind = "manual"  # always a user-initiated snapshot; auto/import are tagged elsewhere
     selected = set(selected_domains)
     unknown = selected - set(ALL_DOMAINS)
     if unknown:
@@ -564,9 +565,10 @@ def apply_preset(preset_path: str) -> dict:
 # ── snapshots / restore / library ─────────────────────────────────────────
 
 
-def create_snapshot(label: str = "", kind: str = "manual") -> str:
-    """Full clone of the live DB into the library. Auto-snapshots are pruned."""
-    name = _unique_name(kind, label)
+def create_snapshot(label: str = "") -> str:
+    """Take an automatic full-clone backup of the live DB into the library,
+    pruned to a bounded count. Used before destructive ops (import/apply/restore)."""
+    name = _unique_name("auto", label)
     dest = os.path.join(_snapshots_dir(), name)
     src = sqlite3.connect(_db_path())
     try:
@@ -576,11 +578,10 @@ def create_snapshot(label: str = "", kind: str = "manual") -> str:
     c = sqlite3.connect(dest, isolation_level=None)
     try:
         _stamp_migrations(c)
-        _write_meta(c, ALL_DOMAINS, label, kind, False)
+        _write_meta(c, ALL_DOMAINS, label, "auto", False)
     finally:
         c.close()
-    if kind == "auto":
-        prune_auto()
+    prune_auto()
     return name
 
 
@@ -704,16 +705,25 @@ def preset_domains(path: str) -> list[str]:
 
 
 def ingest_upload(tmp_path: str, label: str) -> str:
-    """Validate + upgrade an uploaded .db, tag it with meta if missing, and move
-    it into the library. Returns the stored file name."""
+    """Validate + upgrade an uploaded .db, tag it as an imported preset, and move
+    it into the library. Returns the stored file name.
+
+    The "imported" kind always wins over whatever the file was tagged as
+    elsewhere (it may have been a "manual" snapshot in another Orb): from this
+    library's point of view it arrived from outside. We keep the file's own
+    domain coverage so the restore guard stays accurate for partial presets.
+    """
     check_and_upgrade(tmp_path)
-    if read_meta(tmp_path) is None:
-        c = sqlite3.connect(tmp_path, isolation_level=None)
-        try:
-            _write_meta(c, ALL_DOMAINS, label, "import", False)
-        finally:
-            c.close()
-    name = _unique_name("import", label)
+    existing = read_meta(tmp_path)
+    included = existing["included_domains"] if existing else ALL_DOMAINS
+    keys_stripped = existing["keys_stripped"] if existing else False
+    label = existing["label"] if existing and existing["label"] else label
+    c = sqlite3.connect(tmp_path, isolation_level=None)
+    try:
+        _write_meta(c, included, label, "imported", keys_stripped)
+    finally:
+        c.close()
+    name = _unique_name("imported", label)
     dest = os.path.join(_snapshots_dir(), name)
     shutil.move(tmp_path, dest)
     return name

@@ -9,6 +9,17 @@ def _snap_dir(db_path):
     return db_path.parent / "snapshots"
 
 
+async def _full_snapshot(client, label=""):
+    """A restorable full-coverage snapshot, via the same route the UI uses."""
+    from backend.presets import ALL_DOMAINS
+
+    resp = await client.post(
+        "/api/presets/export",
+        json={"domains": list(ALL_DOMAINS), "strip_keys": False, "label": label},
+    )
+    return resp.json()["name"]
+
+
 async def _make_conv_with_tree(db, cid="conv-1"):
     """Insert a conversation with a two-message branch + active leaf via raw SQL."""
     ts = "2024-01-01T00:00:00"
@@ -47,7 +58,7 @@ async def test_export_creates_library_entry(client, db_path):
     lst = await client.get("/api/presets")
     entries = lst.json()
     assert len(entries) == 1
-    assert entries[0]["kind"] == "export"
+    assert entries[0]["kind"] == "manual"
     assert entries[0]["included_domains"] == ["characters"]
 
 
@@ -179,7 +190,7 @@ async def test_export_without_configs_scrubs_keys(client, db_path):
 
 async def test_restore_is_full_rollback(client, db):
     await client.post("/api/characters", json={"name": "Before"})
-    snap = (await client.post("/api/presets/snapshot", json={"label": "safe"})).json()["name"]
+    snap = await _full_snapshot(client, "safe")
 
     await client.post("/api/characters", json={"name": "After"})
     await client.post(f"/api/presets/{snap}/restore", json={})
@@ -196,7 +207,7 @@ async def test_restore_succeeds_with_open_connection(client, db_path):
     from backend import presets
 
     await client.post("/api/characters", json={"name": "Before"})
-    snap = (await client.post("/api/presets/snapshot", json={"label": "safe"})).json()["name"]
+    snap = await _full_snapshot(client, "safe")
     await client.post("/api/characters", json={"name": "After"})
 
     holder = sqlite3.connect(str(db_path))
@@ -237,6 +248,13 @@ async def test_import_upload_merges(client, db_path):
     assert resp.status_code == 200
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
     assert "Imported" in names
+
+    # The uploaded file was a "manual" export, but in this library it is now an
+    # imported preset -- the "imported" kind overrides the embedded one, while
+    # its partial domain coverage is preserved.
+    imported = [e for e in (await client.get("/api/presets")).json() if e["kind"] == "imported"]
+    assert len(imported) == 1
+    assert imported[0]["included_domains"] == ["characters"]
 
 
 async def test_import_rejects_newer_schema(client, db_path):

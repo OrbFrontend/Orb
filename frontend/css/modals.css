@@ -503,9 +503,9 @@
   border: 1px solid var(--border);
 }
 
-.preset-kind-export { color: var(--accent); border-color: var(--accent-dim, var(--border)); }
 .preset-kind-auto { color: var(--text-muted); }
-.preset-kind-manual { color: var(--text-secondary); }
+.preset-kind-manual { color: var(--accent); border-color: var(--accent-dim, var(--border)); }
+.preset-kind-imported { color: var(--text-secondary); }
 
 .variant-row {
   display: flex;
