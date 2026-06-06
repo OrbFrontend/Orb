@@ -56,7 +56,10 @@
   margin-top: 20px;
 }
 
-.modal-actions .btn-danger { margin-right: auto; }
+/* To push a destructive button to the far left of the row (editor modals with
+   a Delete alongside Cancel/Save), put an explicit `<div style="flex:1"></div>`
+   spacer after it — see library.js. Button colour must not drive alignment, so
+   confirm modals stay consistently right-aligned regardless of confirmClass. */
 
 /* Modal title row — title left, actions top-right */
 .modal-title-row {
@@ -87,6 +90,19 @@
   gap: 8px;
   align-items: center;
   flex-shrink: 0;
+}
+
+/* Secondary modal — rendered in #modal-sub-root above the main modal, so a
+   sub-modal or confirmation doesn't tear down its parent. Single depth-2 layer,
+   not an arbitrary stack (see modal.js). */
+#modal-sub-root {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+  pointer-events: none;
+}
+#modal-sub-root:not(:empty) {
+  pointer-events: auto;
 }
 
 /* Crop modal — rendered in #modal-crop-root above the main modal */
@@ -358,6 +374,11 @@
   overflow-y: auto;
 }
 
+/* The preset/backup library is its own, taller scroll area. */
+#preset-library-list {
+  max-height: 460px;
+}
+
 .phrase-group-item {
   display: flex;
   justify-content: space-between;
@@ -418,6 +439,83 @@
   border-radius: var(--radius);
   background: var(--bg-surface);
 }
+
+/* ── Presets / backups ─────────────────────────────────────────────── */
+.preset-section-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.preset-hint { color: var(--text-muted); font-size: 11px; }
+
+.preset-warning {
+  margin: 10px 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--accent-dim, var(--border));
+  border-radius: var(--radius);
+}
+
+.preset-item {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  background: var(--bg-surface);
+}
+
+.preset-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.preset-item-main { min-width: 0; flex: 1; }
+
+.preset-item-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preset-item-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.preset-chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+
+.preset-chip {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.preset-item-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+
+.preset-kind {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-deep);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.preset-kind-auto { color: var(--text-muted); }
+.preset-kind-manual { color: var(--accent); border-color: var(--accent-dim, var(--border)); }
+.preset-kind-imported { color: var(--text-secondary); }
 
 .variant-row {
   display: flex;

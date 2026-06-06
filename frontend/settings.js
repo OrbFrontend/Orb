@@ -155,8 +155,9 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
     </div>
-    <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim)">
-      <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">Reset to Defaults</button>
+    <div class="field" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--accent-dim);display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-block btn-sm" onclick="showPresetsModal()">💾 Backup &amp; Presets</button>
+      <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>
     </div>
   `;
 }
@@ -497,6 +498,7 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
 
     <div class="modal-actions">
       ${deleteButton}
+      <div style="flex:1"></div>
       <button class="btn" onclick="showPhraseBankModal()">Cancel</button>
       <button class="btn btn-accent" id="phrase-save-btn" onclick="savePhraseGroup(${editId || "null"})">${isEdit ? "Update" : "Save"}</button>
     </div>

@@ -103,6 +103,7 @@ export function showPersonaEditModal(personaId) {
     </label>
     <div class="modal-actions">
       ${isEdit ? `<button class="btn btn-danger" onclick="deletePersona(${personaId})">Delete</button>` : ""}
+      <div style="flex:1"></div>
       <button class="btn" onclick="showUserModal()">Cancel</button>
       <button class="btn btn-accent" onclick="savePersona(${personaId || "null"})">${isEdit ? "Update" : "Create"}</button>
     </div>

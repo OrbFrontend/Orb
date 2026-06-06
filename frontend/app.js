@@ -1,9 +1,10 @@
+import { initAudioPlayer } from "./audio_transport.js";
 import {
   applyCompression,
   cancelCompression,
-  cancelForkEdit,
   cancelEdit,
   cancelEditPending,
+  cancelForkEdit,
   cancelTitleEdit,
   clearRefineDiff,
   continueFromUser,
@@ -12,19 +13,20 @@ import {
   generateCompressionSummary,
   handleMagicKey,
   handleTitleEditKey,
+  hideAvatarPopup,
   initAutoscroll,
   initChatKeyNav,
   initChatSwipeNav,
   initWorkflowMutationListener,
-  hideAvatarPopup,
   loadConversations,
   loadWorkflowManifest,
   newConvForChar,
   regenerate,
   renderMessages,
-  saveForkEdit,
   saveEdit,
   saveEditPending,
+  saveForkEdit,
+  saveInspectorOpenStates,
   saveTitleEdit,
   selectChar,
   selectConversation,
@@ -36,10 +38,10 @@ import {
   showAvatarPopup,
   showCompressModal,
   showConvHistoryModal,
-  startForkEdit,
   startEdit,
   startEditPending,
   startEditTitle,
+  startForkEdit,
   stopGeneration,
   submitMagicRewrite,
   superRegenerate,
@@ -47,8 +49,8 @@ import {
   toggleInspector,
   toggleMagicInput,
   toggleReasoningPass,
-  saveInspectorOpenStates,
 } from "./chat.js";
+import { initComposer, triggerAttachImage } from "./chat_composer.js";
 import {
   addAltGreeting,
   charTagInput,
@@ -62,9 +64,9 @@ import {
   handleImportFile,
   importInternetChar,
   loadCharacters,
-  loadMoreInternet,
   loadDirectorFragments,
   loadMoodFragments,
+  loadMoreInternet,
   onCharBrowserSearch,
   randomizeInternet,
   refreshCharacters,
@@ -113,9 +115,29 @@ import {
   showRenameWorldModal,
   toggleWorldEnabled,
 } from "./lorebooks.js";
-import { initComposer, triggerAttachImage } from "./chat_composer.js";
 import { closeMobileHeaderActions, initMobileUi, toggleMobileHeaderActions, toggleMobileSidebar } from "./mobile.js";
-import { closeCropModal, closeModal, runConfirmCb, showConfirmModal, switchTab } from "./modal.js";
+import {
+  closeCropModal,
+  closeModal,
+  closeSubModal,
+  runConfirmCb,
+  runSubConfirmCb,
+  showConfirmModal,
+  switchTab,
+} from "./modal.js";
+import {
+  applyPreset,
+  deletePreset,
+  doCreateSnapshot,
+  downloadPreset,
+  handlePresetImportFile,
+  onPresetDomainChange,
+  refreshPresetLibrary,
+  restorePreset,
+  showPresetsModal,
+  showSnapshotModal,
+  triggerPresetImport,
+} from "./presets.js";
 import {
   activatePersona,
   applyTheme,
@@ -134,11 +156,11 @@ import {
   showPersonaEditModal,
   showPhraseBankModal,
   showUserModal,
+  toggleAuditType,
   toggleHideUntilBaked,
   toggleLengthGuard,
   toggleLengthGuardEnforce,
   togglePreventPromptOverrides,
-  toggleAuditType,
   toggleShowEditorDiff,
   toggleToolEnabled,
   toggleToolsPanel,
@@ -148,7 +170,6 @@ import { initTabLock, setLockStateChangeCallback } from "./tabLock.js";
 import { $ } from "./utils.js";
 import { loadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
-import { initAudioPlayer } from "./audio_transport.js";
 
 // ── Sidebar toggle
 function toggleSection(header) {
@@ -173,9 +194,11 @@ document.addEventListener("click", (e) => {
 Object.assign(window, {
   // modal
   closeModal,
+  closeSubModal,
   switchTab,
   showConfirmModal,
   runConfirmCb,
+  runSubConfirmCb,
   // theme
   applyTheme,
   // settings / user
@@ -202,6 +225,18 @@ Object.assign(window, {
   // phrase bank
   showPhraseBankModal,
   showAddPhraseGroupModal,
+  // presets / backups
+  showPresetsModal,
+  showSnapshotModal,
+  onPresetDomainChange,
+  doCreateSnapshot,
+  triggerPresetImport,
+  handlePresetImportFile,
+  downloadPreset,
+  applyPreset,
+  restorePreset,
+  deletePreset,
+  refreshPresetLibrary,
   // mood fragments
   showMoodFragmentModal,
   saveMoodFragment,
