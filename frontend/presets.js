@@ -30,7 +30,7 @@ export function showPresetsModal() {
   showModal(`
     <h2>Backup &amp; Presets</h2>
     <p class="modal-subtitle">Snapshot your data, import a preset (merged into your data), or restore a full backup.</p>
-    <div class="modal-title-actions" style="margin-bottom:10px;display:flex;gap:8px">
+    <div id="preset-top-actions" class="modal-title-actions" style="margin-bottom:10px;display:flex;gap:8px">
       <button class="btn btn-sm" onclick="showSnapshotModal()">📸 Snapshot current</button>
       <button class="btn btn-sm" onclick="triggerPresetImport()">⬆ Import file…</button>
       <input type="file" id="preset-import-input" accept=".db" style="display:none" onchange="handlePresetImportFile(this)">
