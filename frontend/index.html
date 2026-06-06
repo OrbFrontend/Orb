@@ -70,12 +70,6 @@
         </div>
       </div>
     </div>
-    <div id="avatar-popup" class="avatar-popup hidden">
-      <div class="avatar-popup-content">
-        <img id="avatar-popup-image" src="" alt="Character avatar">
-        <button class="btn btn-sm avatar-popup-close" onclick="hideAvatarPopup()">✕</button>
-      </div>
-    </div>
   </div>
   <div id="main">
     <div id="lorebook-drawer" class="hidden"></div>
@@ -155,6 +149,12 @@
     <div id="inspector-content"><div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div></div>
     <div id="inspector-secondary-content" class="hidden"></div>
   </div></div>
+  <div id="avatar-popup" class="avatar-popup hidden" onclick="if(event.target===this)hideAvatarPopup()">
+    <div class="avatar-popup-content">
+      <img id="avatar-popup-image" src="" alt="Character avatar">
+      <button class="btn btn-sm avatar-popup-close" onclick="hideAvatarPopup()">✕</button>
+    </div>
+  </div>
 </div>
 <div id="modal-root"></div>
 <div id="modal-sub-root"></div>
