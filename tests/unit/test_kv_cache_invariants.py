@@ -80,7 +80,7 @@ _WRITER_DRAFT = (
     "and somewhere far off a bell begins to toll its slow uneven warning."
 )
 
-_DIRECTOR_FRAGMENTS = [
+_INTERACTIVE_FRAGMENTS = [
     {
         "id": "pacing",
         "field_type": "string",
@@ -264,14 +264,14 @@ async def _run_turn(
     tracker = _KVCacheTracker(conversation_id=conversation_id)
     director = {"active_moods": [], "progressive_fields": {}}
     enabled_tools = dict(settings["enabled_tools"])
-    schema_overrides = {"direct_scene": build_direct_scene_tool(_DIRECTOR_FRAGMENTS)}
+    schema_overrides = {"direct_scene": build_direct_scene_tool(_INTERACTIVE_FRAGMENTS)}
 
     gen = _run_pipeline(
         client,
         settings,
         director,
         [],  # mood_fragments
-        _DIRECTOR_FRAGMENTS,
+        _INTERACTIVE_FRAGMENTS,
         "I draw my sword.",
         phrase_bank=[],  # not None → audit_enabled path is live
         agent_client=agent_client,
@@ -339,8 +339,8 @@ def test_direct_scene_schema_is_deterministic_and_dynamic():
     or moves the fixed props relative to the dynamic ones, the wire bytes drift
     turn-over-turn and the cross-turn cache busts — invisibly to the tracker's
     ``sort_keys`` view. Comparing wire-faithful bytes here makes that ring."""
-    a = build_direct_scene_tool(_DIRECTOR_FRAGMENTS)
-    b = build_direct_scene_tool(list(_DIRECTOR_FRAGMENTS))  # same content, fresh list
+    a = build_direct_scene_tool(_INTERACTIVE_FRAGMENTS)
+    b = build_direct_scene_tool(list(_INTERACTIVE_FRAGMENTS))  # same content, fresh list
     assert _wire_tools([a]) == _wire_tools([b]), (
         "build_direct_scene_tool is not byte-stable for identical input — the "
         "director's tool schema will drift across turns and bust the cache."
