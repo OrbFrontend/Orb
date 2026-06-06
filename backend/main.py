@@ -1349,9 +1349,7 @@ async def api_list_presets():
 async def api_export_preset(data: PresetExportRequest):
     async with maintenance_lock():
         try:
-            name = await asyncio.to_thread(
-                presets.build_preset, data.domains, data.strip_keys, data.label, "export"
-            )
+            name = await asyncio.to_thread(presets.build_preset, data.domains, data.strip_keys, data.label, "export")
         except presets.PresetError as e:
             raise HTTPException(status_code=400, detail=str(e))
     return {"name": name}

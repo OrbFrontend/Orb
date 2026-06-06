@@ -251,8 +251,7 @@ export async function refreshPresetLibrary() {
 function presetRow(it) {
   const chips = (it.included_domains || []).map((d) => `<span class="preset-chip">${esc(d)}</span>`).join("");
   const title = it.label || it.name;
-  const restore =
-    it.kind === "auto" || it.kind === "manual" || (it.included_domains || []).length === DOMAINS.length;
+  const restore = it.kind === "auto" || it.kind === "manual" || (it.included_domains || []).length === DOMAINS.length;
   return `
     <div class="preset-item">
       <div class="preset-item-main">

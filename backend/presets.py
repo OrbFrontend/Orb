@@ -112,8 +112,7 @@ def _write_meta(conn: sqlite3.Connection, included: list[str], label: str, kind:
     )
     conn.execute(f"DELETE FROM {META_TABLE}")
     conn.execute(
-        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) "
-        "VALUES (1, ?, ?, ?, ?, ?)",
+        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) " "VALUES (1, ?, ?, ?, ?, ?)",
         (json.dumps(sorted(included)), datetime.datetime.now().isoformat(timespec="seconds"), label, kind, int(keys_stripped)),
     )
 
@@ -313,6 +312,7 @@ def _merge_chats(conn: sqlite3.Connection) -> None:
                 vals = [r[msg_cols.index(c)] for c in ins_cols]
                 vals[ins_par] = msg_map[parent] if parent is not None else None
                 cur = conn.execute(ins_sql, vals)
+                assert cur.lastrowid is not None
                 msg_map[r[id_i]] = cur.lastrowid
                 progressed = True
             else:
@@ -322,6 +322,7 @@ def _merge_chats(conn: sqlite3.Connection) -> None:
         vals = [r[msg_cols.index(c)] for c in ins_cols]
         vals[ins_par] = None
         cur = conn.execute(ins_sql, vals)
+        assert cur.lastrowid is not None
         msg_map[r[id_i]] = cur.lastrowid
 
     # 3. director_state keyed by conversation_id (already cleared by cascade).
@@ -337,7 +338,7 @@ def _merge_chats(conn: sqlite3.Connection) -> None:
     _merge_workflow_attachments(conn, msg_map)
 
     # 7. Point each conversation at its remapped active leaf.
-    for cid, in [(c,) for c in conv_ids]:
+    for (cid,) in [(c,) for c in conv_ids]:
         leaf = conn.execute("SELECT active_leaf_id FROM preset.conversations WHERE id = ?", (cid,)).fetchone()
         old = leaf[0] if leaf else None
         if old is not None and old in msg_map:
@@ -394,12 +395,13 @@ def _merge_workflow_attachments(conn: sqlite3.Connection, msg_map: dict[int, int
         vals[par_i] = None
         vals[sib_i] = None
         cur = conn.execute(f"INSERT INTO main.{table} ({','.join(cols)}) VALUES ({ph})", vals)
+        assert cur.lastrowid is not None
         attach_map[old_id] = cur.lastrowid
         deferred.append((cur.lastrowid, old_parent, old_sib))
     for new_id, old_parent, old_sib in deferred:
         conn.execute(
             f"UPDATE main.{table} SET parent_attachment_id = ?, active_sibling_id = ? WHERE id = ?",
-            (attach_map.get(old_parent), attach_map.get(old_sib), new_id),
+            (attach_map.get(old_parent) if old_parent is not None else None, attach_map.get(old_sib) if old_sib is not None else None, new_id),
         )
 
 
@@ -422,6 +424,7 @@ def _merge_configs(conn: sqlite3.Connection) -> None:
     for row in conn.execute(f"SELECT {','.join(p_cols)} FROM preset.user_personas").fetchall():
         vals = [row[p_cols.index(c)] for c in p_ins]
         new = conn.execute(f"INSERT INTO main.user_personas ({','.join(p_ins)}) VALUES ({p_ph})", vals).lastrowid
+        assert new is not None
         persona_map[row[p_id]] = new
 
     # endpoints first, with model-config back-refs nulled
@@ -437,6 +440,7 @@ def _merge_configs(conn: sqlite3.Connection) -> None:
         vals[e_amc] = None
         vals[e_agmc] = None
         new = conn.execute(f"INSERT INTO main.endpoints ({','.join(e_ins)}) VALUES ({e_ph})", vals).lastrowid
+        assert new is not None
         endpoint_map[row[e_id]] = new
 
     # model_configs with remapped endpoint_id
@@ -450,12 +454,11 @@ def _merge_configs(conn: sqlite3.Connection) -> None:
         vals = [row[m_cols.index(c)] for c in m_ins]
         vals[m_ep] = endpoint_map.get(row[m_cols.index("endpoint_id")])
         new = conn.execute(f"INSERT INTO main.model_configs ({','.join(m_ins)}) VALUES ({m_ph})", vals).lastrowid
+        assert new is not None
         mc_map[row[m_id]] = new
 
     # fix endpoint -> model_config back-refs
-    for row in conn.execute(
-        "SELECT id, active_model_config_id, agent_active_model_config_id FROM preset.endpoints"
-    ).fetchall():
+    for row in conn.execute("SELECT id, active_model_config_id, agent_active_model_config_id FROM preset.endpoints").fetchall():
         conn.execute(
             "UPDATE main.endpoints SET active_model_config_id = ?, agent_active_model_config_id = ? WHERE id = ?",
             (mc_map.get(row[1]), mc_map.get(row[2]), endpoint_map[row[0]]),
