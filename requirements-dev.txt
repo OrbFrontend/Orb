@@ -5,7 +5,7 @@ pytest-mock==3.14.0
 pytest-cov==7.1.0
 black==24.10.0
 flake8==7.1.1
-flake8-bugbear==24.10.31
+flake8-bugbear==25.11.29
 bandit==1.8.6
 pip-audit==2.9.0
 pyright==1.1.409
