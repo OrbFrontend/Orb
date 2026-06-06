@@ -10,6 +10,27 @@ export function esc(s) {
   return div.innerHTML;
 }
 
+// Escape a value for safe interpolation into a double-quoted HTML attribute.
+// esc() handles &, <, > but leaves quotes intact, so a " would break out of
+// the attribute — escape it (and ') explicitly here.
+export function escAttr(s) {
+  return esc(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// Escape a value embedded inside an inline handler's single-quoted JS string
+// that itself sits in a double-quoted HTML attribute, e.g.
+// onclick="fn('${escHandlerArg(v)}')". The browser decodes HTML entities
+// before the JS parser runs, so we JS-escape first, then HTML-escape — that
+// order yields a valid JS string literal after attribute decoding.
+export function escHandlerArg(s) {
+  const js = String(s == null ? "" : s)
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n");
+  return js.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 export function toast(msg, isError = false) {
   const el = $("toast");
   if (!el) return;
