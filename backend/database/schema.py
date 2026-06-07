@@ -132,9 +132,7 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
     reasoning_director TEXT,
     reasoning_writer TEXT,
     reasoning_editor TEXT,
-    feedback TEXT NOT NULL DEFAULT '{}',
-    reasoning_feedback TEXT NOT NULL DEFAULT '',
-    feedback_latency_ms INTEGER NOT NULL DEFAULT 0
+    feedback TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS phrase_bank (

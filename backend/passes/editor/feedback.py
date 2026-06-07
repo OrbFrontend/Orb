@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Sequence
 
@@ -46,11 +45,11 @@ class FeedbackResult:
 
     ``values`` is the ``give_feedback`` arguments, keyed by feedback-fragment id
     (empty/None entries dropped, mirroring the director's ``extra_fields``).
+    ``agent_raw`` is the raw model response, kept for logging only.
     """
 
     values: dict = field(default_factory=dict)
     agent_raw: str = ""
-    latency: int = 0
 
 
 def extract_feedback_values(tool_calls: list[dict]) -> dict:
@@ -124,7 +123,6 @@ async def feedback_step(
 
     hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.4, "max_tokens": 2048})
 
-    t0 = time.monotonic()
     resp: dict = {}
     # Errors propagate out like the director/writer/editor passes.
     async for event in base.complete(
@@ -151,6 +149,5 @@ async def feedback_step(
         "result": FeedbackResult(
             values=values,
             agent_raw=agent_raw,
-            latency=int((time.monotonic() - t0) * 1000),
         ),
     }

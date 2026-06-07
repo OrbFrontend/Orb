@@ -1712,8 +1712,6 @@ async def api_get_message_director_log(cid: str, msg_id: int):
             "reasoning_writer": "",
             "reasoning_editor": "",
             "feedback": {},
-            "reasoning_feedback": "",
-            "feedback_latency_ms": 0,
         }
     return {
         "active_moods": log.get("active_moods_after", []),
@@ -1724,8 +1722,6 @@ async def api_get_message_director_log(cid: str, msg_id: int):
         "reasoning_writer": log.get("reasoning_writer") or "",
         "reasoning_editor": log.get("reasoning_editor") or "",
         "feedback": log.get("feedback", {}) or {},
-        "reasoning_feedback": log.get("reasoning_feedback") or "",
-        "feedback_latency_ms": log.get("feedback_latency_ms", 0),
     }
 
 

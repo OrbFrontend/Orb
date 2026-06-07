@@ -365,7 +365,6 @@ export async function processSSEStream(resp, container, msgDiv, signal) {
   S.reasoningDirector = "";
   S.reasoningWriter = "";
   S.reasoningEditor = "";
-  S.reasoningFeedback = "";
   S.lastFeedback = null;
   S.reasoningByPass = {};
   S.reasoningPassActive = 0; // tracks streaming progress (for dot lighting)
@@ -501,13 +500,6 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
           // When the box is absent (Inspector closed, or user is on the Secondary tab)
           // state accumulates silently; renderInspector will paint the full text the
           // next time it runs.
-          break;
-        }
-        if (passKey === "feedback") {
-          // Post-writer feedback pass: not a dot on the reasoning rail; its
-          // reasoning accumulates silently and is surfaced in the inspector's
-          // Feedback block when present.
-          S.reasoningFeedback = (S.reasoningFeedback || "") + delta;
           break;
         }
         const pipeline = S.workflowPipelines.find((p) => p.passes.some((pp) => pp.id === passKey));

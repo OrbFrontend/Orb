@@ -6,8 +6,10 @@ feedback feature onto a fragment *type* rather than a routing column:
 * Rename the table (if a pre-rename DB still has it).
 * Drop the ``target`` column if an earlier build of this (unreleased) feature
   added it -- feedback fragments are now identified by ``field_type='feedback'``.
-* Add the three feedback columns to ``conversation_logs`` (the post-writer
-  feedback-step payload) and the ``feedback_enabled`` setting.
+* Add the ``feedback`` column to ``conversation_logs`` (the feedback sub-step's
+  user-facing note) and the ``feedback_enabled`` setting. (The feedback step is
+  an editor sub-step: it shares the editor's reasoning/latency, so it gets no
+  reasoning_feedback / feedback_latency_ms columns of its own.)
 
 Everything is guarded so it is a no-op on fresh installs (schema.py already
 builds the post-rename shape) and idempotent across reruns.
@@ -46,14 +48,6 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE conversation_logs ADD COLUMN feedback TEXT NOT NULL DEFAULT '{}'")
         conn.commit()
         print("[migrations] 0024: added feedback column to conversation_logs")
-    if "reasoning_feedback" not in log_cols:
-        conn.execute("ALTER TABLE conversation_logs ADD COLUMN reasoning_feedback TEXT NOT NULL DEFAULT ''")
-        conn.commit()
-        print("[migrations] 0024: added reasoning_feedback column to conversation_logs")
-    if "feedback_latency_ms" not in log_cols:
-        conn.execute("ALTER TABLE conversation_logs ADD COLUMN feedback_latency_ms INTEGER NOT NULL DEFAULT 0")
-        conn.commit()
-        print("[migrations] 0024: added feedback_latency_ms column to conversation_logs")
 
     if "feedback_enabled" not in _columns(conn, "settings"):
         conn.execute("ALTER TABLE settings ADD COLUMN feedback_enabled INTEGER NOT NULL DEFAULT 0")

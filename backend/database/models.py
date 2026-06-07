@@ -370,9 +370,10 @@ class ConversationLogRow(TypedDict):
     decodes it). The nullable TEXT/INTEGER columns come back ``None`` when unset
     -- get_director_log_for_message() additionally defaults the ``reasoning_*``
     keys to ``""``, but get_conversation_logs() leaves them as stored.
-    ``feedback`` is the JSON-*decoded* dict (the post-writer feedback-pass
-    values, shown to the user); both readers decode it and ``setdefault`` it for
-    pre-feature rows, mirroring the reasoning fields.
+    ``feedback`` is the JSON-*decoded* dict (the editor feedback sub-step's
+    user-facing note); both readers decode it and ``setdefault`` it for
+    pre-feature rows, mirroring the reasoning fields. (Feedback shares the
+    editor's reasoning/latency, so it has no columns of its own for those.)
     """
 
     id: int
@@ -390,8 +391,6 @@ class ConversationLogRow(TypedDict):
     reasoning_writer: str | None
     reasoning_editor: str | None
     feedback: dict
-    reasoning_feedback: str | None
-    feedback_latency_ms: int | None
 
 
 class CharacterCardRow(TypedDict, total=False):

@@ -315,24 +315,26 @@ async def editor_pass(
     audit_context_msgs: list[str] | None = None,
     writer_user_msg: "str | list[ContentPart] | None" = None,
     feedback_fragments: "Sequence[Mapping[str, Any]] | None" = None,
-    feedback_reasoning_on: bool = False,
 ) -> AsyncIterator[dict]:
-    """Editor pass = the ReAct edit loop, then an optional post-writer feedback step.
+    """Editor pass = the ReAct edit loop, then an optional feedback sub-step.
 
     The edit loop fixes audit/length-guard issues in *draft*. Afterwards, if any
     ``field_type='feedback'`` interactive fragments are passed, a feedback step
     runs on the final (edited) text to produce an out-of-character note for the
-    user. Feedback is post-processing, so it lives here rather than as its own
-    top-level pass. Its single LLM call reuses the shared base: give_feedback
-    rides the shared tools blob, and the call replays writer_user_msg + reply so
-    it extends the writer/editor KV-cached prefix rather than busting it.
+    user. Feedback is an editor sub-step, not a top-level pass: it shares the
+    editor's reasoning toggle (``reasoning_on``), its reasoning channel (deltas
+    are tagged ``pass="editor"``), and its ``elapsed`` timing — only the
+    user-facing note is surfaced separately. Its single LLM call reuses the
+    shared base: give_feedback rides the shared tools blob, and the call replays
+    writer_user_msg + reply so it extends the writer/editor KV-cached prefix
+    rather than busting it.
 
     Yields:
-        {"type": "reasoning", "delta": str, "pass": "editor"|"feedback"}
+        {"type": "reasoning", "delta": str, "pass": "editor"}
         {"type": "done", "draft": str|None, "debug": str, "elapsed": int,
-         "tool_calls": list (when the edit loop ran),
-         "feedback": dict, "feedback_latency": int}
+         "tool_calls": list (when the edit loop ran), "feedback": dict}
     """
+    t0 = time.monotonic()
     edit_done: dict | None = None
     async for ev in _run_edit_loop(
         client,
@@ -358,7 +360,6 @@ async def editor_pass(
     final_text = (edit_done.get("draft") if edit_done else None) or draft
 
     feedback_values: dict = {}
-    feedback_latency = 0
     if feedback_fragments and final_text and not client.is_aborted:
         async for ev in feedback_step(
             client,
@@ -370,18 +371,21 @@ async def editor_pass(
             # KV-cached prefix instead of forking off the bare base.prefix.
             writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
             kv_tracker=kv_tracker,
-            reasoning_on=feedback_reasoning_on,
+            # Feedback shares the editor's reasoning toggle — it is a sub-step, not
+            # a separately-configurable pass.
+            reasoning_on=reasoning_on,
         ):
             if ev["type"] == "reasoning":
-                yield {"type": "reasoning", "delta": ev["delta"], "pass": "feedback"}
+                yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
             elif ev["type"] == "done":
                 fb: FeedbackResult = ev["result"]
                 feedback_values = fb.values
-                feedback_latency = fb.latency
 
     done = dict(edit_done) if edit_done else {"type": "done", "draft": None, "debug": "", "elapsed": 0}
     done["feedback"] = feedback_values
-    done["feedback_latency"] = feedback_latency
+    # elapsed covers the whole editor pass, feedback sub-step included (the edit
+    # loop's own elapsed only timed the loop).
+    done["elapsed"] = int((time.monotonic() - t0) * 1000)
     yield done
 
 
