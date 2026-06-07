@@ -69,8 +69,8 @@ def build_direct_scene_tool(interactive_fragments: Sequence[Mapping[str, Any]]) 
 
 
 _GIVE_FEEDBACK_DESCRIPTION = (
-    "Step out of character and give the player an out-of-character note about the reply that was "
-    "just written. This note is shown to the player, not used to write the story."
+    "Step out of character and give the user an out-of-character note about the reply that was "
+    "just written. This note is shown to the user, not used to write the story."
 )
 
 
@@ -202,10 +202,10 @@ EDITOR_PREAMBLE = (
 )
 
 FEEDBACK_PREAMBLE = (
-    "[OOC: Let's pause the roleplay for a moment. Step out of character and act as a helpful "
-    "game master speaking directly to the player. Based on the reply that was just written, "
-    "give the player a short, concrete out-of-character note. Use the give_feedback tool. "
-    "This note is for the player only — it will NOT be shown to the writer or affect the story."
+    "[OOC: Let's pause the roleplay. Step out of character and act as a helpful "
+    "game master speaking directly to the user. Based on the reply that was just written, "
+    "give the user a short, concrete out-of-character note. Use the give_feedback tool. "
+    "This note is for the user only — it will NOT be shown to the writer or affect the story."
 )
 
 # Only sent to LLM if reasoning is enabled.
@@ -300,20 +300,20 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
 )
 assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys()), "BUILTIN_TOOL_NAMES drift vs TOOLS literal keys"
 
+# Built-in tools partitioned by pipeline phase. PRE = director (pre-writer) tools;
+# POST = editor + feedback (post-writer) tools. give_feedback is a post-writer
+# feedback-step tool (passes/editor/feedback.py): it rides the shared per-turn tools
+# blob (Invariant 3) but must NOT be offered to or triggered by the director.
+PRE_WRITER_TOOLS = {"direct_scene", "rewrite_user_prompt"}
+POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite", "give_feedback"}
+
+assert PRE_WRITER_TOOLS.isdisjoint(POST_WRITER_TOOLS), "phase sets overlap"
+assert PRE_WRITER_TOOLS | POST_WRITER_TOOLS == BUILTIN_TOOL_NAMES, "phase sets must partition built-ins"
+
 # Tools registered with standalone=True are filtered out of the schemas array
 # returned by enabled_schemas(). They remain reachable via direct tool_choice
 # calls.
 STANDALONE_TOOLS: set[str] = set()
-
-PRE_WRITER_TOOLS = {"rewrite_user_prompt"}
-POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite"}
-
-# Tools the director must never see or trigger on. give_feedback rides the shared
-# blob (Invariant 3) but is a post-writer feedback-step tool — it is not a
-# pre-writer director tool, so it must be excluded from the director's enable
-# check and tool-selection list (otherwise feedback-only turns would spuriously
-# run the director, and the director would try to call give_feedback).
-NON_DIRECTOR_TOOLS = POST_WRITER_TOOLS | {"give_feedback"}
 
 
 def register_tool(name: str, schema: dict, choice: dict, *, standalone: bool = False) -> None:

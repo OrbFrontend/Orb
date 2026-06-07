@@ -16,7 +16,7 @@ from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ..kv_tracker import CachedBase
 from ..tool_defs import (
     TOOLS,
-    NON_DIRECTOR_TOOLS,
+    PRE_WRITER_TOOLS,
 )
 from ..prompt_builder import build_director_tool_prompt
 from ..llm_types import ChatMessage
@@ -108,7 +108,7 @@ async def director_pass(
     all_calls: list[dict] = []
     last_raw = ""
 
-    tool_names = [n for n, on in enabled_tools.items() if on and n in TOOLS and n not in NON_DIRECTOR_TOOLS]
+    tool_names = [n for n, on in enabled_tools.items() if on and n in PRE_WRITER_TOOLS]
 
     # Enforce priority order: rewrite_user_prompt first so users can abort
     # early if they dislike the rewrite before the full director runs.

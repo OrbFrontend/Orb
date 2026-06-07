@@ -16,7 +16,7 @@ from .llm_client import AbortToken, LLMClient, reasoning_cfg
 from .endpoint_profiles import profile_for
 from .tool_defs import (
     TOOLS,
-    NON_DIRECTOR_TOOLS,
+    PRE_WRITER_TOOLS,
     build_direct_scene_tool,
     build_feedback_tool,
     enabled_schemas,
@@ -393,7 +393,7 @@ async def _run_pipeline(
     effective_msg = user_message
 
     # --- Director pass ---
-    has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in TOOLS if n not in NON_DIRECTOR_TOOLS)
+    has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in PRE_WRITER_TOOLS)
     if cfg.agent_on and has_pre_writer_tools:
         yield {"event": "director_start"}
         async for event in director_pass(
