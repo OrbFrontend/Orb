@@ -167,7 +167,7 @@ export function renderInteractiveFragments() {
       const toggleId = `interactive-frag-toggle-${f.id}`;
       const userBadge =
         f.field_type === "feedback"
-          ? ` <span class="frag-target-badge" style="font-size:9px;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:0 4px;vertical-align:middle;">FEEDBACK</span>`
+          ? ` <span class="frag-target-badge" style="font-size:10px;color:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:0 4px;vertical-align:middle;">F</span>`
           : "";
       return `
     <div class="fragment-item" draggable="true" data-id="${esc(f.id)}" title="${esc(f.description)}" onclick="showInteractiveFragmentModal('${f.id}')">
