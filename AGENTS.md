@@ -434,7 +434,7 @@ Orb sends the **full active message path** (leaf to root) every turn — no auto
 
 - **Unit tests** (`tests/unit/`): Test individual functions — editor audit, fragment parsing, template detection, abort logic.
 - **Integration tests** (`tests/integration/`): FastAPI `TestClient` against real DB — CRUD for characters, conversations, endpoints, settings, fragments, personas, context size.
-- **Run**: `cd ~/repos/Orb && python -m pytest tests/ -v`
+- **Run**: `cd ~/repos/Orb && ./scripts/tests.sh all`
 - **No e2e tests** for the frontend.
 
 ### Codex Sandbox Caveat
@@ -479,6 +479,12 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 1. Create `frontend/themes/your_theme.css`
 2. Follow the pattern of existing themes — CSS custom properties on `[data-theme="your_theme"]`
 3. The theme is automatically listed via `GET /api/themes`
+
+### Formatting and linting the code
+
+1. Format backend code with Black: ./scripts/format_backend.sh
+2. Format frontend code with Biome: ./scripts/format_frontend.sh
+3. Lint both backend and frontend and check for static issues: ./scripts/lint.sh
 
 ## Gotchas and Pitfalls
 
