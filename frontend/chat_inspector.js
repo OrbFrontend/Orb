@@ -350,14 +350,17 @@ export function buildFeedbackHtml(values) {
   const body = rows
     .map(({ label, value }) => {
       const valHtml = Array.isArray(value)
-        ? `<ul style="margin:2px 0 0;padding-left:18px">${value.map((it) => `<li>${esc(String(it))}</li>`).join("")}</ul>`
-        : `<div style="margin-top:2px">${esc(String(value))}</div>`;
-      return `<div style="margin-bottom:6px"><strong style="font-size:11px;color:var(--text-secondary)">${esc(label)}</strong>${valHtml}</div>`;
+        ? `<ul>${value.map((it) => `<li>${esc(String(it))}</li>`).join("")}</ul>`
+        : esc(String(value));
+      return `<div class="feedback-row">
+        <span class="feedback-row-label">${esc(label)}</span>
+        <div class="feedback-row-value">${valHtml}</div>
+      </div>`;
     })
     .join("");
   return `<div class="inspector-block">
     <h4>Feedback</h4>
-    <div style="font-size:12px;color:var(--text-secondary)">${body}</div>
+    <div class="feedback-card">${body}</div>
   </div>`;
 }
 
