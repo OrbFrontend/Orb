@@ -329,9 +329,12 @@ function _buildToolCallsHtml(tc) {
   </details>`;
 }
 
-// Map feedback-pass values ({fragment_id: string|array}) to display rows using
-// each interactive fragment's injection_label as the heading. Shared by the live
+// Map feedback-pass values ({fragment_id: value}) to display rows using each
+// interactive fragment's injection_label as the heading. Shared by the live
 // stream note and the inspector block so both render identically.
+// build_feedback_tool declares every feedback param as a string, so values are
+// normally strings; the array branch (here and in buildFeedbackHtml) is purely
+// defensive against a model that returns a list anyway.
 export function feedbackRows(values) {
   if (!values || typeof values !== "object") return [];
   const frags = S.interactiveFragments || [];

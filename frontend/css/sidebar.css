@@ -348,6 +348,15 @@
   font-weight: 500;
   padding-right: 8px;
 }
+/* Badge marking a fragment's field_type (e.g. feedback fragments → user-facing note). */
+.frag-type-badge {
+  font-size: 10px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+  vertical-align: middle;
+}
 /* Fragment toggle */
 .frag-toggle-wrapper {
   display: flex;

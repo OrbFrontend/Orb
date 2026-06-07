@@ -57,7 +57,10 @@ def extract_feedback_values(tool_calls: list[dict]) -> dict:
 
     Empty/None entries are dropped (mirroring the director's ``extra_fields``), so
     a model that omits or blanks a field contributes nothing. A later call wins on
-    key collisions, matching ``apply_tool_calls``' update semantics.
+    key collisions, matching ``apply_tool_calls``' update semantics. Each value is
+    normally a string (``build_feedback_tool`` declares string params); the empty
+    ``[]`` guard is defensive against a model that returns a list anyway, matching
+    the frontend's array handling in ``chat_inspector.feedbackRows``.
     """
     values: dict = {}
     for tc in tool_calls:

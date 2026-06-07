@@ -270,7 +270,7 @@ def _build_writer_tools_blob(
     settings: Mapping[str, Any],
     interactive_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: dict,
-) -> tuple[dict, list[Mapping[str, Any]]]:
+) -> dict:
     """Build the per-turn ``schema_overrides`` for the writer lane, mutating
     *enabled_tools* in place to add ``give_feedback`` when feedback is active.
 
@@ -281,15 +281,13 @@ def _build_writer_tools_blob(
     parity can then never be forgotten at a call site. ``direct_scene`` is built
     from the writer fragments; ``give_feedback`` rides the same blob exactly like
     it, built once from the enabled feedback fragments.
-
-    Returns ``(schema_overrides, feedback_fragments)``.
     """
     writer_fragments, feedback_fragments = _split_interactive_fragments(interactive_fragments)
     overrides: dict = {"direct_scene": build_direct_scene_tool(writer_fragments)}
     if _feedback_active(settings, feedback_fragments):
         overrides["give_feedback"] = build_feedback_tool(feedback_fragments)
         enabled_tools["give_feedback"] = True
-    return overrides, feedback_fragments
+    return overrides
 
 
 async def _run_pipeline(
@@ -551,8 +549,11 @@ async def _run_pipeline(
             resp_text,
             settings,
             phrase_bank or [],
-            cfg.audit_enabled if cfg.do_edit else False,
-            cfg.length_guard if cfg.do_edit else None,
+            # do_edit == (audit_enabled or length_guard is not None), so in the
+            # feedback-only path (do_edit False) both are already inert — pass
+            # them straight through and let the edit loop no-op.
+            cfg.audit_enabled,
+            cfg.length_guard,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.editor_reasoning_on,
             audit_context_msgs=editor_audit_msgs,
@@ -1250,7 +1251,7 @@ async def _prepare_turn(
     # after the agent-zeroing above, since feedback runs even with the agent off
     # and not on writer_enabled_tools, which _resolve_pipeline_config blanks in
     # dual-model mode (Invariant 5).
-    overrides, _ = _build_writer_tools_blob(settings, ctx.interactive_fragments, enabled_tools_pre_merge)
+    overrides = _build_writer_tools_blob(settings, ctx.interactive_fragments, enabled_tools_pre_merge)
     schema_overrides = MappingProxyType(overrides)
     accumulators = {
         "merged_enabled_tools": dict(enabled_tools_pre_merge),
@@ -2042,7 +2043,7 @@ async def handle_magic_rewrite(
         # diverge the tool section and bust the cache. No feedback step runs here —
         # this is purely cross-turn byte-parity; in dual-model the writer blob is
         # empty so it's a no-op.
-        schema_overrides, _ = _build_writer_tools_blob(settings, ctx.interactive_fragments, enabled_tools)
+        schema_overrides = _build_writer_tools_blob(settings, ctx.interactive_fragments, enabled_tools)
         cfg = _resolve_pipeline_config(
             settings,
             enabled_tools,

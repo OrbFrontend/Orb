@@ -128,6 +128,35 @@ def build_prefix(
 # ── Tool-call prompt
 
 
+def _tool_call_instruction(
+    tool_name: str,
+    schema: dict,
+    *,
+    labels: Mapping[str, str] | None = None,
+) -> str:
+    """Render the shared "call ONLY this tool, in schema order" instruction line.
+
+    Echoes the tool description and the parameter order from *schema* so the model
+    fills fields in schema order. When *labels* is given, each param id is annotated
+    with its human heading (e.g. a fragment's injection_label) — used by the
+    feedback step so the model knows what each opaque id means; the director passes
+    none and gets bare ids. Single source for the wording so it can't drift between
+    :func:`build_director_tool_prompt` and :func:`build_feedback_prompt`.
+    """
+    desc = schema["function"]["description"]
+    params = schema["function"]["parameters"].get("properties", {})
+    if not params:
+        param_order = "N/A"
+    elif labels:
+        param_order = ", ".join(f'{k} ("{labels[k]}")' if labels.get(k) else k for k in params)
+    else:
+        param_order = ", ".join(params.keys())
+    return (
+        f"Call ONLY this tool, ensuring parameters follow the schema order: "
+        f"{tool_name} - {desc}\nParameter order: ({param_order})"
+    )
+
+
 def build_director_tool_prompt(
     tool_name: str,
     user_message: str,
@@ -142,13 +171,10 @@ def build_director_tool_prompt(
     if not tool:
         return ""
     schema = tool_schema if tool_schema is not None else tool["schema"]
-    desc = schema["function"]["description"]
-    params = schema["function"]["parameters"].get("properties", {})
-    param_order = ", ".join(params.keys()) if params else "N/A"
     preamble = DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     parts = [
         preamble,
-        f"Call ONLY this tool, ensuring parameters follow the schema order: {tool_name} - {desc}\nParameter order: ({param_order})",
+        _tool_call_instruction(tool_name, schema),
     ]
     if tool_name == "direct_scene":
         moods = ", ".join(active_moods) or "none"
@@ -178,26 +204,20 @@ def build_feedback_prompt(
     message (so the feedback step extends the writer/editor KV-cached stack
     instead of forking off the bare prefix — see :func:`feedback_step`), so it is
     deliberately NOT quoted here. *tool_schema* is the dynamic ``give_feedback``
-    schema (from :func:`build_feedback_tool`); its parameter order is echoed so
-    the model fills fields in schema order, mirroring
-    :func:`build_director_tool_prompt`.
+    schema (from :func:`build_feedback_tool`); its parameter order is echoed via
+    the shared :func:`_tool_call_instruction` (as in
+    :func:`build_director_tool_prompt`) so the model fills fields in schema order.
+    Each param id is additionally paired with its injection_label — the same
+    human heading the user sees on the rendered note
+    (chat_inspector.feedbackRows) — so the model knows what each field is for
+    beyond the opaque id. The labels live in the per-turn request only, not the
+    give_feedback schema, so the shared tools-blob KV cache is untouched.
     """
     preamble = FEEDBACK_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     parts = [preamble]
     if tool_schema is not None:
-        desc = tool_schema["function"]["description"]
-        params = tool_schema["function"]["parameters"].get("properties", {})
-        # Pair each param id with its injection_label — the same human heading the
-        # user sees on the rendered note (chat_inspector.feedbackRows) — so the
-        # model knows what each field is for beyond the opaque id. Lives in the
-        # per-turn request only, not the give_feedback schema, so the shared
-        # tools-blob KV cache is untouched.
         labels = {df["id"]: (df.get("injection_label") or "").strip() for df in feedback_fragments}
-        param_order = ", ".join(f'{k} ("{labels[k]}")' if labels.get(k) else k for k in params) if params else "N/A"
-        parts.append(
-            f"Call ONLY this tool, ensuring parameters follow the schema order: "
-            f"give_feedback - {desc}\nParameter order: ({param_order})"
-        )
+        parts.append(_tool_call_instruction("give_feedback", tool_schema, labels=labels))
     return "\n\n".join(parts)
 
 
