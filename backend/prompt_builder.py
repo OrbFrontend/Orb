@@ -187,7 +187,13 @@ def build_feedback_prompt(
     if tool_schema is not None:
         desc = tool_schema["function"]["description"]
         params = tool_schema["function"]["parameters"].get("properties", {})
-        param_order = ", ".join(params.keys()) if params else "N/A"
+        # Pair each param id with its injection_label — the same human heading the
+        # user sees on the rendered note (chat_inspector.feedbackRows) — so the
+        # model knows what each field is for beyond the opaque id. Lives in the
+        # per-turn request only, not the give_feedback schema, so the shared
+        # tools-blob KV cache is untouched.
+        labels = {df["id"]: (df.get("injection_label") or "").strip() for df in feedback_fragments}
+        param_order = ", ".join(f'{k} ("{labels[k]}")' if labels.get(k) else k for k in params) if params else "N/A"
         parts.append(
             f"Call ONLY this tool, ensuring parameters follow the schema order: "
             f"give_feedback - {desc}\nParameter order: ({param_order})"
