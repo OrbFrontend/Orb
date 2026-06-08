@@ -163,6 +163,27 @@ export function renderEndpoints() {
   `;
   initComboboxes();
   updateAgentModelWarning();
+  updateEndpointsLabel();
+}
+
+// Show the current model name on the Endpoints section header, falling back to
+// "Endpoints" when it's empty or "default". Long names are middle-truncated.
+export function updateEndpointsLabel() {
+  const el = document.getElementById("endpoints-label");
+  if (!el) return;
+  // Prefer the live input value so the label tracks what's shown even before
+  // S.settings round-trips (e.g. switching endpoints or picking from the dropdown).
+  const input = document.querySelector('[data-key="model_name"]');
+  const model = (input ? input.value : S.settings.model_name || "").trim();
+  if (!model || model.toLowerCase() === "default") {
+    el.textContent = "Endpoints";
+    el.title = "";
+    return;
+  }
+  const MAX = 24;
+  const EDGE = 8;
+  el.textContent = model.length <= MAX ? model : model.slice(0, EDGE) + "..." + model.slice(-EDGE);
+  el.title = model;
 }
 
 function updateAgentModelWarning() {
@@ -617,6 +638,7 @@ async function _doSaveEndpointSetting(ctx, el) {
     toast("Failed to sync " + (key === ctx.modelField ? "model" : "endpoint") + ": " + e.message, true);
   }
   updateAgentModelWarning();
+  updateEndpointsLabel();
 }
 
 async function _onHybridInputCtx(ctx, el) {
@@ -664,6 +686,7 @@ async function _onHybridInputCtx(ctx, el) {
     }
   }
   updateAgentModelWarning();
+  updateEndpointsLabel();
 }
 
 // ── Public API
