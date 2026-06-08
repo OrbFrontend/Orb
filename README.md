@@ -16,17 +16,18 @@ An **agentic middleware layer** sits between the user and the model. It intercep
 The user never sees the agentic layer. The writer model doesn't know it's being directed. The result is a roleplay session that naturally adapts its style, tone, and pacing as the narrative evolves.
 
 ## Notable Features
-1. **Clear direction for Writer**: Grounding the story + actively steering the writing style = better output
+1. **Director**: Grounding the story + actively steering the writing style = better output
 2. **Customizability**: Customizable prompt injection that's automatically used by Director model
 3. **Anti-slop**: Get rid of overused words, phrases, and patterns often seen in LLM outputs
 4. **Anti-repetition**: Detect various types of repetition from outputs and surgically fix them
 5. **Length Guard**: Actively or passively protect from length degradation as context grows
-6. **Super-regenerate**: Normal regens may give samey outputs, ask for a different take
+6. **Super-regenerate**: Normal regens may give samey outputs, ask for a different take (mileage varies)
 7. **Magic Rewrite**: Rewrite the target message in a user-defined direction
 8. **Compress History**: Summarize chat context and move it to a new conversation
 9. **Mobile-compatibility**: UI for mobile devices
-10. **Integrated TTS**: Easy Text-to-speech that supports multiple providers
+10. **TTS**: Easy Text-to-speech that supports multiple providers
 11. **Character Browser**: Fetch character cards from various sites on the Internet
+12. **AI Feedback**: Give suggestions and commentary on what to do next, solving writer's block
 
 ## Architecture
 
@@ -47,8 +48,6 @@ For the best experience, use Dual-Model Mode. Some harnesses are dropped in this
 
 ### KV Cache Reuse Strategy
 
-For a stepped visual walkthrough of the cache mechanism across all three passes and the reasoning-mode fork, open [kv-cache-animation](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) in a browser. The full write-up is in [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md).
-
 For optimal KV cache reuse, the following will remain consistent across passes:
 
 #### 1. System Prompt
@@ -63,6 +62,8 @@ For optimal KV cache reuse, the following will remain consistent across passes:
 #### 3. Tool Schemas
 - The same tool definitions must be sent in each LLM call for kv cache reuse
 - Inconsistent tool schemas break KV cache alignment
+
+For a stepped visual walkthrough of the cache mechanism across all three passes and the reasoning-mode fork, open [kv-cache-animation](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) in a browser. The full write-up is in [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md).
 
 ## Design Principles
 
