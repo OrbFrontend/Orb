@@ -8,9 +8,10 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncIterator, Mapping, TYPE_CHECKING
+from typing import Any, AsyncIterator, Mapping, Sequence, TYPE_CHECKING
 
 from .audit import run_audit, format_report, AuditReport
+from .feedback import feedback_step, FeedbackResult
 from .slop_detector import DetectionResult
 
 if TYPE_CHECKING:
@@ -301,6 +302,94 @@ def _editor_done_event(
 
 
 async def editor_pass(
+    client: LLMClient,
+    base: CachedBase,
+    effective_msg: str,
+    draft: str,
+    settings: Mapping[str, Any],
+    phrase_bank: list[PhraseGroup],
+    audit_enabled: bool = True,
+    length_guard: LengthGuard | None = None,
+    kv_tracker=None,
+    reasoning_on: bool = False,
+    audit_context_msgs: list[str] | None = None,
+    writer_user_msg: "str | list[ContentPart] | None" = None,
+    feedback_fragments: "Sequence[Mapping[str, Any]] | None" = None,
+) -> AsyncIterator[dict]:
+    """Editor pass = the ReAct edit loop, then an optional feedback sub-step.
+
+    The edit loop fixes audit/length-guard issues in *draft*. Afterwards, if any
+    ``field_type='feedback'`` interactive fragments are passed, a feedback step
+    runs on the final (edited) text to produce an out-of-character note for the
+    user. Feedback is an editor sub-step, not a top-level pass: it shares the
+    editor's reasoning toggle (``reasoning_on``), its reasoning channel (deltas
+    are tagged ``pass="editor"``), and its ``elapsed`` timing — only the
+    user-facing note is surfaced separately. Its single LLM call reuses the
+    shared base: give_feedback rides the shared tools blob, and the call replays
+    writer_user_msg + reply so it extends the writer/editor KV-cached prefix
+    rather than busting it.
+
+    Yields:
+        {"type": "reasoning", "delta": str, "pass": "editor"}
+        {"type": "done", "draft": str|None, "debug": str, "elapsed": int,
+         "tool_calls": list (when the edit loop ran), "feedback": dict}
+    """
+    t0 = time.monotonic()
+    edit_done: dict | None = None
+    async for ev in _run_edit_loop(
+        client,
+        base,
+        effective_msg,
+        draft,
+        settings,
+        phrase_bank,
+        audit_enabled,
+        length_guard,
+        kv_tracker=kv_tracker,
+        reasoning_on=reasoning_on,
+        audit_context_msgs=audit_context_msgs,
+        writer_user_msg=writer_user_msg,
+    ):
+        if ev["type"] == "reasoning":
+            yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
+        elif ev["type"] == "done":
+            edit_done = ev
+
+    # _run_edit_loop yields exactly one done event. A None draft means "unchanged",
+    # so the feedback step reads the original text in that case.
+    final_text = (edit_done.get("draft") if edit_done else None) or draft
+
+    feedback_values: dict = {}
+    if feedback_fragments and final_text and not client.is_aborted:
+        async for ev in feedback_step(
+            client,
+            base,
+            final_text,
+            settings,
+            feedback_fragments,
+            # Same value the edit loop replays, so feedback extends the writer's
+            # KV-cached prefix instead of forking off the bare base.prefix.
+            writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
+            kv_tracker=kv_tracker,
+            # Feedback shares the editor's reasoning toggle — it is a sub-step, not
+            # a separately-configurable pass.
+            reasoning_on=reasoning_on,
+        ):
+            if ev["type"] == "reasoning":
+                yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
+            elif ev["type"] == "done":
+                fb: FeedbackResult = ev["result"]
+                feedback_values = fb.values
+
+    done = dict(edit_done) if edit_done else {"type": "done", "draft": None, "debug": "", "elapsed": 0}
+    done["feedback"] = feedback_values
+    # elapsed covers the whole editor pass, feedback sub-step included (the edit
+    # loop's own elapsed only timed the loop).
+    done["elapsed"] = int((time.monotonic() - t0) * 1000)
+    yield done
+
+
+async def _run_edit_loop(
     client: LLMClient,
     base: CachedBase,
     effective_msg: str,

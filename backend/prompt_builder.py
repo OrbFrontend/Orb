@@ -13,6 +13,7 @@ from .tool_defs import (
     TOOLS,
     DIRECTOR_PREAMBLE,
     EDITOR_PREAMBLE,
+    FEEDBACK_PREAMBLE,
     REASONING_GUIDANCE,
     EDITOR_PATCH_INSTRUCTIONS,
     EDITOR_REWRITE_INSTRUCTIONS,
@@ -127,13 +128,42 @@ def build_prefix(
 # ── Tool-call prompt
 
 
+def _tool_call_instruction(
+    tool_name: str,
+    schema: dict,
+    *,
+    labels: Mapping[str, str] | None = None,
+) -> str:
+    """Render the shared "call ONLY this tool, in schema order" instruction line.
+
+    Echoes the tool description and the parameter order from *schema* so the model
+    fills fields in schema order. When *labels* is given, each param id is annotated
+    with its human heading (e.g. a fragment's injection_label) — used by the
+    feedback step so the model knows what each opaque id means; the director passes
+    none and gets bare ids. Single source for the wording so it can't drift between
+    :func:`build_director_tool_prompt` and :func:`build_feedback_prompt`.
+    """
+    desc = schema["function"]["description"]
+    params = schema["function"]["parameters"].get("properties", {})
+    if not params:
+        param_order = "N/A"
+    elif labels:
+        param_order = ", ".join(f'{k} ("{labels[k]}")' if labels.get(k) else k for k in params)
+    else:
+        param_order = ", ".join(params.keys())
+    return (
+        f"Call ONLY this tool, ensuring parameters follow the schema order: "
+        f"{tool_name} - {desc}\nParameter order: ({param_order})"
+    )
+
+
 def build_director_tool_prompt(
     tool_name: str,
     user_message: str,
     active_moods: list[str],
     mood_fragments: Sequence[Mapping[str, Any]],
     reasoning_on: bool = False,
-    director_fragments: Sequence[Mapping[str, Any]] | None = None,
+    interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
 ) -> str:
@@ -141,13 +171,10 @@ def build_director_tool_prompt(
     if not tool:
         return ""
     schema = tool_schema if tool_schema is not None else tool["schema"]
-    desc = schema["function"]["description"]
-    params = schema["function"]["parameters"].get("properties", {})
-    param_order = ", ".join(params.keys()) if params else "N/A"
     preamble = DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     parts = [
         preamble,
-        f"Call ONLY this tool, ensuring parameters follow the schema order: {tool_name} - {desc}\nParameter order: ({param_order})",
+        _tool_call_instruction(tool_name, schema),
     ]
     if tool_name == "direct_scene":
         moods = ", ".join(active_moods) or "none"
@@ -155,7 +182,7 @@ def build_director_tool_prompt(
         parts.append(f"Previously active moods: {moods}\n\nAvailable writing moods:\n{frags}")
         progressive_lines = [
             f"* [{df['id']}] ({df['description']}): {(progressive_state or {}).get(df['id'])}"
-            for df in (director_fragments or [])
+            for df in (interactive_fragments or [])
             if df.get("field_type") == "progressive" and (progressive_state or {}).get(df["id"])
         ]
         if progressive_lines:
@@ -163,6 +190,34 @@ def build_director_tool_prompt(
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
     elif tool_name == "rewrite_user_prompt":
         parts.append(f'User\'s message:\n"""[{user_message}]"""')
+    return "\n\n".join(parts)
+
+
+def build_feedback_prompt(
+    feedback_fragments: Sequence[Mapping[str, Any]],
+    reasoning_on: bool = False,
+    tool_schema: dict | None = None,
+) -> str:
+    """Build the trailing *request* message for the post-writer feedback step.
+
+    The just-written reply is supplied to the model as its own ``assistant``
+    message (so the feedback step extends the writer/editor KV-cached stack
+    instead of forking off the bare prefix — see :func:`feedback_step`), so it is
+    deliberately NOT quoted here. *tool_schema* is the dynamic ``give_feedback``
+    schema (from :func:`build_feedback_tool`); its parameter order is echoed via
+    the shared :func:`_tool_call_instruction` (as in
+    :func:`build_director_tool_prompt`) so the model fills fields in schema order.
+    Each param id is additionally paired with its injection_label — the same
+    human heading the user sees on the rendered note
+    (chat_inspector.feedbackRows) — so the model knows what each field is for
+    beyond the opaque id. The labels live in the per-turn request only, not the
+    give_feedback schema, so the shared tools-blob KV cache is untouched.
+    """
+    preamble = FEEDBACK_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
+    parts = [preamble]
+    if tool_schema is not None:
+        labels = {df["id"]: (df.get("injection_label") or "").strip() for df in feedback_fragments}
+        parts.append(_tool_call_instruction("give_feedback", tool_schema, labels=labels))
     return "\n\n".join(parts)
 
 
@@ -202,7 +257,7 @@ def compute_style_injection_block(
     active_moods: list[str],
     prior_moods: list[str],
     mood_fragments: Sequence[Mapping[str, Any]],
-    director_fragments: Sequence[Mapping[str, Any]],
+    interactive_fragments: Sequence[Mapping[str, Any]],
     direct_scene_enabled: bool,
     extra_fields: dict | None = None,
     prior_progressive_state: dict | None = None,
@@ -234,24 +289,24 @@ def compute_style_injection_block(
     if not (active or deactivated or inj_extra):
         return ""
 
-    return build_style_injection(active, deactivated, director_fragments, inj_extra, prior_progressive_state)
+    return build_style_injection(active, deactivated, interactive_fragments, inj_extra, prior_progressive_state)
 
 
 def build_style_injection(
     active: Sequence[Mapping[str, Any]],
     deactivated: Sequence[Mapping[str, Any]] | None = None,
-    director_fragments: Sequence[Mapping[str, Any]] | None = None,
+    interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     extra_fields: dict | None = None,
     prior_progressive_state: dict | None = None,
 ) -> str:
     """Render the Scene Direction injection block for the writer pass.
 
-    Director fragment values are rendered in sort_order, each using the
+    Interactive fragment values are rendered in sort_order, each using the
     fragment's injection_label.  Arrays are rendered as bullet lists.
     """
     parts = ["**Scene Direction**"]
 
-    for df in sorted(director_fragments or [], key=lambda x: x.get("sort_order", 0)):
+    for df in sorted(interactive_fragments or [], key=lambda x: x.get("sort_order", 0)):
         val = (extra_fields or {}).get(df["id"])
         if not val:
             continue

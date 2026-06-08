@@ -7,7 +7,7 @@ from .schema import CREATE_TABLES_SQL
 from .seeds import (
     DEFAULT_ENABLED_TOOLS,
     DEFAULT_SETTINGS,
-    SEED_DIRECTOR_FRAGMENTS,
+    SEED_INTERACTIVE_FRAGMENTS,
     SEED_MOOD_FRAGMENTS,
     SEED_PHRASE_BANK,
 )
@@ -38,9 +38,9 @@ async def init_db():
         if row[0]["c"] == 0:
             await _seed_mood_fragments(db)
 
-        row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM director_fragments"))
+        row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM interactive_fragments"))
         if row[0]["c"] == 0:
-            await _seed_director_fragments(db)
+            await _seed_interactive_fragments(db)
 
         row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM phrase_bank"))
         if row[0]["c"] == 0:
@@ -79,7 +79,7 @@ async def reset_to_defaults() -> None:
 
         await db.execute("DELETE FROM settings WHERE id = 1")
         await db.execute("DELETE FROM mood_fragments")
-        await db.execute("DELETE FROM director_fragments")
+        await db.execute("DELETE FROM interactive_fragments")
         await db.execute("DELETE FROM phrase_bank")
         await db.execute("DELETE FROM model_configs")
         await db.execute("DELETE FROM endpoints")
@@ -87,7 +87,7 @@ async def reset_to_defaults() -> None:
         await _seed_settings(db)
         await _seed_endpoint_from(db, DEFAULT_SETTINGS)
         await _seed_mood_fragments(db)
-        await _seed_director_fragments(db)
+        await _seed_interactive_fragments(db)
         await _seed_phrase_bank(db)
 
         if cache_bookkeeping is not None:
@@ -184,16 +184,17 @@ async def _seed_mood_fragments(db) -> None:
         )
 
 
-async def _seed_director_fragments(db) -> None:
-    for df in SEED_DIRECTOR_FRAGMENTS:
+async def _seed_interactive_fragments(db) -> None:
+    for df in SEED_INTERACTIVE_FRAGMENTS:
         await db.execute(
-            "INSERT INTO director_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+            "INSERT INTO interactive_fragments (id, label, description, field_type, required, enabled, injection_label, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 df["id"],
                 df["label"],
                 df["description"],
                 df["field_type"],
                 1 if df["required"] else 0,
+                1 if df.get("enabled", True) else 0,
                 df["injection_label"],
                 df["sort_order"],
             ),

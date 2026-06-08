@@ -58,13 +58,13 @@ import {
   charTagRemoveChip,
   createCharacter,
   deleteCharacter,
-  deleteDirectorFragment,
+  deleteInteractiveFragment,
   deleteMoodFragment,
   exportCharacter,
   handleImportFile,
   importInternetChar,
   loadCharacters,
-  loadDirectorFragments,
+  loadInteractiveFragments,
   loadMoodFragments,
   loadMoreInternet,
   onCharBrowserSearch,
@@ -72,7 +72,7 @@ import {
   refreshCharacters,
   renderCharacters,
   saveCharEdit,
-  saveDirectorFragment,
+  saveInteractiveFragment,
   saveImportedChar,
   saveMoodFragment,
   searchInternet,
@@ -82,14 +82,14 @@ import {
   showCharacterBrowserModal,
   showCharCreateModal,
   showCharEditModal,
-  showDirectorFragmentModal,
+  showInteractiveFragmentModal,
   showMoodFragmentModal,
-  toggleDirectorFragmentEnabled,
+  toggleInteractiveFragmentEnabled,
   toggleMoodFragmentEnabled,
   toggleTagSelection,
   triggerAvatarCrop,
   triggerImport,
-  updateDirectorFragmentExample,
+  updateInteractiveFragmentExample,
 } from "./library.js";
 import {
   closeLorebook,
@@ -158,6 +158,7 @@ import {
   showPhraseBankModal,
   showUserModal,
   toggleAuditType,
+  toggleFeedbackEnabled,
   toggleHideUntilBaked,
   toggleLengthGuard,
   toggleLengthGuardEnforce,
@@ -219,6 +220,7 @@ Object.assign(window, {
   toggleLengthGuard,
   saveLengthGuardConfig,
   toggleLengthGuardEnforce,
+  toggleFeedbackEnabled,
   toggleShowEditorDiff,
   toggleAuditType,
   toggleHideUntilBaked,
@@ -243,12 +245,12 @@ Object.assign(window, {
   saveMoodFragment,
   deleteMoodFragment,
   toggleMoodFragmentEnabled,
-  // director fragments
-  showDirectorFragmentModal,
-  saveDirectorFragment,
-  deleteDirectorFragment,
-  toggleDirectorFragmentEnabled,
-  updateDirectorFragmentExample,
+  // interactive fragments
+  showInteractiveFragmentModal,
+  saveInteractiveFragment,
+  deleteInteractiveFragment,
+  toggleInteractiveFragmentEnabled,
+  updateInteractiveFragmentExample,
   // characters
   selectChar,
   triggerImport,
@@ -386,9 +388,9 @@ async function initAll() {
   }
 
   try {
-    await loadDirectorFragments();
+    await loadInteractiveFragments();
   } catch (e) {
-    console.error("Failed to load director fragments:", e);
+    console.error("Failed to load interactive fragments:", e);
   }
 
   try {

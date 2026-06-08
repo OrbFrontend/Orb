@@ -8,6 +8,8 @@ import pytest
 from backend.database.seeds import DEFAULT_ENABLED_TOOLS, DEFAULT_SETTINGS
 from backend.tool_defs import (
     BUILTIN_TOOL_NAMES,
+    POST_WRITER_TOOLS,
+    PRE_WRITER_TOOLS,
     STANDALONE_TOOLS,
     TOOLS,
     enabled_schemas,
@@ -52,6 +54,22 @@ class TestStandaloneToolsBaseline:
         assert STANDALONE_TOOLS == set()
 
 
+class TestPipelinePhaseSets:
+    """PRE_WRITER_TOOLS and POST_WRITER_TOOLS partition the built-in tools by
+    pipeline phase — no overlap, full coverage. give_feedback is a post-writer
+    feedback-step tool, not a director tool."""
+
+    def test_phase_sets_are_disjoint(self):
+        assert PRE_WRITER_TOOLS.isdisjoint(POST_WRITER_TOOLS)
+
+    def test_phase_sets_partition_builtins(self):
+        assert PRE_WRITER_TOOLS | POST_WRITER_TOOLS == BUILTIN_TOOL_NAMES
+
+    def test_give_feedback_is_post_writer(self):
+        assert "give_feedback" in POST_WRITER_TOOLS
+        assert "give_feedback" not in PRE_WRITER_TOOLS
+
+
 class TestEnabledToolsHoldsOnlyTools:
     """enabled_tools is a tool-registry switch, not a feature-flag bag. The
     seeded default must only name registered tools — feature flags (length_guard,
@@ -83,6 +101,7 @@ class TestEnabledSchemasBaseline:
             "rewrite_user_prompt",
             "editor_apply_patch",
             "editor_rewrite",
+            "give_feedback",
         ]
 
     def test_dict_filter_returns_insertion_order_subset(self):
@@ -138,4 +157,5 @@ class TestRegisterTool:
             "rewrite_user_prompt",
             "editor_apply_patch",
             "editor_rewrite",
+            "give_feedback",
         ]

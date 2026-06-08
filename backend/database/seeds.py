@@ -78,7 +78,7 @@ SEED_MOOD_FRAGMENTS = [
     },
 ]
 
-SEED_DIRECTOR_FRAGMENTS = [
+SEED_INTERACTIVE_FRAGMENTS = [
     {
         "id": "plot_summary",
         "label": "Plot Summary",
@@ -167,6 +167,20 @@ SEED_DIRECTOR_FRAGMENTS = [
         "injection_label": "Avoid repeating",
         "sort_order": 5,
     },
+    {
+        # Editor Feedback: provides 2 fresh, distinct actions the user can take
+        # next. Like next_actions, this is a "feedback" type fragment — shown to
+        # the user after each reply rather than fed into the writer. Seeded
+        # disabled; enable via the feedback_enabled setting.
+        "id": "suggested_actions",
+        "label": "Suggestions",
+        "description": "Suggest 2 fresh, distinct things the user could do next. Be concise, 2 sentences max.",
+        "field_type": "feedback",
+        "required": False,
+        "injection_label": "Suggestions",
+        "sort_order": 7,
+        "enabled": False,
+    },
 ]
 
 DEFAULT_ENABLED_TOOLS = {
@@ -210,6 +224,7 @@ DEFAULT_SETTINGS = {
     "prevent_prompt_overrides": 0,
     "agent_same_as_writer": True,
     "agent_shared_system_prompt": "",
+    "feedback_enabled": 0,
 }
 
 

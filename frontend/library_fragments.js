@@ -1,4 +1,4 @@
-// Mood fragments and director fragments: their sidebar lists, edit modals, and
+// Mood fragments and interactive fragments: their sidebar lists, edit modals, and
 // CRUD + reorder. Split out of library.js; the public surface is re-exported
 // from library.js.
 import { api } from "./api.js";
@@ -134,27 +134,27 @@ export async function toggleMoodFragmentEnabled(id, newEnabled) {
   }
 }
 
-// ── Director Fragments (unchanged)
-export async function loadDirectorFragments() {
+// ── Interactive Fragments (unchanged)
+export async function loadInteractiveFragments() {
   try {
-    S.directorFragments = await api.get("/director-fragments");
-    renderDirectorFragments();
+    S.interactiveFragments = await api.get("/interactive-fragments");
+    renderInteractiveFragments();
   } catch (error) {
-    console.error("Failed to load director fragments:", error);
+    console.error("Failed to load interactive fragments:", error);
     throw error;
   }
 }
 
-export function renderDirectorFragments() {
-  const el = document.getElementById("director-frag-list");
+export function renderInteractiveFragments() {
+  const el = document.getElementById("interactive-frag-list");
   if (!el) return;
-  if (!S.directorFragments || S.directorFragments.length === 0) {
-    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No director fragments</div>';
+  if (!S.interactiveFragments || S.interactiveFragments.length === 0) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No interactive fragments</div>';
     return;
   }
 
   // Sort by sort_order then by id
-  const sorted = [...S.directorFragments].sort((a, b) => {
+  const sorted = [...S.interactiveFragments].sort((a, b) => {
     const orderA = a.sort_order || 0;
     const orderB = b.sort_order || 0;
     if (orderA !== orderB) return orderA - orderB;
@@ -164,17 +164,25 @@ export function renderDirectorFragments() {
   const html = sorted
     .map((f) => {
       const enabled = f.enabled === true || f.enabled === 1;
-      const toggleId = `director-frag-toggle-${f.id}`;
+      const toggleId = `interactive-frag-toggle-${f.id}`;
+      const userBadge =
+        f.field_type === "feedback" ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>` : "";
+      // Feedback fragments are gated by the "Editor Feedback" feature flag; grey
+      // them out (and explain why on hover) when that feature is disabled.
+      const featureDisabled = f.field_type === "feedback" && !S.feedbackEnabled;
+      const itemTitle = featureDisabled
+        ? "Editor Feedback feature is disabled — enable it in Settings to use this fragment"
+        : esc(f.description);
       return `
-    <div class="fragment-item" draggable="true" data-id="${esc(f.id)}" title="${esc(f.description)}" onclick="showDirectorFragmentModal('${f.id}')">
+    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" draggable="true" data-id="${esc(f.id)}" title="${itemTitle}" onclick="showInteractiveFragmentModal('${f.id}')">
       <div class="frag-drag-handle" onclick="event.stopPropagation()">⋮⋮</div>
       <div style="flex:1; min-width:0;">
-        <span class="frag-label">${esc(f.label)}</span>
+        <span class="frag-label">${esc(f.label)}</span>${userBadge}
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="frag-toggle" for="${toggleId}">
           <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
-                 onchange="toggleDirectorFragmentEnabled('${f.id}', this.checked)">
+                 onchange="toggleInteractiveFragmentEnabled('${f.id}', this.checked)">
           <span class="frag-toggle-slider"></span>
         </label>
       </div>
@@ -252,13 +260,13 @@ function setupDragAndDrop(container) {
     }));
     // Update local state
     updatedOrder.forEach(({ id, sort_order }) => {
-      const frag = S.directorFragments.find((f) => f.id === id);
+      const frag = S.interactiveFragments.find((f) => f.id === id);
       if (frag) frag.sort_order = sort_order;
     });
     // Update each fragment individually
-    Promise.all(updatedOrder.map(({ id, sort_order }) => api.put(`/director-fragments/${id}`, { sort_order })))
+    Promise.all(updatedOrder.map(({ id, sort_order }) => api.put(`/interactive-fragments/${id}`, { sort_order })))
       .then(() => {
-        toast("Director fragments reordered");
+        toast("Interactive fragments reordered");
       })
       .catch((e) => {
         console.error("Reorder failed", e);
@@ -269,7 +277,7 @@ function setupDragAndDrop(container) {
 
 // Example placeholders per field_type, shown across the modal's empty inputs
 // and refreshed when the Field Type dropdown changes.
-const DIRECTOR_FRAGMENT_EXAMPLES = {
+const INTERACTIVE_FRAGMENT_EXAMPLES = {
   string: {
     id: "e.g. pacing",
     label: "e.g. Pacing",
@@ -288,22 +296,29 @@ const DIRECTOR_FRAGMENT_EXAMPLES = {
     injection_label: "e.g. Tension",
     description: "Track a value that evolves each turn, e.g. 'calm' -> 'uneasy' -> 'breaking point'",
   },
+  feedback: {
+    id: "e.g. next_actions",
+    label: "e.g. Next Actions",
+    injection_label: "e.g. What you could do next",
+    description:
+      "A short out-of-character note shown to you after each reply, e.g. 'suggest what the player could do or say next'",
+  },
 };
 
-export function updateDirectorFragmentExample(fieldType) {
-  const ex = DIRECTOR_FRAGMENT_EXAMPLES[fieldType] || DIRECTOR_FRAGMENT_EXAMPLES.string;
+export function updateInteractiveFragmentExample(fieldType) {
+  const ex = INTERACTIVE_FRAGMENT_EXAMPLES[fieldType] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
   const set = (elId, placeholder) => {
     const el = document.getElementById(elId);
     if (el) el.placeholder = placeholder;
   };
-  set("dir-frag-id", ex.id);
-  set("dir-frag-label", ex.label);
-  set("dir-frag-inj-label", ex.injection_label);
-  set("dir-frag-desc", ex.description);
+  set("interactive-frag-id", ex.id);
+  set("interactive-frag-label", ex.label);
+  set("interactive-frag-inj-label", ex.injection_label);
+  set("interactive-frag-desc", ex.description);
 }
 
-export function showDirectorFragmentModal(fragId = null) {
-  const f = fragId ? S.directorFragments.find((x) => x.id === fragId) : null;
+export function showInteractiveFragmentModal(fragId = null) {
+  const f = fragId ? S.interactiveFragments.find((x) => x.id === fragId) : null;
   const isEdit = !!f;
   const d = f || {
     id: "",
@@ -314,81 +329,82 @@ export function showDirectorFragmentModal(fragId = null) {
     injection_label: "",
     sort_order: 0,
   };
-  const ex = DIRECTOR_FRAGMENT_EXAMPLES[d.field_type] || DIRECTOR_FRAGMENT_EXAMPLES.string;
+  const ex = INTERACTIVE_FRAGMENT_EXAMPLES[d.field_type] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
 
   showModal(`
-    <h2>${isEdit ? "Edit" : "New"} Director Fragment</h2>
+    <h2>${isEdit ? "Edit" : "New"} Interactive Fragment</h2>
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
-        <input id="dir-frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${esc(ex.id)}"></div>
+        <input id="interactive-frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${esc(ex.id)}"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
-        <input id="dir-frag-label" value="${esc(d.label)}" placeholder="${esc(ex.label)}"></div>
+        <input id="interactive-frag-label" value="${esc(d.label)}" placeholder="${esc(ex.label)}"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Injection Label</label>
-        <input id="dir-frag-inj-label" value="${esc(d.injection_label)}" placeholder="${esc(ex.injection_label)}"></div>
+        <input id="interactive-frag-inj-label" value="${esc(d.injection_label)}" placeholder="${esc(ex.injection_label)}"></div>
       <div class="field"><label>Field Type</label>
-        <select id="dir-frag-type" onchange="updateDirectorFragmentExample(this.value)">
+        <select id="interactive-frag-type" onchange="updateInteractiveFragmentExample(this.value)">
           <option value="string" ${d.field_type === "string" ? "selected" : ""}>single</option>
           <option value="array" ${d.field_type === "array" ? "selected" : ""}>list</option>
           <option value="progressive" ${d.field_type === "progressive" ? "selected" : ""}>progressive</option>
+          <option value="feedback" ${d.field_type === "feedback" ? "selected" : ""}>feedback (note to you)</option>
         </select>
       </div>
     </div>
     <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(shown to the LLM in the tool schema)</span></label>
-      <textarea id="dir-frag-desc" rows="4" placeholder="${esc(ex.description)}">${esc(d.description)}</textarea></div>
+      <textarea id="interactive-frag-desc" rows="4" placeholder="${esc(ex.description)}">${esc(d.description)}</textarea></div>
     <div class="field-row">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
-          <input type="checkbox" id="dir-frag-required" ${d.required ? "checked" : ""}> Required
+          <input type="checkbox" id="interactive-frag-required" ${d.required ? "checked" : ""}> Required
         </label>
       </div>
     </div>
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteDirectorFragment('${esc(d.id)}')">Delete</button>` : ""}
+      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteInteractiveFragment('${esc(d.id)}')">Delete</button>` : ""}
       <div style="flex:1"></div>
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="saveDirectorFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
+      <button class="btn btn-accent" onclick="saveInteractiveFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
     </div>`);
 }
 
-export async function saveDirectorFragment(isEdit) {
+export async function saveInteractiveFragment(isEdit) {
   const d = {
-    id: document.getElementById("dir-frag-id").value.trim(),
-    label: document.getElementById("dir-frag-label").value.trim(),
-    description: document.getElementById("dir-frag-desc").value.trim(),
-    field_type: document.getElementById("dir-frag-type").value,
-    required: document.getElementById("dir-frag-required").checked,
-    injection_label: document.getElementById("dir-frag-inj-label").value.trim(),
+    id: document.getElementById("interactive-frag-id").value.trim(),
+    label: document.getElementById("interactive-frag-label").value.trim(),
+    description: document.getElementById("interactive-frag-desc").value.trim(),
+    field_type: document.getElementById("interactive-frag-type").value,
+    required: document.getElementById("interactive-frag-required").checked,
+    injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
   };
-  const validation = validate.validateDirectorFragment(d);
+  const validation = validate.validateInteractiveFragment(d);
   if (!validation.valid) {
     toast(validation.error, true);
     return;
   }
   try {
-    if (isEdit) await api.put("/director-fragments/" + d.id, d);
-    else await api.post("/director-fragments", d);
+    if (isEdit) await api.put("/interactive-fragments/" + d.id, d);
+    else await api.post("/interactive-fragments", d);
     closeModal();
-    await loadDirectorFragments();
-    toast("Director fragment saved");
+    await loadInteractiveFragments();
+    toast("Interactive fragment saved");
   } catch (e) {
     toast(e.message, true);
   }
 }
 
-export async function deleteDirectorFragment(id) {
+export async function deleteInteractiveFragment(id) {
   showConfirmModal(
     {
-      title: "Delete Director Fragment",
-      message: "Are you sure you want to delete this director fragment?",
+      title: "Delete Interactive Fragment",
+      message: "Are you sure you want to delete this interactive fragment?",
       confirmText: "Delete",
     },
     async () => {
       try {
-        await api.del("/director-fragments/" + id);
-        await loadDirectorFragments();
-        toast("Director fragment deleted");
+        await api.del("/interactive-fragments/" + id);
+        await loadInteractiveFragments();
+        toast("Interactive fragment deleted");
       } catch (e) {
         toast(e.message, true);
       }
@@ -396,13 +412,13 @@ export async function deleteDirectorFragment(id) {
   );
 }
 
-export async function toggleDirectorFragmentEnabled(id, newEnabled) {
+export async function toggleInteractiveFragmentEnabled(id, newEnabled) {
   try {
-    await api.put("/director-fragments/" + id, { enabled: newEnabled });
-    const frag = S.directorFragments.find((f) => f.id === id);
+    await api.put("/interactive-fragments/" + id, { enabled: newEnabled });
+    const frag = S.interactiveFragments.find((f) => f.id === id);
     if (frag) frag.enabled = newEnabled;
-    renderDirectorFragments();
-    toast(newEnabled ? "Director fragment enabled" : "Director fragment disabled");
+    renderInteractiveFragments();
+    toast(newEnabled ? "Interactive fragment enabled" : "Interactive fragment disabled");
   } catch (e) {
     toast(e.message, true);
   }

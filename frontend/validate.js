@@ -347,12 +347,14 @@ export function validateMoodFragment(data) {
   return { valid: true };
 }
 
+const FRAGMENT_FIELD_TYPES = ["string", "array", "progressive", "feedback"];
+
 /**
- * Validate a director fragment.
+ * Validate an interactive fragment.
  * @param {object} data - The fragment data
  * @returns {{ valid: boolean, error?: string }}
  */
-export function validateDirectorFragment(data) {
+export function validateInteractiveFragment(data) {
   const id = (data.id || "").trim();
   const label = (data.label || "").trim();
   const injectionLabel = (data.injection_label || "").trim();
@@ -381,6 +383,10 @@ export function validateDirectorFragment(data) {
 
   const descLen = maxLength(description, MAX_FRAGMENT_DESCRIPTION, "Description");
   if (!descLen.valid) return descLen;
+
+  if (data.field_type !== undefined && !FRAGMENT_FIELD_TYPES.includes(data.field_type)) {
+    return { valid: false, error: `Field type must be one of: ${FRAGMENT_FIELD_TYPES.join(", ")}` };
+  }
 
   return { valid: true };
 }
@@ -628,7 +634,7 @@ export const validate = {
   validateCharacterAdvancedField,
   validateAlternateGreetings,
   validateMoodFragment,
-  validateDirectorFragment,
+  validateInteractiveFragment,
   validateSetting,
   validateUserProfile,
   validatePersona,

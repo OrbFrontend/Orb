@@ -10,7 +10,7 @@ mutate the bottom of the stack — but it sits *above* the real client and
     assembly + the DB persistence round-trip that reconstructs the next turn's
     history. A reformat, trim, or non-append-only rebuild there busts the
     cross-turn cache and the unit test cannot see it (it fakes the next prefix).
-  • the dynamic director schema rebuilt each turn from ``get_director_fragments()``
+  • the dynamic director schema rebuilt each turn from ``get_interactive_fragments()``
     — if that query's row order is unstable, the tools blob drifts turn-over-turn.
 
 These tests drive the genuine ``POST /send`` path (HTTP → handle_turn →
@@ -195,7 +195,7 @@ async def test_cross_turn_prefix_is_append_only_through_persistence(client, llm_
         "assistant",
     ], f"unexpected persisted history: {roles}"
 
-    # Director's dynamic schema, rebuilt from get_director_fragments() each turn,
+    # Director's dynamic schema, rebuilt from get_interactive_fragments() each turn,
     # must be byte-identical across turns (this is the ONLY place a DB row-order
     # instability in the fragment query would show up).
     tools1 = {_wire_tools(c["tools"]) for c in turn1 if c["tools"]}

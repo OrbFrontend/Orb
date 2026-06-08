@@ -203,6 +203,7 @@ async def update_settings(data: dict) -> SettingsRow:
             "agent_same_as_writer",
             "agent_endpoint_id",
             "agent_shared_system_prompt",
+            "feedback_enabled",
             "inspector_open_states",
         ]
         sets, vals = _build_set_clause(

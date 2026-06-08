@@ -71,11 +71,11 @@ from .database import (
     create_user_persona,
     update_user_persona,
     delete_user_persona,
-    get_director_fragments,
-    get_director_fragment,
-    create_director_fragment,
-    update_director_fragment,
-    delete_director_fragment,
+    get_interactive_fragments,
+    get_interactive_fragment,
+    create_interactive_fragment,
+    update_interactive_fragment,
+    delete_interactive_fragment,
     reset_to_defaults,
     get_messages,
     get_worlds,
@@ -245,6 +245,7 @@ class SettingsUpdate(BaseModel):
     agent_same_as_writer: Optional[bool] = None
     agent_endpoint_id: Optional[int] = None
     agent_shared_system_prompt: Optional[str] = None
+    feedback_enabled: Optional[bool] = None
     inspector_open_states: Optional[dict] = None
 
 
@@ -310,7 +311,7 @@ class MoodFragmentUpdate(BaseModel):
     enabled: Optional[bool] = None
 
 
-class DirectorFragmentCreate(BaseModel):
+class InteractiveFragmentCreate(BaseModel):
     id: str
     label: str
     description: str
@@ -321,7 +322,7 @@ class DirectorFragmentCreate(BaseModel):
     sort_order: int = 0
 
 
-class DirectorFragmentUpdate(BaseModel):
+class InteractiveFragmentUpdate(BaseModel):
     label: Optional[str] = None
     description: Optional[str] = None
     field_type: Optional[str] = None
@@ -651,37 +652,37 @@ async def api_delete_mood_fragment(fid: str):
     return {"ok": True}
 
 
-# Director Fragments ──
+# Interactive Fragments ──
 
 
-@app.get("/api/director-fragments")
-async def api_list_director_fragments():
-    return await get_director_fragments()
+@app.get("/api/interactive-fragments")
+async def api_list_interactive_fragments():
+    return await get_interactive_fragments()
 
 
-@app.post("/api/director-fragments")
-async def api_create_director_fragment(data: DirectorFragmentCreate):
-    existing = await get_director_fragment(data.id)
+@app.post("/api/interactive-fragments")
+async def api_create_interactive_fragment(data: InteractiveFragmentCreate):
+    existing = await get_interactive_fragment(data.id)
     if existing:
-        raise HTTPException(status_code=400, detail="Director fragment with this ID already exists")
-    result = await create_director_fragment(data.model_dump())
+        raise HTTPException(status_code=400, detail="Interactive fragment with this ID already exists")
+    result = await create_interactive_fragment(data.model_dump())
     if not result:
-        raise HTTPException(status_code=500, detail="Failed to create director fragment")
+        raise HTTPException(status_code=500, detail="Failed to create interactive fragment")
     return result
 
 
-@app.put("/api/director-fragments/{fid}")
-async def api_update_director_fragment(fid: str, data: DirectorFragmentUpdate):
-    result = await update_director_fragment(fid, data.model_dump(exclude_none=True))
+@app.put("/api/interactive-fragments/{fid}")
+async def api_update_interactive_fragment(fid: str, data: InteractiveFragmentUpdate):
+    result = await update_interactive_fragment(fid, data.model_dump(exclude_none=True))
     if not result:
-        raise HTTPException(status_code=404, detail="Director fragment not found")
+        raise HTTPException(status_code=404, detail="Interactive fragment not found")
     return result
 
 
-@app.delete("/api/director-fragments/{fid}")
-async def api_delete_director_fragment(fid: str):
-    if not await delete_director_fragment(fid):
-        raise HTTPException(status_code=404, detail="Director fragment not found")
+@app.delete("/api/interactive-fragments/{fid}")
+async def api_delete_interactive_fragment(fid: str):
+    if not await delete_interactive_fragment(fid):
+        raise HTTPException(status_code=404, detail="Interactive fragment not found")
     return {"ok": True}
 
 
@@ -920,7 +921,7 @@ class ResetConfirm(BaseModel):
 
 @app.post("/api/reset")
 async def api_reset(data: ResetConfirm):
-    """Reset mood_fragments, director_fragments, phrase_bank, and settings to defaults."""
+    """Reset mood_fragments, interactive_fragments, phrase_bank, and settings to defaults."""
     if not data.confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
     await reset_to_defaults()
@@ -1710,6 +1711,7 @@ async def api_get_message_director_log(cid: str, msg_id: int):
             "reasoning_director": "",
             "reasoning_writer": "",
             "reasoning_editor": "",
+            "feedback": {},
         }
     return {
         "active_moods": log.get("active_moods_after", []),
@@ -1719,6 +1721,7 @@ async def api_get_message_director_log(cid: str, msg_id: int):
         "reasoning_director": log.get("reasoning_director") or "",
         "reasoning_writer": log.get("reasoning_writer") or "",
         "reasoning_editor": log.get("reasoning_editor") or "",
+        "feedback": log.get("feedback", {}) or {},
     }
 
 
@@ -1731,7 +1734,7 @@ async def api_get_context_size(cid: str):
     settings = await get_settings()
     messages = await get_messages(cid)
     director = await get_director_state(cid) or {}
-    director_frags = [f for f in await get_director_fragments() if f.get("enabled", True)]
+    director_frags = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
     mood_frags = [f for f in await get_mood_fragments() if f.get("enabled", True)]
     lorebook_entries = await get_active_lorebook_entries()
 

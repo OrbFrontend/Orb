@@ -53,7 +53,7 @@ from backend.kv_tracker import (
 )
 from backend.orchestrator import _run_pipeline
 from backend.passes.editor.editor import editor_pass
-from backend.tool_defs import build_direct_scene_tool, enabled_schemas
+from backend.tool_defs import build_direct_scene_tool, build_feedback_tool, enabled_schemas
 
 
 def _wire_tools(tools: Any) -> str:
@@ -80,7 +80,7 @@ _WRITER_DRAFT = (
     "and somewhere far off a bell begins to toll its slow uneven warning."
 )
 
-_DIRECTOR_FRAGMENTS = [
+_INTERACTIVE_FRAGMENTS = [
     {
         "id": "pacing",
         "field_type": "string",
@@ -175,6 +175,8 @@ class CapturingClient:
             name = tool_choice.get("function", {}).get("name", "")
             if name in ("editor_apply_patch", "editor_rewrite"):
                 return "editor"
+            if name == "give_feedback":
+                return "feedback"
             if name in ("direct_scene", "rewrite_user_prompt"):
                 return f"director:{name}"
             return name or "editor"
@@ -209,6 +211,23 @@ class CapturingClient:
             # Pop the next queued patch; empty queue → no tool call → loop stops.
             msg = self._editor_queue.pop(0) if self._editor_queue else {"role": "assistant", "content": "", "tool_calls": []}
             yield {"type": "done", "message": msg}
+            return
+
+        if label == "feedback":
+            yield {
+                "type": "done",
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "f1",
+                            "type": "function",
+                            "function": {"name": "give_feedback", "arguments": '{"next_actions": "Ask her name."}'},
+                        }
+                    ],
+                },
+            }
             return
 
         # director:* — return a well-formed forced call so the parse path runs.
@@ -260,18 +279,28 @@ async def _run_turn(
     client: CapturingClient,
     agent_client: CapturingClient | None = None,
     agent_prefix: list[dict] | None = None,
+    feedback_fragments: list[dict] | None = None,
 ) -> tuple[_KVCacheTracker, CapturingClient, CapturingClient | None]:
     tracker = _KVCacheTracker(conversation_id=conversation_id)
     director = {"active_moods": [], "progressive_fields": {}}
     enabled_tools = dict(settings["enabled_tools"])
-    schema_overrides = {"direct_scene": build_direct_scene_tool(_DIRECTOR_FRAGMENTS)}
+    # Writer-only fragments shape direct_scene; feedback fragments are passed in
+    # alongside them so _run_pipeline's split sees both. The caller mirrors what
+    # _prepare_turn does in production: when feedback is enabled the give_feedback
+    # schema rides the shared blob (schema_overrides) and its enable bit is set.
+    feedback_fragments = feedback_fragments or []
+    interactive_fragments = [*_INTERACTIVE_FRAGMENTS, *feedback_fragments]
+    schema_overrides = {"direct_scene": build_direct_scene_tool(_INTERACTIVE_FRAGMENTS)}
+    if bool(settings.get("feedback_enabled", 0)) and feedback_fragments:
+        schema_overrides["give_feedback"] = build_feedback_tool(feedback_fragments)
+        enabled_tools["give_feedback"] = True
 
     gen = _run_pipeline(
         client,
         settings,
         director,
         [],  # mood_fragments
-        _DIRECTOR_FRAGMENTS,
+        interactive_fragments,
         "I draw my sword.",
         phrase_bank=[],  # not None → audit_enabled path is live
         agent_client=agent_client,
@@ -339,8 +368,8 @@ def test_direct_scene_schema_is_deterministic_and_dynamic():
     or moves the fixed props relative to the dynamic ones, the wire bytes drift
     turn-over-turn and the cross-turn cache busts — invisibly to the tracker's
     ``sort_keys`` view. Comparing wire-faithful bytes here makes that ring."""
-    a = build_direct_scene_tool(_DIRECTOR_FRAGMENTS)
-    b = build_direct_scene_tool(list(_DIRECTOR_FRAGMENTS))  # same content, fresh list
+    a = build_direct_scene_tool(_INTERACTIVE_FRAGMENTS)
+    b = build_direct_scene_tool(list(_INTERACTIVE_FRAGMENTS))  # same content, fresh list
     assert _wire_tools([a]) == _wire_tools([b]), (
         "build_direct_scene_tool is not byte-stable for identical input — the "
         "director's tool schema will drift across turns and bust the cache."
@@ -403,6 +432,116 @@ async def test_single_model_prefix_and_tools_are_byte_identical_across_passes():
         "writer-content builder and the editor's writer_user_msg drift apart, the "
         "editor loses its biggest cache saving."
     )
+
+
+_FEEDBACK_FRAGMENT = {
+    "id": "next_actions",
+    "field_type": "feedback",
+    "description": "Suggested next actions for the player",
+    "injection_label": "Next actions",
+    "sort_order": 0,
+    "required": False,
+    "enabled": True,
+}
+
+
+async def test_feedback_step_reuses_shared_blob_no_cache_bust():
+    """The post-writer feedback step must NOT diverge the tools blob: with feedback
+    enabled, ``give_feedback`` rides the shared per-turn blob (Invariant 3) and the
+    feedback call reuses the same cached base as the director/writer/editor. Its
+    wire tools bytes must therefore equal every other pass's — no blob swap, no
+    deliberate cache miss (the old TOFIX)."""
+    prefix = _make_prefix("You are a vivid roleplay narrator.", n_pairs=4)
+    tracker, client, _ = await _run_turn(
+        prefix=prefix,
+        settings=_base_settings(feedback_enabled=1),
+        conversation_id="conv-feedback-kv",
+        client=CapturingClient("writer-model"),
+        feedback_fragments=[_FEEDBACK_FRAGMENT],
+    )
+
+    _reconcile_tracker_with_client(tracker, client)
+
+    entries = {e["label"]: e for e in tracker._entries}
+    assert "feedback" in entries, "feedback step did not fire (feedback_enabled + fragment present)"
+
+    # Inv-3 with give_feedback present: ONE tools blob across director, writer,
+    # editor AND feedback. The feedback call no longer swaps the blob.
+    wire = _wire_tools_by_label(client)
+    all_blobs = {b for blobs in wire.values() for b in blobs}
+    assert len(all_blobs) == 1, (
+        "CACHE BUST: the feedback step diverged the tools blob — it must reuse the "
+        "shared cached base, not swap in a give_feedback-only blob. Distinct blob "
+        "sizes: " + json.dumps(sorted(len(b) for b in all_blobs))
+    )
+
+    # The single shared blob actually carries give_feedback (rides the blob, not a swap).
+    the_blob = next(iter(all_blobs))
+    assert '"give_feedback"' in the_blob, "give_feedback schema is missing from the shared tools blob"
+
+    # Explicit cross-pass equality: feedback's blob == writer's blob == editor's.
+    assert wire["feedback"] == wire["writer"] == wire["editor"], (
+        "feedback/writer/editor tools blobs differ — the feedback step is not " "reusing the frozen shared base."
+    )
+
+    # Message-stack guard — the half a tools-only check misses. The feedback call
+    # must EXTEND the writer/editor stack, not fork off base.prefix with a fresh
+    # single message: it replays writer_user_msg + reply before its request, so
+    # the writer's full message stack is a prefix of feedback's. Forking (the old
+    # behaviour) collapsed the provider cache to just the system+tools block.
+    prefix_bytes = _serialize_messages(prefix)
+    fb_msgs = entries["feedback"]["msgs_serialized"]
+    writer_msgs = entries["writer"]["msgs_serialized"]
+    assert len(writer_msgs) > len(prefix_bytes), "writer stack should include the current-turn user message"
+    assert fb_msgs.startswith(writer_msgs), (
+        "CACHE BUST: the feedback step forked the message stack instead of extending "
+        "the writer's — it must replay writer_user_msg + reply so it reuses "
+        "prefix + current-turn exchange, not just base.prefix. Shared only "
+        f"{_common_prefix_len(writer_msgs, fb_msgs)}/{len(writer_msgs)}c with the writer."
+    )
+
+
+async def test_dual_model_feedback_rides_agent_lane_writer_stays_empty():
+    """Dual-model with feedback on: Invariant 5 must hold — the writer drops all
+    tools — while give_feedback rides only the agent lane, where the feedback
+    step actually runs. The feedback call must reuse the agent base (same blob as
+    the editor), never the empty writer base."""
+    writer_prefix = _make_prefix("You are a narrator.", n_pairs=3)
+    agent_prefix = _make_prefix("AGENT system prompt — distinct from the writer's.", n_pairs=3)
+
+    settings = _base_settings(
+        model_name="writer-model",
+        agent_same_as_writer=False,
+        agent_model_name="agent-model",
+        feedback_enabled=1,
+    )
+    tracker, client, agent_client = await _run_turn(
+        prefix=writer_prefix,
+        settings=settings,
+        conversation_id="conv-dual-feedback",
+        client=CapturingClient("writer-model"),
+        agent_client=CapturingClient("agent-model"),
+        agent_prefix=agent_prefix,
+        feedback_fragments=[_FEEDBACK_FRAGMENT],
+    )
+
+    _reconcile_tracker_with_client(tracker, client, agent_client)
+
+    # Invariant 5 — the writer (its own server) ships no tools even with feedback on.
+    writer_wire = _wire_tools_by_label(client)
+    assert writer_wire.get("writer") == {""}, "Inv-5 broken: the writer's tools blob is non-empty in dual-model."
+
+    # The feedback step ran on the AGENT client, not the writer client.
+    assert "feedback" not in writer_wire, "feedback must not run on the writer lane in dual-model."
+    agent_wire = _wire_tools_by_label(agent_client)
+    assert "feedback" in agent_wire, "feedback step did not run on the agent lane."
+
+    # give_feedback rides only the agent lane, and the feedback call reuses the
+    # agent base verbatim (same blob as the editor — no swap, no cache miss).
+    agent_blobs = {b for blobs in agent_wire.values() for b in blobs}
+    assert len(agent_blobs) == 1, "agent-lane passes must share one tools blob (feedback included)."
+    assert '"give_feedback"' in next(iter(agent_blobs)), "give_feedback missing from the agent-lane blob."
+    assert agent_wire["feedback"] == agent_wire["editor"], "feedback diverged from the agent base."
 
 
 @pytest.mark.parametrize("system_prompt", ["You are a narrator.", "ANOTHER totally different system body."])

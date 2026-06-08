@@ -1,13 +1,14 @@
-"""Unit tests for director fragments: tool builder, apply_tool_calls, injection block."""
+"""Unit tests for interactive fragments: tool builder, apply_tool_calls, injection block."""
 
 from __future__ import annotations
 
 import pytest
 
-from backend.tool_defs import build_direct_scene_tool
+from backend.tool_defs import build_direct_scene_tool, build_feedback_tool
 from backend.passes.director import apply_tool_calls
+from backend.passes.editor import extract_feedback_values
 from backend.prompt_builder import build_style_injection, compute_style_injection_block
-from backend.database import SEED_DIRECTOR_FRAGMENTS
+from backend.database import SEED_INTERACTIVE_FRAGMENTS
 
 
 # ── build_direct_scene_tool ──────────────────────────────────────────────────
@@ -24,7 +25,7 @@ class TestBuildDirectSceneTool:
         tool = build_direct_scene_tool([])
         props = tool["function"]["parameters"]["properties"]
         assert "moods" in props
-        assert "keywords" not in props  # keywords is a director fragment, not fixed
+        assert "keywords" not in props  # keywords is a interactive fragment, not fixed
 
     def test_string_fragment_added_as_string_property(self):
         frags = [
@@ -93,10 +94,122 @@ class TestBuildDirectSceneTool:
         assert tool["function"]["parameters"]["required"] == []
 
     def test_seed_fragments_produce_all_expected_properties(self):
-        tool = build_direct_scene_tool(SEED_DIRECTOR_FRAGMENTS)
+        tool = build_direct_scene_tool(SEED_INTERACTIVE_FRAGMENTS)
         props = tool["function"]["parameters"]["properties"]
-        for frag in SEED_DIRECTOR_FRAGMENTS:
+        for frag in SEED_INTERACTIVE_FRAGMENTS:
             assert frag["id"] in props
+
+
+# ── build_feedback_tool ──────────────────────────────────────────────────────
+
+
+class TestBuildFeedbackTool:
+    def _frag(self, **over):
+        base = {
+            "id": "next_actions",
+            "label": "Next Actions",
+            "description": "Suggest what to do next.",
+            "field_type": "feedback",
+            "required": False,
+            "injection_label": "Next actions",
+        }
+        base.update(over)
+        return base
+
+    def test_returns_give_feedback_function(self):
+        tool = build_feedback_tool([self._frag()])
+        assert tool["type"] == "function"
+        assert tool["function"]["name"] == "give_feedback"
+        assert "parameters" in tool["function"]
+
+    def test_no_moods_property(self):
+        # Unlike direct_scene, give_feedback carries no fixed moods param.
+        tool = build_feedback_tool([self._frag()])
+        props = tool["function"]["parameters"]["properties"]
+        assert "moods" not in props
+
+    def test_feedback_fragment_is_single_string_property(self):
+        # The feedback field_type always maps to a single string parameter.
+        tool = build_feedback_tool([self._frag(id="recap", description="A recap.")])
+        props = tool["function"]["parameters"]["properties"]
+        assert props["recap"]["type"] == "string"
+        assert props["recap"]["description"] == "A recap."
+
+    def test_required_fragment_listed(self):
+        tool = build_feedback_tool([self._frag(required=True)])
+        assert "next_actions" in tool["function"]["parameters"]["required"]
+
+    def test_optional_fragment_not_required(self):
+        tool = build_feedback_tool([self._frag(required=False)])
+        assert tool["function"]["parameters"]["required"] == []
+
+    def test_empty_fragments_empty_schema(self):
+        tool = build_feedback_tool([])
+        assert tool["function"]["parameters"]["properties"] == {}
+        assert tool["function"]["parameters"]["required"] == []
+
+
+# ── field_type split: writer vs feedback fragments ────────────────────────────
+
+
+class TestFieldTypeSplit:
+    def _mixed(self):
+        return [
+            {"id": "plot", "field_type": "string", "description": "p", "injection_label": "Plot"},
+            {"id": "tip", "field_type": "feedback", "description": "t", "injection_label": "Tip"},
+            {"id": "threads", "field_type": "array", "description": "l", "injection_label": "Threads"},
+        ]
+
+    def test_direct_scene_excludes_feedback_fragments(self):
+        # The orchestrator passes only non-feedback fragments to direct_scene.
+        writer = [f for f in self._mixed() if f.get("field_type") != "feedback"]
+        tool = build_direct_scene_tool(writer)
+        props = tool["function"]["parameters"]["properties"]
+        assert "plot" in props
+        assert "threads" in props
+        assert "tip" not in props
+
+    def test_style_injection_excludes_feedback_fragments(self):
+        writer = [f for f in self._mixed() if f.get("field_type") != "feedback"]
+        # Even if a feedback value sneaks into extra_fields, it has no writer
+        # fragment to render against, so it never reaches the Scene Direction block.
+        result = build_style_injection(
+            [],
+            interactive_fragments=writer,
+            extra_fields={"plot": "They fought.", "tip": "run"},
+        )
+        assert "They fought." in result
+        assert "run" not in result
+
+    def test_feedback_tool_includes_only_feedback_fragments(self):
+        feedback = [f for f in self._mixed() if f.get("field_type") == "feedback"]
+        tool = build_feedback_tool(feedback)
+        props = tool["function"]["parameters"]["properties"]
+        assert "tip" in props
+        assert "plot" not in props
+
+
+# ── extract_feedback_values ──────────────────────────────────────────────────
+
+
+class TestExtractFeedbackValues:
+    def test_extracts_give_feedback_args(self):
+        calls = [{"name": "give_feedback", "arguments": {"next_actions": ["a", "b"], "recap": "x"}}]
+        vals = extract_feedback_values(calls)
+        assert vals["next_actions"] == ["a", "b"]
+        assert vals["recap"] == "x"
+
+    def test_drops_empty_and_none(self):
+        calls = [{"name": "give_feedback", "arguments": {"a": "", "b": None, "c": [], "d": "keep"}}]
+        vals = extract_feedback_values(calls)
+        assert vals == {"d": "keep"}
+
+    def test_ignores_other_tools(self):
+        calls = [{"name": "direct_scene", "arguments": {"moods": ["tense"]}}]
+        assert extract_feedback_values(calls) == {}
+
+    def test_empty_calls(self):
+        assert extract_feedback_values([]) == {}
 
 
 # ── apply_tool_calls ─────────────────────────────────────────────────────────
@@ -230,26 +343,26 @@ class TestBuildStyleInjection:
         ]
 
     def test_header_always_present(self):
-        result = build_style_injection([], director_fragments=[], extra_fields={})
+        result = build_style_injection([], interactive_fragments=[], extra_fields={})
         assert "**Scene Direction**" in result
 
     def test_string_field_rendered_with_label(self):
         frags = self._make_frags()
         extra = {"plot_summary": "They fought hard."}
-        result = build_style_injection([], director_fragments=frags, extra_fields=extra)
+        result = build_style_injection([], interactive_fragments=frags, extra_fields=extra)
         assert "Plot summary: They fought hard." in result
 
     def test_array_field_rendered_as_bullets(self):
         frags = self._make_frags()
         extra = {"detected_repetitions": ["overuse of sighs", "purple prose"]}
-        result = build_style_injection([], director_fragments=frags, extra_fields=extra)
+        result = build_style_injection([], interactive_fragments=frags, extra_fields=extra)
         assert "Avoid repeating:" in result
         assert "- overuse of sighs" in result
         assert "- purple prose" in result
 
     def test_fields_omitted_when_not_in_extra_fields(self):
         frags = self._make_frags()
-        result = build_style_injection([], director_fragments=frags, extra_fields={"plot_summary": "x"})
+        result = build_style_injection([], interactive_fragments=frags, extra_fields={"plot_summary": "x"})
         assert "Next event:" not in result
         assert "Avoid repeating:" not in result
 
@@ -263,14 +376,14 @@ class TestBuildStyleInjection:
             }
         ]
         extra = {"keywords": ["sword", "castle"]}
-        result = build_style_injection([], director_fragments=frags, extra_fields=extra)
+        result = build_style_injection([], interactive_fragments=frags, extra_fields=extra)
         assert "Keywords:" in result
         assert "- sword" in result
         assert "- castle" in result
 
     def test_active_mood_rendered(self):
         active = [{"id": "tense", "prompt_text": "Write with tension.", "negative_prompt": ""}]
-        result = build_style_injection(active, director_fragments=[], extra_fields={})
+        result = build_style_injection(active, interactive_fragments=[], extra_fields={})
         assert "Write with tension." in result
 
     def test_deactivated_mood_with_negative_prompt_rendered(self):
@@ -281,12 +394,12 @@ class TestBuildStyleInjection:
                 "negative_prompt": "Return to normal length.",
             }
         ]
-        result = build_style_injection([], deactivated=deactivated, director_fragments=[], extra_fields={})
+        result = build_style_injection([], deactivated=deactivated, interactive_fragments=[], extra_fields={})
         assert "Return to normal length." in result
 
     def test_deactivated_mood_without_negative_prompt_skipped(self):
         deactivated = [{"id": "grounded", "prompt_text": "Be realistic.", "negative_prompt": ""}]
-        result = build_style_injection([], deactivated=deactivated, director_fragments=[], extra_fields={})
+        result = build_style_injection([], deactivated=deactivated, interactive_fragments=[], extra_fields={})
         assert result == "**Scene Direction**"
 
     def test_sort_order_respected(self):
@@ -305,7 +418,7 @@ class TestBuildStyleInjection:
             },
         ]
         extra = {"a_field": "val_a", "b_field": "val_b"}
-        result = build_style_injection([], director_fragments=frags, extra_fields=extra)
+        result = build_style_injection([], interactive_fragments=frags, extra_fields=extra)
         assert result.index("A Label") < result.index("B Label")
 
 
@@ -382,27 +495,27 @@ class TestComputeStyleInjectionBlock:
         assert "- castle" in result
 
 
-# ── SEED_DIRECTOR_FRAGMENTS sanity ───────────────────────────────────────────
+# ── SEED_INTERACTIVE_FRAGMENTS sanity ───────────────────────────────────────────
 
 
-class TestSeedDirectorFragments:
+class TestSeedInteractiveFragments:
     STR_FIELDS = ("id", "label", "description", "field_type", "injection_label")
 
-    @pytest.mark.parametrize("frag", SEED_DIRECTOR_FRAGMENTS, ids=lambda f: f.get("id", "?"))
+    @pytest.mark.parametrize("frag", SEED_INTERACTIVE_FRAGMENTS, ids=lambda f: f.get("id", "?"))
     def test_string_fields_are_str(self, frag):
         for field in self.STR_FIELDS:
             assert isinstance(frag[field], str), f"{frag['id']!r}.{field!r} must be str"
 
-    @pytest.mark.parametrize("frag", SEED_DIRECTOR_FRAGMENTS, ids=lambda f: f.get("id", "?"))
+    @pytest.mark.parametrize("frag", SEED_INTERACTIVE_FRAGMENTS, ids=lambda f: f.get("id", "?"))
     def test_required_is_bool(self, frag):
         assert isinstance(frag["required"], bool)
 
-    @pytest.mark.parametrize("frag", SEED_DIRECTOR_FRAGMENTS, ids=lambda f: f.get("id", "?"))
+    @pytest.mark.parametrize("frag", SEED_INTERACTIVE_FRAGMENTS, ids=lambda f: f.get("id", "?"))
     def test_field_type_is_valid(self, frag):
-        assert frag["field_type"] in ("string", "array")
+        assert frag["field_type"] in ("string", "array", "progressive", "feedback")
 
     def test_seed_ids_match_original_hardcoded_params(self):
-        ids = {f["id"] for f in SEED_DIRECTOR_FRAGMENTS}
+        ids = {f["id"] for f in SEED_INTERACTIVE_FRAGMENTS}
         expected = {
             "plot_summary",
             "user_intent",
@@ -410,5 +523,6 @@ class TestSeedDirectorFragments:
             "next_event",
             "writing_direction",
             "detected_repetitions",
+            "suggested_actions",
         }
         assert ids == expected

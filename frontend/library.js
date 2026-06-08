@@ -1,4 +1,4 @@
-// Character library entrypoint. Mood/director fragments and the character
+// Character library entrypoint. Mood/interactive fragments and the character
 // browser modal were split into library_fragments.js and library_browser.js;
 // this file keeps character CRUD (create / import / edit / delete / export), the
 // recent-characters sidebar, and the shared avatar cache-bust map, and
@@ -13,19 +13,19 @@ import { $, avatarUrl, esc, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 export {
-  deleteDirectorFragment,
+  deleteInteractiveFragment,
   deleteMoodFragment,
-  loadDirectorFragments,
+  loadInteractiveFragments,
   loadMoodFragments,
-  renderDirectorFragments,
+  renderInteractiveFragments,
   renderMoodFragments,
-  saveDirectorFragment,
+  saveInteractiveFragment,
   saveMoodFragment,
-  showDirectorFragmentModal,
+  showInteractiveFragmentModal,
   showMoodFragmentModal,
-  toggleDirectorFragmentEnabled,
+  toggleInteractiveFragmentEnabled,
   toggleMoodFragmentEnabled,
-  updateDirectorFragmentExample,
+  updateInteractiveFragmentExample,
 } from "./library_fragments.js";
 export {
   importInternetChar,

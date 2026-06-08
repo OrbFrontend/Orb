@@ -23,7 +23,7 @@ from __future__ import annotations
 from ..database import (
     get_character_card,
     get_conversation,
-    get_director_fragments,
+    get_interactive_fragments,
     get_director_state,
     get_message_by_id,
     get_messages,
@@ -77,7 +77,7 @@ __all__ = [
     "format_report",
     "get_character_card",
     "get_conversation",
-    "get_director_fragments",
+    "get_interactive_fragments",
     "get_director_state",
     "get_message_by_id",
     "get_messages",

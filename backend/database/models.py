@@ -95,6 +95,7 @@ class _SettingsBase(TypedDict):
     prevent_prompt_overrides: int
     agent_same_as_writer: bool
     agent_shared_system_prompt: str
+    feedback_enabled: int
 
 
 class SettingsRow(_SettingsBase, total=False):
@@ -322,8 +323,8 @@ class UserPersonaRow(TypedDict):
     updated_at: str
 
 
-class DirectorFragmentRow(TypedDict):
-    """A row from ``director_fragments`` (``SELECT *``)."""
+class InteractiveFragmentRow(TypedDict):
+    """A row from ``interactive_fragments`` (``SELECT *``)."""
 
     id: str
     label: str
@@ -369,6 +370,10 @@ class ConversationLogRow(TypedDict):
     decodes it). The nullable TEXT/INTEGER columns come back ``None`` when unset
     -- get_director_log_for_message() additionally defaults the ``reasoning_*``
     keys to ``""``, but get_conversation_logs() leaves them as stored.
+    ``feedback`` is the JSON-*decoded* dict (the editor feedback sub-step's
+    user-facing note); both readers decode it and ``setdefault`` it for
+    pre-feature rows, mirroring the reasoning fields. (Feedback shares the
+    editor's reasoning/latency, so it has no columns of its own for those.)
     """
 
     id: int
@@ -385,6 +390,7 @@ class ConversationLogRow(TypedDict):
     reasoning_director: str | None
     reasoning_writer: str | None
     reasoning_editor: str | None
+    feedback: dict
 
 
 class CharacterCardRow(TypedDict, total=False):

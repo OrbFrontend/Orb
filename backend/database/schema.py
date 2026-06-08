@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS settings (
     agent_same_as_writer INTEGER NOT NULL DEFAULT 1,
     agent_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     agent_shared_system_prompt TEXT NOT NULL DEFAULT '',
+    feedback_enabled INTEGER NOT NULL DEFAULT 0,
     inspector_open_states TEXT NOT NULL DEFAULT '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}',
     workflow_config TEXT NOT NULL DEFAULT '{}',
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS director_state (
     progressive_fields TEXT NOT NULL DEFAULT '{}'
 );
 
-CREATE TABLE IF NOT EXISTS director_fragments (
+CREATE TABLE IF NOT EXISTS interactive_fragments (
     id TEXT PRIMARY KEY,
     label TEXT NOT NULL,
     description TEXT NOT NULL,
@@ -130,7 +131,8 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
     message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     reasoning_director TEXT,
     reasoning_writer TEXT,
-    reasoning_editor TEXT
+    reasoning_editor TEXT,
+    feedback TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS phrase_bank (

@@ -9,8 +9,8 @@ from typing import Any, Mapping, Sequence
 
 # ── Agent tool definitions (OpenAI function-calling format)
 
-# Fixed parameters always present in direct_scene regardless of director fragments.
-# Only moods is fixed; all other parameters come from director fragments.
+# Fixed parameters always present in direct_scene regardless of interactive fragments.
+# Only moods is fixed; all other parameters come from interactive fragments.
 _DIRECT_SCENE_FIXED_PROPERTIES = {
     "moods": {
         "type": "array",
@@ -27,16 +27,16 @@ _DIRECT_SCENE_DESCRIPTION = (
 )
 
 
-def build_direct_scene_tool(director_fragments: Sequence[Mapping[str, Any]]) -> dict:
-    """Build the direct_scene tool schema from enabled director fragments.
+def build_direct_scene_tool(interactive_fragments: Sequence[Mapping[str, Any]]) -> dict:
+    """Build the direct_scene tool schema from enabled interactive fragments.
 
-    Director fragments provide dynamic string/array parameters beyond the fixed
+    Interactive fragments provide dynamic string/array parameters beyond the fixed
     moods and keywords fields. The returned dict is in OpenAI function-calling format.
     """
     properties: dict = {}
     required: list[str] = []
 
-    for df in director_fragments:
+    for df in interactive_fragments:
         fid = df["id"]
         field_type = df["field_type"]
         if field_type == "array":
@@ -66,6 +66,52 @@ def build_direct_scene_tool(director_fragments: Sequence[Mapping[str, Any]]) -> 
             },
         },
     }
+
+
+_GIVE_FEEDBACK_DESCRIPTION = (
+    "Step out of character and give the user an out-of-character note about the reply that was "
+    "just written. This note is shown to the user, not used to write the story."
+)
+
+
+def build_feedback_tool(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
+    """Build the give_feedback tool schema from enabled feedback fragments.
+
+    Each ``field_type="feedback"`` interactive fragment contributes a single
+    string parameter (keyed by fragment id); there are no fixed parameters. The
+    returned dict is in OpenAI function-calling format.
+
+    ``give_feedback`` is registered in ``TOOLS`` (internal, feedback-flag-gated)
+    so its schema rides the shared per-turn tools blob exactly like
+    ``direct_scene``: the orchestrator builds it once from the enabled feedback
+    fragments and threads it via ``schema_overrides`` to every pass, keeping the
+    blob byte-identical. The post-writer feedback step then just forces
+    ``tool_choice=give_feedback`` on the unchanged shared base — no cache miss.
+    """
+    properties: dict = {}
+    required: list[str] = []
+
+    for df in feedback_fragments:
+        fid = df["id"]
+        properties[fid] = {"type": "string", "description": df["description"]}
+        if df.get("required"):
+            required.append(fid)
+
+    return {
+        "type": "function",
+        "function": {
+            "name": "give_feedback",
+            "description": _GIVE_FEEDBACK_DESCRIPTION,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            },
+        },
+    }
+
+
+GIVE_FEEDBACK_CHOICE = {"type": "function", "function": {"name": "give_feedback"}}
 
 
 REWRITE_PROMPT_TOOL = {
@@ -155,6 +201,13 @@ EDITOR_PREAMBLE = (
     "provided tools to apply the required changes."
 )
 
+FEEDBACK_PREAMBLE = (
+    "[OOC: Let's pause the roleplay. Step out of character and act as a helpful "
+    "game master speaking directly to the user. Based on the reply that was just written, "
+    "give the user a short, concrete out-of-character note. Use the give_feedback tool. "
+    "This note is for the user only — it will NOT be shown to the writer or affect the story."
+)
+
 # Only sent to LLM if reasoning is enabled.
 REASONING_GUIDANCE = " Avoid overthinking."
 
@@ -222,6 +275,15 @@ TOOLS: dict[str, dict] = {
         "choice": {"type": "function", "function": {"name": "editor_rewrite"}},
         "schema": EDITOR_REWRITE_TOOL,
     },
+    # Internal, feedback-flag-gated (never user-toggleable, like editor_rewrite).
+    # The empty-properties placeholder schema is always overridden per-turn via
+    # schema_overrides with build_feedback_tool(feedback_fragments) when feedback
+    # is enabled; registering it here is what lets enabled_schemas() emit its
+    # bytes into the shared blob so the feedback step reuses the cached base.
+    "give_feedback": {
+        "choice": GIVE_FEEDBACK_CHOICE,
+        "schema": build_feedback_tool([]),
+    },
 }
 
 # Built-in tool names declared as a literal and asserted equal to TOOLS keys at
@@ -233,17 +295,25 @@ BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
         "rewrite_user_prompt",
         "editor_apply_patch",
         "editor_rewrite",
+        "give_feedback",
     }
 )
 assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys()), "BUILTIN_TOOL_NAMES drift vs TOOLS literal keys"
+
+# Built-in tools partitioned by pipeline phase. PRE = director (pre-writer) tools;
+# POST = editor + feedback (post-writer) tools. give_feedback is a post-writer
+# feedback-step tool (passes/editor/feedback.py): it rides the shared per-turn tools
+# blob (Invariant 3) but must NOT be offered to or triggered by the director.
+PRE_WRITER_TOOLS = {"direct_scene", "rewrite_user_prompt"}
+POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite", "give_feedback"}
+
+assert PRE_WRITER_TOOLS.isdisjoint(POST_WRITER_TOOLS), "phase sets overlap"
+assert PRE_WRITER_TOOLS | POST_WRITER_TOOLS == BUILTIN_TOOL_NAMES, "phase sets must partition built-ins"
 
 # Tools registered with standalone=True are filtered out of the schemas array
 # returned by enabled_schemas(). They remain reachable via direct tool_choice
 # calls.
 STANDALONE_TOOLS: set[str] = set()
-
-PRE_WRITER_TOOLS = {"rewrite_user_prompt"}
-POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite"}
 
 
 def register_tool(name: str, schema: dict, choice: dict, *, standalone: bool = False) -> None:

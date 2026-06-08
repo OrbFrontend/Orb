@@ -25,6 +25,7 @@ from backend.llm_client import AbortToken
 
 _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
 _DIRECTOR_FUNCTION_NAMES = {"direct_scene", "rewrite_user_prompt"}
+_FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
 
 
 def _validate_tool_calls(tool_calls: Any) -> None:
@@ -83,6 +84,8 @@ def _pass_from_tool_choice(tool_choice: Any) -> str:
             return "editor"
         if name in _DIRECTOR_FUNCTION_NAMES:
             return "director"
+        if name in _FEEDBACK_FUNCTION_NAMES:
+            return "feedback"
         # Any other forced function name belongs to a workflow tool: the
         # toolkit's forced_tool_call helper passes the same dict shape via
         # TOOLS[<wid_registered_name>]["choice"], but the name is not one of
@@ -118,12 +121,14 @@ class FakeLLMClient:
             "director": [],
             "writer": [],
             "editor": [],
+            "feedback": [],
             "workflow": [],
         }
         self._gates: dict[str, list[PassGate]] = {
             "director": [],
             "writer": [],
             "editor": [],
+            "feedback": [],
             "workflow": [],
         }
         # Mirror LLMClient: the turn's clients share one abort token, so an
@@ -163,6 +168,14 @@ class FakeLLMClient:
         message with no tool calls, which causes the editor loop to stop.
         """
         self._queues["editor"].append({"message": decision or {"tool_calls": []}})
+
+    def enqueue_feedback(self, tool_calls: list[dict]) -> None:
+        """Queue a feedback response. Like the director, the feedback pass calls
+        ``parse_tool_calls`` on the result, so *tool_calls* must follow the
+        OpenAI ``message.tool_calls`` shape.
+        """
+        _validate_tool_calls(tool_calls)
+        self._queues["feedback"].append({"tool_calls": tool_calls})
 
     def enqueue_workflow(self, message: dict) -> None:
         self._queues["workflow"].append({"message": message})
@@ -233,6 +246,18 @@ class FakeLLMClient:
         if pass_name == "workflow":
             payload = self._queues["workflow"].pop(0) if self._queues["workflow"] else {"message": {"tool_calls": []}}
             yield {"type": "done", "message": payload.get("message", {})}
+            return
+
+        if pass_name == "feedback":
+            payload = self._queues["feedback"].pop(0) if self._queues["feedback"] else {"tool_calls": []}
+            yield {
+                "type": "done",
+                "message": {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": payload.get("tool_calls", []),
+                },
+            }
             return
 
         payload = self._queues["director"].pop(0) if self._queues["director"] else {"tool_calls": []}

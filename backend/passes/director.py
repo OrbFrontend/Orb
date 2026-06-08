@@ -16,7 +16,7 @@ from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ..kv_tracker import CachedBase
 from ..tool_defs import (
     TOOLS,
-    POST_WRITER_TOOLS,
+    PRE_WRITER_TOOLS,
 )
 from ..prompt_builder import build_director_tool_prompt
 from ..llm_types import ChatMessage
@@ -85,7 +85,7 @@ async def director_pass(
     settings: Mapping[str, Any],
     director: Mapping[str, Any],
     mood_fragments: Sequence[Mapping[str, Any]],
-    director_fragments: Sequence[Mapping[str, Any]],
+    interactive_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: Mapping[str, bool],
     attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     kv_tracker=None,
@@ -108,7 +108,7 @@ async def director_pass(
     all_calls: list[dict] = []
     last_raw = ""
 
-    tool_names = [n for n, on in enabled_tools.items() if on and n in TOOLS and n not in POST_WRITER_TOOLS]
+    tool_names = [n for n, on in enabled_tools.items() if on and n in PRE_WRITER_TOOLS]
 
     # Enforce priority order: rewrite_user_prompt first so users can abort
     # early if they dislike the rewrite before the full director runs.
@@ -143,7 +143,7 @@ async def director_pass(
             active_moods,
             mood_fragments,
             reasoning_on=reasoning_on,
-            director_fragments=director_fragments,
+            interactive_fragments=interactive_fragments,
             progressive_state=progressive_state,
             tool_schema=tool_schema,
         )

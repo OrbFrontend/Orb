@@ -51,7 +51,7 @@ DOMAIN_TABLES: dict[str, list[str]] = {
         "workflow_attachments",
     ],
     "lorebooks": ["worlds", "lorebook_entries"],
-    "fragments": ["mood_fragments", "director_fragments"],
+    "fragments": ["mood_fragments", "interactive_fragments"],
     "phrase_bank": ["phrase_bank"],
     "configs": ["settings", "endpoints", "model_configs", "user_personas"],
 }
@@ -263,7 +263,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
             c.execute("DELETE FROM worlds")  # cascades lorebook_entries; SET NULL character_cards.world_id
         if "fragments" not in selected:
             c.execute("DELETE FROM mood_fragments")
-            c.execute("DELETE FROM director_fragments")
+            c.execute("DELETE FROM interactive_fragments")
         if "phrase_bank" not in selected:
             c.execute("DELETE FROM phrase_bank")
         if "configs" not in selected:
@@ -577,10 +577,10 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
             summary["lorebooks"] = conn.execute("SELECT COUNT(*) FROM preset.worlds").fetchone()[0]
         if "fragments" in included:
             _upsert(conn, "mood_fragments")
-            _upsert(conn, "director_fragments")
+            _upsert(conn, "interactive_fragments")
             summary["fragments"] = (
                 conn.execute("SELECT COUNT(*) FROM preset.mood_fragments").fetchone()[0]
-                + conn.execute("SELECT COUNT(*) FROM preset.director_fragments").fetchone()[0]
+                + conn.execute("SELECT COUNT(*) FROM preset.interactive_fragments").fetchone()[0]
             )
         if "characters" in included:
             _merge_characters(conn)

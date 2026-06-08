@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Orb is an **agentic AI roleplay/writing frontend** with a Python/FastAPI backend and a vanilla JS frontend. It orchestrates multi-pass LLM pipelines (Director → Writer → Editor) with tool-calling agents that control scene direction, rewrite prompts, and audit output quality. Characters are imported as PNG cards (V2 spec). Conversations support branching (message tree with parent_id), lorebooks, mood/director fragments, and user personas.
+Orb is an **agentic AI roleplay/writing frontend** with a Python/FastAPI backend and a vanilla JS frontend. It orchestrates multi-pass LLM pipelines (Director → Writer → Editor) with tool-calling agents that control scene direction, rewrite prompts, and audit output quality. Characters are imported as PNG cards (V2 spec). Conversations support branching (message tree with parent_id), lorebooks, mood/interactive fragments, and user personas.
 
 **Stack:** Python 3.9+, FastAPI, aiosqlite, vanilla JS (no framework), SQLite DB, uvicorn
 
@@ -26,7 +26,7 @@ graph TD
     subgraph Backend ["Backend (FastAPI + SQLite)"]
         orch["handle_turn() in orchestrator.py"]
 
-        dir["Director Pass (passes/director.py) — pre-writer phase (optional)<br/>Runs the enabled PRE_WRITER_TOOLS, each as its own LLM call:<br/>1. rewrite_user_prompt (optional) → rewrites vague user messages<br/>2. direct_scene → fills fragments<br/>Fragments are user-defined (director_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
+        dir["Director Pass (passes/director.py) — pre-writer phase (optional)<br/>Runs the enabled PRE_WRITER_TOOLS, each as its own LLM call:<br/>1. rewrite_user_prompt (optional) → rewrites vague user messages<br/>2. direct_scene → fills fragments<br/>Fragments are user-defined (interactive_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
         writer["Writer Pass (passes/writer.py)<br/>Main generation pass. System prompt + history +<br/>Lorebook entries + Scene Direction injection block + user message.<br/>Streams response tokens via SSE."]
         editor["[Post-Writer] Editor Pass (passes/editor/) (optional)<br/>Checks: slop/contrastive negation, banned phrases,<br/>repetitive openers, templates, phrase repetition,<br/>structural repetition, length guard.<br/>Tools: editor_apply_patch or editor_rewrite.<br/>Up to 3 iterations."]
         summarizer["Summarizer (summarizer.py)<br/>Narrative summary + compress flow<br/>Not part of the pipeline — triggered manually"]
@@ -189,7 +189,7 @@ Orb/
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `director_state` | Per-conversation Director memory | conversation_id (PK), active_moods (JSON), keywords (JSON), progressive_fields (JSON) |
-| `director_fragments` | Dynamic Director parameters | id, label, description, field_type, required, enabled, injection_label, sort_order |
+| `interactive_fragments` | Dynamic Director parameters | id, label, description, field_type, required, enabled, injection_label, sort_order |
 | `mood_fragments` | Named mood presets | id, label, description, prompt_text, negative_prompt, enabled |
 | `phrase_bank` | Banned phrases for editor audit | id, variants (JSON array of strings) |
 | `conversation_logs` | Per-turn Director audit trail | conversation_id, turn_index, message_id, agent_raw_output, tool_calls (JSON), active_moods_after, progressive_fields_after (JSON), injection_block, agent_latency_ms |
@@ -260,7 +260,7 @@ synchronously off the event loop via `asyncio.to_thread` under
 
 `backend/database/models.py` is the **model layer**: domain data contracts (a `TypedDict` per table-group row, plus the `PhraseGroup` union — `list[str] | LiteralPhraseGroup | RegexPhraseGroup`, a discriminated union keyed on `kind`) that describe the *shape* of persisted data and depend on nothing else in the codebase. The dependency rule is one-way — every other layer points its dependencies **inward**, toward the data, and `backend/database/` must never import "up" into `passes/`, `orchestrator.py`, or `workflows/`. (The introducing commit moved `PhraseGroup` *down* into `models.py` from `slop_detector.py` to kill the last upward import; anything in `database/` that reaches up for a shared shape is an architectural inversion — put the shape here instead.) When the database layer genuinely needs higher-layer *behavior* at a fixed seam — `add_message` persisting workflow attachments inside its own write transaction — it declares the contract and the higher layer registers an implementation (dependency inversion): `database/queries/messages.py` owns `register_workflow_attachment_persister`, and `workflows/attachment_cache.py` registers `insert_workflow_attachments` into it at import. Don't reintroduce a lazy `import backend.workflows` inside a `database/` function to dodge the rule — that hides the inversion from the import graph without removing it.
 
-- **The TypedDicts label plain dicts, with zero runtime change.** The query layer still returns ordinary `dict(row)` objects; each query stamps the shape at its boundary with `cast(SomeRow, ...)` (a `TypedDict` is not assignable from a bare `dict`). So `row["col"]` access is checked against the schema without any wrapper object, validation, or runtime cost. Each `queries/*.py` module imports just the contract(s) for its tables (`SettingsRow`, `ConversationRow`/`ConversationListRow`, `MessageRow`/`MessageWithAttachments`, `EndpointRow`, `ModelConfigRow`, `WorldRow`, `LorebookEntryRow`, `CharacterCardRow`, `DirectorStateRow`, `DirectorFragmentRow`, `MoodFragmentRow`, `UserPersonaRow`, `ConversationLogRow`, `PhraseBankRow`, and the attachment rows).
+- **The TypedDicts label plain dicts, with zero runtime change.** The query layer still returns ordinary `dict(row)` objects; each query stamps the shape at its boundary with `cast(SomeRow, ...)` (a `TypedDict` is not assignable from a bare `dict`). So `row["col"]` access is checked against the schema without any wrapper object, validation, or runtime cost. Each `queries/*.py` module imports just the contract(s) for its tables (`SettingsRow`, `ConversationRow`/`ConversationListRow`, `MessageRow`/`MessageWithAttachments`, `EndpointRow`, `ModelConfigRow`, `WorldRow`, `LorebookEntryRow`, `CharacterCardRow`, `DirectorStateRow`, `InteractiveFragmentRow`, `MoodFragmentRow`, `UserPersonaRow`, `ConversationLogRow`, `PhraseBankRow`, and the attachment rows).
 - **Every row-shaped query return is typed; only free-form blobs stay `dict`.** A query that returns table rows uses a contract. The lone exception is the per-workflow JSON state/config accessors (`get_workflow_state`, `get_workflow_message_state`, `get_workflow_character_state`, `get_workflow_config`) — these decode an arbitrary per-workflow slot with no fixed schema, so they correctly return bare `dict`/`dict | None`. Don't invent a contract for those.
 - **JSON columns are typed as their *decoded* shape** (`dict`/`list`) **only on the queries that actually decode them.** Where a query leaves the column as a raw JSON string it stays `str` — e.g. `MessageRow.progressive_fields` is `dict` because `get_path_to_leaf()` decodes it, while `get_message_by_id()` leaves it a string; `ConversationLogRow` decodes `tool_calls`/`active_moods_after` to lists but leaves `progressive_fields_after` a raw string. The label makes those pre-existing inconsistencies visible rather than fixing them.
 - **SQLite has no boolean type**, so flag columns (`enabled`, `required`, `case_insensitive`, `constant`, …) are typed `int` to match the 0/1 that `dict(row)` returns — not `bool`.
@@ -318,8 +318,8 @@ synchronously off the event loop via `asyncio.to_thread` under
 ### Fragments & Moods
 - `GET/POST /api/fragments` — List/create mood fragments
 - `PUT/DELETE /api/fragments/{fid}` — Update/delete mood fragment
-- `GET/POST /api/director-fragments` — List/create director fragments
-- `PUT/DELETE /api/director-fragments/{fid}` — Update/delete director fragment
+- `GET/POST /api/interactive-fragments` — List/create interactive fragments
+- `PUT/DELETE /api/interactive-fragments/{fid}` — Update/delete interactive fragment
 
 ### Worlds & Lorebooks
 - `GET/POST/PUT/DELETE /api/worlds` — Worlds CRUD
@@ -372,7 +372,7 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 ```mermaid
 flowchart TD
     settings["settings (row)"] --> active_endpoint["settings.active_endpoint_id → endpoints[id]"]
-    settings --> enabled_tools["settings.enabled_tools → JSON (model-callable tools only)<br/>{direct_scene, rewrite_user_prompt, editor_apply_patch, editor_rewrite}"]
+    settings --> enabled_tools["settings.enabled_tools → JSON (model-callable tools only)<br/>{direct_scene, rewrite_user_prompt, editor_apply_patch, editor_rewrite}<br/>(internal, flag-gated, not in this UI map: editor_rewrite via length guard, give_feedback via feedback flag)"]
     settings --> reasoning["settings.reasoning_enabled_passes → JSON<br/>{director, writer, editor}"]
     settings --> persona["settings.active_persona_id → user_personas[id]"]
     settings --> agent["settings.agent_endpoint_id → endpoints[id]<br/>settings.agent_shared_system_prompt"]
@@ -434,7 +434,7 @@ Orb sends the **full active message path** (leaf to root) every turn — no auto
 
 - **Unit tests** (`tests/unit/`): Test individual functions — editor audit, fragment parsing, template detection, abort logic.
 - **Integration tests** (`tests/integration/`): FastAPI `TestClient` against real DB — CRUD for characters, conversations, endpoints, settings, fragments, personas, context size.
-- **Run**: `cd ~/repos/Orb && python -m pytest tests/ -v`
+- **Run**: `cd ~/repos/Orb && ./scripts/tests.sh all`
 - **No e2e tests** for the frontend.
 
 ### Codex Sandbox Caveat
@@ -479,6 +479,12 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 1. Create `frontend/themes/your_theme.css`
 2. Follow the pattern of existing themes — CSS custom properties on `[data-theme="your_theme"]`
 3. The theme is automatically listed via `GET /api/themes`
+
+### Formatting and linting the code
+
+1. Format backend code with Black: ./scripts/format_backend.sh
+2. Format frontend code with Biome: ./scripts/format_frontend.sh
+3. Lint both backend and frontend and check for static issues: ./scripts/lint.sh
 
 ## Gotchas and Pitfalls
 
