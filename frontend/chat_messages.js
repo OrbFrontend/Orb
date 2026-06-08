@@ -34,10 +34,8 @@ export function startEdit(msgId) {
     scrollToMessage(msgId);
   }
   focusEditTextarea($("edit-textarea-" + msgId), cancelEdit);
-  const msg = S.messages.find((m) => m.id === msgId);
-  const inspectId =
-    msg?.role === "assistant" ? msgId : S.messages.find((c) => c.parent_id === msgId && c.role === "assistant")?.id;
-  if (inspectId) inspectMessage(inspectId);
+  // Editing is isolated to the message itself; it must not re-fetch the
+  // director-log or repaint the inspector bar.
 }
 
 export function cancelEdit() {
