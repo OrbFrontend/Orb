@@ -1,0 +1,29 @@
+# Docker does NOT honor .gitignore -- without this file `COPY . .` bakes the
+# host's runtime database into the image, so the container reuses an
+# already-migrated app.db and never exercises a fresh-install migration run.
+# That silently masks broken migrations/schema. Keep DB + runtime state out so
+# the compatibility test starts from an empty DB every build.
+
+# Runtime database, snapshots, tts cache, uploaded presets
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python / virtualenv / caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+
+# Node / frontend build artifacts
+node_modules/
+package-lock.json
+site/
+
+# VCS and tooling
+.git/
+.github/
+.vscode/
+.claude/

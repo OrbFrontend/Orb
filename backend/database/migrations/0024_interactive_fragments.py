@@ -30,12 +30,32 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    # Rename the table only when the old one exists and the new one does not, so
-    # this is safe whether the DB predates the feature or was created fresh.
-    if _table_exists(conn, "director_fragments") and not _table_exists(conn, "interactive_fragments"):
-        conn.execute("ALTER TABLE director_fragments RENAME TO interactive_fragments")
-        conn.commit()
-        print("[migrations] 0024: renamed director_fragments -> interactive_fragments")
+    # Reconcile the old/new fragment tables. Two paths, mirroring 0006's
+    # rename-with-fallback handling:
+    #   * Pre-rename DB (old exists, new does not): straight RENAME carries the
+    #     data and the name across.
+    #   * Fresh install (both exist): schema.py builds interactive_fragments in
+    #     its final shape, yet the historical 0004/0005 migrations still
+    #     CREATE+seed a director_fragments ghost. Fold any rows forward (a no-op
+    #     for the seeded 'keywords' duplicate) and drop the orphan so a clean
+    #     install ends with a single fragments table instead of a dead one.
+    if _table_exists(conn, "director_fragments"):
+        if not _table_exists(conn, "interactive_fragments"):
+            conn.execute("ALTER TABLE director_fragments RENAME TO interactive_fragments")
+            conn.commit()
+            print("[migrations] 0024: renamed director_fragments -> interactive_fragments")
+        else:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO interactive_fragments
+                    (id, label, description, field_type, required, enabled, injection_label, sort_order)
+                SELECT id, label, description, field_type, required, enabled, injection_label, sort_order
+                FROM director_fragments
+                """
+            )
+            conn.execute("DROP TABLE director_fragments")
+            conn.commit()
+            print("[migrations] 0024: dropped orphaned director_fragments table")
 
     if _table_exists(conn, "interactive_fragments"):
         if "target" in _columns(conn, "interactive_fragments"):

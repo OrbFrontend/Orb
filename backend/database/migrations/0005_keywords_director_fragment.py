@@ -19,9 +19,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         VALUES (
             'keywords',
             'Keywords',
-            'List of nouns (keywords) to remind the important subjects in the roleplay so far. '
-            'Keep under 6 items. Extract from the messages and plot summary. '
-            'Ignore obvious things like names of the characters.',
+            'List of nouns (keywords) to remind the important subjects in the roleplay so far. Keep under 6 items. Extract from the messages and plot summary. Ignore obvious things like names of the characters.',
             'array',
             1,
             1,
