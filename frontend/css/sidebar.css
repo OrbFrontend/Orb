@@ -325,6 +325,12 @@
   border: 1px dashed var(--accent);
 }
 
+/* Fragment whose backing agent feature (e.g. Editor Feedback) is disabled. */
+.fragment-item.frag-feature-disabled .frag-label,
+.fragment-item.frag-feature-disabled .frag-type-badge {
+  opacity: 0.4;
+}
+
 .frag-drag-handle {
   cursor: grab;
   user-select: none;

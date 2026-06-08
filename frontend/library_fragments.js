@@ -167,8 +167,14 @@ export function renderInteractiveFragments() {
       const toggleId = `interactive-frag-toggle-${f.id}`;
       const userBadge =
         f.field_type === "feedback" ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>` : "";
+      // Feedback fragments are gated by the "Editor Feedback" feature flag; grey
+      // them out (and explain why on hover) when that feature is disabled.
+      const featureDisabled = f.field_type === "feedback" && !S.feedbackEnabled;
+      const itemTitle = featureDisabled
+        ? "Editor Feedback feature is disabled — enable it in Settings to use this fragment"
+        : esc(f.description);
       return `
-    <div class="fragment-item" draggable="true" data-id="${esc(f.id)}" title="${esc(f.description)}" onclick="showInteractiveFragmentModal('${f.id}')">
+    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" draggable="true" data-id="${esc(f.id)}" title="${itemTitle}" onclick="showInteractiveFragmentModal('${f.id}')">
       <div class="frag-drag-handle" onclick="event.stopPropagation()">⋮⋮</div>
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>${userBadge}

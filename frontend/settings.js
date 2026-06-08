@@ -5,6 +5,7 @@
 // importers (app.js, workflow_loader.js) keep working unchanged.
 import { api } from "./api.js";
 import { renderMessages } from "./chat.js";
+import { renderInteractiveFragments } from "./library_fragments.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
@@ -275,6 +276,8 @@ export async function toggleLengthGuardEnforce(on) {
 export async function toggleFeedbackEnabled(on) {
   S.feedbackEnabled = on;
   renderToolsPanel();
+  // Feedback fragments in the sidebar are greyed out when this feature is off.
+  renderInteractiveFragments();
   await persistSettings({ feedback_enabled: on });
 }
 
