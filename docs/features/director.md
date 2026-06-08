@@ -20,17 +20,17 @@ You can create, edit, enable/disable, and delete moods. The defaults cover writi
 
 ---
 
-## Director Fragments
+## Interactive Fragments
 
 These can be compared to the status tracking blocks you'd see in some sophisticated character cards. But rather than reflecting what already happened, they act as a forward-looking game plan that shapes what the Writer produces.
 
-Each director fragment has:
+Each interactive fragment has:
 
 - **ID** — the tool param name. Keep it short, no spaces or special characters.
 - **Label** — the key shown inside the Scene Direction block.
 - **Description** — help text that tells the Director *how* to fill in the field.
 - **Required** — if checked, the Director is instructed that it must always provide a value. Optional fragments may be left blank.
-- **Injection label** — a separate label used when rendering the fragment in the Scene Direction block (defaults to the main label if left blank).
+- **Injection label** — a separate label used when rendering the fragment in the Scene Direction block (defaults to the main label if left blank). For feedback type fragments, this is sent in the harness prompt. 
 
 ### Ordering and precedence
 
