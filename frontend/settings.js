@@ -172,17 +172,17 @@ const TOOL_DEFS = [
   {
     id: "direct_scene",
     name: "Director",
-    desc: "Gives written direction and selects active mood fragments based on scene context",
+    desc: "Gives written direction and selects active mood fragments based on scene context.",
   },
   {
     id: "rewrite_user_prompt",
     name: "Prompt Rewriter",
-    desc: "Expands user's vague or lazy messages into richer input",
+    desc: "Expands user's vague or lazy messages into richer input.",
   },
   {
     id: "editor_apply_patch",
     name: "Output Auditor",
-    desc: "Scans for LLM slop and repetition, then surgically patches the draft",
+    desc: "Scans for LLM slop and repetition, then surgically patches the draft.",
   },
 ];
 
