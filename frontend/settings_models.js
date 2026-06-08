@@ -180,7 +180,7 @@ export function updateEndpointsLabel() {
     el.title = "";
     return;
   }
-  const MAX = 24;
+  const MAX = 30;
   const EDGE = 8;
   el.textContent = model.length <= MAX ? model : model.slice(0, EDGE) + "..." + model.slice(-EDGE);
   el.title = model;
