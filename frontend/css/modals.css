@@ -318,7 +318,6 @@
 
 .persona-item-active {
   border-color: var(--accent-dim);
-  border-left: 2px solid var(--accent);
 }
 
 .persona-avatar {
