@@ -80,20 +80,6 @@ SEED_MOOD_FRAGMENTS = [
 
 SEED_INTERACTIVE_FRAGMENTS = [
     {
-        "id": "plot_summary",
-        "label": "Plot Summary",
-        "description": (
-            "A brief and specific summary of what has happened so far in the story. "
-            "Call things for what they are, avoid being generic, avoid adjectives. "
-            "3 sentences max (e.g. Rob was working on his lake house when his wife called for him to help moving some furniture. "
-            "The weather was hot so he took off his shirt. Then the couch fell on his leg, eliciting his pain receptors.)."
-        ),
-        "field_type": "string",
-        "required": True,
-        "injection_label": "Plot summary",
-        "sort_order": 0,
-    },
-    {
         "id": "user_intent",
         "label": "User Intent",
         "description": (
@@ -168,10 +154,6 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "sort_order": 5,
     },
     {
-        # Editor Feedback: provides 2 fresh, distinct actions the user can take
-        # next. Like next_actions, this is a "feedback" type fragment — shown to
-        # the user after each reply rather than fed into the writer. Seeded
-        # disabled; enable via the feedback_enabled setting.
         "id": "suggested_actions",
         "label": "Suggestions",
         "description": "Suggest 2 fresh, distinct things the user could do next. Be concise, 2 sentences max.",
