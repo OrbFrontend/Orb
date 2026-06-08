@@ -182,6 +182,20 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "sort_order": 6,
         "enabled": False,
     },
+    {
+        # Editor Feedback: provides 2 fresh, distinct actions the user can take
+        # next. Like next_actions, this is a "feedback" type fragment — shown to
+        # the user after each reply rather than fed into the writer. Seeded
+        # disabled; enable via the feedback_enabled setting.
+        "id": "suggestions",
+        "label": "Suggestions",
+        "description": "Suggest 2 fresh, distinct actions the user could take next. Be concise — 2 sentences max.",
+        "field_type": "feedback",
+        "required": False,
+        "injection_label": "Suggestions",
+        "sort_order": 7,
+        "enabled": False,
+    },
 ]
 
 DEFAULT_ENABLED_TOOLS = {
