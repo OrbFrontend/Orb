@@ -523,7 +523,6 @@ class TestSeedInteractiveFragments:
             "next_event",
             "writing_direction",
             "detected_repetitions",
-            "next_actions",
-            "suggestions",
+            "suggested_actions",
         }
         assert ids == expected

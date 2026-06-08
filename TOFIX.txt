@@ -7,7 +7,6 @@
   + Update button for Character Card => Select a new card and replace the existing one with it, keep everything in DB the same (esp UUID) except for new card data. Update lorebook as well if it has changed.
 
 - Feature: Tabs for left sidepanel, switch buttons at the bottom.
-- Feature: Editor Fragments, custom instructions in editor pass to edit the message (html rendering special effects for keywords, etc.).
 
 -- Not yet --
 - Feature: Tags and search for Convos.

@@ -168,28 +168,13 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "sort_order": 5,
     },
     {
-        # Editor Feedback: a post-writer note shown to the *user* rather than fed
-        # to the writer. The "feedback" field_type is what routes a fragment to the
-        # post-writer feedback step (see passes/editor); it carries a single
-        # string. Seeded disabled so it is purely discoverable; turning it on (plus
-        # the feedback_enabled setting) runs the feedback step after each reply.
-        "id": "next_actions",
-        "label": "Next Actions",
-        "description": "Suggest 2-3 concrete things the player could do or say next, as a single short note.",
-        "field_type": "feedback",
-        "required": False,
-        "injection_label": "What you could do next",
-        "sort_order": 6,
-        "enabled": False,
-    },
-    {
         # Editor Feedback: provides 2 fresh, distinct actions the user can take
         # next. Like next_actions, this is a "feedback" type fragment — shown to
         # the user after each reply rather than fed into the writer. Seeded
         # disabled; enable via the feedback_enabled setting.
-        "id": "suggestions",
+        "id": "suggested_actions",
         "label": "Suggestions",
-        "description": "Suggest 2 fresh, distinct actions the user could take next. Be concise — 2 sentences max.",
+        "description": "Suggest 2 fresh, distinct things the user could do next. Be concise, 2 sentences max.",
         "field_type": "feedback",
         "required": False,
         "injection_label": "Suggestions",

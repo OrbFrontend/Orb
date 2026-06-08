@@ -13,7 +13,7 @@ import sqlite3
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    existing = conn.execute("SELECT 1 FROM interactive_fragments WHERE id = 'suggestions'").fetchone()
+    existing = conn.execute("SELECT 1 FROM interactive_fragments WHERE id = 'suggested_actions'").fetchone()
     if existing:
         return
 
@@ -24,9 +24,9 @@ def migrate(conn: sqlite3.Connection) -> None:
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            "suggestions",
+            "suggested_actions",
             "Suggestions",
-            "Suggest 2 fresh, distinct actions the user could take next. Be concise — 2 sentences max.",
+            "Suggest 2 fresh, distinct actions the user could do next. Be concise, 2 sentences max.",
             "feedback",
             0,  # not required
             0,  # seeded disabled
@@ -35,4 +35,4 @@ def migrate(conn: sqlite3.Connection) -> None:
         ),
     )
     conn.commit()
-    print("[migrations] 0025: inserted 'suggestions' feedback fragment")
+    print("[migrations] 0025: inserted 'suggested_actions' feedback fragment")

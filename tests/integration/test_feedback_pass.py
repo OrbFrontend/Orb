@@ -26,7 +26,7 @@ _GIVE_FEEDBACK_CALL = [
         "type": "function",
         "function": {
             "name": "give_feedback",
-            "arguments": {"next_actions": _FEEDBACK_NOTE},
+            "arguments": {"suggested_actions": _FEEDBACK_NOTE},
         },
     }
 ]
@@ -37,7 +37,7 @@ async def _enable_feedback(client) -> None:
     # enqueue). Feedback is gated by feedback_enabled AND an enabled feedback-type
     # fragment.
     await client.put("/api/settings", json={"enable_agent": False, "feedback_enabled": True})
-    await client.put("/api/interactive-fragments/next_actions", json={"enabled": True})
+    await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
 
 
 async def test_feedback_event_fires_and_persists(client, db, llm_mock):
@@ -52,12 +52,12 @@ async def test_feedback_event_fires_and_persists(client, db, llm_mock):
 
     feedback_events = [e for e in events if e.get("event") == "feedback"]
     assert len(feedback_events) == 1, f"expected one feedback event, got {len(feedback_events)}"
-    assert feedback_events[0]["data"]["values"] == {"next_actions": _FEEDBACK_NOTE}
+    assert feedback_events[0]["data"]["values"] == {"suggested_actions": _FEEDBACK_NOTE}
 
     # Persisted on the turn's conversation_logs row, JSON-decoded by the reader.
     logs = await dbmod.get_conversation_logs(cid)
     assert len(logs) == 1
-    assert logs[0]["feedback"] == {"next_actions": _FEEDBACK_NOTE}
+    assert logs[0]["feedback"] == {"suggested_actions": _FEEDBACK_NOTE}
 
 
 async def test_feedback_skipped_when_setting_off(client, db, llm_mock):
@@ -65,7 +65,7 @@ async def test_feedback_skipped_when_setting_off(client, db, llm_mock):
     await dbmod.create_conversation(cid, "feedback", "Bot", "a scenario")
     # Enable the feedback fragment but leave feedback_enabled off.
     await client.put("/api/settings", json={"enable_agent": False, "feedback_enabled": False})
-    await client.put("/api/interactive-fragments/next_actions", json={"enabled": True})
+    await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
 
     llm_mock.enqueue_writer("She looks up at you, startled.")
 
@@ -102,7 +102,7 @@ async def test_feedback_does_not_leak_into_writer_prompt(client, db, llm_mock):
     # name nor the feedback fragment's id reach the writer prompt.
     writer_text = json.dumps(wc["messages"])
     assert "give_feedback" not in writer_text
-    assert "next_actions" not in writer_text
+    assert "suggested_actions" not in writer_text
 
     # The feedback step carries the full shared blob (not a swapped give_feedback-
     # only blob) and forces tool_choice to give_feedback.
