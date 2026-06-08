@@ -171,7 +171,7 @@ export function renderInteractiveFragments() {
       // them out (and explain why on hover) when that feature is disabled.
       const featureDisabled = f.field_type === "feedback" && !S.feedbackEnabled;
       const itemTitle = featureDisabled
-        ? "Editor Feedback feature is disabled — enable it in Settings to use this fragment"
+        ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
         : esc(f.description);
       return `
     <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" draggable="true" data-id="${esc(f.id)}" title="${itemTitle}" onclick="showInteractiveFragmentModal('${f.id}')">
