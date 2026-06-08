@@ -181,7 +181,7 @@ export function updateEndpointsLabel() {
     return;
   }
   const MAX = 30;
-  const EDGE = 8;
+  const EDGE = 12;
   el.textContent = model.length <= MAX ? model : model.slice(0, EDGE) + "..." + model.slice(-EDGE);
   el.title = model;
 }
@@ -374,6 +374,19 @@ function initCombobox(rootEl, getItems, isAgent = false) {
         activeIdx = i;
         render();
       };
+      // Fix for mobile tap never landing
+      const delBtn = el.querySelector(".cb-delete-btn");
+      if (delBtn) {
+        delBtn.addEventListener(
+          "touchstart",
+          (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            window.deleteComboboxItem(delBtn, el.dataset.type, Number(el.dataset.id), isAgent);
+          },
+          { passive: false },
+        );
+      }
     });
   }
 
