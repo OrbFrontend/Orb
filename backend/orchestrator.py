@@ -95,6 +95,15 @@ def is_dual_model(agent_client: LLMClient | None) -> bool:
     return agent_client is not None
 
 
+def agent_enabled(settings: Mapping[str, Any]) -> bool:
+    """The global Agent toggle. Single source of truth for the ``enable_agent``
+    setting and its default-on (``1``) semantics: every feature gated on the
+    agent (director, editor, length guard, feedback, tool exposure, mood/state
+    persistence) reads it through here so the default can't drift between call
+    sites."""
+    return bool(settings.get("enable_agent", 1))
+
+
 @dataclass
 class _PipelineConfig:
     """Resolved per-turn flags, lanes, and prefixes for :func:`_run_pipeline`."""
@@ -128,7 +137,7 @@ def _resolve_pipeline_config(
     schema_overrides: Mapping[str, dict],
 ) -> _PipelineConfig:
     """Derive the per-turn pipeline configuration (see :class:`_PipelineConfig`)."""
-    agent_on = bool(settings.get("enable_agent", 1))
+    agent_on = agent_enabled(settings)
     reasoning_passes = settings.get("reasoning_enabled_passes") or {}
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
@@ -262,8 +271,8 @@ def _split_interactive_fragments(
 
 
 def _feedback_active(settings: Mapping[str, Any], feedback_fragments: Sequence[Mapping[str, Any]]) -> bool:
-    """Feedback runs only when its flag is on AND an enabled feedback fragment exists."""
-    return bool(settings.get("feedback_enabled", 0)) and bool(feedback_fragments)
+    """Feedback runs only when its flag is on, the agent is on, AND an enabled feedback fragment exists."""
+    return agent_enabled(settings) and bool(settings.get("feedback_enabled", 0)) and bool(feedback_fragments)
 
 
 def _build_writer_tools_blob(
@@ -1238,7 +1247,7 @@ async def _prepare_turn(
     # ref shared across every pass and hook cannot have entries added/swapped/dropped.
     # Values stay plain dicts so they remain json-serializable into the tools blob.
     enabled_tools_setting = settings.get("enabled_tools") or {}
-    if settings.get("enable_agent", 1):
+    if agent_enabled(settings):
         enabled_tools_pre_merge = dict(enabled_tools_setting)
     else:
         enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
@@ -1379,7 +1388,7 @@ async def _persist_result(
     seed+generation_metadata). The caller (``_consume_pipeline``) emits
     a SSE event for non-empty rejections so the frontend can surface a
     warning chip on the affected message."""
-    if settings.get("enable_agent", 1):
+    if agent_enabled(settings):
         await db.update_director_state(
             conversation_id,
             res.active_moods,
@@ -1448,7 +1457,7 @@ async def _fallback_persist(
     included in accumulated_text.
     """
     try:
-        if res.active_moods and settings.get("enable_agent", 1):
+        if res.active_moods and agent_enabled(settings):
             await db.update_director_state(
                 conversation_id,
                 res.active_moods,
@@ -2033,9 +2042,7 @@ async def handle_magic_rewrite(
         # which is the endpoint that generated (and cached) the message we rewrite.
         macros = Macros.from_settings(settings, ctx.conv["character_name"], ctx.active_persona)
         enabled_tools_setting = settings.get("enabled_tools") or {}
-        enabled_tools = (
-            dict(enabled_tools_setting) if settings.get("enable_agent", 1) else {k: False for k in enabled_tools_setting}
-        )
+        enabled_tools = dict(enabled_tools_setting) if agent_enabled(settings) else {k: False for k in enabled_tools_setting}
         # Build the tools blob through the shared helper so this writer-style call
         # ships the exact same bytes a normal turn does. In single-model with
         # feedback on, normal turns carry give_feedback in the writer blob

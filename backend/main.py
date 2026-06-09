@@ -127,6 +127,7 @@ from .orchestrator import (
     handle_regenerate,
     handle_super_regenerate,
     handle_magic_rewrite,
+    agent_enabled,
 )
 from .llm_client import AbortToken, LLMClient
 from .tool_defs import TOOLS
@@ -1765,7 +1766,7 @@ async def api_get_context_size(cid: str):
         active_moods,
         mood_frags,
         director_frags,
-        bool(settings.get("enable_agent", 1)),
+        agent_enabled(settings),
         {},
     )
 

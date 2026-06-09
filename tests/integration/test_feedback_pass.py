@@ -3,8 +3,9 @@
 Covers the post-writer, user-facing note (now run inside the editor pass): that a
 ``feedback`` SSE event fires with values when an enabled ``field_type='feedback'``
 fragment is present and ``feedback_enabled`` is on, that the values persist in
-``conversation_logs.feedback``, that the step is skipped when its gate is off,
-and that no ``give_feedback`` content leaks into the writer's prompt.
+``conversation_logs.feedback``, that the step is skipped when its ``feedback_enabled``
+gate is off, that it also obeys the global ``enable_agent`` toggle (feedback is an
+agent feature), and that no ``give_feedback`` content leaks into the writer's prompt.
 """
 
 from __future__ import annotations
@@ -33,10 +34,11 @@ _GIVE_FEEDBACK_CALL = [
 
 
 async def _enable_feedback(client) -> None:
-    # Agent off keeps the pipeline to writer + feedback (no director/editor to
-    # enqueue). Feedback is gated by feedback_enabled AND an enabled feedback-type
-    # fragment.
-    await client.put("/api/settings", json={"enable_agent": False, "feedback_enabled": True})
+    # Feedback is an agent feature: it runs only when enable_agent AND
+    # feedback_enabled are on AND an enabled feedback-type fragment exists. The
+    # director/editor passes the agent enables here simply no-op (their mock
+    # queues are empty), leaving the writer + feedback steps under test.
+    await client.put("/api/settings", json={"enable_agent": True, "feedback_enabled": True})
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
 
 
@@ -63,8 +65,9 @@ async def test_feedback_event_fires_and_persists(client, db, llm_mock):
 async def test_feedback_skipped_when_setting_off(client, db, llm_mock):
     cid = "conv-feedback-off"
     await dbmod.create_conversation(cid, "feedback", "Bot", "a scenario")
-    # Enable the feedback fragment but leave feedback_enabled off.
-    await client.put("/api/settings", json={"enable_agent": False, "feedback_enabled": False})
+    # Agent on so this isolates the feedback_enabled gate: the fragment is enabled
+    # but feedback_enabled is off, so the feedback step must not run.
+    await client.put("/api/settings", json={"enable_agent": True, "feedback_enabled": False})
     await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
 
     llm_mock.enqueue_writer("She looks up at you, startled.")
@@ -72,7 +75,28 @@ async def test_feedback_skipped_when_setting_off(client, db, llm_mock):
     events = await _drain(handle_turn(cid, "hello"))
 
     assert not [e for e in events if e.get("event") == "feedback"]
-    # No feedback pass ran: the LLM mock saw writer only.
+    # No feedback pass ran.
+    assert not any(p == "feedback" for p, _ in llm_mock.calls)
+    logs = await dbmod.get_conversation_logs(cid)
+    assert logs[0]["feedback"] == {}
+
+
+async def test_feedback_obeys_global_agent_toggle(client, db, llm_mock):
+    cid = "conv-feedback-agent-off"
+    await dbmod.create_conversation(cid, "feedback", "Bot", "a scenario")
+    # feedback_enabled is on and the fragment is enabled, but the global Agent
+    # toggle is off -- feedback is an agent feature, so the step must not run.
+    await client.put("/api/settings", json={"enable_agent": False, "feedback_enabled": True})
+    await client.put("/api/interactive-fragments/suggested_actions", json={"enabled": True})
+
+    llm_mock.enqueue_writer("She looks up at you, startled.")
+    # Enqueued but must stay unconsumed: with the agent off the feedback step
+    # never runs, so this response is never requested.
+    llm_mock.enqueue_feedback(_GIVE_FEEDBACK_CALL)
+
+    events = await _drain(handle_turn(cid, "hello"))
+
+    assert not [e for e in events if e.get("event") == "feedback"]
     assert not any(p == "feedback" for p, _ in llm_mock.calls)
     logs = await dbmod.get_conversation_logs(cid)
     assert logs[0]["feedback"] == {}
