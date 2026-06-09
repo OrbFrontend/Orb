@@ -58,3 +58,8 @@ textarea::-webkit-resizer { background: transparent; }
 #chat-messages {
   padding: 1 !important;
 }
+
+/* Thought (tilted) text: dim teal, distinct from the warm prose/dialogue */
+.message .msg-body em {
+  color: #5fa890 !important;
+}
