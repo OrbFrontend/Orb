@@ -269,6 +269,7 @@ export async function createCheckpoint() {
     const conv = await api.post(`/conversations/${S.activeConvId}/checkpoint`, {});
     await loadConversations();
     toast(`Checkpoint created: ${conv.title}`);
+    await showConvHistoryModal();
   } catch (e) {
     toast("Failed to create checkpoint: " + e.message, true);
   }
