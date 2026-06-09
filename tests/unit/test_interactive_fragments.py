@@ -517,7 +517,6 @@ class TestSeedInteractiveFragments:
     def test_seed_ids_match_original_hardcoded_params(self):
         ids = {f["id"] for f in SEED_INTERACTIVE_FRAGMENTS}
         expected = {
-            "plot_summary",
             "user_intent",
             "keywords",
             "next_event",
