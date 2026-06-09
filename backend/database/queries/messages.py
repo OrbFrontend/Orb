@@ -190,6 +190,29 @@ async def get_messages_with_branch_info(cid: str) -> list[MessageWithAttachments
     return messages
 
 
+def user_attachment_payloads(msg: Mapping[str, Any]) -> list[dict] | None:
+    """Map a loaded message's ``user_attachments`` into ``add_message`` payloads.
+
+    Conversation-fork flows (Compress History, Checkpoint) re-append messages
+    onto a copy and must carry the user uploads while dropping regenerable
+    workflow attachments. Returns ``None`` when there are no uploads, matching
+    ``add_message``'s ``attachments`` default so the result passes straight
+    through.
+    """
+    atts = msg.get("user_attachments") or []
+    if not atts:
+        return None
+    return [
+        {
+            "mime_type": a.get("mime_type"),
+            "data_b64": a.get("data_b64"),
+            "filename": a.get("filename"),
+            "size": a.get("size"),
+        }
+        for a in atts
+    ]
+
+
 async def add_message(
     cid: str,
     role: str,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timezone
 from typing import cast
 
@@ -67,6 +68,27 @@ async def create_conversation(
         result = await get_conversation(cid)
         assert result is not None
         return result
+
+
+async def fork_conversation(source: ConversationRow, new_title: str) -> str:
+    """Create an empty conversation seeded from ``source``'s character framing.
+
+    Carries the title-independent identity fields (character name/scenario,
+    post-history instructions, card id) that both the Compress History and
+    Checkpoint flows start a fork with, and returns the new conversation id.
+    Messages, branches, director state and logs are *not* copied -- the caller
+    appends whatever slice of the source it intends to carry.
+    """
+    new_cid = str(uuid.uuid4())
+    await create_conversation(
+        cid=new_cid,
+        title=new_title,
+        char_name=source.get("character_name", "") or "",
+        char_scenario=source.get("character_scenario", "") or "",
+        post_history_instructions=source.get("post_history_instructions", "") or "",
+        character_card_id=source.get("character_card_id"),
+    )
+    return new_cid
 
 
 async def delete_conversation(cid: str) -> bool:

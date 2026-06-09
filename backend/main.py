@@ -43,6 +43,7 @@ from .database import (
     list_conversations,
     get_conversation,
     create_conversation,
+    fork_conversation,
     delete_conversation,
     touch_conversation,
     update_conversation,
@@ -61,6 +62,7 @@ from .database import (
     sync_conversations_for_card,
     insert_alternate_greeting_swipes,
     add_message,
+    user_attachment_payloads,
     set_active_leaf,
     get_message_by_id,
     switch_to_branch,
@@ -1090,46 +1092,22 @@ async def api_compress_conversation(cid: str, data: CompressRequest):
     messages = await get_messages_with_branch_info(cid)
     tail = messages[max(0, len(messages) - data.keep_count) :]
 
-    char_name = conv.get("character_name", "") or ""
     old_title = conv.get("title", "") or ""
     new_title = f"{old_title} (continued)" if old_title else "Continued"
-    new_cid = str(uuid.uuid4())
-
-    await create_conversation(
-        cid=new_cid,
-        title=new_title,
-        char_name=char_name,
-        char_scenario=conv.get("character_scenario", "") or "",
-        post_history_instructions=conv.get("post_history_instructions", "") or "",
-        character_card_id=conv.get("character_card_id"),
-    )
+    new_cid = await fork_conversation(conv, new_title)
 
     prev_id, _ = await add_message(new_cid, "assistant", data.summary.strip(), 0)
     await set_active_leaf(new_cid, prev_id)
 
     # Carry user uploads onto the fork; workflow attachments are regenerable and dropped.
     for i, msg in enumerate(tail):
-        atts = msg.get("user_attachments") or []
-        att_list = (
-            [
-                {
-                    "mime_type": a.get("mime_type"),
-                    "data_b64": a.get("data_b64"),
-                    "filename": a.get("filename"),
-                    "size": a.get("size"),
-                }
-                for a in atts
-            ]
-            if atts
-            else None
-        )
         prev_id, _ = await add_message(
             new_cid,
             msg["role"],
             msg["content"],
             i + 1,
             parent_id=prev_id,
-            attachments=att_list,
+            attachments=user_attachment_payloads(msg),
         )
         await set_active_leaf(new_cid, prev_id)
 
@@ -1161,42 +1139,20 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
     # Active path, root→leaf, with user_attachments already populated.
     messages = await get_messages(source_cid)
 
-    new_cid = str(uuid.uuid4())
-    await create_conversation(
-        cid=new_cid,
-        title=new_title,
-        char_name=conv.get("character_name", "") or "",
-        char_scenario=conv.get("character_scenario", "") or "",
-        post_history_instructions=conv.get("post_history_instructions", "") or "",
-        character_card_id=conv.get("character_card_id"),
-    )
+    new_cid = await fork_conversation(conv, new_title)
 
     # Re-insert the path linearly, remapping parent_id and recording old→new
     # message ids so the conversation_logs below can be re-pointed onto the copy.
     id_map: dict[int, int] = {}
     prev_id: int | None = None
     for msg in messages:
-        atts = msg.get("user_attachments") or []
-        att_list = (
-            [
-                {
-                    "mime_type": a.get("mime_type"),
-                    "data_b64": a.get("data_b64"),
-                    "filename": a.get("filename"),
-                    "size": a.get("size"),
-                }
-                for a in atts
-            ]
-            if atts
-            else None
-        )
         new_id, _ = await add_message(
             new_cid,
             msg["role"],
             msg["content"],
             msg["turn_index"],
             parent_id=prev_id,
-            attachments=att_list,
+            attachments=user_attachment_payloads(msg),
             progressive_fields=msg.get("progressive_fields") or {},
         )
         id_map[msg["id"]] = new_id
