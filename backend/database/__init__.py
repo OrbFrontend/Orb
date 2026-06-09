@@ -30,6 +30,7 @@ from .queries.conversation_logs import (
 from .queries.conversations import (
     create_conversation,
     delete_conversation,
+    fork_conversation,
     get_conversation,
     get_workflow_state,
     list_conversations,
@@ -72,6 +73,7 @@ from .queries.messages import (
     set_workflow_message_state,
     switch_to_branch,
     update_message_content,
+    user_attachment_payloads,
 )
 from .queries.workflow_attachments import (
     get_workflow_attachment_by_id,
@@ -156,6 +158,7 @@ __all__ = [
     "delete_phrase_group",
     "delete_user_persona",
     "delete_world",
+    "fork_conversation",
     "get_active_lorebook_entries",
     "get_character_avatar",
     "get_character_card",
@@ -223,4 +226,5 @@ __all__ = [
     "update_settings",
     "update_user_persona",
     "update_world",
+    "user_attachment_payloads",
 ]

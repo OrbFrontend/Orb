@@ -18,6 +18,7 @@ from pydantic import BaseModel, field_validator
 import os
 
 from .database.migrations import run_pending
+from .database.models import ConversationRow
 from .database import (
     DB_PATH,
     get_db,
@@ -42,12 +43,15 @@ from .database import (
     list_conversations,
     get_conversation,
     create_conversation,
+    fork_conversation,
     delete_conversation,
     touch_conversation,
     update_conversation,
     get_messages_with_branch_info,
     get_director_state,
+    update_director_state,
     get_conversation_logs,
+    add_conversation_log,
     get_director_log_for_message,
     list_character_cards,
     get_character_card,
@@ -58,6 +62,7 @@ from .database import (
     sync_conversations_for_card,
     insert_alternate_greeting_swipes,
     add_message,
+    user_attachment_payloads,
     set_active_leaf,
     get_message_by_id,
     switch_to_branch,
@@ -393,6 +398,10 @@ class SummarizeRequest(BaseModel):
 class CompressRequest(BaseModel):
     summary: str
     keep_count: int  # must be one of 2, 4, 6, 8
+
+
+class CheckpointRequest(BaseModel):
+    title: Optional[str] = None
 
 
 class CharacterCardCreate(BaseModel):
@@ -1083,50 +1092,131 @@ async def api_compress_conversation(cid: str, data: CompressRequest):
     messages = await get_messages_with_branch_info(cid)
     tail = messages[max(0, len(messages) - data.keep_count) :]
 
-    char_name = conv.get("character_name", "") or ""
     old_title = conv.get("title", "") or ""
     new_title = f"{old_title} (continued)" if old_title else "Continued"
-    new_cid = str(uuid.uuid4())
-
-    await create_conversation(
-        cid=new_cid,
-        title=new_title,
-        char_name=char_name,
-        char_scenario=conv.get("character_scenario", "") or "",
-        post_history_instructions=conv.get("post_history_instructions", "") or "",
-        character_card_id=conv.get("character_card_id"),
-    )
+    new_cid = await fork_conversation(conv, new_title)
 
     prev_id, _ = await add_message(new_cid, "assistant", data.summary.strip(), 0)
     await set_active_leaf(new_cid, prev_id)
 
     # Carry user uploads onto the fork; workflow attachments are regenerable and dropped.
     for i, msg in enumerate(tail):
-        atts = msg.get("user_attachments") or []
-        att_list = (
-            [
-                {
-                    "mime_type": a.get("mime_type"),
-                    "data_b64": a.get("data_b64"),
-                    "filename": a.get("filename"),
-                    "size": a.get("size"),
-                }
-                for a in atts
-            ]
-            if atts
-            else None
-        )
         prev_id, _ = await add_message(
             new_cid,
             msg["role"],
             msg["content"],
             i + 1,
             parent_id=prev_id,
-            attachments=att_list,
+            attachments=user_attachment_payloads(msg),
         )
         await set_active_leaf(new_cid, prev_id)
 
     return {"new_conversation_id": new_cid}
+
+
+async def _checkpoint_conversation(source_cid: str, new_title: str) -> ConversationRow | None:
+    """Duplicate a conversation's active path into a fresh conversation.
+
+    A "checkpoint" snapshots the *current* line of the story so the user can
+    branch off it without disturbing the original. It carries the linear
+    active-path messages (root→leaf), their user uploads, the director state
+    (moods / progressive fields, so continuation behaves identically), and the
+    per-turn conversation logs that drive the inspector.
+
+    Two things are deliberately *not* carried, mirroring the "active path +
+    user uploads only" contract the Compress History flow established:
+      * non-active branches (alternate swipes / forks), and
+      * workflow-generated attachments and workflow_state (regenerable; their
+        bytes live in a budgeted cache and per-message state may point at
+        attachment ids that would not exist on the copy).
+
+    Returns the new conversation row, or None if *source_cid* is missing.
+    """
+    conv = await get_conversation(source_cid)
+    if not conv:
+        return None
+
+    # Active path, root→leaf, with user_attachments already populated.
+    messages = await get_messages(source_cid)
+
+    new_cid = await fork_conversation(conv, new_title)
+
+    # Re-insert the path linearly, remapping parent_id and recording old→new
+    # message ids so the conversation_logs below can be re-pointed onto the copy.
+    id_map: dict[int, int] = {}
+    prev_id: int | None = None
+    for msg in messages:
+        new_id, _ = await add_message(
+            new_cid,
+            msg["role"],
+            msg["content"],
+            msg["turn_index"],
+            parent_id=prev_id,
+            attachments=user_attachment_payloads(msg),
+            progressive_fields=msg.get("progressive_fields") or {},
+        )
+        id_map[msg["id"]] = new_id
+        prev_id = new_id
+
+    if prev_id is not None:
+        await set_active_leaf(new_cid, prev_id)
+
+    # Carry the director state verbatim so the first turn on the checkpoint
+    # starts from the same moods / progressive fields as the original.
+    director = await get_director_state(source_cid)
+    await update_director_state(
+        new_cid,
+        director.get("active_moods", []),
+        keywords=director.get("keywords", []),
+        progressive_fields=director.get("progressive_fields", {}),
+    )
+
+    # Carry the per-turn inspector logs, re-pointing message_id onto the copied
+    # rows. Logs tied to messages off the active path (other branches) or with
+    # no message_id resolve to None in id_map and are skipped.
+    for log in await get_conversation_logs(source_cid):
+        src_msg_id = log.get("message_id")
+        new_msg_id = id_map.get(src_msg_id) if src_msg_id is not None else None
+        if new_msg_id is None:
+            continue
+        await add_conversation_log(
+            new_cid,
+            log["turn_index"],
+            log.get("agent_raw_output") or "",
+            log.get("tool_calls") or [],
+            log.get("active_moods_after") or [],
+            log.get("injection_block") or "",
+            log.get("agent_latency_ms") or 0,
+            progressive_fields=json.loads(log.get("progressive_fields_after") or "{}"),
+            message_id=new_msg_id,
+            reasoning_director=log.get("reasoning_director") or "",
+            reasoning_writer=log.get("reasoning_writer") or "",
+            reasoning_editor=log.get("reasoning_editor") or "",
+            feedback=log.get("feedback") or {},
+        )
+
+    return await get_conversation(new_cid)
+
+
+@app.post("/api/conversations/{cid}/checkpoint")
+async def api_checkpoint_conversation(cid: str, data: CheckpointRequest):
+    """Duplicate the conversation's active path into a new 'checkpoint'
+    conversation (SillyTavern-style). See :func:`_checkpoint_conversation` for
+    exactly what is and isn't carried."""
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if data.title and data.title.strip():
+        new_title = data.title.strip()
+    else:
+        base = conv.get("title") or conv.get("character_name") or "Conversation"
+        new_title = f"{base} (checkpoint)"
+
+    new_conv = await _checkpoint_conversation(cid, new_title)
+    if new_conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return new_conv
 
 
 # Character Cards ──

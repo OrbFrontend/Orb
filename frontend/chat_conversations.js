@@ -252,6 +252,29 @@ export async function showConvHistoryModal() {
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`);
 }
 
+// Create Checkpoint: duplicate the current conversation's active path into a new
+// conversation. User uploads, director state, and inspector logs are carried;
+// alternate branches and workflow-generated artifacts are not. The user stays in
+// the current chat (the copy is a snapshot to branch from later).
+export async function createCheckpoint() {
+  if (!S.activeConvId) {
+    toast("No active conversation", true);
+    return;
+  }
+  if (S.isStreaming) {
+    toast("Stop generation before creating a checkpoint", true);
+    return;
+  }
+  try {
+    const conv = await api.post(`/conversations/${S.activeConvId}/checkpoint`, {});
+    await loadConversations();
+    toast(`Checkpoint created: ${conv.title}`);
+    await showConvHistoryModal();
+  } catch (e) {
+    toast("Failed to create checkpoint: " + e.message, true);
+  }
+}
+
 // History Compression
 
 let _compressKeepCount = 4;
