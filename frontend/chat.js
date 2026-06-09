@@ -71,6 +71,7 @@ export {
   applyCompression,
   cancelCompression,
   cancelTitleEdit,
+  createCheckpoint,
   deleteConversationFromModal,
   generateCompressionSummary,
   handleTitleEditKey,
