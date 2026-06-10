@@ -15,7 +15,17 @@ import { closeModal, showConfirmModal, showModal } from "./modal.js";
 // close an import cycle (settings.js → chat.js → this module).
 import { updateUserBtn } from "./settings_personas.js";
 import { S } from "./state.js";
-import { $, avatarCell, avatarUrl, CHAT_AVATAR_ICON, convUrl, esc, formatRelativeDate, scrollToBottom, toast } from "./utils.js";
+import {
+  $,
+  avatarCell,
+  avatarUrl,
+  CHAT_AVATAR_ICON,
+  convUrl,
+  esc,
+  formatRelativeDate,
+  scrollToBottom,
+  toast,
+} from "./utils.js";
 import { validate } from "./validate.js";
 import { clearTextEffect } from "./workflow_text_effects.js";
 

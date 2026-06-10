@@ -30,10 +30,13 @@ export function updateUserBtn() {
     const activePersona = S.personas.find((p) => p.id === S.activePersonaId);
     if (activePersona) displayName = activePersona.name;
   }
-  // Pair glyph when the active persona is locked to the character that's open.
-  const { card } = activeLockContext();
+  // Glyph reflects the lock that's actually in force for the active persona.
+  // Conversation lock wins over character lock, matching applyPersonaLock.
+  const { conv, card } = activeLockContext();
+  const lockedToConv = !!S.activePersonaId && conv?.persona_lock_id === S.activePersonaId;
   const lockedToChar = !!S.activePersonaId && card?.persona_lock_id === S.activePersonaId;
-  const label = (lockedToChar ? CHAR_LOCK_ICON : PERSONA_ICON) + " " + displayName;
+  const glyph = lockedToConv ? CONV_LOCK_ICON : lockedToChar ? CHAR_LOCK_ICON : PERSONA_ICON;
+  const label = glyph + " " + displayName;
   $("user-profile-btn").textContent = label;
   const mobileBtn = $("mobile-user-profile-btn");
   if (mobileBtn) mobileBtn.textContent = label;
@@ -242,10 +245,27 @@ export async function setPersonaConversationLock(personaId, locked) {
   try {
     await api.put("/conversations/" + conv.id, { persona_lock_id: val });
     conv.persona_lock_id = val; // keep S in sync so the buttons re-read correctly
+    updateUserBtn(); // locking the open conversation may flip the button glyph
     toast(locked ? "Locked to this conversation" : "Conversation lock removed");
     showUserModal();
   } catch (e) {
     toast("Failed: " + e.message, true);
+  }
+}
+
+// Pin the active persona to a conversation the first time the user writes in
+// it, so later persona switches don't silently rewrite who the existing turns
+// were authored by. No-op once anything is locked, or with no active persona.
+export async function lockPersonaOnFirstMessage() {
+  const { conv } = activeLockContext();
+  if (!conv || conv.persona_lock_id || !S.activePersonaId) return;
+  const val = S.activePersonaId;
+  try {
+    await api.put("/conversations/" + conv.id, { persona_lock_id: val });
+    conv.persona_lock_id = val; // keep S in sync so the buttons re-read correctly
+    updateUserBtn();
+  } catch (e) {
+    console.warn("Failed to lock persona to conversation:", e);
   }
 }
 
