@@ -68,6 +68,21 @@ export function avatarUrl(charId) {
   return `/api/characters/${charId}/avatar`;
 }
 
+// Placeholder glyphs shown when an avatar image is missing or fails to load.
+// Two conventions: library cards fall back to a person, the chat header to a
+// scroll. Kept as named constants so the fallback can't drift between sites.
+export const NO_AVATAR_ICON = "👤"; // character library cards / lists
+export const CHAT_AVATAR_ICON = "📜"; // active chat header
+
+// Inner HTML for an avatar cell: an <img> that swaps to the placeholder glyph
+// if it fails to load, or the bare glyph when there's no image at all. `attrs`
+// appends extra <img> attributes (loading, decoding, onclick…). `src` must be
+// pre-escaped by the caller when it comes from untrusted data.
+export function avatarCell(src, { icon = NO_AVATAR_ICON, attrs = "" } = {}) {
+  if (!src) return icon;
+  return `<img src="${src}"${attrs ? " " + attrs : ""} onerror="this.parentElement.textContent='${icon}'">`;
+}
+
 export function convUrl(...parts) {
   return "/conversations/" + parts.join("/");
 }

@@ -377,7 +377,7 @@
   background: none;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 4px 7px;
+  padding: 5px 10px;
   font-size: 13px;
   line-height: 1;
   cursor: pointer;

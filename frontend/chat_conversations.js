@@ -15,7 +15,7 @@ import { closeModal, showConfirmModal, showModal } from "./modal.js";
 // close an import cycle (settings.js → chat.js → this module).
 import { updateUserBtn } from "./settings_personas.js";
 import { S } from "./state.js";
-import { $, avatarUrl, convUrl, esc, formatRelativeDate, scrollToBottom, toast } from "./utils.js";
+import { $, avatarCell, avatarUrl, CHAT_AVATAR_ICON, convUrl, esc, formatRelativeDate, scrollToBottom, toast } from "./utils.js";
 import { validate } from "./validate.js";
 import { clearTextEffect } from "./workflow_text_effects.js";
 
@@ -34,11 +34,12 @@ export function resetChatUI() {
   S.inspectedMsgId = null;
   S.inspectedDirectorData = null;
   $("chat-title-text").textContent = "Select a character";
-  $("chat-avatar").textContent = "📜";
+  $("chat-avatar").textContent = CHAT_AVATAR_ICON;
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
   renderMessages();
   renderInspector();
+  updateUserBtn(); // no active character → drop any locked-to-character icon
 }
 
 export async function selectChar(id, source = "recent") {
@@ -120,7 +121,7 @@ async function applyPersonaLock(conv) {
   try {
     await api.put("/settings", { active_persona_id: lockId });
     S.activePersonaId = lockId;
-    updateUserBtn();
+    // The user button is refreshed unconditionally by selectConversation below.
     toast(`Persona "${persona.name}" activated (locked)`);
   } catch (e) {
     console.warn("Failed to apply persona lock:", e);
@@ -147,12 +148,18 @@ export async function selectConversation(id) {
     renderCharacters();
   }
   await applyPersonaLock(conv);
+  // Refresh after the lock resolves: the button icon reflects whether the now
+  // active persona is locked to this character, even when no persona switched.
+  updateUserBtn();
   $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
   const av = $("chat-avatar");
   if (conv?.character_card_id) {
-    av.innerHTML = `<img src="${avatarUrl(conv.character_card_id)}?t=${Date.now()}" onerror="this.parentElement.textContent='📜'" onclick="showAvatarPopup()" style="cursor:pointer">`;
+    av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}?t=${Date.now()}`, {
+      icon: CHAT_AVATAR_ICON,
+      attrs: 'onclick="showAvatarPopup()" style="cursor:pointer"',
+    });
   } else {
-    av.textContent = "📜";
+    av.textContent = CHAT_AVATAR_ICON;
   }
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;

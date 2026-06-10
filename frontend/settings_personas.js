@@ -16,6 +16,13 @@ export async function loadPersonas() {
   }
 }
 
+// Persona-lock glyphs. The user button borrows the character-lock glyph when
+// the active persona is paired with the open character; 💬/💏 also label the
+// per-scope lock buttons and modal subtitle below.
+const PERSONA_ICON = "👤";
+const CONV_LOCK_ICON = "💬";
+const CHAR_LOCK_ICON = "💏";
+
 // ── User Profile
 export function updateUserBtn() {
   let displayName = "User";
@@ -23,7 +30,10 @@ export function updateUserBtn() {
     const activePersona = S.personas.find((p) => p.id === S.activePersonaId);
     if (activePersona) displayName = activePersona.name;
   }
-  const label = "👤 " + displayName;
+  // Pair glyph when the active persona is locked to the character that's open.
+  const { card } = activeLockContext();
+  const lockedToChar = !!S.activePersonaId && card?.persona_lock_id === S.activePersonaId;
+  const label = (lockedToChar ? CHAR_LOCK_ICON : PERSONA_ICON) + " " + displayName;
   $("user-profile-btn").textContent = label;
   const mobileBtn = $("mobile-user-profile-btn");
   if (mobileBtn) mobileBtn.textContent = label;
@@ -72,9 +82,9 @@ export function showUserModal() {
         </div>
         <div class="persona-lock-btns">
           <button class="persona-lock-btn${convLocked ? " locked" : ""}" ${conv ? "" : "disabled"} title="${convTitle}"
-            onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">💬</button>
+            onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">${CONV_LOCK_ICON}</button>
           <button class="persona-lock-btn${charLocked ? " locked" : ""}" ${card ? "" : "disabled"} title="${charTitle}"
-            onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">🎭</button>
+            onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">${CHAR_LOCK_ICON}</button>
         </div>
         <button class="btn btn-sm" onclick="event.stopPropagation();editPersona(${p.id})">Edit</button>
       </div>
@@ -86,7 +96,7 @@ export function showUserModal() {
     <div class="modal-title-row">
       <div>
         <h2>User personas</h2>
-        <p class="modal-subtitle">Click a persona to activate it. 💬 locks it to the current conversation, 🎭 to the current character — a locked persona activates automatically when the chat is opened.</p>
+        <p class="modal-subtitle">${CONV_LOCK_ICON} lock to conversation, ${CHAR_LOCK_ICON} to character — locked personas activate on chat open.</p>
       </div>
       <div class="modal-title-actions">
         <button class="btn" onclick="showPersonaEditModal(null)">+ New persona</button>
@@ -246,6 +256,7 @@ export async function setPersonaCharacterLock(personaId, locked) {
   try {
     await api.put("/characters/" + card.id, { persona_lock_id: val });
     card.persona_lock_id = val; // keep S in sync so the buttons re-read correctly
+    updateUserBtn(); // pairing with the open character may flip the button glyph
     toast(locked ? "Locked to this character" : "Character lock removed");
     showUserModal();
   } catch (e) {
