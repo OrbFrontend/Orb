@@ -366,6 +366,42 @@
   white-space: nowrap;
 }
 
+/* ── Persona lock buttons (persona selector modal) ── */
+.persona-lock-btns {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.persona-lock-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 7px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity 0.1s, border-color 0.1s, background 0.1s;
+}
+
+.persona-lock-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+}
+
+.persona-lock-btn.locked {
+  opacity: 1;
+  border-color: var(--accent-dim);
+  background: var(--accent-glow);
+}
+
+.persona-lock-btn:disabled {
+  opacity: .2;
+  cursor: default;
+  background: none;
+}
+
 /* ── Phrase Bank ── */
 .phrase-bank-list {
   margin-bottom: 20px;

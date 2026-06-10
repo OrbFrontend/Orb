@@ -109,7 +109,7 @@ async def touch_conversation(cid: str) -> bool:
 
 async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
     async with get_db() as db:
-        allowed = ["title"]
+        allowed = ["title", "persona_lock_id"]
         sets, vals = _build_set_clause(allowed, data)
         if sets:
             sets.append("updated_at = ?")

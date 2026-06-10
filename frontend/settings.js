@@ -32,6 +32,8 @@ export {
   loadPersonas,
   savePersona,
   saveUserProfile,
+  setPersonaCharacterLock,
+  setPersonaConversationLock,
   showPersonaEditModal,
   showUserModal,
   updateUserBtn,

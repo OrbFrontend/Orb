@@ -11,6 +11,9 @@ import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { loadCharacters, refreshCharacters, renderCharacters } from "./library.js";
 import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
+// Imported from settings_personas.js directly: going through settings.js would
+// close an import cycle (settings.js → chat.js → this module).
+import { updateUserBtn } from "./settings_personas.js";
 import { S } from "./state.js";
 import { $, avatarUrl, convUrl, esc, formatRelativeDate, scrollToBottom, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -104,6 +107,26 @@ export async function newConvForChar(id) {
   }
 }
 
+// A persona lock (conversation lock wins over character lock) activates the
+// locked persona when the conversation is opened, so the user button always
+// shows the persona generation will actually use. Covers new conversations
+// too: selectChar/newConvForChar both funnel through selectConversation.
+async function applyPersonaLock(conv) {
+  const card = conv?.character_card_id ? (S.allCharacters || []).find((c) => c.id === conv.character_card_id) : null;
+  const lockId = conv?.persona_lock_id || card?.persona_lock_id || null;
+  if (!lockId || lockId === S.activePersonaId) return;
+  const persona = S.personas.find((p) => p.id === lockId);
+  if (!persona) return; // dangling lock; the persona no longer exists
+  try {
+    await api.put("/settings", { active_persona_id: lockId });
+    S.activePersonaId = lockId;
+    updateUserBtn();
+    toast(`Persona "${persona.name}" activated (locked)`);
+  } catch (e) {
+    console.warn("Failed to apply persona lock:", e);
+  }
+}
+
 export async function selectConversation(id) {
   if (S.isStreaming) {
     toast("Stop generation before switching conversations", true);
@@ -123,6 +146,7 @@ export async function selectConversation(id) {
     S.activeCharId = conv.character_card_id;
     renderCharacters();
   }
+  await applyPersonaLock(conv);
   $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
   const av = $("chat-avatar");
   if (conv?.character_card_id) {

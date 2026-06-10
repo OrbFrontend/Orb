@@ -4,7 +4,7 @@
 import { api } from "./api.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { S } from "./state.js";
-import { $, esc, toast } from "./utils.js";
+import { $, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 export async function loadPersonas() {
@@ -29,7 +29,18 @@ export function updateUserBtn() {
   if (mobileBtn) mobileBtn.textContent = label;
 }
 
+// The active conversation / character card a persona lock would attach to.
+// The card lookup goes through S.allCharacters: S.characters is the
+// recent-filtered subset and may not contain the active card.
+export function activeLockContext() {
+  const conv = S.conversations.find((c) => c.id === S.activeConvId);
+  const card = conv?.character_card_id ? (S.allCharacters || []).find((c) => c.id === conv.character_card_id) : null;
+  const charName = conv?.character_name || card?.name || "";
+  return { conv, card, charName };
+}
+
 export function showUserModal() {
+  const { conv, card, charName } = activeLockContext();
   const personaItems = S.personas
     .map((p) => {
       const isActive = p.id === S.activePersonaId;
@@ -37,6 +48,18 @@ export function showUserModal() {
       const avatarTextColor = isActive ? "var(--accent)" : "#085041";
       const avatarBg = isActive ? "var(--accent-glow)" : avatarColor;
       const initials = p.name.charAt(0).toUpperCase();
+      const convLocked = !!conv && conv.persona_lock_id === p.id;
+      const charLocked = !!card && card.persona_lock_id === p.id;
+      const convTitle = conv
+        ? convLocked
+          ? "Unlock from this conversation"
+          : "Lock to this conversation"
+        : "Open a conversation to enable";
+      const charTitle = card
+        ? charLocked
+          ? `Unlock from ${escAttr(charName)}`
+          : `Lock to ${escAttr(charName)}`
+        : "Only available for saved characters";
       return `
       <div class="persona-item${isActive ? " persona-item-active" : ""}" onclick="activatePersona(${p.id})">
         <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${initials}</div>
@@ -46,6 +69,12 @@ export function showUserModal() {
             ${isActive ? '<span class="persona-active-badge">Active</span>' : ""}
           </div>
           <span class="persona-desc">${esc(p.description || "")}</span>
+        </div>
+        <div class="persona-lock-btns">
+          <button class="persona-lock-btn${convLocked ? " locked" : ""}" ${conv ? "" : "disabled"} title="${convTitle}"
+            onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">💬</button>
+          <button class="persona-lock-btn${charLocked ? " locked" : ""}" ${card ? "" : "disabled"} title="${charTitle}"
+            onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">🎭</button>
         </div>
         <button class="btn btn-sm" onclick="event.stopPropagation();editPersona(${p.id})">Edit</button>
       </div>
@@ -57,7 +86,7 @@ export function showUserModal() {
     <div class="modal-title-row">
       <div>
         <h2>User personas</h2>
-        <p class="modal-subtitle">Click a persona to activate it.</p>
+        <p class="modal-subtitle">Click a persona to activate it. 💬 locks it to the current conversation, 🎭 to the current character — a locked persona activates automatically when the chat is opened.</p>
       </div>
       <div class="modal-title-actions">
         <button class="btn" onclick="showPersonaEditModal(null)">+ New persona</button>
@@ -176,6 +205,14 @@ export async function activatePersona(personaId) {
     S.activePersonaId = personaId;
     updateUserBtn();
     showUserModal();
+    // A lock on the open conversation/character keeps overriding the manual
+    // choice at generation time — say so instead of silently ignoring it.
+    const { conv, card } = activeLockContext();
+    const lockId = conv?.persona_lock_id || card?.persona_lock_id || null;
+    if (lockId && lockId !== personaId) {
+      const locked = S.personas.find((p) => p.id === lockId);
+      if (locked) toast(`This chat is locked to "${locked.name}" — the lock overrides until removed`);
+    }
   } catch (e) {
     toast("Failed: " + e.message, true);
   }
@@ -183,4 +220,35 @@ export async function activatePersona(personaId) {
 
 export async function editPersona(personaId) {
   showPersonaEditModal(personaId);
+}
+
+// ── Persona locks (override the global active persona within a scope)
+// Each scope holds a single lock, so locking persona B takes the lock away
+// from persona A; re-rendering the modal keeps every row's buttons truthful.
+export async function setPersonaConversationLock(personaId, locked) {
+  const { conv } = activeLockContext();
+  if (!conv) return;
+  const val = locked ? personaId : null;
+  try {
+    await api.put("/conversations/" + conv.id, { persona_lock_id: val });
+    conv.persona_lock_id = val; // keep S in sync so the buttons re-read correctly
+    toast(locked ? "Locked to this conversation" : "Conversation lock removed");
+    showUserModal();
+  } catch (e) {
+    toast("Failed: " + e.message, true);
+  }
+}
+
+export async function setPersonaCharacterLock(personaId, locked) {
+  const { card } = activeLockContext();
+  if (!card) return;
+  const val = locked ? personaId : null;
+  try {
+    await api.put("/characters/" + card.id, { persona_lock_id: val });
+    card.persona_lock_id = val; // keep S in sync so the buttons re-read correctly
+    toast(locked ? "Locked to this character" : "Character lock removed");
+    showUserModal();
+  } catch (e) {
+    toast("Failed: " + e.message, true);
+  }
 }

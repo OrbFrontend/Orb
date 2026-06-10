@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     created_at TEXT NOT NULL,
     updated_at TEXT,
     active_leaf_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
-    workflow_state TEXT DEFAULT NULL
+    workflow_state TEXT DEFAULT NULL,
+    persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS character_cards (
@@ -84,7 +85,8 @@ CREATE TABLE IF NOT EXISTS character_cards (
     world_id TEXT DEFAULT NULL REFERENCES worlds(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    workflow_state TEXT DEFAULT NULL
+    workflow_state TEXT DEFAULT NULL,
+    persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (

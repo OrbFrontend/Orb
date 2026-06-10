@@ -132,6 +132,7 @@ from .orchestrator import (
     handle_regenerate,
     handle_super_regenerate,
     handle_magic_rewrite,
+    resolve_persona_id,
     agent_enabled,
 )
 from .llm_client import AbortToken, LLMClient
@@ -392,6 +393,9 @@ class ConversationCreate(BaseModel):
 
 class ConversationUpdate(BaseModel):
     title: Optional[str] = None
+    # Persona lock for this conversation; an explicit null clears it (the route
+    # uses model_dump(exclude_unset=True), so absence leaves it untouched).
+    persona_lock_id: Optional[int] = None
 
 
 class SummarizeRequest(BaseModel):
@@ -471,6 +475,9 @@ class CharacterCardUpdate(BaseModel):
     avatar_b64: Optional[str] = None
     avatar_mime: Optional[str] = None
     world_id: Optional[str] = None
+    # Persona lock for this character card; an explicit null clears it (handled
+    # via model_fields_set in api_update_character since the route drops Nones).
+    persona_lock_id: Optional[int] = None
 
 
 class AttachmentIn(BaseModel):
@@ -1018,7 +1025,12 @@ async def api_update_conversation(cid: str, data: ConversationUpdate):
     conv = await get_conversation(cid)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    result = await update_conversation(cid, data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
+    # Migrated DBs carry no FK on the ALTER-added persona_lock_id column, so
+    # the API is the only guard against locking to a nonexistent persona.
+    if update_data.get("persona_lock_id") is not None and not await get_user_persona(update_data["persona_lock_id"]):
+        raise HTTPException(status_code=400, detail="Persona not found")
+    result = await update_conversation(cid, update_data)
     return result
 
 
@@ -1040,9 +1052,13 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
 
     settings = await get_settings()
     char_name = conv.get("character_name", "Character") or "Character"
-    active_persona_id = settings.get("active_persona_id")
+    # Resolve the same effective persona the chat would use (conversation/character
+    # lock overrides the global active persona) so a summary stays consistent.
+    card_id = conv.get("character_card_id")
+    card = await get_character_card(card_id) if card_id else None
+    active_persona_id = resolve_persona_id(conv, card, settings)
     active_persona = await get_user_persona(active_persona_id) if active_persona_id else None
-    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings)
+    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
     macros = Macros.from_settings(settings, char_name, active_persona)
     user_description = active_persona.get("description", "") if active_persona else settings.get("user_description", "")
 
@@ -1341,6 +1357,13 @@ async def api_update_character(card_id: str, data: CharacterCardUpdate):
     # world_id can be explicitly set to None to unlink; preserve it via model_fields_set
     if "world_id" in data.model_fields_set:
         update_data["world_id"] = data.world_id
+    # persona_lock_id likewise: an explicit null clears the character lock
+    if "persona_lock_id" in data.model_fields_set:
+        # Migrated DBs carry no FK on the ALTER-added persona_lock_id column,
+        # so the API is the only guard against locking to a missing persona.
+        if data.persona_lock_id is not None and not await get_user_persona(data.persona_lock_id):
+            raise HTTPException(status_code=400, detail="Persona not found")
+        update_data["persona_lock_id"] = data.persona_lock_id
     result = await update_character_card(card_id, update_data)
     if not result:
         raise HTTPException(status_code=404, detail="Character card not found")
@@ -1843,14 +1866,18 @@ async def api_get_context_size(cid: str):
     mood_frags = [f for f in await get_mood_fragments() if f.get("enabled", True)]
     lorebook_entries = await get_active_lorebook_entries()
 
-    # Resolve persona
-    persona_id = settings.get("active_persona_id")
+    # Resolve the same effective persona generation would use (conversation/
+    # character lock overrides the global active persona) so the size
+    # breakdown matches the prompt that is actually sent.
+    card_id = conv.get("character_card_id")
+    card = await get_character_card(card_id) if card_id else None
+    persona_id = resolve_persona_id(conv, card, settings)
     active_persona = await get_user_persona(persona_id) if persona_id else None
     macros = Macros.from_settings(settings, conv["character_name"], active_persona)
     user_desc = active_persona.get("description", "") if active_persona else settings.get("user_description", "")
 
     # Resolve character context
-    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings)
+    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
 
     # Measure each component individually
     sys_text = system_prompt or ""
