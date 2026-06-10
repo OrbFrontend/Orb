@@ -210,7 +210,11 @@ _active_aborts: dict[str, AbortToken] = {}
 @app.middleware("http")
 async def no_cache_middleware(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
+    # Default to no-store for dynamic API/SSE responses, but let a handler opt
+    # into caching by setting its own Cache-Control first (e.g. avatars, which
+    # are large and rarely change — see api_get_avatar). setdefault preserves
+    # the handler's value instead of clobbering it.
+    response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 
@@ -1353,12 +1357,22 @@ async def api_delete_character(card_id: str, delete_conversations: bool = False)
 
 
 @app.get("/api/characters/{card_id}/avatar")
-async def api_get_avatar(card_id: str):
+async def api_get_avatar(card_id: str, request: Request):
     result = await get_character_avatar(card_id)
     if not result:
         raise HTTPException(status_code=404, detail="No avatar found")
     image_bytes, mime_type = result
-    return Response(content=image_bytes, media_type=mime_type or "image/png")
+    # Avatars are large (a card's full PNG) and change only on edit. Let the
+    # browser cache them so the library grid doesn't re-download every avatar on
+    # each re-render/search/sort. The frontend already busts the URL (?v=) when
+    # an avatar is edited in-session; the ETag corrects cross-session edits once
+    # max-age lapses via a cheap conditional GET. usedforsecurity=False: this is
+    # a cache validator, not a security hash.
+    etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
+    cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+    return Response(content=image_bytes, media_type=mime_type or "image/png", headers=cache_headers)
 
 
 @app.get("/api/characters/{card_id}/export")

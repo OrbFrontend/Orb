@@ -237,6 +237,52 @@ async def test_update_character_tags_persists_to_db(client, db):
     assert json.loads(row["tags"]) == ["action", "drama"]
 
 
+# 1x1 transparent PNG
+_PNG_1x1_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+
+async def test_avatar_response_is_cacheable_with_conditional_get(client, db):
+    create = await client.post(
+        "/api/characters",
+        json={"name": "Avatared", "avatar_b64": _PNG_1x1_B64, "avatar_mime": "image/png"},
+    )
+    card_id = create.json()["id"]
+
+    resp = await client.get(f"/api/characters/{card_id}/avatar")
+    assert resp.status_code == 200
+    # The global no-cache middleware must NOT clobber the avatar's cache headers.
+    cache_control = resp.headers["cache-control"]
+    assert "no-store" not in cache_control
+    assert "max-age" in cache_control
+    etag = resp.headers["etag"]
+    assert etag
+
+    # A matching If-None-Match yields a bodyless 304 (cheap revalidation).
+    resp304 = await client.get(f"/api/characters/{card_id}/avatar", headers={"If-None-Match": etag})
+    assert resp304.status_code == 304
+    assert resp304.content == b""
+
+    # Non-avatar API responses still default to no-store.
+    settings = await client.get("/api/settings")
+    assert settings.headers["cache-control"] == "no-store"
+
+
+async def test_list_characters_omits_heavy_text_fields(client, db):
+    await client.post(
+        "/api/characters",
+        json={"name": "Heavy", "description": "x" * 100, "first_mes": "y" * 100, "scenario": "z" * 100},
+    )
+    resp = await client.get("/api/characters")
+    assert resp.status_code == 200
+    card = next(c for c in resp.json() if c["name"] == "Heavy")
+    # The list projection drops the large text bodies (lazy-loaded per card on edit).
+    for heavy in ("description", "personality", "scenario", "first_mes", "system_prompt"):
+        assert heavy not in card
+    # ...but keeps the lightweight fields the sidebar/grid render.
+    assert card["has_avatar"] is False
+    assert "tags" in card
+
+
 async def test_post_history_instructions_synced_on_update(client, db):
     card_resp = await client.post(
         "/api/characters",

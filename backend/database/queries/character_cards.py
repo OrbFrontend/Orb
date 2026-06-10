@@ -12,10 +12,17 @@ from ..models import CharacterCardRow
 
 
 async def list_character_cards() -> list[CharacterCardRow]:
+    # Projects only the columns the library sidebar/list consumes. The heavy text
+    # bodies (description, personality, scenario, first_mes, system_prompt) are
+    # deliberately excluded: nothing in the list path reads them, and shipping
+    # them for every card turns a large library (~2000 cards) into a multi-MB
+    # payload that the client must transfer, JSON-parse, and hold resident on
+    # every refresh. The edit modal lazy-loads the full card via
+    # get_character_card() when needed.
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, name, description, personality, scenario, first_mes, creator_notes, system_prompt, tags, creator, source_format, created_at, updated_at, avatar_mime, world_id FROM character_cards ORDER BY updated_at DESC"
+                "SELECT id, name, creator_notes, tags, creator, source_format, created_at, updated_at, avatar_mime, world_id FROM character_cards ORDER BY updated_at DESC"
             )
         )
         result: list[CharacterCardRow] = []

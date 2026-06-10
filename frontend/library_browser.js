@@ -16,7 +16,7 @@ let _browserSearchQuery = "";
 let _browserCharacters = [];
 let _browserSortBy = "time-added"; // 'name', 'time-added', 'most-recent-chat', 'most-chats'
 let _browserConversations = [];
-let _browserSelectedTags = new Set();
+const _browserSelectedTags = new Set();
 let _browserTopTags = []; // top 15 most popular tags
 
 // Internet character browse state
@@ -105,15 +105,8 @@ export function setCharBrowserView(mode) {
     return;
   }
 
-  // Measure natural height with no filters so minHeight reflects the full character set
-  const prevSearch = _browserSearchQuery;
-  const prevTags = _browserSelectedTags;
-  _browserSearchQuery = "";
-  _browserSelectedTags = new Set();
-  renderCharBrowserItems();
-  if (container) container.style.minHeight = container.offsetHeight + "px";
-  _browserSearchQuery = prevSearch;
-  _browserSelectedTags = prevTags;
+  // renderCharBrowserItems renders the full set, captures the natural height for
+  // minHeight, then applies the active filter in place.
   renderCharBrowserItems();
 }
 
@@ -126,7 +119,10 @@ export function onCharBrowserSearch() {
     return;
   }
   _browserSearchQuery = query;
-  renderCharBrowserItems();
+  // Filter in place — never rebuild the grid on a keystroke. Rebuilding tore
+  // down and recreated every avatar <img>, which flickered; toggling visibility
+  // on the existing nodes is flicker-free and instant.
+  applyBrowserFilter();
 }
 
 export function setCharBrowserSort(sortBy) {
@@ -150,7 +146,7 @@ export function toggleTagSelection(tag) {
   if (button) {
     button.classList.toggle("active", _browserSelectedTags.has(tag));
   }
-  renderCharBrowserItems();
+  applyBrowserFilter();
 }
 
 function computeTopTags() {
@@ -217,53 +213,89 @@ function applySort(characters) {
   });
 }
 
-function getFilteredCharacters() {
-  let filtered = _browserCharacters;
-  // Apply tag filter
-  if (_browserSelectedTags.size > 0) {
-    filtered = filtered.filter((c) => {
-      const tags = c.tags || [];
-      // Check that character has every selected tag
-      for (const tag of _browserSelectedTags) {
-        if (!tags.includes(tag)) return false;
+// Show/hide already-rendered cards to match the active search + tag filter,
+// without rebuilding the DOM. The match data rides on each card as data-name
+// (lowercased) and data-tags (JSON), so filtering is a cheap visibility toggle
+// — no avatar <img> is destroyed/recreated, so there is no flicker.
+function applyBrowserFilter() {
+  const container = $("char-browser-content");
+  if (!container) return;
+  const items = container.querySelectorAll("[data-char-item]");
+  if (!items.length) return;
+
+  const query = _browserSearchQuery;
+  const hasTagFilter = _browserSelectedTags.size > 0;
+  let visible = 0;
+
+  for (const el of items) {
+    let show = true;
+    if (query && !(el.dataset.name || "").includes(query)) {
+      show = false;
+    }
+    if (show && hasTagFilter) {
+      let tags;
+      try {
+        tags = JSON.parse(el.dataset.tags || "[]");
+      } catch {
+        tags = [];
       }
-      return true;
-    });
+      for (const tag of _browserSelectedTags) {
+        if (!tags.includes(tag)) {
+          show = false;
+          break;
+        }
+      }
+    }
+    // Inline display overrides the card's stylesheet display rule (which would
+    // win over the [hidden] UA rule); "" restores the stylesheet value.
+    el.style.display = show ? "" : "none";
+    if (show) visible++;
   }
-  // Apply search query
-  if (_browserSearchQuery) {
-    filtered = filtered.filter((c) => c.name.toLowerCase().includes(_browserSearchQuery));
-  }
-  return filtered;
+
+  const emptyEl = container.querySelector("[data-browser-empty]");
+  if (emptyEl) emptyEl.style.display = visible === 0 ? "" : "none";
 }
 
 function renderCharBrowserItems() {
   const container = $("char-browser-content");
   if (!container) return;
 
-  const filtered = getFilteredCharacters();
-  const sorted = applySort(filtered);
+  // Render the full character set once (sorted). Search/tag filtering is then
+  // applied in place by applyBrowserFilter, so typing never rebuilds the grid.
+  const sorted = applySort(_browserCharacters);
 
   if (sorted.length === 0) {
-    const hasFilters = _browserSearchQuery || _browserSelectedTags.size > 0;
-    container.innerHTML = `<div class="char-browser-empty">${hasFilters ? "No characters match your filters" : "No characters available"}</div>`;
+    container.style.minHeight = "";
+    container.innerHTML = `<div class="char-browser-empty">No characters available</div>`;
     return;
   }
 
-  if (_browserViewMode === "grid") {
-    container.innerHTML = `<div class="char-browser-grid">${sorted.map((c) => renderCharBrowserCard(c)).join("")}</div>`;
-  } else {
-    container.innerHTML = `<div class="char-browser-list">${sorted.map((c) => renderCharBrowserListItem(c)).join("")}</div>`;
-  }
+  const wrapClass = _browserViewMode === "grid" ? "char-browser-grid" : "char-browser-list";
+  const renderItem = _browserViewMode === "grid" ? renderCharBrowserCard : renderCharBrowserListItem;
+  container.innerHTML =
+    `<div class="${wrapClass}">${sorted.map(renderItem).join("")}</div>` +
+    `<div class="char-browser-empty" data-browser-empty style="display:none">No characters match your filters</div>`;
+
+  // Capture the natural full-set height so the panel doesn't collapse/jump when
+  // a filter hides most cards.
+  container.style.minHeight = container.offsetHeight + "px";
+
+  applyBrowserFilter();
+}
+
+// Match-data attributes shared by the grid card and the list item, read by
+// applyBrowserFilter. data-name is lowercased for case-insensitive search.
+function charItemMatchAttrs(c) {
+  return `data-char-item data-name="${escAttr((c.name || "").toLowerCase())}" data-tags="${escAttr(JSON.stringify(c.tags || []))}"`;
 }
 
 function renderCharBrowserCard(c) {
   const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
   const av = c.has_avatar
-    ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">`
+    ? `<img src="${avatarUrl(c.id)}${bust}" loading="lazy" onerror="this.parentElement.textContent='👤'">`
     : "👤";
   return `
-    <div class="char-browser-card" onclick="selectChar('${c.id}', 'library');closeModal()">
+    <div class="char-browser-card" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">
       <div class="char-browser-avatar">${av}</div>
       <div class="char-browser-card-name">${esc(c.name)}</div>
     </div>`;
@@ -272,12 +304,12 @@ function renderCharBrowserCard(c) {
 function renderCharBrowserListItem(c) {
   const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
   const av = c.has_avatar
-    ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">`
+    ? `<img src="${avatarUrl(c.id)}${bust}" loading="lazy" onerror="this.parentElement.textContent='👤'">`
     : "👤";
   const notes = c.creator_notes || (c.tags && c.tags.length ? c.tags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";
   return `
-    <div class="char-browser-list-item" onclick="selectChar('${c.id}', 'library');closeModal()">
+    <div class="char-browser-list-item" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">
       <div class="char-browser-list-avatar">${av}</div>
       <div class="char-browser-list-info">
         <div class="char-browser-list-name">${esc(c.name)}</div>
@@ -325,7 +357,7 @@ function renderInternetResultsBody() {
 
 function renderInternetResultCard(item) {
   const av = item.avatar_url
-    ? `<img src="${escAttr(item.avatar_url)}" onerror="this.parentElement.textContent='👤'">`
+    ? `<img src="${escAttr(item.avatar_url)}" loading="lazy" decoding="async" onerror="this.parentElement.textContent='👤'">`
     : "👤";
   const fullPath = escHandlerArg(item.full_path || "");
   const topics = (item.topics || []).slice(0, 12);
@@ -443,7 +475,5 @@ function renderCharacterBrowser() {
       return;
     }
     renderCharBrowserItems();
-    const container = $("char-browser-content");
-    if (container) container.style.minHeight = container.offsetHeight + "px";
   }, 0);
 }

@@ -397,8 +397,12 @@ class CharacterCardRow(TypedDict, total=False):
     """A row from ``character_cards``.
 
     ``total=False`` because the readers project different column subsets:
-    ``list_character_cards`` drops ``avatar_mime`` (and adds ``has_avatar``),
-    ``get_character_card`` includes ``avatar_b64`` only when ``include_avatar``.
+    ``list_character_cards`` returns only the lightweight columns the library
+    list consumes — it drops ``avatar_mime`` (deriving ``has_avatar``) and also
+    omits the heavy text bodies (``description``, ``personality``, ``scenario``,
+    ``first_mes``, ``system_prompt``) that no list consumer reads, to keep a
+    large library's payload small; ``get_character_card`` returns the full row
+    (and includes ``avatar_b64`` only when ``include_avatar``).
     ``tags`` and ``alternate_greetings`` are the JSON-*decoded* lists;
     ``has_avatar`` is a derived bool, not a column.
     """
