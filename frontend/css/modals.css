@@ -320,13 +320,7 @@
   border-color: var(--accent-dim);
 }
 
-/* Frozen while another persona is locked to the open conversation/character. */
-.persona-item-locked {
-  opacity: .5;
-  cursor: not-allowed;
-}
-.persona-item-locked:hover { background: none; }
-
+/* Neutral status note: which persona is pinned to the open chat/character. */
 .persona-lock-warning {
   margin: 0 0 10px;
   padding: 8px 12px;
@@ -335,7 +329,7 @@
   color: var(--text-secondary);
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--danger, #c66);
+  border-left: 3px solid var(--accent-dim);
   border-radius: var(--radius);
 }
 

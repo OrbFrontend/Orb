@@ -118,26 +118,6 @@ export async function newConvForChar(id) {
   }
 }
 
-// A persona lock (conversation lock wins over character lock) activates the
-// locked persona when the conversation is opened, so the user button always
-// shows the persona generation will actually use. Covers new conversations
-// too: selectChar/newConvForChar both funnel through selectConversation.
-async function applyPersonaLock(conv) {
-  const card = conv?.character_card_id ? (S.allCharacters || []).find((c) => c.id === conv.character_card_id) : null;
-  const lockId = conv?.persona_lock_id || card?.persona_lock_id || null;
-  if (!lockId || lockId === S.activePersonaId) return;
-  const persona = S.personas.find((p) => p.id === lockId);
-  if (!persona) return; // dangling lock; the persona no longer exists
-  try {
-    await api.put("/settings", { active_persona_id: lockId });
-    S.activePersonaId = lockId;
-    // The user button is refreshed unconditionally by selectConversation below.
-    toast(`Persona "${persona.name}" activated (locked)`);
-  } catch (e) {
-    console.warn("Failed to apply persona lock:", e);
-  }
-}
-
 export async function selectConversation(id) {
   if (S.isStreaming) {
     toast("Stop generation before switching conversations", true);
@@ -157,9 +137,8 @@ export async function selectConversation(id) {
     S.activeCharId = conv.character_card_id;
     renderCharacters();
   }
-  await applyPersonaLock(conv);
-  // Refresh after the lock resolves: the button icon reflects whether the now
-  // active persona is locked to this character, even when no persona switched.
+  // The user button shows the persona in force here (pin → default); opening a
+  // pinned conversation never mutates the global default.
   updateUserBtn();
   $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
   const av = $("chat-avatar");

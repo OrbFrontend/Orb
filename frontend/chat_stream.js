@@ -32,7 +32,7 @@ import { _mergeWorkflowRejections } from "./chat_workflow.js";
 import { refreshCharacters } from "./library.js";
 // Imported directly rather than via settings.js to avoid an import cycle
 // (settings.js → chat.js → this module), as chat_conversations.js does.
-import { lockPersonaOnFirstMessage } from "./settings_personas.js";
+import { ensurePersonaPinned } from "./settings_personas.js";
 import { S } from "./state.js";
 import {
   $,
@@ -695,9 +695,6 @@ export async function sendMessage() {
 
   if (!content) return;
 
-  // The first user turn in a conversation pins the active persona to it.
-  const isFirstUserMsg = !S.messages.some((m) => m.role === "user");
-
   // Resolve {{user}} and {{char}} placeholders before sending
   content = resolvePlaceholders(content);
 
@@ -748,7 +745,9 @@ export async function sendMessage() {
     }
   }
   await afterStream();
-  if (isFirstUserMsg) await lockPersonaOnFirstMessage();
+  // Any send in an unpinned chat pins the effective persona to it (no-op once
+  // pinned), so legacy and freshly-unpinned chats regain an author on send.
+  await ensurePersonaPinned();
 }
 
 // ── Regenerate

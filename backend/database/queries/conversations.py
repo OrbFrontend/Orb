@@ -41,14 +41,15 @@ async def create_conversation(
     char_scenario: str,
     post_history_instructions: str = "",
     character_card_id: str | None = None,
+    persona_lock_id: int | None = None,
 ) -> ConversationRow:
     async with get_db() as db:
         now = datetime.now(timezone.utc).isoformat()
         await db.execute(
             """INSERT INTO conversations
                (id, title, character_card_id, character_name, character_scenario,
-                post_history_instructions, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                post_history_instructions, persona_lock_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 cid,
                 title,
@@ -56,6 +57,7 @@ async def create_conversation(
                 char_name,
                 char_scenario,
                 post_history_instructions,
+                persona_lock_id,
                 now,
                 now,
             ),
@@ -74,8 +76,9 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
     """Create an empty conversation seeded from ``source``'s character framing.
 
     Carries the title-independent identity fields (character name/scenario,
-    post-history instructions, card id) that both the Compress History and
-    Checkpoint flows start a fork with, and returns the new conversation id.
+    post-history instructions, card id, persona pin) that both the Compress
+    History and Checkpoint flows start a fork with, and returns the new
+    conversation id.
     Messages, branches, director state and logs are *not* copied -- the caller
     appends whatever slice of the source it intends to carry.
     """
@@ -87,6 +90,7 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
         char_scenario=source.get("character_scenario", "") or "",
         post_history_instructions=source.get("post_history_instructions", "") or "",
         character_card_id=source.get("character_card_id"),
+        persona_lock_id=source.get("persona_lock_id"),
     )
     return new_cid
 
