@@ -105,11 +105,11 @@
     </div>
     <div id="chat-input-area">
       <div id="burger-dropdown">
-        <div class="burger-menu-item" onclick="closeBurger();newConvForChar(S.activeCharId)">✚ New conversation</div>
-        <div class="burger-menu-item" onclick="closeBurger();showConvHistoryModal()">📋 Conversations</div>
-        <div class="burger-menu-item" onclick="closeBurger();showCompressModal()">📦 Compress History</div>
-        <div class="burger-menu-item" onclick="closeBurger();createCheckpoint()">🔖 Create Checkpoint</div>
-        <div class="burger-menu-item" onclick="closeBurger();triggerAttachImage()">🖼️ Attach Image</div>
+        <div class="burger-menu-item" onclick="closeBurger();newConvForChar(S.activeCharId)"><span class="burger-icon">✚</span>New conversation</div>
+        <div class="burger-menu-item" onclick="closeBurger();showConvHistoryModal()"><span class="burger-icon">📋</span>Conversations</div>
+        <div class="burger-menu-item" onclick="closeBurger();showCompressModal()"><span class="burger-icon">📦</span>Compress History</div>
+        <div class="burger-menu-item" onclick="closeBurger();createCheckpoint()"><span class="burger-icon">🔖</span>Create Checkpoint</div>
+        <div class="burger-menu-item" onclick="closeBurger();triggerAttachImage()"><span class="burger-icon">🖼️</span>Attach Image</div>
       </div>
       <input type="file" id="attach-image-input" accept="image/*" multiple style="display:none">
       <div id="attachment-preview" class="attachment-preview"></div>
