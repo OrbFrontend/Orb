@@ -13,7 +13,18 @@ import { S } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
-import { $, esc, formatBytes, formatProse, formatProseWithDiff, resolvePlaceholders } from "./utils.js";
+import {
+  $,
+  avatarCell,
+  avatarUrl,
+  esc,
+  escAttr,
+  escHandlerArg,
+  formatBytes,
+  formatProse,
+  formatProseWithDiff,
+  resolvePlaceholders,
+} from "./utils.js";
 
 export function canStartGeneration() {
   if (S.isStreaming) return false;
@@ -190,17 +201,25 @@ async function renderHomeStats() {
     return; // fail silently — fall back to plain empty state
   }
   if ($("home-stats-grid") !== grid) return; // view changed while fetching
+  // Any prior conversation is a reliable, zero-cost sign this isn't a first
+  // run — drop the onboarding prompt so returning users get a cleaner home.
+  if (s.total_conversations > 0) {
+    $("home-greeting")?.remove();
+    $("home-greeting-icon")?.remove();
+  }
   const cards = [
     ["Conversations", s.total_conversations],
     ["Messages", s.total_messages],
-    ["Characters", s.total_characters],
     ["Words written", s.total_words],
     ["~Tokens generated", s.estimated_tokens],
   ];
+  if (s.storage_bytes > 0) {
+    cards.push(["Storage used", formatBytes(s.storage_bytes)]);
+  }
   if (s.avg_latency_ms != null) {
     cards.push(["Avg response time", (s.avg_latency_ms / 1000).toFixed(1) + "s"]);
   }
-  grid.innerHTML = cards
+  const numericCards = cards
     .filter(([, v]) => typeof v !== "number" || v > 0)
     .map(
       ([label, v]) =>
@@ -209,6 +228,34 @@ async function renderHomeStats() {
         }</div><div class="stat-card-label">${esc(label)}</div></div>`,
     )
     .join("");
+  grid.innerHTML = renderFavoriteCard(s.favorite_character) + numericCards;
+}
+
+// The favorite character gets a portrait-led hero card rather than a number
+// slot: avatar, name, and a message/conversation tally, with a "most messaged"
+// eyebrow so the stat reads as a story beat instead of a bare value. When the
+// card still exists, the whole card is clickable and reopens it exactly as the
+// library panel would (selectChar).
+function renderFavoriteCard(fav) {
+  if (!fav || !fav.name) return "";
+  const av = fav.card_id
+    ? avatarCell(escAttr(avatarUrl(fav.card_id)), { attrs: 'loading="lazy" decoding="async"' })
+    : "👤";
+  const msgs = `${formatStatNum(fav.messages)} message${fav.messages === 1 ? "" : "s"}`;
+  const convs = `${formatStatNum(fav.conversations)} conversation${fav.conversations === 1 ? "" : "s"}`;
+  const clickable = fav.card_id
+    ? ` role="button" tabindex="0" onclick="selectChar('${escHandlerArg(fav.card_id)}', 'recent')"`
+    : "";
+  return `<div class="stat-card stat-card-favorite${fav.card_id ? " stat-card-clickable" : ""}"${clickable}>
+      <div class="stat-fav-eyebrow">★ Favorite character</div>
+      <div class="stat-fav-body">
+        <div class="stat-fav-avatar">${av}</div>
+        <div class="stat-fav-text">
+          <div class="stat-fav-name">${esc(fav.name)}</div>
+          <div class="stat-fav-count">${msgs} · ${convs}</div>
+        </div>
+      </div>
+    </div>`;
 }
 
 export function renderMessages(forceBottom = false) {
@@ -222,7 +269,7 @@ export function renderMessages(forceBottom = false) {
   }
   if (!S.activeConvId) {
     ct.innerHTML =
-      '<div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
+      '<div class="empty-state"><div class="icon" id="home-greeting-icon">📜</div><div id="home-greeting">Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
     renderHomeStats();
   } else if (!S.messages.length) {
     ct.innerHTML =

@@ -27,8 +27,33 @@ async def get_global_stats() -> dict:
         total_chars = msg_row[0][1] if msg_row else 0
         user_chars = msg_row[0][2] if msg_row else 0
 
-        char_row = list(await db.execute_fetchall("SELECT COUNT(*) FROM character_cards"))
-        total_characters = char_row[0][0] if char_row else 0
+        # Favorite character = the one whose conversations hold the most messages.
+        # Group on character_name (not card id) so renamed/deleted cards still tally,
+        # skipping unnamed conversations.
+        fav_row = list(
+            await db.execute_fetchall(
+                """SELECT c.character_name,
+                          COUNT(*) AS msg_count,
+                          COUNT(DISTINCT c.id) AS conv_count,
+                          MAX(c.character_card_id) AS card_id
+                   FROM messages m
+                   JOIN conversations c ON c.id = m.conversation_id
+                   WHERE c.character_name != ''
+                   GROUP BY c.character_name
+                   ORDER BY msg_count DESC
+                   LIMIT 1"""
+            )
+        )
+        favorite_character = (
+            {
+                "name": fav_row[0][0],
+                "messages": fav_row[0][1],
+                "conversations": fav_row[0][2],
+                "card_id": fav_row[0][3],
+            }
+            if fav_row
+            else None
+        )
 
         # > 0 (not just IS NOT NULL): turns with no LLM passes log 0, and
         # averaging those in would understate true response time.
@@ -42,6 +67,6 @@ async def get_global_stats() -> dict:
             "total_messages": total_messages,
             "total_chars": total_chars,
             "user_chars": user_chars,
-            "total_characters": total_characters,
+            "favorite_character": favorite_character,
             "avg_latency_ms": avg_latency,
         }
