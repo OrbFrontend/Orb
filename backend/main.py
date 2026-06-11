@@ -959,12 +959,16 @@ async def api_global_stats():
     s = await get_global_stats()
     total_chars = s["total_chars"]
     avg_latency = s["avg_latency_ms"]
+    # On-disk footprint: the main db plus its WAL/shared-memory sidecars, which
+    # hold not-yet-checkpointed pages and can be a sizable share of the total.
+    storage_bytes = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
     return {
         "total_conversations": s["total_conversations"],
         "total_messages": s["total_messages"],
-        "total_characters": s["total_characters"],
+        "favorite_character": s["favorite_character"],
         "total_words": round(s["user_chars"] / 5),
         "estimated_tokens": estimate_tokens(total_chars) if total_chars else 0,
+        "storage_bytes": storage_bytes,
         "avg_latency_ms": round(avg_latency) if avg_latency is not None else None,
     }
 
