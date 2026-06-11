@@ -27,6 +27,7 @@ can ``ATTACH`` databases and run ``VACUUM INTO``; routes invoke it via
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import json
 import os
@@ -34,32 +35,217 @@ import re
 import shutil
 import sqlite3
 
+from .database import preset_schema as ps
 from .database.migrations import MIGRATIONS, run_pending
 
 META_TABLE = "orb_preset_meta"
 
-# Domain -> tables it owns. Order within a domain is informational; the merge
-# order across domains is fixed in apply_preset().
-DOMAIN_TABLES: dict[str, list[str]] = {
-    "characters": ["character_cards"],
-    "chats": [
-        "conversations",
-        "messages",
-        "director_state",
-        "conversation_logs",
-        "user_attachments",
-        "workflow_attachments",
-    ],
-    "lorebooks": ["worlds", "lorebook_entries"],
-    "fragments": ["mood_fragments", "interactive_fragments"],
-    "phrase_bank": ["phrase_bank"],
-    "configs": ["settings", "endpoints", "model_configs", "user_personas"],
-}
-ALL_DOMAINS = list(DOMAIN_TABLES.keys())
+# The set of user-facing domains, derived from the declared roots. Order is
+# informational (meta stores them sorted); the actual merge order is the
+# schema-derived topological sort in _build_schema_model().
+ALL_DOMAINS: list[str] = sorted(set(ps.DOMAIN_ROOTS.values()))
 
 
 class PresetError(Exception):
     """Raised for caller-facing preset failures (bad file, version skew, etc.)."""
+
+
+# ── schema model (derived from the live schema, zero hand-maintenance) ───────
+#
+# Everything the merge engine needs -- table classification, the FK graph, a
+# safe insert order, which edges to defer -- is read from the live database with
+# PRAGMA. Adding a table or an FK column therefore requires no edit here: the
+# model simply grows. The only hand-declared inputs are the product/security
+# policy in backend/database/preset_schema.py.
+
+
+@dataclasses.dataclass
+class _FK:
+    """One foreign-key edge of a table, classified by what it means for a merge."""
+
+    table: str  # the child table the column lives on
+    from_col: str
+    parent: str
+    to_col: str
+    on_delete: str  # 'CASCADE' | 'SET NULL' | 'NO ACTION' | ...
+    notnull: bool  # is from_col declared NOT NULL?
+
+    @property
+    def is_self(self) -> bool:
+        return self.parent == self.table
+
+    @property
+    def kind(self) -> str:
+        # ownership = "this row is part of that entity" (deleting the parent
+        # deletes the child); crossref = "soft pointer to another entity".
+        if self.is_self:
+            return "self"
+        return "ownership" if self.on_delete == "CASCADE" else "crossref"
+
+
+@dataclasses.dataclass
+class _Table:
+    name: str
+    cols: list[str]
+    pk: list[str]
+    kind: str  # 'singleton' | 'stable' | 'surrogate'
+    fks: list[_FK]
+    owner_fk: _FK | None  # the single ownership (CASCADE, non-self) parent edge
+
+    def fk(self, col: str) -> _FK | None:
+        for f in self.fks:
+            if f.from_col == col:
+                return f
+        return None
+
+
+@dataclasses.dataclass
+class _Schema:
+    tables: dict[str, _Table]
+    order: list[str]  # topological insert order (parents before children)
+    deferred: set[tuple[str, str]]  # (table, from_col) edges set NULL on insert, fixed up after
+
+    def root_of(self, table: str) -> _Table:
+        """Climb ownership edges to the entity root (the table with no owner)."""
+        t = self.tables[table]
+        while t.owner_fk is not None:
+            t = self.tables[t.owner_fk.parent]
+        return t
+
+    def domain_of(self, table: str) -> str | None:
+        return ps.DOMAIN_ROOTS.get(self.root_of(table).name)
+
+    def domain_tables(self, domain: str) -> list[str]:
+        """Tables belonging to *domain*, in topological (parent-first) order."""
+        return [t for t in self.order if self.domain_of(t) == domain]
+
+
+_SINGLETON_RE = re.compile(r"check\s*\(\s*id\s*=\s*1\s*\)", re.IGNORECASE)
+
+
+def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
+    """Introspect the live schema (the ``main`` database) into an in-memory model.
+
+    Classification is read straight from PRAGMA + the stored DDL:
+      * *singleton* -- a ``CHECK (id = 1)`` table (settings): updated in place.
+      * *surrogate* -- a lone INTEGER primary key (an autoincrement rowid): its id
+        is not portable, so rows reinsert under fresh ids with an old->new map.
+      * *stable*    -- everything else (a TEXT primary key, or a PK that is itself
+        a foreign key like director_state.conversation_id): identity is portable,
+        so rows upsert by primary key.
+    """
+    rows = conn.execute("SELECT name, sql FROM sqlite_master WHERE type = 'table'").fetchall()
+    ddl = {name: (sql or "") for name, sql in rows}
+    names = [n for n in ddl if n not in ps.EXCLUDED_TABLES and not n.startswith("sqlite_")]
+
+    tables: dict[str, _Table] = {}
+    for name in names:
+        info = conn.execute(f"PRAGMA table_info({name})").fetchall()
+        cols = [r[1] for r in info]
+        types = {r[1]: (r[2] or "").upper() for r in info}
+        notnull = {r[1]: bool(r[3]) for r in info}
+        pk = [r[1] for r in sorted((r for r in info if r[5]), key=lambda r: r[5])]
+
+        fks: list[_FK] = []
+        for r in conn.execute(f"PRAGMA foreign_key_list({name})").fetchall():
+            parent, from_col, to_col, on_delete = r[2], r[3], r[4], r[6]
+            if to_col is None:  # implicit reference to the parent's primary key
+                to_col = tables[parent].pk[0] if parent in tables else "id"
+            fks.append(_FK(name, from_col, parent, to_col, on_delete, notnull.get(from_col, False)))
+
+        if _SINGLETON_RE.search(ddl[name]):
+            kind = "singleton"
+        elif len(pk) == 1 and types.get(pk[0], "").startswith("INTEGER"):
+            kind = "surrogate"
+        else:
+            kind = "stable"
+
+        owner = next((f for f in fks if f.kind == "ownership"), None)
+        tables[name] = _Table(name, cols, pk, kind, fks, owner)
+
+    order, deferred = _topo_order(tables)
+    return _Schema(tables, order, deferred)
+
+
+def _topo_order(tables: dict[str, _Table]) -> tuple[list[str], set[tuple[str, str]]]:
+    """Order tables so every non-deferred FK's parent is inserted before its child.
+
+    Self edges are deferred from the start (a row references its own table, which
+    cannot exist yet). Genuine cycles -- conversations.active_leaf_id <-> messages,
+    endpoints.active_model_config_id <-> model_configs -- are broken by deferring a
+    *crossref* edge inside the cycle (never an ownership edge, which defines the
+    tree). Deferred columns are inserted NULL and fixed up once every id-map exists.
+    """
+    deferred: set[tuple[str, str]] = set()
+    for t in tables.values():
+        for f in t.fks:
+            if f.is_self:
+                deferred.add((t.name, f.from_col))
+
+    placed: set[str] = set()
+    order: list[str] = []
+    while len(placed) < len(tables):
+        progressed = False
+        for name, t in tables.items():
+            if name in placed:
+                continue
+            unmet = any(
+                f.parent in tables and f.parent not in placed and not f.is_self and (name, f.from_col) not in deferred
+                for f in t.fks
+            )
+            if not unmet:
+                order.append(name)
+                placed.add(name)
+                progressed = True
+        if progressed:
+            continue
+        # Stalled: a cycle remains. Break it by deferring one crossref edge whose
+        # parent is still unplaced.
+        broke = False
+        for name, t in tables.items():
+            if name in placed:
+                continue
+            for f in t.fks:
+                if f.kind == "crossref" and f.parent not in placed and (name, f.from_col) not in deferred:
+                    deferred.add((name, f.from_col))
+                    broke = True
+                    break
+            if broke:
+                break
+        if not broke:
+            raise PresetError("Unbreakable foreign-key cycle in schema")
+    return order, deferred
+
+
+def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
+    """Return human-readable reasons the live schema is not fully covered by the
+    declared preset policy -- empty when everything is accounted for.
+
+    The drift backstop: a new table that no DOMAIN_ROOT owns, a foreign key whose
+    parent the engine never classified, or a secret-looking column missing from
+    SECRET_COLUMNS each surfaces here (and fails the coverage test) the moment the
+    schema changes, instead of silently dropping data or aborting an import later.
+    """
+    schema = _build_schema_model(conn)
+    problems: list[str] = []
+    for name, t in schema.tables.items():
+        if schema.domain_of(name) is None:
+            problems.append(
+                f"table {name!r} reaches no DOMAIN_ROOT via ownership; assign its root "
+                f"a domain in DOMAIN_ROOTS or add {name!r} to EXCLUDED_TABLES"
+            )
+        for fk in t.fks:
+            if fk.parent not in schema.tables:
+                problems.append(
+                    f"{name}.{fk.from_col} references unclassified parent {fk.parent!r} " f"(excluded or unknown table)"
+                )
+        for col in t.cols:
+            if ps.is_sensitive_column(col) and (name, col) not in ps.SECRET_COLUMNS:
+                problems.append(
+                    f"column {name}.{col} looks secret but is not in SECRET_COLUMNS; "
+                    f"add it (with its scrub value) or rename it"
+                )
+    return problems
 
 
 # ── paths ───────────────────────────────────────────────────────────────────
@@ -189,46 +375,28 @@ def _cols(conn: sqlite3.Connection, table: str) -> list[str]:
     return [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
 
 
-def _upsert(conn: sqlite3.Connection, table: str) -> int:
-    """INSERT OR REPLACE every preset row into main, keyed by the table's PK."""
-    cols = _cols(conn, table)
-    collist = ",".join(cols)
-    ph = ",".join("?" * len(cols))
-    rows = conn.execute(f"SELECT {collist} FROM preset.{table}").fetchall()
-    for row in rows:
-        conn.execute(f"INSERT OR REPLACE INTO main.{table} ({collist}) VALUES ({ph})", row)
-    return len(rows)
-
-
-def _insert_no_id(conn: sqlite3.Connection, table: str, where: str = "") -> int:
-    """Insert preset rows into main, dropping the autoincrement ``id``."""
-    cols = [c for c in _cols(conn, table) if c != "id"]
-    collist = ",".join(cols)
-    ph = ",".join("?" * len(cols))
-    rows = conn.execute(f"SELECT {collist} FROM preset.{table} {where}").fetchall()
-    for row in rows:
-        conn.execute(f"INSERT INTO main.{table} ({collist}) VALUES ({ph})", row)
-    return len(rows)
-
-
 # ── export ──────────────────────────────────────────────────────────────────
 
 
-def _scrub_configs(conn: sqlite3.Connection) -> None:
+def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     """Strip personal config + secrets when 'configs' is not exported.
 
-    Deleting endpoints/personas auto-nulls their references on the settings row
-    via the schema's ON DELETE SET NULL (and cascades model_configs). The free
-    text fields are blanked so a shared preset never leaks prompts or identity.
-    Import ignores configs in such a preset anyway (gated by meta), so exact
-    default values do not matter -- only that nothing personal remains.
+    Deleting the configs domain's non-singleton roots (endpoints, user_personas)
+    auto-nulls their references on the settings row via the schema's ON DELETE SET
+    NULL and cascades model_configs (this runs FK-on, on the export clone). The
+    singleton's secret/free-text columns are then blanked per SECRET_COLUMNS so a
+    shared preset never leaks a key, identity, or prompts. Import ignores configs
+    in such a preset anyway (gated by meta), so exact default values do not matter
+    -- only that nothing personal remains. Both the set of configs roots and the
+    blanked columns are derived/declared, so a new configs table or secret column
+    is covered without editing here.
     """
-    conn.execute("DELETE FROM endpoints")  # cascades model_configs; SET NULL on settings refs
-    conn.execute("DELETE FROM user_personas")  # SET NULL on settings.active_persona_id
-    conn.execute(
-        "UPDATE settings SET api_key = '', user_name = 'User', user_description = '', "
-        "system_prompt = '', shared_system_prompt = '', agent_shared_system_prompt = ''"
-    )
+    for root, domain in ps.DOMAIN_ROOTS.items():
+        if domain == "configs" and schema.tables[root].kind != "singleton":
+            conn.execute(f"DELETE FROM {root}")
+    for (table, col), blank in ps.SECRET_COLUMNS.items():
+        if schema.tables[table].kind == "singleton":
+            conn.execute(f"UPDATE {table} SET {col} = ?", (blank,))
 
 
 def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
@@ -239,8 +407,9 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
     unknown = selected - set(ALL_DOMAINS)
     if unknown:
         raise PresetError(f"Unknown domains: {sorted(unknown)}")
-    if "chats" in selected:
-        selected.add("characters")  # chats are meaningless without their character
+    for trigger, implied in ps.IMPLIED_DOMAINS.items():
+        if trigger in selected:
+            selected |= implied  # e.g. chats are meaningless without their character
     if not selected:
         raise PresetError("Select at least one domain to export")
 
@@ -255,22 +424,23 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
     c = sqlite3.connect(tmp, isolation_level=None)
     try:
         c.execute("PRAGMA foreign_keys=ON")
-        if "chats" not in selected:
-            c.execute("DELETE FROM conversations")  # cascades messages/logs/attachments/director_state
-        if "characters" not in selected:
-            c.execute("DELETE FROM character_cards")
-        if "lorebooks" not in selected:
-            c.execute("DELETE FROM worlds")  # cascades lorebook_entries; SET NULL character_cards.world_id
-        if "fragments" not in selected:
-            c.execute("DELETE FROM mood_fragments")
-            c.execute("DELETE FROM interactive_fragments")
-        if "phrase_bank" not in selected:
-            c.execute("DELETE FROM phrase_bank")
-        if "configs" not in selected:
-            _scrub_configs(c)
-        elif strip_keys:
-            c.execute("UPDATE settings SET api_key = ''")
-            c.execute("UPDATE endpoints SET api_key = ''")
+        schema = _build_schema_model(c)
+        # Prune each unselected domain by deleting its root tables: with FK on, a
+        # CASCADE prunes the owned children and a SET NULL clears soft pointers, so
+        # no per-child delete is hand-coded. configs is special (it scrubs the
+        # singleton in place rather than deleting it).
+        for domain in ALL_DOMAINS:
+            if domain in selected:
+                continue
+            if domain == "configs":
+                _scrub_configs(c, schema)
+                continue
+            for root, root_domain in ps.DOMAIN_ROOTS.items():
+                if root_domain == domain and schema.tables[root].kind != "singleton":
+                    c.execute(f"DELETE FROM {root}")
+        if "configs" in selected and strip_keys:
+            for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col == "api_key"):
+                c.execute(f"UPDATE {table} SET {col} = ''")
             keys_stripped = True
         _stamp_migrations(c)
         _write_meta(c, sorted(selected), label, kind, keys_stripped)
@@ -284,312 +454,255 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
 
 
 # ── merge (apply) ─────────────────────────────────────────────────────────
+#
+# One generic engine drives every domain. Given the schema model it:
+#   A. (restore only) wipes each additive domain so it ends up matching the file.
+#   B. clears the subtree each incoming entity replaces (child-replace scope).
+#   C. inserts/upserts every covered table in topological order, dropping
+#      surrogate ids (recording an old->new map) and rewriting FK columns.
+#   D. fixes up deferred self/cycle back-pointers once every id-map exists.
+#   E. reconciles soft pointers from *other* domains into any fully-replaced table.
+# Adding a child table or an FK column needs no edit here -- the model grows and
+# these passes pick it up.
 
 
-def _merge_lorebooks(conn: sqlite3.Connection) -> None:
-    _upsert(conn, "worlds")
-    for (wid,) in conn.execute("SELECT id FROM preset.worlds").fetchall():
-        conn.execute("DELETE FROM main.lorebook_entries WHERE world_id = ?", (wid,))
-    _insert_no_id(conn, "lorebook_entries")
+def _existing(conn: sqlite3.Connection, cache: dict[str, set], parent: str, to_col: str) -> set:
+    """Memoised set of a parent table's current key values in ``main``.
+
+    Used for the "keep this value -- it still resolves locally" branch of the FK
+    rewrite. A parent is always fully inserted/upserted before any child consults
+    it (topological order), and parents are never re-touched afterwards, so the
+    set is stable once built.
+    """
+    if parent not in cache:
+        cache[parent] = {r[0] for r in conn.execute(f"SELECT {to_col} FROM main.{parent}")}
+    return cache[parent]
 
 
-def _merge_characters(conn: sqlite3.Connection) -> None:
-    _upsert(conn, "character_cards")
-    # Drop links to worlds that aren't present locally (FK would otherwise dangle).
+def _resolve_fk(value, fk: _FK, idmaps: dict[str, dict[int, int]], conn, cache) -> tuple[object, bool]:
+    """Translate one FK value for a row being merged. Returns ``(new_value, drop)``.
+
+    The single rule that replaces every bespoke remap:
+      * ``None`` stays ``None``.
+      * if the parent was surrogate-remapped this merge, the value is portable
+        only through that map -- in the map -> the new id; not in it -> dangling
+        (its old surrogate id means nothing locally).
+      * otherwise (stable/untouched parent) the value is portable as-is -> keep it
+        if it still resolves in ``main``, else dangling.
+      * a dangling value is dropped-as-NULL for a SET NULL / nullable column, or
+        the whole child row is dropped for a NOT NULL ownership (CASCADE) column.
+    """
+    if value is None:
+        return None, False
+    pmap = idmaps.get(fk.parent)
+    if pmap is not None:
+        if value in pmap:
+            return pmap[value], False
+    elif value in _existing(conn, cache, fk.parent, fk.to_col):
+        return value, False
+    # dangling
+    if fk.kind == "ownership" and fk.notnull:
+        return None, True
+    return None, False
+
+
+def _scope_clause(schema: _Schema, table: str, root: str) -> str:
+    """A WHERE clause selecting ``main.table`` rows owned by the *incoming* roots.
+
+    Walks the ownership chain up from ``table`` to ``root``, building nested
+    subqueries: the final hop targets ``preset.root`` (the entities being
+    re-imported), the intermediate hops join through ``main``. This generalises
+    the hand-written "delete this conversation's message tree" prune.
+    """
+    fk = schema.tables[table].owner_fk
+    assert fk is not None
+    if fk.parent == root:
+        return f"{fk.from_col} IN (SELECT {fk.to_col} FROM preset.{root})"
+    inner = _scope_clause(schema, fk.parent, root)
+    return f"{fk.from_col} IN (SELECT {fk.to_col} FROM main.{fk.parent} WHERE {inner})"
+
+
+def _merge_table(conn, schema, table, idmaps, cache) -> None:
+    """Insert/upsert one covered table, rewriting FKs and recording its id-map."""
+    t = schema.tables[table]
+    cols = t.cols
+    deferred = {c for (tbl, c) in schema.deferred if tbl == table}
+    fks = {f.from_col: f for f in t.fks}
+
+    if t.kind == "singleton":
+        # Update the lone row in place; never insert/delete it. PRESERVED_COLUMNS
+        # keep their local values (cache bookkeeping, not config from the file).
+        pk = t.pk[0]
+        keep = set(t.pk) | set(ps.PRESERVED_COLUMNS.get(table, ()))
+        row = conn.execute(f"SELECT {','.join(cols)} FROM preset.{table} WHERE {pk} = 1").fetchone()
+        if row is None:
+            return
+        sets, vals = [], []
+        for c, v in zip(cols, row):
+            if c in keep:
+                continue
+            if c in fks:
+                v, _ = _resolve_fk(v, fks[c], idmaps, conn, cache)
+            sets.append(f"{c} = ?")
+            vals.append(v)
+        conn.execute(f"UPDATE main.{table} SET {', '.join(sets)} WHERE {pk} = 1", vals)
+        return
+
+    if t.kind == "stable":
+        # Identity is portable: upsert by primary key (the child-replace in
+        # phase B already cleared any subtree this row owns).
+        ph = ",".join("?" * len(cols))
+        for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():
+            vals = list(row)
+            for i, c in enumerate(cols):
+                if c in deferred:
+                    vals[i] = None  # fixed up once the referenced rows exist
+                elif c in fks:
+                    vals[i], _ = _resolve_fk(vals[i], fks[c], idmaps, conn, cache)
+            conn.execute(f"INSERT OR REPLACE INTO main.{table} ({','.join(cols)}) VALUES ({ph})", vals)
+        return
+
+    # surrogate: reinsert dropping the autoincrement id, record old->new.
+    (pk,) = t.pk
+    ins_cols = [c for c in cols if c != pk]
+    ph = ",".join("?" * len(ins_cols))
+    idmap: dict[int, int] = {}
+    for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():
+        rowd = dict(zip(cols, row))
+        vals, drop = [], False
+        for c in ins_cols:
+            v = rowd[c]
+            if c in deferred:
+                v = None
+            elif c in fks:
+                v, drop = _resolve_fk(v, fks[c], idmaps, conn, cache)
+                if drop:
+                    break
+            vals.append(v)
+        if drop:
+            continue  # an owning parent did not survive the import; drop the orphan
+        new = conn.execute(f"INSERT INTO main.{table} ({','.join(ins_cols)}) VALUES ({ph})", vals).lastrowid
+        assert new is not None
+        idmap[rowd[pk]] = new
+    idmaps[table] = idmap
+
+
+def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
+    """Resolve a deferred (self or cycle) FK column once every id-map exists.
+
+    The column was inserted NULL; now translate the file's original value through
+    the same rule and write it back, keyed by the row's new identity. Covers
+    messages.parent_id, the workflow-attachment self refs, conversations'
+    active_leaf_id, and the endpoints<->model_configs back-pointers in one pass.
+    """
+    t = schema.tables[table]
+    fk = t.fk(from_col)
+    assert fk is not None
+    pk = t.pk[0]
+    own_map = idmaps.get(table)  # surrogate tables only
+    for row in conn.execute(f"SELECT {pk}, {from_col} FROM preset.{table}").fetchall():
+        old_pk, old_val = row[0], row[1]
+        new_pk = own_map[old_pk] if own_map is not None else old_pk
+        if own_map is not None and old_pk not in own_map:
+            continue  # row was dropped during insert
+        new_val, _ = _resolve_fk(old_val, fk, idmaps, conn, cache)
+        conn.execute(f"UPDATE main.{table} SET {from_col} = ? WHERE {pk} = ?", (new_val, new_pk))
+
+
+def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache) -> None:
+    """Realign every row of a soft-pointer column after its parent was *fully*
+    replaced, including rows the import never touched.
+
+    A full table replace (re-keying user_personas, or wiping worlds on a restore)
+    can orphan pointers held by rows in *other* domains -- a pre-existing
+    character's persona_lock_id, a stale world link. This is the generalised
+    successor to _reconcile_persona_locks and the world_id null-out: remap through
+    the parent's old->new map where one exists, then NULL whatever still dangles.
+    (Same-domain children are not reconciled here: the domain's own replace already
+    rebuilt them, and their surrogate parent ids are not portable across it.)
+    """
+    table, col = fk.table, fk.from_col
+    pmap = idmaps.get(fk.parent)
+    if pmap:
+        conn.execute("CREATE TEMP TABLE _fk_remap (old INTEGER PRIMARY KEY, new INTEGER)")
+        conn.executemany("INSERT INTO _fk_remap (old, new) VALUES (?, ?)", list(pmap.items()))
+        conn.execute(
+            f"UPDATE main.{table} SET {col} = (SELECT new FROM _fk_remap WHERE old = {col}) "
+            f"WHERE {col} IN (SELECT old FROM _fk_remap)"
+        )
+        conn.execute("DROP TABLE _fk_remap")
     conn.execute(
-        "UPDATE main.character_cards SET world_id = NULL "
-        "WHERE world_id IS NOT NULL AND world_id NOT IN (SELECT id FROM main.worlds)"
+        f"UPDATE main.{table} SET {col} = NULL "
+        f"WHERE {col} IS NOT NULL AND {col} NOT IN (SELECT {fk.to_col} FROM main.{fk.parent})"
     )
 
 
-def _merge_chats(conn: sqlite3.Connection) -> None:
-    conv_ids = [r[0] for r in conn.execute("SELECT id FROM preset.conversations").fetchall()]
-    if not conv_ids:
-        return
+def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[str, int]:
+    schema = _build_schema_model(conn)
+    inc = [t for t in schema.order if schema.domain_of(t) in included]
+    fully_replaced: set[str] = set()
 
-    # 1. Replace each conversation wholesale. apply runs with foreign_keys=OFF,
-    #    so ON DELETE CASCADE does not fire -- clear the old subtree by hand
-    #    (child rows first) or the previous messages/logs/attachments survive
-    #    alongside the freshly imported ones.
-    conv_cols = _cols(conn, "conversations")
-    ali = conv_cols.index("active_leaf_id")
-    collist = ",".join(conv_cols)
-    ph = ",".join("?" * len(conv_cols))
-    conv_ph = ",".join("?" * len(conv_ids))
-    old_msgs = f"SELECT id FROM main.messages WHERE conversation_id IN ({conv_ph})"
-    conn.execute(f"DELETE FROM main.workflow_attachments WHERE message_id IN ({old_msgs})", conv_ids)
-    conn.execute(f"DELETE FROM main.user_attachments WHERE message_id IN ({old_msgs})", conv_ids)
-    conn.execute(f"DELETE FROM main.conversation_logs WHERE conversation_id IN ({conv_ph})", conv_ids)
-    conn.execute(f"DELETE FROM main.director_state WHERE conversation_id IN ({conv_ph})", conv_ids)
-    conn.execute(f"DELETE FROM main.messages WHERE conversation_id IN ({conv_ph})", conv_ids)
-    conn.execute(f"DELETE FROM main.conversations WHERE id IN ({conv_ph})", conv_ids)
-    for row in conn.execute(f"SELECT {collist} FROM preset.conversations").fetchall():
-        vals = list(row)
-        vals[ali] = None  # set after messages exist
-        conn.execute(f"INSERT INTO main.conversations ({collist}) VALUES ({ph})", vals)
+    # A. Restore only: empty each additive domain (one whose entity root is a
+    #    stable-key table that apply merges by upsert) so it ends up matching the
+    #    file exactly. Domains with no stable root -- configs (singleton + replaced
+    #    surrogate roots), phrase_bank -- are already full replacements on apply, so
+    #    they are left to phase B.
+    if replace:
+        for domain in included:
+            roots = [r for r, d in ps.DOMAIN_ROOTS.items() if d == domain]
+            if roots and all(schema.tables[r].kind == "stable" for r in roots):
+                for table in reversed(schema.domain_tables(domain)):
+                    conn.execute(f"DELETE FROM main.{table}")
+                    fully_replaced.add(table)
 
-    # 2. Messages: remap integer ids, inserting parents before children.
-    msg_cols = _cols(conn, "messages")
-    id_i = msg_cols.index("id")
-    par_i = msg_cols.index("parent_id")
-    ins_cols = [c for c in msg_cols if c != "id"]
-    ins_par = ins_cols.index("parent_id")
-    ins_sql = f"INSERT INTO main.messages ({','.join(ins_cols)}) VALUES ({','.join('?' * len(ins_cols))})"
-    rows = conn.execute(f"SELECT {','.join(msg_cols)} FROM preset.messages").fetchall()
-    msg_map: dict[int, int] = {}
-    pending = list(rows)
-    progressed = True
-    while pending and progressed:
-        progressed = False
-        still = []
-        for r in pending:
-            parent = r[par_i]
-            if parent is None or parent in msg_map:
-                vals = [r[msg_cols.index(c)] for c in ins_cols]
-                vals[ins_par] = msg_map[parent] if parent is not None else None
-                cur = conn.execute(ins_sql, vals)
-                assert cur.lastrowid is not None
-                msg_map[r[id_i]] = cur.lastrowid
-                progressed = True
-            else:
-                still.append(r)
-        pending = still
-    for r in pending:  # orphaned/cyclic parent: attach to root
-        vals = [r[msg_cols.index(c)] for c in ins_cols]
-        vals[ins_par] = None
-        cur = conn.execute(ins_sql, vals)
-        assert cur.lastrowid is not None
-        msg_map[r[id_i]] = cur.lastrowid
-
-    # 3. director_state keyed by conversation_id (cleared above).
-    _insert_no_id_keep_all(conn, "director_state")
-
-    # 4. conversation_logs: drop id, remap nullable message_id.
-    _insert_remap_message(conn, "conversation_logs", msg_map, nullable=True)
-
-    # 5. user_attachments: drop id, remap NOT NULL message_id.
-    _insert_remap_message(conn, "user_attachments", msg_map, nullable=False)
-
-    # 6. workflow_attachments: drop id, remap message_id + self-refs (two-pass).
-    _merge_workflow_attachments(conn, msg_map)
-
-    # 7. Point each conversation at its remapped active leaf.
-    for (cid,) in [(c,) for c in conv_ids]:
-        leaf = conn.execute("SELECT active_leaf_id FROM preset.conversations WHERE id = ?", (cid,)).fetchone()
-        old = leaf[0] if leaf else None
-        if old is not None and old in msg_map:
-            conn.execute("UPDATE main.conversations SET active_leaf_id = ? WHERE id = ?", (msg_map[old], cid))
-
-
-def _insert_no_id_keep_all(conn: sqlite3.Connection, table: str) -> None:
-    """Copy rows whose PK is not autoincrement (e.g. director_state)."""
-    cols = _cols(conn, table)
-    collist = ",".join(cols)
-    ph = ",".join("?" * len(cols))
-    for row in conn.execute(f"SELECT {collist} FROM preset.{table}").fetchall():
-        conn.execute(f"INSERT OR REPLACE INTO main.{table} ({collist}) VALUES ({ph})", row)
-
-
-def _insert_remap_message(conn: sqlite3.Connection, table: str, msg_map: dict[int, int], nullable: bool) -> None:
-    cols = [c for c in _cols(conn, table) if c != "id"]
-    mi = cols.index("message_id")
-    ph = ",".join("?" * len(cols))
-    for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():
-        vals = list(row)
-        old = vals[mi]
-        if old is None:
-            new = None
-        elif old in msg_map:
-            new = msg_map[old]
+    # B. Child-replace: clear the subtree each incoming entity supersedes, child
+    #    first. A table whose entity root is stable is replaced per-root (scoped to
+    #    the incoming ids); the stable root itself is left for the upsert. A table
+    #    whose root is surrogate (endpoints/model_configs, user_personas,
+    #    phrase_bank) has no portable identity, so it is wiped wholesale.
+    for table in reversed(inc):
+        t = schema.tables[table]
+        if t.kind == "singleton" or table in fully_replaced:
+            continue
+        root = schema.root_of(table)
+        if root.kind == "stable":
+            if table != root.name:
+                conn.execute(f"DELETE FROM main.{table} WHERE {_scope_clause(schema, table, root.name)}")
         else:
-            if not nullable:
-                continue  # message wasn't imported; drop the orphan attachment/log
-            new = None
-        vals[mi] = new
-        conn.execute(f"INSERT INTO main.{table} ({','.join(cols)}) VALUES ({ph})", vals)
+            conn.execute(f"DELETE FROM main.{table}")
+            fully_replaced.add(table)
 
+    # C. Insert/upsert in topological order so every parent precedes its children.
+    cache: dict[str, set] = {}
+    idmaps: dict[str, dict[int, int]] = {}
+    for table in inc:
+        _merge_table(conn, schema, table, idmaps, cache)
 
-def _merge_workflow_attachments(conn: sqlite3.Connection, msg_map: dict[int, int]) -> None:
-    table = "workflow_attachments"
-    all_cols = _cols(conn, table)
-    id_i = all_cols.index("id")
-    cols = [c for c in all_cols if c != "id"]
-    mi = cols.index("message_id")
-    par_i = cols.index("parent_attachment_id")
-    sib_i = cols.index("active_sibling_id")
-    ph = ",".join("?" * len(cols))
-    attach_map: dict[int, int] = {}
-    deferred: list[tuple[int, int | None, int | None]] = []  # (new_id, old_parent, old_sibling)
-    for row in conn.execute(f"SELECT {','.join(all_cols)} FROM preset.{table}").fetchall():
-        old_id = row[id_i]
-        vals = [row[all_cols.index(c)] for c in cols]
-        old_msg = vals[mi]
-        if old_msg not in msg_map:
-            continue  # message not imported
-        vals[mi] = msg_map[old_msg]
-        old_parent, old_sib = vals[par_i], vals[sib_i]
-        vals[par_i] = None
-        vals[sib_i] = None
-        cur = conn.execute(f"INSERT INTO main.{table} ({','.join(cols)}) VALUES ({ph})", vals)
-        assert cur.lastrowid is not None
-        attach_map[old_id] = cur.lastrowid
-        deferred.append((cur.lastrowid, old_parent, old_sib))
-    for new_id, old_parent, old_sib in deferred:
-        conn.execute(
-            f"UPDATE main.{table} SET parent_attachment_id = ?, active_sibling_id = ? WHERE id = ?",
-            (
-                attach_map.get(old_parent) if old_parent is not None else None,
-                attach_map.get(old_sib) if old_sib is not None else None,
-                new_id,
-            ),
-        )
+    # D. Fix up deferred self/cycle back-pointers now that every id-map exists.
+    for table, col in schema.deferred:
+        if schema.domain_of(table) in included:
+            _fixup_deferred(conn, schema, table, col, idmaps, cache)
 
+    # E. Reconcile cross-domain soft pointers into any fully-replaced parent.
+    for t in schema.tables.values():
+        for fk in t.fks:
+            if (
+                fk.kind == "crossref"
+                and (t.name, fk.from_col) not in schema.deferred
+                and fk.parent in fully_replaced
+                and schema.domain_of(t.name) != schema.domain_of(fk.parent)
+            ):
+                _reconcile_crossref(conn, schema, fk, idmaps, cache)
 
-def _merge_configs(conn: sqlite3.Connection) -> dict[int, int]:
-    # Preserve attachment-cache bookkeeping across the settings overwrite (see
-    # the rationale in bootstrap.reset_to_defaults).
-    cur = conn.execute(
-        "SELECT attachment_cache_budget_bytes, attachment_access_counter FROM main.settings WHERE id = 1"
-    ).fetchone()
-
-    # apply runs with foreign_keys=OFF, so deleting endpoints does NOT cascade to
-    # model_configs -- clear them by hand or the old rows are left orphaned (their
-    # endpoint gone), which trips the foreign_key_check at the end of apply.
-    conn.execute("DELETE FROM main.model_configs")
-    conn.execute("DELETE FROM main.endpoints")
-    conn.execute("DELETE FROM main.user_personas")
-
-    # personas
-    persona_map: dict[int, int] = {}
-    p_cols = _cols(conn, "user_personas")
-    p_id = p_cols.index("id")
-    p_ins = [c for c in p_cols if c != "id"]
-    p_ph = ",".join("?" * len(p_ins))
-    for row in conn.execute(f"SELECT {','.join(p_cols)} FROM preset.user_personas").fetchall():
-        vals = [row[p_cols.index(c)] for c in p_ins]
-        new = conn.execute(f"INSERT INTO main.user_personas ({','.join(p_ins)}) VALUES ({p_ph})", vals).lastrowid
-        assert new is not None
-        persona_map[row[p_id]] = new
-
-    # endpoints first, with model-config back-refs nulled
-    endpoint_map: dict[int, int] = {}
-    e_cols = _cols(conn, "endpoints")
-    e_id = e_cols.index("id")
-    e_ins = [c for c in e_cols if c != "id"]
-    e_amc = e_ins.index("active_model_config_id")
-    e_agmc = e_ins.index("agent_active_model_config_id")
-    e_ph = ",".join("?" * len(e_ins))
-    for row in conn.execute(f"SELECT {','.join(e_cols)} FROM preset.endpoints").fetchall():
-        vals = [row[e_cols.index(c)] for c in e_ins]
-        vals[e_amc] = None
-        vals[e_agmc] = None
-        new = conn.execute(f"INSERT INTO main.endpoints ({','.join(e_ins)}) VALUES ({e_ph})", vals).lastrowid
-        assert new is not None
-        endpoint_map[row[e_id]] = new
-
-    # model_configs with remapped endpoint_id
-    mc_map: dict[int, int] = {}
-    m_cols = _cols(conn, "model_configs")
-    m_id = m_cols.index("id")
-    m_ins = [c for c in m_cols if c != "id"]
-    m_ep = m_ins.index("endpoint_id")
-    m_ph = ",".join("?" * len(m_ins))
-    for row in conn.execute(f"SELECT {','.join(m_cols)} FROM preset.model_configs").fetchall():
-        vals = [row[m_cols.index(c)] for c in m_ins]
-        vals[m_ep] = endpoint_map.get(row[m_cols.index("endpoint_id")])
-        new = conn.execute(f"INSERT INTO main.model_configs ({','.join(m_ins)}) VALUES ({m_ph})", vals).lastrowid
-        assert new is not None
-        mc_map[row[m_id]] = new
-
-    # fix endpoint -> model_config back-refs
-    for row in conn.execute("SELECT id, active_model_config_id, agent_active_model_config_id FROM preset.endpoints").fetchall():
-        conn.execute(
-            "UPDATE main.endpoints SET active_model_config_id = ?, agent_active_model_config_id = ? WHERE id = ?",
-            (mc_map.get(row[1]), mc_map.get(row[2]), endpoint_map[row[0]]),
-        )
-
-    # settings: overwrite the singleton, remapping its FK refs, keeping cache cols
-    s_cols = _cols(conn, "settings")
-    ps = conn.execute(f"SELECT {','.join(s_cols)} FROM preset.settings WHERE id = 1").fetchone()
-    if ps:
-        sets, vals = [], []
-        for i, c in enumerate(s_cols):
-            if c in ("id", "attachment_cache_budget_bytes", "attachment_access_counter"):
-                continue
-            v = ps[i]
-            if c in ("active_endpoint_id", "agent_endpoint_id"):
-                v = endpoint_map.get(v) if v is not None else None
-            elif c == "active_persona_id":
-                v = persona_map.get(v) if v is not None else None
-            sets.append(f"{c} = ?")
-            vals.append(v)
-        conn.execute(f"UPDATE main.settings SET {', '.join(sets)} WHERE id = 1", vals)
-        if cur is not None:
-            conn.execute(
-                "UPDATE main.settings SET attachment_cache_budget_bytes = ?, attachment_access_counter = ? WHERE id = 1",
-                (cur[0], cur[1]),
-            )
-    return persona_map
-
-
-def _reconcile_persona_locks(conn: sqlite3.Connection, persona_map: dict[int, int]) -> None:
-    """Realign character_cards/conversations.persona_lock_id after a merge.
-
-    persona_lock_id mirrors a user_persona, the same way world_id mirrors a
-    world -- and like world_id it must be remapped or cleared on import or the
-    final foreign_key_check aborts the whole apply. Two things can leave it
-    stale: (1) freshly imported characters/chats carry the *file's* persona ids,
-    and when configs travelled along those personas were reinserted under new
-    ids (persona_map), so remap; (2) anything still unresolved -- the file
-    didn't carry the persona, or a configs replace removed the persona a
-    pre-existing local lock pointed at -- is nulled, mirroring the dangling
-    world_id treatment in _merge_characters.
-
-    The remap keys off the lock value alone, so a pre-existing local lock that
-    happens to share a numeric id with a file persona is repointed at that file
-    persona rather than nulled; harmless, since a configs replace wipes the
-    local personas those locks referenced anyway.
-    """
-    tables = ("character_cards", "conversations")
-    if persona_map:
-        conn.execute("CREATE TEMP TABLE _persona_remap (old INTEGER PRIMARY KEY, new INTEGER)")
-        conn.executemany("INSERT INTO _persona_remap (old, new) VALUES (?, ?)", list(persona_map.items()))
-        for table in tables:
-            # single-pass remap (no UPDATE chaining) via the lookup table
-            conn.execute(
-                f"UPDATE main.{table} SET persona_lock_id = "
-                "(SELECT new FROM _persona_remap WHERE old = persona_lock_id) "
-                "WHERE persona_lock_id IN (SELECT old FROM _persona_remap)"
-            )
-        conn.execute("DROP TABLE _persona_remap")
-    for table in tables:
-        conn.execute(
-            f"UPDATE main.{table} SET persona_lock_id = NULL "
-            "WHERE persona_lock_id IS NOT NULL "
-            "AND persona_lock_id NOT IN (SELECT id FROM main.user_personas)"
-        )
-
-
-# Domains whose apply-merge is additive (upsert / per-parent replace). A
-# domain-scoped *restore* must empty these before merging so the file's rows
-# land in an empty domain and the domain ends up exactly matching the file.
-# `configs` (overwrites the settings singleton in place) and `phrase_bank`
-# (its merge already deletes first) are full replacements on apply already, so
-# they are deliberately absent.
-_REPLACE_WIPE_DOMAINS = ("characters", "chats", "lorebooks", "fragments")
-
-
-def _replace_wipe(conn: sqlite3.Connection, included: set[str]) -> None:
-    """Empty each covered additive domain ahead of its merge (restore only).
-
-    Deletes child-first (``reversed(DOMAIN_TABLES)``) to stay correct even if
-    foreign keys are ever on; apply runs FK-off, so the final
-    ``foreign_key_check`` is what actually guards the committed state.
-    """
-    for domain in _REPLACE_WIPE_DOMAINS:
-        if domain in included:
-            for table in reversed(DOMAIN_TABLES[domain]):
-                conn.execute(f"DELETE FROM main.{table}")
+    # Row counts per merged domain (configs, anchored on its singleton, reports 1).
+    summary: dict[str, int] = {}
+    for domain in included:
+        roots = [r for r, d in ps.DOMAIN_ROOTS.items() if d == domain]
+        if any(schema.tables[r].kind == "singleton" for r in roots):
+            summary[domain] = 1
+        else:
+            summary[domain] = sum(conn.execute(f"SELECT COUNT(*) FROM preset.{r}").fetchone()[0] for r in roots)
+    return summary
 
 
 def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
@@ -609,48 +722,7 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
         conn.execute("PRAGMA foreign_keys=OFF")
         conn.execute("ATTACH DATABASE ? AS preset", (preset_path,))
         conn.execute("BEGIN")
-        if replace:
-            _replace_wipe(conn, included)
-        if "lorebooks" in included:
-            _merge_lorebooks(conn)
-            summary["lorebooks"] = conn.execute("SELECT COUNT(*) FROM preset.worlds").fetchone()[0]
-        if "fragments" in included:
-            _upsert(conn, "mood_fragments")
-            _upsert(conn, "interactive_fragments")
-            summary["fragments"] = (
-                conn.execute("SELECT COUNT(*) FROM preset.mood_fragments").fetchone()[0]
-                + conn.execute("SELECT COUNT(*) FROM preset.interactive_fragments").fetchone()[0]
-            )
-        if "characters" in included:
-            _merge_characters(conn)
-            summary["characters"] = conn.execute("SELECT COUNT(*) FROM preset.character_cards").fetchone()[0]
-        if "chats" in included:
-            _merge_chats(conn)
-            summary["chats"] = conn.execute("SELECT COUNT(*) FROM preset.conversations").fetchone()[0]
-        if "phrase_bank" in included:
-            conn.execute("DELETE FROM main.phrase_bank")
-            _insert_no_id(conn, "phrase_bank")
-            summary["phrase_bank"] = conn.execute("SELECT COUNT(*) FROM preset.phrase_bank").fetchone()[0]
-        persona_map: dict[int, int] = {}
-        if "configs" in included:
-            persona_map = _merge_configs(conn)
-            summary["configs"] = 1
-
-        # persona_lock_id points into user_personas (configs domain); realign or
-        # clear it whenever a domain that carries it was touched, so a re-keyed
-        # or absent persona doesn't dangle the FK and abort the import.
-        if included & {"characters", "chats", "configs"}:
-            _reconcile_persona_locks(conn, persona_map)
-
-        if replace and "lorebooks" in included:
-            # Worlds were replaced wholesale; null any character link to a world
-            # the file didn't carry. (When characters was also covered,
-            # _merge_characters already ran this; harmless to repeat.)
-            conn.execute(
-                "UPDATE main.character_cards SET world_id = NULL "
-                "WHERE world_id IS NOT NULL AND world_id NOT IN (SELECT id FROM main.worlds)"
-            )
-
+        summary = _merge(conn, included, replace)
         problems = conn.execute("PRAGMA foreign_key_check").fetchall()
         if problems:
             conn.execute("ROLLBACK")
