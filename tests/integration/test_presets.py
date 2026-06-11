@@ -343,9 +343,7 @@ async def test_apply_remaps_persona_lock_when_configs_included(client, db):
     pid = (await client.post("/api/user-personas", json={"name": "Pinned"})).json()["id"]
     ch = (await client.post("/api/characters", json={"name": "Locked"})).json()["id"]
     await client.put(f"/api/characters/{ch}", json={"persona_lock_id": pid})
-    name = (
-        await client.post("/api/presets/export", json={"domains": ["characters", "configs"]})
-    ).json()["name"]
+    name = (await client.post("/api/presets/export", json={"domains": ["characters", "configs"]})).json()["name"]
 
     resp = await client.post(f"/api/presets/{name}/apply", json={})
     assert resp.status_code == 200, resp.json()
@@ -367,9 +365,7 @@ async def test_apply_remaps_conversation_persona_lock_when_configs_included(clie
     await _make_conv_with_tree(db)
     await db.execute("UPDATE conversations SET persona_lock_id = ? WHERE id = 'conv-1'", (pid,))
     await db.commit()
-    name = (
-        await client.post("/api/presets/export", json={"domains": ["chats", "configs"]})
-    ).json()["name"]
+    name = (await client.post("/api/presets/export", json={"domains": ["chats", "configs"]})).json()["name"]
 
     resp = await client.post(f"/api/presets/{name}/apply", json={})
     assert resp.status_code == 200, resp.json()
