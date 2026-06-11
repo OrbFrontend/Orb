@@ -174,6 +174,43 @@ export function getCharName() {
   return c?.character_name || "Assistant";
 }
 
+function formatStatNum(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+  return String(n);
+}
+
+async function renderHomeStats() {
+  const grid = $("home-stats-grid");
+  if (!grid) return;
+  let s;
+  try {
+    s = await api.get("/stats");
+  } catch {
+    return; // fail silently — fall back to plain empty state
+  }
+  if ($("home-stats-grid") !== grid) return; // view changed while fetching
+  const cards = [
+    ["Conversations", s.total_conversations],
+    ["Messages", s.total_messages],
+    ["Characters", s.total_characters],
+    ["Words written", s.total_words],
+    ["~Tokens generated", s.estimated_tokens],
+  ];
+  if (s.avg_latency_ms != null) {
+    cards.push(["Avg response time", (s.avg_latency_ms / 1000).toFixed(1) + "s"]);
+  }
+  grid.innerHTML = cards
+    .filter(([, v]) => typeof v !== "number" || v > 0)
+    .map(
+      ([label, v]) =>
+        `<div class="stat-card"><div class="stat-card-value">${
+          typeof v === "number" ? formatStatNum(v) : esc(v)
+        }</div><div class="stat-card-label">${esc(label)}</div></div>`,
+    )
+    .join("");
+}
+
 export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   const distFromBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight;
@@ -184,7 +221,9 @@ export function renderMessages(forceBottom = false) {
     badgeEl = document.getElementById("active-director-badge");
   }
   if (!S.activeConvId) {
-    ct.innerHTML = '<div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div>';
+    ct.innerHTML =
+      '<div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
+    renderHomeStats();
   } else if (!S.messages.length) {
     ct.innerHTML =
       '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';

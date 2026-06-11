@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field, fields
 from types import MappingProxyType
 from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
@@ -482,6 +483,7 @@ async def _run_pipeline(
         cfg.length_guard,
     )
     resp_text = ""
+    writer_t0 = time.monotonic()
     async for item in writer_pass(
         cfg.writer_lane.client,
         cfg.writer_lane.base,
@@ -499,6 +501,10 @@ async def _run_pipeline(
         else:
             resp_text += item["delta"]
             yield {"event": "token", "data": item["delta"]}
+    # agent_latency_ms is the whole turn's wall time, so accumulate every pass:
+    # director (above) + writer (here) + editor (below). Timed in the orchestrator
+    # because the writer pass only streams tokens and reports no duration of its own.
+    latency += int((time.monotonic() - writer_t0) * 1000)
 
     def _make_result(final_text: str, staged: list[dict], staged_state: dict | None = None) -> dict:
         return {
@@ -578,6 +584,7 @@ async def _run_pipeline(
                     "data": {"pass": "editor", "delta": event["delta"]},
                 }
             elif event["type"] == "done":
+                latency += int(event.get("elapsed", 0) or 0)
                 refined_draft = event["draft"]
                 if refined_draft and refined_draft != resp_text:
                     resp_text = refined_draft

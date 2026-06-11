@@ -40,6 +40,7 @@ from .database import (
     create_mood_fragment,
     update_mood_fragment,
     delete_mood_fragment,
+    get_global_stats,
     list_conversations,
     get_conversation,
     create_conversation,
@@ -950,6 +951,22 @@ async def api_reset(data: ResetConfirm):
 
 
 # Conversations ──
+
+
+@app.get("/api/stats")
+async def api_global_stats():
+    """Aggregate usage statistics for the homepage stat grid."""
+    s = await get_global_stats()
+    total_chars = s["total_chars"]
+    avg_latency = s["avg_latency_ms"]
+    return {
+        "total_conversations": s["total_conversations"],
+        "total_messages": s["total_messages"],
+        "total_characters": s["total_characters"],
+        "total_words": round(s["user_chars"] / 5),
+        "estimated_tokens": estimate_tokens(total_chars) if total_chars else 0,
+        "avg_latency_ms": round(avg_latency) if avg_latency is not None else None,
+    }
 
 
 @app.get("/api/conversations")
