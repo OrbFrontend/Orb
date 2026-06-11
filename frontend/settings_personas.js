@@ -34,7 +34,14 @@ export function updateUserBtn() {
     if (persona) displayName = persona.name;
   }
   const { conv, card } = activeLockContext();
-  const glyph = conv?.persona_lock_id ? CONV_LOCK_ICON : card?.persona_lock_id ? CHAR_LOCK_ICON : PERSONA_ICON;
+  const glyph =
+    conv?.persona_lock_id && card?.persona_lock_id
+      ? CHAR_LOCK_ICON
+      : conv?.persona_lock_id
+        ? CONV_LOCK_ICON
+        : card?.persona_lock_id
+          ? CHAR_LOCK_ICON
+          : PERSONA_ICON;
   const label = glyph + " " + displayName;
   $("user-profile-btn").textContent = label;
   const mobileBtn = $("mobile-user-profile-btn");
