@@ -1887,7 +1887,8 @@ async def api_get_context_size(cid: str):
     post_text = macros.resolve_message(
         "" if settings.get("prevent_prompt_overrides") else (conv.get("post_history_instructions", "") or "")
     )
-    user_persona_text = f"## User: {macros.user}\n{macros.resolve_message(user_desc)}" if user_desc else ""
+    resolved_user_desc = macros.resolve_message(user_desc)
+    user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
     msg_chars = sum(len(m.get("content", "") or "") for m in messages)
 
     # Director injection

@@ -111,7 +111,7 @@ def build_prefix(
             parts.append(f"\n\n## Example Dialogue\n{mes}")
     if resolved["post_history"]:
         parts.append(f"\n\n## Additional Instructions\n{resolved['post_history']}")
-    if resolved["user_desc"]:
+    if resolved["user_desc"].strip():
         user_label = macros.user if macros else "User"
         parts.append(f"\n\n## User: {user_label}\n{resolved['user_desc']}")
 
