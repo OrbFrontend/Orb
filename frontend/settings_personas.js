@@ -54,6 +54,12 @@ export function activeLockContext() {
 
 export function showUserModal() {
   const { conv, card, charName } = activeLockContext();
+  // A lock in force on the open conversation or character pins one persona.
+  // While it holds, selecting or locking any *other* persona is blocked so the
+  // existing turns keep their author — the user must unlock first. The pinned
+  // persona's own row stays interactive so it can be unlocked.
+  const lockedIds = lockedPersonaIds(conv, card);
+  const hasLock = lockedIds.size > 0;
   const personaItems = S.personas
     .map((p) => {
       const isActive = p.id === S.activePersonaId;
@@ -63,18 +69,23 @@ export function showUserModal() {
       const initials = p.name.charAt(0).toUpperCase();
       const convLocked = !!conv && conv.persona_lock_id === p.id;
       const charLocked = !!card && card.persona_lock_id === p.id;
-      const convTitle = conv
-        ? convLocked
-          ? "Unlock from this conversation"
-          : "Lock to this conversation"
-        : "Open a conversation to enable";
-      const charTitle = card
-        ? charLocked
-          ? `Unlock from ${escAttr(charName)}`
-          : `Lock to ${escAttr(charName)}`
-        : "Only available for saved characters";
+      const blocked = hasLock && !lockedIds.has(p.id);
+      const convTitle = blocked
+        ? "Unlock the pinned persona first"
+        : conv
+          ? convLocked
+            ? "Unlock from this conversation"
+            : "Lock to this conversation"
+          : "Open a conversation to enable";
+      const charTitle = blocked
+        ? "Unlock the pinned persona first"
+        : card
+          ? charLocked
+            ? `Unlock from ${escAttr(charName)}`
+            : `Lock to ${escAttr(charName)}`
+          : "Only available for saved characters";
       return `
-      <div class="persona-item${isActive ? " persona-item-active" : ""}" onclick="activatePersona(${p.id})">
+      <div class="persona-item${isActive ? " persona-item-active" : ""}${blocked ? " persona-item-locked" : ""}" onclick="activatePersona(${p.id})">
         <div class="persona-avatar" style="background:${avatarBg};color:${avatarTextColor}">${initials}</div>
         <div class="persona-info">
           <div style="display:flex;align-items:center;gap:6px">
@@ -84,9 +95,9 @@ export function showUserModal() {
           <span class="persona-desc">${esc(p.description || "")}</span>
         </div>
         <div class="persona-lock-btns">
-          <button class="persona-lock-btn${convLocked ? " locked" : ""}" ${conv ? "" : "disabled"} title="${convTitle}"
+          <button class="persona-lock-btn${convLocked ? " locked" : ""}" ${conv && !blocked ? "" : "disabled"} title="${convTitle}"
             onclick="event.stopPropagation();setPersonaConversationLock(${p.id}, ${!convLocked})">${CONV_LOCK_ICON}</button>
-          <button class="persona-lock-btn${charLocked ? " locked" : ""}" ${card ? "" : "disabled"} title="${charTitle}"
+          <button class="persona-lock-btn${charLocked ? " locked" : ""}" ${card && !blocked ? "" : "disabled"} title="${charTitle}"
             onclick="event.stopPropagation();setPersonaCharacterLock(${p.id}, ${!charLocked})">${CHAR_LOCK_ICON}</button>
         </div>
         <button class="btn btn-sm" onclick="event.stopPropagation();editPersona(${p.id})">Edit</button>
@@ -94,6 +105,8 @@ export function showUserModal() {
     `;
     })
     .join("");
+
+  const warning = hasLock ? `<p class="persona-lock-warning">⚠️ ${esc(lockWarningText(conv, card, charName))}</p>` : "";
 
   showModal(`
     <div class="modal-title-row">
@@ -105,10 +118,36 @@ export function showUserModal() {
         <button class="btn" onclick="showPersonaEditModal(null)">+ New persona</button>
       </div>
     </div>
+    ${warning}
     <div class="persona-list">
       ${personaItems.length ? personaItems : '<p class="modal-subtitle" style="text-align:center;padding:1rem 0">No personas yet. Create one to get started.</p>'}
     </div>
   `);
+}
+
+// Persona id(s) pinned in the open scope(s). A conversation and its character
+// can in principle hold locks on different personas, so this is a set; usually
+// it's empty or a single id.
+function lockedPersonaIds(conv, card) {
+  const ids = new Set();
+  if (conv?.persona_lock_id) ids.add(conv.persona_lock_id);
+  if (card?.persona_lock_id) ids.add(card.persona_lock_id);
+  return ids;
+}
+
+// Human-readable summary of which persona is pinned where, for the modal banner
+// and the blocked-switch toast. Caller escapes the result before injecting it.
+function lockWarningText(conv, card, charName) {
+  const named = (id) => `"${S.personas.find((p) => p.id === id)?.name || "A persona"}"`;
+  const convId = conv?.persona_lock_id || null;
+  const cardId = card?.persona_lock_id || null;
+  const where = charName || "this character";
+  let scope;
+  if (convId && cardId && convId === cardId) scope = `${named(convId)} is locked to this conversation and ${where}`;
+  else if (convId && cardId) scope = `${named(convId)} is locked to this conversation and ${named(cardId)} to ${where}`;
+  else if (convId) scope = `${named(convId)} is locked to this conversation`;
+  else scope = `${named(cardId)} is locked to ${where}`;
+  return `${scope}. Unlock first to select or lock another persona.`;
 }
 
 export async function saveUserProfile() {
@@ -213,19 +252,20 @@ export async function deletePersona(personaId) {
 
 export async function activatePersona(personaId) {
   if (S.activePersonaId === personaId) return;
+  // A lock pins one persona to the open conversation/character; switching to a
+  // different persona is blocked until the user unlocks. The lock would
+  // override the choice at generation time anyway, so refuse it explicitly.
+  const { conv, card, charName } = activeLockContext();
+  const lockedIds = lockedPersonaIds(conv, card);
+  if (lockedIds.size && !lockedIds.has(personaId)) {
+    toast(lockWarningText(conv, card, charName), true);
+    return;
+  }
   try {
     await api.put("/settings", { active_persona_id: personaId });
     S.activePersonaId = personaId;
     updateUserBtn();
     showUserModal();
-    // A lock on the open conversation/character keeps overriding the manual
-    // choice at generation time — say so instead of silently ignoring it.
-    const { conv, card } = activeLockContext();
-    const lockId = conv?.persona_lock_id || card?.persona_lock_id || null;
-    if (lockId && lockId !== personaId) {
-      const locked = S.personas.find((p) => p.id === lockId);
-      if (locked) toast(`This chat is locked to "${locked.name}" — the lock overrides until removed`);
-    }
   } catch (e) {
     toast("Failed: " + e.message, true);
   }
@@ -236,11 +276,17 @@ export async function editPersona(personaId) {
 }
 
 // ── Persona locks (override the global active persona within a scope)
-// Each scope holds a single lock, so locking persona B takes the lock away
-// from persona A; re-rendering the modal keeps every row's buttons truthful.
+// One pin at a time: while a persona is locked to the open conversation or
+// character, locking a *different* persona is refused until the user unlocks.
+// Unlocking is always allowed. Re-rendering keeps every row's buttons truthful.
 export async function setPersonaConversationLock(personaId, locked) {
-  const { conv } = activeLockContext();
+  const { conv, card, charName } = activeLockContext();
   if (!conv) return;
+  const lockedIds = lockedPersonaIds(conv, card);
+  if (locked && lockedIds.size && !lockedIds.has(personaId)) {
+    toast(lockWarningText(conv, card, charName), true);
+    return;
+  }
   const val = locked ? personaId : null;
   try {
     await api.put("/conversations/" + conv.id, { persona_lock_id: val });
@@ -270,8 +316,13 @@ export async function lockPersonaOnFirstMessage() {
 }
 
 export async function setPersonaCharacterLock(personaId, locked) {
-  const { card } = activeLockContext();
+  const { conv, card, charName } = activeLockContext();
   if (!card) return;
+  const lockedIds = lockedPersonaIds(conv, card);
+  if (locked && lockedIds.size && !lockedIds.has(personaId)) {
+    toast(lockWarningText(conv, card, charName), true);
+    return;
+  }
   const val = locked ? personaId : null;
   try {
     await api.put("/characters/" + card.id, { persona_lock_id: val });
