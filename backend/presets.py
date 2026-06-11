@@ -445,7 +445,7 @@ def _merge_workflow_attachments(conn: sqlite3.Connection, msg_map: dict[int, int
         )
 
 
-def _merge_configs(conn: sqlite3.Connection) -> None:
+def _merge_configs(conn: sqlite3.Connection) -> dict[int, int]:
     # Preserve attachment-cache bookkeeping across the settings overwrite (see
     # the rationale in bootstrap.reset_to_defaults).
     cur = conn.execute(
@@ -529,6 +529,45 @@ def _merge_configs(conn: sqlite3.Connection) -> None:
                 "UPDATE main.settings SET attachment_cache_budget_bytes = ?, attachment_access_counter = ? WHERE id = 1",
                 (cur[0], cur[1]),
             )
+    return persona_map
+
+
+def _reconcile_persona_locks(conn: sqlite3.Connection, persona_map: dict[int, int]) -> None:
+    """Realign character_cards/conversations.persona_lock_id after a merge.
+
+    persona_lock_id mirrors a user_persona, the same way world_id mirrors a
+    world -- and like world_id it must be remapped or cleared on import or the
+    final foreign_key_check aborts the whole apply. Two things can leave it
+    stale: (1) freshly imported characters/chats carry the *file's* persona ids,
+    and when configs travelled along those personas were reinserted under new
+    ids (persona_map), so remap; (2) anything still unresolved -- the file
+    didn't carry the persona, or a configs replace removed the persona a
+    pre-existing local lock pointed at -- is nulled, mirroring the dangling
+    world_id treatment in _merge_characters.
+
+    The remap keys off the lock value alone, so a pre-existing local lock that
+    happens to share a numeric id with a file persona is repointed at that file
+    persona rather than nulled; harmless, since a configs replace wipes the
+    local personas those locks referenced anyway.
+    """
+    tables = ("character_cards", "conversations")
+    if persona_map:
+        conn.execute("CREATE TEMP TABLE _persona_remap (old INTEGER PRIMARY KEY, new INTEGER)")
+        conn.executemany("INSERT INTO _persona_remap (old, new) VALUES (?, ?)", list(persona_map.items()))
+        for table in tables:
+            # single-pass remap (no UPDATE chaining) via the lookup table
+            conn.execute(
+                f"UPDATE main.{table} SET persona_lock_id = "
+                "(SELECT new FROM _persona_remap WHERE old = persona_lock_id) "
+                "WHERE persona_lock_id IN (SELECT old FROM _persona_remap)"
+            )
+        conn.execute("DROP TABLE _persona_remap")
+    for table in tables:
+        conn.execute(
+            f"UPDATE main.{table} SET persona_lock_id = NULL "
+            "WHERE persona_lock_id IS NOT NULL "
+            "AND persona_lock_id NOT IN (SELECT id FROM main.user_personas)"
+        )
 
 
 # Domains whose apply-merge is additive (upsert / per-parent replace). A
@@ -592,9 +631,16 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
             conn.execute("DELETE FROM main.phrase_bank")
             _insert_no_id(conn, "phrase_bank")
             summary["phrase_bank"] = conn.execute("SELECT COUNT(*) FROM preset.phrase_bank").fetchone()[0]
+        persona_map: dict[int, int] = {}
         if "configs" in included:
-            _merge_configs(conn)
+            persona_map = _merge_configs(conn)
             summary["configs"] = 1
+
+        # persona_lock_id points into user_personas (configs domain); realign or
+        # clear it whenever a domain that carries it was touched, so a re-keyed
+        # or absent persona doesn't dangle the FK and abort the import.
+        if included & {"characters", "chats", "configs"}:
+            _reconcile_persona_locks(conn, persona_map)
 
         if replace and "lorebooks" in included:
             # Worlds were replaced wholesale; null any character link to a world
