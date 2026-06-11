@@ -7,7 +7,7 @@ import { api } from "./api.js";
 import { _avatarBust, showCharEditModal } from "./library.js";
 import { closeModal, setModalCloseCallback, showModal } from "./modal.js";
 import { S } from "./state.js";
-import { $, avatarUrl, esc, escAttr, escHandlerArg, formatRelativeDate, toast } from "./utils.js";
+import { $, avatarCell, avatarUrl, esc, escAttr, escHandlerArg, formatRelativeDate, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // Character browser modal state
@@ -291,9 +291,7 @@ function charItemMatchAttrs(c) {
 
 function renderCharBrowserCard(c) {
   const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
-  const av = c.has_avatar
-    ? `<img src="${avatarUrl(c.id)}${bust}" loading="lazy" onerror="this.parentElement.textContent='👤'">`
-    : "👤";
+  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
   return `
     <div class="char-browser-card" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">
       <div class="char-browser-avatar">${av}</div>
@@ -303,9 +301,7 @@ function renderCharBrowserCard(c) {
 
 function renderCharBrowserListItem(c) {
   const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
-  const av = c.has_avatar
-    ? `<img src="${avatarUrl(c.id)}${bust}" loading="lazy" onerror="this.parentElement.textContent='👤'">`
-    : "👤";
+  const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
   const notes = c.creator_notes || (c.tags && c.tags.length ? c.tags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";
   return `
@@ -356,9 +352,7 @@ function renderInternetResultsBody() {
 }
 
 function renderInternetResultCard(item) {
-  const av = item.avatar_url
-    ? `<img src="${escAttr(item.avatar_url)}" loading="lazy" decoding="async" onerror="this.parentElement.textContent='👤'">`
-    : "👤";
+  const av = avatarCell(item.avatar_url ? escAttr(item.avatar_url) : "", { attrs: 'loading="lazy" decoding="async"' });
   const fullPath = escHandlerArg(item.full_path || "");
   const topics = (item.topics || []).slice(0, 12);
   const updated = item.date_updated ? "Updated: " + formatRelativeDate(item.date_updated) : "";

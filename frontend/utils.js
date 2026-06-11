@@ -68,6 +68,21 @@ export function avatarUrl(charId) {
   return `/api/characters/${charId}/avatar`;
 }
 
+// Placeholder glyphs shown when an avatar image is missing or fails to load.
+// Two conventions: library cards fall back to a person, the chat header to a
+// scroll. Kept as named constants so the fallback can't drift between sites.
+export const NO_AVATAR_ICON = "👤"; // character library cards / lists
+export const CHAT_AVATAR_ICON = "📜"; // active chat header
+
+// Inner HTML for an avatar cell: an <img> that swaps to the placeholder glyph
+// if it fails to load, or the bare glyph when there's no image at all. `attrs`
+// appends extra <img> attributes (loading, decoding, onclick…). `src` must be
+// pre-escaped by the caller when it comes from untrusted data.
+export function avatarCell(src, { icon = NO_AVATAR_ICON, attrs = "" } = {}) {
+  if (!src) return icon;
+  return `<img src="${src}"${attrs ? " " + attrs : ""} onerror="this.parentElement.textContent='${icon}'">`;
+}
+
 export function convUrl(...parts) {
   return "/conversations/" + parts.join("/");
 }
@@ -289,15 +304,28 @@ export function replacePlaceholders(text, userName, charName) {
  */
 export function resolvePlaceholders(text) {
   let userName = S.settings?.user_name || "User";
-  if (S.activePersonaId) {
-    const activePersona = S.personas.find((p) => p.id === S.activePersonaId);
-    if (activePersona && activePersona.name) {
-      userName = activePersona.name;
+  const personaId = effectivePersonaId();
+  if (personaId) {
+    const persona = S.personas.find((p) => p.id === personaId);
+    if (persona && persona.name) {
+      userName = persona.name;
     }
   }
   const conv = S.conversations?.find((c) => c.id === S.activeConvId);
   const charName = conv?.character_name || "";
   return replacePlaceholders(text, userName, charName);
+}
+
+/**
+ * The persona actually in force for the open conversation: conversation pin →
+ * character pin → global default. Mirrors backend resolve_persona_id.
+ * @returns {number|null} Persona id, or null when none applies
+ */
+export function effectivePersonaId() {
+  const conv = S.conversations?.find((c) => c.id === S.activeConvId);
+  if (conv?.persona_lock_id) return conv.persona_lock_id;
+  const card = conv?.character_card_id ? (S.allCharacters || []).find((c) => c.id === conv.character_card_id) : null;
+  return card?.persona_lock_id || S.activePersonaId || null;
 }
 
 export function formatBytes(bytes) {

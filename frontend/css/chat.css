@@ -583,6 +583,14 @@
   transition: background .1s;
 }
 
+.burger-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
 .burger-menu-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
@@ -700,6 +708,19 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
+}
+
+.conv-history-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.conv-history-info-sep {
+  color: var(--border);
 }
 
 /* Empty state */

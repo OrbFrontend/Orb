@@ -320,6 +320,19 @@
   border-color: var(--accent-dim);
 }
 
+/* Neutral status note: which persona is pinned to the open chat/character. */
+.persona-lock-warning {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-dim);
+  border-radius: var(--radius);
+}
+
 .persona-avatar {
   width: 32px;
   height: 32px;
@@ -364,6 +377,42 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── Persona lock buttons (persona selector modal) ── */
+.persona-lock-btns {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.persona-lock-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity 0.1s, border-color 0.1s, background 0.1s;
+}
+
+.persona-lock-btn:hover {
+  opacity: 1;
+  background: var(--bg-hover);
+}
+
+.persona-lock-btn.locked {
+  opacity: 1;
+  border-color: var(--accent-dim);
+  background: var(--accent-glow);
+}
+
+.persona-lock-btn:disabled {
+  opacity: .2;
+  cursor: default;
+  background: none;
 }
 
 /* ── Phrase Bank ── */

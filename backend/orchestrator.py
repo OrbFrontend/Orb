@@ -1030,6 +1030,19 @@ class PipelineContext:
     agent_system_prompt: Optional[str]
 
 
+def resolve_persona_id(
+    conv: Mapping[str, Any],
+    card: Mapping[str, Any] | None,
+    settings: Mapping[str, Any],
+) -> int | None:
+    """Resolve the effective persona id for a turn.
+
+    A locked persona overrides the global active persona within its scope.
+    Priority: conversation lock → character-card lock → global active persona.
+    """
+    return conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
+
+
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
     """Load everything the pipeline needs: settings, conversation, director,
     mood_fragments, phrase_bank, and an LLMClient.
@@ -1072,9 +1085,9 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     card = await db.get_character_card(card_id) if card_id else None
     system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
 
-    # Load active persona if set
+    # Load the effective persona (conversation/character lock overrides global)
     active_persona = None
-    active_persona_id = settings.get("active_persona_id")
+    active_persona_id = resolve_persona_id(conv, card, settings)
     if active_persona_id:
         active_persona = await db.get_user_persona(active_persona_id)
 

@@ -9,7 +9,7 @@ import { loadConversations, resetChatUI } from "./chat.js";
 import { loadWorlds } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showCropModal, showModal } from "./modal.js";
 import { S } from "./state.js";
-import { $, avatarUrl, esc, toast } from "./utils.js";
+import { $, avatarCell, avatarUrl, CHAT_AVATAR_ICON, esc, NO_AVATAR_ICON, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 export {
@@ -119,9 +119,7 @@ export function renderCharacters() {
   $("char-list").innerHTML = S.characters
     .map((c) => {
       const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
-      const av = c.has_avatar
-        ? `<img src="${avatarUrl(c.id)}${bust}" onerror="this.parentElement.textContent='👤'">`
-        : "👤";
+      const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
       const meta = esc(c.creator_notes || (c.tags || []).slice(0, 2).join(", ") || c.source_format || "");
       const isActive = S.activeCharId === c.id;
       return `<div class="char-item${isActive ? " active" : ""}" onclick="selectChar('${c.id}', 'recent')">
@@ -303,7 +301,7 @@ export function showCharCreateModal() {
   showModal(`
     <div class="modal-char-header">
       <div id="cc-avatar-preview" class="char-avatar-lg" onclick="triggerAvatarCrop('cc')"
-           title="Click to set avatar" style="cursor:pointer">👤</div>
+           title="Click to set avatar" style="cursor:pointer">${NO_AVATAR_ICON}</div>
       <div style="flex:1">
         <div class="field" style="margin-bottom:4px">
           <input id="cc-name" placeholder="Character name…" style="font-size:18px;font-weight:600;width:100%">
@@ -448,7 +446,7 @@ export async function showCharEditModal(idOrData) {
     av = `<img src="data:${_pendingAvatar.mime};base64,${_pendingAvatar.b64}">`;
   } else {
     const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
-    av = c.has_avatar ? `<img src="${avatarUrl(c.id)}${bust}">` : "👤";
+    av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "");
   }
 
   if (isNew) {
@@ -577,8 +575,7 @@ export async function saveCharEdit(id, exportAfter = false) {
       _avatarBust.set(id, Date.now());
       if (S.activeCharId === id) {
         const av = document.getElementById("chat-avatar");
-        if (av)
-          av.innerHTML = `<img src="${avatarUrl(id)}?v=${_avatarBust.get(id)}" onerror="this.parentElement.textContent='📜'">`;
+        if (av) av.innerHTML = avatarCell(`${avatarUrl(id)}?v=${_avatarBust.get(id)}`, { icon: CHAT_AVATAR_ICON });
       }
     }
     closeModal();

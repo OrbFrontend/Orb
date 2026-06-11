@@ -22,7 +22,7 @@ async def list_character_cards() -> list[CharacterCardRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, name, creator_notes, tags, creator, source_format, created_at, updated_at, avatar_mime, world_id FROM character_cards ORDER BY updated_at DESC"
+                "SELECT id, name, creator_notes, tags, creator, source_format, created_at, updated_at, avatar_mime, world_id, persona_lock_id FROM character_cards ORDER BY updated_at DESC"
             )
         )
         result: list[CharacterCardRow] = []
@@ -43,7 +43,7 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> Char
             else (
                 "id, name, description, personality, scenario, first_mes, mes_example, "
                 "creator_notes, system_prompt, post_history_instructions, tags, creator, "
-                "character_version, alternate_greetings, avatar_mime, source_format, world_id, created_at, updated_at"
+                "character_version, alternate_greetings, avatar_mime, source_format, world_id, persona_lock_id, created_at, updated_at"
             )
         )
         rows = list(
@@ -143,6 +143,7 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
             "creator",
             "character_version",
             "world_id",
+            "persona_lock_id",
         ]
         sets, vals = _build_set_clause(allowed, data)
         # JSON fields

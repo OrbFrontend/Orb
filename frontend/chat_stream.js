@@ -30,6 +30,9 @@ import {
 import { clearInspectedMessage } from "./chat_messages.js";
 import { _mergeWorkflowRejections } from "./chat_workflow.js";
 import { refreshCharacters } from "./library.js";
+// Imported directly rather than via settings.js to avoid an import cycle
+// (settings.js → chat.js → this module), as chat_conversations.js does.
+import { ensurePersonaPinned } from "./settings_personas.js";
 import { S } from "./state.js";
 import {
   $,
@@ -742,6 +745,9 @@ export async function sendMessage() {
     }
   }
   await afterStream();
+  // Any send in an unpinned chat pins the effective persona to it (no-op once
+  // pinned), so legacy and freshly-unpinned chats regain an author on send.
+  await ensurePersonaPinned();
 }
 
 // ── Regenerate

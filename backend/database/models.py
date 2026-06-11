@@ -154,6 +154,7 @@ class ConversationRow(TypedDict):
     updated_at: str | None
     active_leaf_id: int | None
     workflow_state: str | None
+    persona_lock_id: int | None
 
 
 class ConversationListRow(ConversationRow, total=False):
@@ -428,4 +429,5 @@ class CharacterCardRow(TypedDict, total=False):
     created_at: str
     updated_at: str
     workflow_state: str | None
+    persona_lock_id: int | None
     has_avatar: bool

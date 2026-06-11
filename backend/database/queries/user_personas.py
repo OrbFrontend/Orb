@@ -67,6 +67,10 @@ async def update_user_persona(persona_id: int, data: dict) -> UserPersonaRow | N
 
 async def delete_user_persona(persona_id: int) -> bool:
     async with get_db() as db:
+        # Clear dangling locks explicitly: an ALTER-added persona_lock_id column
+        # can't rely on ON DELETE SET NULL on already-migrated SQLite DBs.
+        await db.execute("UPDATE conversations  SET persona_lock_id = NULL WHERE persona_lock_id = ?", (persona_id,))
+        await db.execute("UPDATE character_cards SET persona_lock_id = NULL WHERE persona_lock_id = ?", (persona_id,))
         cur = await db.execute("DELETE FROM user_personas WHERE id = ?", (persona_id,))
         await db.commit()
         return cur.rowcount > 0

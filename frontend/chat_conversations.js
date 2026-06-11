@@ -11,8 +11,21 @@ import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { loadCharacters, refreshCharacters, renderCharacters } from "./library.js";
 import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
+// Imported from settings_personas.js directly: going through settings.js would
+// close an import cycle (settings.js → chat.js → this module).
+import { updateUserBtn } from "./settings_personas.js";
 import { S } from "./state.js";
-import { $, avatarUrl, convUrl, esc, formatRelativeDate, scrollToBottom, toast } from "./utils.js";
+import {
+  $,
+  avatarCell,
+  avatarUrl,
+  CHAT_AVATAR_ICON,
+  convUrl,
+  esc,
+  formatRelativeDate,
+  scrollToBottom,
+  toast,
+} from "./utils.js";
 import { validate } from "./validate.js";
 import { clearTextEffect } from "./workflow_text_effects.js";
 
@@ -31,11 +44,12 @@ export function resetChatUI() {
   S.inspectedMsgId = null;
   S.inspectedDirectorData = null;
   $("chat-title-text").textContent = "Select a character";
-  $("chat-avatar").textContent = "📜";
+  $("chat-avatar").textContent = CHAT_AVATAR_ICON;
   $("chat-input").disabled = true;
   $("send-btn").disabled = true;
   renderMessages();
   renderInspector();
+  updateUserBtn(); // no active character → drop any locked-to-character icon
 }
 
 export async function selectChar(id, source = "recent") {
@@ -123,12 +137,18 @@ export async function selectConversation(id) {
     S.activeCharId = conv.character_card_id;
     renderCharacters();
   }
+  // The user button shows the persona in force here (pin → default); opening a
+  // pinned conversation never mutates the global default.
+  updateUserBtn();
   $("chat-title-text").textContent = conv ? conv.title || conv.character_name : "";
   const av = $("chat-avatar");
   if (conv?.character_card_id) {
-    av.innerHTML = `<img src="${avatarUrl(conv.character_card_id)}?t=${Date.now()}" onerror="this.parentElement.textContent='📜'" onclick="showAvatarPopup()" style="cursor:pointer">`;
+    av.innerHTML = avatarCell(`${avatarUrl(conv.character_card_id)}?t=${Date.now()}`, {
+      icon: CHAT_AVATAR_ICON,
+      attrs: 'onclick="showAvatarPopup()" style="cursor:pointer"',
+    });
   } else {
-    av.textContent = "📜";
+    av.textContent = CHAT_AVATAR_ICON;
   }
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;
@@ -232,6 +252,12 @@ export async function showConvHistoryModal() {
       const preview = esc((c.last_message_preview || "").substring(0, 80));
       const title = esc(c.title || c.character_name || "Untitled");
       const ts = c.updated_at || c.created_at;
+      const count = c.message_count ?? 0;
+      const pinnedPersona = c.persona_lock_id
+        ? (S.personas || []).find((p) => p.id === c.persona_lock_id)?.name || null
+        : null;
+      const meta = [`${count} message${count !== 1 ? "s" : ""}`];
+      if (pinnedPersona) meta.push(`💬 ${esc(pinnedPersona)}`);
       return `<div class="conv-history-item${isActive ? " active-conv" : ""}" onclick="closeModal();selectConversation('${c.id}')">
       <div class="conv-history-meta">
         <span class="conv-history-title">${title}</span>
@@ -243,6 +269,7 @@ export async function showConvHistoryModal() {
           ? `<div class="conv-history-preview">${preview}</div>`
           : `<div class="conv-history-preview" style="color:var(--text-muted);font-style:italic">No messages yet</div>`
       }
+      <div class="conv-history-info">${meta.join('<span class="conv-history-info-sep">·</span>')}</div>
     </div>`;
     })
     .join("");
