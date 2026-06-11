@@ -34,7 +34,14 @@ export function updateUserBtn() {
     if (persona) displayName = persona.name;
   }
   const { conv, card } = activeLockContext();
-  const glyph = conv?.persona_lock_id ? CONV_LOCK_ICON : card?.persona_lock_id ? CHAR_LOCK_ICON : PERSONA_ICON;
+  const glyph =
+    conv?.persona_lock_id && card?.persona_lock_id
+      ? CHAR_LOCK_ICON
+      : conv?.persona_lock_id
+        ? CONV_LOCK_ICON
+        : card?.persona_lock_id
+          ? CHAR_LOCK_ICON
+          : PERSONA_ICON;
   const label = glyph + " " + displayName;
   $("user-profile-btn").textContent = label;
   const mobileBtn = $("mobile-user-profile-btn");
@@ -57,7 +64,6 @@ export function showUserModal() {
   // global default (Default badge) only seeds new, unpinned chats. Nothing is
   // gated: selecting another persona while pinned simply re-pins the chat.
   const pinned = !!(conv?.persona_lock_id || card?.persona_lock_id);
-  const effectiveId = effectivePersonaId();
   const personaItems = S.personas
     .map((p) => {
       const isActive = p.id === S.activePersonaId;
@@ -84,7 +90,6 @@ export function showUserModal() {
           <div style="display:flex;align-items:center;gap:6px">
             <span class="persona-name">${esc(p.name)}</span>
             ${isActive ? '<span class="persona-active-badge">Default</span>' : ""}
-            ${pinned && p.id === effectiveId ? '<span class="persona-active-badge">This chat</span>' : ""}
           </div>
           <span class="persona-desc">${esc(p.description || "")}</span>
         </div>

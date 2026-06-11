@@ -56,6 +56,25 @@ def test_build_prefix_extras_appear_after_existing_body():
     assert out_with == out_no_extras + "\n\nTAIL"
 
 
+# -- user persona section gating ------------------------------------------
+
+
+def test_build_prefix_user_section_present_with_description():
+    body = _system_body(build_prefix(user_description="A curious traveler.", **_BASE_KWARGS))
+    assert "## User:" in body
+    assert "A curious traveler." in body
+
+
+def test_build_prefix_omits_user_section_when_description_empty():
+    body = _system_body(build_prefix(user_description="", **_BASE_KWARGS))
+    assert "## User:" not in body
+
+
+def test_build_prefix_omits_user_section_when_description_whitespace_only():
+    body = _system_body(build_prefix(user_description="   \n\t  ", **_BASE_KWARGS))
+    assert "## User:" not in body
+
+
 # -- format_message_with_attachments source branching ---------------------
 
 
