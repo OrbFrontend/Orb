@@ -96,6 +96,158 @@ def test_new_cascade_child_is_handled_with_zero_edits(tmp_path):
         conn.close()
 
 
+def test_coverage_flags_a_not_null_deferred_edge(tmp_path):
+    """A deferred FK edge (self ref, or a crossref broken to break a cycle) is
+    inserted NULL during the merge, so a NOT NULL one would fail every import. The
+    coverage check must surface that the moment such a column is added."""
+    conn = _fresh_schema_db(
+        tmp_path,
+        "CREATE TABLE tree_nodes ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,"
+        "  parent_id INTEGER NOT NULL REFERENCES tree_nodes(id) ON DELETE CASCADE"
+        ");",
+    )
+    try:
+        schema = presets._build_schema_model(conn)
+        assert ("tree_nodes", "parent_id") in schema.deferred  # a self edge -> deferred
+        problems = presets.schema_coverage_problems(conn)
+        assert any("tree_nodes.parent_id" in p and "NOT NULL" in p for p in problems), problems
+    finally:
+        conn.close()
+
+
+# ── merge regressions (PR #90 audit) ────────────────────────────────────────────
+
+
+def _seed(path: str, sql_pairs: list[tuple[str, tuple]]) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")  # may seed deliberately malformed source rows
+        for sql, params in sql_pairs:
+            conn.execute(sql, params)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _merge(main_path: str, preset_path: str, included: set, *, replace: bool = False) -> None:
+    conn = sqlite3.connect(main_path, isolation_level=None)
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("ATTACH DATABASE ? AS preset", (preset_path,))
+        conn.execute("BEGIN")
+        presets._merge(conn, included, replace)
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        conn.execute("COMMIT")
+    finally:
+        conn.execute("DETACH DATABASE preset")
+        conn.close()
+
+
+def test_persona_lock_survives_gapped_persona_ids(tmp_path):
+    """Regression: a character locked to a file persona whose ids have gaps used to
+    be double-remapped (phase C resolves it, phase E remapped it again through the
+    same map), silently re-pointing it at the wrong persona. The lock must survive."""
+    main, preset = str(tmp_path / "main.db"), str(tmp_path / "preset.db")
+    for p in (main, preset):
+        c = sqlite3.connect(p)
+        c.executescript(CREATE_TABLES_SQL)
+        c.commit()
+        c.close()
+    ts = "2024-01-01"
+    # File personas have a gap: ids {2, 5} reinsert as {1, 2}, so new id 2 collides
+    # with file old id 2 -- the trigger for the double remap.
+    _seed(
+        preset,
+        [
+            ("INSERT INTO user_personas (id, name, created_at, updated_at) VALUES (2, 'Alice', ?, ?)", (ts, ts)),
+            ("INSERT INTO user_personas (id, name, created_at, updated_at) VALUES (5, 'Bob', ?, ?)", (ts, ts)),
+            (
+                "INSERT INTO character_cards (id, name, created_at, updated_at, persona_lock_id) "
+                "VALUES ('char-1', 'Locked', ?, ?, 5)",
+                (ts, ts),
+            ),
+        ],
+    )
+    _merge(main, preset, {"characters", "configs"})
+    conn = sqlite3.connect(main)
+    try:
+        locked = conn.execute(
+            "SELECT cc.name, up.name FROM character_cards cc " "LEFT JOIN user_personas up ON cc.persona_lock_id = up.id"
+        ).fetchall()
+    finally:
+        conn.close()
+    assert locked == [("Locked", "Bob")], locked
+
+
+def test_orphan_surrogate_row_is_dropped_not_crashed(tmp_path):
+    """Regression: a surrogate row dropped during insert (an external preset whose
+    workflow_attachment points at an absent message) used to raise KeyError in the
+    deferred fixup and abort the whole apply. It must be skipped instead."""
+    main, preset = str(tmp_path / "main.db"), str(tmp_path / "preset.db")
+    for p in (main, preset):
+        c = sqlite3.connect(p)
+        c.executescript(CREATE_TABLES_SQL)
+        c.commit()
+        c.close()
+    ts = "2024-01-01"
+    _seed(
+        preset,
+        [
+            ("INSERT INTO conversations (id, title, created_at) VALUES ('c1', 't', ?)", (ts,)),
+            (
+                "INSERT INTO messages (id, conversation_id, role, content, turn_index, created_at) "
+                "VALUES (10, 'c1', 'user', 'hi', 0, ?)",
+                (ts,),
+            ),
+            (
+                "INSERT INTO workflow_attachments (id, message_id, mime_type, data_b64, created_at, workflow_id) "
+                "VALUES (7, 999, 'image/png', 'AAA', ?, 'wf')",
+                (ts,),
+            ),
+        ],
+    )
+    _merge(main, preset, {"chats", "characters"})  # must not raise
+    conn = sqlite3.connect(main)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM workflow_attachments").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
+def test_self_parented_message_is_healed_to_root(tmp_path):
+    """Regression: a self-parented (or cyclic) message in the source used to import
+    as a faithful loop the app's tree-walk can spin on. The fixup must null the
+    closing edge so the chain reaches root."""
+    main, preset = str(tmp_path / "main.db"), str(tmp_path / "preset.db")
+    for p in (main, preset):
+        c = sqlite3.connect(p)
+        c.executescript(CREATE_TABLES_SQL)
+        c.commit()
+        c.close()
+    ts = "2024-01-01"
+    _seed(
+        preset,
+        [
+            ("INSERT INTO conversations (id, title, created_at) VALUES ('c1', 't', ?)", (ts,)),
+            (
+                "INSERT INTO messages (id, conversation_id, role, content, turn_index, parent_id, created_at) "
+                "VALUES (10, 'c1', 'user', 'self', 0, 10, ?)",
+                (ts,),
+            ),
+        ],
+    )
+    _merge(main, preset, {"chats", "characters"})
+    conn = sqlite3.connect(main)
+    try:
+        parents = conn.execute("SELECT parent_id FROM messages").fetchall()
+    finally:
+        conn.close()
+    assert parents == [(None,)], parents
+
+
 # ── full round-trip across every domain ────────────────────────────────────────
 
 
@@ -182,8 +334,18 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
     # a chat tree, persona-locked, with an active leaf to remap.
     _insert_conv_tree(path, "conv-keep", p1)
 
-    # configs touch + a phrase-bank row, to cover those domains too.
+    # configs touch, plus a phrase-bank row (surrogate full-replace path) and a
+    # mood fragment (stable upsert) so those domains carry real data round-trip.
     await client.put("/api/settings", json={"user_name": "Ada", "api_key": "sk-keep"})
+    seed = sqlite3.connect(path)
+    try:
+        seed.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[\"hi\"]', 'literal', NULL)")
+        seed.execute(
+            "INSERT INTO mood_fragments (id, label, description, prompt_text) VALUES ('frag-1', 'Calm', 'desc', 'be calm')"
+        )
+        seed.commit()
+    finally:
+        seed.close()
 
     before = _signature(path)
 

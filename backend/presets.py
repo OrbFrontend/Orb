@@ -46,6 +46,11 @@ META_TABLE = "orb_preset_meta"
 ALL_DOMAINS: list[str] = sorted(set(ps.DOMAIN_ROOTS.values()))
 
 
+def _roots_for(domain: str) -> list[str]:
+    """The root tables belonging to ``domain`` (reverse of ps.DOMAIN_ROOTS)."""
+    return [r for r, d in ps.DOMAIN_ROOTS.items() if d == domain]
+
+
 class PresetError(Exception):
     """Raised for caller-facing preset failures (bad file, version skew, etc.)."""
 
@@ -149,8 +154,8 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
         fks: list[_FK] = []
         for r in conn.execute(f"PRAGMA foreign_key_list({name})").fetchall():
             parent, from_col, to_col, on_delete = r[2], r[3], r[4], r[6]
-            if to_col is None:  # implicit reference to the parent's primary key
-                to_col = tables[parent].pk[0] if parent in tables else "id"
+            # to_col may be None (implicit reference to the parent's PK); it is
+            # resolved in a second pass below, once every table's PK is known.
             fks.append(_FK(name, from_col, parent, to_col, on_delete, notnull.get(from_col, False)))
 
         if _SINGLETON_RE.search(ddl[name]):
@@ -162,6 +167,14 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
 
         owner = next((f for f in fks if f.kind == "ownership"), None)
         tables[name] = _Table(name, cols, pk, kind, fks, owner)
+
+    # Second pass: resolve implicit FK targets now that every PK is known, so the
+    # fallback never depends on sqlite_master order (a child read before its parent
+    # used to silently get "id" instead of the parent's real PK).
+    for t in tables.values():
+        for f in t.fks:
+            if f.to_col is None:
+                f.to_col = tables[f.parent].pk[0] if f.parent in tables else "id"
 
     order, deferred = _topo_order(tables)
     return _Schema(tables, order, deferred)
@@ -245,6 +258,17 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
                     f"column {name}.{col} looks secret but is not in SECRET_COLUMNS; "
                     f"add it (with its scrub value) or rename it"
                 )
+    # Every deferred edge is inserted NULL and fixed up afterwards (FK checks are
+    # off during the merge, but a NOT NULL constraint still fires on insert). A
+    # future NOT NULL self-FK, or a NOT NULL crossref caught inside a broken cycle,
+    # would therefore raise IntegrityError on every merge -- surface it here.
+    for table, col in schema.deferred:
+        fk = schema.tables[table].fk(col)
+        if fk is not None and fk.notnull:
+            problems.append(
+                f"{table}.{col} is a deferred FK edge (inserted NULL, fixed up after) "
+                f"but is declared NOT NULL; a merge would fail its constraint. Make it nullable."
+            )
     return problems
 
 
@@ -368,13 +392,6 @@ def read_meta(path: str) -> dict | None:
     }
 
 
-# ── small sql helpers ───────────────────────────────────────────────────────
-
-
-def _cols(conn: sqlite3.Connection, table: str) -> list[str]:
-    return [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
-
-
 # ── export ──────────────────────────────────────────────────────────────────
 
 
@@ -435,8 +452,8 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
             if domain == "configs":
                 _scrub_configs(c, schema)
                 continue
-            for root, root_domain in ps.DOMAIN_ROOTS.items():
-                if root_domain == domain and schema.tables[root].kind != "singleton":
+            for root in _roots_for(domain):
+                if schema.tables[root].kind != "singleton":
                     c.execute(f"DELETE FROM {root}")
         if "configs" in selected and strip_keys:
             for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col == "api_key"):
@@ -587,6 +604,27 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
     idmaps[table] = idmap
 
 
+def _break_self_cycles(pointer: dict) -> None:
+    """Null the closing edge of every cycle in a self-FK pointer map (in place).
+
+    The merge re-establishes the file's parent links faithfully in the new id
+    space, so a self-parented or otherwise cyclic chain in the source (a malformed
+    import: ``messages.parent_id`` looping, a workflow-attachment self ref) would
+    survive as a loop the app's tree-walk can spin on. Walk each chain and, the
+    moment it revisits a node, null that node's pointer so the chain reaches root
+    -- matching the old engine, which attached such messages to the root.
+    """
+    for start in pointer:
+        seen: set = set()
+        cur = start
+        while cur is not None and cur in pointer:
+            if cur in seen:
+                pointer[cur] = None  # break the cycle here -> this node becomes a root
+                break
+            seen.add(cur)
+            cur = pointer[cur]
+
+
 def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
     """Resolve a deferred (self or cycle) FK column once every id-map exists.
 
@@ -594,22 +632,29 @@ def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
     the same rule and write it back, keyed by the row's new identity. Covers
     messages.parent_id, the workflow-attachment self refs, conversations'
     active_leaf_id, and the endpoints<->model_configs back-pointers in one pass.
+    For a *self* edge the resolved links are cycle-broken first (see
+    _break_self_cycles) so a malformed source tree cannot import a loop.
     """
     t = schema.tables[table]
     fk = t.fk(from_col)
     assert fk is not None
     pk = t.pk[0]
     own_map = idmaps.get(table)  # surrogate tables only
+    resolved: dict = {}  # new_pk -> new_val, in the post-merge id space
     for row in conn.execute(f"SELECT {pk}, {from_col} FROM preset.{table}").fetchall():
         old_pk, old_val = row[0], row[1]
-        new_pk = own_map[old_pk] if own_map is not None else old_pk
         if own_map is not None and old_pk not in own_map:
             continue  # row was dropped during insert
+        new_pk = own_map[old_pk] if own_map is not None else old_pk
         new_val, _ = _resolve_fk(old_val, fk, idmaps, conn, cache)
+        resolved[new_pk] = new_val
+    if fk.is_self:
+        _break_self_cycles(resolved)
+    for new_pk, new_val in resolved.items():
         conn.execute(f"UPDATE main.{table} SET {from_col} = ? WHERE {pk} = ?", (new_val, new_pk))
 
 
-def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache) -> None:
+def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache, remap: bool) -> None:
     """Realign every row of a soft-pointer column after its parent was *fully*
     replaced, including rows the import never touched.
 
@@ -620,10 +665,17 @@ def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache) -> None:
     the parent's old->new map where one exists, then NULL whatever still dangles.
     (Same-domain children are not reconciled here: the domain's own replace already
     rebuilt them, and their surrogate parent ids are not portable across it.)
+
+    ``remap`` is False when the child *table's own domain was merged this pass*:
+    phase C already resolved those rows' pointers into the new id space via
+    _resolve_fk, so re-running the file old->new map would double-remap them (and
+    silently corrupt a row whose freshly-assigned new id collides with a file old
+    id). Only the NULL-out runs in that case, catching pre-existing rows the merge
+    left untouched whose now-stale local pointer no longer resolves.
     """
     table, col = fk.table, fk.from_col
     pmap = idmaps.get(fk.parent)
-    if pmap:
+    if remap and pmap:
         conn.execute("CREATE TEMP TABLE _fk_remap (old INTEGER PRIMARY KEY, new INTEGER)")
         conn.executemany("INSERT INTO _fk_remap (old, new) VALUES (?, ?)", list(pmap.items()))
         conn.execute(
@@ -649,7 +701,7 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
     #    they are left to phase B.
     if replace:
         for domain in included:
-            roots = [r for r, d in ps.DOMAIN_ROOTS.items() if d == domain]
+            roots = _roots_for(domain)
             if roots and all(schema.tables[r].kind == "stable" for r in roots):
                 for table in reversed(schema.domain_tables(domain)):
                     conn.execute(f"DELETE FROM main.{table}")
@@ -692,12 +744,14 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
                 and fk.parent in fully_replaced
                 and schema.domain_of(t.name) != schema.domain_of(fk.parent)
             ):
-                _reconcile_crossref(conn, schema, fk, idmaps, cache)
+                # Rows of a merged child domain were already FK-rewritten in phase
+                # C; only remap the parent map for child tables left untouched.
+                _reconcile_crossref(conn, schema, fk, idmaps, cache, remap=schema.domain_of(t.name) not in included)
 
     # Row counts per merged domain (configs, anchored on its singleton, reports 1).
     summary: dict[str, int] = {}
     for domain in included:
-        roots = [r for r, d in ps.DOMAIN_ROOTS.items() if d == domain]
+        roots = _roots_for(domain)
         if any(schema.tables[r].kind == "singleton" for r in roots):
             summary[domain] = 1
         else:
