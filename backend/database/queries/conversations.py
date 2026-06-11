@@ -116,8 +116,12 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
         allowed = ["title", "persona_lock_id"]
         sets, vals = _build_set_clause(allowed, data)
         if sets:
-            sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            # updated_at is the conversation's "last activity" date (shown in the
+            # history modal). Pinning/changing a persona is metadata, not chat
+            # activity, so a persona_lock_id-only update must not bump it.
+            if any(k in data for k in allowed if k != "persona_lock_id"):
+                sets.append("updated_at = ?")
+                vals.append(datetime.now(timezone.utc).isoformat())
             vals.append(cid)
             await db.execute(
                 f"UPDATE conversations SET {', '.join(sets)} WHERE id = ?",

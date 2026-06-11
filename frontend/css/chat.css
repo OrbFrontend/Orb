@@ -702,6 +702,19 @@
   color: var(--text-primary);
 }
 
+.conv-history-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.conv-history-info-sep {
+  color: var(--border);
+}
+
 /* Empty state */
 .empty-state {
   display: flex;

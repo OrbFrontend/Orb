@@ -252,6 +252,12 @@ export async function showConvHistoryModal() {
       const preview = esc((c.last_message_preview || "").substring(0, 80));
       const title = esc(c.title || c.character_name || "Untitled");
       const ts = c.updated_at || c.created_at;
+      const count = c.message_count ?? 0;
+      const pinnedPersona = c.persona_lock_id
+        ? (S.personas || []).find((p) => p.id === c.persona_lock_id)?.name || null
+        : null;
+      const meta = [`${count} message${count !== 1 ? "s" : ""}`];
+      if (pinnedPersona) meta.push(`💬 ${esc(pinnedPersona)}`);
       return `<div class="conv-history-item${isActive ? " active-conv" : ""}" onclick="closeModal();selectConversation('${c.id}')">
       <div class="conv-history-meta">
         <span class="conv-history-title">${title}</span>
@@ -263,6 +269,7 @@ export async function showConvHistoryModal() {
           ? `<div class="conv-history-preview">${preview}</div>`
           : `<div class="conv-history-preview" style="color:var(--text-muted);font-style:italic">No messages yet</div>`
       }
+      <div class="conv-history-info">${meta.join('<span class="conv-history-info-sep">·</span>')}</div>
     </div>`;
     })
     .join("");
