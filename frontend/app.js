@@ -383,6 +383,12 @@ setLockStateChangeCallback((hasMultipleTabs) => {
 });
 initWorkflowMutationListener();
 
+// On a fresh load with no conversation selected, render the JS empty state so
+// the homepage stats grid appears (index.html ships a static empty state).
+if (!S.activeConvId) {
+  renderMessages();
+}
+
 // Load data independently to prevent failures from blocking other loads
 async function initAll() {
   initMobileUi({ closeBurger });

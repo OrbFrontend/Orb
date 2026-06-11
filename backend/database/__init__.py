@@ -38,6 +38,7 @@ from .queries.conversations import (
     touch_conversation,
     update_conversation,
 )
+from .queries.stats import get_global_stats
 from .queries.interactive_fragments import (
     create_interactive_fragment,
     delete_interactive_fragment,
@@ -197,6 +198,7 @@ __all__ = [
     "get_workflow_state",
     "get_world",
     "get_world_by_name",
+    "get_global_stats",
     "get_worlds",
     "schema_safety_problems",
     "init_db",
