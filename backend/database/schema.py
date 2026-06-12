@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS settings (
     inspector_open_states TEXT NOT NULL DEFAULT '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}',
     workflow_config TEXT NOT NULL DEFAULT '{}',
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
-    attachment_access_counter INTEGER NOT NULL DEFAULT 0
+    attachment_access_counter INTEGER NOT NULL DEFAULT 0,
+    generated_chars INTEGER DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS mood_fragments (

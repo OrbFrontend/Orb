@@ -1455,6 +1455,13 @@ async def _persist_result(
                 "Failed to set active leaf to assistant message %s; row already committed",
                 asst_id,
             )
+        # Lifetime "tokens generated" homepage stat. Must run after add_message:
+        # the counter's first-use seed scans existing assistant rows, and ordering
+        # it this way lets the seed absorb this turn's text without double counting.
+        try:
+            await db.add_generated_chars(len(resp_text))
+        except Exception:
+            logger.exception("Failed to update generated-chars counter; row already committed")
         return asst_id, rejected
     else:
         logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")

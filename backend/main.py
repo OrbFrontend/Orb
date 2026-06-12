@@ -41,6 +41,7 @@ from .database import (
     create_mood_fragment,
     update_mood_fragment,
     delete_mood_fragment,
+    get_generated_chars,
     get_global_stats,
     list_conversations,
     get_conversation,
@@ -969,7 +970,9 @@ async def api_reset(data: ResetConfirm):
 async def api_global_stats():
     """Aggregate usage statistics for the homepage stat grid."""
     s = await get_global_stats()
-    total_chars = s["total_chars"]
+    # Persistent lifetime counter: seeded from existing messages on first use,
+    # then incremented per successful generation -- not recomputed per call.
+    generated_chars = await get_generated_chars()
     avg_latency = s["avg_latency_ms"]
     # On-disk footprint: the main db plus its WAL/shared-memory sidecars, which
     # hold not-yet-checkpointed pages and can be a sizable share of the total.
@@ -979,7 +982,7 @@ async def api_global_stats():
         "total_messages": s["total_messages"],
         "favorite_character": s["favorite_character"],
         "total_words": round(s["user_chars"] / 5),
-        "estimated_tokens": estimate_tokens(total_chars) if total_chars else 0,
+        "estimated_tokens": estimate_tokens(generated_chars) if generated_chars else 0,
         "storage_bytes": storage_bytes,
         "avg_latency_ms": round(avg_latency) if avg_latency is not None else None,
     }
