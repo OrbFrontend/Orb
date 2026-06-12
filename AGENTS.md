@@ -65,6 +65,8 @@ Orb/
 │   │   │                    # depends on nothing else (see Data Contracts below)
 │   │   ├── connection.py    # DB_PATH, get_db() async context manager, _build_set_clause
 │   │   ├── schema.py        # CREATE TABLES script
+│   │   ├── preset_schema.py # Preset engine product/security policy (single source of
+│   │   │                    # truth): DOMAIN_ROOTS, EXCLUDED/SECRET/PRESERVED cols
 │   │   ├── seeds.py         # SEED_* / DEFAULT_* constants
 │   │   ├── bootstrap.py     # init_db() (schema + inline ALTERs + seed inserts), reset_to_defaults()
 │   │   ├── queries/         # Per-domain CRUD modules (one file per table group)
@@ -79,7 +81,9 @@ Orb/
 │   ├── macros.py            # Macro resolution ({{user}}, {{char}}, {{roll}}, etc.)
 │   ├── kv_tracker.py        # Debug: logs messages/tools to JSON for inspection
 │   ├── presets.py           # Preset/backup engine: selective export, merge-import,
-│   │                        # full snapshots/restore (sqlite ATTACH + VACUUM INTO)
+│   │                        # full snapshots/restore (sqlite ATTACH + VACUUM INTO).
+│   │                        # Schema-driven: mechanics derived from live schema via
+│   │                        # PRAGMA; policy declared in database/preset_schema.py
 │   ├── locks.py             # Cross-module asyncio locks (workflow_state / character_state / config / maintenance)
 │   ├── utils.py             # Shared utilities
 │   ├── passes/
@@ -239,22 +243,39 @@ grouped into coarse **domains** (`characters`, `chats`, `lorebooks`, `fragments`
 `phrase_bank`, `configs`); a *preset* carries a chosen subset, a *snapshot* is a
 full-domain preset, and both live in one on-disk library described by an
 `orb_preset_meta` row. Two ways data crosses back in: **apply** (merge by
-identity — UUID rows upsert, child collections replace wholesale, integer-PK rows
-reinsert with remapped references) and **restore** (roll back to the file — a
-full-coverage file is swapped in whole via `restore_full`; a partial file is
-restored *domain-scoped* via `restore_partial`/`apply_preset(replace=True)`,
-which empties each covered domain before the merge so those domains match the
-file exactly while uncovered ones are untouched). Both work on any library file —
-imported ones included; restore's auto-snapshot makes the overwrite reversible.
-**Import** is non-destructive: it just lands an external `.db` in the library
-(the user then applies or restores it). Destructive ops auto-snapshot first.
+identity) and **restore** (roll back to the file — a full-coverage file is swapped
+in whole via `restore_full`; a partial file is restored *domain-scoped* via
+`restore_partial`/`apply_preset(replace=True)`, which empties each covered domain
+before the merge so those domains match the file exactly while uncovered ones are
+untouched). Both work on any library file — imported ones included; restore's
+auto-snapshot makes the overwrite reversible. **Import** is non-destructive: it
+just lands an external `.db` in the library (the user then applies or restores it).
+Destructive ops auto-snapshot first.
 
-The single source of truth for *which tables belong to which domain* is the
-`DOMAIN_TABLES` map at the top of `presets.py`. **When you add a table** (or a
-table sprouts a cross-domain FK), update that map and the per-domain merge logic
-there — keep the domain grouping current rather than expanding this section. Runs
-synchronously off the event loop via `asyncio.to_thread` under
-`backend.locks.maintenance_lock`.
+**The merge engine is schema-driven.** It introspects the live schema with
+`PRAGMA` (`_build_schema_model()`) to derive *all* of its mechanics — per-table
+classification (`singleton` = a `CHECK (id = 1)` table updated in place; `stable`
+= portable identity, upserted by PK; `surrogate` = autoincrement rowid, reinserted
+under fresh ids with an old→new map), the FK graph, the topological insert order,
+and which edges to defer (self refs + cross-table cycles, inserted NULL then fixed
+up). Ownership (`ON DELETE CASCADE`) edges define the entity tree and the
+child-replace scope; non-CASCADE edges are soft cross-references, reconciled after
+a full replace. **Adding a child table or an FK column needs zero edits in
+`presets.py`** — the model just grows.
+
+The *only* hand-maintained input is the product/security **policy** in
+`backend/database/preset_schema.py`: `DOMAIN_ROOTS` (root table → user-facing
+domain; every non-root auto-joins its root's domain by climbing ownership edges),
+`EXCLUDED_TABLES`, `SECRET_COLUMNS` (blanked when `configs` isn't exported),
+`IMPLIED_DOMAINS` (e.g. `chats` pulls in `characters`), `PRESERVED_COLUMNS`
+(local-only cols kept across the settings-singleton overwrite), and the
+`SENSITIVE_*` markers. **When you add a table** that introduces a new entity root,
+or a column that looks secret, update that file. A drift backstop —
+`schema_coverage_problems()`, asserted by `tests/integration/test_preset_schema_coverage.py`
+— fails loudly the moment a freshly-migrated table maps to no domain, an FK
+references an unclassified parent, or a sensitive-looking column is missing from
+`SECRET_COLUMNS`. Runs synchronously off the event loop via `asyncio.to_thread`
+under `backend.locks.maintenance_lock`.
 
 ## Data Contracts (the model layer)
 

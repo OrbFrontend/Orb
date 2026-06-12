@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from .connection import get_db
 from .schema import CREATE_TABLES_SQL
@@ -11,6 +12,37 @@ from .seeds import (
     SEED_MOOD_FRAGMENTS,
     SEED_PHRASE_BANK,
 )
+
+
+def schema_safety_problems() -> list[str]:
+    """Return why the live DB schema is unsafe for the preset engine, or ``[]`` if safe.
+
+    Call right after ``run_pending`` so any developer schema change the preset engine
+    cannot safely handle -- a new uncovered table, a stale policy constant, a migration
+    that leaves a table unlike ``CREATE_TABLES_SQL`` (the 0026 persona_lock_id /
+    0008 vestigial-column class of bug) -- surfaces at boot, naming the constant or
+    migration to fix.
+
+    Non-fatal by design: the check guards *preset/backup* operations, not normal app
+    queries, so a schema quirk must warn loudly rather than brick the whole app at
+    boot (a single missed cleanup migration would otherwise refuse every real
+    install's startup). The preset ops themselves still call
+    ``presets.assert_schema_safe`` and fail hard on the same problems, so no backup is
+    ever built or applied against an unsafe schema.
+
+    ``backend.presets`` is imported lazily here because it pulls in the migration
+    runner and would otherwise close an import cycle through this package. ``DB_PATH``
+    is read off the ``connection`` module at call time (not the import-time binding)
+    so a monkeypatched path in tests resolves correctly.
+    """
+    from .. import presets
+    from . import connection
+
+    conn = sqlite3.connect(connection.DB_PATH)
+    try:
+        return presets.schema_safety_problems(conn)
+    finally:
+        conn.close()
 
 
 async def init_db():
