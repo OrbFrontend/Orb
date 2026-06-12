@@ -228,30 +228,36 @@ async function renderHomeStats() {
         }</div><div class="stat-card-label">${esc(label)}</div></div>`,
     )
     .join("");
-  grid.innerHTML = renderFavoriteCard(s.favorite_character) + numericCards;
+  grid.innerHTML = renderSpotlightCard(s.character_spotlight) + numericCards;
 }
 
-// The favorite character gets a portrait-led hero card rather than a number
-// slot: avatar, name, and a message/conversation tally, with a "most messaged"
-// eyebrow so the stat reads as a story beat instead of a bare value. When the
-// card still exists, the whole card is clickable and reopens it exactly as the
-// library panel would (selectChar).
-function renderFavoriteCard(fav) {
-  if (!fav || !fav.name) return "";
-  const av = fav.card_id
-    ? avatarCell(escAttr(avatarUrl(fav.card_id)), { attrs: 'loading="lazy" decoding="async"' })
+// The character spotlight gets a portrait-led hero card rather than a number
+// slot: avatar, name, and a message/conversation tally, with a themed eyebrow so
+// the stat reads as a story beat instead of a bare value. The server picks the
+// theme (e.g. the most-messaged "favorite" or a random "misses you" character).
+// When the card still exists, the whole card is clickable and reopens it exactly
+// as the library panel would (selectChar).
+const SPOTLIGHT_EYEBROWS = {
+  favorite: "★ Favorite character",
+  missed: "🥺 Misses you",
+};
+function renderSpotlightCard(sp) {
+  if (!sp || !sp.name) return "";
+  const av = sp.card_id
+    ? avatarCell(escAttr(avatarUrl(sp.card_id)), { attrs: 'loading="lazy" decoding="async"' })
     : "👤";
-  const msgs = `${formatStatNum(fav.messages)} message${fav.messages === 1 ? "" : "s"}`;
-  const convs = `${formatStatNum(fav.conversations)} conversation${fav.conversations === 1 ? "" : "s"}`;
-  const clickable = fav.card_id
-    ? ` role="button" tabindex="0" onclick="selectChar('${escHandlerArg(fav.card_id)}', 'library')"`
+  const msgs = `${formatStatNum(sp.messages)} message${sp.messages === 1 ? "" : "s"}`;
+  const convs = `${formatStatNum(sp.conversations)} conversation${sp.conversations === 1 ? "" : "s"}`;
+  const clickable = sp.card_id
+    ? ` role="button" tabindex="0" onclick="selectChar('${escHandlerArg(sp.card_id)}', 'library')"`
     : "";
-  return `<div class="stat-card stat-card-favorite${fav.card_id ? " stat-card-clickable" : ""}"${clickable}>
-      <div class="stat-fav-eyebrow">★ Favorite character</div>
+  const eyebrow = SPOTLIGHT_EYEBROWS[sp.theme] ?? SPOTLIGHT_EYEBROWS.favorite;
+  return `<div class="stat-card stat-card-favorite stat-card-spotlight-${esc(sp.theme)}${sp.card_id ? " stat-card-clickable" : ""}"${clickable}>
+      <div class="stat-fav-eyebrow">${esc(eyebrow)}</div>
       <div class="stat-fav-body">
         <div class="stat-fav-avatar">${av}</div>
         <div class="stat-fav-text">
-          <div class="stat-fav-name">${esc(fav.name)}</div>
+          <div class="stat-fav-name">${esc(sp.name)}</div>
           <div class="stat-fav-count">${msgs} · ${convs}</div>
         </div>
       </div>

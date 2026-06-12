@@ -8,6 +8,8 @@ never recomputed from the messages table.
 
 from __future__ import annotations
 
+import uuid
+
 import backend.database as dbmod
 
 
@@ -16,6 +18,15 @@ async def _add_messages(client, user_text: str, assistant_text: str) -> str:
     cid = resp.json()["id"]
     user_id, _ = await dbmod.add_message(cid, "user", user_text, 0)
     await dbmod.add_message(cid, "assistant", assistant_text, 0, parent_id=user_id)
+    return cid
+
+
+async def _seed_character(name: str, message_count: int) -> str:
+    """Create a conversation for *name* holding *message_count* messages."""
+    cid = str(uuid.uuid4())
+    await dbmod.create_conversation(cid, f"{name} chat", name, "")
+    for i in range(message_count):
+        await dbmod.add_message(cid, "user" if i % 2 == 0 else "assistant", "x", i)
     return cid
 
 
@@ -67,3 +78,33 @@ async def test_stats_endpoint_derives_tokens_from_counter(client, db):
     assert body["estimated_tokens"] == 10  # 40 chars / CHARS_PER_TOKEN(4)
     # "Words written" still comes from user-typed chars only.
     assert body["total_words"] == 2  # 10 chars / 5
+
+
+async def test_spotlight_falls_back_to_favorite_when_nothing_qualifies(client, db):
+    # A single short conversation: no character clears >100 messages, so the
+    # "missed" theme is never a candidate and the favorite always shows.
+    await _seed_character("Alice", 4)
+
+    resp = await client.get("/api/stats")
+    assert resp.status_code == 200
+    sp = resp.json()["character_spotlight"]
+    assert sp is not None
+    assert sp["theme"] == "favorite"
+    assert sp["name"] == "Alice"
+    assert {"theme", "name", "messages", "conversations", "card_id"} <= sp.keys()
+
+
+async def test_missed_theme_excludes_favorite(client, db, monkeypatch):
+    # Alice is the clear favorite; Bob also clears >100 messages. Forcing the
+    # coin flip to the last candidate must surface Bob under the "missed" theme,
+    # never the favorite.
+    await _seed_character("Alice", 300)
+    await _seed_character("Bob", 150)
+
+    monkeypatch.setattr("backend.main.random.choice", lambda options: options[-1])
+
+    resp = await client.get("/api/stats")
+    assert resp.status_code == 200
+    sp = resp.json()["character_spotlight"]
+    assert sp["theme"] == "missed"
+    assert sp["name"] == "Bob"

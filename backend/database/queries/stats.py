@@ -98,6 +98,38 @@ async def get_global_stats() -> dict:
             else None
         )
 
+        # A random well-worn character (>100 messages) for the "misses you"
+        # spotlight theme. Same shape as the favorite, but excludes the favorite
+        # itself so the two themes stay distinct. RANDOM() picks the candidate;
+        # the endpoint flips the coin on which theme actually shows.
+        fav_name = favorite_character["name"] if favorite_character else ""
+        missed_row = list(
+            await db.execute_fetchall(
+                """SELECT c.character_name,
+                          COUNT(*) AS msg_count,
+                          COUNT(DISTINCT c.id) AS conv_count,
+                          MAX(c.character_card_id) AS card_id
+                   FROM messages m
+                   JOIN conversations c ON c.id = m.conversation_id
+                   WHERE c.character_name != '' AND c.character_name != ?
+                   GROUP BY c.character_name
+                   HAVING COUNT(*) > 100
+                   ORDER BY RANDOM()
+                   LIMIT 1""",
+                (fav_name,),
+            )
+        )
+        missed_character = (
+            {
+                "name": missed_row[0][0],
+                "messages": missed_row[0][1],
+                "conversations": missed_row[0][2],
+                "card_id": missed_row[0][3],
+            }
+            if missed_row
+            else None
+        )
+
         # > 0 (not just IS NOT NULL): turns with no LLM passes log 0, and
         # averaging those in would understate true response time.
         lat_row = list(
@@ -110,5 +142,6 @@ async def get_global_stats() -> dict:
             "total_messages": total_messages,
             "user_chars": user_chars,
             "favorite_character": favorite_character,
+            "missed_character": missed_character,
             "avg_latency_ms": avg_latency,
         }
