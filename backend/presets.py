@@ -1069,7 +1069,19 @@ def restore_full(name: str) -> None:
             conn.execute(f"DROP TABLE IF EXISTS {META_TABLE}")
         finally:
             conn.close()
-        run_pending(tmp)
+        if run_pending(tmp):
+            # A rebuild-style migration (0027's drop/rename, 0028's column
+            # drops) leaves the old table's pages on the freelist, so restoring
+            # a pre-rebuild snapshot bloated the live DB by the rebuilt tables'
+            # size (~24 -> ~35 MiB). Reclaim it here, on the still-private copy,
+            # *before* the integrity check so the check validates the exact
+            # bytes that get swapped in. Skipped when no migration ran: library
+            # files are VACUUM INTO products, already compact.
+            vac = sqlite3.connect(tmp, isolation_level=None)
+            try:
+                vac.execute("VACUUM")
+            finally:
+                vac.close()
         # The temp copy is about to become the live DB; refuse a structurally
         # broken or FK-inconsistent file rather than swapping it in.
         chk = sqlite3.connect(tmp)
