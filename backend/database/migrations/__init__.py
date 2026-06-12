@@ -20,8 +20,13 @@ _MIGRATION_RE = re.compile(r"^\d{4}_")
 MIGRATIONS: list[str] = sorted(p.stem for p in Path(__file__).parent.glob("*.py") if _MIGRATION_RE.match(p.name))
 
 
-def run_pending(db_path: str | Path) -> None:
-    """Apply all unapplied migrations against db_path."""
+def run_pending(db_path: str | Path) -> int:
+    """Apply all unapplied migrations against db_path.
+
+    Returns the number of migrations applied (0 when already current), so a
+    caller holding a private copy (restore_full) can skip its post-migration
+    VACUUM when nothing changed.
+    """
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
@@ -36,6 +41,7 @@ def run_pending(db_path: str | Path) -> None:
 
         applied = {row[0] for row in conn.execute("SELECT id FROM schema_migrations")}
 
+        count = 0
         for name in MIGRATIONS:
             if name in applied:
                 continue
@@ -44,6 +50,8 @@ def run_pending(db_path: str | Path) -> None:
             conn.execute("INSERT INTO schema_migrations (id) VALUES (?)", (name,))
             conn.commit()
             print(f"[migrations] Applied: {name}")
+            count += 1
+        return count
 
     finally:
         conn.close()
