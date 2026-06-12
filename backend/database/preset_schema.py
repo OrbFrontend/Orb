@@ -95,7 +95,7 @@ IMPLIED_DOMAINS: dict[str, frozenset[str]] = {
 # take from the file -- e.g. attachment-cache bookkeeping, not user-facing config.
 # Maps ``table -> columns to leave untouched`` during the overwrite.
 PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
-    "settings": ("attachment_cache_budget_bytes", "attachment_access_counter"),
+    "settings": ("attachment_cache_budget_bytes", "attachment_access_counter", "generated_chars"),
 }
 
 # The tripwire behind the SECRET_COLUMNS check: any column whose name ends with one

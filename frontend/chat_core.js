@@ -13,7 +13,18 @@ import { S } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
 import { segmentBody } from "./workflow_segmentation.js";
 import { markClickable } from "./workflow_text_interaction.js";
-import { $, esc, formatBytes, formatProse, formatProseWithDiff, resolvePlaceholders } from "./utils.js";
+import {
+  $,
+  avatarCell,
+  avatarUrl,
+  esc,
+  escAttr,
+  escHandlerArg,
+  formatBytes,
+  formatProse,
+  formatProseWithDiff,
+  resolvePlaceholders,
+} from "./utils.js";
 
 export function canStartGeneration() {
   if (S.isStreaming) return false;
@@ -174,6 +185,85 @@ export function getCharName() {
   return c?.character_name || "Assistant";
 }
 
+function formatStatNum(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "k";
+  return String(n);
+}
+
+async function renderHomeStats() {
+  const grid = $("home-stats-grid");
+  if (!grid) return;
+  let s;
+  try {
+    s = await api.get("/stats");
+  } catch {
+    return; // fail silently — fall back to plain empty state
+  }
+  if ($("home-stats-grid") !== grid) return; // view changed while fetching
+  // Any prior conversation is a reliable, zero-cost sign this isn't a first
+  // run — drop the onboarding prompt so returning users get a cleaner home.
+  if (s.total_conversations > 0) {
+    $("home-greeting")?.remove();
+    $("home-greeting-icon")?.remove();
+  }
+  const cards = [
+    ["Conversations", s.total_conversations],
+    ["Messages", s.total_messages],
+    ["Words written", s.total_words],
+    ["~Tokens generated", s.estimated_tokens],
+  ];
+  if (s.storage_bytes > 0) {
+    cards.push(["Storage used", formatBytes(s.storage_bytes)]);
+  }
+  if (s.avg_latency_ms != null) {
+    cards.push(["Avg response time", (s.avg_latency_ms / 1000).toFixed(1) + "s"]);
+  }
+  const numericCards = cards
+    .filter(([, v]) => typeof v !== "number" || v > 0)
+    .map(
+      ([label, v]) =>
+        `<div class="stat-card"><div class="stat-card-value">${
+          typeof v === "number" ? formatStatNum(v) : esc(v)
+        }</div><div class="stat-card-label">${esc(label)}</div></div>`,
+    )
+    .join("");
+  grid.innerHTML = renderSpotlightCard(s.character_spotlight) + numericCards;
+}
+
+// The character spotlight gets a portrait-led hero card rather than a number
+// slot: avatar, name, and a message/conversation tally, with a themed eyebrow so
+// the stat reads as a story beat instead of a bare value. The server picks the
+// theme (e.g. the most-messaged "favorite" or a random "misses you" character).
+// When the card still exists, the whole card is clickable and reopens it exactly
+// as the library panel would (selectChar).
+const SPOTLIGHT_EYEBROWS = {
+  favorite: "★ Favorite character",
+  missed: "💔 Misses you",
+};
+function renderSpotlightCard(sp) {
+  if (!sp || !sp.name) return "";
+  const av = sp.card_id
+    ? avatarCell(escAttr(avatarUrl(sp.card_id)), { attrs: 'loading="lazy" decoding="async"' })
+    : "👤";
+  const msgs = `${formatStatNum(sp.messages)} message${sp.messages === 1 ? "" : "s"}`;
+  const convs = `${formatStatNum(sp.conversations)} conversation${sp.conversations === 1 ? "" : "s"}`;
+  const clickable = sp.card_id
+    ? ` role="button" tabindex="0" onclick="selectChar('${escHandlerArg(sp.card_id)}', 'library')"`
+    : "";
+  const eyebrow = SPOTLIGHT_EYEBROWS[sp.theme] ?? SPOTLIGHT_EYEBROWS.favorite;
+  return `<div class="stat-card stat-card-favorite stat-card-spotlight-${esc(sp.theme)}${sp.card_id ? " stat-card-clickable" : ""}"${clickable}>
+      <div class="stat-fav-eyebrow">${esc(eyebrow)}</div>
+      <div class="stat-fav-body">
+        <div class="stat-fav-avatar">${av}</div>
+        <div class="stat-fav-text">
+          <div class="stat-fav-name">${esc(sp.name)}</div>
+          <div class="stat-fav-count">${msgs} · ${convs}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
 export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   const distFromBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight;
@@ -184,7 +274,9 @@ export function renderMessages(forceBottom = false) {
     badgeEl = document.getElementById("active-director-badge");
   }
   if (!S.activeConvId) {
-    ct.innerHTML = '<div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div>';
+    ct.innerHTML =
+      '<div class="empty-state"><div class="icon" id="home-greeting-icon">📜</div><div id="home-greeting">Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
+    renderHomeStats();
   } else if (!S.messages.length) {
     ct.innerHTML =
       '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';

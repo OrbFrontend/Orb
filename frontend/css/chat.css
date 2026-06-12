@@ -741,3 +741,102 @@
   opacity: .3;
 }
 
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  max-width: 520px;
+  width: 100%;
+  margin-top: 24px;
+}
+
+.stat-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+}
+
+.stat-card-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.stat-card-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-top: 4px;
+}
+
+/* Favorite character is the hero of the grid: it spans the full row and leads
+   with the portrait, so the eye lands on a face rather than a number. */
+.stat-card-favorite {
+  grid-column: 1 / -1;
+  text-align: left;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, var(--bg-elevated), color-mix(in srgb, var(--accent) 12%, var(--bg-elevated)));
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.stat-card-clickable {
+  cursor: pointer;
+  transition: border-color .15s, transform .15s;
+}
+
+.stat-card-clickable:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.stat-fav-eyebrow {
+  font-size: 11px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.stat-fav-body {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.stat-fav-avatar {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  background: var(--bg-elevated);
+  border: 2px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.stat-fav-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stat-fav-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.stat-fav-count {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+

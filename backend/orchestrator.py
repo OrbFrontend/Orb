@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field, fields
 from types import MappingProxyType
 from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
@@ -482,6 +483,7 @@ async def _run_pipeline(
         cfg.length_guard,
     )
     resp_text = ""
+    writer_t0 = time.monotonic()
     async for item in writer_pass(
         cfg.writer_lane.client,
         cfg.writer_lane.base,
@@ -499,6 +501,10 @@ async def _run_pipeline(
         else:
             resp_text += item["delta"]
             yield {"event": "token", "data": item["delta"]}
+    # agent_latency_ms is the whole turn's wall time, so accumulate every pass:
+    # director (above) + writer (here) + editor (below). Timed in the orchestrator
+    # because the writer pass only streams tokens and reports no duration of its own.
+    latency += int((time.monotonic() - writer_t0) * 1000)
 
     def _make_result(final_text: str, staged: list[dict], staged_state: dict | None = None) -> dict:
         return {
@@ -578,6 +584,7 @@ async def _run_pipeline(
                     "data": {"pass": "editor", "delta": event["delta"]},
                 }
             elif event["type"] == "done":
+                latency += int(event.get("elapsed", 0) or 0)
                 refined_draft = event["draft"]
                 if refined_draft and refined_draft != resp_text:
                     resp_text = refined_draft
@@ -1448,6 +1455,13 @@ async def _persist_result(
                 "Failed to set active leaf to assistant message %s; row already committed",
                 asst_id,
             )
+        # Lifetime "tokens generated" homepage stat. Must run after add_message:
+        # the counter's first-use seed scans existing assistant rows, and ordering
+        # it this way lets the seed absorb this turn's text without double counting.
+        try:
+            await db.add_generated_chars(len(resp_text))
+        except Exception:
+            logger.exception("Failed to update generated-chars counter; row already committed")
         return asst_id, rejected
     else:
         logger.info("Skipping assistant message persistence: resp_text is empty (reasoning‑only output)")

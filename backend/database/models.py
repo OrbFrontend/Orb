@@ -118,6 +118,7 @@ class SettingsRow(_SettingsBase, total=False):
     agent_endpoint_id: int | None
     attachment_cache_budget_bytes: int
     attachment_access_counter: int
+    generated_chars: int | None
     # JSON columns, decoded to their in-memory shape by get_settings() on the
     # SELECT * branch only (DEFAULT_SETTINGS omits them).
     enabled_tools: dict[str, bool]

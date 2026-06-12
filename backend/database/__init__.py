@@ -38,6 +38,7 @@ from .queries.conversations import (
     touch_conversation,
     update_conversation,
 )
+from .queries.stats import add_generated_chars, get_generated_chars, get_global_stats
 from .queries.interactive_fragments import (
     create_interactive_fragment,
     delete_interactive_fragment,
@@ -136,6 +137,7 @@ __all__ = [
     "SEED_MOOD_FRAGMENTS",
     "SEED_PHRASE_BANK",
     "add_conversation_log",
+    "add_generated_chars",
     "add_message",
     "add_phrase_group",
     "create_character_card",
@@ -197,6 +199,8 @@ __all__ = [
     "get_workflow_state",
     "get_world",
     "get_world_by_name",
+    "get_generated_chars",
+    "get_global_stats",
     "get_worlds",
     "schema_safety_problems",
     "init_db",
