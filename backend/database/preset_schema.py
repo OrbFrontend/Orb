@@ -1,22 +1,41 @@
-"""Product / security policy for the preset engine -- the single source of truth.
+"""Preset engine policy -- the human-decided facts the schema can't tell the engine.
 
-The merge engine in ``backend/presets.py`` derives *all* of its mechanics (merge
-order, id remapping, FK rewrite, child-replace scope) from the live schema via
-``PRAGMA`` introspection, so adding a child table or a new FK column needs **zero**
-edits there. What is *not* a schema fact -- which root table belongs to which
-user-facing domain, which machinery tables to ignore, which columns carry secrets --
-lives here and only here. ``tests/integration/test_preset_schema_coverage.py`` fails
-loudly the moment a freshly-migrated table or a sensitive-looking column is not
-accounted for below.
+The merge engine in ``backend/presets.py`` reads the live SQLite schema and derives
+every *mechanical* decision itself (merge order, id remapping, FK rewrite,
+child-replace scope), so most schema changes need **no edit here**. This file holds
+only the handful of facts no ``PRAGMA`` can reveal:
+
+    which domain a table belongs to    -> DOMAIN_ROOTS
+    which tables to ignore entirely     -> EXCLUDED_TABLES
+    which columns are secret/personal   -> SECRET_COLUMNS  (tripwire: SENSITIVE_*)
+    product rules layered on top         -> IMPLIED_DOMAINS, PRESERVED_COLUMNS
+
+You don't have to remember when to touch them: ``tests/integration/
+test_preset_schema_coverage.py`` fails the moment a migration adds a table or a
+secret-looking column that isn't accounted for, and names the constant to fix. Each
+section below opens with a "Touch when:" line saying exactly what to change.
+
+Three edits the coverage test can NOT catch -- they corrupt presets *silently*:
+  * Renaming a domain value. Domains are baked into every exported file
+    (``orb_preset_meta.included_domains``); a renamed domain no longer matches on
+    import, so that data is silently skipped for every preset already out there.
+    Add domains freely; never rename one.
+  * Parking a real data table in ``EXCLUDED_TABLES`` to quiet the test -- excluded
+    tables are invisible to export *and* merge, so the data vanishes from backups.
+  * Narrowing ``SENSITIVE_*`` to clear a flagged column -- declare the column in
+    ``SECRET_COLUMNS`` instead, or the secret ships in shared presets.
 """
 
 from __future__ import annotations
 
-# Root table -> user-facing domain. A *root* owns no other table (it has no
-# ``ON DELETE CASCADE`` foreign key pointing at a parent). Every non-root table
-# auto-joins its root's domain by following ownership edges upward, so only the
-# roots need listing here. This is the schema-driven replacement for the old
-# hand-maintained DOMAIN_TABLES map.
+# Touch when: you add a brand-new top-level entity -- map its table to a user-facing
+# domain. A child table hung off an existing entity needs no entry; it inherits its
+# root's domain automatically. Reuse a domain or mint a new value (a new value mints
+# a new exportable domain -- ALL_DOMAINS is derived from these); never rename one
+# (see header).
+#
+# A *root* owns no other table: nothing points at it via ``ON DELETE CASCADE``.
+# Non-root tables join their root's domain by following ownership edges upward.
 DOMAIN_ROOTS: dict[str, str] = {
     "conversations": "chats",
     "character_cards": "characters",
@@ -29,20 +48,21 @@ DOMAIN_ROOTS: dict[str, str] = {
     "user_personas": "configs",
 }
 
-# Machinery / legacy tables the engine neither exports nor merges:
-#   * orb_preset_meta   -- the preset's own descriptor row
-#   * schema_migrations -- migration bookkeeping (stamped separately)
-#   * message_attachments -- always empty post-0020 (migration moves its rows to
-#     user_attachments and the table is retained only as a fresh-install artefact)
+# Touch when: you add a table the engine must never export or merge -- bookkeeping,
+# caches, or migration-only artefacts. The coverage test forces the choice for every
+# new table: give it a domain, or exclude it here. Current entries:
+#   * orb_preset_meta      -- the preset's own descriptor row
+#   * schema_migrations    -- migration bookkeeping (stamped separately)
+#   * message_attachments  -- empty post-0020; retained only as a fresh-install artefact
 EXCLUDED_TABLES: frozenset[str] = frozenset({"orb_preset_meta", "schema_migrations", "message_attachments"})
 
-# Secret / personal columns blanked when the ``configs`` domain is *not* exported,
-# so a shared preset never leaks an API key, the user's identity, or their prompts.
-# Maps ``(table, column) -> replacement value``. This is a security decision, not a
-# schema fact, so it is declared rather than derived. Entries on a non-singleton
-# table (e.g. endpoints.api_key) are moot for the export scrub -- those rows are
-# deleted wholesale -- but are listed so the coverage check sees every key column
-# accounted for, and so the key-stripping export path can find them generically.
+# Touch when: a migration adds a column holding a key, the user's identity, or their
+# prompts (the coverage test will fail and point you here); drop an entry only when
+# its column leaves the schema. Map ``(table, column) -> the value to blank it to``.
+# These are wiped when the ``configs`` domain is *not* exported, so a shared preset
+# never leaks secrets. Columns on a non-singleton table (e.g. endpoints.api_key) are
+# deleted with their whole row on export -- list them anyway so the coverage check
+# and the generic key-strip path both see them.
 SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("settings", "api_key"): "",
     ("settings", "user_name"): "User",
@@ -53,24 +73,29 @@ SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("endpoints", "api_key"): "",
 }
 
-# Exporting one domain implies exporting another (a product rule, not a schema
-# fact): chats are meaningless without their character cards.
+# Touch when: exporting one domain only makes sense alongside another (a product
+# rule, not a schema fact). Maps a domain to the domains dragged in with it. Today:
+# chats are meaningless without their character cards.
 IMPLIED_DOMAINS: dict[str, frozenset[str]] = {
     "chats": frozenset({"characters"}),
 }
 
-# Columns carried across the settings-singleton overwrite on import rather than
-# taken from the file: they describe local ``workflow_attachments`` rows that an
-# import retains, not a user-facing config (see bootstrap.reset_to_defaults).
+# Touch when: a singleton table (overwritten in place on import, like ``settings``)
+# gains a column describing *local machine state* the import must keep rather than
+# take from the file -- e.g. attachment-cache bookkeeping, not user-facing config.
+# Maps ``table -> columns to leave untouched`` during the overwrite.
 PRESERVED_COLUMNS: dict[str, tuple[str, ...]] = {
     "settings": ("attachment_cache_budget_bytes", "attachment_access_counter"),
 }
 
-# Markers that flag a column as security-sensitive. The coverage check fails on any
-# matching column not present in SECRET_COLUMNS, so a newly added secret cannot slip
-# into a shared preset unnoticed. Matched as *suffixes* (plus the "secret" substring)
-# rather than loose substrings, so ``api_key`` / ``auth_token`` are caught while
-# innocuous names like ``max_tokens`` or ``top_k`` are not.
+# The tripwire behind the SECRET_COLUMNS check: any column whose name ends with one
+# of these suffixes (or contains "secret") must appear in SECRET_COLUMNS, or the
+# coverage test fails -- so a new secret can't slip into a shared preset unnoticed.
+# Touch when: a real secret evades every pattern (e.g. ``credentials_blob``) -- add a
+# pattern so it's caught. To clear a *false* positive, declare the column in
+# SECRET_COLUMNS, never narrow these (see header). Suffix-matched (not loose
+# substring) so ``api_key`` / ``auth_token`` are caught while ``max_tokens`` /
+# ``top_k`` are not.
 SENSITIVE_SUFFIXES: tuple[str, ...] = ("_key", "password", "token")
 SENSITIVE_SUBSTRINGS: tuple[str, ...] = ("secret",)
 
