@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from ..connection import get_db
 
 # Seeds settings.generated_chars from the rows that already exist the first
@@ -100,9 +102,13 @@ async def get_global_stats() -> dict:
 
         # A random well-worn character (>100 messages) for the "misses you"
         # spotlight theme. Same shape as the favorite, but excludes the favorite
-        # itself so the two themes stay distinct. RANDOM() picks the candidate;
-        # the endpoint flips the coin on which theme actually shows.
+        # itself so the two themes stay distinct, and skips anyone talked to in
+        # the last 24h — they can't "miss you" if you just spoke. created_at is
+        # an ISO-8601 UTC string, so a string compare against the cutoff sorts
+        # correctly. RANDOM() picks the candidate; the endpoint flips the coin
+        # on which theme actually shows.
         fav_name = favorite_character["name"] if favorite_character else ""
+        recent_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         missed_row = list(
             await db.execute_fetchall(
                 """SELECT c.character_name,
@@ -113,10 +119,10 @@ async def get_global_stats() -> dict:
                    JOIN conversations c ON c.id = m.conversation_id
                    WHERE c.character_name != '' AND c.character_name != ?
                    GROUP BY c.character_name
-                   HAVING COUNT(*) > 100
+                   HAVING COUNT(*) > 100 AND MAX(m.created_at) < ?
                    ORDER BY RANDOM()
                    LIMIT 1""",
-                (fav_name,),
+                (fav_name, recent_cutoff),
             )
         )
         missed_character = (

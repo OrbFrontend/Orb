@@ -239,7 +239,7 @@ async function renderHomeStats() {
 // as the library panel would (selectChar).
 const SPOTLIGHT_EYEBROWS = {
   favorite: "★ Favorite character",
-  missed: "🥺 Misses you",
+  missed: "💔 Misses you",
 };
 function renderSpotlightCard(sp) {
   if (!sp || !sp.name) return "";

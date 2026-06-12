@@ -21,12 +21,29 @@ async def _add_messages(client, user_text: str, assistant_text: str) -> str:
     return cid
 
 
-async def _seed_character(name: str, message_count: int) -> str:
-    """Create a conversation for *name* holding *message_count* messages."""
+async def _seed_character(name: str, message_count: int, *, old: bool = False) -> str:
+    """Create a conversation for *name* holding *message_count* messages.
+
+    Pass ``old=True`` to backdate all messages by 48 hours so they satisfy the
+    "missed" spotlight query's 24-hour recency cutoff.
+    """
+    import aiosqlite
+    from datetime import datetime, timedelta, timezone
+
     cid = str(uuid.uuid4())
     await dbmod.create_conversation(cid, f"{name} chat", name, "")
     for i in range(message_count):
         await dbmod.add_message(cid, "user" if i % 2 == 0 else "assistant", "x", i)
+    if old:
+        import backend.database.connection as _db_conn
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        async with aiosqlite.connect(_db_conn.DB_PATH) as conn:
+            await conn.execute(
+                "UPDATE messages SET created_at = ? WHERE conversation_id = ?",
+                (cutoff, cid),
+            )
+            await conn.commit()
     return cid
 
 
@@ -97,9 +114,10 @@ async def test_spotlight_falls_back_to_favorite_when_nothing_qualifies(client, d
 async def test_missed_theme_excludes_favorite(client, db, monkeypatch):
     # Alice is the clear favorite; Bob also clears >100 messages. Forcing the
     # coin flip to the last candidate must surface Bob under the "missed" theme,
-    # never the favorite.
+    # never the favorite.  Bob's messages are backdated so he clears the 24-hour
+    # recency gate in the "missed" query.
     await _seed_character("Alice", 300)
-    await _seed_character("Bob", 150)
+    await _seed_character("Bob", 150, old=True)
 
     monkeypatch.setattr("backend.main.random.choice", lambda options: options[-1])
 
