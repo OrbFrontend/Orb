@@ -244,7 +244,7 @@ function renderFavoriteCard(fav) {
   const msgs = `${formatStatNum(fav.messages)} message${fav.messages === 1 ? "" : "s"}`;
   const convs = `${formatStatNum(fav.conversations)} conversation${fav.conversations === 1 ? "" : "s"}`;
   const clickable = fav.card_id
-    ? ` role="button" tabindex="0" onclick="selectChar('${escHandlerArg(fav.card_id)}', 'recent')"`
+    ? ` role="button" tabindex="0" onclick="selectChar('${escHandlerArg(fav.card_id)}', 'library')"`
     : "";
   return `<div class="stat-card stat-card-favorite${fav.card_id ? " stat-card-clickable" : ""}"${clickable}>
       <div class="stat-fav-eyebrow">★ Favorite character</div>
