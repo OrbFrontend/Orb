@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 CREATE_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -241,3 +243,29 @@ CREATE TABLE IF NOT EXISTS lorebook_entries (
 );
 
 """
+
+
+def table_create_sql(table: str) -> str:
+    """Return the ``CREATE TABLE IF NOT EXISTS <table> ( ... )`` block for *table*,
+    sliced out of ``CREATE_TABLES_SQL``.
+
+    This is the single source of truth for a table's canonical fresh-install shape.
+    Rebuild migrations (e.g. 0027) and the schema-equivalence gate both derive the
+    canonical DDL from here rather than pasting a copy, so a rebuild can never drift
+    from the shape the equivalence check enforces. Parentheses are balanced (column
+    ``REFERENCES`` and ``CHECK`` clauses nest), so the block ends at the matching
+    close paren, not the first one.
+    """
+    m = re.search(rf"CREATE TABLE IF NOT EXISTS {re.escape(table)}\s*\(", CREATE_TABLES_SQL)
+    if not m:
+        raise KeyError(f"no CREATE TABLE block for {table!r} in CREATE_TABLES_SQL")
+    depth = 0
+    for i in range(m.end() - 1, len(CREATE_TABLES_SQL)):
+        ch = CREATE_TABLES_SQL[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return CREATE_TABLES_SQL[m.start() : i + 1]
+    raise ValueError(f"unbalanced parentheses extracting {table!r} from CREATE_TABLES_SQL")

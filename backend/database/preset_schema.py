@@ -15,15 +15,25 @@ test_preset_schema_coverage.py`` fails the moment a migration adds a table or a
 secret-looking column that isn't accounted for, and names the constant to fix. Each
 section below opens with a "Touch when:" line saying exactly what to change.
 
-Three edits the coverage test can NOT catch -- they corrupt presets *silently*:
+Three edits that once corrupted presets *silently* -- each now has a dedicated
+tripwire, so they fail loudly instead:
   * Renaming a domain value. Domains are baked into every exported file
     (``orb_preset_meta.included_domains``); a renamed domain no longer matches on
     import, so that data is silently skipped for every preset already out there.
-    Add domains freely; never rename one.
+    Add domains freely; never rename one. CAUGHT BY: a frozen-literal assertion on
+    ``presets.ALL_DOMAINS`` in the coverage test -- a rename fails CI; an addition
+    is a deliberate one-line test edit.
   * Parking a real data table in ``EXCLUDED_TABLES`` to quiet the test -- excluded
     tables are invisible to export *and* merge, so the data vanishes from backups.
+    CAUGHT BY: a runtime tripwire in ``build_preset`` that raises if any excluded
+    table other than the meta/migration bookkeeping holds rows, plus a test that
+    every excluded data table is empty in the fresh schema.
   * Narrowing ``SENSITIVE_*`` to clear a flagged column -- declare the column in
-    ``SECRET_COLUMNS`` instead, or the secret ships in shared presets.
+    ``SECRET_COLUMNS`` instead, or the secret ships in shared presets. CAUGHT BY:
+    a secret-canary test that seeds a unique sentinel into every secret column,
+    exports without ``configs`` (and with ``strip_keys``), and greps the produced
+    file's raw bytes for any surviving canary -- a generic leak check, not just the
+    declared columns' happy path.
 """
 
 from __future__ import annotations

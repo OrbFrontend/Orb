@@ -6,7 +6,7 @@ backend/database.py module so existing call sites keep working.
 
 from __future__ import annotations
 
-from .bootstrap import init_db, reset_to_defaults
+from .bootstrap import init_db, reset_to_defaults, schema_safety_problems
 from .connection import DB_PATH, get_db
 from .queries.character_cards import (
     create_character_card,
@@ -198,6 +198,7 @@ __all__ = [
     "get_world",
     "get_world_by_name",
     "get_worlds",
+    "schema_safety_problems",
     "init_db",
     "insert_alternate_greeting_swipes",
     "insert_workflow_attachment_row",

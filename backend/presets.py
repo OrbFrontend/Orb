@@ -37,6 +37,7 @@ import sqlite3
 
 from .database import preset_schema as ps
 from .database.migrations import MIGRATIONS, run_pending
+from .database.schema import CREATE_TABLES_SQL
 
 META_TABLE = "orb_preset_meta"
 
@@ -195,13 +196,21 @@ def _topo_order(tables: dict[str, _Table]) -> tuple[list[str], set[tuple[str, st
             if f.is_self:
                 deferred.add((t.name, f.from_col))
 
+    # Iterate tables in a fixed (alphabetical) order, never sqlite_master's physical
+    # order. Both the emitted insert order and the cycle-break choice are then a pure
+    # function of the schema's *shape*, independent of the order tables were created
+    # in -- so a table rebuilt by a migration (which moves it to the end of
+    # sqlite_master) yields the identical model to a fresh install. The
+    # schema-equivalence gate relies on this determinism.
+    names = sorted(tables)
     placed: set[str] = set()
     order: list[str] = []
     while len(placed) < len(tables):
         progressed = False
-        for name, t in tables.items():
+        for name in names:
             if name in placed:
                 continue
+            t = tables[name]
             unmet = any(
                 f.parent in tables and f.parent not in placed and not f.is_self and (name, f.from_col) not in deferred
                 for f in t.fks
@@ -215,10 +224,10 @@ def _topo_order(tables: dict[str, _Table]) -> tuple[list[str], set[tuple[str, st
         # Stalled: a cycle remains. Break it by deferring one crossref edge whose
         # parent is still unplaced.
         broke = False
-        for name, t in tables.items():
+        for name in names:
             if name in placed:
                 continue
-            for f in t.fks:
+            for f in tables[name].fks:
                 if f.kind == "crossref" and f.parent not in placed and (name, f.from_col) not in deferred:
                     deferred.add((name, f.from_col))
                     broke = True
@@ -269,7 +278,140 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
                 f"{table}.{col} is a deferred FK edge (inserted NULL, fixed up after) "
                 f"but is declared NOT NULL; a merge would fail its constraint. Make it nullable."
             )
+
+    # Reverse direction: every hand-declared policy entry must still match the live
+    # schema. A stale entry (column dropped, table renamed) would otherwise surface
+    # only as a raw OperationalError mid-export, or be silently ignored.
+    known_domains = set(ps.DOMAIN_ROOTS.values())
+    for root in ps.DOMAIN_ROOTS:
+        if root not in schema.tables:
+            problems.append(
+                f"DOMAIN_ROOTS key {root!r} is not an existing non-excluded table; " f"fix the name or drop the entry"
+            )
+            continue
+        owner = schema.tables[root].owner_fk
+        if owner is not None:
+            problems.append(
+                f"DOMAIN_ROOTS key {root!r} is not a true root -- it is owned by "
+                f"{owner.parent!r} via {owner.from_col} (ON DELETE CASCADE); only roots may "
+                f"map to a domain, children inherit their root's"
+            )
+    for table, col in ps.SECRET_COLUMNS:
+        if table not in schema.tables or col not in schema.tables[table].cols:
+            problems.append(
+                f"SECRET_COLUMNS entry ({table!r}, {col!r}) does not exist in the schema; " f"drop it or fix the name"
+            )
+    for table, cols in ps.PRESERVED_COLUMNS.items():
+        for col in cols:
+            if table not in schema.tables or col not in schema.tables[table].cols:
+                problems.append(
+                    f"PRESERVED_COLUMNS entry ({table!r}, {col!r}) does not exist in the schema; " f"drop it or fix the name"
+                )
+    for trigger, implied in ps.IMPLIED_DOMAINS.items():
+        if trigger not in known_domains:
+            problems.append(f"IMPLIED_DOMAINS trigger {trigger!r} is not a known domain")
+        for dom in implied:
+            if dom not in known_domains:
+                problems.append(f"IMPLIED_DOMAINS implied domain {dom!r} (for trigger {trigger!r}) is not a known domain")
     return problems
+
+
+def _edge_set(t: _Table) -> set[tuple]:
+    """A table's FK edges as comparable tuples (order-independent)."""
+    return {(f.from_col, f.parent, f.to_col, f.on_delete, f.notnull) for f in t.fks}
+
+
+def schema_equivalence_problems(conn: sqlite3.Connection) -> list[str]:
+    """Return reasons the *live* schema diverges from a fresh install's, or [].
+
+    The merge/FK model is read from the live database, so a migration that adds a
+    column or table in a shape that differs from ``CREATE_TABLES_SQL`` (the exact
+    0026 persona_lock_id bug: an ALTER-added bare INTEGER where a fresh install has
+    an ``ON DELETE SET NULL`` FK) makes the engine silently mis-handle it. This
+    builds the same in-memory model from the live conn and from a throwaway
+    canonical DB and reports any per-table difference in columns, primary key,
+    classification, or FK-edge set, plus any difference in the deferred-edge set.
+    """
+    live = _build_schema_model(conn)
+    ref = sqlite3.connect(":memory:")
+    try:
+        ref.executescript(CREATE_TABLES_SQL)
+        canon = _build_schema_model(ref)
+    finally:
+        ref.close()
+
+    problems: list[str] = []
+    live_names, canon_names = set(live.tables), set(canon.tables)
+    for name in sorted(canon_names - live_names):
+        problems.append(f"table {name!r} is in the canonical schema but missing from the live DB")
+    for name in sorted(live_names - canon_names):
+        problems.append(f"table {name!r} is in the live DB but not the canonical schema (CREATE_TABLES_SQL)")
+
+    for name in sorted(live_names & canon_names):
+        lt, ct = live.tables[name], canon.tables[name]
+        # Compare column *sets*, not ordered lists: the merge engine names every
+        # column explicitly (never relies on position), and an ALTER-added column
+        # legitimately lands at a different ordinal on an old install than on a fresh
+        # one. A missing or extra column, by contrast, is a real merge hazard.
+        missing = set(ct.cols) - set(lt.cols)
+        extra = set(lt.cols) - set(ct.cols)
+        if missing:
+            problems.append(f"{name}: live is missing column(s) {sorted(missing)} present in the canonical schema")
+        if extra:
+            problems.append(
+                f"{name}: live has extra column(s) {sorted(extra)} absent from the canonical schema "
+                f"(a stale column a migration added but never dropped -> write a cleanup migration)"
+            )
+        if lt.pk != ct.pk:
+            problems.append(f"{name}: primary key differs -- live {lt.pk} vs canonical {ct.pk}")
+        if lt.kind != ct.kind:
+            problems.append(f"{name}: merge kind differs -- live {lt.kind!r} vs canonical {ct.kind!r}")
+        live_edges, canon_edges = _edge_set(lt), _edge_set(ct)
+        for from_col, parent, to_col, on_delete, _nn in sorted(canon_edges - live_edges):
+            problems.append(
+                f"{name}.{from_col}: live has no matching FK, canonical has "
+                f"{parent}({to_col}) ON DELETE {on_delete} -> write a rebuild migration"
+            )
+        for from_col, parent, to_col, on_delete, _nn in sorted(live_edges - canon_edges):
+            problems.append(
+                f"{name}.{from_col}: live has FK {parent}({to_col}) ON DELETE {on_delete} " f"absent from the canonical schema"
+            )
+
+    only_canon = canon.deferred - live.deferred
+    only_live = live.deferred - canon.deferred
+    if only_canon:
+        problems.append(f"deferred FK edges in the canonical schema but not live: {sorted(only_canon)}")
+    if only_live:
+        problems.append(f"deferred FK edges in the live schema but not canonical: {sorted(only_live)}")
+    return problems
+
+
+def schema_safety_problems(conn: sqlite3.Connection) -> list[str]:
+    """Every reason the live schema is unsafe for the preset engine -- a policy gap
+    (coverage) or a fresh-vs-migrated divergence (equivalence) -- or ``[]`` if safe.
+
+    Split out from ``assert_schema_safe`` so startup can surface these as a loud,
+    non-fatal warning (the check guards backup integrity, not normal queries, so a
+    schema quirk must not brick the whole app at boot) while every preset *operation*
+    still fails hard on the identical list.
+    """
+    return schema_coverage_problems(conn) + schema_equivalence_problems(conn)
+
+
+def assert_schema_safe(conn: sqlite3.Connection) -> None:
+    """Hard gate: raise ``PresetError`` if the live schema is not fully covered by
+    the preset policy or diverges from a fresh install.
+
+    Called at the top of every preset op (export/apply/snapshot/restore), where
+    mis-handling the schema would corrupt a backup. Only a developer schema change can
+    trip this; the message names the constant or migration to fix. Cheap enough (a
+    handful of PRAGMA reads plus one in-memory ``CREATE_TABLES_SQL``) to run on every
+    op. Startup uses the non-fatal ``schema_safety_problems`` instead, so a schema
+    quirk warns but never blocks boot.
+    """
+    problems = schema_safety_problems(conn)
+    if problems:
+        raise PresetError("Preset schema safety check failed:\n  - " + "\n  - ".join(problems))
 
 
 # ── paths ───────────────────────────────────────────────────────────────────
@@ -395,6 +537,24 @@ def read_meta(path: str) -> dict | None:
 # ── export ──────────────────────────────────────────────────────────────────
 
 
+def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
+    """Raise ``PresetError`` unless ``PRAGMA integrity_check`` reports ``ok``.
+
+    Run on a file we just produced (VACUUM INTO) or are about to trust (a restore
+    target). A truncated or torn disk write yields a structurally broken database
+    that opens fine but is silently corrupt; this is the trip that stops such a
+    file from becoming the backup the user relies on.
+    """
+    row = conn.execute("PRAGMA integrity_check").fetchone()
+    if not row or row[0] != "ok":
+        raise PresetError(f"Integrity check failed for {what}: {row[0] if row else 'no result'}")
+
+
+# Excluded tables that may legitimately hold rows (bookkeeping, not domain data).
+# Every *other* excluded table must stay empty, or its data would ship in no backup.
+_EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrations"})
+
+
 def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     """Strip personal config + secrets when 'configs' is not exported.
 
@@ -433,6 +593,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
     tmp = os.path.join(_snapshots_dir(), f".build-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
     src = sqlite3.connect(_db_path())
     try:
+        assert_schema_safe(src)
         src.execute("VACUUM INTO ?", (tmp,))
     finally:
         src.close()
@@ -440,8 +601,24 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
     keys_stripped = False
     c = sqlite3.connect(tmp, isolation_level=None)
     try:
+        _assert_integrity(c, "the exported preset clone")
         c.execute("PRAGMA foreign_keys=ON")
         schema = _build_schema_model(c)
+        # Tripwire: an excluded table that carries data would be invisible to both
+        # export and merge -- its rows would silently never be backed up. The only
+        # excluded data table is message_attachments, empty by invariant post-0020;
+        # this fails loudly the day someone parks a live table in EXCLUDED_TABLES.
+        for tbl in ps.EXCLUDED_TABLES:
+            if tbl in _EXCLUDED_MAY_HAVE_ROWS:
+                continue
+            if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl,)).fetchone():
+                continue
+            if c.execute(f"SELECT 1 FROM {tbl} LIMIT 1").fetchone():
+                raise PresetError(
+                    f"Excluded table {tbl!r} has rows but is invisible to export and merge; "
+                    f"its data would silently never be backed up. Give its root a domain in "
+                    f"DOMAIN_ROOTS, or confirm it must stay excluded."
+                )
         # Prune each unselected domain by deleting its root tables: with FK on, a
         # CASCADE prunes the owned children and a SET NULL clears soft pointers, so
         # no per-child delete is hand-coded. configs is special (it scrubs the
@@ -462,6 +639,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
         _stamp_migrations(c)
         _write_meta(c, sorted(selected), label, kind, keys_stripped)
         c.execute("VACUUM")  # reclaim pages freed by the deletes
+        _assert_integrity(c, "the exported preset")
     finally:
         c.close()
 
@@ -766,35 +944,53 @@ def apply_preset(preset_path: str, *, replace: bool = False) -> dict:
     With ``replace=True`` (the partial-restore path) each covered domain is
     emptied before its merge, so the domain ends up exactly matching the file
     rather than merged into existing rows; domains the file doesn't carry are
-    left untouched."""
-    check_and_upgrade(preset_path)
-    included = set(preset_domains(preset_path))
+    left untouched.
 
-    conn = sqlite3.connect(_db_path(), isolation_level=None)
-    summary: dict[str, int] = {}
+    The stored library file is never written: we validate + upgrade + ATTACH a
+    throwaway ``.``-prefixed copy (which ``list_library`` ignores), so a buggy
+    migration on ingest can never corrupt the user's backup. ``restore_full`` does
+    the same with its own temp copy.
+    """
+    work = os.path.join(_snapshots_dir(), f".apply-{os.getpid()}-{datetime.datetime.now():%H%M%S%f}.tmp")
+    shutil.copyfile(preset_path, work)
     try:
-        conn.execute("PRAGMA foreign_keys=OFF")
-        conn.execute("ATTACH DATABASE ? AS preset", (preset_path,))
-        conn.execute("BEGIN")
-        summary = _merge(conn, included, replace)
-        problems = conn.execute("PRAGMA foreign_key_check").fetchall()
-        if problems:
-            conn.execute("ROLLBACK")
-            raise PresetError(f"Import would corrupt foreign keys ({len(problems)} violations); aborted.")
-        conn.execute("COMMIT")
-    except Exception:
+        check_and_upgrade(work)  # quick_check + validate + migrate, all on the copy
+        included = set(preset_domains(work))
+
+        conn = sqlite3.connect(_db_path(), isolation_level=None)
+        summary: dict[str, int] = {}
         try:
-            conn.execute("ROLLBACK")
-        except sqlite3.OperationalError:
-            pass
-        raise
+            assert_schema_safe(conn)
+            conn.execute("PRAGMA foreign_keys=OFF")
+            conn.execute("ATTACH DATABASE ? AS preset", (work,))
+            conn.execute("BEGIN")
+            summary = _merge(conn, included, replace)
+            problems = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if problems:
+                conn.execute("ROLLBACK")
+                raise PresetError(f"Import would corrupt foreign keys ({len(problems)} violations); aborted.")
+            conn.execute("COMMIT")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.OperationalError:
+                pass
+            raise
+        finally:
+            try:
+                conn.execute("DETACH DATABASE preset")
+            except sqlite3.OperationalError:
+                pass
+            conn.close()
+        return summary
     finally:
-        try:
-            conn.execute("DETACH DATABASE preset")
-        except sqlite3.OperationalError:
-            pass
-        conn.close()
-    return summary
+        for sfx in ("", "-wal", "-shm"):
+            p = work + sfx
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
 
 def restore_partial(preset_path: str) -> dict:
@@ -816,11 +1012,13 @@ def create_snapshot(label: str = "") -> str:
     dest = os.path.join(_snapshots_dir(), name)
     src = sqlite3.connect(_db_path())
     try:
+        assert_schema_safe(src)
         src.execute("VACUUM INTO ?", (dest,))
     finally:
         src.close()
     c = sqlite3.connect(dest, isolation_level=None)
     try:
+        _assert_integrity(c, "the snapshot")
         _stamp_migrations(c)
         _write_meta(c, ALL_DOMAINS, label, "auto", False)
     finally:
@@ -872,6 +1070,16 @@ def restore_full(name: str) -> None:
         finally:
             conn.close()
         run_pending(tmp)
+        # The temp copy is about to become the live DB; refuse a structurally
+        # broken or FK-inconsistent file rather than swapping it in.
+        chk = sqlite3.connect(tmp)
+        try:
+            _assert_integrity(chk, "the restore target")
+            fk = chk.execute("PRAGMA foreign_key_check").fetchall()
+            if fk:
+                raise PresetError(f"Restore target has {len(fk)} foreign-key violations; aborted.")
+        finally:
+            chk.close()
         os.replace(tmp, live)
     except BaseException:
         if os.path.exists(tmp):
@@ -948,6 +1156,12 @@ def check_and_upgrade(path: str) -> None:
     schema. Rejects files produced by a newer Orb build."""
     conn = sqlite3.connect(path)
     try:
+        # quick_check on the upload before we trust it enough to migrate: a torn
+        # or tampered file that still opens must be rejected, not run through
+        # run_pending (which would write into a corrupt database).
+        qc = conn.execute("PRAGMA quick_check").fetchone()
+        if not qc or qc[0] != "ok":
+            raise PresetError(f"Uploaded file failed its integrity check: {qc[0] if qc else 'no result'}")
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         if "settings" not in tables:
             raise PresetError("Not an Orb database file.")

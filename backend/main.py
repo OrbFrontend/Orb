@@ -21,6 +21,7 @@ from .database.migrations import run_pending
 from .database.models import ConversationRow
 from .database import (
     DB_PATH,
+    schema_safety_problems,
     get_db,
     get_messages_before,
     init_db,
@@ -196,6 +197,17 @@ async def _conversation_stream_lock(cid: str):
 async def lifespan(app: FastAPI):
     await init_db()
     run_pending(DB_PATH)
+    # Schema safety check for the preset/backup engine. Non-fatal at startup: it
+    # guards backup integrity, not normal queries, so a developer schema change that
+    # left the live schema uncovered or unlike a fresh install must warn loudly
+    # (naming the constant/migration to fix) rather than block boot. The preset ops
+    # themselves still call assert_schema_safe and fail hard on the same problems.
+    problems = schema_safety_problems()
+    if problems:
+        logger.error(
+            "Preset/backup schema safety check failed; exports, snapshots and restores "
+            "will be refused until this is fixed:\n  - " + "\n  - ".join(problems)
+        )
     logger.info("Database initialized")
     yield
 
