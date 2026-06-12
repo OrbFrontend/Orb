@@ -325,6 +325,7 @@ function renderInternetPanel() {
         <select id="internet-source" onchange="setInternetSource(this.value)">
           <option value="characterhub" ${_internetSource === "characterhub" ? "selected" : ""}>CharacterHub</option>
           <option value="chararc" ${_internetSource === "chararc" ? "selected" : ""}>Character Archive</option>
+          <option value="botbooru" ${_internetSource === "botbooru" ? "selected" : ""}>Botbooru</option>
         </select>
         <input id="internet-search-input" type="text"
                placeholder="Search characters…"

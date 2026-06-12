@@ -382,3 +382,143 @@ register_source(
     _download_chararc_card,
     _randomize_chararc,
 )
+
+
+# ── Botbooru (botbooru.com) ───────────────────────────────────────────
+#
+# Botbooru serves standard tavern PNG cards (tEXt chara chunk) and exposes a
+# JSON browse API whose `q` matches both tags and character names. Unlike the
+# other two sources it has a native random sort, so the randomizer is a single
+# query-filtered request rather than a random-page hack.
+
+_BOTBOORU_BASE = "https://botbooru.com"
+_BOTBOORU_PAGE_SIZE = 24
+
+
+def _botbooru_to_result(post: dict) -> dict:
+    """Normalize a Botbooru post into the standard browse-result shape."""
+    tagline = post.get("tagline") or post.get("creator_notes_excerpt") or ""
+    if len(tagline) > 140:
+        tagline = tagline[:140]
+    filename = post.get("filename")
+    avatar_url = None
+    if filename:
+        avatar_url = f"{_BOTBOORU_BASE}/images/preview/480/{filename}?v={post.get('card_image_revision', '')}"
+    tags = post.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    topics = [t["name"] for t in tags if isinstance(t, dict) and t.get("name")]
+    return {
+        "name": post.get("character_name", ""),
+        "tagline": tagline,
+        "avatar_url": avatar_url,
+        "full_path": str(post.get("id", "")),
+        "topics": topics,
+        "date_updated": post.get("created_at", ""),
+    }
+
+
+async def _browse_botbooru(q: str, page: int) -> dict:
+    """Run a Botbooru browse query and normalize the response shape."""
+    page = max(1, int(page))
+    offset = (page - 1) * _BOTBOORU_PAGE_SIZE
+    params = {"sort": "downloads", "limit": _BOTBOORU_PAGE_SIZE, "offset": offset}
+    if q:
+        params["q"] = q
+    url = f"{_BOTBOORU_BASE}/posts/"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        logger.exception("Botbooru search failed")
+        raise HTTPException(status_code=502, detail=f"Botbooru search failed: {e}") from e
+
+    posts = data.get("posts") or []
+    results = [_botbooru_to_result(p) for p in posts if isinstance(p, dict)]
+    total = data.get("total") or 0
+    has_more = offset + len(posts) < total
+    return {"results": results, "has_more": has_more}
+
+
+async def _randomize_botbooru(q: str) -> dict:
+    """Surface a random batch of cards from Botbooru.
+
+    Botbooru has a native server-side random sort, so a single query-filtered
+    request gives a fresh selection each call.
+    """
+    params = {"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}
+    if q:
+        params["q"] = q
+    url = f"{_BOTBOORU_BASE}/posts/"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        logger.exception("Botbooru randomize failed")
+        raise HTTPException(status_code=502, detail=f"Botbooru randomize failed: {e}") from e
+
+    posts = data.get("posts") or []
+    results = [_botbooru_to_result(p) for p in posts if isinstance(p, dict)]
+    # Randomized results are a one-shot batch; paging "Load More" would silently
+    # switch back to ranked order, so don't advertise more.
+    return {"results": results, "has_more": False}
+
+
+async def _download_botbooru_card(full_path: str):
+    """Download the PNG character card from Botbooru and parse it through the
+    same tavern_cards pipeline as file import.
+
+    Returns (card_dict, avatar_b64, avatar_mime, card_id).
+    """
+    if not full_path:
+        raise HTTPException(status_code=400, detail="Missing full_path")
+    # `full_path` is a numeric post id; guard against path injection into the URL.
+    if not full_path.isdigit():
+        raise HTTPException(status_code=400, detail=f"Invalid Botbooru post id: {full_path}")
+
+    url = f"{_BOTBOORU_BASE}/download/png/{full_path}"
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            content = resp.content
+    except httpx.HTTPError as e:
+        logger.exception("Failed to download Botbooru card PNG")
+        raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
+
+    if not content[:8].startswith(b"\x89PNG"):
+        raise HTTPException(status_code=400, detail="Downloaded file does not appear to be a PNG card")
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        orb_id = tavern_cards.read_orb_id(tmp_path)
+        card = tavern_cards.parse(tmp_path)
+        card_dict = tavern_cards.card_to_dict(card)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Failed to parse tavern card from Botbooru")
+        raise HTTPException(status_code=400, detail=f"Failed to parse character card: {e}") from e
+    finally:
+        os.unlink(tmp_path)
+
+    card_id = orb_id if orb_id else str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
+    avatar_b64 = base64.b64encode(content).decode("ascii")
+    avatar_mime = "image/png"
+
+    return card_dict, avatar_b64, avatar_mime, card_id
+
+
+register_source(
+    "botbooru",
+    _browse_botbooru,
+    _download_botbooru_card,
+    _randomize_botbooru,
+)
