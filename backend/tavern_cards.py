@@ -113,9 +113,22 @@ def extract_exif_data(image_path: str) -> Dict[str, Any]:
 
 
 def position_converter(data: Any) -> Any:
-    if data == 0:
-        return None
-    return data
+    """Coerce a lorebook entry's ``position`` to the V2 spec's literal values.
+
+    The V2 spec only allows ``before_char``/``after_char``, but cards exported
+    from SillyTavern (and mirrored by sites like botbooru) store the numeric
+    world-info position instead — often as a string — where 0 = before char
+    defs and 1 = after, plus higher values (author's note, at-depth, …) with no
+    V2 equivalent. Map the two representable values and drop anything else so a
+    single odd field doesn't reject the whole card down to the V1 parser.
+    """
+    if data in ("before_char", "after_char"):
+        return data
+    if data in (0, "0"):
+        return "before_char"
+    if data in (1, "1"):
+        return "after_char"
+    return None
 
 
 def float_converter(value: Any) -> float:
