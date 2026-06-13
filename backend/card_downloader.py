@@ -522,3 +522,245 @@ register_source(
     _download_botbooru_card,
     _randomize_botbooru,
 )
+
+
+# ── Wyvern (wyvern.chat) ──────────────────────────────────────────────
+#
+# Wyvern exposes an unauthenticated JSON explore API. The search endpoint
+# already returns full card definitions (description/personality/first_mes/…),
+# but only id references for lorebooks; the per-character endpoint embeds the
+# lorebook entries, so download fetches that and converts them to a V2
+# character_book. Avatars are served from a Cloudflare Images CDN. There is no
+# native random sort, so the randomizer jumps to a random page — but unlike the
+# other sources it reads the real page count first so it works for narrow
+# queries too.
+
+_WYVERN_BASE = "https://api.wyvern.chat"
+_WYVERN_PAGE_SIZE = 24
+
+
+def _wyvern_to_result(item: dict) -> dict:
+    """Normalize a Wyvern character object into the standard browse-result shape."""
+    tagline = item.get("tagline") or item.get("creator_notes") or ""
+    if len(tagline) > 140:
+        tagline = tagline[:140]
+    tags = item.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    topics = [t for t in tags if isinstance(t, str)]
+    return {
+        "name": item.get("name", "") or "",
+        "tagline": tagline,
+        "avatar_url": item.get("avatar") or None,
+        "full_path": str(item.get("id") or item.get("_id") or ""),
+        "topics": topics,
+        "date_updated": item.get("updated_at") or item.get("created_at") or "",
+    }
+
+
+async def _wyvern_search(q: str, page: int) -> dict:
+    """Run a Wyvern explore search and return the raw (parsed) JSON response."""
+    page = max(1, int(page))
+    params = {
+        "page": page,
+        "limit": _WYVERN_PAGE_SIZE,
+        "sort": "created_at",
+        "order": "DESC",
+    }
+    if q:
+        params["q"] = q
+    url = f"{_WYVERN_BASE}/exploreSearch/characters"
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        logger.exception("Wyvern search failed")
+        raise HTTPException(status_code=502, detail=f"Wyvern search failed: {e}") from e
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=502, detail="Unexpected Wyvern search response")
+    return data
+
+
+async def _browse_wyvern(q: str, page: int) -> dict:
+    data = await _wyvern_search(q, page)
+    items = data.get("results") or []
+    results = [_wyvern_to_result(i) for i in items if isinstance(i, dict)]
+    return {"results": results, "has_more": bool(data.get("hasMore"))}
+
+
+async def _randomize_wyvern(q: str) -> dict:
+    """Surface a random batch of cards from Wyvern.
+
+    Wyvern has no native random sort, so — like the CharacterHub randomizer — we
+    jump to a random page of the (optionally query-filtered) catalog. We first
+    read the real ``totalPages`` so the random page is always in range, which
+    keeps it working even when a query narrows the catalog to a handful of pages.
+    """
+    first = await _wyvern_search(q, 1)
+    total_pages = int(first.get("totalPages") or 1)
+    if total_pages <= 1:
+        data = first
+    else:
+        data = await _wyvern_search(q, random.randint(1, total_pages))
+    items = data.get("results") or []
+    results = [_wyvern_to_result(i) for i in items if isinstance(i, dict)]
+    # Randomized results are a one-shot batch; paging "Load More" would silently
+    # switch back to ranked order, so don't advertise more.
+    return {"results": results, "has_more": False}
+
+
+def _wyvern_character_book(obj: dict) -> dict | None:
+    """Convert Wyvern's embedded lorebooks into a single V2 character_book.
+
+    A card may reference several lorebooks; the V2 spec allows only one, so we
+    merge all of their entries. Only the spec-defined entry fields are carried
+    over (Wyvern-specific keys like ``key_logic``/``sticky`` and the ambiguous
+    numeric ``position`` are dropped so the V2 parser doesn't choke).
+    """
+    lorebooks = obj.get("lorebooks")
+    if not isinstance(lorebooks, list):
+        return None
+    entries: list[dict] = []
+    name = None
+    description = None
+    scan_depth = None
+    token_budget = None
+    recursive_scanning = None
+    for lb in lorebooks:
+        if not isinstance(lb, dict):
+            continue
+        if name is None:
+            name = lb.get("name")
+            description = lb.get("description")
+            scan_depth = lb.get("scan_depth")
+            token_budget = lb.get("token_budget")
+            recursive_scanning = lb.get("recursive_scanning")
+        for e in lb.get("entries") or []:
+            if not isinstance(e, dict):
+                continue
+            keys = e.get("keys")
+            entry = {
+                "keys": keys if isinstance(keys, list) else [],
+                "content": e.get("content", "") or "",
+                "extensions": e.get("extensions") if isinstance(e.get("extensions"), dict) else {},
+                "enabled": e.get("enabled", True),
+                "insertion_order": e.get("insertion_order", 0) or 0,
+            }
+            for src_key in ("case_sensitive", "name", "priority", "comment", "secondary_keys", "constant"):
+                if e.get(src_key) is not None:
+                    entry[src_key] = e[src_key]
+            entries.append(entry)
+    if not entries:
+        return None
+    book: dict = {"entries": entries}
+    if name is not None:
+        book["name"] = name
+    if description is not None:
+        book["description"] = description
+    if scan_depth is not None:
+        book["scan_depth"] = scan_depth
+    if token_budget is not None:
+        book["token_budget"] = token_budget
+    if recursive_scanning is not None:
+        book["recursive_scanning"] = recursive_scanning
+    return book
+
+
+def _wyvern_to_v2_jobj(obj: dict) -> dict:
+    """Build a chara_card_v2 JSON object from a Wyvern character object."""
+    creator = obj.get("creator")
+    creator_name = ""
+    if isinstance(creator, dict):
+        creator_name = creator.get("displayName") or creator.get("username") or ""
+    tags = obj.get("tags")
+    alt = obj.get("alternate_greetings")
+    data: dict = {
+        "name": obj.get("name", "") or "",
+        "description": obj.get("description", "") or "",
+        "personality": obj.get("personality", "") or "",
+        "scenario": obj.get("scenario", "") or "",
+        "first_mes": obj.get("first_mes", "") or "",
+        "mes_example": obj.get("mes_example", "") or "",
+        "creator_notes": obj.get("creator_notes", "") or "",
+        # Wyvern splits the system prompt into pre/post-history instructions,
+        # matching SillyTavern's system_prompt / post_history_instructions.
+        "system_prompt": obj.get("pre_history_instructions", "") or "",
+        "post_history_instructions": obj.get("post_history_instructions", "") or "",
+        "alternate_greetings": alt if isinstance(alt, list) else [],
+        "tags": [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else [],
+        "creator": creator_name,
+    }
+    book = _wyvern_character_book(obj)
+    if book:
+        data["character_book"] = book
+    return {"spec": "chara_card_v2", "spec_version": "2.0", "data": data}
+
+
+async def _download_wyvern_card(full_path: str):
+    """Fetch a Wyvern character (full definition + embedded lorebooks) and its
+    avatar, then parse it through the same tavern_cards pipeline as file import.
+
+    Returns (card_dict, avatar_b64, avatar_mime, card_id).
+    """
+    if not full_path:
+        raise HTTPException(status_code=400, detail="Missing character id")
+    # `full_path` is the Wyvern character id; guard against path injection.
+    char_id = full_path.strip().strip("/")
+    if not char_id or "/" in char_id or ".." in char_id or "://" in char_id:
+        raise HTTPException(status_code=400, detail=f"Invalid Wyvern character id: {full_path}")
+
+    url = f"{_WYVERN_BASE}/characters/{char_id}"
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            obj = resp.json()
+    except httpx.HTTPError as e:
+        logger.exception("Failed to download Wyvern character")
+        raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
+
+    if not isinstance(obj, dict):
+        raise HTTPException(status_code=400, detail="Unexpected Wyvern character format")
+
+    try:
+        card = tavern_cards.from_json_obj(_wyvern_to_v2_jobj(obj))
+        card_dict = tavern_cards.card_to_dict(card)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Failed to parse Wyvern character")
+        raise HTTPException(status_code=400, detail=f"Failed to parse character card: {e}") from e
+
+    # Pull the avatar image (Cloudflare Images CDN URL). Best effort: a
+    # missing/broken avatar shouldn't block importing the card text.
+    avatar_b64: str | None = None
+    avatar_mime: str | None = None
+    avatar_bytes = b""
+    avatar_url = obj.get("avatar")
+    if isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://")):
+        try:
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                a = await client.get(avatar_url)
+                a.raise_for_status()
+                avatar_bytes = a.content
+                avatar_mime = (a.headers.get("content-type") or "image/png").split(";")[0] or "image/png"
+                avatar_b64 = base64.b64encode(avatar_bytes).decode("ascii")
+        except httpx.HTTPError:
+            logger.warning("Failed to fetch Wyvern avatar from %s", avatar_url)
+
+    # Stable id so re-importing the same card relinks history: hash the avatar
+    # bytes when present, else the character id.
+    seed = avatar_bytes if avatar_bytes else char_id.encode("utf-8")
+    card_id = str(uuid.UUID(bytes=hashlib.sha256(seed).digest()[:16], version=5))
+
+    return card_dict, avatar_b64, avatar_mime, card_id
+
+
+register_source(
+    "wyvern",
+    _browse_wyvern,
+    _download_wyvern_card,
+    _randomize_wyvern,
+)
