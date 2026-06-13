@@ -191,6 +191,7 @@ async def update_settings(data: dict) -> SettingsRow:
             "length_guard_max_paragraphs",
             "length_guard_enabled",
             "length_guard_enforce",
+            "agentic_lorebook_enabled",
             "reasoning_enabled_passes",
             "active_persona_id",
             "character_library_view",

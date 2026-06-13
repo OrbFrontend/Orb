@@ -28,6 +28,7 @@ export const S = {
   lengthGuardMaxWords: 240,
   lengthGuardMaxParagraphs: 4,
   lengthGuardEnforce: false,
+  agenticLorebookEnabled: false,
   editingMsgId: null,
   forkEditMsgId: null, // user message whose "Edit & Fork" textarea is open (creates a sibling + new reply)
   magicInputMsgId: null,

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS settings (
     length_guard_max_paragraphs INTEGER NOT NULL DEFAULT 4,
     length_guard_enabled INTEGER NOT NULL DEFAULT 0,
     length_guard_enforce INTEGER NOT NULL DEFAULT 0,
+    agentic_lorebook_enabled INTEGER NOT NULL DEFAULT 0,
     reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":true,"writer":false,"editor":false}',
     active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
     active_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,

@@ -87,6 +87,7 @@ class _SettingsBase(TypedDict):
     length_guard_max_paragraphs: int
     length_guard_enabled: int
     length_guard_enforce: int
+    agentic_lorebook_enabled: int
     character_library_view: str
     character_library_sort: str
     show_editor_diff: int
@@ -312,6 +313,17 @@ class LorebookEntryRow(TypedDict):
     sort_order: int
     created_at: str
     updated_at: str
+
+
+class ActiveLorebookEntryRow(LorebookEntryRow):
+    """A :class:`LorebookEntryRow` joined with its world's name, as
+    ``get_active_lorebook_entries()`` returns it (it selects ``w.name AS
+    world_name`` on top of ``le.*``). Required-base + extension idiom: the
+    single-entry readers project only ``le.*`` and return the base, while this
+    join reader projects a strict superset and adds ``world_name`` (used to group
+    the Director's agentic-lorebook catalog by world)."""
+
+    world_name: str
 
 
 class UserPersonaRow(TypedDict):

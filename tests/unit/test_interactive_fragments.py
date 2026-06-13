@@ -223,7 +223,7 @@ class TestApplyToolCalls:
                 "arguments": {"moods": ["tense", "talkative"], "keywords": []},
             }
         ]
-        moods, refined, extra = apply_tool_calls(calls, [])
+        moods, refined, extra, _ = apply_tool_calls(calls, [])
         assert moods == ["tense", "talkative"]
 
     def test_keywords_captured_in_extra_fields(self):
@@ -233,7 +233,7 @@ class TestApplyToolCalls:
                 "arguments": {"moods": [], "keywords": ["sword", "tavern"]},
             }
         ]
-        _, _, extra = apply_tool_calls(calls, [])
+        _, _, extra, _ = apply_tool_calls(calls, [])
         assert extra["keywords"] == ["sword", "tavern"]
 
     def test_extra_fields_captured(self):
@@ -248,7 +248,7 @@ class TestApplyToolCalls:
                 },
             }
         ]
-        _, _, extra = apply_tool_calls(calls, [])
+        _, _, extra, _ = apply_tool_calls(calls, [])
         assert extra["plot_summary"] == "They fought."
         assert extra["next_event"] == "She runs."
         assert extra["keywords"] == ["sword"]
@@ -264,7 +264,7 @@ class TestApplyToolCalls:
                 },
             }
         ]
-        _, _, extra = apply_tool_calls(calls, [])
+        _, _, extra, _ = apply_tool_calls(calls, [])
         assert "moods" not in extra
         assert "keywords" in extra
 
@@ -280,7 +280,7 @@ class TestApplyToolCalls:
                 },
             }
         ]
-        _, _, extra = apply_tool_calls(calls, [])
+        _, _, extra, _ = apply_tool_calls(calls, [])
         assert "user_intent" not in extra
         assert "writing_direction" not in extra
 
@@ -291,7 +291,7 @@ class TestApplyToolCalls:
                 "arguments": {"moods": [], "keywords": [], "detected_repetitions": []},
             }
         ]
-        _, _, extra = apply_tool_calls(calls, [])
+        _, _, extra, _ = apply_tool_calls(calls, [])
         assert "detected_repetitions" not in extra
 
     def test_rewrite_prompt_extracted(self):
@@ -301,16 +301,16 @@ class TestApplyToolCalls:
                 "arguments": {"refined_message": "Better message."},
             }
         ]
-        _, refined, _ = apply_tool_calls(calls, [])
+        _, refined, _, _ = apply_tool_calls(calls, [])
         assert refined == "Better message."
 
     def test_current_moods_used_when_no_direct_scene_call(self):
         calls = [{"name": "rewrite_user_prompt", "arguments": {"refined_message": "x"}}]
-        moods, _, _ = apply_tool_calls(calls, ["existing-mood"])
+        moods, _, _, _ = apply_tool_calls(calls, ["existing-mood"])
         assert moods == ["existing-mood"]
 
     def test_empty_tool_calls_returns_current_moods(self):
-        moods, refined, extra = apply_tool_calls([], ["foo"])
+        moods, refined, extra, _ = apply_tool_calls([], ["foo"])
         assert moods == ["foo"]
         assert refined is None
         assert extra == {}

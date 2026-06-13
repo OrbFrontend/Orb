@@ -157,6 +157,35 @@ def _tool_call_instruction(
     )
 
 
+def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
+    """Build the Director's lorebook catalog for the agentic-activation path.
+
+    Lists each non-``constant`` candidate entry — ``name`` plus its trigger
+    keywords — grouped by world. Constant entries are excluded (they are always
+    injected and the Director does not manage them). Deterministic order: worlds
+    in first-appearance order of the already priority/sort-ordered *entries*, and
+    entries within a world in that same order. Returns ``""`` when there are no
+    non-constant candidates (no catalog → no ``selected_lorebook_entries`` arg is offered).
+    """
+    candidates = [e for e in entries if not e.get("constant")]
+    if not candidates:
+        return ""
+
+    groups: dict[str, list[Mapping[str, Any]]] = {}
+    for e in candidates:
+        groups.setdefault(e.get("world_name") or "", []).append(e)
+
+    parts = ["**Available Lorebook Entries** — activate the ones relevant to the scene via `selected_lorebook_entries`."]
+    for world, items in groups.items():
+        if world:
+            parts.append(f"### {world}")
+        for e in items:
+            name = e.get("name", "")
+            kws = ", ".join(e.get("keywords", []) or [])
+            parts.append(f"- [{name}] — {kws}" if kws else f"- [{name}]")
+    return "\n".join(parts)
+
+
 def build_director_tool_prompt(
     tool_name: str,
     user_message: str,
@@ -166,6 +195,7 @@ def build_director_tool_prompt(
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
+    lorebook_catalog: str = "",
 ) -> str:
     tool = TOOLS.get(tool_name)
     if not tool:
@@ -180,6 +210,10 @@ def build_director_tool_prompt(
         moods = ", ".join(active_moods) or "none"
         frags = "\n".join(f"* [{f['id']}] - use in case: {f['description']}" for f in mood_fragments)
         parts.append(f"Previously active moods: {moods}\n\nAvailable writing moods:\n{frags}")
+        # Agentic lorebook catalog rides the OOC trailing (not the system prompt /
+        # tools blob) so the Writer reuses the shared history KV the Director warms.
+        if lorebook_catalog:
+            parts.append(lorebook_catalog)
         progressive_lines = [
             f"* [{df['id']}] ({df['description']}): {(progressive_state or {}).get(df['id'])}"
             for df in (interactive_fragments or [])
@@ -373,10 +407,25 @@ def compute_lorebook_injection_block(
         if found:
             matched.append(entry)
 
-    if not matched:
+    return render_lorebook_block(matched, macros)
+
+
+def render_lorebook_block(
+    entries: Sequence[Mapping[str, Any]],
+    macros: Macros | None = None,
+) -> str:
+    """Render the ``**Lorebook**`` block from already-*selected* entries.
+
+    Shared by both activation paths — the keyword scan
+    (:func:`compute_lorebook_injection_block`) and the agentic Director
+    (:func:`compute_agentic_lorebook_block`). Entries are sorted by priority
+    DESC; names/content are macro-resolved. Returns ``""`` when *entries* is
+    empty.
+    """
+    if not entries:
         return ""
 
-    matched.sort(key=lambda e: e.get("priority", 100), reverse=True)
+    matched = sorted(entries, key=lambda e: e.get("priority", 100), reverse=True)
 
     resolve = macros.resolve_message if macros else (lambda t: t)
     parts = ["**Lorebook**"]
@@ -389,3 +438,24 @@ def compute_lorebook_injection_block(
             parts.append(content)
 
     return "\n\n".join(parts)
+
+
+def compute_agentic_lorebook_block(
+    entries: Sequence[Mapping[str, Any]],
+    selected_names: Sequence[str],
+    macros: Macros | None = None,
+) -> str:
+    """Render the ``**Lorebook**`` block from the Director's agentic selection.
+
+    Selects ``constant`` entries (always injected) ∪ entries whose ``name``
+    matches one of *selected_names* (compared case-insensitively, trimmed).
+    Duplicate names activate every matching entry; names with no match are
+    ignored. Renders via the shared :func:`render_lorebook_block`. Returns ``""``
+    when nothing is selected.
+    """
+    if not entries:
+        return ""
+
+    wanted = {(n or "").strip().casefold() for n in (selected_names or [])}
+    selected = [e for e in entries if e.get("constant") or (e.get("name", "") or "").strip().casefold() in wanted]
+    return render_lorebook_block(selected, macros)
