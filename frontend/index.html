@@ -30,6 +30,9 @@
             <button class="btn btn-sm" style="flex:1;justify-content:center" onclick="showCreateWorldModal()">+ Create</button>
             <button class="btn btn-sm" style="flex:1;justify-content:center" onclick="lbImportJson()">⬆ Import JSON</button>
           </div>
+          <div id="worlds-search-wrap" style="display:none;margin-bottom:8px">
+            <input id="worlds-search" class="worlds-search" type="text" placeholder="Search worlds…" autocomplete="off" oninput="onWorldSearch(this.value)">
+          </div>
           <div id="worlds-list"></div>
         </div>
       </div>

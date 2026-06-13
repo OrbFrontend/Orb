@@ -5,6 +5,8 @@ import { $, esc, toast } from "./utils.js";
 
 // ── Module state
 let _worlds = [];
+let _worldSearch = "";
+const RECENT_LIMIT = 5; // worlds shown by default before the user needs to search
 let _lorebookOpen = false;
 
 document.addEventListener("keydown", (e) => {
@@ -39,46 +41,94 @@ async function _loadEntries(worldId) {
 }
 
 // ── Sidebar rendering
+const _isWorldEnabled = (w) => w.enabled === true || w.enabled === 1;
+const _worldRecencyTs = (w) => Date.parse(w.updated_at || w.created_at || "") || 0;
+const _byRecency = (a, b) => _worldRecencyTs(b) - _worldRecencyTs(a);
+
+// Decide which worlds to render.
+//   • No search: every active world (most recent first) plus the most recent
+//     inactive ones, capped so active + recent = RECENT_LIMIT. The active count
+//     overrides the cap, so 6 active worlds all show even though that exceeds 5.
+//   • Searching: every name match, with active worlds floated to the top.
+function _visibleWorlds() {
+  const q = _worldSearch.trim().toLowerCase();
+  const active = _worlds.filter(_isWorldEnabled).sort(_byRecency);
+  const inactive = _worlds.filter((w) => !_isWorldEnabled(w)).sort(_byRecency);
+  if (q) {
+    const match = (w) => w.name.toLowerCase().includes(q);
+    return { shown: [...active.filter(match), ...inactive.filter(match)], hidden: 0 };
+  }
+  const recent = inactive.slice(0, Math.max(0, RECENT_LIMIT - active.length));
+  const shown = [...active, ...recent];
+  return { shown, hidden: _worlds.length - shown.length };
+}
+
+function _worldItemHtml(w) {
+  const initials = w.name.slice(0, 2).toUpperCase();
+  const enabled = _isWorldEnabled(w);
+  const active = _lorebookOpen && _focusWorldId === w.id;
+  const toggleId = `world-toggle-${w.id}`;
+  const clickHandler = active ? "closeLorebook()" : `openLorebook('${w.id}')`;
+  return `
+  <div class="world-item${active ? " active" : ""}">
+    <div class="world-item-main" onclick="${clickHandler}">
+      <div class="world-avatar">${esc(initials)}</div>
+      <span class="world-name">${esc(w.name)}</span>
+    </div>
+    <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
+      <label class="frag-toggle" for="${toggleId}">
+        <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
+               onchange="toggleWorldEnabled('${w.id}', this.checked)">
+        <span class="frag-toggle-slider"></span>
+      </label>
+    </div>
+  </div>`;
+}
+
 export function renderWorldsSidebar() {
   const el = $("worlds-list");
   if (!el) return;
+
   const countEl = $("worlds-active-count");
   if (countEl) {
-    const activeCount = _worlds.filter((w) => w.enabled === true || w.enabled === 1).length;
-    if (activeCount > 0) {
-      countEl.textContent = activeCount;
-      countEl.style.display = "";
-    } else {
-      countEl.style.display = "none";
-    }
+    const activeCount = _worlds.filter(_isWorldEnabled).length;
+    countEl.textContent = activeCount;
+    countEl.style.display = activeCount > 0 ? "" : "none";
   }
+
+  // The search box only earns its space once the list outgrows the default view.
+  const searchWrap = $("worlds-search-wrap");
+  if (searchWrap) {
+    searchWrap.style.display = _worlds.length > RECENT_LIMIT || _worldSearch.trim() ? "" : "none";
+  }
+  const searchInp = $("worlds-search");
+  if (searchInp && searchInp.value !== _worldSearch) searchInp.value = _worldSearch;
+
   if (!_worlds.length) {
-    el.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No worlds yet</div>`;
+    el.innerHTML = `<div class="worlds-empty">No worlds yet</div>`;
     return;
   }
-  el.innerHTML = _worlds
-    .map((w) => {
-      const initials = w.name.slice(0, 2).toUpperCase();
-      const enabled = w.enabled === true || w.enabled === 1;
-      const active = _lorebookOpen && _focusWorldId === w.id;
-      const toggleId = `world-toggle-${w.id}`;
-      const clickHandler = active ? "closeLorebook()" : `openLorebook('${w.id}')`;
-      return `
-      <div class="world-item${active ? " active" : ""}">
-        <div class="world-item-main" onclick="${clickHandler}">
-          <div class="world-avatar">${esc(initials)}</div>
-          <span class="world-name">${esc(w.name)}</span>
-        </div>
-        <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
-          <label class="frag-toggle" for="${toggleId}">
-            <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
-                   onchange="toggleWorldEnabled('${w.id}', this.checked)">
-            <span class="frag-toggle-slider"></span>
-          </label>
-        </div>
-      </div>`;
-    })
-    .join("");
+
+  const { shown, hidden } = _visibleWorlds();
+  if (!shown.length) {
+    el.innerHTML = `<div class="worlds-empty">No worlds match “${esc(_worldSearch.trim())}”</div>`;
+    return;
+  }
+
+  let html = shown.map(_worldItemHtml).join("");
+  if (!_worldSearch.trim() && hidden > 0) {
+    html += `<button type="button" class="worlds-more" onclick="focusWorldSearch()">+${hidden} more — search to find them</button>`;
+  }
+  el.innerHTML = html;
+}
+
+export function onWorldSearch(value) {
+  _worldSearch = value;
+  renderWorldsSidebar();
+}
+
+export function focusWorldSearch() {
+  $("worlds-search")?.focus();
 }
 
 // ── Activate and prioritize a world (called when loading a character with a linked lorebook)
