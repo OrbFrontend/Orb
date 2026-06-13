@@ -7,6 +7,7 @@ import re
 import uuid
 import logging
 import base64
+import sqlite3
 import tempfile
 
 from contextlib import asynccontextmanager
@@ -199,7 +200,22 @@ async def _conversation_stream_lock(cid: str):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    run_pending(DB_PATH)
+    if run_pending(DB_PATH):
+        # A rebuild-style migration (0027's drop/rename, 0028's DROP COLUMN /
+        # DROP TABLE) leaves the old table's pages on the freelist, and the live
+        # DB runs auto_vacuum=NONE, so nothing returns them: the file stays
+        # bloated by the rebuilt tables' size (~25 -> ~39 MiB) until the next
+        # restore happens to VACUUM. restore_full already reclaims on its private
+        # copy (see presets.restore_full); this is the same reclaim for the
+        # normal startup-migration path. Gated on run_pending's return so a
+        # boot with no pending migration doesn't rewrite the whole DB. Safe
+        # here: we're before `yield`, so no request connection is open to
+        # contend with the VACUUM.
+        vac = sqlite3.connect(DB_PATH, isolation_level=None)
+        try:
+            vac.execute("VACUUM")
+        finally:
+            vac.close()
     # Schema safety check for the preset/backup engine. Non-fatal at startup: it
     # guards backup integrity, not normal queries, so a developer schema change that
     # left the live schema uncovered or unlike a fresh install must warn loudly
