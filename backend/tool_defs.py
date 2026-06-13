@@ -29,10 +29,7 @@ _ACTIVE_LOREBOOK_PROPERTY = {
     "selected_lorebook_entries": {
         "type": "array",
         "items": {"type": "string"},
-        "description": (
-            "Names of lorebook entries (from the catalog below) relevant to this scene. "
-            "Entries you omit are NOT shown to the writer. Leave empty if none apply."
-        ),
+        "description": ("Names of lorebook entries relevant to this scene. Leave empty if none apply."),
     },
 }
 
