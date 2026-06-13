@@ -161,7 +161,7 @@ def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
     """Build the Director's lorebook catalog for the agentic-activation path.
 
     Lists each non-``constant`` candidate entry — ``name`` plus its trigger
-    keywords — grouped by world. Constant entries are excluded (they are always
+    keywords (at most the first 5) — grouped by world. Constant entries are excluded (they are always
     injected and the Director does not manage them). Deterministic order: worlds
     in first-appearance order of the already priority/sort-ordered *entries*, and
     entries within a world in that same order. Returns ``""`` when there are no
@@ -181,7 +181,7 @@ def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
             parts.append(f"### {world}")
         for e in items:
             name = e.get("name", "")
-            kws = ", ".join(e.get("keywords", []) or [])
+            kws = ", ".join((e.get("keywords", []) or [])[:5])
             parts.append(f"- [{name}] — {kws}" if kws else f"- [{name}]")
     return "\n".join(parts)
 

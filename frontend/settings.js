@@ -360,7 +360,7 @@ export function renderToolsPanel() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Let the Director pick which lorebook entries are relevant each turn instead of keyword matching. Constant entries are still always injected.${directorOn ? "" : " <em>Requires Director.</em>"}</div>
+    <div class="tool-card-desc">Let Director manage Lorebook entries.${directorOn ? "" : " <em>Requires Director.</em>"}</div>
   </div>`;
 
   const toolCards = TOOL_DEFS.map((t) => {
