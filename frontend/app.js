@@ -94,9 +94,10 @@ import {
 } from "./library.js";
 import {
   closeLorebook,
+  collapseWorlds,
   createWorld,
   deleteWorld,
-  focusWorldSearch,
+  expandWorlds,
   lbAddEntry,
   lbBackToList,
   lbChipInput,
@@ -351,7 +352,8 @@ Object.assign(window, {
   openLorebook,
   closeLorebook,
   onWorldSearch,
-  focusWorldSearch,
+  expandWorlds,
+  collapseWorlds,
   lbSelectEntry,
   lbToggleEntry,
   lbAddEntry,

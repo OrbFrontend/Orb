@@ -6,6 +6,7 @@ import { $, esc, toast } from "./utils.js";
 // ── Module state
 let _worlds = [];
 let _worldSearch = "";
+let _worldsExpanded = false; // when true, show every world instead of just the recent few
 const RECENT_LIMIT = 5; // worlds shown by default before the user needs to search
 let _lorebookOpen = false;
 
@@ -49,6 +50,7 @@ const _byRecency = (a, b) => _worldRecencyTs(b) - _worldRecencyTs(a);
 //   • No search: every active world (most recent first) plus the most recent
 //     inactive ones, capped so active + recent = RECENT_LIMIT. The active count
 //     overrides the cap, so 6 active worlds all show even though that exceeds 5.
+//     Once expanded, every world shows (active first, then the rest by recency).
 //   • Searching: every name match, with active worlds floated to the top.
 function _visibleWorlds() {
   const q = _worldSearch.trim().toLowerCase();
@@ -58,6 +60,7 @@ function _visibleWorlds() {
     const match = (w) => w.name.toLowerCase().includes(q);
     return { shown: [...active.filter(match), ...inactive.filter(match)], hidden: 0 };
   }
+  if (_worldsExpanded) return { shown: [...active, ...inactive], hidden: 0 };
   const recent = inactive.slice(0, Math.max(0, RECENT_LIMIT - active.length));
   const shown = [...active, ...recent];
   return { shown, hidden: _worlds.length - shown.length };
@@ -116,8 +119,12 @@ export function renderWorldsSidebar() {
   }
 
   let html = shown.map(_worldItemHtml).join("");
-  if (!_worldSearch.trim() && hidden > 0) {
-    html += `<button type="button" class="worlds-more" onclick="focusWorldSearch()">+${hidden} more — search to find them</button>`;
+  if (!_worldSearch.trim()) {
+    if (hidden > 0) {
+      html += `<button type="button" class="worlds-more" onclick="expandWorlds()">+${hidden} more — show all</button>`;
+    } else if (_worldsExpanded && _worlds.length > RECENT_LIMIT) {
+      html += `<button type="button" class="worlds-more" onclick="collapseWorlds()">Show less</button>`;
+    }
   }
   el.innerHTML = html;
 }
@@ -127,8 +134,14 @@ export function onWorldSearch(value) {
   renderWorldsSidebar();
 }
 
-export function focusWorldSearch() {
-  $("worlds-search")?.focus();
+export function expandWorlds() {
+  _worldsExpanded = true;
+  renderWorldsSidebar();
+}
+
+export function collapseWorlds() {
+  _worldsExpanded = false;
+  renderWorldsSidebar();
 }
 
 // ── Activate and prioritize a world (called when loading a character with a linked lorebook)
