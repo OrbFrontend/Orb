@@ -180,7 +180,7 @@ const TOOL_DEFS = [
   {
     id: "direct_scene",
     name: "Director",
-    desc: "Gives written direction and selects active mood fragments based on scene context.",
+    desc: "Gives written direction and manages fragments based on scene context.",
   },
   {
     id: "rewrite_user_prompt",
