@@ -42,26 +42,26 @@ def _entry(
 class TestDirectSceneActiveLorebookArg:
     def test_absent_by_default(self):
         props = build_direct_scene_tool([])["function"]["parameters"]["properties"]
-        assert "active_lorebook" not in props
+        assert "selected_lorebook_entries" not in props
 
     def test_absent_when_false(self):
         props = build_direct_scene_tool([], agentic_lorebook=False)["function"]["parameters"]["properties"]
-        assert "active_lorebook" not in props
+        assert "selected_lorebook_entries" not in props
 
     def test_present_when_true(self):
         props = build_direct_scene_tool([], agentic_lorebook=True)["function"]["parameters"]["properties"]
-        assert "active_lorebook" in props
-        assert props["active_lorebook"]["type"] == "array"
-        assert props["active_lorebook"]["items"] == {"type": "string"}
+        assert "selected_lorebook_entries" in props
+        assert props["selected_lorebook_entries"]["type"] == "array"
+        assert props["selected_lorebook_entries"]["items"] == {"type": "string"}
 
     def test_optional_not_required(self):
         tool = build_direct_scene_tool([], agentic_lorebook=True)
-        assert "active_lorebook" not in tool["function"]["parameters"]["required"]
+        assert "selected_lorebook_entries" not in tool["function"]["parameters"]["required"]
 
     def test_moods_and_fragments_unaffected(self):
         frags = [{"id": "kw", "field_type": "array", "description": "d", "required": False}]
         props = build_direct_scene_tool(frags, agentic_lorebook=True)["function"]["parameters"]["properties"]
-        assert "moods" in props and "kw" in props and "active_lorebook" in props
+        assert "moods" in props and "kw" in props and "selected_lorebook_entries" in props
 
     def test_byte_stable_for_identical_input(self):
         import json
@@ -124,7 +124,7 @@ class TestBuildLorebookCatalog:
     def test_header_present(self):
         cat = build_lorebook_catalog([_entry("A", keywords=["a"])])
         assert cat.startswith("**Available Lorebook Entries**")
-        assert "active_lorebook" in cat
+        assert "selected_lorebook_entries" in cat
 
     def test_excludes_constants(self):
         entries = [
@@ -133,7 +133,7 @@ class TestBuildLorebookCatalog:
         ]
         cat = build_lorebook_catalog(entries)
         assert "Const" not in cat
-        assert "- Var — v" in cat
+        assert "- [Var] — v" in cat
 
     def test_empty_when_only_constants(self):
         assert build_lorebook_catalog([_entry("C", constant=True)]) == ""
@@ -143,12 +143,12 @@ class TestBuildLorebookCatalog:
 
     def test_keywords_joined(self):
         cat = build_lorebook_catalog([_entry("A", keywords=["k1", "k2", "k3"])])
-        assert "- A — k1, k2, k3" in cat
+        assert "- [A] — k1, k2, k3" in cat
 
     def test_entry_without_keywords_has_no_dash(self):
         cat = build_lorebook_catalog([_entry("Solo", keywords=[])])
-        assert "- Solo" in cat
-        assert "- Solo —" not in cat
+        assert "- [Solo]" in cat
+        assert "- [Solo] —" not in cat
 
     def test_grouped_by_world_in_first_appearance_order(self):
         entries = [
@@ -160,8 +160,8 @@ class TestBuildLorebookCatalog:
         assert "### Avatar" in cat and "### Other" in cat
         assert cat.index("### Avatar") < cat.index("### Other")
         # Both Avatar entries fall under the single Avatar heading.
-        assert cat.index("- A") < cat.index("### Other")
-        assert cat.index("- B") < cat.index("### Other")
+        assert cat.index("- [A]") < cat.index("### Other")
+        assert cat.index("- [B]") < cat.index("### Other")
 
 
 # ── keyword-scan parity after the renderer refactor ──────────────────────────

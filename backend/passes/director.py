@@ -74,7 +74,9 @@ def apply_tool_calls(
             moods = args.get("moods", [])
             al = args.get("selected_lorebook_entries")
             selected_lorebook_entries = [str(x) for x in al] if isinstance(al, list) else []
-            extra_fields = {k: v for k, v in args.items() if k not in ("moods", "selected_lorebook_entries") and v not in (None, "", [])}
+            extra_fields = {
+                k: v for k, v in args.items() if k not in ("moods", "selected_lorebook_entries") and v not in (None, "", [])
+            }
         elif tc["name"] == "rewrite_user_prompt":
             refined = args.get("refined_message") or None
 
