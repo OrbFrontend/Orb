@@ -49,6 +49,24 @@ async def add_generated_chars(chars: int) -> None:
         await db.commit()
 
 
+# Recursive CTE yielding one row per message on a conversation's *active* branch
+# (root→active_leaf). Swiped/regenerated siblings are alternate branches the user
+# isn't currently viewing, so they're excluded everywhere a message COUNT is shown
+# -- they're drafts/trash, not part of the visible story. Exposes conv_id, id and
+# created_at so callers can group by conversation and apply recency filters.
+_ACTIVE_PATH_CTE = """
+    WITH RECURSIVE active_path(conv_id, id, parent_id, created_at) AS (
+        SELECT c.id, m.id, m.parent_id, m.created_at
+        FROM conversations c
+        JOIN messages m ON m.id = c.active_leaf_id
+        UNION ALL
+        SELECT ap.conv_id, m.id, m.parent_id, m.created_at
+        FROM active_path ap
+        JOIN messages m ON m.id = ap.parent_id
+    )
+"""
+
+
 async def get_global_stats() -> dict:
     """Aggregate usage stats across the whole database.
 
@@ -59,30 +77,31 @@ async def get_global_stats() -> dict:
         conv_row = list(await db.execute_fetchall("SELECT COUNT(*) FROM conversations"))
         total_conversations = conv_row[0][0] if conv_row else 0
 
-        # One full scan of messages: the count covers ALL branches (swipes/regens
-        # are sibling rows here), while user_chars filters to role='user' so
-        # "words written" reflects only what the user typed.
-        msg_row = list(
-            await db.execute_fetchall(
-                """SELECT COUNT(*),
-                          COALESCE(SUM(CASE WHEN role = 'user' THEN LENGTH(content) ELSE 0 END), 0)
-                   FROM messages"""
-            )
+        # Messages shown to the user = active-branch rows only; swiped/regenerated
+        # siblings are trash and must not inflate the count.
+        total_row = list(await db.execute_fetchall(f"{_ACTIVE_PATH_CTE} SELECT COUNT(*) FROM active_path"))
+        total_messages = total_row[0][0] if total_row else 0
+
+        # "words written" sums role='user' content across ALL branches: every user
+        # message was genuinely typed, even on swiped-away forks, so it reflects
+        # total effort rather than what's currently visible.
+        chars_row = list(
+            await db.execute_fetchall("SELECT COALESCE(SUM(LENGTH(content)), 0) FROM messages WHERE role = 'user'")
         )
-        total_messages = msg_row[0][0] if msg_row else 0
-        user_chars = msg_row[0][1] if msg_row else 0
+        user_chars = chars_row[0][0] if chars_row else 0
 
         # Favorite character = the one whose conversations hold the most messages.
         # Group on character_name (not card id) so renamed/deleted cards still tally,
         # skipping unnamed conversations.
         fav_row = list(
             await db.execute_fetchall(
-                """SELECT c.character_name,
+                f"""{_ACTIVE_PATH_CTE}
+                   SELECT c.character_name,
                           COUNT(*) AS msg_count,
                           COUNT(DISTINCT c.id) AS conv_count,
                           MAX(c.character_card_id) AS card_id
-                   FROM messages m
-                   JOIN conversations c ON c.id = m.conversation_id
+                   FROM active_path ap
+                   JOIN conversations c ON c.id = ap.conv_id
                    WHERE c.character_name != ''
                    GROUP BY c.character_name
                    ORDER BY msg_count DESC
@@ -111,15 +130,16 @@ async def get_global_stats() -> dict:
         recent_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         missed_row = list(
             await db.execute_fetchall(
-                """SELECT c.character_name,
+                f"""{_ACTIVE_PATH_CTE}
+                   SELECT c.character_name,
                           COUNT(*) AS msg_count,
                           COUNT(DISTINCT c.id) AS conv_count,
                           MAX(c.character_card_id) AS card_id
-                   FROM messages m
-                   JOIN conversations c ON c.id = m.conversation_id
+                   FROM active_path ap
+                   JOIN conversations c ON c.id = ap.conv_id
                    WHERE c.character_name != '' AND c.character_name != ?
                    GROUP BY c.character_name
-                   HAVING COUNT(*) > 100 AND MAX(m.created_at) < ?
+                   HAVING COUNT(*) > 100 AND MAX(ap.created_at) < ?
                    ORDER BY RANDOM()
                    LIMIT 1""",
                 (fav_name, recent_cutoff),

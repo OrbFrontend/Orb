@@ -14,13 +14,25 @@ async def list_conversations() -> list[ConversationListRow]:
         rows = list(
             await db.execute_fetchall(
                 """
+            WITH RECURSIVE active_path(conv_id, id, parent_id) AS (
+                SELECT c.id, m.id, m.parent_id
+                FROM conversations c
+                JOIN messages m ON m.id = c.active_leaf_id
+                UNION ALL
+                SELECT ap.conv_id, m.id, m.parent_id
+                FROM active_path ap
+                JOIN messages m ON m.id = ap.parent_id
+            ),
+            active_counts(conv_id, cnt) AS (
+                SELECT conv_id, COUNT(*) FROM active_path GROUP BY conv_id
+            )
             SELECT c.*,
                    (SELECT m.content FROM messages m
                     WHERE m.conversation_id = c.id
                     ORDER BY m.id DESC LIMIT 1) AS last_message_preview,
-                   (SELECT COUNT(*) FROM messages m
-                    WHERE m.conversation_id = c.id) AS message_count
+                   COALESCE(ac.cnt, 0) AS message_count
             FROM conversations c
+            LEFT JOIN active_counts ac ON ac.conv_id = c.id
             ORDER BY COALESCE(c.updated_at, c.created_at) DESC
         """
             )

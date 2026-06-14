@@ -32,8 +32,10 @@ async def _seed_character(name: str, message_count: int, *, old: bool = False) -
 
     cid = str(uuid.uuid4())
     await dbmod.create_conversation(cid, f"{name} chat", name, "")
+    parent_id: int | None = None
     for i in range(message_count):
-        await dbmod.add_message(cid, "user" if i % 2 == 0 else "assistant", "x", i)
+        parent_id, _ = await dbmod.add_message(cid, "user" if i % 2 == 0 else "assistant", "x", i, parent_id=parent_id)
+    await dbmod.set_active_leaf(cid, parent_id)
     if old:
         import backend.database.connection as _db_conn
 
@@ -109,6 +111,26 @@ async def test_spotlight_falls_back_to_favorite_when_nothing_qualifies(client, d
     assert sp["theme"] == "favorite"
     assert sp["name"] == "Alice"
     assert {"theme", "name", "messages", "conversations", "card_id"} <= sp.keys()
+
+
+async def test_stats_message_count_excludes_swiped_branches(client, db):
+    # A linear chat of user→assistant, then an alternate assistant swipe off the
+    # user message. The swipe is an off-path sibling (trash), so only the two
+    # active-path messages should be counted, not three.
+    cid = str(uuid.uuid4())
+    await dbmod.create_conversation(cid, "Swipe chat", "Sara", "")
+    u1, _ = await dbmod.add_message(cid, "user", "hi", 0, parent_id=None)
+    a_active, _ = await dbmod.add_message(cid, "assistant", "active reply", 1, parent_id=u1)
+    await dbmod.add_message(cid, "assistant", "swiped reply", 1, parent_id=u1)  # off-path
+    await dbmod.set_active_leaf(cid, a_active)
+
+    resp = await client.get("/api/stats")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_messages"] == 2
+    sp = body["character_spotlight"]
+    assert sp["name"] == "Sara"
+    assert sp["messages"] == 2
 
 
 async def test_missed_theme_excludes_favorite(client, db, monkeypatch):

@@ -33,6 +33,21 @@ async def test_list_conversations_includes_created(client, db):
     assert "Listed" in titles
 
 
+async def test_list_conversations_message_count_excludes_swiped_branches(client, db):
+    # message_count reflects only the active branch the user can swipe through,
+    # not off-path siblings left behind by regenerating/swiping.
+    cid = "conv-swipe-count"
+    await dbmod.create_conversation(cid, "Swipe", "Nova", "")
+    u1, _ = await dbmod.add_message(cid, "user", "hi", 0, parent_id=None)
+    a_active, _ = await dbmod.add_message(cid, "assistant", "active", 1, parent_id=u1)
+    await dbmod.add_message(cid, "assistant", "swipe", 1, parent_id=u1)  # off-path sibling
+    await dbmod.set_active_leaf(cid, a_active)
+
+    resp = await client.get("/api/conversations")
+    row = next(c for c in resp.json() if c["id"] == cid)
+    assert row["message_count"] == 2
+
+
 async def test_delete_conversation_removes_from_db(client, db):
     resp = await client.post("/api/conversations", json={"title": "ToDelete"})
     cid = resp.json()["id"]
