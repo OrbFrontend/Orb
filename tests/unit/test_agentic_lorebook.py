@@ -116,6 +116,41 @@ class TestComputeAgenticLorebookBlock:
         block = compute_agentic_lorebook_block(entries, ["Low", "High"])
         assert block.index("High") < block.index("Low")
 
+    def test_substring_scan_activates_in_parallel(self):
+        # Director overlooks "Natlan", but the keyword scan catches it.
+        entries = [_entry("Natlan", keywords=["Natlan"])]
+        msgs = [{"role": "user", "content": "Tell me about Natlan."}]
+        block = compute_agentic_lorebook_block(entries, [], messages=msgs)
+        assert "Natlan: Natlan content" in block
+
+    def test_substring_scan_unions_with_director(self):
+        entries = [_entry("Dragon"), _entry("Natlan", keywords=["natlan"])]
+        msgs = [{"role": "user", "content": "We travel to Natlan."}]
+        block = compute_agentic_lorebook_block(entries, ["Dragon"], messages=msgs)
+        assert "Dragon: Dragon content" in block
+        assert "Natlan: Natlan content" in block
+
+    def test_substring_and_director_not_duplicated(self):
+        entries = [_entry("Natlan", keywords=["Natlan"])]
+        msgs = [{"role": "user", "content": "Natlan again."}]
+        block = compute_agentic_lorebook_block(entries, ["Natlan"], messages=msgs)
+        assert block.count("Natlan: Natlan content") == 1
+
+    def test_substring_no_match_without_messages(self):
+        entries = [_entry("Natlan", keywords=["Natlan"])]
+        assert compute_agentic_lorebook_block(entries, []) == ""
+
+    def test_substring_scan_limited_to_current_turn(self):
+        # The keyword appears only in older history, not in the current turn
+        # (last assistant + user), so the fallback must not activate it.
+        entries = [_entry("Natlan", keywords=["Natlan"])]
+        msgs = [
+            {"role": "user", "content": "We arrive in Natlan."},
+            {"role": "assistant", "content": "The city greets you."},
+            {"role": "user", "content": "Let's keep going."},
+        ]
+        assert compute_agentic_lorebook_block(entries, [], messages=msgs) == ""
+
 
 # ── build_lorebook_catalog ───────────────────────────────────────────────────
 

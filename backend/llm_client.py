@@ -129,7 +129,7 @@ class LLMClient:
             json.dumps([t["function"]["name"] for t in tools]) if tools else "None",
             tool_choice,
         )
-        logger.debug(messages)
+        logger.info(messages)
 
         content_parts: list[str] = []
         reasoning_parts: list[str] = []

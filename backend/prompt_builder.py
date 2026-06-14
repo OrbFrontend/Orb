@@ -22,6 +22,9 @@ from .tool_defs import (
 )
 
 LOREBOOK_SCAN_DEPTH = 6
+# The agentic fallback scan only looks at the current turn (previous assistant
+# message + current user message), since the Director already saw the history.
+AGENTIC_LOREBOOK_SCAN_DEPTH = 2
 
 
 def format_message_with_attachments(message: Mapping[str, Any], macros: Macros | None) -> ChatMessage:
@@ -383,9 +386,23 @@ def compute_lorebook_injection_block(
     if not entries:
         return ""
 
-    scan_parts = [m.get("content") or "" for m in messages[-LOREBOOK_SCAN_DEPTH:] if m.get("content")]
+    return render_lorebook_block(select_keyword_entries(messages, entries), macros)
+
+
+def select_keyword_entries(
+    messages: Sequence[Mapping[str, Any]],
+    entries: Sequence[Mapping[str, Any]],
+    scan_depth: int = LOREBOOK_SCAN_DEPTH,
+) -> list[Mapping[str, Any]]:
+    """Select entries activated by the keyword/substring scan.
+
+    Constant entries are always selected. Other entries are selected when one of
+    their keywords appears (substring match) in the ``scan_depth`` most recent
+    messages. Returns the matched entries in input order.
+    """
+    scan_parts = [m.get("content") or "" for m in messages[-scan_depth:] if m.get("content")]
     scan_text = " ".join(scan_parts)
-    matched = []
+    matched: list[Mapping[str, Any]] = []
 
     for entry in entries:
         if entry.get("constant"):
@@ -409,7 +426,7 @@ def compute_lorebook_injection_block(
         if found:
             matched.append(entry)
 
-    return render_lorebook_block(matched, macros)
+    return matched
 
 
 def render_lorebook_block(
@@ -446,11 +463,15 @@ def compute_agentic_lorebook_block(
     entries: Sequence[Mapping[str, Any]],
     selected_names: Sequence[str],
     macros: Macros | None = None,
+    messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
     """Render the ``**Lorebook**`` block from the Director's agentic selection.
 
     Selects ``constant`` entries (always injected) ∪ entries whose ``name``
-    matches one of *selected_names* (compared case-insensitively, trimmed).
+    matches one of *selected_names* (compared case-insensitively, trimmed) ∪
+    entries activated by the keyword/substring scan over the current turn of
+    *messages* (``AGENTIC_LOREBOOK_SCAN_DEPTH``), run in parallel so a keyword
+    the Director overlooks still activates its entry.
     Duplicate names activate every matching entry; names with no match are
     ignored. Renders via the shared :func:`render_lorebook_block`. Returns ``""``
     when nothing is selected.
@@ -458,6 +479,14 @@ def compute_agentic_lorebook_block(
     if not entries:
         return ""
 
-    wanted = {(n or "").strip().casefold() for n in (selected_names or [])}
-    selected = [e for e in entries if e.get("constant") or (e.get("name", "") or "").strip().casefold() in wanted]
+    director_named = {(n or "").strip().casefold() for n in (selected_names or [])}
+    keyword_hit = {
+        id(e) for e in select_keyword_entries(messages or [], entries, AGENTIC_LOREBOOK_SCAN_DEPTH)
+    }
+
+    def is_active(entry: Mapping[str, Any]) -> bool:
+        name = (entry.get("name", "") or "").strip().casefold()
+        return bool(entry.get("constant")) or name in director_named or id(entry) in keyword_hit
+
+    selected = [e for e in entries if is_active(e)]
     return render_lorebook_block(selected, macros)

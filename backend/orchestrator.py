@@ -357,6 +357,7 @@ async def _run_pipeline(
     kv_tracker: _KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     history: Sequence[Mapping[str, Any]] | None = None,
+    lorebook_messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
     """Three-pass pipeline: director → writer → editor, plus a post-pipeline
     workflow iteration before persistence.
@@ -512,7 +513,9 @@ async def _run_pipeline(
     # scan was bypassed up front (lorebook_block is ""), and the catalog only fed
     # the director. Otherwise the keyword-scanned lorebook_block is used as-is.
     if agentic_lorebook:
-        writer_lorebook_block = compute_agentic_lorebook_block(lorebook_entries or [], selected_lorebook_entries, macros)
+        writer_lorebook_block = compute_agentic_lorebook_block(
+            lorebook_entries or [], selected_lorebook_entries, macros, lorebook_messages
+        )
     else:
         writer_lorebook_block = lorebook_block
 
@@ -1792,6 +1795,7 @@ async def _generate_reply(
         kv_tracker=setup.kv_tracker,
         schema_overrides=setup.schema_overrides,
         history=history,
+        lorebook_messages=lorebook_messages,
     )
     async for event in _consume_pipeline(
         pipeline,
