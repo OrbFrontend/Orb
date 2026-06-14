@@ -237,21 +237,47 @@ export function formatProseWithDiff(ops) {
   return html.replace(/\n/g, "<br>");
 }
 
+// Markdown image link to an image-extension URL, e.g. ![alt](https://host/x.jpg)
+const IMG_LINK_RE = /!\[([^\]]*)\]\((https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\)/i;
+
+// Render a markdown image link as a collapsed <details> wrapper. The image is
+// wrapped in an anchor so clicking it opens the source image in a new tab, and
+// falls back to a plain link if the image fails to load. The URL is matched as
+// http(s) only (no javascript: URIs); escAttr() prevents breaking out of attrs.
+function renderImageEmbed(url, alt) {
+  const safeUrl = escAttr(url);
+  const safeAlt = escAttr(alt || "");
+  return (
+    `<details class="msg-image-embed">` +
+    `<summary><span class="reasoning-summary-arrow">▶</span>` +
+    `<span class="msg-image-label">🖼️ Image</span></summary>` +
+    `<a class="msg-image-link" href="${safeUrl}" target="_blank" rel="noopener">` +
+    `<img class="msg-image" src="${safeUrl}" alt="${safeAlt}" loading="lazy" ` +
+    `onerror="this.replaceWith(Object.assign(document.createElement('span'),` +
+    `{className:'msg-image-broken',textContent:this.src}))">` +
+    `</a>` +
+    `</details>`
+  );
+}
+
 export function formatProse(text) {
   if (!text) return "";
-  // Split on fenced code blocks before escaping so we can handle them separately
-  const parts = text.split(/(```[\w]*\n?[\s\S]*?```)/g);
+  // Split on fenced code blocks and image links before escaping so we can handle
+  // them separately (their content must bypass prose escaping/inline formatting).
+  const parts = text.split(/(```[\w]*\n?[\s\S]*?```|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi);
   return parts
     .map((part, i) => {
-      // Odd-indexed parts are fenced code block matches
-      if (i % 2 === 1) {
-        const match = part.match(/^```(\w*)\n?([\s\S]*?)```$/);
-        if (match) {
-          const lang = match[1];
-          const code = esc(match[2]);
-          const langAttr = lang ? ` class="language-${esc(lang)}"` : "";
-          return `<pre><code${langAttr}>${code}</code></pre>`;
-        }
+      // Captured segments (odd-indexed) are either image links or code blocks.
+      const imgMatch = part.match(IMG_LINK_RE);
+      if (imgMatch) {
+        return renderImageEmbed(imgMatch[2], imgMatch[1]);
+      }
+      const codeMatch = part.match(/^```(\w*)\n?([\s\S]*?)```$/);
+      if (codeMatch) {
+        const lang = codeMatch[1];
+        const code = esc(codeMatch[2]);
+        const langAttr = lang ? ` class="language-${esc(lang)}"` : "";
+        return `<pre><code${langAttr}>${code}</code></pre>`;
       }
       // Strip boundary newlines that would double-up spacing next to <pre> blocks
       let prose = part;

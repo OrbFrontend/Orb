@@ -517,6 +517,68 @@
   display: none;
 }
 
+.msg-image-embed {
+  margin: 6px 0;
+}
+
+.msg-image-embed > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.msg-image-label {
+  font-weight: 500;
+}
+
+.msg-image-embed > summary::-webkit-details-marker {
+  display: none;
+}
+
+.msg-image-embed[open] .reasoning-summary-arrow {
+  transform: rotate(90deg);
+}
+
+.msg-image-link {
+  display: block;
+  margin-top: 6px;
+  cursor: zoom-in;
+}
+
+/* Render as large as possible, but never wider than the message column has when
+   the inspector is expanded. We cap to a fixed width derived from the viewport
+   minus the sidebar + inspector panels, so collapsing/expanding the sidepanel
+   doesn't resize the image. min(100%, …) keeps it within the message box. */
+.msg-image {
+  display: block;
+  width: 100%;
+  max-width: min(
+    100%,
+    calc(100vw - var(--sidebar-width) - var(--inspector-width) - 88px)
+  );
+  height: auto;
+  border-radius: var(--radius);
+}
+
+.msg-image-broken {
+  display: inline-block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* On mobile the side panels are overlays, so the chat column spans the full
+   width — cap the image to the message box instead of the panel-based calc. */
+@media (max-width: 900px) {
+  .msg-image { max-width: 100%; }
+}
+
 .attachment-item {
   display: flex;
   align-items: center;
