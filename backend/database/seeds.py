@@ -7,8 +7,8 @@ SEED_MOOD_FRAGMENTS = [
         "description": "Lean into dialogue and natural speech",
         "prompt_text": (
             "Lean into dialogue. Characters express themselves through speech. "
-            "Use dialogue tags sparingly — let the words carry the tone. Include verbal tics, "
-            "interruptions, trailing off, and naturalistic speech patterns."
+            "Use dialogue tags sparingly. Include verbal tics, "
+            "interruptions, trailing off, and naturalistic speech patterns. Real dialogue is usually intentional, short, and direct."
         ),
         "negative_prompt": (
             "Pull back from heavy dialogue. Return to a balanced mix of prose and speech. "
@@ -21,9 +21,8 @@ SEED_MOOD_FRAGMENTS = [
         "description": "Foreground the character's inner thoughts. Only use when the user is acting strange.",
         "prompt_text": (
             "Foreground the character's inner thoughts. Show the gap between what they think "
-            "and what they say. Stream of consciousness is acceptable. The reader should feel "
-            "like they're inside the character's head. "
-            "The narration should share the character's world view, inject the character's opinion and use their vocabulary in the prose."
+            "and what they say. Stream of consciousness is acceptable. The reader should feel like they're inside the character's head. "
+            "The narration should share the character's world view, inject the character's opinion and use their vocabulary in the prose without asterisks."
         ),
         "negative_prompt": (
             "Stop foregrounding inner thoughts. Return to external action and dialogue. " "Keep interiority brief and grounded."
@@ -48,22 +47,18 @@ SEED_MOOD_FRAGMENTS = [
         "label": "Sensual",
         "description": "NSFW mode - enable if the vibes of the situation call for it",
         "prompt_text": (
-            "The narration may describe body parts that are exposed or looked at - visually, or interacted with - tactilely, but sparingly in order to avoid repetition. Take initiative and actively push the scene forward, no need to ask. "
-            'The narration can use NSFW, vulgar, uncensored, explicit vocabulary where applicable. Avoid roundabout euphemisms like "heat", "core", etc. The prose is now more brutal, vivid, and direct. '
-            "Consider positions and clothing states of the characters - what are they wearing, and where are they in relation to each other? "
-            "Focus on staying in character even though the vibes are sensual - characters still have their own boundaries and will behave realistically and warily of strangers."
+            "The narration may describe body parts that are exposed or looked at - visually, or interacted with - tactilely, but sparingly in order to avoid repetition. Take initiative and actively push the scene forward - no need to ask. "
+            'The narration may use NSFW, vulgar, uncensored, explicit vocabulary where applicable. Avoid roundabout euphemisms like "heat", "core", etc. The prose is now more direct. '
+            "Focus on staying in character even though the vibes are sensual - characters still have their own boundaries and will behave realistically and skeptically."
         ),
-        "negative_prompt": (
-            "Return to non-explicit writing. Keep all descriptions tasteful and non-graphic. "
-            "Do not use vulgar sexual vocabulary or describe exposed body parts explicitly."
-        ),
+        "negative_prompt": ("Return to non-explicit writing. Keep all descriptions tasteful and non-graphic."),
     },
     {
         "id": "defensive",
         "label": "Defensive",
-        "description": "Some characters don't take kindly to insults, sexual assault, violence, non-consensual advances, and will react.",
+        "description": "Most characters disapprove of insults, violence, non-consensual advances, and will react.",
         "prompt_text": (
-            "Some characters don't take kindly to insults, sexual assault, violence, non-consensual advances. They will fight back or escape (or at least try to) according to their personalities. React immediately."
+            "Most characters disapprove of insults, violence, non-consensual advances. They will fight back or escape (or at least try to) according to their personalities. React immediately."
         ),
         "negative_prompt": "",
     },
@@ -72,7 +67,17 @@ SEED_MOOD_FRAGMENTS = [
         "label": "Grounded",
         "description": "The characters are behaving irrationally/illogically (porn logic, too friendly towards strangers, non-sensical power-scaling, etc.), time to reign them in and make them act more realistic.",
         "prompt_text": (
-            "The scenario is getting far-fetched and characters are behaving irrationally/illogically. Focus on being realistic and grounded now, the characters should act like how real people act, talk like how real people talk. That means less monologue, more wariness of strangers, balanced power-scaling, etc."
+            "The scenario is getting far-fetched and characters are behaving irrationally (porn logic, too friendly towards strangers, non-sensical power-scaling, etc.). Focus on being realistic and grounded now, the characters should act like how real people act. That means less monologue, more skepticism, balanced power-scaling, etc."
+        ),
+        "negative_prompt": "",
+    },
+    {
+        "id": "fallible",
+        "label": "Fallible",
+        "description": "The user is power-gaming - dictating outcomes, auto-succeeding, or writing other characters' actions for them. Reclaim character autonomy.",
+        "prompt_text": (
+            "The user proposes their character's attempts, not the results. Their actions can miss, be resisted, or backfire depending on the situation and the other character's capability. "
+            "Other characters have their own will - the user cannot control their bodies, words, or thoughts. Push back on anything that overrides character autonomy."
         ),
         "negative_prompt": "",
     },
@@ -126,20 +131,6 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "sort_order": 3,
     },
     {
-        "id": "writing_direction",
-        "label": "Writing Direction",
-        "description": (
-            "How the scene should be written — focus, emphasis, descriptive lens, internal state "
-            "(e.g. 'focus on his anxious tics in detail', 'narrate her spiraling thoughts on why it went wrong', "
-            "'describe her exposed stomach vividly', 'describe what he sees in the picture', "
-            "'emphasize her speech quirks'). Keep to one short sentence. Show don't tell."
-        ),
-        "field_type": "string",
-        "required": True,
-        "injection_label": "Narration",
-        "sort_order": 4,
-    },
-    {
         "id": "detected_repetitions",
         "label": "Detected Repetitions",
         "description": (
@@ -151,7 +142,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "field_type": "array",
         "required": False,
         "injection_label": "Avoid repeating",
-        "sort_order": 5,
+        "sort_order": 4,
     },
     {
         "id": "suggested_actions",
@@ -160,7 +151,7 @@ SEED_INTERACTIVE_FRAGMENTS = [
         "field_type": "feedback",
         "required": False,
         "injection_label": "Suggestions",
-        "sort_order": 7,
+        "sort_order": 5,
         "enabled": False,
     },
 ]
