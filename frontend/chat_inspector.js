@@ -434,8 +434,17 @@ export function renderInspector() {
 
 function _renderInspectorMain() {
   if (S.isStreaming && S.lastDirectorData === null) {
-    $("inspector-content").innerHTML = `${_buildReasoningHtml()}
+    // Reserve slots in the canonical (after-stream) order so blocks fill in
+    // place rather than reordering when director data lands. Activation is
+    // unknown mid-stream, so every mood renders inactive (greyed); the "active"
+    // class lands in place once the director resolves.
+    const pendingMoodsHtml = S.moodFragments.map((f) => `<span class="style-tag">${esc(f.label)}</span>`).join("");
+    $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
+       <div class="inspector-block"><h4>Moods</h4>
+         <div>${pendingMoodsHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
+       </div>
+       ${_buildReasoningHtml()}
        <div style="color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:8px">
          <span class="typing-indicator"><span></span><span></span><span></span></span> Director thinking…
        </div>`;
@@ -484,8 +493,11 @@ function _renderInspectorMain() {
 
   if (!hasDirectorData) {
     const fbHtml = buildFeedbackHtml(S.lastFeedback && S.lastFeedback.values);
-    $("inspector-content").innerHTML = `${_buildReasoningHtml()}
+    // Canonical order: context-size, reasoning, feedback (matches the settled
+    // director-data branch so nothing shifts once director output arrives).
+    $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
+       ${_buildReasoningHtml()}
        ${fbHtml}
        ${fbHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
     renderContextSize();
