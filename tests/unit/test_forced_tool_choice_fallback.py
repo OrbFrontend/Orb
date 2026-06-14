@@ -16,12 +16,15 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+from backend import endpoint_profiles as ep_mod
 from backend import llm_client as llm_mod
-from backend.endpoint_profiles import ModelProfile, is_forced_tool_choice, profile_for
-from backend.llm_client import (
-    LLMClient,
+from backend.endpoint_profiles import (
+    ModelProfile,
     _is_tool_choice_unsupported,
+    is_forced_tool_choice,
+    profile_for,
 )
+from backend.llm_client import LLMClient
 
 
 # ---- Layer 1: ModelProfile / PROFILES -------------------------------------
@@ -147,9 +150,9 @@ def _client_factory(responses):
 
 @pytest.fixture(autouse=True)
 def _clear_session_cache():
-    llm_mod._TOOL_CHOICE_UNSUPPORTED.clear()
+    ep_mod._TOOL_CHOICE_UNSUPPORTED.clear()
     yield
-    llm_mod._TOOL_CHOICE_UNSUPPORTED.clear()
+    ep_mod._TOOL_CHOICE_UNSUPPORTED.clear()
 
 
 @pytest.mark.parametrize("tc", [_FORCED_TC, "required", "none", "auto"])
@@ -171,11 +174,11 @@ async def test_openrouter_404_retries_by_dropping_tool_choice(tc):
     assert "tool_choice" not in fake.bodies[1]
     assert events[-1]["type"] == "done"
     # Pair remembered for the session.
-    assert ("https://openrouter.ai/api/v1", "any/model") in llm_mod._TOOL_CHOICE_UNSUPPORTED
+    assert ("https://openrouter.ai/api/v1", "any/model") in ep_mod._TOOL_CHOICE_UNSUPPORTED
 
 
 async def test_session_cache_drops_up_front():
-    llm_mod._TOOL_CHOICE_UNSUPPORTED.add(("https://openrouter.ai/api/v1", "any/model"))
+    ep_mod._TOOL_CHOICE_UNSUPPORTED.add(("https://openrouter.ai/api/v1", "any/model"))
     fake, p = _client_factory([_FakeStreamResponse(200, lines=_DONE_LINES)])
     client = LLMClient("https://openrouter.ai/api/v1")
     with p:

@@ -116,7 +116,6 @@ from .workflows.attachment_cache import (
     OVERSIZE_NO_METADATA_REASON,
     RehydrateAlreadyDoneError,
 )
-from .endpoint_profiles import profile_for
 from .workflows import (
     HookType,
     OnDemandCtx,
@@ -1131,7 +1130,6 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
     client = LLMClient(
         settings["endpoint_url"],
         api_key=settings.get("api_key", ""),
-        profile=profile_for(settings["endpoint_url"], settings.get("model_name", "")),
         abort_token=abort_token,
     )
     summarizer = ConversationSummarizer(client, settings)
@@ -2105,7 +2103,6 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
         client = LLMClient(
             settings_snapshot["endpoint_url"],
             api_key=settings_snapshot.get("api_key", ""),
-            profile=profile_for(settings_snapshot["endpoint_url"], settings_snapshot.get("model_name", "")),
         )
         async with workflow_character_state_lock(conv.get("character_card_id") or "", workflow_id):
             try:
@@ -2154,7 +2151,6 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
         client = LLMClient(
             settings_snapshot["endpoint_url"],
             api_key=settings_snapshot.get("api_key", ""),
-            profile=profile_for(settings_snapshot["endpoint_url"], settings_snapshot.get("model_name", "")),
         )
 
         card_id = conv.get("character_card_id")
@@ -2340,7 +2336,6 @@ async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = B
         client = LLMClient(
             settings_snapshot["endpoint_url"],
             api_key=settings_snapshot.get("api_key", ""),
-            profile=profile_for(settings_snapshot["endpoint_url"], settings_snapshot.get("model_name", "")),
         )
 
         try:
@@ -2453,7 +2448,6 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
         client = LLMClient(
             settings_snapshot["endpoint_url"],
             api_key=settings_snapshot.get("api_key", ""),
-            profile=profile_for(settings_snapshot["endpoint_url"], settings_snapshot.get("model_name", "")),
         )
 
         try:

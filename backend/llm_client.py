@@ -6,26 +6,9 @@ import logging
 import re
 from typing import Any, AsyncIterator, Mapping, Sequence
 
-from .endpoint_profiles import ModelProfile
+from . import endpoint_profiles
 
 logger = logging.getLogger(__name__)
-
-# (base_url, model) pairs seen to reject the tool_choice param this session.
-# In-memory only (cleared on restart); lets later calls drop it up front.
-_TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
-
-
-def _is_tool_choice_unsupported(status: int, text: str) -> bool:
-    """True for OpenRouter's tool_choice rejection: a 404 reading
-    "No endpoints found that support the provided 'tool_choice' value."
-    The provider routed for this model honors no tool_choice value at all
-    (not just forced ones), so the recovery is to drop the param entirely.
-    Narrow on purpose so genuine 404s (bad model id, etc.) don't match.
-    """
-    if status != 404:
-        return False
-    low = text.lower()
-    return "tool_choice" in low and "no endpoints found" in low
 
 
 class AbortToken:
@@ -79,13 +62,11 @@ class LLMClient:
         base_url: str,
         api_key: str = "",
         timeout: float = 120.0,
-        profile: ModelProfile | None = None,
         abort_token: AbortToken | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
-        self.profile = profile
         # Shared across the turn's clients when passed in; otherwise a private
         # token so a standalone client (e.g. a workflow hook) is still abortable.
         self.abort_token = abort_token or AbortToken()
@@ -136,18 +117,11 @@ class LLMClient:
         # Requests usage in the terminal SSE chunk; servers that don't support it silently ignore this field.
         body.setdefault("stream_options", {"include_usage": True})
 
-        if self.profile is not None:
-            for action in self.profile.apply(body):
-                logger.info("LLM profile: %s", action)
-
-        # Skip the round-trip if this pair already rejected tool_choice this session.
-        is_openrouter = "openrouter.ai" in self.base_url.lower()
-        if is_openrouter and "tool_choice" in body and (self.base_url, model) in _TOOL_CHOICE_UNSUPPORTED:
-            logger.info(
-                "LLM tool_choice: dropping unsupported tool_choice for known model %s",
-                model,
-            )
-            body.pop("tool_choice")
+        # Provider-specific body translation (profiles + session-learned
+        # workarounds) lives entirely in endpoint_profiles; the client just
+        # applies whatever it returns.
+        for action in endpoint_profiles.prepare_request_body(self.base_url, model, body):
+            logger.info("LLM profile: %s", action)
 
         logger.info(
             "LLM complete: model=%s, tools=%s, tool_choice=%s",
@@ -163,9 +137,10 @@ class LLMClient:
         finish_reason: str | None = None
         usage: dict | None = None
 
-        # At most one retry, solely to self-heal an OpenRouter model that rejects
-        # the tool_choice param. The 404 lands before any SSE event, so the retry
-        # is clean.
+        # At most one retry, solely to self-heal a provider quirk that
+        # endpoint_profiles.recover_from_error() recognises (e.g. an OpenRouter
+        # model rejecting tool_choice). The error lands before any SSE event,
+        # so the retry is clean.
         for attempt in range(2):
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:
@@ -185,24 +160,14 @@ class LLMClient:
                             err_text,
                         )
 
-                        # Concern 2: self-heal the one quirk we recognise. Tightly
-                        # gated so any other 404 still raises below.
-                        if (
-                            attempt == 0
-                            and is_openrouter
-                            and "tool_choice" in body
-                            and _is_tool_choice_unsupported(resp.status_code, err_text)
-                        ):
-                            _TOOL_CHOICE_UNSUPPORTED.add((self.base_url, model))
-                            logger.warning(
-                                "Model %s rejected tool_choice=%r; retrying without it. "
-                                "Add it to endpoint_profiles.PROFILES['openrouter.ai'] "
-                                "for a zero-retry fix.",
-                                model,
-                                body.get("tool_choice"),
-                            )
-                            body.pop("tool_choice")
-                            continue  # leave async-with cleanly, then retry
+                        # Concern 2: ask the provider layer whether this is a
+                        # recognised quirk worth one retry. It mutates body in
+                        # place and returns a log line, or None to propagate.
+                        if attempt == 0:
+                            fix = endpoint_profiles.recover_from_error(self.base_url, model, body, resp.status_code, err_text)
+                            if fix is not None:
+                                logger.warning("LLM recovery: %s", fix)
+                                continue  # leave async-with cleanly, then retry
                         resp.raise_for_status()
                     # Race each line read against the abort signal so that client.abort()
                     # breaks out of this loop immediately, letting the async-with block

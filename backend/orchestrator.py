@@ -14,7 +14,6 @@ from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 
 from . import database as db
 from .llm_client import AbortToken, LLMClient, reasoning_cfg
-from .endpoint_profiles import profile_for
 from .tool_defs import (
     TOOLS,
     PRE_WRITER_TOOLS,
@@ -1129,10 +1128,6 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     client = LLMClient(
         settings["endpoint_url"],
         api_key=settings.get("api_key", ""),
-        profile=profile_for(
-            settings["endpoint_url"],
-            settings.get("model_name", ""),
-        ),
         abort_token=abort_token,
     )
 
@@ -1153,11 +1148,9 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     if not agent_same and settings.get("agent_endpoint_id"):
         agent_url = settings.get("agent_endpoint_url", settings["endpoint_url"])
         agent_api_key = settings.get("agent_api_key", settings.get("api_key", ""))
-        agent_model = settings.get("agent_model_name", settings.get("model_name", ""))
         agent_client = LLMClient(
             agent_url,
             api_key=agent_api_key,
-            profile=profile_for(agent_url, agent_model),
             abort_token=abort_token,
         )
         agent_system_prompt, _, _ = await db.resolve_char_context(

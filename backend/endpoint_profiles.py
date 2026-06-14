@@ -171,8 +171,8 @@ def profile_for(endpoint_url: str, model: str = "") -> Optional[ModelProfile]:
     """Resolve (endpoint_url, model) to a ModelProfile, or None for pass-through.
 
     A blank `model` falls through to the endpoint default. An unmatched URL
-    returns None -- LLMClient then sends the body unchanged (current behavior
-    for local / unknown backends).
+    returns None -- the body is then sent unchanged (current behavior for
+    local / unknown backends).
     """
     if not endpoint_url:
         return None
@@ -182,4 +182,81 @@ def profile_for(endpoint_url: str, model: str = "") -> Optional[ModelProfile]:
             if model and model in models:
                 return models[model]
             return models.get(None)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Request preparation + error recovery (the provider seam LLMClient calls)
+#
+# These two module-level functions are the *entire* provider-specific surface
+# LLMClient depends on. The client stays transport-only: it builds the body,
+# sends it, and on a >=400 asks here whether the failure is a recognised quirk
+# worth one retry. Everything that knows about a provider -- URL matching,
+# error-text sniffing, the session memory of what a model rejects -- lives
+# here, not in llm_client.
+# ---------------------------------------------------------------------------
+
+# (endpoint_url, model) pairs seen to reject the tool_choice param this
+# session. In-memory only (cleared on restart); lets later calls drop it up
+# front instead of paying the round-trip + retry again.
+_TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
+
+
+def _is_openrouter(endpoint_url: str) -> bool:
+    return "openrouter.ai" in endpoint_url.lower()
+
+
+def _is_tool_choice_unsupported(status: int, text: str) -> bool:
+    """True for OpenRouter's tool_choice rejection: a 404 reading
+    "No endpoints found that support the provided 'tool_choice' value."
+    The provider routed for this model honors no tool_choice value at all
+    (not just forced ones), so the recovery is to drop the param entirely.
+    Narrow on purpose so genuine 404s (bad model id, etc.) don't match.
+    """
+    if status != 404:
+        return False
+    low = text.lower()
+    return "tool_choice" in low and "no endpoints found" in low
+
+
+def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]:
+    """Apply the matching profile plus any session-learned workarounds to
+    `body` in place, before it is sent. Returns human-readable log lines for
+    each mutation (empty list if the body is sent unchanged).
+    """
+    actions: list[str] = []
+
+    profile = profile_for(endpoint_url, model)
+    if profile is not None:
+        actions.extend(profile.apply(body))
+
+    # A model we already learned rejects tool_choice this session: drop it up
+    # front so we skip the failing round-trip entirely.
+    if "tool_choice" in body and (endpoint_url, model) in _TOOL_CHOICE_UNSUPPORTED:
+        tc = body.pop("tool_choice")
+        actions.append(f"tool_choice {tc!r} dropped (session-learned unsupported)")
+
+    return actions
+
+
+def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, text: str) -> Optional[str]:
+    """Inspect a >=400 response. If a recognised provider quirk explains it,
+    mutate `body` in place to work around it, remember the quirk for the
+    session, and return a log line describing the retry. Return None to let
+    the caller propagate the error (no retry).
+
+    The one quirk handled today: an OpenRouter model whose routed provider
+    rejects the tool_choice param (value-agnostic). Recovery is to drop the
+    param and retry once; the 404 lands before any SSE event, so the retry is
+    clean. List such models in PROFILES['openrouter.ai'] for a zero-retry fix.
+    """
+    if not _is_openrouter(endpoint_url):
+        return None
+    if "tool_choice" in body and _is_tool_choice_unsupported(status, text):
+        _TOOL_CHOICE_UNSUPPORTED.add((endpoint_url, model))
+        tc = body.pop("tool_choice")
+        return (
+            f"Model {model} rejected tool_choice={tc!r}; retrying without it. "
+            f"Add it to endpoint_profiles.PROFILES['openrouter.ai'] for a zero-retry fix."
+        )
     return None
