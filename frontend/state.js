@@ -69,6 +69,7 @@ export const S = {
   preventPromptOverrides: false, // when true, character card system_prompt and post_history_instructions are ignored
   autoscrollEnabled: true, // whether to auto-scroll chat to bottom during streaming
   _programmaticScroll: false, // true while scrollToBottom() is executing — suppresses scroll listener
+  renderWindowStart: 0, // index into S.messages of the first message rendered; older messages are backfilled lazily on scroll-up. 0 means full history is in view.
   hasMultipleTabs: false, // true if multiple tabs of the app are open
   editingPendingUserMsg: false, // true when the pending (not-yet-persisted) user message is in edit mode
   pendingUserMsgEdit: null, // stores edited content for the id-less pending user message to apply after streaming

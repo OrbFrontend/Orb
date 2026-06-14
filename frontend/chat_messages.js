@@ -3,7 +3,13 @@
 // navigation. Split out of chat.js; the public surface is re-exported from
 // chat.js.
 import { api } from "./api.js";
-import { canStartGeneration, renderMessages, setMessages } from "./chat_core.js";
+import {
+  canStartGeneration,
+  ensureIndexInWindow,
+  RENDER_WINDOW_SIZE,
+  renderMessages,
+  setMessages,
+} from "./chat_core.js";
 import { renderInspector } from "./chat_inspector.js";
 import {
   afterStream,
@@ -23,6 +29,8 @@ export function startEdit(msgId) {
   S.editingMsgId = msgId;
   S.forkEditMsgId = null;
   S.editingPendingUserMsg = false;
+  // The target may be above the current render window; widen so it's in the DOM.
+  ensureIndexInWindow(S.messages.findIndex((m) => m.id === msgId));
   renderMessages();
   // If editing the latest message, scroll to bottom so it's at the bottom of view.
   // Otherwise, center-focus on the message being edited.
@@ -51,6 +59,7 @@ export function startForkEdit(msgId) {
   S.forkEditMsgId = msgId;
   S.editingMsgId = null;
   S.editingPendingUserMsg = false;
+  ensureIndexInWindow(S.messages.findIndex((m) => m.id === msgId));
   renderMessages();
   const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
   const isLatest = msgEl && !msgEl.nextElementSibling;
@@ -259,8 +268,16 @@ export function initAutoscroll() {
 
   // Re-enable only once the user has scrolled back to the bottom (debounced to
   // avoid false positives from rapid programmatic scroll events during streaming)
+  const BACKFILL_TRIGGER = 200; // px from top at which to widen the render window
   ct.addEventListener("scroll", () => {
     if (S._programmaticScroll) return;
+    // Lazy backfill: scrolling near the top widens the render window upward. The
+    // distFromBottom math in renderMessages preserves the scroll anchor so the
+    // prepend is seamless. No-op once the full history is already in view.
+    if (S.renderWindowStart > 0 && ct.scrollTop <= BACKFILL_TRIGGER) {
+      S.renderWindowStart = Math.max(0, S.renderWindowStart - RENDER_WINDOW_SIZE);
+      renderMessages();
+    }
     clearTimeout(scrollDebounce);
     scrollDebounce = setTimeout(() => {
       const atBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight <= THRESHOLD;

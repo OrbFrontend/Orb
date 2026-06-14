@@ -4,7 +4,7 @@
 import { api } from "./api.js";
 import { onConvSwitch, stopAll as stopAllAudio } from "./audio_player.js";
 import { stopConversation } from "./chat_stream.js";
-import { renderMessages, setMessages } from "./chat_core.js";
+import { renderMessages, resetRenderWindow, setMessages } from "./chat_core.js";
 import { renderInspector } from "./chat_inspector.js";
 import { clearInspectedMessage, inspectMessage } from "./chat_messages.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
@@ -166,8 +166,13 @@ export async function selectConversation(id) {
     await deactivateWorld(oldWorldId);
   }
 
-  setMessages(await api.get(convUrl(id, "messages")));
-  S.directorState = await api.get(convUrl(id, "director"));
+  // Fetch messages and director state in parallel — neither depends on the other.
+  const [msgs, directorState] = await Promise.all([api.get(convUrl(id, "messages")), api.get(convUrl(id, "director"))]);
+  setMessages(msgs);
+  S.directorState = directorState;
+  // Render only the trailing window first; older messages backfill on scroll-up
+  // and during idle time, so switch latency no longer scales with history length.
+  resetRenderWindow();
   S.editingMsgId = null;
   S.magicInputMsgId = null;
   // Reset viewport-tracking state before re-rendering so each conv-open
@@ -180,13 +185,15 @@ export async function selectConversation(id) {
   // chat opens at the latest message with no visible top-to-bottom scroll.
   S.autoscrollEnabled = true;
   renderMessages(true);
+  scrollToBottom();
+  // Fetch the director-log for the inspector after first paint — it's a separate
+  // round-trip and must not gate the visible switch.
   const lastAsst = [...S.messages].reverse().find((m) => m.role === "assistant" && m.id);
   if (lastAsst) {
-    await inspectMessage(lastAsst.id);
+    inspectMessage(lastAsst.id);
   } else {
     clearInspectedMessage();
   }
-  scrollToBottom();
 }
 
 function confirmDeleteConversation(id, msgCount, afterDelete) {
