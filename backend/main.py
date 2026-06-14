@@ -1011,7 +1011,7 @@ async def api_global_stats():
         "total_messages": s["total_messages"],
         "character_spotlight": spotlight,
         "total_words": round(s["user_chars"] / 5),
-        "estimated_tokens": estimate_tokens(generated_chars) if generated_chars else 0,
+        "estimated_tokens": estimate_tokens(generated_chars),
         "storage_bytes": storage_bytes,
         "avg_latency_ms": round(avg_latency) if avg_latency is not None else None,
     }

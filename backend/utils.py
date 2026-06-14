@@ -33,6 +33,8 @@ CHARS_PER_TOKEN = 4
 
 def estimate_tokens(chars: int) -> int:
     """Rough token estimate from a character count (min 1 for any non-empty text)."""
+    if chars <= 0:
+        return 0
     return max(1, round(chars / CHARS_PER_TOKEN))
 
 
