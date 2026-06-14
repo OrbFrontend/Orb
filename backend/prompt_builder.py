@@ -480,9 +480,7 @@ def compute_agentic_lorebook_block(
         return ""
 
     director_named = {(n or "").strip().casefold() for n in (selected_names or [])}
-    keyword_hit = {
-        id(e) for e in select_keyword_entries(messages or [], entries, AGENTIC_LOREBOOK_SCAN_DEPTH)
-    }
+    keyword_hit = {id(e) for e in select_keyword_entries(messages or [], entries, AGENTIC_LOREBOOK_SCAN_DEPTH)}
 
     def is_active(entry: Mapping[str, Any]) -> bool:
         name = (entry.get("name", "") or "").strip().casefold()
