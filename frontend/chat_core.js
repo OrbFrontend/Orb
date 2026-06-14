@@ -81,10 +81,18 @@ export const ICON_MAGIC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentC
 export const ICON_CHEVRON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><polyline points="6 9 12 15 18 9"/></svg>`;
 export const ICON_FORK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>`;
 
-export function buildMsgToolbar(m) {
+export function buildMsgToolbar(m, childByParent = null) {
   const isAssistant = m.role === "assistant";
   const isGreeting = isAssistant && !m.parent_id;
-  const childAssistant = !isAssistant ? S.messages.find((c) => c.parent_id === m.id && c.role === "assistant") : null;
+  // childByParent is a precomputed Map(parent_id → assistant child) built once
+  // per render to avoid an O(N) scan of S.messages per user message (O(N²) total).
+  // Fall back to a direct find when called outside renderMessages (e.g. single
+  // toolbar repaint).
+  const childAssistant = isAssistant
+    ? null
+    : childByParent
+      ? childByParent.get(m.id) || null
+      : S.messages.find((c) => c.parent_id === m.id && c.role === "assistant");
   const regenTargetId = isAssistant ? m.id : childAssistant?.id;
   const canRegen = !isGreeting && (isAssistant || !!childAssistant || !!m.id);
 
@@ -264,11 +272,33 @@ function renderSpotlightCard(sp) {
     </div>`;
 }
 
+// How many trailing messages the window starts with on a fresh open. Tall enough
+// to fill a viewport so the first paint looks complete; older messages backfill
+// on scroll-up (handled in initAutoscroll) and via the idle full-fill below.
+export const RENDER_WINDOW_SIZE = 30;
+
+// Reset the render window to the tail. Called on conversation switch and when a
+// new message is appended so newly-relevant content is always in view.
+export function resetRenderWindow() {
+  S.renderWindowStart = Math.max(0, S.messages.length - RENDER_WINDOW_SIZE);
+}
+
+// Ensure a given message index is inside the render window (e.g. before editing
+// an off-window message). Returns true if the window was widened.
+export function ensureIndexInWindow(idx) {
+  if (idx >= 0 && idx < S.renderWindowStart) {
+    S.renderWindowStart = idx;
+    return true;
+  }
+  return false;
+}
+
 export function renderMessages(forceBottom = false) {
   const ct = $("chat-messages");
   const distFromBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight;
   let streamingEl = null;
   let badgeEl = null;
+  let renderedMsgs = null;
   if (S.isStreaming) {
     streamingEl = S.streamingBodyEl?.closest(".message") ?? null;
     badgeEl = document.getElementById("active-director-badge");
@@ -284,6 +314,22 @@ export function renderMessages(forceBottom = false) {
     let msgs = S.messages;
     if (S.isStreaming && S.streamCutoffIndex != null) {
       msgs = S.messages.slice(0, S.streamCutoffIndex);
+    }
+    // Windowed render: only paint the trailing slice synchronously. The window
+    // always includes the tail, so the regular scroll-to-bottom behavior and all
+    // existing callers see the latest messages with no change. Older messages are
+    // backfilled lazily on scroll-up and fully filled during idle time below.
+    const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
+    if (start > 0) msgs = msgs.slice(start);
+    renderedMsgs = msgs;
+    // Precompute parent_id → assistant child once (was an O(N) find per user
+    // message → O(N²)). Built over the full list so a child just below the window
+    // edge is still found.
+    const childByParent = new Map();
+    for (const c of S.messages) {
+      if (c.role === "assistant" && c.parent_id != null && !childByParent.has(c.parent_id)) {
+        childByParent.set(c.parent_id, c);
+      }
     }
     ct.innerHTML = msgs
       .map((m) => {
@@ -301,7 +347,7 @@ export function renderMessages(forceBottom = false) {
           <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? "disabled" : ""}>▶</button>
         </span>`
             : "";
-        const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m)}</div>`;
+        const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}</div>`;
         const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
         const editActions = isForkEditing
           ? `<button class="btn btn-sm" onclick="cancelForkEdit()">Cancel</button>
@@ -347,7 +393,7 @@ export function renderMessages(forceBottom = false) {
   ct.scrollTo({ top: targetTop, behavior: "instant" });
   if (!S.isStreaming) updateContextCounter();
   _refreshWorkflowViewportObserver();
-  _segmentRenderedMessages();
+  _segmentRenderedMessages(renderedMsgs);
 }
 
 // Wraps body words in addressable `.seg` spans and marks the clickable ones for
@@ -360,13 +406,18 @@ export function _applyWorkflowTextSegments(bodyEl, msg) {
   markClickable(bodyEl, msg);
 }
 
-function _segmentRenderedMessages() {
+function _segmentRenderedMessages(renderedMsgs) {
   if (!S.workflowTextEffects.length && !S.workflowClickHandlers.length) return;
+  if (!renderedMsgs) return;
+  // Index the rendered slice by id so each DOM node maps to its message without
+  // an O(N) scan of S.messages per element.
+  const byId = new Map();
+  for (const m of renderedMsgs) if (m.id) byId.set(m.id, m);
   for (const el of document.querySelectorAll("#chat-messages .message[data-msg-id]")) {
     const msgId = Number(el.dataset.msgId);
     if (!Number.isInteger(msgId) || msgId <= 0) continue;
     if (S.pendingRefineDiff?.msgId === msgId && S.showEditorDiff) continue;
-    const msg = S.messages.find((m) => m.id === msgId);
+    const msg = byId.get(msgId);
     if (!msg) continue;
     const body = el.querySelector(".msg-body");
     if (body) _applyWorkflowTextSegments(body, msg);

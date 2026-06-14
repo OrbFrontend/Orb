@@ -260,8 +260,26 @@ function renderImageEmbed(url, alt) {
   );
 }
 
+// Memoize rendered prose. formatProse is pure for a given input string, so on
+// re-renders (editing, streaming ticks, branch switches) we can skip the regex
+// passes entirely. Bounded to keep memory in check; oldest entries are evicted.
+const _proseCache = new Map();
+const _PROSE_CACHE_MAX = 2000;
+
 export function formatProse(text) {
   if (!text) return "";
+  const cached = _proseCache.get(text);
+  if (cached !== undefined) return cached;
+  const html = _formatProse(text);
+  if (_proseCache.size >= _PROSE_CACHE_MAX) {
+    // Evict the oldest insertion (Map preserves insertion order).
+    _proseCache.delete(_proseCache.keys().next().value);
+  }
+  _proseCache.set(text, html);
+  return html;
+}
+
+function _formatProse(text) {
   // Split on fenced code blocks and image links before escaping so we can handle
   // them separately (their content must bypass prose escaping/inline formatting).
   const parts = text.split(/(```[\w]*\n?[\s\S]*?```|!\[[^\]]*\]\((?:https?:\/\/[^\s)]+\.(?:jpe?g|png|gif|webp))\))/gi);
