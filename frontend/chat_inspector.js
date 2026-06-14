@@ -441,6 +441,7 @@ function _renderInspectorMain() {
        </div>`;
     const _rb = document.getElementById("reasoning-box");
     if (_rb) _rb.scrollTop = _rb.scrollHeight;
+    renderContextSize();
     return;
   }
 
@@ -487,6 +488,7 @@ function _renderInspectorMain() {
        <div class="inspector-block" id="inspector-context-size"></div>
        ${fbHtml}
        ${fbHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
+    renderContextSize();
     return;
   }
 
