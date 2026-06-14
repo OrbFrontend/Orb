@@ -6,18 +6,20 @@ import logging
 import re
 from typing import Any, AsyncIterator, Mapping, Sequence
 
-from .endpoint_profiles import ModelProfile, is_forced_tool_choice
+from .endpoint_profiles import ModelProfile
 
 logger = logging.getLogger(__name__)
 
-# (base_url, model) pairs seen to reject a forced tool_choice this session.
-# In-memory only (cleared on restart); lets later calls coerce up front.
-_FORCED_TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
+# (base_url, model) pairs seen to reject the tool_choice param this session.
+# In-memory only (cleared on restart); lets later calls drop it up front.
+_TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
 
 
-def _is_forced_tool_choice_unsupported(status: int, text: str) -> bool:
-    """True for OpenRouter's forced-tool_choice rejection: a 404 reading
+def _is_tool_choice_unsupported(status: int, text: str) -> bool:
+    """True for OpenRouter's tool_choice rejection: a 404 reading
     "No endpoints found that support the provided 'tool_choice' value."
+    The provider routed for this model honors no tool_choice value at all
+    (not just forced ones), so the recovery is to drop the param entirely.
     Narrow on purpose so genuine 404s (bad model id, etc.) don't match.
     """
     if status != 404:
@@ -138,18 +140,14 @@ class LLMClient:
             for action in self.profile.apply(body):
                 logger.info("LLM profile: %s", action)
 
-        # Skip the round-trip if this pair already rejected forcing this session.
+        # Skip the round-trip if this pair already rejected tool_choice this session.
         is_openrouter = "openrouter.ai" in self.base_url.lower()
-        if (
-            is_openrouter
-            and is_forced_tool_choice(body.get("tool_choice"))
-            and (self.base_url, model) in _FORCED_TOOL_CHOICE_UNSUPPORTED
-        ):
+        if is_openrouter and "tool_choice" in body and (self.base_url, model) in _TOOL_CHOICE_UNSUPPORTED:
             logger.info(
-                "LLM tool_choice: coercing forced -> 'auto' for known-unsupported %s",
+                "LLM tool_choice: dropping unsupported tool_choice for known model %s",
                 model,
             )
-            body["tool_choice"] = "auto"
+            body.pop("tool_choice")
 
         logger.info(
             "LLM complete: model=%s, tools=%s, tool_choice=%s",
@@ -166,7 +164,8 @@ class LLMClient:
         usage: dict | None = None
 
         # At most one retry, solely to self-heal an OpenRouter model that rejects
-        # forcing. The 404 lands before any SSE event, so the retry is clean.
+        # the tool_choice param. The 404 lands before any SSE event, so the retry
+        # is clean.
         for attempt in range(2):
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:
@@ -191,17 +190,18 @@ class LLMClient:
                         if (
                             attempt == 0
                             and is_openrouter
-                            and _is_forced_tool_choice_unsupported(resp.status_code, err_text)
-                            and is_forced_tool_choice(body.get("tool_choice"))
+                            and "tool_choice" in body
+                            and _is_tool_choice_unsupported(resp.status_code, err_text)
                         ):
-                            _FORCED_TOOL_CHOICE_UNSUPPORTED.add((self.base_url, model))
+                            _TOOL_CHOICE_UNSUPPORTED.add((self.base_url, model))
                             logger.warning(
-                                "Model %s rejected forced tool_choice; retrying with "
-                                "'auto'. Add it to endpoint_profiles.PROFILES "
-                                "['openrouter.ai'] for a zero-retry fix.",
+                                "Model %s rejected tool_choice=%r; retrying without it. "
+                                "Add it to endpoint_profiles.PROFILES['openrouter.ai'] "
+                                "for a zero-retry fix.",
                                 model,
+                                body.get("tool_choice"),
                             )
-                            body["tool_choice"] = "auto"
+                            body.pop("tool_choice")
                             continue  # leave async-with cleanly, then retry
                         resp.raise_for_status()
                     # Race each line read against the abort signal so that client.abort()

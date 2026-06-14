@@ -3,9 +3,10 @@
 Covers:
   - ModelProfile.allow_extra=None disables drop-filtering entirely.
   - The OpenRouter PROFILES entry coerces forced tool_choice proactively.
-  - LLMClient.complete()'s provider-gated, error-specific retry: coerces once
-    for the matching OpenRouter 404, raises immediately for unrelated 404s,
-    and never retries when tool_choice wasn't forced.
+  - LLMClient.complete()'s provider-gated, error-specific retry: drops
+    tool_choice once for the matching OpenRouter 404 (regardless of its value),
+    raises immediately for unrelated 404s, and never retries when no
+    tool_choice was sent.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from backend import llm_client as llm_mod
 from backend.endpoint_profiles import ModelProfile, is_forced_tool_choice, profile_for
 from backend.llm_client import (
     LLMClient,
-    _is_forced_tool_choice_unsupported,
+    _is_tool_choice_unsupported,
 )
 
 
@@ -63,11 +64,11 @@ def test_openrouter_unlisted_model_is_passthrough():
 # ---- helpers ---------------------------------------------------------------
 
 
-def test_is_forced_tool_choice_unsupported_signature():
+def test_is_tool_choice_unsupported_signature():
     txt = "No endpoints found that support the provided 'tool_choice' value."
-    assert _is_forced_tool_choice_unsupported(404, txt)
-    assert not _is_forced_tool_choice_unsupported(400, txt)
-    assert not _is_forced_tool_choice_unsupported(404, "model not found")
+    assert _is_tool_choice_unsupported(404, txt)
+    assert not _is_tool_choice_unsupported(400, txt)
+    assert not _is_tool_choice_unsupported(404, "model not found")
 
 
 def test_is_forced_tool_choice():
@@ -146,12 +147,15 @@ def _client_factory(responses):
 
 @pytest.fixture(autouse=True)
 def _clear_session_cache():
-    llm_mod._FORCED_TOOL_CHOICE_UNSUPPORTED.clear()
+    llm_mod._TOOL_CHOICE_UNSUPPORTED.clear()
     yield
-    llm_mod._FORCED_TOOL_CHOICE_UNSUPPORTED.clear()
+    llm_mod._TOOL_CHOICE_UNSUPPORTED.clear()
 
 
-async def test_openrouter_404_retries_with_auto():
+@pytest.mark.parametrize("tc", [_FORCED_TC, "required", "none", "auto"])
+async def test_openrouter_404_retries_by_dropping_tool_choice(tc):
+    # The 404 is value-agnostic: any tool_choice the routed provider can't honor
+    # (forced dict, "required", or even "none") recovers by dropping the param.
     fake, p = _client_factory(
         [
             _FakeStreamResponse(404, err_text=_OR_404),
@@ -160,25 +164,25 @@ async def test_openrouter_404_retries_with_auto():
     )
     client = LLMClient("https://openrouter.ai/api/v1")
     with p:
-        events = await _drain(client.complete([], "minimax/minimax-m3", tool_choice=_FORCED_TC))
-    # Two attempts: first forced, second coerced to "auto".
+        events = await _drain(client.complete([], "any/model", tool_choice=tc))
+    # Two attempts: first sends the value, second omits tool_choice entirely.
     assert len(fake.bodies) == 2
-    assert isinstance(fake.bodies[0]["tool_choice"], dict)
-    assert fake.bodies[1]["tool_choice"] == "auto"
+    assert fake.bodies[0]["tool_choice"] == tc
+    assert "tool_choice" not in fake.bodies[1]
     assert events[-1]["type"] == "done"
     # Pair remembered for the session.
-    assert ("https://openrouter.ai/api/v1", "minimax/minimax-m3") in (llm_mod._FORCED_TOOL_CHOICE_UNSUPPORTED)
+    assert ("https://openrouter.ai/api/v1", "any/model") in llm_mod._TOOL_CHOICE_UNSUPPORTED
 
 
-async def test_session_cache_coerces_up_front():
-    llm_mod._FORCED_TOOL_CHOICE_UNSUPPORTED.add(("https://openrouter.ai/api/v1", "minimax/minimax-m3"))
+async def test_session_cache_drops_up_front():
+    llm_mod._TOOL_CHOICE_UNSUPPORTED.add(("https://openrouter.ai/api/v1", "any/model"))
     fake, p = _client_factory([_FakeStreamResponse(200, lines=_DONE_LINES)])
     client = LLMClient("https://openrouter.ai/api/v1")
     with p:
-        await _drain(client.complete([], "minimax/minimax-m3", tool_choice=_FORCED_TC))
-    # Single request, coerced before sending.
+        await _drain(client.complete([], "any/model", tool_choice=_FORCED_TC))
+    # Single request, tool_choice dropped before sending.
     assert len(fake.bodies) == 1
-    assert fake.bodies[0]["tool_choice"] == "auto"
+    assert "tool_choice" not in fake.bodies[0]
 
 
 async def test_unrelated_404_raises_immediately():
@@ -197,9 +201,10 @@ async def test_non_openrouter_404_not_retried():
     assert len(fake.bodies) == 1
 
 
-async def test_no_retry_when_tool_choice_not_forced():
+async def test_no_retry_when_no_tool_choice_sent():
     fake, p = _client_factory([_FakeStreamResponse(404, err_text=_OR_404)])
     client = LLMClient("https://openrouter.ai/api/v1")
     with p, pytest.raises(httpx.HTTPStatusError):
-        await _drain(client.complete([], "minimax/minimax-m3", tool_choice="auto"))
+        await _drain(client.complete([], "any/model"))
     assert len(fake.bodies) == 1
+    assert "tool_choice" not in fake.bodies[0]
