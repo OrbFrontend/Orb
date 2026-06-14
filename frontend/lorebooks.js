@@ -389,6 +389,8 @@ function renderLorebookDrawer() {
     ? _buildEditorHtml()
     : `<div class="lb-empty-state">Select an entry to edit</div>`;
 
+  const prevScrollTop = drawer.querySelector(".lb-entries-scroll")?.scrollTop ?? 0;
+
   drawer.innerHTML = `
     <div class="lb-header">
       <span class="lb-header-title">Lorebook</span>
@@ -418,6 +420,9 @@ function renderLorebookDrawer() {
         ${editorHtml}
       </div>
     </div>`;
+
+  const scrollEl = drawer.querySelector(".lb-entries-scroll");
+  if (scrollEl) scrollEl.scrollTop = prevScrollTop;
 
   if (_selectedEntryId) _renderKeywordChips();
 }
