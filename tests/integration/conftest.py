@@ -149,6 +149,10 @@ async def streaming_client(db_path: Path, monkeypatch):
         log_level="warning",
         lifespan="off",
         timeout_graceful_shutdown=1,
+        # The app is SSE-based and uses no WebSocket endpoints. Disabling the
+        # WebSocket protocol avoids uvicorn importing the deprecated
+        # ``websockets.legacy`` module, which emits DeprecationWarnings.
+        ws="none",
     )
     server = uvicorn.Server(config)
     serve_task = asyncio.create_task(server.serve(sockets=[sock]))

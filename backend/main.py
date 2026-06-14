@@ -2004,7 +2004,7 @@ async def api_send_message(cid: str, data: SendMessage, request: Request):
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    attachments = [a.dict() for a in data.attachments]
+    attachments = [a.model_dump() for a in data.attachments]
     abort_token = AbortToken()
     return _CleanupStreamingResponse(
         _sse_stream(
