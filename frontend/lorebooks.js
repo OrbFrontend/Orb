@@ -15,6 +15,7 @@ document.addEventListener("keydown", (e) => {
 });
 let _focusWorldId = null;
 const _entries = {}; // worldId -> entry[]
+let _entrySearch = ""; // substring filter over entry names and content
 let _selectedEntryId = null;
 let _dirty = false;
 let _draft = {
@@ -303,6 +304,7 @@ export async function openLorebook(worldId) {
   _focusWorldId = worldId;
   _lorebookOpen = true;
   _selectedEntryId = null;
+  _entrySearch = "";
   _dirty = false;
   _draft = {
     name: "",
@@ -352,16 +354,22 @@ function renderLorebookDrawer() {
     return;
   }
 
-  const entries = _entries[_focusWorldId] || [];
-  const activeCount = entries.filter((e) => e.enabled === true || e.enabled === 1).length;
+  const allEntries = _entries[_focusWorldId] || [];
+  const activeCount = allEntries.filter((e) => e.enabled === true || e.enabled === 1).length;
 
-  const entryListHtml = entries
-    .map((e) => {
-      const enabled = e.enabled === true || e.enabled === 1;
-      const sel = _selectedEntryId === e.id;
-      const toggleId = `lb-entry-toggle-${e.id}`;
-      const dirtyDot = _dirty && _selectedEntryId === e.id ? `<span class="lb-dirty-dot"></span>` : "";
-      return `
+  const q = _entrySearch.trim().toLowerCase();
+  const entries = q
+    ? allEntries.filter((e) => (e.name || "").toLowerCase().includes(q) || (e.content || "").toLowerCase().includes(q))
+    : allEntries;
+
+  const entryListHtml = entries.length
+    ? entries
+        .map((e) => {
+          const enabled = e.enabled === true || e.enabled === 1;
+          const sel = _selectedEntryId === e.id;
+          const toggleId = `lb-entry-toggle-${e.id}`;
+          const dirtyDot = _dirty && _selectedEntryId === e.id ? `<span class="lb-dirty-dot"></span>` : "";
+          return `
       <div class="lb-entry-item${sel ? " active" : ""}${!enabled ? " lb-disabled" : ""}" onclick="lbSelectEntry(${e.id})">
         ${dirtyDot}
         <span class="lb-entry-name">${esc(e.name || e.keywords?.[0] || "")}</span>
@@ -373,8 +381,9 @@ function renderLorebookDrawer() {
           </label>
         </div>
       </div>`;
-    })
-    .join("");
+        })
+        .join("")
+    : `<div class="lb-empty-state">${q ? "No matching entries" : "No entries yet"}</div>`;
 
   const editorHtml = _selectedEntryId
     ? _buildEditorHtml()
@@ -391,6 +400,11 @@ function renderLorebookDrawer() {
           <span class="lb-world-name">${esc(world.name)}</span>
           <button class="btn btn-sm lb-rename-btn" onclick="showRenameWorldModal('${_focusWorldId}')" title="Rename lorebook">✎</button>
           <span class="lb-active-count">${activeCount} active</span>
+        </div>
+        <div class="lb-entry-search">
+          <input id="lb-entry-search-inp" class="lb-entry-search-inp" type="text"
+                 placeholder="Search entries…" value="${esc(_entrySearch)}"
+                 oninput="lbEntrySearch(this.value)">
         </div>
         <div class="lb-entries-scroll">
           ${entryListHtml}
@@ -558,6 +572,19 @@ export function lbRemoveChip(i) {
   _markDirty();
   _renderKeywordChips();
   setTimeout(() => $("lb-chip-text")?.focus(), 0);
+}
+
+// ── Entry search
+export function lbEntrySearch(value) {
+  _entrySearch = value;
+  const inp = $("lb-entry-search-inp");
+  const caret = inp?.selectionStart ?? value.length;
+  renderLorebookDrawer();
+  const newInp = $("lb-entry-search-inp");
+  if (newInp) {
+    newInp.focus();
+    newInp.setSelectionRange(caret, caret);
+  }
 }
 
 // ── Entry selection with dirty guard

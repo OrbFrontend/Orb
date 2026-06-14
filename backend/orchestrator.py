@@ -24,6 +24,8 @@ from .tool_defs import (
 )
 from .prompt_builder import (
     build_prefix,
+    build_lorebook_catalog,
+    compute_agentic_lorebook_block,
     compute_style_injection_block,
     compute_lorebook_injection_block,
 )
@@ -45,11 +47,11 @@ from .passes.director import DirectorResult, director_pass
 from .passes.writer import writer_pass, build_writer_content
 from .passes.editor import editor_pass
 from .database.models import (
+    ActiveLorebookEntryRow,
     CharacterCardRow,
     ConversationRow,
     InteractiveFragmentRow,
     DirectorStateRow,
-    LorebookEntryRow,
     MoodFragmentRow,
     PhraseGroup,
     SettingsRow,
@@ -276,10 +278,35 @@ def _feedback_active(settings: Mapping[str, Any], feedback_fragments: Sequence[M
     return agent_enabled(settings) and bool(settings.get("feedback_enabled", 0)) and bool(feedback_fragments)
 
 
+def _agentic_lorebook_active(
+    settings: Mapping[str, Any],
+    enabled_tools: Mapping[str, bool],
+    lorebook_entries: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Whether the Director drives lorebook activation this turn.
+
+    True only when the feature flag is on, the agent + ``direct_scene`` are on,
+    and at least one *non-constant* candidate entry exists to offer in the
+    catalog. Constant entries are always injected and never managed by the
+    Director, so a pool of only constants does not enable agentic mode. Both
+    tools-blob call sites (the main turn and magic-rewrite) read the same
+    settings/entries through this helper, so the cached blob stays consistent.
+    """
+    if not bool(settings.get("agentic_lorebook_enabled", 0)):
+        return False
+    if not agent_enabled(settings):
+        return False
+    if not bool(enabled_tools.get("direct_scene", False)):
+        return False
+    return any(not e.get("constant") for e in lorebook_entries)
+
+
 def _build_writer_tools_blob(
     settings: Mapping[str, Any],
     interactive_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: dict,
+    *,
+    agentic_lorebook: bool = False,
 ) -> dict:
     """Build the per-turn ``schema_overrides`` for the writer lane, mutating
     *enabled_tools* in place to add ``give_feedback`` when feedback is active.
@@ -290,10 +317,13 @@ def _build_writer_tools_blob(
     tools (Invariant 3); the give_feedback mirroring that keeps cross-turn cache
     parity can then never be forgotten at a call site. ``direct_scene`` is built
     from the writer fragments; ``give_feedback`` rides the same blob exactly like
-    it, built once from the enabled feedback fragments.
+    it, built once from the enabled feedback fragments. *agentic_lorebook* adds
+    the fixed ``selected_lorebook_entries`` parameter to ``direct_scene`` (see
+    :func:`_agentic_lorebook_active`); it grows the blob by a fixed ~1 property
+    and must be computed identically at both call sites.
     """
     writer_fragments, feedback_fragments = _split_interactive_fragments(interactive_fragments)
-    overrides: dict = {"direct_scene": build_direct_scene_tool(writer_fragments)}
+    overrides: dict = {"direct_scene": build_direct_scene_tool(writer_fragments, agentic_lorebook=agentic_lorebook)}
     if _feedback_active(settings, feedback_fragments):
         overrides["give_feedback"] = build_feedback_tool(feedback_fragments)
         enabled_tools["give_feedback"] = True
@@ -310,6 +340,9 @@ async def _run_pipeline(
     attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     phrase_bank: list[PhraseGroup] | None = None,
     lorebook_block: str = "",
+    lorebook_catalog: str = "",
+    agentic_lorebook: bool = False,
+    lorebook_entries: Sequence[Mapping[str, Any]] | None = None,
     editor_audit_msgs: list[str] | None = None,
     agent_client: LLMClient | None = None,
     agent_prefix: list[ChatMessage] | None = None,
@@ -324,6 +357,7 @@ async def _run_pipeline(
     kv_tracker: _KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     history: Sequence[Mapping[str, Any]] | None = None,
+    lorebook_messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
     """Three-pass pipeline: director → writer → editor, plus a post-pipeline
     workflow iteration before persistence.
@@ -393,6 +427,7 @@ async def _run_pipeline(
     agent_raw, calls, latency = "", [], 0
     rewritten_msg: str | None = None
     extra_fields: dict = {}
+    selected_lorebook_entries: list[str] = []
     reasoning_director_text = ""
     reasoning_writer_text = ""
     reasoning_editor_text = ""
@@ -417,6 +452,7 @@ async def _run_pipeline(
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
             lorebook_block=lorebook_block,
+            lorebook_catalog=lorebook_catalog,
             progressive_state=progressive_state,
         ):
             if event["type"] == "reasoning":
@@ -433,6 +469,7 @@ async def _run_pipeline(
                 latency = result.latency
                 rewritten_msg = result.rewritten_msg
                 extra_fields = result.extra_fields
+                selected_lorebook_entries = result.selected_lorebook_entries
                 progressive_fields = {k: v for k, v in extra_fields.items() if k in _valid_progressive_ids}
         if rewritten_msg:
             effective_msg = rewritten_msg
@@ -471,11 +508,22 @@ async def _run_pipeline(
         },
     }
 
+    # In agentic mode the writer's lorebook block is computed *after* the director
+    # pass, from its selection (constants ∪ Director-named entries) — the keyword
+    # scan was bypassed up front (lorebook_block is ""), and the catalog only fed
+    # the director. Otherwise the keyword-scanned lorebook_block is used as-is.
+    if agentic_lorebook:
+        writer_lorebook_block = compute_agentic_lorebook_block(
+            lorebook_entries or [], selected_lorebook_entries, macros, lorebook_messages
+        )
+    else:
+        writer_lorebook_block = lorebook_block
+
     # --- Writer pass ---
     # Built once here and threaded into both the writer pass and (later) the
     # editor, which replays it verbatim to extend the writer's KV-cached prefix.
     writer_content = build_writer_content(
-        lorebook_block,
+        writer_lorebook_block,
         inj_block,
         cfg.writer_enabled_tools,
         effective_msg,
@@ -1027,7 +1075,7 @@ class PipelineContext:
     mood_fragments: list[MoodFragmentRow]
     interactive_fragments: list[InteractiveFragmentRow]
     phrase_bank: list[PhraseGroup]
-    lorebook_entries: list[LorebookEntryRow]
+    lorebook_entries: list[ActiveLorebookEntryRow]
     client: LLMClient
     system_prompt: str
     char_persona: str
@@ -1222,6 +1270,12 @@ class _TurnSetup:
     turn_scratch: dict
     kv_tracker: _KVCacheTracker
     schema_overrides: Mapping[str, dict]
+    # Agentic-lorebook activation: when active, ``lorebook_block`` is "" (the
+    # keyword scan is bypassed), ``lorebook_catalog`` carries the Director's
+    # candidate catalog, and the writer block is computed post-director from the
+    # selection. When inactive both are inert (catalog "", flag False).
+    lorebook_catalog: str = ""
+    agentic_lorebook_active: bool = False
 
 
 async def _prepare_turn(
@@ -1256,7 +1310,6 @@ async def _prepare_turn(
     byte-identical across passes regardless of per-call setting tweaks.
     """
     macros = Macros.from_settings(ctx.settings, ctx.conv["character_name"], ctx.active_persona)
-    lorebook_block = _compute_lorebook(macros, ctx, lorebook_messages)
 
     prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
 
@@ -1272,6 +1325,21 @@ async def _prepare_turn(
     else:
         enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
 
+    # Agentic lorebook decides the up-front lorebook computation. When active, the
+    # Director drives activation: skip the keyword scan (lorebook_block stays "")
+    # and instead build the candidate catalog for the director OOC; the writer's
+    # block is computed post-director from its selection. When inactive, scan as
+    # before. The flag is derived from the same pre-merge map and entries the
+    # tools blob is built from, so the blob (which gains selected_lorebook_entries iff
+    # active) stays consistent with the value threaded to _run_pipeline.
+    agentic_active = _agentic_lorebook_active(settings, enabled_tools_pre_merge, ctx.lorebook_entries)
+    if agentic_active:
+        lorebook_block = ""
+        lorebook_catalog = build_lorebook_catalog(ctx.lorebook_entries)
+    else:
+        lorebook_block = _compute_lorebook(macros, ctx, lorebook_messages)
+        lorebook_catalog = ""
+
     # _build_writer_tools_blob is the single source of truth for the tools blob:
     # direct_scene from the writer fragments, plus give_feedback mirrored into the
     # same blob (and enabled_tools) when feedback is active so every pass ships
@@ -1280,7 +1348,9 @@ async def _prepare_turn(
     # after the agent-zeroing above, since feedback runs even with the agent off
     # and not on writer_enabled_tools, which _resolve_pipeline_config blanks in
     # dual-model mode (Invariant 5).
-    overrides = _build_writer_tools_blob(settings, ctx.interactive_fragments, enabled_tools_pre_merge)
+    overrides = _build_writer_tools_blob(
+        settings, ctx.interactive_fragments, enabled_tools_pre_merge, agentic_lorebook=agentic_active
+    )
     schema_overrides = MappingProxyType(overrides)
     accumulators = {
         "merged_enabled_tools": dict(enabled_tools_pre_merge),
@@ -1322,6 +1392,8 @@ async def _prepare_turn(
         turn_scratch=turn_scratch,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
+        lorebook_catalog=lorebook_catalog,
+        agentic_lorebook_active=agentic_active,
     )
 
 
@@ -1707,6 +1779,9 @@ async def _generate_reply(
         attachments=attachments,
         phrase_bank=ctx.phrase_bank,
         lorebook_block=setup.lorebook_block,
+        lorebook_catalog=setup.lorebook_catalog,
+        agentic_lorebook=setup.agentic_lorebook_active,
+        lorebook_entries=ctx.lorebook_entries,
         editor_audit_msgs=editor_audit_msgs,
         agent_client=ctx.agent_client,
         agent_prefix=setup.agent_prefix,
@@ -1720,6 +1795,7 @@ async def _generate_reply(
         kv_tracker=setup.kv_tracker,
         schema_overrides=setup.schema_overrides,
         history=history,
+        lorebook_messages=lorebook_messages,
     )
     async for event in _consume_pipeline(
         pipeline,
@@ -2076,8 +2152,13 @@ async def handle_magic_rewrite(
         # (Invariant 3); the helper mirrors it here too, so the rewrite can't
         # diverge the tool section and bust the cache. No feedback step runs here —
         # this is purely cross-turn byte-parity; in dual-model the writer blob is
-        # empty so it's a no-op.
-        schema_overrides = _build_writer_tools_blob(settings, ctx.interactive_fragments, enabled_tools)
+        # empty so it's a no-op. agentic_lorebook is recomputed the same way the
+        # normal turn does (same settings/entries) so direct_scene's selected_lorebook_entries
+        # parameter matches and the rewrite doesn't bust the cached tool section.
+        agentic_active = _agentic_lorebook_active(settings, enabled_tools, ctx.lorebook_entries)
+        schema_overrides = _build_writer_tools_blob(
+            settings, ctx.interactive_fragments, enabled_tools, agentic_lorebook=agentic_active
+        )
         cfg = _resolve_pipeline_config(
             settings,
             enabled_tools,

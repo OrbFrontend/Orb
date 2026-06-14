@@ -22,6 +22,9 @@ from .tool_defs import (
 )
 
 LOREBOOK_SCAN_DEPTH = 6
+# The agentic fallback scan only looks at the current turn (previous assistant
+# message + current user message), since the Director already saw the history.
+AGENTIC_LOREBOOK_SCAN_DEPTH = 2
 
 
 def format_message_with_attachments(message: Mapping[str, Any], macros: Macros | None) -> ChatMessage:
@@ -157,6 +160,37 @@ def _tool_call_instruction(
     )
 
 
+def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
+    """Build the Director's lorebook catalog for the agentic-activation path.
+
+    Lists each non-``constant`` candidate entry — ``name`` plus its trigger
+    keywords (at most the first 5) — grouped by world. Constant entries are excluded (they are always
+    injected and the Director does not manage them). Deterministic order: worlds
+    in first-appearance order of the already priority/sort-ordered *entries*, and
+    entries within a world in that same order. Returns ``""`` when there are no
+    non-constant candidates (no catalog → no ``selected_lorebook_entries`` arg is offered).
+    """
+    candidates = [e for e in entries if not e.get("constant")]
+    if not candidates:
+        return ""
+
+    groups: dict[str, list[Mapping[str, Any]]] = {}
+    for e in candidates:
+        groups.setdefault(e.get("world_name") or "", []).append(e)
+
+    parts = [
+        "**Available Lorebook Entries** — activate the ones relevant to the scene via `selected_lorebook_entries`. Possible values are wrapped in square brackets."
+    ]
+    for world, items in groups.items():
+        if world:
+            parts.append(f"### {world}")
+        for e in items:
+            name = e.get("name", "")
+            kws = ", ".join((e.get("keywords", []) or [])[:5])
+            parts.append(f"- [{name}] — {kws}" if kws else f"- [{name}]")
+    return "\n".join(parts)
+
+
 def build_director_tool_prompt(
     tool_name: str,
     user_message: str,
@@ -166,6 +200,7 @@ def build_director_tool_prompt(
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
+    lorebook_catalog: str = "",
 ) -> str:
     tool = TOOLS.get(tool_name)
     if not tool:
@@ -180,6 +215,10 @@ def build_director_tool_prompt(
         moods = ", ".join(active_moods) or "none"
         frags = "\n".join(f"* [{f['id']}] - use in case: {f['description']}" for f in mood_fragments)
         parts.append(f"Previously active moods: {moods}\n\nAvailable writing moods:\n{frags}")
+        # Agentic lorebook catalog rides the OOC trailing (not the system prompt /
+        # tools blob) so the Writer reuses the shared history KV the Director warms.
+        if lorebook_catalog:
+            parts.append(lorebook_catalog)
         progressive_lines = [
             f"* [{df['id']}] ({df['description']}): {(progressive_state or {}).get(df['id'])}"
             for df in (interactive_fragments or [])
@@ -347,9 +386,23 @@ def compute_lorebook_injection_block(
     if not entries:
         return ""
 
-    scan_parts = [m.get("content") or "" for m in messages[-LOREBOOK_SCAN_DEPTH:] if m.get("content")]
+    return render_lorebook_block(select_keyword_entries(messages, entries), macros)
+
+
+def select_keyword_entries(
+    messages: Sequence[Mapping[str, Any]],
+    entries: Sequence[Mapping[str, Any]],
+    scan_depth: int = LOREBOOK_SCAN_DEPTH,
+) -> list[Mapping[str, Any]]:
+    """Select entries activated by the keyword/substring scan.
+
+    Constant entries are always selected. Other entries are selected when one of
+    their keywords appears (substring match) in the ``scan_depth`` most recent
+    messages. Returns the matched entries in input order.
+    """
+    scan_parts = [m.get("content") or "" for m in messages[-scan_depth:] if m.get("content")]
     scan_text = " ".join(scan_parts)
-    matched = []
+    matched: list[Mapping[str, Any]] = []
 
     for entry in entries:
         if entry.get("constant"):
@@ -373,10 +426,25 @@ def compute_lorebook_injection_block(
         if found:
             matched.append(entry)
 
-    if not matched:
+    return matched
+
+
+def render_lorebook_block(
+    entries: Sequence[Mapping[str, Any]],
+    macros: Macros | None = None,
+) -> str:
+    """Render the ``**Lorebook**`` block from already-*selected* entries.
+
+    Shared by both activation paths — the keyword scan
+    (:func:`compute_lorebook_injection_block`) and the agentic Director
+    (:func:`compute_agentic_lorebook_block`). Entries are sorted by priority
+    DESC; names/content are macro-resolved. Returns ``""`` when *entries* is
+    empty.
+    """
+    if not entries:
         return ""
 
-    matched.sort(key=lambda e: e.get("priority", 100), reverse=True)
+    matched = sorted(entries, key=lambda e: e.get("priority", 100), reverse=True)
 
     resolve = macros.resolve_message if macros else (lambda t: t)
     parts = ["**Lorebook**"]
@@ -389,3 +457,34 @@ def compute_lorebook_injection_block(
             parts.append(content)
 
     return "\n\n".join(parts)
+
+
+def compute_agentic_lorebook_block(
+    entries: Sequence[Mapping[str, Any]],
+    selected_names: Sequence[str],
+    macros: Macros | None = None,
+    messages: Sequence[Mapping[str, Any]] | None = None,
+) -> str:
+    """Render the ``**Lorebook**`` block from the Director's agentic selection.
+
+    Selects ``constant`` entries (always injected) ∪ entries whose ``name``
+    matches one of *selected_names* (compared case-insensitively, trimmed) ∪
+    entries activated by the keyword/substring scan over the current turn of
+    *messages* (``AGENTIC_LOREBOOK_SCAN_DEPTH``), run in parallel so a keyword
+    the Director overlooks still activates its entry.
+    Duplicate names activate every matching entry; names with no match are
+    ignored. Renders via the shared :func:`render_lorebook_block`. Returns ``""``
+    when nothing is selected.
+    """
+    if not entries:
+        return ""
+
+    director_named = {(n or "").strip().casefold() for n in (selected_names or [])}
+    keyword_hit = {id(e) for e in select_keyword_entries(messages or [], entries, AGENTIC_LOREBOOK_SCAN_DEPTH)}
+
+    def is_active(entry: Mapping[str, Any]) -> bool:
+        name = (entry.get("name", "") or "").strip().casefold()
+        return bool(entry.get("constant")) or name in director_named or id(entry) in keyword_hit
+
+    selected = [e for e in entries if is_active(e)]
+    return render_lorebook_block(selected, macros)

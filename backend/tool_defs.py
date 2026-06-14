@@ -21,17 +21,36 @@ _DIRECT_SCENE_FIXED_PROPERTIES = {
 
 _DIRECT_SCENE_FIXED_REQUIRED: list[str] = []
 
+# Optional activation parameter added when the Agentic Lorebook feature is on.
+# The schema declares only the *parameter*; the catalog of selectable values
+# lives in the director OOC trailing (so the cached tools blob grows by a fixed
+# ~1 property). Kept out of `required` so the Director may select none.
+_ACTIVE_LOREBOOK_PROPERTY = {
+    "selected_lorebook_entries": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": ("Names of lorebook entries relevant to this scene. Leave empty if none apply."),
+    },
+}
+
 _DIRECT_SCENE_DESCRIPTION = (
     "Call this to direct the scene. Deduce what the user wants to see and show them. "
     "Be very specific and intentional with the direction. Aim to keep things fresh, may churn if need to."
 )
 
 
-def build_direct_scene_tool(interactive_fragments: Sequence[Mapping[str, Any]]) -> dict:
+def build_direct_scene_tool(
+    interactive_fragments: Sequence[Mapping[str, Any]],
+    *,
+    agentic_lorebook: bool = False,
+) -> dict:
     """Build the direct_scene tool schema from enabled interactive fragments.
 
     Interactive fragments provide dynamic string/array parameters beyond the fixed
-    moods and keywords fields. The returned dict is in OpenAI function-calling format.
+    moods and keywords fields. When *agentic_lorebook* is true, the fixed
+    ``selected_lorebook_entries`` array parameter is appended so the Director can activate
+    lorebook entries by name (the selectable catalog rides the director OOC, not
+    this schema). The returned dict is in OpenAI function-calling format.
     """
     properties: dict = {}
     required: list[str] = []
@@ -52,6 +71,8 @@ def build_direct_scene_tool(interactive_fragments: Sequence[Mapping[str, Any]]) 
             required.append(fid)
 
     properties.update(_DIRECT_SCENE_FIXED_PROPERTIES)
+    if agentic_lorebook:
+        properties.update(_ACTIVE_LOREBOOK_PROPERTY)
     required.extend(_DIRECT_SCENE_FIXED_REQUIRED)
 
     return {

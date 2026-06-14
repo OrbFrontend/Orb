@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import cast
 
 from ..connection import _build_set_clause, get_db
-from ..models import LorebookEntryRow, WorldRow
+from ..models import ActiveLorebookEntryRow, LorebookEntryRow, WorldRow
 
 
 async def get_worlds() -> list[WorldRow]:
@@ -151,17 +151,22 @@ async def delete_lorebook_entry(entry_id: int) -> bool:
         return cur.rowcount > 0
 
 
-async def get_active_lorebook_entries() -> list[LorebookEntryRow]:
-    """Return all enabled entries from enabled worlds, ordered by priority DESC, sort_order ASC."""
+async def get_active_lorebook_entries() -> list[ActiveLorebookEntryRow]:
+    """Return all enabled entries from enabled worlds, ordered by priority DESC, sort_order ASC.
+
+    Joins ``w.name AS world_name`` so callers (the agentic-lorebook catalog) can
+    group entries by their world. The extra key is additive — readers of the
+    base ``LorebookEntryRow`` columns are unaffected.
+    """
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
                 """
-            SELECT le.* FROM lorebook_entries le
+            SELECT le.*, w.name AS world_name FROM lorebook_entries le
             JOIN worlds w ON le.world_id = w.id
             WHERE le.enabled = 1 AND w.enabled = 1
             ORDER BY le.priority DESC, le.sort_order ASC, le.id ASC
             """
             )
         )
-        return [_parse_lorebook_entry(r) for r in rows]
+        return [cast(ActiveLorebookEntryRow, _parse_lorebook_entry(r)) for r in rows]

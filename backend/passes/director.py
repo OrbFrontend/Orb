@@ -46,6 +46,7 @@ class DirectorResult:
     latency: int = 0
     rewritten_msg: str | None = None
     extra_fields: dict = field(default_factory=dict)
+    selected_lorebook_entries: list[str] = field(default_factory=list)
 
 
 # ── Tool-call result unpacking ────────────────────────────────────────────────
@@ -54,25 +55,32 @@ class DirectorResult:
 def apply_tool_calls(
     tool_calls: list[dict],
     current_moods: list[str],
-) -> tuple[list[str], str | None, dict]:
+) -> tuple[list[str], str | None, dict, list[str]]:
     """Extract values from tool calls.
 
-    Returns (moods, refined_message, extra_fields).
-    extra_fields contains all direct_scene args except moods.
+    Returns (moods, refined_message, extra_fields, selected_lorebook_entries).
+    extra_fields contains all direct_scene args except moods and selected_lorebook_entries.
+    selected_lorebook_entries is the Director's agentic lorebook selection (entry names);
+    it is pulled out explicitly so it never renders as a Scene Direction field.
     """
     moods = list(current_moods)
     refined: str | None = None
     extra_fields: dict = {}
+    selected_lorebook_entries: list[str] = []
 
     for tc in tool_calls:
         args = tc.get("arguments", {})
         if tc["name"] == "direct_scene":
             moods = args.get("moods", [])
-            extra_fields = {k: v for k, v in args.items() if k != "moods" and v not in (None, "", [])}
+            al = args.get("selected_lorebook_entries")
+            selected_lorebook_entries = [str(x) for x in al] if isinstance(al, list) else []
+            extra_fields = {
+                k: v for k, v in args.items() if k not in ("moods", "selected_lorebook_entries") and v not in (None, "", [])
+            }
         elif tc["name"] == "rewrite_user_prompt":
             refined = args.get("refined_message") or None
 
-    return (moods, refined, extra_fields)
+    return (moods, refined, extra_fields, selected_lorebook_entries)
 
 
 # ── Agent pass ────────────────────────────────────────────────────────────────
@@ -91,6 +99,7 @@ async def director_pass(
     kv_tracker=None,
     reasoning_on: bool = True,
     lorebook_block: str = "",
+    lorebook_catalog: str = "",
     progressive_state: dict | None = None,
 ) -> AsyncIterator[dict]:
     """Yields reasoning dicts during each tool call, then a single done dict.
@@ -105,6 +114,7 @@ async def director_pass(
 
     refined_msg: str | None = None
     extra_fields: dict = {}
+    selected_lorebook_entries: list[str] = []
     all_calls: list[dict] = []
     last_raw = ""
 
@@ -146,6 +156,7 @@ async def director_pass(
             interactive_fragments=interactive_fragments,
             progressive_state=progressive_state,
             tool_schema=tool_schema,
+            lorebook_catalog=lorebook_catalog,
         )
         tail = ("___\n\n" + lorebook_block + "\n\n" if lorebook_block else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
@@ -177,11 +188,13 @@ async def director_pass(
         logger.info("Agent tool=%s output:\n%s", name, last_raw)
         if parsed := parse_tool_calls(resp):
             all_calls.extend(parsed)
-            active_moods, new_refined, new_extra = apply_tool_calls(parsed, active_moods)
+            active_moods, new_refined, new_extra, new_lorebook = apply_tool_calls(parsed, active_moods)
             if new_refined:
                 refined_msg = new_refined
             if new_extra:
                 extra_fields.update(new_extra)
+            if new_lorebook:
+                selected_lorebook_entries = new_lorebook
         else:
             logger.info("Agent tool=%s: model skipped", name)
 
@@ -194,5 +207,6 @@ async def director_pass(
             latency=int((time.monotonic() - t0) * 1000),
             rewritten_msg=refined_msg,
             extra_fields=extra_fields,
+            selected_lorebook_entries=selected_lorebook_entries,
         ),
     }

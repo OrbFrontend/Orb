@@ -79,6 +79,11 @@ export async function loadSettings() {
   S.lengthGuardEnabled = Boolean(S.settings.length_guard_enabled);
   S.lengthGuardEnforce = Boolean(S.settings.length_guard_enforce);
 
+  // Agentic Lorebook: a feature flag (not a tool). When on, the Director picks
+  // relevant lorebook entries each turn instead of keyword matching. Depends on
+  // the Director (direct_scene) being enabled.
+  S.agenticLorebookEnabled = Boolean(S.settings.agentic_lorebook_enabled);
+
   // Editor Feedback: a feature flag (post-writer user-facing note). Gated here
   // and again by at least one enabled feedback-type interactive fragment server-side.
   S.feedbackEnabled = Boolean(S.settings.feedback_enabled);
@@ -175,7 +180,7 @@ const TOOL_DEFS = [
   {
     id: "direct_scene",
     name: "Director",
-    desc: "Gives written direction and selects active mood fragments based on scene context.",
+    desc: "Gives written direction and manages fragments based on scene context.",
   },
   {
     id: "rewrite_user_prompt",
@@ -275,6 +280,12 @@ export async function toggleLengthGuardEnforce(on) {
   await persistSettings({ length_guard_enforce: on });
 }
 
+export async function toggleAgenticLorebook(on) {
+  S.agenticLorebookEnabled = on;
+  renderToolsPanel();
+  await persistSettings({ agentic_lorebook_enabled: on });
+}
+
 export async function toggleFeedbackEnabled(on) {
   S.feedbackEnabled = on;
   renderToolsPanel();
@@ -335,6 +346,23 @@ export async function saveLengthGuardConfig() {
 export function renderToolsPanel() {
   $("agent-enable-chk").checked = S.agentEnabled;
   $("tools-panel-btn").style.opacity = S.agentEnabled ? "1" : "0.5";
+
+  // Agentic Lorebook depends on the Director (direct_scene). When the Director
+  // is off, the toggle is greyed out / disabled with a "requires Director" hint,
+  // and the backend falls back to the keyword scan regardless of this flag.
+  const alOn = S.agenticLorebookEnabled;
+  const directorOn = !!S.enabledTools.direct_scene;
+  const agenticLorebookCard = `<div class="tool-card ${alOn ? "tool-on" : ""}"${directorOn ? "" : ' style="opacity:0.5"'}>
+    <div class="tool-card-header">
+      <span class="tool-card-name">Agentic Lorebook</span>
+      <label class="tog" onclick="event.stopPropagation()">
+        <input type="checkbox" ${alOn ? "checked" : ""} ${directorOn ? "" : "disabled"} onchange="toggleAgenticLorebook(this.checked)">
+        <span class="tog-slider"></span>
+      </label>
+    </div>
+    <div class="tool-card-desc">Let Director manage Lorebook entries.${directorOn ? "" : " <em>Requires Director.</em>"}</div>
+  </div>`;
+
   const toolCards = TOOL_DEFS.map((t) => {
     const on = !!S.enabledTools[t.id];
     const auditChecks = AUDIT_TYPE_DEFS.map(
@@ -353,7 +381,7 @@ export function renderToolsPanel() {
              </label>
            </div>`
         : "";
-    return `<div class="tool-card ${on ? "tool-on" : ""}">
+    const card = `<div class="tool-card ${on ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">${t.name}</span>
         <label class="tog" onclick="event.stopPropagation()">
@@ -364,6 +392,8 @@ export function renderToolsPanel() {
       <div class="tool-card-desc">${t.desc}</div>
       ${extras}
     </div>`;
+    // The Agentic Lorebook card sits directly below the Prompt Rewriter card.
+    return t.id === "rewrite_user_prompt" ? card + agenticLorebookCard : card;
   }).join("");
 
   const lgOn = S.lengthGuardEnabled;

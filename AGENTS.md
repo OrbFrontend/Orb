@@ -503,7 +503,7 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 
 ### Formatting and linting the code
 
-1. Format backend code with Black: ./scripts/format_backend.sh
+1. Format backend code with 128-char lines Black: ./scripts/format_backend.sh
 2. Format frontend code with Biome: ./scripts/format_frontend.sh
 3. Lint both backend and frontend and check for static issues: ./scripts/lint.sh
 

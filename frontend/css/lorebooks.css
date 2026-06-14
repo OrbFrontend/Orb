@@ -184,6 +184,32 @@
 }
 .lb-rename-btn:hover { opacity: 1; background: none; }
 
+.lb-entry-search {
+  padding: 8px 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.lb-entry-search-inp {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-input, var(--bg-secondary));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.lb-entry-search-inp:focus {
+  border-color: var(--accent);
+}
+
+.lb-entry-search-inp::placeholder {
+  color: var(--text-muted);
+}
+
 .lb-entries-scroll {
   flex: 1;
   overflow-y: auto;
