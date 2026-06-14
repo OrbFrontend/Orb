@@ -71,7 +71,6 @@ const PHASE_LABELS = {
   generating: "Generating response…",
   refining: "Refining response…",
 };
-let _refineTimer = null;
 
 export function setGenerationPhase(phase) {
   if (!phase) {
@@ -157,18 +156,6 @@ function finalizeStreamingDiv(lastMsg) {
   return true;
 }
 
-function scheduleRefineTimer() {
-  clearTimeout(_refineTimer);
-  _refineTimer = setTimeout(() => {
-    if (S.isStreaming && S.generationPhase === "generating") setGenerationPhase("refining");
-  }, 1500);
-}
-
-function clearRefineTimer() {
-  clearTimeout(_refineTimer);
-  _refineTimer = null;
-}
-
 // ── Streaming Helpers
 export function setStreaming(active) {
   S.isStreaming = active;
@@ -230,7 +217,6 @@ export async function afterStream() {
   S.pendingUserMsg = null;
   S.wasAborted = false;
   S.hideStreamingBox = false; // Ensure streaming box is visible after streaming ends
-  clearRefineTimer();
   setGenerationPhase(null);
   // The phase_status handler clears a channel's label only on a terminal "done"
   // state; a workflow that stops without one (error or dropped stream) would
@@ -464,10 +450,17 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
     case "token":
       setGenerationPhase("generating");
       onToken();
-      scheduleRefineTimer();
+      break;
+    case "writer_done":
+      // Authoritative writer→editor boundary from the backend. Flip to "refining"
+      // only when an editor/feedback pass actually follows; otherwise stay on
+      // "generating" until afterStream clears the phase. Replaces the old
+      // token-gap timer, which misfired when slow endpoints stalled mid-stream.
+      try {
+        if (JSON.parse(data).editor_will_run) setGenerationPhase("refining");
+      } catch (_) {}
       break;
     case "writer_rewrite":
-      clearRefineTimer();
       setGenerationPhase("refining");
       _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
       try {

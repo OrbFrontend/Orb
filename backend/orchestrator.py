@@ -592,8 +592,16 @@ async def _run_pipeline(
     # call is fully opt-in. Because feedback is folded in here, we still enter the
     # editor pass (with editing disabled) when only feedback is wanted.
     feedback_needed = _feedback_active(settings, feedback_fragments)
+    editor_will_run = bool(resp_text and (cfg.do_edit or feedback_needed))
 
-    if resp_text and (cfg.do_edit or feedback_needed):
+    # Authoritative writer→editor boundary. The frontend flips to its "refining"
+    # phase on this event (not on a token-gap heuristic, which misfires when slow
+    # endpoints stall mid-stream), and only when an editor/feedback pass actually
+    # follows. Not emitted on the writer-abort path above — afterStream clears the
+    # phase there. Mirrors director_start/director_done.
+    yield {"event": "writer_done", "data": {"editor_will_run": editor_will_run}}
+
+    if editor_will_run:
         logger.info(
             "Editor pass starting (draft=%d chars, phrase_bank=%d groups, edit=%s, feedback=%s)",
             len(resp_text),
