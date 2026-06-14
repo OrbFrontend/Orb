@@ -22,7 +22,6 @@ async def test_list_interactive_fragments_returns_seeded_data(client, db):
     ids = {f["id"] for f in fragments}
     assert "keywords" in ids
     assert "next_event" in ids
-    assert "writing_direction" in ids
     assert "detected_repetitions" in ids
     assert "user_intent" in ids
 
@@ -108,7 +107,6 @@ async def test_seeded_interactive_fragments_have_correct_field_types(client, db)
     assert frags["user_intent"]["field_type"] == "string"
     assert frags["keywords"]["field_type"] == "array"
     assert frags["next_event"]["field_type"] == "string"
-    assert frags["writing_direction"]["field_type"] == "string"
     assert frags["detected_repetitions"]["field_type"] == "array"
 
 
@@ -117,7 +115,7 @@ async def test_seeded_required_flags(client, db):
     frags = {f["id"]: f for f in resp.json()}
 
     # Required seeded fragments
-    for fid in ("keywords", "next_event", "writing_direction"):
+    for fid in ("keywords", "next_event"):
         assert frags[fid]["required"] in (True, 1), f"{fid} should be required"
 
     # Optional seeded fragments

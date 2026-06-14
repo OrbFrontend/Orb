@@ -520,7 +520,6 @@ class TestSeedInteractiveFragments:
             "user_intent",
             "keywords",
             "next_event",
-            "writing_direction",
             "detected_repetitions",
             "suggested_actions",
         }
