@@ -29,6 +29,15 @@ ALWAYS_ALLOWED: frozenset[str] = frozenset({"model", "messages", "stream", "tool
 Transform = Callable[[dict], Optional[str]]
 
 
+def is_forced_tool_choice(tc: object) -> bool:
+    """True if tool_choice forces a specific call (a dict or "required").
+
+    The single source of truth for "forced" everywhere it's tested: profile
+    coercion here and llm_client's proactive/self-heal coercion.
+    """
+    return isinstance(tc, dict) or tc == "required"
+
+
 @dataclass(frozen=True)
 class ModelProfile:
     """Per-(endpoint, model) request translation policy.
@@ -38,7 +47,10 @@ class ModelProfile:
     """
 
     # Extra body keys allowed past ALWAYS_ALLOWED. Anything else is dropped.
-    allow_extra: frozenset[str]
+    # None disables the drop step entirely (no allowlist filtering) -- use for
+    # lenient backends (e.g. OpenRouter) where enumerating params risks
+    # dropping ones the model actually wants.
+    allow_extra: frozenset[str] | None
 
     # If False, coerce forced-function tool_choice dicts and "required" to
     # "auto". True means the caller's value passes through unchanged.
@@ -52,16 +64,17 @@ class ModelProfile:
         """Mutate body in place. Return human-readable actions for logging."""
         actions: list[str] = []
 
-        allowed = ALWAYS_ALLOWED | self.allow_extra
-        dropped = [k for k in body if k not in allowed]
-        for k in dropped:
-            body.pop(k)
-        if dropped:
-            actions.append(f"dropped={dropped}")
+        if self.allow_extra is not None:
+            allowed = ALWAYS_ALLOWED | self.allow_extra
+            dropped = [k for k in body if k not in allowed]
+            for k in dropped:
+                body.pop(k)
+            if dropped:
+                actions.append(f"dropped={dropped}")
 
         if not self.allow_forced_tool_choice:
             tc = body.get("tool_choice")
-            if isinstance(tc, dict) or tc == "required":
+            if is_forced_tool_choice(tc):
                 body["tool_choice"] = "auto"
                 actions.append(f"tool_choice {tc!r} -> 'auto'")
 
@@ -110,7 +123,7 @@ def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> Optional[str]:
     if not isinstance(thinking, dict) or thinking.get("type") != "enabled":
         return None
     tc = body.get("tool_choice")
-    if isinstance(tc, dict) or tc == "required":
+    if is_forced_tool_choice(tc):
         body["tool_choice"] = "auto"
         return f"tool_choice {tc!r} -> 'auto' (thinking enabled)"
     return None
@@ -139,6 +152,16 @@ PROFILES: dict[str, dict[Optional[str], ModelProfile]] = {
         "deepseek-reasoner": ModelProfile(
             allow_extra=_DEEPSEEK_REASONER_EXTRA,
             allow_forced_tool_choice=False,
+        ),
+    },
+    # No None-key default: unlisted OpenRouter models stay pass-through (most
+    # honor forcing). List only models known to reject a forced-function
+    # tool_choice; add a one-liner per newly-found one. llm_client self-heals
+    # the first hit of an unlisted model and logs a reminder to add it here.
+    "openrouter.ai": {
+        "minimax/minimax-m3": ModelProfile(
+            allow_extra=None,  # OpenRouter is lenient; drop nothing
+            allow_forced_tool_choice=False,  # forced -> "auto"
         ),
     },
 }

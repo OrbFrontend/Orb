@@ -6,9 +6,24 @@ import logging
 import re
 from typing import Any, AsyncIterator, Mapping, Sequence
 
-from .endpoint_profiles import ModelProfile
+from .endpoint_profiles import ModelProfile, is_forced_tool_choice
 
 logger = logging.getLogger(__name__)
+
+# (base_url, model) pairs seen to reject a forced tool_choice this session.
+# In-memory only (cleared on restart); lets later calls coerce up front.
+_FORCED_TOOL_CHOICE_UNSUPPORTED: set[tuple[str, str]] = set()
+
+
+def _is_forced_tool_choice_unsupported(status: int, text: str) -> bool:
+    """True for OpenRouter's forced-tool_choice rejection: a 404 reading
+    "No endpoints found that support the provided 'tool_choice' value."
+    Narrow on purpose so genuine 404s (bad model id, etc.) don't match.
+    """
+    if status != 404:
+        return False
+    low = text.lower()
+    return "tool_choice" in low and "no endpoints found" in low
 
 
 class AbortToken:
@@ -123,6 +138,19 @@ class LLMClient:
             for action in self.profile.apply(body):
                 logger.info("LLM profile: %s", action)
 
+        # Skip the round-trip if this pair already rejected forcing this session.
+        is_openrouter = "openrouter.ai" in self.base_url.lower()
+        if (
+            is_openrouter
+            and is_forced_tool_choice(body.get("tool_choice"))
+            and (self.base_url, model) in _FORCED_TOOL_CHOICE_UNSUPPORTED
+        ):
+            logger.info(
+                "LLM tool_choice: coercing forced -> 'auto' for known-unsupported %s",
+                model,
+            )
+            body["tool_choice"] = "auto"
+
         logger.info(
             "LLM complete: model=%s, tools=%s, tool_choice=%s",
             model,
@@ -137,121 +165,145 @@ class LLMClient:
         finish_reason: str | None = None
         usage: dict | None = None
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:
-                if resp.status_code >= 400:
-                    # Streaming response: body isn't eagerly read, so
-                    # raise_for_status() would surface only the status line.
-                    # Read the body so upstream error detail lands in logs.
-                    try:
-                        err_bytes = await resp.aread()
-                        err_text = err_bytes.decode("utf-8", errors="replace")
-                    except Exception as read_err:
-                        err_text = f"<failed to read response body: {read_err!r}>"
-                    logger.error(
-                        "LLM HTTP %d from %s: %s",
-                        resp.status_code,
-                        self._url(),
-                        err_text,
-                    )
-                    resp.raise_for_status()
-                # Race each line read against the abort signal so that client.abort()
-                # breaks out of this loop immediately, letting the async-with block
-                # exit *normally* and cleanly close the TCP connection to the LLM
-                # server. (Using asyncio task cancellation instead would leave the
-                # connection open under Python 3.11+ strict cancellation semantics.)
-                aiter = resp.aiter_lines().__aiter__()
-                abort_wait = asyncio.create_task(self.abort_token.wait())
-                try:
-                    while True:
-                        line_task = asyncio.ensure_future(aiter.__anext__())
+        # At most one retry, solely to self-heal an OpenRouter model that rejects
+        # forcing. The 404 lands before any SSE event, so the retry is clean.
+        for attempt in range(2):
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:
+                    if resp.status_code >= 400:
+                        # Concern 1: surface the error body. Streaming responses
+                        # aren't eagerly read, so raise_for_status() alone would log
+                        # only the status line -- read the body for upstream detail.
                         try:
-                            done, _ = await asyncio.wait(
-                                {line_task, abort_wait},
-                                return_when=asyncio.FIRST_COMPLETED,
+                            err_bytes = await resp.aread()
+                            err_text = err_bytes.decode("utf-8", errors="replace")
+                        except Exception as read_err:
+                            err_text = f"<failed to read response body: {read_err!r}>"
+                        logger.error(
+                            "LLM HTTP %d from %s: %s",
+                            resp.status_code,
+                            self._url(),
+                            err_text,
+                        )
+
+                        # Concern 2: self-heal the one quirk we recognise. Tightly
+                        # gated so any other 404 still raises below.
+                        if (
+                            attempt == 0
+                            and is_openrouter
+                            and _is_forced_tool_choice_unsupported(resp.status_code, err_text)
+                            and is_forced_tool_choice(body.get("tool_choice"))
+                        ):
+                            _FORCED_TOOL_CHOICE_UNSUPPORTED.add((self.base_url, model))
+                            logger.warning(
+                                "Model %s rejected forced tool_choice; retrying with "
+                                "'auto'. Add it to endpoint_profiles.PROFILES "
+                                "['openrouter.ai'] for a zero-retry fix.",
+                                model,
                             )
-                        except BaseException:
-                            line_task.cancel()
-                            raise
-
-                        if abort_wait in done:
-                            line_task.cancel()
-                            try:
-                                await line_task
-                            except (asyncio.CancelledError, StopAsyncIteration):
-                                pass
-                            break  # exit loop → async-with closes connection cleanly
-
-                        try:
-                            line = line_task.result()
-                        except StopAsyncIteration:
-                            break
-
-                        if not line.startswith("data: "):
-                            continue
-                        payload = line[6:].strip()
-                        if payload == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(payload)
-                        except json.JSONDecodeError:
-                            continue
-
-                        # Usage may appear in a terminal chunk (choices=[]) or on the final content chunk; last-write-wins since totals are monotonic.
-                        u = chunk.get("usage")
-                        if isinstance(u, dict):
-                            usage = u
-
-                        choices = chunk.get("choices") or []
-                        if not choices:
-                            # Pure usage/metadata chunk — nothing else to do.
-                            continue
-
-                        try:
-                            choice = choices[0]
-                            delta = choice.get("delta", {})
-
-                            # Reasoning delta (field name varies by server)
-                            rc = delta.get("reasoning_content") or delta.get("reasoning")
-                            if rc:
-                                reasoning_parts.append(rc)
-                                yield {"type": "reasoning", "delta": rc}
-
-                            # Content delta
-                            c = delta.get("content")
-                            if c:
-                                content_parts.append(c)
-                                yield {"type": "content", "delta": c}
-
-                            # Tool call argument deltas — accumulate by index
-                            for tc_delta in delta.get("tool_calls") or []:
-                                idx = tc_delta.get("index", 0)
-                                if idx not in tool_calls_acc:
-                                    tool_calls_acc[idx] = {
-                                        "id": "",
-                                        "type": "function",
-                                        "function": {"name": "", "arguments": ""},
-                                    }
-                                entry = tool_calls_acc[idx]
-                                if tc_delta.get("id"):
-                                    entry["id"] = tc_delta["id"]
-                                fn = tc_delta.get("function", {})
-                                if fn.get("name"):
-                                    entry["function"]["name"] += fn["name"]
-                                if fn.get("arguments"):
-                                    entry["function"]["arguments"] += fn["arguments"]
-
-                            if choice.get("finish_reason"):
-                                finish_reason = choice["finish_reason"]
-
-                        except (KeyError, IndexError):
-                            continue
-                finally:
-                    abort_wait.cancel()
+                            body["tool_choice"] = "auto"
+                            continue  # leave async-with cleanly, then retry
+                        resp.raise_for_status()
+                    # Race each line read against the abort signal so that client.abort()
+                    # breaks out of this loop immediately, letting the async-with block
+                    # exit *normally* and cleanly close the TCP connection to the LLM
+                    # server. (Using asyncio task cancellation instead would leave the
+                    # connection open under Python 3.11+ strict cancellation semantics.)
+                    aiter = resp.aiter_lines().__aiter__()
+                    abort_wait = asyncio.create_task(self.abort_token.wait())
                     try:
-                        await abort_wait
-                    except asyncio.CancelledError:
-                        pass
+                        while True:
+                            line_task = asyncio.ensure_future(aiter.__anext__())
+                            try:
+                                done, _ = await asyncio.wait(
+                                    {line_task, abort_wait},
+                                    return_when=asyncio.FIRST_COMPLETED,
+                                )
+                            except BaseException:
+                                line_task.cancel()
+                                raise
+
+                            if abort_wait in done:
+                                line_task.cancel()
+                                try:
+                                    await line_task
+                                except (asyncio.CancelledError, StopAsyncIteration):
+                                    pass
+                                break  # exit loop → async-with closes connection cleanly
+
+                            try:
+                                line = line_task.result()
+                            except StopAsyncIteration:
+                                break
+
+                            if not line.startswith("data: "):
+                                continue
+                            payload = line[6:].strip()
+                            if payload == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(payload)
+                            except json.JSONDecodeError:
+                                continue
+
+                            # Usage may appear in a terminal chunk (choices=[]) or on the final content chunk; last-write-wins since totals are monotonic.
+                            u = chunk.get("usage")
+                            if isinstance(u, dict):
+                                usage = u
+
+                            choices = chunk.get("choices") or []
+                            if not choices:
+                                # Pure usage/metadata chunk — nothing else to do.
+                                continue
+
+                            try:
+                                choice = choices[0]
+                                delta = choice.get("delta", {})
+
+                                # Reasoning delta (field name varies by server)
+                                rc = delta.get("reasoning_content") or delta.get("reasoning")
+                                if rc:
+                                    reasoning_parts.append(rc)
+                                    yield {"type": "reasoning", "delta": rc}
+
+                                # Content delta
+                                c = delta.get("content")
+                                if c:
+                                    content_parts.append(c)
+                                    yield {"type": "content", "delta": c}
+
+                                # Tool call argument deltas — accumulate by index
+                                for tc_delta in delta.get("tool_calls") or []:
+                                    idx = tc_delta.get("index", 0)
+                                    if idx not in tool_calls_acc:
+                                        tool_calls_acc[idx] = {
+                                            "id": "",
+                                            "type": "function",
+                                            "function": {"name": "", "arguments": ""},
+                                        }
+                                    entry = tool_calls_acc[idx]
+                                    if tc_delta.get("id"):
+                                        entry["id"] = tc_delta["id"]
+                                    fn = tc_delta.get("function", {})
+                                    if fn.get("name"):
+                                        entry["function"]["name"] += fn["name"]
+                                    if fn.get("arguments"):
+                                        entry["function"]["arguments"] += fn["arguments"]
+
+                                if choice.get("finish_reason"):
+                                    finish_reason = choice["finish_reason"]
+
+                            except (KeyError, IndexError):
+                                continue
+                    finally:
+                        abort_wait.cancel()
+                        try:
+                            await abort_wait
+                        except asyncio.CancelledError:
+                            pass
+            # Streamed to completion (or aborted) without a retry-triggering
+            # error -- done, no second attempt.
+            break
 
         # Assemble the final message dict (mirrors the non-streaming message format)
         message: dict = {}
