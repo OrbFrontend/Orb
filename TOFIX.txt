@@ -6,6 +6,8 @@
 [Done]  + Tag-based search.
   + Update button for Character Card => Select a new card and replace the existing one with it, keep everything in DB the same (esp UUID) except for new card data. Update lorebook as well if it has changed.
 
+- Feature: Expressions Engine as secondary workflow. User may choose to run in RAM or VRAM.
+- Feature: Tag removal - remove a tag from all cards in db. Designed in Char Library modal.
 - Feature: Tabs for left sidepanel, switch buttons at the bottom.
 
 -- Not yet --
