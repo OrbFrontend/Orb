@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Orb — the SSE turn stream, FE ↔ BE</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c2430;
+    --line: #2a3340;
+    --text: #d7e0ea;
+    --muted: #8b97a6;
+    --fe: #3b82f6;        /* frontend / browser */
+    --be: #a371f7;        /* backend / handle_turn */
+    --token: #2ea043;     /* prose tokens */
+    --token-soft: #1f6f33;
+    --meta: #d4862a;      /* control / meta events */
+    --meta-soft: #8a5a1d;
+    --warn: #f0556a;
+    --mono: ui-monospace, "SF Mono", "Fira Code", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: radial-gradient(1200px 700px at 70% -10%, #18202b 0%, var(--bg) 55%);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 28px 20px 48px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: .2px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+  header a { color: var(--be); text-decoration: none; }
+  header a:hover { text-decoration: underline; }
+
+  .phase-pill {
+    display: inline-block; margin-top: 14px; padding: 4px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  }
+
+  /* ── Stage: FE lifeline | wire | BE lifeline ─────────────────── */
+  .stage {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: 1fr 200px 1fr;
+    gap: 14px;
+    align-items: stretch;
+  }
+  @media (max-width: 860px) { .stage { grid-template-columns: 1fr; } .wire { order: -1; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    min-height: 360px;
+  }
+  .card.fe { border-top: 3px solid var(--fe); }
+  .card.be { border-top: 3px solid var(--be); }
+  .card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .card-title { font-weight: 700; font-size: 15px; }
+  .card-sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .dotmark { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .dotmark.fe { background: var(--fe); }
+  .dotmark.be { background: var(--be); }
+
+  /* ── Frontend state readout ──────────────────────────────────── */
+  .fe-phase {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700;
+    padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--muted); transition: all .35s ease;
+  }
+  .fe-phase .gd { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .fe-phase.pending    { color: #9fb0c2; }
+  .fe-phase.directing  { color: #caa6ff; border-color: #5a3a8a; background: #251a38; }
+  .fe-phase.generating { color: #7fe0a0; border-color: var(--token-soft); background: #122a18; }
+  .fe-phase.refining   { color: #f0b97a; border-color: var(--meta-soft); background: #2a1d0e; }
+  .fe-phase.done       { color: #9fb0c2; border-color: var(--line); }
+
+  .dots-row { display: flex; gap: 8px; margin: 14px 0 12px; align-items: center; }
+  .rdot {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 700; color: var(--muted);
+  }
+  .rdot .pip {
+    width: 13px; height: 13px; border-radius: 50%; background: var(--panel-2);
+    border: 1px solid var(--line); transition: all .3s ease;
+  }
+  .rdot.active .pip { background: var(--be); border-color: var(--be); box-shadow: 0 0 0 3px rgba(163,113,247,.22); }
+  .rdot.active { color: #caa6ff; }
+  .rdot.done .pip { background: var(--token); border-color: var(--token); }
+  .rdot.done { color: #7fe0a0; }
+
+  .bubble {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 11px 13px; font-size: 13px; min-height: 92px; transition: border-color .3s ease;
+    position: relative;
+  }
+  .bubble.live { border-color: var(--token); }
+  .bubble .blabel {
+    position: absolute; top: -9px; left: 10px; font-size: 9.5px; font-weight: 700;
+    letter-spacing: .4px; text-transform: uppercase; color: var(--muted);
+    background: var(--panel); padding: 0 6px; border-radius: 4px; border: 1px solid var(--line);
+  }
+  .bubble .empty { color: var(--muted); font-style: italic; opacity: .7; }
+  .bubble .caret { display: inline-block; width: 7px; background: var(--token); margin-left: 1px;
+    animation: blink 1s steps(2) infinite; color: transparent; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .bubble del { color: #d98a8a; text-decoration: line-through; opacity: .65; }
+  .bubble ins { color: #8fe6a8; text-decoration: none; background: rgba(46,160,67,.16); border-radius: 3px; }
+
+  .fe-line {
+    margin-top: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    background: #11161d; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px;
+    min-height: 34px; transition: border-color .3s, color .3s;
+  }
+  .fe-line.hot { color: var(--text); border-color: var(--fe); }
+  .fe-line b { color: var(--text); }
+
+  /* ── Backend pass tracker ────────────────────────────────────── */
+  .pass-track { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
+  .pass-step {
+    display: flex; align-items: center; gap: 9px; padding: 8px 11px;
+    border-radius: 9px; border: 1px solid var(--line); background: var(--panel-2);
+    font-size: 12.5px; font-weight: 600; color: var(--muted); transition: all .35s ease;
+  }
+  .pass-step .pn { width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center; font-size: 10px; flex: none; }
+  .pass-step.active { color: #fff; border-color: var(--be); background: #241a36; }
+  .pass-step.active .pn { border-color: var(--be); background: var(--be); color: #fff; }
+  .pass-step.done { color: #7fe0a0; }
+  .pass-step.done .pn { border-color: var(--token); background: var(--token); color: #07120a; }
+  .be-note {
+    font-size: 11.5px; color: var(--muted); font-style: italic;
+    border: 1px dashed var(--line); border-radius: 8px; padding: 9px 11px; background: #11161d;
+  }
+  .be-note b { color: var(--text); font-style: normal; }
+
+  /* ── The wire (center column) ────────────────────────────────── */
+  .wire {
+    position: relative; display: flex; flex-direction: column; align-items: stretch;
+    justify-content: flex-start; gap: 12px; padding-top: 110px;
+  }
+  @media (max-width: 860px) { .wire { padding-top: 0; } }
+  .wire-rail {
+    position: absolute; top: 18px; bottom: 18px; left: 50%; width: 2px; transform: translateX(-50%);
+    background: repeating-linear-gradient(0deg, var(--line) 0 6px, transparent 6px 12px);
+  }
+  .packet {
+    position: relative; z-index: 2; width: 100%; min-height: 96px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 13px; box-shadow: 0 6px 18px rgba(0,0,0,.35);
+  }
+  .packet.tok   { border-color: var(--token); }
+  .packet.meta  { border-color: var(--meta); }
+  .packet.ctrl  { border-color: var(--fe); }
+  .packet.term  { border-color: var(--muted); }
+  .packet .pev {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text);
+    line-height: 1.5; overflow-wrap: anywhere;
+  }
+  .packet .pev .kw { color: var(--meta); }
+  .packet.tok  .pev .kw { color: var(--token); }
+  .packet.ctrl .pev .kw { color: var(--fe); }
+  .packet .pev .opt {
+    display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+    font-family: var(--sans); font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
+    text-transform: uppercase; color: var(--muted); background: var(--panel-2);
+    border: 1px solid var(--line); white-space: nowrap; vertical-align: middle;
+  }
+  .packet .pdata {
+    font-family: var(--mono); font-size: 10.5px; color: var(--muted); margin-top: 7px;
+    padding-top: 7px; border-top: 1px solid var(--line);
+    overflow-wrap: anywhere; line-height: 1.45;
+  }
+  .packet .pdata:empty { display: none; }
+  .packet .pdata .kw { color: #6f7d8c; }
+  .arrow {
+    font-size: 12px; font-weight: 800; letter-spacing: .5px; color: var(--muted);
+    display: flex; align-items: center; justify-content: center; gap: 6px; text-transform: uppercase;
+  }
+  .arrow .dir { font-size: 18px; }
+  .arrow.tofe { color: var(--be); }
+  .arrow.tobe { color: var(--fe); }
+  .arrow.none { color: var(--muted); opacity: .6; }
+
+  .flyin-tofe { animation: flyToFe .5s cubic-bezier(.22,.61,.36,1); }
+  .flyin-tobe { animation: flyToBe .5s cubic-bezier(.22,.61,.36,1); }
+  @keyframes flyToFe { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes flyToBe { from { transform: translateX(-40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* ── Narration + controls ────────────────────────────────────── */
+  .narration {
+    margin-top: 20px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 16px 18px; font-size: 14.5px; min-height: 92px;
+  }
+  .narration strong { color: #fff; }
+  .narration .k  { color: var(--be); font-weight: 700; }
+  .narration .fw { color: var(--fe); font-weight: 700; }
+  .narration .tw { color: var(--token); font-weight: 700; }
+  .narration .mw { color: var(--meta); font-weight: 700; }
+  .narration .warnword { color: var(--warn); font-weight: 700; }
+  .narration code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); padding: 1px 6px; border-radius: 5px; }
+
+  .controls { margin-top: 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 600; font-size: 13px; color: var(--text);
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 16px; cursor: pointer; transition: background .15s, border-color .15s, transform .05s;
+  }
+  button:hover:not(:disabled) { background: #243040; border-color: #3a4658; }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #2b3a55; border-color: #3f5681; }
+  button.primary:hover { background: #33476a; }
+
+  .dots { display: flex; gap: 7px; margin-left: auto; align-items: center; flex-wrap: wrap; }
+  .dot {
+    width: 11px; height: 11px; border-radius: 50%; background: var(--panel-2);
+    border: 1px solid var(--line); cursor: pointer; transition: background .2s, transform .2s;
+  }
+  .dot.active { background: var(--be); border-color: var(--be); transform: scale(1.25); }
+  .step-count { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 13px; height: 13px; border-radius: 4px; display: inline-block; }
+  .sw.tok { background: var(--token); }
+  .sw.meta { background: var(--meta); }
+  .sw.ctrl { background: var(--fe); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>How a turn streams from backend to browser — Orb's SSE contract</h1>
+    <p>A companion to <a href="sse-stream.md">docs/architecture/sse-stream.md</a>. One <code>POST</code> opens a long-lived <strong>Server-Sent Events</strong> stream; <code>handle_turn</code> on the backend pushes a sequence of named events across it, and the frontend's dispatcher turns each one into a UI change. This walkthrough follows that wire.</p>
+    <div class="phase-pill" id="phasePill">Concept</div>
+  </header>
+
+  <div class="stage">
+    <!-- Left: frontend -->
+    <div class="card fe">
+      <div class="card-head"><span class="dotmark fe"></span><span class="card-title">Frontend (browser)</span></div>
+      <div class="card-sub"><code>processSSEStream</code> → <code>handleSSEEvent</code></div>
+      <div><span class="fe-phase pending" id="fePhase"><span class="gd"></span><span id="fePhaseText">idle</span></span></div>
+      <div class="dots-row" id="reasoningDots">
+        <div class="rdot" data-p="0"><span class="pip"></span>Director</div>
+        <div class="rdot" data-p="1"><span class="pip"></span>Writer</div>
+        <div class="rdot" data-p="2"><span class="pip"></span>Editor</div>
+      </div>
+      <div class="bubble" id="bubble"><span class="blabel">assistant bubble</span><span class="empty" id="bubbleBody">not yet created</span></div>
+      <div class="fe-line" id="feLine"></div>
+    </div>
+
+    <!-- Center: the SSE wire -->
+    <div class="wire">
+      <div class="wire-rail"></div>
+      <div class="arrow none" id="arrow"><span class="dir">·</span><span id="arrowText">idle</span></div>
+      <div class="packet term" id="packet">
+        <div class="pev" id="packetEv">—</div>
+        <div class="pdata" id="packetData"></div>
+      </div>
+    </div>
+
+    <!-- Right: backend -->
+    <div class="card be">
+      <div class="card-head"><span class="dotmark be"></span><span class="card-title">Backend (handle_turn)</span></div>
+      <div class="card-sub"><code>POST /conversations/{cid}/send</code></div>
+      <div class="pass-track" id="passTrack">
+        <div class="pass-step" data-s="user"><span class="pn">0</span>persist user message</div>
+        <div class="pass-step" data-s="director"><span class="pn">1</span>Director pass</div>
+        <div class="pass-step" data-s="writer"><span class="pn">2</span>Writer pass (streams prose)</div>
+        <div class="pass-step" data-s="editor"><span class="pn">3</span>Editor / feedback pass</div>
+        <div class="pass-step" data-s="persist"><span class="pn">4</span>persist reply + log</div>
+      </div>
+      <div class="be-note" id="beNote"><b>Black box:</b> what each pass does internally is out of scope here — see the KV-cache doc. This panel only shows <em>which</em> pass is emitting.</div>
+    </div>
+  </div>
+
+  <div class="narration" id="narration"></div>
+
+  <div class="controls">
+    <button id="prevBtn">◀ Prev</button>
+    <button id="nextBtn" class="primary">Next ▶</button>
+    <span class="step-count" id="stepCount"></span>
+    <div class="dots" id="dots"></div>
+  </div>
+
+  <div class="legend">
+    <span><i class="sw ctrl"></i> control / framing (FE→BE or lifecycle)</span>
+    <span><i class="sw meta"></i> meta event (phase, inspector, feedback)</span>
+    <span><i class="sw tok"></i> prose token (writer output)</span>
+  </div>
+</div>
+
+<script>
+// ── Helpers ────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+
+// Each step is a full snapshot of both lifelines + the event on the wire, so
+// Prev/Next are deterministic. The walkthrough follows ONE happy-path turn with
+// reasoning on (director, writer), an editor pass, and a TTS workflow attached —
+// then the stop/disconnect path, then a summary.
+//   dir: "tofe" (BE→FE, the common case) | "tobe" (FE→BE) | "none"
+//   kind: "ctrl" | "meta" | "tok" | "term"  (packet colour)
+//   pass: which backend step is active/done ("user","director","writer","editor","persist", or null)
+//   phase: FE generation phase chip
+//   dots: reasoning dot states [d,w,e] each "" | "active" | "done"
+//   bubble: assistant bubble HTML (null = not created)
+//   feline: the FE-side state line
+function step(o) { return o; }
+
+const STEPS = [
+  // 0 ── Concept
+  step({
+    phase: "Concept", title: "One POST, one long-lived stream",
+    ev: "POST  /conversations/{cid}/send", evKw: "POST", data: '{ "content": "..." }',
+    dir: "tobe", kind: "ctrl", arrow: "open stream",
+    passDone: [], passActive: null, fePhase: "pending", fePhaseText: "Waiting for response…",
+    dots: ["", "", ""], bubble: null,
+    feline: `<b>streamPost()</b> → fetch keeps the response body open`,
+    beNote: `<b>handle_turn</b> is an <code>async</code> generator: it <code>yield</code>s event dicts one at a time for the whole turn.`,
+    narr: `A turn is <strong>not</strong> request/response. The browser sends <em>one</em> <span class="fw">POST</span> and never closes it — the backend holds the connection open and <span class="k">pushes events</span> as the turn unfolds. This is <span class="k">Server-Sent Events</span> (SSE): a one-way stream of <code>text/event-stream</code> frames from server to client. Everything that follows travels down this single connection.`,
+  }),
+
+  // 1 ── The frame format
+  step({
+    phase: "Concept", title: "Every push is an event + data frame",
+    ev: "event: <name>", evKw: "event:", data: 'data: <json or text>\\n\\n',
+    dir: "tofe", kind: "ctrl", arrow: "frame",
+    passDone: [], passActive: null, fePhase: "pending", fePhaseText: "Waiting for response…",
+    dots: ["", "", ""], bubble: null,
+    feline: `parse: split on <b>\\n</b>, read <b>event:</b> then <b>data:</b>`,
+    beNote: `<code>_sse_stream</code> serialises each dict as <code>event: NAME\\ndata: PAYLOAD\\n\\n</code>; dict data is JSON, newlines in text are escaped to <code>\\n</code>.`,
+    narr: `The wire format is plain text. The backend's <code>_sse_stream</code> wrapper turns each yielded <code>{"event","data"}</code> dict into two lines — <span class="fw">event:</span> the name, <span class="fw">data:</span> the payload — terminated by a blank line. On the browser side, <code>processSSEStream</code> reads the byte stream, splits on newlines, and hands each <code>(event, data)</code> pair to one big <code>switch</code> in <code>handleSSEEvent</code>. The event <em>name</em> is the whole contract.`,
+  }),
+
+  // 2 ── user_message_created
+  step({
+    phase: "Turn", title: "user_message_created — the row now has a real id",
+    ev: "event: user_message_created", evKw: "event:", data: '{ "id": 412 }',
+    dir: "tofe", kind: "meta", arrow: "BE → FE",
+    passDone: ["user"], passActive: "director", fePhase: "directing", fePhaseText: "Director analyzing scene…",
+    dots: ["active", "", ""], bubble: null,
+    feline: `patch pending user msg → <b>id = 412</b>`,
+    beNote: `Fires only on <code>/send</code> (not <code>/continue</code>): the user row was just inserted and assigned a DB id.`,
+    narr: `The browser optimistically rendered the user's message with <code>id: null</code> the moment they hit send. The first event back, <span class="mw">user_message_created</span>, carries the real database <code>id</code> — the FE patches it onto the pending bubble so later edits, branches, and re-renders can key off it. The backend has already moved on to the <span class="k">Director pass</span>.`,
+  }),
+
+  // 3 ── director_start
+  step({
+    phase: "Turn", title: "director_start — flip to the directing phase",
+    ev: "event: director_start", evKw: "event:", data: '(no data)',
+    dir: "tofe", kind: "meta", arrow: "BE → FE",
+    passDone: ["user"], passActive: "director", fePhase: "directing", fePhaseText: "Director analyzing scene…",
+    dots: ["active", "", ""], bubble: null,
+    feline: `phase → <b>directing</b>; clear stale inspector`,
+    beNote: `Director pass begins. May make 1–2 LLM calls; the FE doesn't see those, only the bookend events.`,
+    narr: `<span class="mw">director_start</span> is a pure signal — no payload. The FE sets the status chip to <span class="k">"Director analyzing scene…"</span> and clears any inspector data left over from the previous turn. Note the phase machine is <strong>monotonic</strong>: <code>setGenerationPhase</code> refuses to move backwards, so a late event can't rewind the UI to an earlier phase.`,
+  }),
+
+  // 4 ── reasoning (director)
+  step({
+    phase: "Turn", title: "reasoning — thinking tokens, tagged by pass",
+    ev: "event: reasoning", evKw: "event:", data: '{ "pass": "director", "delta": "The user just…" }',
+    dir: "tofe", kind: "meta", arrow: "BE → FE",
+    passDone: ["user"], passActive: "director", fePhase: "directing", fePhaseText: "Director analyzing scene…",
+    dots: ["active", "", ""], bubble: null,
+    feline: `append delta → reasoning box (pass <b>director</b>)`,
+    beNote: `Emitted while a thinking-enabled pass streams its reasoning. <code>pass</code> routes it: built-in (director/writer/editor) or a workflow pass id.`,
+    narr: `If a pass runs with reasoning on, its chain-of-thought streams as <span class="mw">reasoning</span> events — each tagged with the <code>pass</code> it came from. The FE appends the <code>delta</code> to that pass's reasoning buffer and, if the inspector is open on that pass, paints it live. The <span class="k">Director dot</span> lights to show the pass is in flight. These never enter the visible reply.`,
+  }),
+
+  // 5 ── prompt_rewritten (optional)
+  step({
+    phase: "Turn", title: "prompt_rewritten — the Director rephrased the user line",
+    ev: "event: prompt_rewritten", evKw: "event:", data: '{ "refined_message": "..." }',
+    dir: "tofe", kind: "meta", arrow: "BE → FE", optional: true,
+    passDone: ["user"], passActive: "director", fePhase: "directing", fePhaseText: "Director analyzing scene…",
+    dots: ["active", "", ""], bubble: null,
+    feline: `rewrite the <b>user bubble</b> in place`,
+    beNote: `Optional — only when <code>rewrite_user_prompt</code> fired. Carries the refined user text.`,
+    narr: `<span class="mw">prompt_rewritten</span> is <em>optional</em>: it appears only when the Director chose to refine the user's wording. The FE rewrites the displayed <span class="fw">user message</span> in place (and updates the pending copy) so what's on screen matches what the Writer will actually receive. Many turns skip this event entirely — a recurring theme: <strong>the FE must tolerate any event being absent.</strong>`,
+  }),
+
+  // 6 ── director_done
+  step({
+    phase: "Turn", title: "director_done — scene direction is ready",
+    ev: "event: director_done", evKw: "event:", data: '{ "tool_calls": [ { "name": "direct_scene", ... } ], ... }',
+    dir: "tofe", kind: "meta", arrow: "BE → FE",
+    passDone: ["user", "director"], passActive: "writer", fePhase: "directing", fePhaseText: "Director analyzing scene…",
+    dots: ["done", "active", ""], bubble: null,
+    feline: `store director data; advance dot → <b>Writer</b>`,
+    beNote: `Director pass complete; its tool output (mood, scene direction) is injected into the Writer prompt next.`,
+    narr: `<span class="mw">director_done</span> closes the pass and ships its full payload — the parsed tool calls that drive the inspector's "Director" panel. The FE stores it and advances the reasoning indicator to the <span class="k">Writer dot</span>. The backend now folds that scene direction into the Writer's prompt and starts generating prose.`,
+  }),
+
+  // 7 ── first token
+  step({
+    phase: "Turn", title: "token — prose begins streaming",
+    ev: "event: token", evKw: "event:", data: 'data: Eli',
+    dir: "tofe", kind: "tok", arrow: "BE → FE",
+    passDone: ["user", "director"], passActive: "writer", fePhase: "generating", fePhaseText: "Generating response…",
+    dots: ["done", "active", ""], bubble: `Eli<span class="caret">.</span>`,
+    feline: `<b>first token</b>: reveal bubble, phase → generating`,
+    beNote: `Writer pass streams the visible reply one delta at a time as <code>token</code> events.`,
+    narr: `Now the payoff. Each <span class="tw">token</span> event carries a raw text <code>delta</code> of the assistant's reply. The very first one flips the phase to <span class="k">"Generating…"</span>, reveals the streaming bubble, and clears its placeholder. This is the only event whose <code>data</code> is <em>not</em> JSON — it's bare text, with literal newlines escaped as <code>\\n</code> and un-escaped on arrival.`,
+  }),
+
+  // 8 ── more tokens (+ interleaved writer reasoning)
+  step({
+    phase: "Turn", title: "token ×N — appended as they arrive",
+    ev: "event: token  (×N)", evKw: "event:", data: 'data:  leans in, voice dropping to a near-whisper…',
+    dir: "tofe", kind: "tok", arrow: "BE → FE",
+    passDone: ["user", "director"], passActive: "writer", fePhase: "generating", fePhaseText: "Generating response…",
+    dots: ["done", "active", ""], bubble: `Eli leans in, voice dropping to a near-whisper.<span class="caret">.</span>`,
+    feline: `accumulate → re-render streaming bubble`,
+    beNote: `Hundreds of <code>token</code> events per reply; <code>reasoning</code> (pass:writer) may interleave if the Writer thinks.`,
+    narr: `Tokens stream in a tight loop — the FE accumulates them into <code>fullResponse</code> and re-renders the bubble on each one, auto-scrolling to follow. If the Writer is a thinking pass, <span class="mw">reasoning</span> (<code>pass: "writer"</code>) events interleave with the prose tokens on the <em>same</em> wire; the dispatcher routes each by name, so reasoning lands in the inspector while prose lands in the bubble.`,
+  }),
+
+  // 9 ── writer_done
+  step({
+    phase: "Turn", title: "writer_done — the Writer→Editor boundary",
+    ev: "event: writer_done", evKw: "event:", data: '{ "editor_will_run": true }',
+    dir: "tofe", kind: "meta", arrow: "BE → FE",
+    passDone: ["user", "director", "writer"], passActive: "editor", fePhase: "refining", fePhaseText: "Refining response…",
+    dots: ["done", "done", "active"], bubble: `Eli leans in, voice dropping to a near-whisper. "You shouldn't have come back."`,
+    feline: `editor_will_run → phase <b>refining</b>`,
+    beNote: `Authoritative end-of-writer marker. <code>editor_will_run</code> tells the FE whether a refining pass follows.`,
+    narr: `<span class="mw">writer_done</span> is the backend telling the FE, authoritatively, that prose is finished and whether an editor pass follows. If <code>editor_will_run</code> is true, the phase flips to <span class="k">"Refining…"</span>; otherwise the FE stays on "Generating" until the stream closes. This replaced a brittle client-side timer that used to guess the boundary from token gaps.`,
+  }),
+
+  // 10 ── writer_rewrite (optional)
+  step({
+    phase: "Turn", title: "writer_rewrite — the Editor patched the prose",
+    ev: "event: writer_rewrite", evKw: "event:", data: '{ "refined_text": "..." }',
+    dir: "tofe", kind: "meta", arrow: "BE → FE", optional: true,
+    passDone: ["user", "director", "writer"], passActive: "editor", fePhase: "refining", fePhaseText: "Refining response…",
+    dots: ["done", "done", "active"], bubble: `Eli leans in, <del>voice dropping to a near-whisper.</del> <ins>his voice barely above a whisper.</ins> "You shouldn't have come back."`,
+    feline: `diff old vs refined; swap bubble; dot → <b>Editor</b>`,
+    beNote: `Optional — only when the Editor rewrote/patched the draft. Carries the full refined text.`,
+    narr: `<span class="mw">writer_rewrite</span> (optional) delivers the Editor's <code>refined_text</code>. The FE diffs it against the streamed draft, stores the diff, and swaps the bubble to the refined version — showing a <span class="tw">sentence-level diff</span> if the editor-diff toggle is on. This is the moment the reasoning indicator advances to the <span class="k">Editor dot</span>.`,
+  }),
+
+  // 11 ── editor_done + feedback
+  step({
+    phase: "Turn", title: "editor_done & feedback — inspector + user note",
+    ev: "event: editor_done   ·   event: feedback", evKw: "event:", data: '{ "tool_calls": [...] }   /   { "values": { ... } }',
+    dir: "tofe", kind: "meta", arrow: "BE → FE",
+    passDone: ["user", "director", "writer", "editor"], passActive: "editor", fePhase: "refining", fePhaseText: "Refining response…",
+    dots: ["done", "done", "done"], bubble: `Eli leans in, his voice barely above a whisper. "You shouldn't have come back."`,
+    feline: `merge tool_calls → inspector; store feedback`,
+    beNote: `Editor pass closes. <code>feedback</code> carries user-facing notes the editor surfaced.`,
+    narr: `Two more meta events close the refining stage. <span class="mw">editor_done</span> merges the editor's tool calls into the inspector. <span class="mw">feedback</span> carries optional user-facing notes (the values shown in the inspector's Feedback block). Both are <strong>display-only</strong> — they re-render the inspector but don't touch the reply bubble. All three dots are now green.`,
+  }),
+
+  // 12 ── workflow events
+  step({
+    phase: "Turn", title: "Workflow events — passthrough on the same wire",
+    ev: "event: phase_status   ·   tts_autoplay   ·   …", evKw: "event:", data: '{ "channel": "workflow:tts", "label": "Synthesizing…", "state": "running" }',
+    dir: "tofe", kind: "meta", arrow: "BE → FE",
+    passDone: ["user", "director", "writer", "editor"], passActive: "persist", fePhase: "refining", fePhaseText: "Refining response…",
+    dots: ["done", "done", "done"], bubble: `Eli leans in, his voice barely above a whisper. "You shouldn't have come back."`,
+    feline: `route to workflow handler by event name`,
+    beNote: `Secondary-workflow hooks <code>yield</code> their own events; the orchestrator passes them straight through.`,
+    narr: `Beyond the core set, secondary workflows push their own events down the same stream — <span class="mw">phase_status</span> (a pill like "Synthesizing…"), <span class="mw">tts_autoplay</span>, <span class="mw">workflow_attachments_rejected</span>, and any custom event a workflow registers. The dispatcher's <code>default</code> branch looks these up in <code>S.workflowEventHandlers</code> by name, so a workflow can extend the protocol <strong>without touching the core switch</strong>. See the secondary-workflow doc.`,
+  }),
+
+  // 13 ── _result (internal, not forwarded)
+  step({
+    phase: "Turn", title: "_result — internal, never reaches the browser",
+    ev: "event: _result", evKw: "event:", data: '{ final reply, tool calls, reasoning, ... }',
+    dir: "none", kind: "term", arrow: "stays in BE",
+    passDone: ["user", "director", "writer", "editor"], passActive: "persist", fePhase: "refining", fePhaseText: "Refining response…",
+    dots: ["done", "done", "done"], bubble: `Eli leans in, his voice barely above a whisper. "You shouldn't have come back."`,
+    feline: `— (FE never sees this) —`,
+    beNote: `<code>_consume_pipeline</code> intercepts <code>_result</code>, persists the assistant row + log, and does <b>not</b> forward it.`,
+    narr: `One event never crosses the wire. The pipeline emits a terminal <span class="warnword">_result</span> carrying the assembled reply; <code>_consume_pipeline</code> catches it, <strong>persists the assistant message and conversation log</strong>, then swallows it. The underscore prefix marks it internal. The browser already has every token, so it doesn't need this — but the backend needs it to commit the turn to disk before the stream ends.`,
+  }),
+
+  // 14 ── done
+  step({
+    phase: "Turn", title: "done — the terminal event",
+    ev: "event: done", evKw: "event:", data: '(no data)',
+    dir: "tofe", kind: "term", arrow: "BE → FE",
+    passDone: ["user", "director", "writer", "editor", "persist"], passActive: null, fePhase: "done", fePhaseText: "done",
+    dots: ["done", "done", "done"], bubble: `Eli leans in, his voice barely above a whisper. "You shouldn't have come back."`,
+    feline: `stream closes → run <b>afterStream()</b>`,
+    beNote: `<code>_consume_pipeline</code> yields <code>done</code> last; then the generator returns and the TCP connection closes.`,
+    narr: `<span class="fw">done</span> is yielded last, right before the connection closes. The FE doesn't even need a handler for it — the reader simply hits end-of-stream. What matters is what happens <em>after</em>: the reply was persisted server-side during <code>_result</code>, so the browser can now trust the database.`,
+  }),
+
+  // 15 ── afterStream reconcile
+  step({
+    phase: "Turn", title: "afterStream() — reconcile optimistic UI with truth",
+    ev: "GET  /conversations/{cid}/messages", evKw: "GET", data: '(refetch persisted turn)',
+    dir: "tobe", kind: "ctrl", arrow: "FE → BE",
+    passDone: ["user", "director", "writer", "editor", "persist"], passActive: null, fePhase: "done", fePhaseText: "done",
+    dots: ["done", "done", "done"], bubble: `Eli leans in, his voice barely above a whisper. "You shouldn't have come back."`,
+    feline: `refetch messages; finalize bubble in place`,
+    beNote: `Plain request/response now — the stream is over.`,
+    narr: `With the stream closed, <code>afterStream</code> reconciles the optimistic UI against the server: it <strong>refetches the message list and director state</strong>, finalizes the streaming bubble in place (stamping the real assistant id, no DOM flash), flushes any edits that were queued while the stream lock was held, and clears the phase chip. The turn is complete and durable.`,
+  }),
+
+  // 16 ── stop / disconnect path
+  step({
+    phase: "Edge cases", title: "Stop & disconnect — closing the stream early",
+    ev: "POST  /conversations/{cid}/stop", evKw: "POST", data: '(signals the abort token)',
+    dir: "tobe", kind: "ctrl", arrow: "FE → BE",
+    passDone: ["user", "director"], passActive: "writer", fePhase: "generating", fePhaseText: "Generating response…",
+    dots: ["done", "active", ""], bubble: `Eli leans in, voice dropping to a near-whis<span class="caret">.</span>`,
+    feline: `abort fetch; backend stops mid-stream`,
+    beNote: `<code>/stop</code> fires the <code>abort_token</code>; a disconnect watcher polls <code>is_disconnected()</code> as a backstop.`,
+    narr: `A turn can end early. Clicking Stop sends <span class="fw">POST /stop</span>, which fires the conversation's <code>abort_token</code> — the backend breaks its LLM loop and closes the upstream connection cleanly. If the user just closes the tab, a background watcher polling <code>is_disconnected()</code> trips the same token. Either way, <code>_consume_pipeline</code>'s <code>finally</code> still runs, persisting whatever prose streamed so far. A per-conversation <strong>lock</strong> ensures only one stream runs at a time; a second concurrent <code>/send</code> gets an immediate <span class="warnword">error</span> event.`,
+  }),
+
+  // 17 ── error
+  step({
+    phase: "Edge cases", title: "error — a single failure event",
+    ev: "event: error", evKw: "event:", data: 'data: Conversation not found',
+    dir: "tofe", kind: "meta", arrow: "BE → FE",
+    passDone: ["user"], passActive: null, fePhase: "done", fePhaseText: "done",
+    dots: ["", "", ""], bubble: null,
+    feline: `toast the message; afterStream() still runs`,
+    beNote: `Any pass can <code>yield {"event":"error"}</code>; the bare-text message is human-readable.`,
+    narr: `Failures arrive as a plain <span class="mw">error</span> event whose <code>data</code> is a human-readable string. The FE just toasts it. Because cleanup lives in <code>afterStream</code> and the backend's <code>finally</code>, an error mid-turn still leaves both sides consistent — partial prose is persisted, the lock is released, the phase chip clears. The protocol has exactly one error channel; there's no separate HTTP error code mid-stream.`,
+  }),
+
+  // 18 ── summary
+  step({
+    phase: "Recap", title: "The whole contract on one wire",
+    ev: "event: <name>", evKw: "event:", data: 'name routes; payload fills in detail',
+    dir: "tofe", kind: "ctrl", arrow: "BE → FE",
+    passDone: ["user", "director", "writer", "editor", "persist"], passActive: null, fePhase: "done", fePhaseText: "done",
+    dots: ["done", "done", "done"], bubble: `Eli leans in, his voice barely above a whisper. "You shouldn't have come back."`,
+    feline: `one switch on event name = the entire FE contract`,
+    beNote: `Same shape for every entry point: regenerate, fork-edit, continue, magic-rewrite all reuse this stream.`,
+    narr: `That's the whole contract: <strong>one POST opens an SSE stream</strong>; the backend pushes <span class="fw">control</span> (<code>user_message_created</code>, <code>done</code>, <code>error</code>), <span class="mw">meta</span> (<code>director_start/done</code>, <code>writer_done</code>, <code>writer_rewrite</code>, <code>editor_done</code>, <code>feedback</code>, <code>reasoning</code>, workflow events), and <span class="tw">token</span> events; the FE routes each by <strong>name</strong> in one switch. Every other generating entry point — regenerate, fork-edit, continue, magic-rewrite — reuses this exact stream, so the FE dispatcher is written once. The only events that never reach the browser are the underscore-prefixed internal ones like <code>_result</code>.`,
+  }),
+];
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+const phaseEl = $("phasePill");
+const fePhaseEl = $("fePhase"), fePhaseTextEl = $("fePhaseText");
+const bubbleEl = $("bubble"), bubbleBodyEl = $("bubbleBody");
+const feLineEl = $("feLine"), beNoteEl = $("beNote");
+const packetEl = $("packet"), packetEvEl = $("packetEv"), packetDataEl = $("packetData");
+const arrowEl = $("arrow"), arrowTextEl = $("arrowText");
+const narrEl = $("narration"), stepCountEl = $("stepCount"), dotsEl = $("dots");
+const passTrackEl = $("passTrack"), reasoningDotsEl = $("reasoningDots");
+
+let cur = 0;
+
+function render(i) {
+  const s = STEPS[i];
+  phaseEl.textContent = s.phase;
+
+  // FE phase chip
+  fePhaseEl.className = "fe-phase " + s.fePhase;
+  fePhaseTextEl.textContent = s.fePhaseText;
+
+  // reasoning dots
+  [...reasoningDotsEl.querySelectorAll(".rdot")].forEach((d, k) => {
+    d.classList.remove("active", "done");
+    if (s.dots[k]) d.classList.add(s.dots[k]);
+  });
+
+  // assistant bubble
+  if (s.bubble == null) {
+    bubbleEl.classList.remove("live");
+    bubbleBodyEl.className = "empty";
+    bubbleBodyEl.textContent = "not yet created";
+  } else {
+    bubbleEl.classList.add("live");
+    bubbleBodyEl.className = "";
+    bubbleBodyEl.innerHTML = s.bubble;
+  }
+
+  // FE state line
+  feLineEl.innerHTML = s.feline;
+  feLineEl.classList.toggle("hot", s.dir === "tofe");
+
+  // backend note + pass tracker
+  beNoteEl.innerHTML = s.beNote;
+  [...passTrackEl.querySelectorAll(".pass-step")].forEach((p) => {
+    const id = p.dataset.s;
+    p.classList.toggle("done", s.passDone.includes(id));
+    p.classList.toggle("active", s.passActive === id);
+  });
+
+  // the packet on the wire
+  packetEl.className = "packet " + s.kind;
+  const evHtml = s.evKw ? s.ev.replace(s.evKw, `<span class="kw">${s.evKw}</span>`) : s.ev;
+  packetEvEl.innerHTML = evHtml + (s.optional ? `<span class="opt">optional</span>` : "");
+  packetDataEl.innerHTML = s.data ? s.data.replace(/^(data:|\{|\()/, (m) => `<span class="kw">${m}</span>`) : "";
+
+  // arrow + fly-in animation
+  arrowEl.className = "arrow " + (s.dir === "tofe" ? "tofe" : s.dir === "tobe" ? "tobe" : "none");
+  const dirGlyph = s.dir === "tofe" ? "◀" : s.dir === "tobe" ? "▶" : "•";
+  arrowEl.querySelector(".dir").textContent = dirGlyph;
+  arrowTextEl.textContent = s.arrow;
+  packetEl.classList.remove("flyin-tofe", "flyin-tobe");
+  void packetEl.offsetWidth; // restart animation
+  if (s.dir === "tofe") packetEl.classList.add("flyin-tofe");
+  else if (s.dir === "tobe") packetEl.classList.add("flyin-tobe");
+
+  narrEl.innerHTML = `<strong>${s.title}.</strong> ${s.narr}`;
+
+  stepCountEl.textContent = `${i + 1} / ${STEPS.length}`;
+  [...dotsEl.children].forEach((d, k) => d.classList.toggle("active", k === i));
+  $("prevBtn").disabled = i === 0;
+  $("nextBtn").disabled = i === STEPS.length - 1;
+}
+
+function go(i) { cur = Math.max(0, Math.min(STEPS.length - 1, i)); render(cur); }
+
+STEPS.forEach((_, k) => {
+  const d = document.createElement("div");
+  d.className = "dot"; d.title = `Step ${k + 1}`;
+  d.onclick = () => go(k);
+  dotsEl.appendChild(d);
+});
+
+$("prevBtn").onclick = () => go(cur - 1);
+$("nextBtn").onclick = () => go(cur + 1);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); go(cur + 1); }
+  else if (e.key === "ArrowLeft") { go(cur - 1); }
+});
+
+render(0);
+</script>
+</body>
+</html>
