@@ -41,3 +41,4 @@ Fragments can be reordered; precedence runs top-down and the Director tries to f
 - **Single** — a plain text value. Rendered as `Label: value`.
 - **List** — a collection of plain text values. Rendered as a bullet list under the label.
 - **Progressive** — a text value that persists across turns. Both the Director and Writer can see the previous turn's value alongside the new one, rendered as `Label: old value → new value`. Useful for incremental stat tracking.
+- **Feedback** — instead of steering the Writer, this produces an out-of-character note shown to *you* in the Inspector after the reply is written. See [Feedback Fragments](feedback-fragments.md).

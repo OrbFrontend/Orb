@@ -148,8 +148,10 @@ Orb/
 │   ├── architecture/
 │   │   ├── kv-cache.md      # How Orb reuses the LLM KV cache across passes & turns
 │   │   └── secondary-workflow.md # Workflow framework dev guide
-│   ├── features/            # Per-feature guides (director, anti-slop, length-guard,
-│   │                        # compress-history, magic-rewrite, super-regenerate, mobile, tts)
+│   ├── features/            # Per-feature guides (director, feedback-fragments,
+│   │                        # agentic-lorebook, anti-slop, length-guard, compress-history,
+│   │                        # magic-rewrite, super-regenerate, persona-pinning,
+│   │                        # homepage-stats, mobile, tts)
 │   └── assets/              # Doc images
 ├── tests/
 │   ├── unit/                # Unit tests (editor, fragments, etc.)
@@ -180,12 +182,12 @@ Orb/
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON — registered tools only), length_guard_* (enabled/enforce/max_words/max_paragraphs), reasoning_enabled_passes, active_persona_id, active_endpoint_id, agent_*, workflow_config (JSON), attachment_cache_budget_bytes, attachment_access_counter |
+| `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON — registered tools only), length_guard_* (enabled/enforce/max_words/max_paragraphs), agentic_lorebook_enabled, feedback_enabled, reasoning_enabled_passes, active_persona_id, active_endpoint_id, agent_*, workflow_config (JSON), generated_chars (lifetime LLM-output char counter; NULL = unseeded), attachment_cache_budget_bytes, attachment_access_counter |
 | `endpoints` | LLM API endpoints | url, api_key, active_model_config_id, agent_active_model_config_id → model_configs.id |
 | `model_configs` | Per-endpoint model settings | endpoint_id, model_name, temperature, top_p, top_k, min_p, repetition_penalty, max_tokens, system_prompt, role |
-| `conversations` | Chat sessions | character_card_id, character_name, character_scenario, post_history_instructions, active_leaf_id → messages.id, workflow_state (JSON) |
+| `conversations` | Chat sessions | character_card_id, character_name, character_scenario, post_history_instructions, active_leaf_id → messages.id, persona_lock_id → user_personas.id, workflow_state (JSON) |
 | `messages` | All messages (tree branching via parent_id) | conversation_id, role (user/assistant), content, turn_index, parent_id → messages.id, progressive_fields (JSON), created_at, workflow_state (JSON) |
-| `character_cards` | Imported/created characters (V2 spec) | name, description, personality, scenario, first_mes, mes_example, system_prompt, avatar_b64, world_id, workflow_state (JSON) |
+| `character_cards` | Imported/created characters (V2 spec) | name, description, personality, scenario, first_mes, mes_example, system_prompt, avatar_b64, world_id, persona_lock_id → user_personas.id, workflow_state (JSON) |
 | `user_personas` | User profiles injected into system prompt | name, description, avatar_color |
 
 ### Agent/Auditor Tables
@@ -193,7 +195,7 @@ Orb/
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `director_state` | Per-conversation Director memory | conversation_id (PK), active_moods (JSON), keywords (JSON), progressive_fields (JSON) |
-| `interactive_fragments` | Dynamic Director parameters | id, label, description, field_type, required, enabled, injection_label, sort_order |
+| `interactive_fragments` | Dynamic Director parameters | id, label, description, field_type (`string`/`array`/`progressive`/`feedback`), required, enabled, injection_label, sort_order. A `feedback` fragment is surfaced to the user as a post-writer note via `give_feedback` instead of steering the Writer (gated by `settings.feedback_enabled`). |
 | `mood_fragments` | Named mood presets | id, label, description, prompt_text, negative_prompt, enabled |
 | `phrase_bank` | Banned phrases for editor audit | id, variants (JSON array of strings) |
 | `conversation_logs` | Per-turn Director audit trail | conversation_id, turn_index, message_id, agent_raw_output, tool_calls (JSON), active_moods_after, progressive_fields_after (JSON), injection_block, agent_latency_ms |
@@ -203,7 +205,7 @@ Orb/
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `worlds` | Lorebook containers | name, enabled |
-| `lorebook_entries` | Keyword-triggered context injections | world_id, name, content, keywords (JSON), case_insensitive, priority, enabled |
+| `lorebook_entries` | Keyword-triggered context injections | world_id, name, content, keywords (JSON), case_insensitive, constant (always-inject, bypasses keyword scan), priority, enabled |
 
 ### Supporting Tables
 
@@ -222,6 +224,8 @@ erDiagram
     endpoints ||--o| model_configs : "active_model_config_id (writer)"
     endpoints ||--o| model_configs : "agent_active_model_config_id"
     settings }o--o| user_personas : "active_persona_id"
+    conversations }o--o| user_personas : "persona_lock_id (pin)"
+    character_cards }o--o| user_personas : "persona_lock_id (pin)"
     character_cards ||--o{ conversations : "character_card_id (logical, no DB FK)"
     conversations ||--o{ messages : has
     messages ||--o{ messages : "parent_id (tree)"
@@ -385,6 +389,7 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 
 ### Other
 - `GET /` — Serve frontend (SPA shell)
+- `GET /api/stats` — Aggregate usage stats for the homepage grid (conversation/message/word counts, lifetime token estimate from `generated_chars`, storage size, avg latency, and a randomized character "spotlight")
 - `GET /api/themes` — Available CSS themes
 - `POST /api/reset` — Factory reset (confirm required)
 
@@ -405,6 +410,10 @@ flowchart TD
 ```
 
 Multiple model configs per endpoint. Active one selected via `endpoints.active_model_config_id`. Agent (Director) can use a separate endpoint (`agent_endpoint_id`) or share the writer's.
+
+**Persona resolution.** `settings.active_persona_id` is only the *global default*. The effective persona for a turn is resolved by `resolve_persona_id()` (`orchestrator.py`) top-down: conversation pin (`conversations.persona_lock_id`) → character pin (`character_cards.persona_lock_id`) → global default. The frontend mirror is `effectivePersonaId()` in `utils.js`. Pins are managed from the user menu (`settings_personas.js`); see [docs/features/persona-pinning.md](docs/features/persona-pinning.md).
+
+**Director feature flags** (not model-callable tools, so they live in their own `settings` columns like the length guard — see *Adding a Feature Flag* below): `agentic_lorebook_enabled` lets the Director pick lorebook entries from a catalog instead of the keyword scan ([docs/features/agentic-lorebook.md](docs/features/agentic-lorebook.md)), and `feedback_enabled` gates the post-writer `give_feedback` step that surfaces `feedback`-type fragments to the user ([docs/features/feedback-fragments.md](docs/features/feedback-fragments.md)).
 
 ## Single-Model vs Dual-Model Mode
 

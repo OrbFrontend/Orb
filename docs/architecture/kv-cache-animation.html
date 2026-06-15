@@ -122,7 +122,7 @@
     transition: background .4s ease, border-color .4s ease, color .4s ease;
   }
   .lane.active .lane-label { border-color: var(--accent); color: #fff; background: #241a36; }
-  .lane.on  .lane-label::before  { content: "✨ "; }
+  .lane.on  .lane-label::before  { content: "🧠 "; }
   .lane.off .lane-label::before  { content: "💤 "; }
   .meter {
     flex: 1; position: relative; border: 1px solid var(--line); border-radius: 10px;
@@ -570,7 +570,7 @@ function renderReasoningBar() {
     const on = thinking[p];
     return `<span class="rb-toggle" data-pass="${p}" role="button" tabindex="0" title="Flip ${PASS_LABEL[p]} reasoning">
       <span class="rb-name">${PASS_LABEL[p]}</span>
-      <span class="rb-mode ${on ? "on" : "off"}">${on ? "✨ ON" : "💤 OFF"}</span></span>`;
+      <span class="rb-mode ${on ? "on" : "off"}">${on ? "🧠 ON" : "💤 OFF"}</span></span>`;
   }).join("");
   reasoningBar.innerHTML =
     `<span class="rb-label">Reasoning per pass:</span>${toggles}` +
@@ -667,7 +667,7 @@ function renderPassStep(step) {
   const on = thinking[step.pass.role];
   badgeEl.style.display = "inline-block";
   badgeEl.className = "badge " + (on ? "on" : "off");
-  badgeEl.textContent = on ? "✨ thinking ON" : "💤 thinking OFF";
+  badgeEl.textContent = on ? "🧠 thinking ON" : "💤 thinking OFF";
   serverSubEl.innerHTML = `This pass runs <b>${on ? "thinking ON" : "thinking OFF"}</b>, so it lands in the <b>${on ? "ON" : "OFF"}</b> lane.`;
   renderStack(buildPassStack(view));
   statsEl.innerHTML = passStats(view);
@@ -732,7 +732,7 @@ function renderReadingStep() {
 function renderSummary() {
   passTogglesEl.innerHTML = "";
   const laneDefs = [
-    { label: "✨ thinking ON",  test: (p) => thinking[p] },
+    { label: "🧠 thinking ON",  test: (p) => thinking[p] },
     { label: "💤 thinking OFF", test: (p) => !thinking[p] },
   ];
   sandboxLanesEl.innerHTML = "";
