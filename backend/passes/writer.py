@@ -6,13 +6,17 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, AsyncIterator, Mapping, Sequence
+import time
+from typing import Any, AsyncIterator, Mapping, Sequence, TYPE_CHECKING
 
 from ..llm_client import LLMClient, reasoning_cfg
-from ..kv_tracker import CachedBase
+from ..kv_tracker import CachedBase, _KVCacheTracker
 from ..llm_types import ChatMessage, ContentPart
 from ..utils import extract_hyperparams, build_multimodal_content
 from .editor.length_guard import LengthGuard, writer_nudge
+
+if TYPE_CHECKING:
+    from ..orchestrator import _PipelineConfig, TurnState
 
 logger = logging.getLogger(__name__)
 
@@ -84,3 +88,52 @@ async def writer_pass(
         if item["type"] == "done":
             return
         yield item
+
+
+async def writer_stage(
+    cfg: "_PipelineConfig",
+    state: "TurnState",
+    *,
+    settings: Mapping[str, Any],
+    attachments: Sequence[Mapping[str, Any]],
+    kv_tracker: _KVCacheTracker,
+) -> AsyncIterator[dict]:
+    """Writer stage: input-prep + writer pass + event translation, owned here so
+    the orchestrator sequences passes rather than threading writer internals.
+
+    Builds ``state.writer_content`` once (threaded into the writer pass and later
+    replayed verbatim by the editor to extend the writer's KV-cached prefix),
+    runs :func:`writer_pass` translating ``content``→``token`` /
+    ``reasoning``→``reasoning`` SSE events, and folds the writer's wall time into
+    ``state.latency``. The writer pass only streams tokens and reports no
+    duration of its own, so the timing is taken here.
+    """
+    state.writer_content = build_writer_content(
+        state.writer_lorebook_block,
+        state.inj_block,
+        cfg.writer_enabled_tools,
+        state.effective_msg,
+        attachments,
+        cfg.length_guard,
+    )
+    writer_t0 = time.monotonic()
+    async for item in writer_pass(
+        cfg.writer_lane.client,
+        cfg.writer_lane.base,
+        settings,
+        state.writer_content,
+        kv_tracker=kv_tracker,
+        reasoning_on=cfg.writer_reasoning_on,
+    ):
+        if item["type"] == "reasoning":
+            state.reasoning_writer += item["delta"]
+            yield {
+                "event": "reasoning",
+                "data": {"pass": "writer", "delta": item["delta"]},
+            }
+        else:
+            state.resp_text += item["delta"]
+            yield {"event": "token", "data": item["delta"]}
+    # agent_latency_ms is the whole turn's wall time; accumulate the writer's
+    # span here (director + editor add their own).
+    state.latency += int((time.monotonic() - writer_t0) * 1000)

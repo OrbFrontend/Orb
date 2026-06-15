@@ -69,8 +69,8 @@ class TestAbortPropagation:
             "reasoning_enabled_passes": {},
         }
 
-        with patch("backend.orchestrator.director_pass", new=mock_director), patch(
-            "backend.orchestrator.writer_pass", new=mock_writer
+        with patch("backend.passes.director.director.director_pass", new=mock_director), patch(
+            "backend.passes.writer.writer_pass", new=mock_writer
         ):
             await _drain(
                 _run_pipeline(
@@ -108,8 +108,8 @@ class TestAbortPropagation:
             "reasoning_enabled_passes": {},
         }
 
-        with patch("backend.orchestrator.writer_pass", new=mock_writer), patch(
-            "backend.orchestrator.editor_pass", new=mock_editor
+        with patch("backend.passes.writer.writer_pass", new=mock_writer), patch(
+            "backend.passes.editor.editor.editor_pass", new=mock_editor
         ):
             await _drain(
                 _run_pipeline(
@@ -151,8 +151,8 @@ class TestErrorAborts:
             "reasoning_enabled_passes": {},
         }
 
-        with patch("backend.orchestrator.director_pass", new=mock_director), patch(
-            "backend.orchestrator.writer_pass", new=mock_writer
+        with patch("backend.passes.director.director.director_pass", new=mock_director), patch(
+            "backend.passes.writer.writer_pass", new=mock_writer
         ):
             with pytest.raises(RuntimeError, match="director endpoint exploded"):
                 await _drain(
@@ -190,8 +190,8 @@ class TestErrorAborts:
             "reasoning_enabled_passes": {},
         }
 
-        with patch("backend.orchestrator.writer_pass", new=mock_writer), patch(
-            "backend.orchestrator.editor_pass", new=mock_editor
+        with patch("backend.passes.writer.writer_pass", new=mock_writer), patch(
+            "backend.passes.editor.editor.editor_pass", new=mock_editor
         ):
             with pytest.raises(RuntimeError, match="editor endpoint exploded"):
                 await _drain(

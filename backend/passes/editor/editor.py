@@ -16,14 +16,16 @@ from .slop_detector import DetectionResult
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
+    from ...orchestrator import _PipelineConfig, TurnState
 from .opening_monotony import FlaggedOpener, MonotonyResult
 from .template_repetition import FlaggedTemplate, TemplateResult
 from .text_segmentation import split_narration_sentences
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ...kv_tracker import CachedBase
+from ...kv_tracker import CachedBase, _KVCacheTracker
 from ...tool_defs import (
     TOOLS,
     MAX_EDITOR_ITERATIONS,
+    build_feedback_tool,
 )
 from ...prompt_builder import build_editor_prompt
 from ...llm_types import AssistantToolMessage, ContentPart, WireMessage
@@ -31,6 +33,37 @@ from ...utils import extract_hyperparams
 from .length_guard import LengthGuard, evaluate_length_guard
 
 logger = logging.getLogger(__name__)
+
+
+# ── Feedback gating + tool override ───────────────────────────────────────────
+
+
+def _feedback_active(
+    settings: Mapping[str, Any],
+    feedback_fragments: Sequence[Mapping[str, Any]],
+    *,
+    agent_on: bool,
+) -> bool:
+    """Feedback runs only when its flag is on, the agent is on, AND an enabled
+    feedback fragment exists.
+
+    The feedback step is an editor sub-step, so this gate lives with the editor.
+    *agent_on* is passed in (rather than recomputed) so the orchestrator's
+    ``agent_enabled`` stays the single source of truth — mirroring how
+    ``resolve_length_guard`` takes ``agent_on``.
+    """
+    return agent_on and bool(settings.get("feedback_enabled", 0)) and bool(feedback_fragments)
+
+
+def build_feedback_override(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
+    """Build the ``give_feedback`` dynamic-tool schema from *feedback_fragments*.
+
+    Thin wrapper over :func:`~backend.tool_defs.build_feedback_tool` so the
+    orchestrator's tools-blob composition (``_build_writer_tools_blob``) reaches
+    the give_feedback schema through the editor module rather than importing the
+    schema builder directly — symmetric to ``build_direct_scene_override``.
+    """
+    return build_feedback_tool(feedback_fragments)
 
 
 # ── Audit-report filtering ────────────────────────────────────────────────────
@@ -387,6 +420,109 @@ async def editor_pass(
     # loop's own elapsed only timed the loop).
     done["elapsed"] = int((time.monotonic() - t0) * 1000)
     yield done
+
+
+async def editor_stage(
+    cfg: "_PipelineConfig",
+    state: "TurnState",
+    *,
+    settings: Mapping[str, Any],
+    phrase_bank: list[PhraseGroup] | None,
+    feedback_fragments: Sequence[Mapping[str, Any]],
+    editor_audit_msgs: list[str] | None,
+    kv_tracker: _KVCacheTracker,
+) -> AsyncIterator[dict]:
+    """Editor stage: gating + the writer→editor boundary event + editor pass +
+    event translation, owned here so the orchestrator only sequences passes.
+
+    Decides whether the editor runs (``cfg.do_edit`` or feedback wanted, given a
+    non-empty draft), emits the authoritative ``writer_done`` boundary, then runs
+    :func:`editor_pass` translating its ``reasoning`` / ``writer_rewrite`` /
+    ``editor_done`` / ``feedback`` events and folding the edit/feedback results
+    back into *state* (``resp_text``, ``reasoning_editor``, ``feedback_values``,
+    ``latency``).
+    """
+    # The feedback step is an editor sub-step (post-processing on the final text),
+    # not a top-level pass: it shares the editor's reasoning channel and timing and
+    # surfaces only its user-facing note. It is gated on the feedback_enabled
+    # setting AND at least one enabled feedback-type fragment, so the extra LLM
+    # call is fully opt-in. Because feedback is folded in here, we still enter the
+    # editor pass (with editing disabled) when only feedback is wanted.
+    feedback_needed = _feedback_active(settings, feedback_fragments, agent_on=cfg.agent_on)
+    editor_will_run = bool(state.resp_text and (cfg.do_edit or feedback_needed))
+
+    # Authoritative writer→editor boundary. The frontend flips to its "refining"
+    # phase on this event (not on a token-gap heuristic, which misfires when slow
+    # endpoints stall mid-stream), and only when an editor/feedback pass actually
+    # follows. Not emitted on the writer-abort path — afterStream clears the phase
+    # there. Mirrors director_start/director_done.
+    yield {"event": "writer_done", "data": {"editor_will_run": editor_will_run}}
+
+    if not editor_will_run:
+        logger.info(
+            "Editor pass skipped (do_edit=%s, feedback=%s, draft=%d chars)",
+            cfg.do_edit,
+            feedback_needed,
+            len(state.resp_text),
+        )
+        return
+
+    logger.info(
+        "Editor pass starting (draft=%d chars, phrase_bank=%d groups, edit=%s, feedback=%s)",
+        len(state.resp_text),
+        len(phrase_bank) if phrase_bank else 0,
+        cfg.do_edit,
+        feedback_needed,
+    )
+    # Errors are not caught here: an editor failure propagates and aborts the
+    # turn, like the director/writer passes. _consume_pipeline's finally still
+    # fallback-persists whatever the writer already streamed.
+    async for event in editor_pass(
+        cfg.agent_lane.client,
+        cfg.agent_lane.base,
+        state.effective_msg,
+        state.resp_text,
+        settings,
+        phrase_bank or [],
+        # do_edit == (audit_enabled or length_guard is not None), so in the
+        # feedback-only path (do_edit False) both are already inert — pass them
+        # straight through and let the edit loop no-op.
+        cfg.audit_enabled,
+        cfg.length_guard,
+        kv_tracker=kv_tracker,
+        reasoning_on=cfg.editor_reasoning_on,
+        audit_context_msgs=editor_audit_msgs,
+        writer_user_msg=state.writer_content,
+        feedback_fragments=feedback_fragments if feedback_needed else None,
+    ):
+        if event["type"] == "reasoning":
+            # Feedback reasoning is folded into the editor channel (it is an
+            # editor sub-step, so it shares the Editor reasoning toggle and box).
+            state.reasoning_editor += event["delta"]
+            yield {
+                "event": "reasoning",
+                "data": {"pass": "editor", "delta": event["delta"]},
+            }
+        elif event["type"] == "done":
+            state.latency += int(event.get("elapsed", 0) or 0)
+            refined_draft = event["draft"]
+            if refined_draft and refined_draft != state.resp_text:
+                state.resp_text = refined_draft
+                yield {
+                    "event": "writer_rewrite",
+                    "data": {"refined_text": state.resp_text},
+                }
+            if event.get("tool_calls"):
+                yield {
+                    "event": "editor_done",
+                    "data": {"tool_calls": event["tool_calls"]},
+                }
+            state.feedback_values = event.get("feedback", {}) or {}
+            if state.feedback_values:
+                yield {
+                    "event": "feedback",
+                    "data": {"values": state.feedback_values},
+                }
 
 
 async def _run_edit_loop(

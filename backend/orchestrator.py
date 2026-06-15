@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass, field, fields
 from types import MappingProxyType
 from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
@@ -16,16 +15,10 @@ from . import database as db
 from .llm_client import AbortToken, LLMClient, reasoning_cfg
 from .tool_defs import (
     TOOLS,
-    PRE_WRITER_TOOLS,
-    build_direct_scene_tool,
-    build_feedback_tool,
     enabled_schemas,
 )
 from .prompt_builder import (
     build_prefix,
-    build_lorebook_catalog,
-    compute_agentic_lorebook_block,
-    compute_style_injection_block,
     compute_lorebook_injection_block,
 )
 from .kv_tracker import _KVCacheTracker, CachedBase
@@ -40,12 +33,17 @@ from .workflows import (
     iter_subscriptions,
 )
 from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
-from .llm_types import ChatMessage
+from .llm_types import ChatMessage, ContentPart
 from .utils import extract_hyperparams
-from .passes.director import DirectorResult, director_pass
-from .passes.writer import writer_pass, build_writer_content
-from .passes.editor import editor_pass
-from .passes.director.prompt_rewrite import apply_rewrite, disable_rewrite
+from .passes.director import (
+    _agentic_lorebook_active,
+    build_direct_scene_override,
+    build_lorebook_catalog,
+    director_stage,
+)
+from .passes.writer import writer_stage
+from .passes.editor import _feedback_active, build_feedback_override, editor_stage
+from .passes.director.prompt_rewrite import disable_rewrite
 from .passes.editor.length_guard import (
     LengthGuard,
     apply_length_guard_tools,
@@ -246,6 +244,79 @@ class _PipelineResult:
         return {f.name: getattr(self, f.name) for f in fields(self)}
 
 
+@dataclass
+class TurnState:
+    """Mutable per-turn state threaded by reference through the three pass
+    stages (``director_stage`` / ``writer_stage`` / ``editor_stage``).
+
+    These were ``_run_pipeline``'s ~20 turn-state locals. The result-bound
+    fields mirror :class:`_PipelineResult` (and :class:`DirectorResult`) names so
+    one name follows each value from the director pass through to persistence;
+    :func:`_make_result` reads this straight into a :class:`_PipelineResult`.
+
+    Seeded in :func:`_run_pipeline` from ``director`` (``active_moods`` and the
+    progressive seed filtered to valid fragment ids) and the resolved
+    ``user_message`` (``effective_msg``). ``progressive_state`` /
+    ``valid_progressive_ids`` are turn inputs (not result fields): the director
+    seed map and the id set used to filter director output into
+    ``progressive_fields``.
+    """
+
+    # --- seeds / inputs ---
+    user_message: str = ""
+    effective_msg: str = ""
+    active_moods: list[str] = field(default_factory=list)
+    progressive_state: dict = field(default_factory=dict)
+    valid_progressive_ids: set[str] = field(default_factory=set)
+
+    # --- director outputs ---
+    agent_raw: str = ""
+    calls: list[dict] = field(default_factory=list)
+    latency: int = 0
+    rewritten_msg: str | None = None
+    extra_fields: dict = field(default_factory=dict)
+    progressive_fields: dict = field(default_factory=dict)
+    selected_lorebook_entries: list[str] = field(default_factory=list)
+    inj_block: str = ""
+    writer_lorebook_block: str = ""
+
+    # --- writer / editor outputs ---
+    resp_text: str = ""
+    writer_content: "str | list[ContentPart]" = ""
+    reasoning_director: str = ""
+    reasoning_writer: str = ""
+    reasoning_editor: str = ""
+    feedback_values: dict = field(default_factory=dict)
+
+
+def _make_result(state: TurnState, staged: list[dict] | None = None, staged_state: dict | None = None) -> dict:
+    """Project the mutable :class:`TurnState` into the pipeline's terminal
+    ``_result`` SSE event. *staged* / *staged_state* carry the post-pipeline
+    workflow attachments and per-message state (empty on the writer-abort path,
+    which fires before that iteration)."""
+    return {
+        "event": "_result",
+        "data": _PipelineResult(
+            active_moods=state.active_moods,
+            agent_raw=state.agent_raw,
+            calls=state.calls,
+            latency=state.latency,
+            rewritten_msg=state.rewritten_msg,
+            effective_msg=state.effective_msg,
+            resp_text=state.resp_text,
+            inj_block=state.inj_block,
+            extra_fields=state.extra_fields,
+            progressive_fields=state.progressive_fields,
+            reasoning_director=state.reasoning_director,
+            reasoning_writer=state.reasoning_writer,
+            reasoning_editor=state.reasoning_editor,
+            feedback=state.feedback_values,
+            staged_attachments=staged or [],
+            staged_message_state=staged_state or {},
+        ).as_event_data(),
+    }
+
+
 def _split_interactive_fragments(
     fragments: Sequence[Mapping[str, Any]],
 ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
@@ -260,34 +331,6 @@ def _split_interactive_fragments(
     writer = [df for df in fragments if df.get("field_type") != "feedback"]
     feedback = [df for df in fragments if df.get("field_type") == "feedback"]
     return writer, feedback
-
-
-def _feedback_active(settings: Mapping[str, Any], feedback_fragments: Sequence[Mapping[str, Any]]) -> bool:
-    """Feedback runs only when its flag is on, the agent is on, AND an enabled feedback fragment exists."""
-    return agent_enabled(settings) and bool(settings.get("feedback_enabled", 0)) and bool(feedback_fragments)
-
-
-def _agentic_lorebook_active(
-    settings: Mapping[str, Any],
-    enabled_tools: Mapping[str, bool],
-    lorebook_entries: Sequence[Mapping[str, Any]],
-) -> bool:
-    """Whether the Director drives lorebook activation this turn.
-
-    True only when the feature flag is on, the agent + ``direct_scene`` are on,
-    and at least one *non-constant* candidate entry exists to offer in the
-    catalog. Constant entries are always injected and never managed by the
-    Director, so a pool of only constants does not enable agentic mode. Both
-    tools-blob call sites (the main turn and magic-rewrite) read the same
-    settings/entries through this helper, so the cached blob stays consistent.
-    """
-    if not bool(settings.get("agentic_lorebook_enabled", 0)):
-        return False
-    if not agent_enabled(settings):
-        return False
-    if not bool(enabled_tools.get("direct_scene", False)):
-        return False
-    return any(not e.get("constant") for e in lorebook_entries)
 
 
 def _build_writer_tools_blob(
@@ -312,9 +355,9 @@ def _build_writer_tools_blob(
     and must be computed identically at both call sites.
     """
     writer_fragments, feedback_fragments = _split_interactive_fragments(interactive_fragments)
-    overrides: dict = {"direct_scene": build_direct_scene_tool(writer_fragments, agentic_lorebook=agentic_lorebook)}
-    if _feedback_active(settings, feedback_fragments):
-        overrides["give_feedback"] = build_feedback_tool(feedback_fragments)
+    overrides: dict = {"direct_scene": build_direct_scene_override(writer_fragments, agentic_lorebook=agentic_lorebook)}
+    if _feedback_active(settings, feedback_fragments, agent_on=agent_enabled(settings)):
+        overrides["give_feedback"] = build_feedback_override(feedback_fragments)
         enabled_tools["give_feedback"] = True
     return overrides
 
@@ -409,249 +452,70 @@ async def _run_pipeline(
     # fragments by the caller via the same split.)
     writer_fragments, feedback_fragments = _split_interactive_fragments(interactive_fragments)
 
-    # Mutable turn state, accumulated as the three passes run below.
-    active_moods = director["active_moods"]
+    # Mutable turn state, accumulated as the three passes run below. Threaded by
+    # reference into each stage; seeded from the director baseline + user message.
     _valid_progressive_ids = {df["id"] for df in writer_fragments if df.get("field_type") == "progressive"}
-    progressive_state: dict = {k: v for k, v in director.get("progressive_fields", {}).items() if k in _valid_progressive_ids}
-    agent_raw, calls, latency = "", [], 0
-    rewritten_msg: str | None = None
-    extra_fields: dict = {}
-    selected_lorebook_entries: list[str] = []
-    reasoning_director_text = ""
-    reasoning_writer_text = ""
-    reasoning_editor_text = ""
-    feedback_values: dict = {}
-    progressive_fields: dict = {}
-    effective_msg = user_message
+    state = TurnState(
+        user_message=user_message,
+        effective_msg=user_message,
+        active_moods=director["active_moods"],
+        progressive_state={k: v for k, v in director.get("progressive_fields", {}).items() if k in _valid_progressive_ids},
+        valid_progressive_ids=_valid_progressive_ids,
+    )
 
-    # --- Director pass ---
-    has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in PRE_WRITER_TOOLS)
-    if cfg.agent_on and has_pre_writer_tools:
-        yield {"event": "director_start"}
-        async for event in director_pass(
-            cfg.agent_lane.client,
-            cfg.agent_lane.base,
-            user_message,
-            settings,
-            director,
-            mood_fragments,
-            writer_fragments,
-            cfg.enabled_tools,
-            attachments=attachments,
-            kv_tracker=kv_tracker,
-            reasoning_on=cfg.director_reasoning_on,
-            lorebook_block=lorebook_block,
-            lorebook_catalog=lorebook_catalog,
-            progressive_state=progressive_state,
-        ):
-            if event["type"] == "reasoning":
-                reasoning_director_text += event["delta"]
-                yield {
-                    "event": "reasoning",
-                    "data": {"pass": "director", "delta": event["delta"]},
-                }
-            elif event["type"] == "done":
-                result: DirectorResult = event["result"]
-                active_moods = result.active_moods
-                agent_raw = result.agent_raw
-                calls = result.calls
-                latency = result.latency
-                rewritten_msg = result.rewritten_msg
-                extra_fields = result.extra_fields
-                selected_lorebook_entries = result.selected_lorebook_entries
-                progressive_fields = {k: v for k, v in extra_fields.items() if k in _valid_progressive_ids}
-        effective_msg, did_rewrite = apply_rewrite(user_message, rewritten_msg)
-        if did_rewrite:
-            yield {"event": "prompt_rewritten", "data": {"refined_message": rewritten_msg}}
+    # --- Director pass (+ rewrite, style injection, agentic-lorebook block) ---
+    async for ev in director_stage(
+        cfg,
+        state,
+        settings=settings,
+        director=director,
+        mood_fragments=mood_fragments,
+        writer_fragments=writer_fragments,
+        attachments=attachments,
+        kv_tracker=kv_tracker,
+        lorebook_block=lorebook_block,
+        lorebook_catalog=lorebook_catalog,
+        lorebook_entries=lorebook_entries,
+        lorebook_messages=lorebook_messages,
+        agentic_lorebook=agentic_lorebook,
+        macros=macros,
+    ):
+        yield ev
 
     # Bail out if stop was clicked during the director pass. The writer and
     # agent clients share one abort token, so checking either is equivalent.
     if client.is_aborted:
         return
 
-    # Style injection
-    direct_scene_enabled = cfg.agent_on and bool(cfg.enabled_tools.get("direct_scene", False))
-    inj_block = macros.resolve_message(
-        compute_style_injection_block(
-            active_moods,
-            director["active_moods"],
-            mood_fragments,
-            writer_fragments,
-            direct_scene_enabled,
-            extra_fields,
-            progressive_state,
-        )
-    )
-
-    yield {
-        "event": "director_done",
-        "data": {
-            "active_moods": active_moods,
-            "injection_block": inj_block,
-            "tool_calls": calls,
-            "agent_latency_ms": latency,
-            "extra_fields": extra_fields,
-        },
-    }
-
-    # In agentic mode the writer's lorebook block is computed *after* the director
-    # pass, from its selection (constants ∪ Director-named entries) — the keyword
-    # scan was bypassed up front (lorebook_block is ""), and the catalog only fed
-    # the director. Otherwise the keyword-scanned lorebook_block is used as-is.
-    if agentic_lorebook:
-        writer_lorebook_block = compute_agentic_lorebook_block(
-            lorebook_entries or [], selected_lorebook_entries, macros, lorebook_messages
-        )
-    else:
-        writer_lorebook_block = lorebook_block
-
     # --- Writer pass ---
-    # Built once here and threaded into both the writer pass and (later) the
-    # editor, which replays it verbatim to extend the writer's KV-cached prefix.
-    writer_content = build_writer_content(
-        writer_lorebook_block,
-        inj_block,
-        cfg.writer_enabled_tools,
-        effective_msg,
-        attachments,
-        cfg.length_guard,
-    )
-    resp_text = ""
-    writer_t0 = time.monotonic()
-    async for item in writer_pass(
-        cfg.writer_lane.client,
-        cfg.writer_lane.base,
-        settings,
-        writer_content,
+    async for ev in writer_stage(
+        cfg,
+        state,
+        settings=settings,
+        attachments=attachments,
         kv_tracker=kv_tracker,
-        reasoning_on=cfg.writer_reasoning_on,
     ):
-        if item["type"] == "reasoning":
-            reasoning_writer_text += item["delta"]
-            yield {
-                "event": "reasoning",
-                "data": {"pass": "writer", "delta": item["delta"]},
-            }
-        else:
-            resp_text += item["delta"]
-            yield {"event": "token", "data": item["delta"]}
-    # agent_latency_ms is the whole turn's wall time, so accumulate every pass:
-    # director (above) + writer (here) + editor (below). Timed in the orchestrator
-    # because the writer pass only streams tokens and reports no duration of its own.
-    latency += int((time.monotonic() - writer_t0) * 1000)
-
-    def _make_result(final_text: str, staged: list[dict], staged_state: dict | None = None) -> dict:
-        return {
-            "event": "_result",
-            "data": _PipelineResult(
-                active_moods=active_moods,
-                agent_raw=agent_raw,
-                calls=calls,
-                latency=latency,
-                rewritten_msg=rewritten_msg,
-                effective_msg=effective_msg,
-                resp_text=final_text,
-                inj_block=inj_block,
-                extra_fields=extra_fields,
-                progressive_fields=progressive_fields,
-                reasoning_director=reasoning_director_text,
-                reasoning_writer=reasoning_writer_text,
-                reasoning_editor=reasoning_editor_text,
-                feedback=feedback_values,
-                staged_attachments=staged,
-                staged_message_state=staged_state or {},
-            ).as_event_data(),
-        }
+        yield ev
 
     # If the turn was aborted during writer, persist what streamed so far and
     # skip the editor + post-pipeline iteration. The single _result still
     # fires so the persistence path stays uniform.
     if client.is_aborted:
-        yield _make_result(resp_text, [])
+        yield _make_result(state)
         kv_tracker.log_summary()
         return
 
     # --- Editor pass (edit loop + post-writer feedback step) ---
-    # The feedback step is an editor sub-step (post-processing on the final text),
-    # not a top-level pass: it shares the editor's reasoning channel and timing and
-    # surfaces only its user-facing note. It is gated on the feedback_enabled
-    # setting AND at least one enabled feedback-type fragment, so the extra LLM
-    # call is fully opt-in. Because feedback is folded in here, we still enter the
-    # editor pass (with editing disabled) when only feedback is wanted.
-    feedback_needed = _feedback_active(settings, feedback_fragments)
-    editor_will_run = bool(resp_text and (cfg.do_edit or feedback_needed))
-
-    # Authoritative writer→editor boundary. The frontend flips to its "refining"
-    # phase on this event (not on a token-gap heuristic, which misfires when slow
-    # endpoints stall mid-stream), and only when an editor/feedback pass actually
-    # follows. Not emitted on the writer-abort path above — afterStream clears the
-    # phase there. Mirrors director_start/director_done.
-    yield {"event": "writer_done", "data": {"editor_will_run": editor_will_run}}
-
-    if editor_will_run:
-        logger.info(
-            "Editor pass starting (draft=%d chars, phrase_bank=%d groups, edit=%s, feedback=%s)",
-            len(resp_text),
-            len(phrase_bank) if phrase_bank else 0,
-            cfg.do_edit,
-            feedback_needed,
-        )
-        # Errors are not caught here: an editor failure propagates and aborts
-        # the turn, like the director/writer passes. _consume_pipeline's finally
-        # still fallback-persists whatever the writer already streamed.
-        async for event in editor_pass(
-            cfg.agent_lane.client,
-            cfg.agent_lane.base,
-            effective_msg,
-            resp_text,
-            settings,
-            phrase_bank or [],
-            # do_edit == (audit_enabled or length_guard is not None), so in the
-            # feedback-only path (do_edit False) both are already inert — pass
-            # them straight through and let the edit loop no-op.
-            cfg.audit_enabled,
-            cfg.length_guard,
-            kv_tracker=kv_tracker,
-            reasoning_on=cfg.editor_reasoning_on,
-            audit_context_msgs=editor_audit_msgs,
-            writer_user_msg=writer_content,
-            feedback_fragments=feedback_fragments if feedback_needed else None,
-        ):
-            if event["type"] == "reasoning":
-                # Feedback reasoning is folded into the editor channel (it is an
-                # editor sub-step, so it shares the Editor reasoning toggle and box).
-                reasoning_editor_text += event["delta"]
-                yield {
-                    "event": "reasoning",
-                    "data": {"pass": "editor", "delta": event["delta"]},
-                }
-            elif event["type"] == "done":
-                latency += int(event.get("elapsed", 0) or 0)
-                refined_draft = event["draft"]
-                if refined_draft and refined_draft != resp_text:
-                    resp_text = refined_draft
-                    yield {
-                        "event": "writer_rewrite",
-                        "data": {"refined_text": resp_text},
-                    }
-                if event.get("tool_calls"):
-                    yield {
-                        "event": "editor_done",
-                        "data": {"tool_calls": event["tool_calls"]},
-                    }
-                feedback_values = event.get("feedback", {}) or {}
-                if feedback_values:
-                    yield {
-                        "event": "feedback",
-                        "data": {"values": feedback_values},
-                    }
-    else:
-        logger.info(
-            "Editor pass skipped (do_edit=%s, feedback=%s, draft=%d chars)",
-            cfg.do_edit,
-            feedback_needed,
-            len(resp_text),
-        )
+    async for ev in editor_stage(
+        cfg,
+        state,
+        settings=settings,
+        phrase_bank=phrase_bank,
+        feedback_fragments=feedback_fragments,
+        editor_audit_msgs=editor_audit_msgs,
+        kv_tracker=kv_tracker,
+    ):
+        yield ev
 
     # --- Post-pipeline workflow iteration ---
     # PostCtx.director_output is a read-only mapping (workflow contract), so this
@@ -659,22 +523,22 @@ async def _run_pipeline(
     # dataclass field names — notably ``agent_raw`` (not ``raw``) — so a single
     # name follows each value from the director pass through to every consumer.
     director_output = {
-        "active_moods": active_moods,
-        "agent_raw": agent_raw,
-        "calls": calls,
-        "latency": latency,
-        "rewritten_msg": rewritten_msg,
-        "extra_fields": extra_fields,
-        "progressive_fields": progressive_fields,
+        "active_moods": state.active_moods,
+        "agent_raw": state.agent_raw,
+        "calls": state.calls,
+        "latency": state.latency,
+        "rewritten_msg": state.rewritten_msg,
+        "extra_fields": state.extra_fields,
+        "progressive_fields": state.progressive_fields,
     }
     post: _PostPipelineResult | None = None
     async for ev in _run_post_pipeline(
-        draft=resp_text,
+        draft=state.resp_text,
         conversation_id=conversation_id,
         character_id=character_id,
         card=card,
         history=history,
-        effective_msg=effective_msg,
+        effective_msg=state.effective_msg,
         director_output=director_output,
         settings=settings,
         prefix=prefix,
@@ -690,7 +554,10 @@ async def _run_pipeline(
             yield ev
     assert post is not None
 
-    yield _make_result(post.draft, post.staged_attachments, post.staged_message_state)
+    # A post-pipeline hook may have rewritten the draft; fold it back so the
+    # terminal _result carries the persisted text.
+    state.resp_text = post.draft
+    yield _make_result(state, post.staged_attachments, post.staged_message_state)
     kv_tracker.log_summary()
 
 
@@ -1320,7 +1187,9 @@ async def _prepare_turn(
     # before. The flag is derived from the same pre-merge map and entries the
     # tools blob is built from, so the blob (which gains selected_lorebook_entries iff
     # active) stays consistent with the value threaded to _run_pipeline.
-    agentic_active = _agentic_lorebook_active(settings, enabled_tools_pre_merge, ctx.lorebook_entries)
+    agentic_active = _agentic_lorebook_active(
+        settings, enabled_tools_pre_merge, ctx.lorebook_entries, agent_on=agent_enabled(settings)
+    )
     if agentic_active:
         lorebook_block = ""
         lorebook_catalog = build_lorebook_catalog(ctx.lorebook_entries)
@@ -2149,7 +2018,9 @@ async def handle_magic_rewrite(
         # empty so it's a no-op. agentic_lorebook is recomputed the same way the
         # normal turn does (same settings/entries) so direct_scene's selected_lorebook_entries
         # parameter matches and the rewrite doesn't bust the cached tool section.
-        agentic_active = _agentic_lorebook_active(settings, enabled_tools, ctx.lorebook_entries)
+        agentic_active = _agentic_lorebook_active(
+            settings, enabled_tools, ctx.lorebook_entries, agent_on=agent_enabled(settings)
+        )
         schema_overrides = _build_writer_tools_blob(
             settings, ctx.interactive_fragments, enabled_tools, agentic_lorebook=agentic_active
         )

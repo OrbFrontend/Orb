@@ -10,20 +10,76 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Mapping, Optional, Sequence
+from typing import Any, AsyncIterator, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ...kv_tracker import CachedBase
+from ...kv_tracker import CachedBase, _KVCacheTracker
 from ...tool_defs import (
     TOOLS,
     PRE_WRITER_TOOLS,
+    build_direct_scene_tool,
 )
-from ...prompt_builder import build_director_tool_prompt
+from ...prompt_builder import (
+    build_director_tool_prompt,
+    compute_agentic_lorebook_block,
+    compute_style_injection_block,
+)
 from ...llm_types import ChatMessage
 from ...utils import extract_hyperparams, build_multimodal_content
-from .prompt_rewrite import extract_rewritten_message, order_director_tools, suppresses_reasoning
+from .prompt_rewrite import apply_rewrite, extract_rewritten_message, order_director_tools, suppresses_reasoning
+
+if TYPE_CHECKING:
+    from ...macros import Macros
+    from ...orchestrator import _PipelineConfig, TurnState
 
 logger = logging.getLogger(__name__)
+
+
+# ── Agentic-lorebook gating + tool override ───────────────────────────────────
+
+
+def _agentic_lorebook_active(
+    settings: Mapping[str, Any],
+    enabled_tools: Mapping[str, bool],
+    lorebook_entries: Sequence[Mapping[str, Any]],
+    *,
+    agent_on: bool,
+) -> bool:
+    """Whether the Director drives lorebook activation this turn.
+
+    True only when the feature flag is on, the agent + ``direct_scene`` are on,
+    and at least one *non-constant* candidate entry exists to offer in the
+    catalog. Constant entries are always injected and never managed by the
+    Director, so a pool of only constants does not enable agentic mode. Both
+    tools-blob call sites (the main turn and magic-rewrite) read the same
+    settings/entries through this helper, so the cached blob stays consistent.
+
+    *agent_on* is passed in (rather than recomputed) so the orchestrator's
+    ``agent_enabled`` stays the single source of truth — mirroring
+    ``resolve_length_guard``.
+    """
+    if not bool(settings.get("agentic_lorebook_enabled", 0)):
+        return False
+    if not agent_on:
+        return False
+    if not bool(enabled_tools.get("direct_scene", False)):
+        return False
+    return any(not e.get("constant") for e in lorebook_entries)
+
+
+def build_direct_scene_override(
+    writer_fragments: Sequence[Mapping[str, Any]],
+    *,
+    agentic_lorebook: bool,
+) -> dict:
+    """Build the ``direct_scene`` dynamic-tool schema from *writer_fragments*.
+
+    Thin wrapper over :func:`~backend.tool_defs.build_direct_scene_tool` so the
+    orchestrator's tools-blob composition (``_build_writer_tools_blob``) reaches
+    the direct_scene schema through the director module rather than importing the
+    schema builder directly — symmetric to ``build_feedback_override``.
+    """
+    return build_direct_scene_tool(writer_fragments, agentic_lorebook=agentic_lorebook)
 
 
 @dataclass
@@ -210,3 +266,117 @@ async def director_pass(
             selected_lorebook_entries=selected_lorebook_entries,
         ),
     }
+
+
+async def director_stage(
+    cfg: "_PipelineConfig",
+    state: "TurnState",
+    *,
+    settings: Mapping[str, Any],
+    director: Mapping[str, Any],
+    mood_fragments: Sequence[Mapping[str, Any]],
+    writer_fragments: Sequence[Mapping[str, Any]],
+    attachments: Sequence[Mapping[str, Any]],
+    kv_tracker: _KVCacheTracker,
+    lorebook_block: str,
+    lorebook_catalog: str,
+    lorebook_entries: Sequence[Mapping[str, Any]] | None,
+    lorebook_messages: Sequence[Mapping[str, Any]] | None,
+    agentic_lorebook: bool,
+    macros: "Macros",
+) -> AsyncIterator[dict]:
+    """Director stage: input-prep + director pass + all of its output
+    post-processing, owned here so the orchestrator only sequences passes.
+
+    Runs the director pass (when the agent is on and a pre-writer tool is
+    enabled), folding its :class:`DirectorResult` into *state*; applies the
+    optional prompt rewrite; computes the style-injection block (→
+    ``director_done``); and computes the writer's lorebook block (agentic
+    selection vs. the keyword-scanned block). Returns early on a director-phase
+    abort so ``director_done`` and the style/lorebook work are skipped — the
+    orchestrator's own post-stage abort check then halts before the writer (the
+    writer and agent clients share one abort token).
+    """
+    # --- Director pass ---
+    has_pre_writer_tools = any(cfg.enabled_tools.get(n, False) for n in PRE_WRITER_TOOLS)
+    if cfg.agent_on and has_pre_writer_tools:
+        yield {"event": "director_start"}
+        async for event in director_pass(
+            cfg.agent_lane.client,
+            cfg.agent_lane.base,
+            state.user_message,
+            settings,
+            director,
+            mood_fragments,
+            writer_fragments,
+            cfg.enabled_tools,
+            attachments=attachments,
+            kv_tracker=kv_tracker,
+            reasoning_on=cfg.director_reasoning_on,
+            lorebook_block=lorebook_block,
+            lorebook_catalog=lorebook_catalog,
+            progressive_state=state.progressive_state,
+        ):
+            if event["type"] == "reasoning":
+                state.reasoning_director += event["delta"]
+                yield {
+                    "event": "reasoning",
+                    "data": {"pass": "director", "delta": event["delta"]},
+                }
+            elif event["type"] == "done":
+                result: DirectorResult = event["result"]
+                state.active_moods = result.active_moods
+                state.agent_raw = result.agent_raw
+                state.calls = result.calls
+                state.latency = result.latency
+                state.rewritten_msg = result.rewritten_msg
+                state.extra_fields = result.extra_fields
+                state.selected_lorebook_entries = result.selected_lorebook_entries
+                state.progressive_fields = {k: v for k, v in state.extra_fields.items() if k in state.valid_progressive_ids}
+        state.effective_msg, did_rewrite = apply_rewrite(state.user_message, state.rewritten_msg)
+        if did_rewrite:
+            yield {"event": "prompt_rewritten", "data": {"refined_message": state.rewritten_msg}}
+
+    # Bail out if stop was clicked during the director pass: skip style injection,
+    # director_done, and the writer-lorebook computation, exactly as before. The
+    # orchestrator's own post-stage abort check then halts the pipeline before the
+    # writer. The writer and agent clients share one abort token, so checking
+    # either is equivalent.
+    if cfg.agent_lane.client.is_aborted:
+        return
+
+    # Style injection
+    direct_scene_enabled = cfg.agent_on and bool(cfg.enabled_tools.get("direct_scene", False))
+    state.inj_block = macros.resolve_message(
+        compute_style_injection_block(
+            state.active_moods,
+            director["active_moods"],
+            mood_fragments,
+            writer_fragments,
+            direct_scene_enabled,
+            state.extra_fields,
+            state.progressive_state,
+        )
+    )
+
+    yield {
+        "event": "director_done",
+        "data": {
+            "active_moods": state.active_moods,
+            "injection_block": state.inj_block,
+            "tool_calls": state.calls,
+            "agent_latency_ms": state.latency,
+            "extra_fields": state.extra_fields,
+        },
+    }
+
+    # In agentic mode the writer's lorebook block is computed *after* the director
+    # pass, from its selection (constants ∪ Director-named entries) — the keyword
+    # scan was bypassed up front (lorebook_block is ""), and the catalog only fed
+    # the director. Otherwise the keyword-scanned lorebook_block is used as-is.
+    if agentic_lorebook:
+        state.writer_lorebook_block = compute_agentic_lorebook_block(
+            lorebook_entries or [], state.selected_lorebook_entries, macros, lorebook_messages
+        )
+    else:
+        state.writer_lorebook_block = lorebook_block
