@@ -268,12 +268,6 @@ STRUCTURAL_REWRITE_INSTRUCTIONS = (
     "response is laid out distinctly from the previous ones."
 )
 
-LENGTH_GUARD_INSTRUCTIONS = (
-    "LENGTH GUARD: The draft is {word_count} words — too long. "
-    "Call `editor_rewrite` with a rewrite: at most {max_paragraphs} paragraphs "
-    "and {max_words} words. Preserve the author's voice and all key story beats."
-)
-
 MAX_EDITOR_ITERATIONS = 3
 
 

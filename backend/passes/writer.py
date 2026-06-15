@@ -11,7 +11,8 @@ from typing import Any, AsyncIterator, Mapping, Sequence
 from ..llm_client import LLMClient, reasoning_cfg
 from ..kv_tracker import CachedBase
 from ..llm_types import ChatMessage, ContentPart
-from ..utils import LengthGuard, extract_hyperparams, build_multimodal_content
+from ..utils import extract_hyperparams, build_multimodal_content
+from .editor.length_guard import LengthGuard, writer_nudge
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +40,7 @@ def build_writer_content(
         tail += "___\n\n" + inj_block + "\n\n"
     if enabled_tools:
         tail += "**Do not use tool or function calls this turn.**\n\n"
-    if length_guard and length_guard["enforce"]:
-        max_words = length_guard["max_words"]
-        max_paragraphs = length_guard["max_paragraphs"]
-        tail += f"**Keep your response under {max_words} words and {max_paragraphs} paragraphs.**\n\n"
+    tail += writer_nudge(length_guard)
     tail += "___\n\n" + effective_msg + "\n\n"
 
     return build_multimodal_content(tail, attachments)

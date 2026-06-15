@@ -41,10 +41,15 @@ from .workflows import (
 )
 from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from .llm_types import ChatMessage
-from .utils import LengthGuard, extract_hyperparams
+from .utils import extract_hyperparams
 from .passes.director import DirectorResult, director_pass
 from .passes.writer import writer_pass, build_writer_content
 from .passes.editor import editor_pass
+from .passes.editor.length_guard import (
+    LengthGuard,
+    apply_length_guard_tools,
+    resolve_length_guard,
+)
 from .database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
@@ -144,26 +149,10 @@ def _resolve_pipeline_config(
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
 
-    length_guard_enabled = bool(settings.get("length_guard_enabled", 0)) if agent_on else False
-    # The length-guard *feature* requires the editor_rewrite *tool*: mirror it into
-    # enabled_tools so enabled_schemas() includes its schema in all three passes —
-    # the same KV-cache approach as editor_apply_patch. editor_rewrite is internal
-    # (not user-toggleable); this feature flag is its only enable path.
-    if length_guard_enabled:
-        enabled_tools = {**enabled_tools, "editor_rewrite": True}
-
-    # length_guard_enabled already folds in agent_on (it is False whenever the
-    # agent is off). The dict is built *only* when enabled, so its presence is the
-    # on/off state downstream — `cfg.length_guard is not None` means enabled.
-    length_guard: LengthGuard | None = (
-        {
-            "enforce": bool(settings.get("length_guard_enforce", 0)),
-            "max_words": int(settings.get("length_guard_max_words", 240)),
-            "max_paragraphs": int(settings.get("length_guard_max_paragraphs", 4)),
-        }
-        if length_guard_enabled
-        else None
-    )
+    # Length guard: resolve the config (None when off) and mirror its required
+    # editor_rewrite tool into the shared schema blob. Both live in length_guard.py.
+    length_guard: LengthGuard | None = resolve_length_guard(settings, agent_on)
+    enabled_tools = apply_length_guard_tools(enabled_tools, length_guard)
 
     # In dual-model mode the agent's KV cache is disjoint from the writer's; skip
     # tool schemas and the OOC "no tools" notice from the writer call — neither is
@@ -212,7 +201,7 @@ def _resolve_pipeline_config(
         editor_reasoning_on=bool(reasoning_passes.get("editor", False)),
         audit_enabled=audit_enabled,
         length_guard=length_guard,
-        do_edit=audit_enabled or length_guard_enabled,
+        do_edit=audit_enabled or length_guard is not None,
         writer_enabled_tools=writer_enabled_tools,
         writer_lane=writer_lane,
         agent_lane=agent_lane,

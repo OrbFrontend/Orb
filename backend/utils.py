@@ -4,24 +4,9 @@ utils.py — Shared helpers.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional, Sequence, TypedDict
+from typing import Any, Mapping, Optional, Sequence
 
 from .llm_types import ContentPart
-
-
-class LengthGuard(TypedDict):
-    """Resolved length-guard limits threaded through the pipeline.
-
-    Built by the orchestrator only when the length guard is enabled, so its mere
-    presence *is* the on/off state — ``None`` means disabled, and any non-None
-    value means enabled. Consumed by the writer (preventive nudge, only when
-    ``enforce``) and the editor (corrective rewrite). ``enforce`` carries the
-    enforce-mode flag so it travels with the limits instead of as a sidecar.
-    """
-
-    enforce: bool
-    max_words: int
-    max_paragraphs: int
 
 
 #: Heuristic characters-per-token ratio used for rough context-size estimates.

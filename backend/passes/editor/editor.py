@@ -23,12 +23,12 @@ from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...kv_tracker import CachedBase
 from ...tool_defs import (
     TOOLS,
-    LENGTH_GUARD_INSTRUCTIONS,
     MAX_EDITOR_ITERATIONS,
 )
 from ...prompt_builder import build_editor_prompt
 from ...llm_types import AssistantToolMessage, ContentPart, WireMessage
-from ...utils import LengthGuard, extract_hyperparams
+from ...utils import extract_hyperparams
+from .length_guard import LengthGuard, evaluate_length_guard
 
 logger = logging.getLogger(__name__)
 
@@ -465,33 +465,21 @@ async def _run_edit_loop(
         logger.info("Editor: audit disabled, skipping scanners")
 
     # ── Length guard
-    length_guard_triggered = False
-    length_guard_instruction = ""
-
-    # Uses the same enabled-tool set as director and writer for KV-cache
+    #
     # The tools blob lives on the shared ``base`` (built once by the orchestrator
     # from the same enabled-tool set as the director and writer). The editor never
     # rebuilds or narrows it: the schemas sit inside the cached prefix, so changing
     # the list mid-loop would bust the KV cache every iteration. Which single tool
     # the model must call is steered entirely by tool_choice (see _pick_tool_choice,
     # recomputed each iteration) while base.tools stays byte-identical throughout.
-    if length_guard is not None:
-        word_count = len(draft.split())
-        max_words = length_guard["max_words"]
-        max_paragraphs = length_guard["max_paragraphs"]
-        if word_count > max_words:
-            length_guard_triggered = True
-            length_guard_instruction = LENGTH_GUARD_INSTRUCTIONS.format(
-                word_count=word_count,
-                max_paragraphs=max_paragraphs,
-                max_words=max_words,
-            )
-            logger.info(
-                "Editor: length guard triggered (word_count=%d > max_words=%d)",
-                word_count,
-                max_words,
-            )
-            debug_parts.append(f"Length guard triggered: {word_count} words (max {max_words})")
+    length_guard_triggered, length_guard_instruction, lg_word_count = evaluate_length_guard(draft, length_guard)
+    if length_guard_triggered and length_guard is not None:  # 2nd clause narrows None for the type checker
+        logger.info(
+            "Editor: length guard triggered (word_count=%d > max_words=%d)",
+            lg_word_count,
+            length_guard["max_words"],
+        )
+        debug_parts.append(f"Length guard triggered: {lg_word_count} words (max {length_guard['max_words']})")
 
     if report.total_issues <= 1 and not length_guard_triggered:
         logger.info(
