@@ -6,7 +6,7 @@ pre-commit:
   commands:
     format-python:
       glob: "*.py"
-      run: python3 -m black --line-length 128 --quiet {staged_files}
+      run: python3 -m ruff check --select I --fix --quiet {staged_files} && python3 -m ruff format --line-length 128 --quiet {staged_files}
       stage_fixed: true
 
     format-js:
@@ -17,7 +17,7 @@ pre-commit:
 
     lint-python:
       glob: "*.py"
-      run: python3 -m flake8 {staged_files}
+      run: python3 -m ruff check {staged_files}
 
 commit-msg:
   commands:
