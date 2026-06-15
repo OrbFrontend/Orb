@@ -10,9 +10,8 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
 
-from .audit import AuditReport, format_report, run_audit
+from ...analysis import AuditReport, DetectionResult, format_report, run_audit
 from .feedback import FeedbackResult, feedback_step
-from .slop_detector import DetectionResult
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
@@ -27,10 +26,14 @@ from ...inference import (
     build_feedback_tool,
 )
 from ...core import extract_hyperparams
+from ...analysis import (
+    FlaggedOpener,
+    FlaggedTemplate,
+    MonotonyResult,
+    TemplateResult,
+    split_narration_sentences,
+)
 from .length_guard import LengthGuard, evaluate_length_guard
-from .opening_monotony import FlaggedOpener, MonotonyResult
-from .template_repetition import FlaggedTemplate, TemplateResult
-from .text_segmentation import split_narration_sentences
 
 logger = logging.getLogger(__name__)
 

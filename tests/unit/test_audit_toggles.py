@@ -5,7 +5,7 @@ skipping disabled scanners while leaving enabled ones intact.
 
 from __future__ import annotations
 
-from backend.passes.editor.audit import AUDIT_TYPES, run_audit
+from backend.analysis import AUDIT_TYPES, run_audit
 
 # Banned phrase that detect_cliches will flag (matches a seeded literal group).
 _PHRASE_BANK = [["tension in the air"]]

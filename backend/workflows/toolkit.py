@@ -38,7 +38,7 @@ from ..core import (
     workflow_state_lock,
 )
 from ..core import Macros
-from ..passes.editor.audit import format_report, run_audit
+from ..analysis import format_report, run_audit
 from ..inference import (
     build_prefix,
     compute_lorebook_injection_block,
