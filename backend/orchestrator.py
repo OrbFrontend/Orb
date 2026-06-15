@@ -12,7 +12,7 @@ from types import MappingProxyType
 from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 
 from . import database as db
-from .cached_call import CachedBase
+from .inference import CachedBase
 from .database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
@@ -24,8 +24,8 @@ from .database.models import (
     SettingsRow,
     UserPersonaRow,
 )
-from .kv_tracker import _KVCacheTracker
-from .llm_client import AbortToken, LLMClient, reasoning_cfg
+from .inference import _KVCacheTracker
+from .inference import AbortToken, LLMClient, reasoning_cfg
 from .core import ChatMessage
 from .core import workflow_character_state_lock, workflow_state_lock
 from .core import Macros
@@ -44,11 +44,11 @@ from .passes.editor.length_guard import (
 )
 from .passes.writer import writer_stage
 from .pipeline_state import ModelLane, TurnState, _PipelineConfig
-from .prompt_builder import (
+from .inference import (
     build_prefix,
     compute_lorebook_injection_block,
 )
-from .tool_registry import (
+from .inference import (
     TOOLS,
     enabled_schemas,
 )

@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import Any, AsyncGenerator, Mapping, Sequence
 
-from . import prompt_builder
-from .llm_client import LLMClient
-from .core import ChatMessage
-from .core import Macros
+from .inference import prompt_builder
+from .inference import LLMClient
+from .core import ChatMessage, Macros
 
 DEFAULT_SUMMARY_INSTRUCTIONS = (
     "[OOC: Write a rich prose narrative summary of the story so far. "

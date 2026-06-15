@@ -93,14 +93,14 @@ async def db(db_path: Path):
 def llm_mock(monkeypatch):
     """Substitute the streaming LLM client across every bound import.
 
-    ``from .llm_client import LLMClient`` binds a local name at import
-    time, so patching only ``backend.llm_client.LLMClient`` is not
+    ``from .inference import LLMClient`` binds a local name at import
+    time, so patching only ``backend.inference.client.LLMClient`` is not
     enough -- ``backend.main`` and ``backend.orchestrator`` retain
     pre-patch references. The fixture patches all three.
     """
     fake = FakeLLMClient()
     factory = llm_factory(fake)
-    monkeypatch.setattr("backend.llm_client.LLMClient", factory)
+    monkeypatch.setattr("backend.inference.client.LLMClient", factory)
     monkeypatch.setattr("backend.main.LLMClient", factory)
     monkeypatch.setattr("backend.orchestrator.LLMClient", factory)
     return fake

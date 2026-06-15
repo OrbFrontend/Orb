@@ -11,8 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.cached_call import CachedBase
-from backend.llm_client import LLMClient
+from backend.inference import CachedBase
+from backend.inference import LLMClient
 from backend.passes.editor.audit import AuditReport
 from backend.passes.editor.editor import editor_pass
 from backend.passes.editor.opening_monotony import MonotonyResult
@@ -22,7 +22,7 @@ from backend.passes.editor.slop_detector import (
     FlaggedSentence,
 )
 from backend.passes.editor.template_repetition import TemplateResult
-from backend.tool_registry import enabled_schemas
+from backend.inference import enabled_schemas
 
 
 def _make_client() -> LLMClient:

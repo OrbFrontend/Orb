@@ -17,12 +17,12 @@ from .slop_detector import DetectionResult
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
     from ...pipeline_state import TurnState, _PipelineConfig
-from ...cached_call import CachedBase
-from ...kv_tracker import _KVCacheTracker
-from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ...inference import CachedBase
+from ...inference import _KVCacheTracker
+from ...inference import LLMClient, parse_tool_calls, reasoning_cfg
 from ...core import AssistantToolMessage, ContentPart, WireMessage
-from ...prompt_builder import build_editor_prompt
-from ...tool_registry import (
+from ...inference import build_editor_prompt
+from ...inference import (
     TOOLS,
     build_feedback_tool,
 )

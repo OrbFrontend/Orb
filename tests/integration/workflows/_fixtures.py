@@ -22,7 +22,7 @@ from backend.database.queries.conversations import (
     set_workflow_state,
 )
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
-from backend.tool_registry import STANDALONE_TOOLS, TOOLS
+from backend.inference import STANDALONE_TOOLS, TOOLS
 from backend.workflows import (
     HookType,
     ToolSpec,

@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from .core import ChatMessage, ContentPart
-from .core import Macros
+from ..core import ChatMessage, ContentPart, Macros
 from .tool_registry import TOOLS
 
 LOREBOOK_SCAN_DEPTH = 6

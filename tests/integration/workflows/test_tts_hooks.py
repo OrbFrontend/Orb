@@ -20,8 +20,8 @@ from backend.database import (
     get_messages,
     get_workflow_attachment_by_id,
 )
-from backend.kv_tracker import _KVCacheTracker
-from backend.llm_client import LLMClient
+from backend.inference import _KVCacheTracker
+from backend.inference import LLMClient
 from backend.orchestrator import _run_pipeline
 from backend.workflows import (
     PostCtx,

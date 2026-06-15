@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
-from backend.tool_registry import STANDALONE_TOOLS, TOOLS
+from backend.inference import STANDALONE_TOOLS, TOOLS
 from backend.workflows._forced_call import forced_tool_call
 
 _TOOL_NAME = "editor_rewrite"

@@ -40,7 +40,7 @@ from dataclasses import dataclass
 import pytest
 
 from backend.database import get_messages
-from backend.kv_tracker import _serialize_messages
+from backend.inference.kv_tracker import _serialize_messages
 
 # A draft well over the length-guard ceiling so the editor pass always fires on
 # the pipeline-backed entry points (regenerate / super_regenerate / fork_edit).
@@ -49,7 +49,7 @@ _LONG_DRAFT = "word " * 60
 
 def _wire_tools(tools) -> str:
     """Serialize tools the way httpx puts them on the wire: insertion order
-    preserved, no sort_keys. Mirrors backend.llm_client's ``json=body``."""
+    preserved, no sort_keys. Mirrors backend.inference.client's ``json=body``."""
     return json.dumps(tools, separators=(",", ":"), ensure_ascii=False) if tools else ""
 
 
