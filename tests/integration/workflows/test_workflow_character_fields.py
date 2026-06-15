@@ -21,7 +21,7 @@ from backend.database import (
 )
 from backend.inference import _KVCacheTracker
 from backend.inference import LLMClient
-from backend.orchestrator import _iterate_pre_pipeline_hooks, _run_pipeline
+from backend.pipeline.orchestrator import _iterate_pre_pipeline_hooks, _run_pipeline
 
 from ._fixtures import make_workflow, register_for_test
 
@@ -95,7 +95,7 @@ async def test_post_pipeline_ctx_carries_readonly_card_snapshot():
 
     w = make_workflow("cf_post", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.passes.writer.writer_pass", new=mock_writer):
+        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
             await _drain(
                 _run_pipeline(
                     LLMClient("http://localhost:9999"),

@@ -8,7 +8,7 @@ tolerated; and nothing-set resolves to None.
 
 from __future__ import annotations
 
-from backend.orchestrator import resolve_persona_id
+from backend.pipeline.orchestrator import resolve_persona_id
 
 
 def test_conversation_lock_wins_over_character_and_global():

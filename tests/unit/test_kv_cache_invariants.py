@@ -51,8 +51,8 @@ from backend.inference.kv_tracker import (
     _serialize_tools,
 )
 from backend.inference import AbortToken
-from backend.orchestrator import _run_pipeline
-from backend.passes.editor.editor import editor_pass
+from backend.pipeline.orchestrator import _run_pipeline
+from backend.pipeline.passes.editor.editor import editor_pass
 from backend.inference import (
     build_direct_scene_tool,
     build_feedback_tool,

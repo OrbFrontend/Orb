@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from backend.database import SEED_INTERACTIVE_FRAGMENTS
-from backend.passes.director import apply_tool_calls
-from backend.passes.editor import extract_feedback_values
+from backend.pipeline.passes.director import apply_tool_calls
+from backend.pipeline.passes.editor import extract_feedback_values
 from backend.inference import build_style_injection, compute_style_injection_block
 from backend.inference import build_direct_scene_tool, build_feedback_tool
 

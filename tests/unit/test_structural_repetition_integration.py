@@ -11,7 +11,7 @@ to ~0.67 and suppressing the flag.
 
 from __future__ import annotations
 
-from backend.passes.editor.editor import _run_contextual_audit
+from backend.pipeline.passes.editor.editor import _run_contextual_audit
 
 # Short synthetic messages with identical block-type sequences AND identical
 # sentence counts per block, so the detector should flag them as repetitive.
