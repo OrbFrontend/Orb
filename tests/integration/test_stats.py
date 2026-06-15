@@ -142,7 +142,7 @@ async def test_missed_theme_excludes_favorite(client, db, monkeypatch):
     await _seed_character("Alice", 300)
     await _seed_character("Bob", 150, old=True)
 
-    monkeypatch.setattr("backend.main.random.choice", lambda options: options[-1])
+    monkeypatch.setattr("backend.api.routes.stats.random.choice", lambda options: options[-1])
 
     resp = await client.get("/api/stats")
     assert resp.status_code == 200
