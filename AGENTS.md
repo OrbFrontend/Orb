@@ -60,8 +60,11 @@ Orb/
 ├── backend/
 │   ├── main.py              # FastAPI app: all API routes, Pydantic models
 │   ├── orchestrator.py      # Pipeline orchestration: handle_turn, _run_pipeline,
-│   │                        # TurnState (mutable per-turn bag threaded through stages),
-│   │                        # _make_result (projects TurnState → _result SSE event)
+│   │                        # _make_result (projects TurnState → _result SSE event);
+│   │                        # builds the per-turn contracts defined in pipeline_state.py
+│   ├── pipeline_state.py    # Per-turn contract dataclasses shared across passes:
+│   │                        # ModelLane, _PipelineConfig, TurnState (mutable per-turn
+│   │                        # bag threaded through stages). Passes import down into here.
 │   ├── database/            # DB package (aiosqlite). __init__.py re-exports the
 │   │                        # full public API for backwards-compatible imports.
 │   │   ├── models.py        # Model layer: TypedDict row contracts + PhraseGroup;
@@ -76,13 +79,15 @@ Orb/
 │   │   └── migrations/      # DB migrations scripts + run_pending() runner
 │   ├── llm_client.py        # LLM API client (OpenAI-compatible), streaming, reasoning
 │   ├── prompt_builder.py    # System prompt assembly, style injection, lorebook injection
-│   ├── tool_defs.py         # Tool schemas (direct_scene, rewrite, editor tools), constants
+│   ├── tool_registry.py     # Tool schemas (direct_scene, rewrite, editor tools), constants
 │   ├── endpoint_profiles.py # Per-provider quirks (url patterns, body transforms)
 │   ├── tavern_cards.py      # PNG card import (tEXt chunk extraction, V2 spec parsing)
 │   ├── card_downloader.py   # Download character cards from external sources (CharacterHub, etc.)
 │   ├── summarizer.py        # Narrative summary generation + compress flow
 │   ├── macros.py            # Macro resolution ({{user}}, {{char}}, {{roll}}, etc.)
-│   ├── kv_tracker.py        # Debug: logs messages/tools to JSON for inspection
+│   ├── cached_call.py       # Core cached-call path: CachedBase (byte-identical
+│   │                        # prefix+tools+model base every pass extends) + cached_complete
+│   ├── kv_tracker.py        # Debug KV-cache tracker: logs messages/tools to JSON for inspection
 │   ├── presets.py           # Preset/backup engine: selective export, merge-import,
 │   │                        # full snapshots/restore (sqlite ATTACH + VACUUM INTO).
 │   │                        # Schema-driven: mechanics derived from live schema via
@@ -498,7 +503,7 @@ A *tool* is a model-callable function schema. `settings.enabled_tools` holds
 so a non-tool key there is dropped on save. For a UI toggle that is *not* a model
 function (a "feature flag"), see the next subsection instead.
 
-1. Define the tool schema in `tool_defs.py` (OpenAI function-calling format)
+1. Define the tool schema in `tool_registry.py` (OpenAI function-calling format)
 2. Register in `TOOLS` dict with `choice` and `schema` entries
 3. Add to `PRE_WRITER_TOOLS` or `POST_WRITER_TOOLS` sets
 4. Handle the tool call response in the relevant pass
@@ -551,4 +556,4 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 
 9. **Lorebook scan depth** — Hard-coded to 6 messages (`LOREBOOK_SCAN_DEPTH` in `prompt_builder.py`). Only the last 6 messages are scanned for lorebook keyword matches.
 
-10. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire. `macros.py` is a **dependency-free leaf** (it imports nothing else in the codebase — like `database/models.py` and `llm_types.py`): it transforms strings and message dicts, and knows nothing about the LLM client. The transport-boundary catch-all that scrubs `{{user}}`/`{{char}}` from *every* outgoing message (the director's tool prompt embeds user-authored fragment text that can carry `{{char}}`) is `Macros.resolve_prompt_messages`, wired in as the `CachedBase.resolve` hook in `kv_tracker.py` — applied to `[*prefix, *trailing]` right before the call, so the KV tracker snapshots the exact resolved bytes sent. There is **no** macro-resolving `LLMClient` subclass/wrapper; don't reintroduce one.
+10. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire. `macros.py` is a **dependency-free leaf** (it imports nothing else in the codebase — like `database/models.py` and `llm_types.py`): it transforms strings and message dicts, and knows nothing about the LLM client. The transport-boundary catch-all that scrubs `{{user}}`/`{{char}}` from *every* outgoing message (the director's tool prompt embeds user-authored fragment text that can carry `{{char}}`) is `Macros.resolve_prompt_messages`, wired in as the `CachedBase.resolve` hook in `cached_call.py` — applied to `[*prefix, *trailing]` right before the call, so the KV tracker snapshots the exact resolved bytes sent. There is **no** macro-resolving `LLMClient` subclass/wrapper; don't reintroduce one.

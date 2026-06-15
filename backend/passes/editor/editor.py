@@ -16,8 +16,9 @@ from .slop_detector import DetectionResult
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
-    from ...orchestrator import TurnState, _PipelineConfig
-from ...kv_tracker import CachedBase, _KVCacheTracker
+    from ...pipeline_state import TurnState, _PipelineConfig
+from ...cached_call import CachedBase
+from ...kv_tracker import _KVCacheTracker
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...llm_types import AssistantToolMessage, ContentPart, WireMessage
 from ...prompt_builder import build_editor_prompt

@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Sequence
 
-from ...kv_tracker import CachedBase
+from ...cached_call import CachedBase
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...llm_types import ChatMessage, ContentPart
 from ...prompt_builder import build_feedback_prompt

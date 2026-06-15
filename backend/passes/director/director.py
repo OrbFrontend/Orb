@@ -12,7 +12,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Optional, Sequence
 
-from ...kv_tracker import CachedBase, _KVCacheTracker
+from ...cached_call import CachedBase
+from ...kv_tracker import _KVCacheTracker
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...llm_types import ChatMessage
 from ...prompt_builder import (
@@ -35,7 +36,7 @@ from .prompt_rewrite import (
 
 if TYPE_CHECKING:
     from ...macros import Macros
-    from ...orchestrator import TurnState, _PipelineConfig
+    from ...pipeline_state import TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)
 

@@ -9,14 +9,15 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
 
-from ..kv_tracker import CachedBase, _KVCacheTracker
+from ..cached_call import CachedBase
+from ..kv_tracker import _KVCacheTracker
 from ..llm_client import LLMClient, reasoning_cfg
 from ..llm_types import ChatMessage, ContentPart
 from ..utils import build_multimodal_content, extract_hyperparams
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
-    from ..orchestrator import TurnState, _PipelineConfig
+    from ..pipeline_state import TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.kv_tracker import CachedBase
+from backend.cached_call import CachedBase
 from backend.llm_client import LLMClient
 from backend.passes.editor.audit import AuditReport
 from backend.passes.editor.editor import editor_pass
