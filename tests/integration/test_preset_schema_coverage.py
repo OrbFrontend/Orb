@@ -15,9 +15,9 @@ import sqlite3
 
 import pytest
 
-from backend.features.presets import engine as presets
 from backend.database import schema
 from backend.database.schema import CREATE_TABLES_SQL
+from backend.features.presets import engine as presets
 
 _mig_0027 = importlib.import_module("backend.database.migrations.0027_rebuild_persona_lock_fks")
 

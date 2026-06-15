@@ -43,21 +43,21 @@ from typing import Any
 
 import pytest
 
-from backend.inference import CachedBase
+from backend.inference import (
+    AbortToken,
+    CachedBase,
+    build_direct_scene_tool,
+    build_feedback_tool,
+    enabled_schemas,
+)
 from backend.inference.kv_tracker import (
     _common_prefix_len,
     _KVCacheTracker,
     _serialize_messages,
     _serialize_tools,
 )
-from backend.inference import AbortToken
 from backend.pipeline.orchestrator import _run_pipeline
 from backend.pipeline.passes.editor.editor import editor_pass
-from backend.inference import (
-    build_direct_scene_tool,
-    build_feedback_tool,
-    enabled_schemas,
-)
 
 
 def _wire_tools(tools: Any) -> str:

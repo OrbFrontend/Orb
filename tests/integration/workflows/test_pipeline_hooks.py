@@ -18,8 +18,7 @@ from backend.database import (
     get_workflow_message_state,
     set_active_leaf,
 )
-from backend.inference import _KVCacheTracker
-from backend.inference import LLMClient
+from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.orchestrator import (
     _consume_pipeline,
     _iterate_pre_pipeline_hooks,

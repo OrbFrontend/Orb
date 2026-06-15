@@ -16,15 +16,15 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from backend.inference import endpoint_profiles as ep_mod
+from backend.inference import LLMClient
 from backend.inference import client as llm_mod
+from backend.inference import endpoint_profiles as ep_mod
 from backend.inference.endpoint_profiles import (
     ModelProfile,
     _is_tool_choice_unsupported,
     is_forced_tool_choice,
     profile_for,
 )
-from backend.inference import LLMClient
 
 # ---- Layer 1: ModelProfile / PROFILES -------------------------------------
 

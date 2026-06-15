@@ -16,22 +16,23 @@ from .feedback import FeedbackResult, feedback_step
 if TYPE_CHECKING:
     from ....database.models import PhraseGroup
     from ...state import TurnState, _PipelineConfig
-from ....inference import CachedBase
-from ....inference import _KVCacheTracker
-from ....inference import LLMClient, parse_tool_calls, reasoning_cfg
-from ....core import AssistantToolMessage, ContentPart, WireMessage
-from ....inference import build_editor_prompt
-from ....inference import (
-    TOOLS,
-    build_feedback_tool,
-)
-from ....core import extract_hyperparams
 from ....analysis import (
     FlaggedOpener,
     FlaggedTemplate,
     MonotonyResult,
     TemplateResult,
     split_narration_sentences,
+)
+from ....core import AssistantToolMessage, ContentPart, WireMessage, extract_hyperparams
+from ....inference import (
+    TOOLS,
+    CachedBase,
+    LLMClient,
+    _KVCacheTracker,
+    build_editor_prompt,
+    build_feedback_tool,
+    parse_tool_calls,
+    reasoning_cfg,
 )
 from .length_guard import LengthGuard, evaluate_length_guard
 

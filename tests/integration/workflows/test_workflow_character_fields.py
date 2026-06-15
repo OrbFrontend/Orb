@@ -19,8 +19,7 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
-from backend.inference import _KVCacheTracker
-from backend.inference import LLMClient
+from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.orchestrator import _iterate_pre_pipeline_hooks, _run_pipeline
 
 from ._fixtures import make_workflow, register_for_test
