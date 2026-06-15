@@ -12,18 +12,45 @@ from types import MappingProxyType
 from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 
 from . import database as db
-from .llm_client import AbortToken, LLMClient, reasoning_cfg
-from .tool_defs import (
-    TOOLS,
-    enabled_schemas,
+from .database.models import (
+    ActiveLorebookEntryRow,
+    CharacterCardRow,
+    ConversationRow,
+    DirectorStateRow,
+    InteractiveFragmentRow,
+    MoodFragmentRow,
+    PhraseGroup,
+    SettingsRow,
+    UserPersonaRow,
 )
+from .kv_tracker import CachedBase, _KVCacheTracker
+from .llm_client import AbortToken, LLMClient, reasoning_cfg
+from .llm_types import ChatMessage, ContentPart
+from .locks import workflow_character_state_lock, workflow_state_lock
+from .macros import Macros
+from .passes.director import (
+    _agentic_lorebook_active,
+    build_direct_scene_override,
+    build_lorebook_catalog,
+    director_stage,
+)
+from .passes.director.prompt_rewrite import disable_rewrite
+from .passes.editor import _feedback_active, build_feedback_override, editor_stage
+from .passes.editor.length_guard import (
+    LengthGuard,
+    apply_length_guard_tools,
+    resolve_length_guard,
+)
+from .passes.writer import writer_stage
 from .prompt_builder import (
     build_prefix,
     compute_lorebook_injection_block,
 )
-from .kv_tracker import _KVCacheTracker, CachedBase
-from .locks import workflow_character_state_lock, workflow_state_lock
-from .macros import Macros
+from .tool_defs import (
+    TOOLS,
+    enabled_schemas,
+)
+from .utils import extract_hyperparams
 from .workflows import (
     HookType,
     PostCtx,
@@ -33,33 +60,6 @@ from .workflows import (
     iter_subscriptions,
 )
 from .workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
-from .llm_types import ChatMessage, ContentPart
-from .utils import extract_hyperparams
-from .passes.director import (
-    _agentic_lorebook_active,
-    build_direct_scene_override,
-    build_lorebook_catalog,
-    director_stage,
-)
-from .passes.writer import writer_stage
-from .passes.editor import _feedback_active, build_feedback_override, editor_stage
-from .passes.director.prompt_rewrite import disable_rewrite
-from .passes.editor.length_guard import (
-    LengthGuard,
-    apply_length_guard_tools,
-    resolve_length_guard,
-)
-from .database.models import (
-    ActiveLorebookEntryRow,
-    CharacterCardRow,
-    ConversationRow,
-    InteractiveFragmentRow,
-    DirectorStateRow,
-    MoodFragmentRow,
-    PhraseGroup,
-    SettingsRow,
-    UserPersonaRow,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -606,8 +606,9 @@ async def _run_post_pipeline(
         # /trigger calls and any other in-flight pipeline that reaches this
         # hook on the same conversation. Different workflows on the same
         # conversation keep distinct lock keys, so they still run in parallel.
-        async with workflow_state_lock(conversation_id or "", sub.workflow_id), workflow_character_state_lock(
-            character_id or "", sub.workflow_id
+        async with (
+            workflow_state_lock(conversation_id or "", sub.workflow_id),
+            workflow_character_state_lock(character_id or "", sub.workflow_id),
         ):
             try:
                 post_ctx = PostCtx(
@@ -680,7 +681,7 @@ async def _run_post_pipeline(
                         state = ev.get("state") if isinstance(ev, dict) else None
                         if not isinstance(state, dict):
                             logger.warning(
-                                "post_pipeline hook %r yielded set_message_state with " "non-dict state (type=%s); ignoring",
+                                "post_pipeline hook %r yielded set_message_state with non-dict state (type=%s); ignoring",
                                 sub.workflow_id,
                                 type(state).__name__,
                             )
@@ -719,7 +720,7 @@ def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
     """
     if not isinstance(att, dict):
         logger.warning(
-            "post_pipeline hook %r yielded attach_artifact with non-dict " "attachment (type=%s); ignoring",
+            "post_pipeline hook %r yielded attach_artifact with non-dict attachment (type=%s); ignoring",
             workflow_id,
             type(att).__name__,
         )
@@ -774,7 +775,7 @@ def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
                 data_bytes = f.read()
         except OSError as e:
             logger.warning(
-                "post_pipeline hook %r yielded attach_artifact with path=%r " "that failed to read (%s); dropping entry",
+                "post_pipeline hook %r yielded attach_artifact with path=%r that failed to read (%s); dropping entry",
                 workflow_id,
                 att["path"],
                 e,
@@ -787,7 +788,7 @@ def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
 
     if not out.get("data"):
         logger.warning(
-            "post_pipeline hook %r yielded attach_artifact with empty data " "(filename=%r); dropping entry",
+            "post_pipeline hook %r yielded attach_artifact with empty data (filename=%r); dropping entry",
             workflow_id,
             filename,
         )
@@ -830,8 +831,9 @@ async def _iterate_pre_pipeline_hooks(
         # See workflow_state_lock invariant in backend/locks.py: held across the
         # hook's full lifetime to keep its workflow_state RMW atomic against any
         # concurrent /trigger or pipeline iteration on the same (cid, wid).
-        async with workflow_state_lock(conversation_id, sub.workflow_id), workflow_character_state_lock(
-            character_id or "", sub.workflow_id
+        async with (
+            workflow_state_lock(conversation_id, sub.workflow_id),
+            workflow_character_state_lock(character_id or "", sub.workflow_id),
         ):
             try:
                 pre_ctx = PreCtx(
@@ -858,7 +860,7 @@ async def _iterate_pre_pipeline_hooks(
                             items = tools.items()
                         else:
                             logger.warning(
-                                "pre_pipeline hook %r yielded enable_tools with " "invalid tools payload (type=%s); ignoring",
+                                "pre_pipeline hook %r yielded enable_tools with invalid tools payload (type=%s); ignoring",
                                 sub.workflow_id,
                                 type(tools).__name__,
                             )
@@ -866,7 +868,7 @@ async def _iterate_pre_pipeline_hooks(
                         for name, val in items:
                             if val is not True:
                                 logger.warning(
-                                    "workflow %r yielded enable_tools %r=%r; only True " "is honored, entry dropped",
+                                    "workflow %r yielded enable_tools %r=%r; only True is honored, entry dropped",
                                     sub.workflow_id,
                                     name,
                                     val,
@@ -885,7 +887,7 @@ async def _iterate_pre_pipeline_hooks(
                         block = ev.get("block")
                         if not isinstance(block, str) or not block.strip():
                             logger.warning(
-                                "pre_pipeline hook %r yielded empty/whitespace-only " "system_prompt; ignoring",
+                                "pre_pipeline hook %r yielded empty/whitespace-only system_prompt; ignoring",
                                 sub.workflow_id,
                             )
                             continue

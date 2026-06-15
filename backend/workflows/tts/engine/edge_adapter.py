@@ -17,7 +17,7 @@ import logging
 
 import edge_tts
 
-from .base import TTSAdapter, SpeakableChunk, SynthesisResult
+from .base import SpeakableChunk, SynthesisResult, TTSAdapter
 
 logger = logging.getLogger(__name__)
 

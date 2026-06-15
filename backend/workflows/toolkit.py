@@ -23,8 +23,8 @@ from __future__ import annotations
 from ..database import (
     get_character_card,
     get_conversation,
-    get_interactive_fragments,
     get_director_state,
+    get_interactive_fragments,
     get_message_by_id,
     get_messages,
     get_mood_fragments,
@@ -32,6 +32,11 @@ from ..database import (
     get_user_personas,
 )
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ..locks import (
+    workflow_character_state_lock,
+    workflow_config_lock,
+    workflow_state_lock,
+)
 from ..macros import Macros
 from ..passes.editor.audit import format_report, run_audit
 from ..prompt_builder import (
@@ -41,13 +46,6 @@ from ..prompt_builder import (
     format_message_with_attachments,
 )
 from ..tool_defs import STANDALONE_TOOLS, TOOLS, enabled_schemas
-
-from ..locks import (
-    workflow_character_state_lock,
-    workflow_config_lock,
-    workflow_state_lock,
-)
-
 from ._forced_call import forced_tool_call
 from .attachment_cache import insert_workflow_attachment
 from .registry import (
@@ -61,7 +59,6 @@ from .registry import (
     set_workflow_message_state,
     set_workflow_state,
 )
-
 
 __all__ = [
     "LLMClient",

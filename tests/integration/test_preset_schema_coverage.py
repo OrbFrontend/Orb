@@ -327,7 +327,7 @@ def test_persona_lock_survives_gapped_persona_ids(tmp_path):
     conn = sqlite3.connect(main)
     try:
         locked = conn.execute(
-            "SELECT cc.name, up.name FROM character_cards cc " "LEFT JOIN user_personas up ON cc.persona_lock_id = up.id"
+            "SELECT cc.name, up.name FROM character_cards cc LEFT JOIN user_personas up ON cc.persona_lock_id = up.id"
         ).fetchall()
     finally:
         conn.close()
@@ -486,10 +486,10 @@ def _signature(path: str) -> dict:
             ),
             "conversations": q("SELECT id, title FROM conversations"),
             "conv_persona": q(
-                "SELECT c.id, up.name FROM conversations c " "LEFT JOIN user_personas up ON c.persona_lock_id = up.id"
+                "SELECT c.id, up.name FROM conversations c LEFT JOIN user_personas up ON c.persona_lock_id = up.id"
             ),
             "messages": q("SELECT conversation_id, turn_index, role, content FROM messages"),
-            "active_leaf": q("SELECT c.id, m.content FROM conversations c " "LEFT JOIN messages m ON c.active_leaf_id = m.id"),
+            "active_leaf": q("SELECT c.id, m.content FROM conversations c LEFT JOIN messages m ON c.active_leaf_id = m.id"),
             "director_state": q("SELECT conversation_id FROM director_state"),
             "worlds": q("SELECT id, name FROM worlds"),
             "lorebook_entries": q("SELECT world_id, name, content FROM lorebook_entries"),

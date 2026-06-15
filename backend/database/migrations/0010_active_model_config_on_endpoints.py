@@ -31,4 +31,4 @@ def migrate(conn: sqlite3.Connection) -> None:
                     "UPDATE endpoints SET active_model_config_id = ? WHERE id = ?",
                     (active_mc_id, active_ep_id),
                 )
-                print(f"[migrations] 0010: backfilled endpoint {active_ep_id} " f"active_model_config_id={active_mc_id}")
+                print(f"[migrations] 0010: backfilled endpoint {active_ep_id} active_model_config_id={active_mc_id}")

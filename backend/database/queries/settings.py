@@ -154,9 +154,7 @@ async def set_workflow_config(workflow_id: str, payload: dict) -> None:
     async with get_db() as db:
         if not payload:
             await db.execute(
-                "UPDATE settings "
-                "SET workflow_config = json_remove(COALESCE(workflow_config, '{}'), '$.' || ?) "
-                "WHERE id = 1",
+                "UPDATE settings SET workflow_config = json_remove(COALESCE(workflow_config, '{}'), '$.' || ?) WHERE id = 1",
                 (workflow_id,),
             )
         else:

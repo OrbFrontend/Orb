@@ -16,7 +16,6 @@ from backend.tool_defs import (
     register_tool,
 )
 
-
 _TEST_TOOL_NAME = "ut_tool_defs_test"
 _TEST_SCHEMA = {
     "type": "function",

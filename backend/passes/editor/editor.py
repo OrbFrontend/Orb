@@ -8,29 +8,29 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncIterator, Mapping, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
 
-from .audit import run_audit, format_report, AuditReport
-from .feedback import feedback_step, FeedbackResult
+from .audit import AuditReport, format_report, run_audit
+from .feedback import FeedbackResult, feedback_step
 from .slop_detector import DetectionResult
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
-    from ...orchestrator import _PipelineConfig, TurnState
+    from ...orchestrator import TurnState, _PipelineConfig
+from ...kv_tracker import CachedBase, _KVCacheTracker
+from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ...llm_types import AssistantToolMessage, ContentPart, WireMessage
+from ...prompt_builder import build_editor_prompt
+from ...tool_defs import (
+    MAX_EDITOR_ITERATIONS,
+    TOOLS,
+    build_feedback_tool,
+)
+from ...utils import extract_hyperparams
+from .length_guard import LengthGuard, evaluate_length_guard
 from .opening_monotony import FlaggedOpener, MonotonyResult
 from .template_repetition import FlaggedTemplate, TemplateResult
 from .text_segmentation import split_narration_sentences
-from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ...kv_tracker import CachedBase, _KVCacheTracker
-from ...tool_defs import (
-    TOOLS,
-    MAX_EDITOR_ITERATIONS,
-    build_feedback_tool,
-)
-from ...prompt_builder import build_editor_prompt
-from ...llm_types import AssistantToolMessage, ContentPart, WireMessage
-from ...utils import extract_hyperparams
-from .length_guard import LengthGuard, evaluate_length_guard
 
 logger = logging.getLogger(__name__)
 
@@ -946,7 +946,7 @@ def _append_iteration_context(
         reasoning = resp.get("content", "") or ""
         reasoning_content = resp.get("reasoning_content", "") or ""
         patch_summary = (
-            "; ".join(f"replaced \"{p.get('search', '')[:40]}…\"" for p in patches if p.get("search") != p.get("replace"))
+            "; ".join(f'replaced "{p.get("search", "")[:40]}…"' for p in patches if p.get("search") != p.get("replace"))
             or "no effective changes"
         )
         if reasoning or reasoning_content:

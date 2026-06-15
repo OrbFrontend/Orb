@@ -16,6 +16,7 @@ Avoids common false positives:
 """
 
 from __future__ import annotations
+
 import re
 
 from .text_segmentation import split_sentences
@@ -32,7 +33,7 @@ def _tokenize(sent: str) -> list[str]:
     return re.findall(r"\w+(?:'\w+)?|[^\s\w]", sent)
 
 
-_PRONOUNS = frozenset("i me my he him his she her it its we us our they them their " "this that these those you your".split())
+_PRONOUNS = frozenset("i me my he him his she her it its we us our they them their this that these those you your".split())
 _BE_VERBS = frozenset("is am are was were be been being 's 're 'm".split())
 _DO_VERBS = frozenset("do does did".split())
 _HAVE_VERBS = frozenset("have has had".split())

@@ -14,7 +14,6 @@ import hashlib
 from .engine.regex_extractor import regex_extract
 from .engine.router import get_adapter
 
-
 # Field set of a per-character voice profile, stored in
 # ``character_cards.workflow_state['tts']`` (read via get_workflow_character_state).
 # Voice identity and credentials both live here; ``enabled`` gates automatic

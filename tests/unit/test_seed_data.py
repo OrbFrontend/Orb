@@ -9,8 +9,8 @@ list, or None where a string is expected.
 import re
 
 import pytest
-from backend.database import SEED_MOOD_FRAGMENTS, SEED_PHRASE_BANK
 
+from backend.database import SEED_MOOD_FRAGMENTS, SEED_PHRASE_BANK
 
 STR_FIELDS = ("id", "label", "description", "prompt_text", "negative_prompt")
 

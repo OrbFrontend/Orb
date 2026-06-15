@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
-
 #: The tool name, as a single source of truth for the literal that the schema in
 #: ``tool_defs.py`` registers and that the director/orchestrator key off.
 REWRITE_TOOL_NAME = "rewrite_user_prompt"

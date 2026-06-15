@@ -259,13 +259,12 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
         for fk in t.fks:
             if fk.parent not in schema.tables:
                 problems.append(
-                    f"{name}.{fk.from_col} references unclassified parent {fk.parent!r} " f"(excluded or unknown table)"
+                    f"{name}.{fk.from_col} references unclassified parent {fk.parent!r} (excluded or unknown table)"
                 )
         for col in t.cols:
             if ps.is_sensitive_column(col) and (name, col) not in ps.SECRET_COLUMNS:
                 problems.append(
-                    f"column {name}.{col} looks secret but is not in SECRET_COLUMNS; "
-                    f"add it (with its scrub value) or rename it"
+                    f"column {name}.{col} looks secret but is not in SECRET_COLUMNS; add it (with its scrub value) or rename it"
                 )
     # Every deferred edge is inserted NULL and fixed up afterwards (FK checks are
     # off during the merge, but a NOT NULL constraint still fires on insert). A
@@ -285,9 +284,7 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
     known_domains = set(ps.DOMAIN_ROOTS.values())
     for root in ps.DOMAIN_ROOTS:
         if root not in schema.tables:
-            problems.append(
-                f"DOMAIN_ROOTS key {root!r} is not an existing non-excluded table; " f"fix the name or drop the entry"
-            )
+            problems.append(f"DOMAIN_ROOTS key {root!r} is not an existing non-excluded table; fix the name or drop the entry")
             continue
         owner = schema.tables[root].owner_fk
         if owner is not None:
@@ -298,14 +295,12 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
             )
     for table, col in ps.SECRET_COLUMNS:
         if table not in schema.tables or col not in schema.tables[table].cols:
-            problems.append(
-                f"SECRET_COLUMNS entry ({table!r}, {col!r}) does not exist in the schema; " f"drop it or fix the name"
-            )
+            problems.append(f"SECRET_COLUMNS entry ({table!r}, {col!r}) does not exist in the schema; drop it or fix the name")
     for table, cols in ps.PRESERVED_COLUMNS.items():
         for col in cols:
             if table not in schema.tables or col not in schema.tables[table].cols:
                 problems.append(
-                    f"PRESERVED_COLUMNS entry ({table!r}, {col!r}) does not exist in the schema; " f"drop it or fix the name"
+                    f"PRESERVED_COLUMNS entry ({table!r}, {col!r}) does not exist in the schema; drop it or fix the name"
                 )
     for trigger, implied in ps.IMPLIED_DOMAINS.items():
         if trigger not in known_domains:
@@ -374,7 +369,7 @@ def schema_equivalence_problems(conn: sqlite3.Connection) -> list[str]:
             )
         for from_col, parent, to_col, on_delete, _nn in sorted(live_edges - canon_edges):
             problems.append(
-                f"{name}.{from_col}: live has FK {parent}({to_col}) ON DELETE {on_delete} " f"absent from the canonical schema"
+                f"{name}.{from_col}: live has FK {parent}({to_col}) ON DELETE {on_delete} absent from the canonical schema"
             )
 
     only_canon = canon.deferred - live.deferred
@@ -490,7 +485,7 @@ def _write_meta(conn: sqlite3.Connection, included: list[str], label: str, kind:
     )
     conn.execute(f"DELETE FROM {META_TABLE}")
     conn.execute(
-        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) " "VALUES (1, ?, ?, ?, ?, ?)",
+        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) VALUES (1, ?, ?, ?, ?, ?)",
         (json.dumps(sorted(included)), datetime.datetime.now().isoformat(timespec="seconds"), label, kind, int(keys_stripped)),
     )
 

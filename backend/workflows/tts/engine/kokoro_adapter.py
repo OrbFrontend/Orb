@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import logging
 import wave
+
 import httpx
 
 from .base import SpeakableChunk, SynthesisResult, TTSAdapter

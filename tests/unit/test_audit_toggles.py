@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from backend.passes.editor.audit import AUDIT_TYPES, run_audit
 
-
 # Banned phrase that detect_cliches will flag (matches a seeded literal group).
 _PHRASE_BANK = [["tension in the air"]]
 _BANNED_TEXT = "The tension in the air was palpable. The tension in the air grew."

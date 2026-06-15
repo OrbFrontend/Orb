@@ -5,7 +5,7 @@ Provides a common interface for multiple TTS backends (Edge, Fish, ElevenLabs, e
 with a router that selects the right adapter based on voice profile configuration.
 """
 
-from .base import TTSAdapter, SpeakableChunk, AudioChunk, SynthesisResult
+from .base import AudioChunk, SpeakableChunk, SynthesisResult, TTSAdapter
 from .router import get_adapter, list_backends
 
 __all__ = [

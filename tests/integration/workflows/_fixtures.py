@@ -17,8 +17,12 @@ from typing import Any, Iterator
 
 import pytest
 
-from backend.database.queries.conversations import get_workflow_state, set_workflow_state
+from backend.database.queries.conversations import (
+    get_workflow_state,
+    set_workflow_state,
+)
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
+from backend.tool_defs import STANDALONE_TOOLS, TOOLS
 from backend.workflows import (
     HookType,
     ToolSpec,
@@ -28,7 +32,6 @@ from backend.workflows import (
     subscribe,
 )
 from backend.workflows import registry as _registry
-from backend.tool_defs import STANDALONE_TOOLS, TOOLS
 
 
 async def must_get_workflow_attachment(att_id: int) -> dict:

@@ -6,9 +6,8 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
-from backend.workflows._forced_call import forced_tool_call
 from backend.tool_defs import STANDALONE_TOOLS, TOOLS
-
+from backend.workflows._forced_call import forced_tool_call
 
 _TOOL_NAME = "editor_rewrite"
 _SETTINGS = {"model_name": "test-model"}
@@ -230,6 +229,7 @@ class TestToolsAssembly:
         list -- json.dumps fails on MappingProxyType, so this is the only
         way prefix bytes match what the pipeline serializes."""
         import json
+
         from backend.workflows.contracts import _readonly
 
         client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])

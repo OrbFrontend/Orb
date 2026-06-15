@@ -27,8 +27,9 @@ async def _seed_character(name: str, message_count: int, *, old: bool = False) -
     Pass ``old=True`` to backdate all messages by 48 hours so they satisfy the
     "missed" spotlight query's 24-hour recency cutoff.
     """
-    import aiosqlite
     from datetime import datetime, timedelta, timezone
+
+    import aiosqlite
 
     cid = str(uuid.uuid4())
     await dbmod.create_conversation(cid, f"{name} chat", name, "")

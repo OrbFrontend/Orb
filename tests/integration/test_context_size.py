@@ -10,10 +10,9 @@ DESCRIPTION = (
     "She is curious, witty, and observant. She enjoys long conversations "
     "about philosophy and technology."
 )
-PERSONALITY = "Curious, witty, observant. Enjoys philosophical discussions and has a " "dry sense of humor."
+PERSONALITY = "Curious, witty, observant. Enjoys philosophical discussions and has a dry sense of humor."
 SCENARIO = (
-    "TestChar and the user are sitting in a quiet cafe, having a deep "
-    "conversation about the nature of artificial intelligence."
+    "TestChar and the user are sitting in a quiet cafe, having a deep conversation about the nature of artificial intelligence."
 )
 FIRST_MES = "Hello! I see you're reading about neural networks too. What brings you here?"
 

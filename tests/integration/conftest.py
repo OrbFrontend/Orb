@@ -46,8 +46,7 @@ def _reset_module_locks():
     (``workflow_config_lock`` is excluded: it already keys its dict by running
     loop, so its entries are self-isolating.)
     """
-    from backend import main
-    from backend import locks
+    from backend import locks, main
 
     lock_dicts = (
         main._workflow_root_locks,

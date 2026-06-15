@@ -15,14 +15,14 @@ from backend.kv_tracker import CachedBase
 from backend.llm_client import LLMClient
 from backend.passes.editor.audit import AuditReport
 from backend.passes.editor.editor import editor_pass
-from backend.tool_defs import enabled_schemas
 from backend.passes.editor.opening_monotony import MonotonyResult
 from backend.passes.editor.slop_detector import (
+    ClicheHit,
     DetectionResult,
     FlaggedSentence,
-    ClicheHit,
 )
 from backend.passes.editor.template_repetition import TemplateResult
+from backend.tool_defs import enabled_schemas
 
 
 def _make_client() -> LLMClient:
@@ -116,9 +116,7 @@ async def test_editor_iteration_exception_propagates():
             # Post-patch audit: 2 issues (progress made, so loop continues)
             return _make_report(2), "audit text"
         # Any further calls mean the loop kept running after the LLM failure
-        pytest.fail(
-            f"_run_contextual_audit called {audit_call_count} times; " "iteration should have aborted after LLM failure"
-        )
+        pytest.fail(f"_run_contextual_audit called {audit_call_count} times; iteration should have aborted after LLM failure")
 
     with patch(
         "backend.passes.editor.editor._run_contextual_audit",

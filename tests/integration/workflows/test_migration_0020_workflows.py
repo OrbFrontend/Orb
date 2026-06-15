@@ -231,8 +231,8 @@ def test_run_pending_fires_unified_and_drops_message_attachments(mig_db: Path):
     marked applied, run_pending fires only 0020_workflows, which drops
     the message_attachments table schema.py keeps purely as migration-bootstrap
     scaffolding (migration 0002 deletes from it on a fresh boot)."""
-    from backend.database.schema import CREATE_TABLES_SQL
     from backend.database.migrations import MIGRATIONS
+    from backend.database.schema import CREATE_TABLES_SQL
 
     conn = sqlite3.connect(str(mig_db))
     try:

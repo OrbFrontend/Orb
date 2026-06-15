@@ -5,13 +5,14 @@ with a name, a browse function, a download function and a randomize function.
 """
 
 from __future__ import annotations
-import hashlib
-import uuid
-import logging
+
 import base64
+import hashlib
+import logging
+import os
 import random
 import tempfile
-import os
+import uuid
 
 import httpx
 from fastapi import HTTPException

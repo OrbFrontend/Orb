@@ -8,6 +8,7 @@ from types import MappingProxyType
 
 import pytest
 
+from backend.tool_defs import STANDALONE_TOOLS, TOOLS
 from backend.workflows import (
     HookType,
     Subscription,
@@ -24,9 +25,8 @@ from backend.workflows import (
     subscribe,
     workflow_has_hook,
 )
-from backend.workflows.contracts import ToolSpec
 from backend.workflows import registry as registry_module
-from backend.tool_defs import STANDALONE_TOOLS, TOOLS
+from backend.workflows.contracts import ToolSpec
 
 
 async def _noop_pre(ctx):  # type: ignore[no-untyped-def]

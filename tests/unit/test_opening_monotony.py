@@ -11,7 +11,6 @@ import pytest
 
 from backend.passes.editor.opening_monotony import detect_opening_monotony
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # TRUE POSITIVES – repetitive consecutive openings that should be flagged
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -62,7 +61,7 @@ class TestTruePositives:
 
     def test_repetition_within_longer_text(self):
         """Four consecutive repeated openers surrounded by other sentences."""
-        text = "The sky is blue. He walked. He ran. He jumped. He skipped. " "The grass is green. She sang."
+        text = "The sky is blue. He walked. He ran. He jumped. He skipped. The grass is green. She sang."
         result = detect_opening_monotony(text, n_words=1)
         he_flag = [f for f in result.flagged_openers if f.opener == "he"]
         assert len(he_flag) == 1

@@ -21,9 +21,9 @@ import tempfile
 from datetime import datetime, timezone
 from typing import cast
 
+from ...utils import scrub_log
 from ..connection import get_db
 from ..models import WorkflowAttachmentRow
-from ...utils import scrub_log
 
 logger = logging.getLogger(__name__)
 

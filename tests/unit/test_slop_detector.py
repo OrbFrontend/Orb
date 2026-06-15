@@ -9,9 +9,8 @@ say "dancing", not "a dance of".
 
 from __future__ import annotations
 
-from backend.passes.editor.slop_detector import detect_cliches
 from backend.passes.editor.audit import format_report, run_audit
-
+from backend.passes.editor.slop_detector import detect_cliches
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ClicheHit.phrase — always reflects what was found in the text

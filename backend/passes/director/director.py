@@ -10,27 +10,32 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Mapping, Optional, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Optional, Sequence
 
-from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...kv_tracker import CachedBase, _KVCacheTracker
-from ...tool_defs import (
-    TOOLS,
-    PRE_WRITER_TOOLS,
-    build_direct_scene_tool,
-)
+from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ...llm_types import ChatMessage
 from ...prompt_builder import (
     build_director_tool_prompt,
     compute_agentic_lorebook_block,
     compute_style_injection_block,
 )
-from ...llm_types import ChatMessage
-from ...utils import extract_hyperparams, build_multimodal_content
-from .prompt_rewrite import apply_rewrite, extract_rewritten_message, order_director_tools, suppresses_reasoning
+from ...tool_defs import (
+    PRE_WRITER_TOOLS,
+    TOOLS,
+    build_direct_scene_tool,
+)
+from ...utils import build_multimodal_content, extract_hyperparams
+from .prompt_rewrite import (
+    apply_rewrite,
+    extract_rewritten_message,
+    order_director_tools,
+    suppresses_reasoning,
+)
 
 if TYPE_CHECKING:
     from ...macros import Macros
-    from ...orchestrator import _PipelineConfig, TurnState
+    from ...orchestrator import TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)
 

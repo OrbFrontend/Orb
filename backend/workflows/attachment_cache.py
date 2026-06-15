@@ -25,7 +25,6 @@ from ..database.queries.workflow_attachments import (
     _staging_root,
     insert_workflow_attachment_row,
 )
-
 from .registry import get_workflow
 
 logger = logging.getLogger(__name__)
@@ -203,8 +202,7 @@ async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_m
         budget = await _get_budget_bytes_on(db)
         if new_size > budget:
             raise ValueError(
-                f"workflow_attachment {attachment_id!r} size {new_size} exceeds "
-                f"cache budget {budget}; refusing to rehydrate"
+                f"workflow_attachment {attachment_id!r} size {new_size} exceeds cache budget {budget}; refusing to rehydrate"
             )
 
         candidates = await _byte_bearing_candidates_on(db)
@@ -227,8 +225,7 @@ async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_m
         # intent on the very next insert.
         if cm_json is not None:
             await db.execute(
-                "UPDATE workflow_attachments "
-                "SET data_b64 = ?, recent_accesses = NULL, consumption_metadata = ? WHERE id = ?",
+                "UPDATE workflow_attachments SET data_b64 = ?, recent_accesses = NULL, consumption_metadata = ? WHERE id = ?",
                 (data_b64, cm_json, attachment_id),
             )
         else:

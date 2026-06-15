@@ -85,8 +85,7 @@ def writer_nudge(length_guard: LengthGuard | None) -> str:
     if not length_guard or not length_guard["enforce"]:
         return ""
     return (
-        f"**Keep your response under {length_guard['max_words']} words "
-        f"and {length_guard['max_paragraphs']} paragraphs.**\n\n"
+        f"**Keep your response under {length_guard['max_words']} words and {length_guard['max_paragraphs']} paragraphs.**\n\n"
     )
 
 

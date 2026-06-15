@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from ..registry import Workflow
 
-
 _CONFIG_SCHEMA = {
     "type": "object",
     "properties": {

@@ -33,7 +33,6 @@ import random
 import re
 from typing import Any, Mapping, NamedTuple, Sequence
 
-
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------

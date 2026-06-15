@@ -7,16 +7,16 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, AsyncIterator, Mapping, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
 
-from ..llm_client import LLMClient, reasoning_cfg
 from ..kv_tracker import CachedBase, _KVCacheTracker
+from ..llm_client import LLMClient, reasoning_cfg
 from ..llm_types import ChatMessage, ContentPart
-from ..utils import extract_hyperparams, build_multimodal_content
+from ..utils import build_multimodal_content, extract_hyperparams
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
-    from ..orchestrator import _PipelineConfig, TurnState
+    from ..orchestrator import TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)
 

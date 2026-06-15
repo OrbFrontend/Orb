@@ -29,7 +29,6 @@ from backend.orchestrator import (
 
 from ._fixtures import make_workflow, register_for_test
 
-
 _DIRECTOR_STATE = {"active_moods": []}
 _PREFIX = [{"role": "system", "content": "You are an assistant."}]
 _SETTINGS = {

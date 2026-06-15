@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 _BASE_PAYLOAD = {
     "id": "pacing",
     "label": "Pacing",

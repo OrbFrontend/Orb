@@ -6,19 +6,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .slop_detector import detect_cliches, DetectionResult
+from .slop_detector import DetectionResult, detect_cliches
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
-from .opening_monotony import detect_opening_monotony, MonotonyResult
-from .template_repetition import detect_template_repetition, TemplateResult
 from .contrastive_negation import detect_contrastive_negation
-from .phrase_repetition import detect_phrase_repetition, PhraseResult
-from .structural_repetition import (
-    detect_structural_repetition,
-    StructuralResult,
-)
-
+from .opening_monotony import MonotonyResult, detect_opening_monotony
+from .phrase_repetition import PhraseResult, detect_phrase_repetition
+from .structural_repetition import StructuralResult, detect_structural_repetition
+from .template_repetition import TemplateResult, detect_template_repetition
 
 # Audit toggles
 #

@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import asyncio
-import httpx
 import json
 import logging
 import re
 from typing import Any, AsyncIterator, Mapping, Sequence
+
+import httpx
 
 from . import endpoint_profiles
 

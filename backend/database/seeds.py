@@ -25,7 +25,7 @@ SEED_MOOD_FRAGMENTS = [
             "The narration should share the character's world view, inject the character's opinion and use their vocabulary in the prose without asterisks."
         ),
         "negative_prompt": (
-            "Stop foregrounding inner thoughts. Return to external action and dialogue. " "Keep interiority brief and grounded."
+            "Stop foregrounding inner thoughts. Return to external action and dialogue. Keep interiority brief and grounded."
         ),
     },
     {

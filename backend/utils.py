@@ -8,7 +8,6 @@ from typing import Any, Mapping, Optional, Sequence
 
 from .llm_types import ContentPart
 
-
 #: Heuristic characters-per-token ratio used for rough context-size estimates.
 #: This is the one convention referenced throughout (see AGENTS.md → Context
 #: Management); keep all chars→token estimation going through ``estimate_tokens``

@@ -22,7 +22,6 @@ from typing import Any, AsyncIterator
 
 from backend.llm_client import AbortToken
 
-
 _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
 _DIRECTOR_FUNCTION_NAMES = {"direct_scene", "rewrite_user_prompt"}
 _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}

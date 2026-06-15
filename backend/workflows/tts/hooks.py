@@ -27,7 +27,6 @@ from ..toolkit import (
     insert_workflow_attachment,
     set_workflow_character_state,
 )
-
 from .engine.router import get_adapter, list_backends
 from .synth import (
     audio_mime_ext,

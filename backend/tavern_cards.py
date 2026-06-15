@@ -5,16 +5,17 @@ Tavern Cards, as defined by Character Card Spec V2:
     https://github.com/malfoyslastname/character-card-spec-v2
 """
 
+import base64
 import binascii
 import io
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Type, Union, cast
+
 import dacite
-from dataclasses_json import dataclass_json, Undefined
+from dataclasses_json import Undefined, dataclass_json
 from PIL import Image, PngImagePlugin
-import base64
-import json
 
 logger = logging.getLogger(__name__)
 

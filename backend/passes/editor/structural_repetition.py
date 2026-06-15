@@ -13,7 +13,11 @@ from dataclasses import dataclass, field
 
 from .text_segmentation import (
     PARA_SPLIT as _PARA_SPLIT,
+)
+from .text_segmentation import (
     count_sentences as _count_sentences,
+)
+from .text_segmentation import (
     find_quote_spans as _find_quote_spans,
 )
 

@@ -66,11 +66,16 @@ from .registry import (
 from .tts import tts_workflow
 from .tts.hooks import (
     on_demand as _tts_on_demand,
+)
+from .tts.hooks import (
     post_pipeline as _tts_post_pipeline,
+)
+from .tts.hooks import (
     regenerate as _tts_regenerate,
+)
+from .tts.hooks import (
     reroll_gen as _tts_reroll_gen,
 )
-
 
 __all__ = [
     "HookType",

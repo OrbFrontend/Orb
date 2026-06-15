@@ -175,9 +175,7 @@ async def set_workflow_state(conv_id: str, workflow_id: str, payload: dict | Non
     async with get_db() as db:
         if payload is None:
             await db.execute(
-                "UPDATE conversations "
-                "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
-                "WHERE id = ?",
+                "UPDATE conversations SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) WHERE id = ?",
                 (workflow_id, conv_id),
             )
         else:

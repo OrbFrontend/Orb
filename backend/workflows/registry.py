@@ -20,12 +20,26 @@ from typing import Callable, Mapping, Optional
 
 from ..database import (
     get_workflow_character_state as _db_get_workflow_character_state,
+)
+from ..database import (
     get_workflow_config as _db_get_workflow_config,
+)
+from ..database import (
     get_workflow_message_state as _db_get_workflow_message_state,
+)
+from ..database import (
     get_workflow_state as _db_get_workflow_state,
+)
+from ..database import (
     set_workflow_character_state as _db_set_workflow_character_state,
+)
+from ..database import (
     set_workflow_config as _db_set_workflow_config,
+)
+from ..database import (
     set_workflow_message_state as _db_set_workflow_message_state,
+)
+from ..database import (
     set_workflow_state as _db_set_workflow_state,
 )
 from ..tool_defs import (
@@ -34,7 +48,6 @@ from ..tool_defs import (
     TOOLS,
     register_tool,
 )
-
 from .contracts import HookType, ToolSpec
 
 
@@ -121,7 +134,7 @@ def register_workflow(w: Workflow) -> None:
             if other.id == w.id:
                 continue
             if any(t.name == name for t in other.tools):
-                raise ToolNameCollision(f"workflow {w.id!r} cannot claim tool name {name!r} " f"owned by workflow {other.id!r}")
+                raise ToolNameCollision(f"workflow {w.id!r} cannot claim tool name {name!r} owned by workflow {other.id!r}")
 
     for spec in w.tools:
         register_tool(spec.name, spec.schema, spec.choice, standalone=spec.standalone)
@@ -146,7 +159,7 @@ def subscribe(
     if any(s.hook_type is hook_type for s in record.subscriptions):
         raise ValueError(f"workflow {workflow_id!r} already has a {hook_type.value} subscription")
     if hook_type in (HookType.REGENERATE, HookType.REROLL_GEN) and not record.produces_artifacts:
-        raise ValueError(f"workflow {workflow_id!r} cannot subscribe to {hook_type.value} " f"without produces_artifacts=True")
+        raise ValueError(f"workflow {workflow_id!r} cannot subscribe to {hook_type.value} without produces_artifacts=True")
     record.subscriptions.append(Subscription(hook_type, fn, priority, workflow_id))
 
 
@@ -196,7 +209,7 @@ def finalize_registry() -> None:
             missing.append("reroll_gen")
         if missing:
             raise WorkflowMandateError(
-                f"workflow {w.id!r} declares produces_artifacts=True but " f"lacks subscriptions: {', '.join(missing)}"
+                f"workflow {w.id!r} declares produces_artifacts=True but lacks subscriptions: {', '.join(missing)}"
             )
 
 

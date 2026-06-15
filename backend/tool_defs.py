@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-
 # ── Agent tool definitions (OpenAI function-calling format)
 
 # Fixed parameters always present in direct_scene regardless of interactive fragments.

@@ -1,121 +1,130 @@
 from __future__ import annotations
+
 import asyncio
+import base64
 import hashlib
 import json
+import logging
+import os
 import random
 import re
-import uuid
-import logging
-import base64
 import sqlite3
 import tempfile
-
+import uuid
 from contextlib import asynccontextmanager
+from typing import Annotated, Any, AsyncGenerator, List, Mapping, Optional, cast
 
-from typing import Annotated, Any, AsyncGenerator, Mapping, Optional, List, cast
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, UploadFile, File
-from fastapi.responses import StreamingResponse, FileResponse, Response
+from fastapi import Body, Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
-import os
 
-from .database.migrations import run_pending
-from .database.models import ConversationRow
+from . import card_downloader, presets, prompt_builder, tavern_cards
 from .database import (
     DB_PATH,
-    schema_safety_problems,
-    get_db,
-    get_messages_before,
-    init_db,
-    get_settings,
-    update_settings,
-    get_endpoints,
-    get_endpoint,
+    add_conversation_log,
+    add_message,
+    add_phrase_group,
+    create_character_card,
+    create_conversation,
     create_endpoint,
-    update_endpoint,
-    delete_endpoint,
-    get_model_configs,
+    create_interactive_fragment,
+    create_lorebook_entry,
     create_model_config,
-    update_model_config,
-    delete_model_config,
-    get_mood_fragments,
-    get_mood_fragment,
     create_mood_fragment,
-    update_mood_fragment,
+    create_user_persona,
+    create_world,
+    delete_character_card,
+    delete_conversation,
+    delete_endpoint,
+    delete_interactive_fragment,
+    delete_lorebook_entry,
+    delete_message_with_descendants,
+    delete_model_config,
     delete_mood_fragment,
+    delete_phrase_group,
+    delete_user_persona,
+    delete_world,
+    fork_conversation,
+    get_active_lorebook_entries,
+    get_character_avatar,
+    get_character_card,
+    get_conversation,
+    get_conversation_logs,
+    get_db,
+    get_director_log_for_message,
+    get_director_state,
+    get_endpoint,
+    get_endpoints,
     get_generated_chars,
     get_global_stats,
-    list_conversations,
-    get_conversation,
-    create_conversation,
-    fork_conversation,
-    delete_conversation,
-    touch_conversation,
-    update_conversation,
-    get_messages_with_branch_info,
-    get_director_state,
-    update_director_state,
-    get_conversation_logs,
-    add_conversation_log,
-    get_director_log_for_message,
-    list_character_cards,
-    get_character_card,
-    create_character_card,
-    update_character_card,
-    delete_character_card,
-    get_character_avatar,
-    sync_conversations_for_card,
-    insert_alternate_greeting_swipes,
-    add_message,
-    user_attachment_payloads,
-    set_active_leaf,
-    get_message_by_id,
-    switch_to_branch,
-    delete_message_with_descendants,
-    update_message_content,
-    get_phrase_bank_rows,
-    add_phrase_group,
-    update_phrase_group,
-    delete_phrase_group,
-    get_user_personas,
-    create_user_persona,
-    update_user_persona,
-    delete_user_persona,
-    get_interactive_fragments,
     get_interactive_fragment,
-    create_interactive_fragment,
-    update_interactive_fragment,
-    delete_interactive_fragment,
-    reset_to_defaults,
-    get_messages,
-    get_worlds,
-    get_world,
-    get_world_by_name,
-    create_world,
-    update_world,
-    delete_world,
+    get_interactive_fragments,
     get_lorebook_entries,
     get_lorebook_entry,
-    create_lorebook_entry,
-    update_lorebook_entry,
-    delete_lorebook_entry,
-    get_active_lorebook_entries,
-    resolve_char_context,
+    get_message_by_id,
+    get_messages,
+    get_messages_before,
+    get_messages_with_branch_info,
+    get_model_configs,
+    get_mood_fragment,
+    get_mood_fragments,
+    get_phrase_bank_rows,
+    get_settings,
     get_user_persona,
+    get_user_personas,
     get_workflow_attachment_by_id,
+    get_world,
+    get_world_by_name,
+    get_worlds,
+    init_db,
+    insert_alternate_greeting_swipes,
+    list_character_cards,
+    list_conversations,
+    reset_to_defaults,
+    resolve_char_context,
+    schema_safety_problems,
+    set_active_leaf,
+    switch_to_branch,
+    sync_conversations_for_card,
+    touch_conversation,
+    update_character_card,
+    update_conversation,
+    update_director_state,
+    update_endpoint,
+    update_interactive_fragment,
+    update_lorebook_entry,
+    update_message_content,
+    update_model_config,
+    update_mood_fragment,
+    update_phrase_group,
+    update_settings,
+    update_user_persona,
+    update_world,
+    user_attachment_payloads,
 )
-from .workflows.attachment_cache import (
-    delete_workflow_attachments,
-    insert_workflow_attachment,
-    insert_workflow_attachments,
-    record_access,
-    rehydrate_attachment,
-    set_active_sibling,
-    validate_workflow_attachment_shape,
-    EVICTED_MARKER,
-    OVERSIZE_NO_METADATA_REASON,
-    RehydrateAlreadyDoneError,
+from .database.migrations import run_pending
+from .database.models import ConversationRow
+from .llm_client import AbortToken, LLMClient
+from .locks import (
+    maintenance_lock,
+    workflow_character_state_lock,
+    workflow_config_lock,
+    workflow_state_lock,
 )
+from .macros import Macros
+from .orchestrator import (
+    agent_enabled,
+    handle_fork_edit,
+    handle_magic_rewrite,
+    handle_regenerate,
+    handle_super_regenerate,
+    handle_turn,
+    resolve_persona_id,
+)
+from .summarizer import ConversationSummarizer
+from .tool_defs import TOOLS
+from .utils import estimate_tokens, scrub_log
 from .workflows import (
     HookType,
     OnDemandCtx,
@@ -128,25 +137,18 @@ from .workflows import (
     list_workflows,
     set_workflow_config,
 )
-from .locks import maintenance_lock, workflow_character_state_lock, workflow_config_lock, workflow_state_lock
-from . import presets
-from .orchestrator import (
-    handle_turn,
-    handle_fork_edit,
-    handle_regenerate,
-    handle_super_regenerate,
-    handle_magic_rewrite,
-    resolve_persona_id,
-    agent_enabled,
+from .workflows.attachment_cache import (
+    EVICTED_MARKER,
+    OVERSIZE_NO_METADATA_REASON,
+    RehydrateAlreadyDoneError,
+    delete_workflow_attachments,
+    insert_workflow_attachment,
+    insert_workflow_attachments,
+    record_access,
+    rehydrate_attachment,
+    set_active_sibling,
+    validate_workflow_attachment_shape,
 )
-from .llm_client import AbortToken, LLMClient
-from .tool_defs import TOOLS
-from .macros import Macros
-from . import tavern_cards
-from . import card_downloader
-from . import prompt_builder
-from .summarizer import ConversationSummarizer
-from .utils import estimate_tokens, scrub_log
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

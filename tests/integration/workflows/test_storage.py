@@ -9,10 +9,10 @@ import pytest
 
 from backend.database import (
     add_message,
+    get_messages,
     get_user_attachments_for_message,
     get_workflow_attachment_by_id,
     get_workflow_attachments_for_message,
-    get_messages,
     insert_workflow_attachment_row,
     set_active_leaf,
 )

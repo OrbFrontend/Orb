@@ -9,10 +9,9 @@ are reported with an unusably long sentence context that the editor can't locate
 in the draft.
 """
 
+from backend.passes.editor.contrastive_negation import _split_sentences as neg_split
 from backend.passes.editor.slop_detector import _split_sentences as slop_split
 from backend.passes.editor.slop_detector import detect_cliches
-from backend.passes.editor.contrastive_negation import _split_sentences as neg_split
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # slop_detector._split_sentences
@@ -53,8 +52,7 @@ class TestSlopSplitterDialogueQuotes:
     def test_action_tag_after_multi_sentence_dialogue(self):
         """Action tag following a closing !" must be its own isolated sentence."""
         text = (
-            '"I want your name! I want your employee number! '
-            'I want whoever is responsible!" she screamed, her voice cracking.'
+            '"I want your name! I want your employee number! I want whoever is responsible!" she screamed, her voice cracking.'
         )
         sentences = slop_split(text)
         assert "she screamed, her voice cracking." in sentences
@@ -63,8 +61,7 @@ class TestSlopSplitterDialogueQuotes:
     def test_banned_phrase_in_action_tag_isolated(self):
         """A banned phrase in the action tag is reported in the action-tag sentence, not the dialogue blob."""
         text = (
-            '"I want your name! I want your employee number! '
-            'I want whoever is responsible!" she screamed, her voice cracking.'
+            '"I want your name! I want your employee number! I want whoever is responsible!" she screamed, her voice cracking.'
         )
         result = detect_cliches(text, [["voice cracking"]])
         assert result.flagged_count == 1
@@ -121,8 +118,7 @@ class TestContrastiveNegationSplitterDialogueQuotes:
 
     def test_action_tag_after_multi_sentence_dialogue(self):
         text = (
-            '"I want your name! I want your employee number! '
-            'I want whoever is responsible!" she screamed, her voice cracking.'
+            '"I want your name! I want your employee number! I want whoever is responsible!" she screamed, her voice cracking.'
         )
         sentences = neg_split(text)
         assert "she screamed, her voice cracking." in sentences

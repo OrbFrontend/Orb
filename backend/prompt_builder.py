@@ -7,18 +7,18 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from .macros import Macros
 from .llm_types import ChatMessage, ContentPart
+from .macros import Macros
 from .tool_defs import (
-    TOOLS,
     DIRECTOR_PREAMBLE,
+    EDITOR_BOTH_INSTRUCTIONS,
+    EDITOR_PATCH_INSTRUCTIONS,
     EDITOR_PREAMBLE,
+    EDITOR_REWRITE_INSTRUCTIONS,
     FEEDBACK_PREAMBLE,
     REASONING_GUIDANCE,
-    EDITOR_PATCH_INSTRUCTIONS,
-    EDITOR_REWRITE_INSTRUCTIONS,
-    EDITOR_BOTH_INSTRUCTIONS,
     STRUCTURAL_REWRITE_INSTRUCTIONS,
+    TOOLS,
 )
 
 LOREBOOK_SCAN_DEPTH = 6

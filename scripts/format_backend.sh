@@ -14,5 +14,8 @@ source .venv/bin/activate
 echo "Installing dev dependencies..."
 pip install -q -r requirements-dev.txt
 
-echo ""
-python -m black --line-length 128 backend/ tests/ "$@"
+echo "Organizing and collapsing imports with Ruff..."
+python -m ruff check --select I --fix backend/ tests/ "$@"
+
+echo "Formatting code with Ruff..."
+python -m ruff format --line-length 128 backend/ tests/ "$@"

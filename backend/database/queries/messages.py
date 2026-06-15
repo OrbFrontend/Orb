@@ -436,9 +436,7 @@ async def set_workflow_message_state(message_id: int, workflow_id: str, payload:
     async with get_db() as db:
         if payload is None:
             await db.execute(
-                "UPDATE messages "
-                "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
-                "WHERE id = ?",
+                "UPDATE messages SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) WHERE id = ?",
                 (workflow_id, message_id),
             )
         else:

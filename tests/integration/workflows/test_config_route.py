@@ -21,8 +21,6 @@ from backend.workflows import (
     set_workflow_config,
 )
 
-from ._fixtures import _restore_registry  # noqa: F401 -- autouse fixture activated by import
-
 
 async def test_put_persists_and_echoes_effective_config(client):
     register_workflow(Workflow(id="cfg_a", display_name="A", config_defaults={"style": "noir"}))
