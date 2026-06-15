@@ -1,6 +1,6 @@
 """LLM client substitute for integration tests of the streaming pipeline.
 
-The real ``backend.llm_client.LLMClient`` reaches the OpenAI-compatible
+The real ``backend.inference.client.LLMClient`` reaches the OpenAI-compatible
 endpoint over httpx. Concurrency tests do not need that round-trip; they
 need a deterministic, in-process stand-in whose timing the test
 controls. ``FakeLLMClient`` provides that: its ``complete()`` is an
@@ -20,7 +20,7 @@ import asyncio
 import copy
 from typing import Any, AsyncIterator
 
-from backend.llm_client import AbortToken
+from backend.inference import AbortToken
 
 _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
 _DIRECTOR_FUNCTION_NAMES = {"direct_scene", "rewrite_user_prompt"}
@@ -30,7 +30,7 @@ _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
 def _validate_tool_calls(tool_calls: Any) -> None:
     """Assert *tool_calls* is the OpenAI ``message.tool_calls`` shape.
 
-    ``parse_tool_calls`` (backend.llm_client) reads ``tc["function"]["name"]``
+    ``parse_tool_calls`` (backend.inference.client) reads ``tc["function"]["name"]``
     and falls back to ``""`` when the function or name is missing, so a
     malformed enqueue would parse to a named-but-empty (or empty-list) tool
     call and the director turn would no-op silently. Raising here turns that

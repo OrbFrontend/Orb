@@ -16,8 +16,8 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.kv_tracker import _KVCacheTracker
-from backend.llm_client import LLMClient
+from backend.inference import _KVCacheTracker
+from backend.inference import LLMClient
 from backend.orchestrator import _run_pipeline
 from backend.passes.director import DirectorResult
 

@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 
 from backend.database import get_messages
-from backend.kv_tracker import _serialize_messages
+from backend.inference.kv_tracker import _serialize_messages
 
 # ── A draft well over the length-guard ceiling so the editor pass always fires.
 _LONG_DRAFT = "word " * 60
@@ -42,7 +42,7 @@ _PNG_1X1_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9Q
 def _wire_tools(tools) -> str:
     """Serialize tools the way httpx puts them on the wire: insertion order
     preserved, no sort_keys (the tracker's sorted view would hide key-order
-    drift). Mirrors backend.llm_client's ``client.stream(..., json=body)``."""
+    drift). Mirrors backend.inference.client's ``client.stream(..., json=body)``."""
     return json.dumps(tools, separators=(",", ":"), ensure_ascii=False) if tools else ""
 
 

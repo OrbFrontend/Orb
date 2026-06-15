@@ -31,7 +31,7 @@ from ..database import (
     get_phrase_bank,
     get_user_personas,
 )
-from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ..inference import LLMClient, parse_tool_calls, reasoning_cfg
 from ..core import (
     workflow_character_state_lock,
     workflow_config_lock,
@@ -39,13 +39,13 @@ from ..core import (
 )
 from ..core import Macros
 from ..passes.editor.audit import format_report, run_audit
-from ..prompt_builder import (
+from ..inference import (
     build_prefix,
     compute_lorebook_injection_block,
     compute_style_injection_block,
     format_message_with_attachments,
 )
-from ..tool_registry import STANDALONE_TOOLS, TOOLS, enabled_schemas
+from ..inference import STANDALONE_TOOLS, TOOLS, enabled_schemas
 from ._forced_call import forced_tool_call
 from .attachment_cache import insert_workflow_attachment
 from .registry import (

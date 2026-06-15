@@ -8,7 +8,7 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.tool_registry import STANDALONE_TOOLS, TOOLS
+from backend.inference import STANDALONE_TOOLS, TOOLS
 from backend.workflows import (
     HookType,
     Subscription,

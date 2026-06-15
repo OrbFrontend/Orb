@@ -6,13 +6,13 @@ selection/rendering helpers, and keyword-scan parity after the renderer refactor
 
 from __future__ import annotations
 
-from backend.prompt_builder import (
+from backend.inference import (
     build_lorebook_catalog,
     compute_agentic_lorebook_block,
     compute_lorebook_injection_block,
     render_lorebook_block,
 )
-from backend.tool_registry import build_direct_scene_tool
+from backend.inference import build_direct_scene_tool
 
 
 def _entry(

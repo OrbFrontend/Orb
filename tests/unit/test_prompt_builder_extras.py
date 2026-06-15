@@ -7,7 +7,7 @@ shape produced when neither extension exists.
 
 from __future__ import annotations
 
-from backend.prompt_builder import build_prefix, format_message_with_attachments
+from backend.inference import build_prefix, format_message_with_attachments
 
 _BASE_KWARGS = dict(
     system_prompt="You are an assistant.",

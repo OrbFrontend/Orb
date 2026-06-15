@@ -19,7 +19,8 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
-from . import card_downloader, presets, prompt_builder, tavern_cards
+from . import card_downloader, presets, tavern_cards
+from .inference import prompt_builder
 from .database import (
     DB_PATH,
     add_conversation_log,
@@ -105,7 +106,7 @@ from .database import (
 )
 from .database.migrations import run_pending
 from .database.models import ConversationRow
-from .llm_client import AbortToken, LLMClient
+from .inference import AbortToken, LLMClient
 from .core import (
     maintenance_lock,
     workflow_character_state_lock,
@@ -123,7 +124,7 @@ from .orchestrator import (
     resolve_persona_id,
 )
 from .summarizer import ConversationSummarizer
-from .tool_registry import TOOLS
+from .inference import TOOLS
 from .core import estimate_tokens, scrub_log
 from .workflows import (
     HookType,

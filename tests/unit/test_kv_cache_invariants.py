@@ -43,17 +43,17 @@ from typing import Any
 
 import pytest
 
-from backend.cached_call import CachedBase
-from backend.kv_tracker import (
+from backend.inference import CachedBase
+from backend.inference.kv_tracker import (
     _common_prefix_len,
     _KVCacheTracker,
     _serialize_messages,
     _serialize_tools,
 )
-from backend.llm_client import AbortToken
+from backend.inference import AbortToken
 from backend.orchestrator import _run_pipeline
 from backend.passes.editor.editor import editor_pass
-from backend.tool_registry import (
+from backend.inference import (
     build_direct_scene_tool,
     build_feedback_tool,
     enabled_schemas,

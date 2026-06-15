@@ -1,4 +1,4 @@
-from ...prompt_builder import build_lorebook_catalog
+from ...inference import build_lorebook_catalog
 from .director import (
     DirectorResult,
     _agentic_lorebook_active,
