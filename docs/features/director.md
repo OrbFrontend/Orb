@@ -1,4 +1,4 @@
-# Director
+# Scene Direction
 
 Customizable prompt injection that's automatically used by the Director model.
 
