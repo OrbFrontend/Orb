@@ -45,7 +45,7 @@ from ..prompt_builder import (
     compute_style_injection_block,
     format_message_with_attachments,
 )
-from ..tool_defs import STANDALONE_TOOLS, TOOLS, enabled_schemas
+from ..tool_registry import STANDALONE_TOOLS, TOOLS, enabled_schemas
 from ._forced_call import forced_tool_call
 from .attachment_cache import insert_workflow_attachment
 from .registry import (

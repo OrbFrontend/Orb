@@ -1,0 +1,4 @@
+# Pin to the minimum supported Python version so version-gated lints
+# (e.g. B905 zip-without-explicit-strict, a 3.10+ feature) don't demand
+# syntax that breaks our 3.9 runtime compatibility target.
+target-version = "py39"

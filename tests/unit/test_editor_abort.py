@@ -22,7 +22,7 @@ from backend.passes.editor.slop_detector import (
     FlaggedSentence,
 )
 from backend.passes.editor.template_repetition import TemplateResult
-from backend.tool_defs import enabled_schemas
+from backend.tool_registry import enabled_schemas
 
 
 def _make_client() -> LLMClient:

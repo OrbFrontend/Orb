@@ -728,7 +728,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
         if row is None:
             return
         sets, vals = [], []
-        for c, v in zip(cols, row, strict=True):
+        for c, v in zip(cols, row):
             if c in keep:
                 continue
             if c in fks:
@@ -758,7 +758,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
     ph = ",".join("?" * len(ins_cols))
     idmap: dict[int, int] = {}
     for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():
-        rowd = dict(zip(cols, row, strict=True))
+        rowd = dict(zip(cols, row))
         vals, drop = [], False
         for c in ins_cols:
             v = rowd[c]

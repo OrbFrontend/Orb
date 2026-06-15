@@ -46,7 +46,7 @@ from .prompt_builder import (
     build_prefix,
     compute_lorebook_injection_block,
 )
-from .tool_defs import (
+from .tool_registry import (
     TOOLS,
     enabled_schemas,
 )

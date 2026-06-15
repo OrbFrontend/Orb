@@ -10,11 +10,11 @@ swaps in the rewritten text as the writer's effective message
 (:func:`apply_rewrite`), emits the ``prompt_rewritten`` SSE event, and persists the
 overwrite — those I/O steps stay in the orchestrator; this module is pure.
 
-The tool *schema* deliberately stays in ``tool_defs.py`` (``REWRITE_PROMPT_TOOL``
+The tool *schema* deliberately stays in ``tool_registry.py`` (``REWRITE_PROMPT_TOOL``
 in the ``TOOLS`` registry): it is part of the cached tools blob sent to the LLM, so
 moving it would bust the KV cache. Only the instruction template and the Python
 glue around the tool relocate here — mirroring how ``length_guard.py`` leaves the
-``editor_rewrite`` schema in ``tool_defs.py``.
+``editor_rewrite`` schema in ``tool_registry.py``.
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ from __future__ import annotations
 from typing import Any, Iterable, Mapping
 
 #: The tool name, as a single source of truth for the literal that the schema in
-#: ``tool_defs.py`` registers and that the director/orchestrator key off.
+#: ``tool_registry.py`` registers and that the director/orchestrator key off.
 REWRITE_TOOL_NAME = "rewrite_user_prompt"
 
 
 #: Per-turn request tail handed to the director when running the rewrite tool: the
 #: user's raw message, quoted for the model to refine. Lives here (not in the tools
 #: blob) so it can vary per turn without busting the KV cache — mirroring
-#: ``LENGTH_GUARD_INSTRUCTIONS`` leaving ``tool_defs.py``.
+#: ``LENGTH_GUARD_INSTRUCTIONS`` leaving ``tool_registry.py``.
 REWRITE_PROMPT_PROMPT = 'User\'s message:\n"""[{user_message}]"""'
 
 

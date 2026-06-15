@@ -8,7 +8,7 @@ from backend.database import SEED_INTERACTIVE_FRAGMENTS
 from backend.passes.director import apply_tool_calls
 from backend.passes.editor import extract_feedback_values
 from backend.prompt_builder import build_style_injection, compute_style_injection_block
-from backend.tool_defs import build_direct_scene_tool, build_feedback_tool
+from backend.tool_registry import build_direct_scene_tool, build_feedback_tool
 
 # ── build_direct_scene_tool ──────────────────────────────────────────────────
 

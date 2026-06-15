@@ -20,7 +20,7 @@ from ...prompt_builder import (
     compute_agentic_lorebook_block,
     compute_style_injection_block,
 )
-from ...tool_defs import (
+from ...tool_registry import (
     PRE_WRITER_TOOLS,
     TOOLS,
     build_direct_scene_tool,
@@ -79,7 +79,7 @@ def build_direct_scene_override(
 ) -> dict:
     """Build the ``direct_scene`` dynamic-tool schema from *writer_fragments*.
 
-    Thin wrapper over :func:`~backend.tool_defs.build_direct_scene_tool` so the
+    Thin wrapper over :func:`~backend.tool_registry.build_direct_scene_tool` so the
     orchestrator's tools-blob composition (``_build_writer_tools_blob``) reaches
     the direct_scene schema through the director module rather than importing the
     schema builder directly — symmetric to ``build_feedback_override``.

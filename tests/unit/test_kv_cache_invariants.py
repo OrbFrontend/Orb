@@ -53,7 +53,7 @@ from backend.kv_tracker import (
 from backend.llm_client import AbortToken
 from backend.orchestrator import _run_pipeline
 from backend.passes.editor.editor import editor_pass
-from backend.tool_defs import (
+from backend.tool_registry import (
     build_direct_scene_tool,
     build_feedback_tool,
     enabled_schemas,

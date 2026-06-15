@@ -16,7 +16,7 @@ from types import MappingProxyType
 from typing import Any, AsyncIterator, Mapping, Sequence
 
 from ..llm_client import parse_tool_calls, reasoning_cfg
-from ..tool_defs import STANDALONE_TOOLS, TOOLS, enabled_schemas
+from ..tool_registry import STANDALONE_TOOLS, TOOLS, enabled_schemas
 
 logger = logging.getLogger(__name__)
 

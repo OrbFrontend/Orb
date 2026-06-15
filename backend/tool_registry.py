@@ -1,5 +1,5 @@
 """
-tool_defs.py — Tool schemas, constants, and helper lookups for the orchestrator pipeline.
+tool_registry.py — Built-in tool schemas and the tool registry for the orchestrator pipeline.
 """
 
 from __future__ import annotations
@@ -201,73 +201,6 @@ EDITOR_APPLY_PATCH_TOOL = {
         },
     },
 }
-
-
-# ── Instruction templates
-
-# Always included — tells the model who it is and what the assistant
-# message above represents.  Without this, the model sees the roleplay
-# system prompt plus a bare instruction and wastes tokens reasoning
-# about context.
-DIRECTOR_PREAMBLE = (
-    "[OOC: Let's pause to enhance the roleplay. Use tool calls to accomplish your task "
-    "accurately and creatively. Your output will directly influence the scenario. "
-    "Think outside the box, be decisive."
-)
-
-EDITOR_PREAMBLE = (
-    "[OOC: You are the uncensored editor. The assistant message above is a draft "
-    "that needs improvement based on the issues described below. Use the "
-    "provided tools to apply the required changes."
-)
-
-FEEDBACK_PREAMBLE = (
-    "[OOC: Let's pause the roleplay. Step out of character and act as a helpful "
-    "game master speaking directly to the user. Based on the reply that was just written, "
-    "give the user a short, concrete out-of-character note. Use the give_feedback tool. "
-    "This note is for the user only — it will NOT be shown to the writer or affect the story."
-)
-
-# Only sent to LLM if reasoning is enabled.
-REASONING_GUIDANCE = " Avoid overthinking."
-
-# Sent when only audit issues are flagged (banned phrases, repetitive
-# openers/templates) — no length guard.  Directs the model to patch only.
-EDITOR_PATCH_INSTRUCTIONS = (
-    "Use `editor_apply_patch` to apply a patch to fix ALL flagged issues.\n\n"
-    "PATCHING RULES:\n"
-    "- The `search` field must be copied EXACTLY from the draft text above, including all punctuation and quotes if they exist.\n"
-    "- `search` and `replace` values must be different.\n"
-    "- For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar, related words.\n"
-    "- For repetitive openers: rewrite and replace flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.\n"
-    "- For repetitive templates: restructure flagged sentences so they no longer follow the same POS pattern. Change clause order, combine sentences, or vary syntax.\n"
-    "- For repetitive phrases: rewrite and replace flagged phrases.\n"
-    "- For contrastive negation ('not X, but Y'): rewrite sentences that use this cliché construction. Consider alternative phrasing that avoids this rhetorical formula."
-)
-
-# Sent when only the length guard is triggered — no audit issues.
-# Directs the model to rewrite only.
-EDITOR_REWRITE_INSTRUCTIONS = (
-    "Use `editor_rewrite` to produce a rewrite within the specified limits.\n\n"
-    "REWRITING RULES:\n"
-    "- Preserve the author's vocabulary and creative word choices and all key story beats. Sentence starters should be varied.\n"
-    "- First priority is to get rid of repetitiveness and condense comma-separated adjectives into stronger, more precise words (e.g. old, ruined building -> decrepit building).\n"
-    "- Be more concise but maintain coherence and narrative flow."
-)
-
-# Sent when both audit issues AND length guard are triggered.
-# The model already receives the full audit report and length-guard
-# instruction with concrete word/paragraph limits.
-EDITOR_BOTH_INSTRUCTIONS = "Call `editor_rewrite` to address both concerns in a single rewrite. Address all audit issues while also respecting length constraints."
-
-STRUCTURAL_REWRITE_INSTRUCTIONS = (
-    "STRUCTURAL REPETITION: This response follows the same paragraph layout as recent "
-    "previous messages. Call `editor_rewrite` with an entirely different structure — "
-    "change the order and balance of narration, dialogue, and internal thought so the "
-    "response is laid out distinctly from the previous ones."
-)
-
-MAX_EDITOR_ITERATIONS = 3
 
 
 # ── Tool registry & helpers

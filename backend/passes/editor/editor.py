@@ -21,8 +21,7 @@ from ...kv_tracker import CachedBase, _KVCacheTracker
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...llm_types import AssistantToolMessage, ContentPart, WireMessage
 from ...prompt_builder import build_editor_prompt
-from ...tool_defs import (
-    MAX_EDITOR_ITERATIONS,
+from ...tool_registry import (
     TOOLS,
     build_feedback_tool,
 )
@@ -33,6 +32,8 @@ from .template_repetition import FlaggedTemplate, TemplateResult
 from .text_segmentation import split_narration_sentences
 
 logger = logging.getLogger(__name__)
+
+MAX_EDITOR_ITERATIONS = 3
 
 
 # ── Feedback gating + tool override ───────────────────────────────────────────
@@ -58,7 +59,7 @@ def _feedback_active(
 def build_feedback_override(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
     """Build the ``give_feedback`` dynamic-tool schema from *feedback_fragments*.
 
-    Thin wrapper over :func:`~backend.tool_defs.build_feedback_tool` so the
+    Thin wrapper over :func:`~backend.tool_registry.build_feedback_tool` so the
     orchestrator's tools-blob composition (``_build_writer_tools_blob``) reaches
     the give_feedback schema through the editor module rather than importing the
     schema builder directly — symmetric to ``build_direct_scene_override``.

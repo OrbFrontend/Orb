@@ -123,7 +123,7 @@ from .orchestrator import (
     resolve_persona_id,
 )
 from .summarizer import ConversationSummarizer
-from .tool_defs import TOOLS
+from .tool_registry import TOOLS
 from .utils import estimate_tokens, scrub_log
 from .workflows import (
     HookType,

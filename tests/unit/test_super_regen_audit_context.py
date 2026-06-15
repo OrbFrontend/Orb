@@ -22,7 +22,7 @@ from backend.passes.editor.opening_monotony import MonotonyResult
 from backend.passes.editor.slop_detector import DetectionResult
 from backend.passes.editor.structural_repetition import StructuralResult
 from backend.passes.editor.template_repetition import TemplateResult
-from backend.tool_defs import enabled_schemas
+from backend.tool_registry import enabled_schemas
 
 
 def _editor_base(prefix: list[dict]) -> CachedBase:

@@ -9,7 +9,7 @@ interactive fragments as its parameters.
 This inverts the Interactive Fragment direction: where ``direct_scene`` steers
 the writer (AI->AI), ``give_feedback`` surfaces a note to the player (AI->user).
 Like ``direct_scene``, the ``give_feedback`` schema rides the shared per-turn
-tools blob (registered in ``tool_defs.TOOLS``, built once by the orchestrator and
+tools blob (registered in ``tool_registry.TOOLS``, built once by the orchestrator and
 threaded to every pass via ``schema_overrides``). This step therefore reuses the
 unchanged shared base and merely forces ``tool_choice=give_feedback``, so it adds
 zero cache miss on the prefix+tools region — no blob swap, nothing to restore.
@@ -33,7 +33,7 @@ from ...kv_tracker import CachedBase
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
 from ...llm_types import ChatMessage, ContentPart
 from ...prompt_builder import build_feedback_prompt
-from ...tool_defs import GIVE_FEEDBACK_CHOICE, build_feedback_tool
+from ...tool_registry import GIVE_FEEDBACK_CHOICE, build_feedback_tool
 from ...utils import extract_hyperparams
 
 logger = logging.getLogger(__name__)

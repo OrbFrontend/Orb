@@ -42,7 +42,7 @@ from ..database import (
 from ..database import (
     set_workflow_state as _db_set_workflow_state,
 )
-from ..tool_defs import (
+from ..tool_registry import (
     BUILTIN_TOOL_NAMES,
     STANDALONE_TOOLS,
     TOOLS,

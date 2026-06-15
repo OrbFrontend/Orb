@@ -12,7 +12,7 @@ from backend.prompt_builder import (
     compute_lorebook_injection_block,
     render_lorebook_block,
 )
-from backend.tool_defs import build_direct_scene_tool
+from backend.tool_registry import build_direct_scene_tool
 
 
 def _entry(

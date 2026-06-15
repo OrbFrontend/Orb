@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from backend.database.seeds import DEFAULT_ENABLED_TOOLS, DEFAULT_SETTINGS
-from backend.tool_defs import (
+from backend.tool_registry import (
     BUILTIN_TOOL_NAMES,
     POST_WRITER_TOOLS,
     PRE_WRITER_TOOLS,
@@ -16,7 +16,7 @@ from backend.tool_defs import (
     register_tool,
 )
 
-_TEST_TOOL_NAME = "ut_tool_defs_test"
+_TEST_TOOL_NAME = "ut_tool_registry_test"
 _TEST_SCHEMA = {
     "type": "function",
     "function": {

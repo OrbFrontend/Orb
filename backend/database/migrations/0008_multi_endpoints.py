@@ -51,7 +51,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         row = cursor.fetchone()
         if row:
             cols = [d[0] for d in cursor.description]
-            s = dict(zip(cols, row, strict=True))
+            s = dict(zip(cols, row))
             cur_ep = conn.execute(
                 "INSERT INTO endpoints (url, api_key) VALUES (?, ?)",
                 (
