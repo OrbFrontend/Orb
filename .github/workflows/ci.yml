@@ -25,7 +25,6 @@ jobs:
               - 'backend/**'
               - 'tests/**'
               - 'requirements*.txt'
-              - '.flake8'
               - 'pytest.ini'
             frontend:
               - 'frontend/**'
@@ -87,9 +86,9 @@ jobs:
         if: needs.detect-changes.outputs.backend == 'true'
         run: python -m ruff format --line-length 128 --check backend/ tests/
 
-      - name: Flake8 lint
+      - name: Ruff lint
         if: needs.detect-changes.outputs.backend == 'true'
-        run: python -m flake8 backend/ tests/
+        run: python -m ruff check --select E,W,F,B --ignore E203,E501 --line-length 128 backend/ tests/
 
       - name: Pyright type check
         if: needs.detect-changes.outputs.backend == 'true'

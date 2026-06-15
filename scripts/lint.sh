@@ -15,7 +15,7 @@ echo "Installing dev dependencies..."
 pip install -q -r requirements-dev.txt
 
 echo ""
-python -m flake8 backend/ tests/ "$@"
+python -m ruff check --select E,W,F,B --ignore E203,E501 --line-length 128 backend/ tests/ "$@"
 
 echo ""
 echo "Running Pylance type check on backend..."
