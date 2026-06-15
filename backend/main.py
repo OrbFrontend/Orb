@@ -19,7 +19,9 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
-from . import card_downloader, presets, tavern_cards
+from .features.cards import downloader as card_downloader
+from .features.cards import parsing as tavern_cards
+from .features.presets import engine as presets
 from .inference import prompt_builder
 from .database import (
     DB_PATH,
@@ -123,7 +125,7 @@ from .pipeline import (
     handle_turn,
     resolve_persona_id,
 )
-from .summarizer import ConversationSummarizer
+from .features.summarization import ConversationSummarizer
 from .inference import TOOLS
 from .core import estimate_tokens, scrub_log
 from .workflows import (

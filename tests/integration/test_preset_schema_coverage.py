@@ -15,7 +15,7 @@ import sqlite3
 
 import pytest
 
-from backend import presets
+from backend.features.presets import engine as presets
 from backend.database import schema
 from backend.database.schema import CREATE_TABLES_SQL
 

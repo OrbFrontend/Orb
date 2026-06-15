@@ -17,7 +17,7 @@ import uuid
 import httpx
 from fastapi import HTTPException
 
-from . import tavern_cards
+from . import parsing
 
 logger = logging.getLogger(__name__)
 
@@ -167,9 +167,9 @@ async def _download_characterhub_card(full_path: str):
         tmp_path = tmp.name
 
     try:
-        orb_id = tavern_cards.read_orb_id(tmp_path)
-        card = tavern_cards.parse(tmp_path)
-        card_dict = tavern_cards.card_to_dict(card)
+        orb_id = parsing.read_orb_id(tmp_path)
+        card = parsing.parse(tmp_path)
+        card_dict = parsing.card_to_dict(card)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -198,7 +198,7 @@ register_source(
 # Character Archive mirrors cards from upstream sites (chub, etc.) behind a
 # FastAPI JSON API. Browse hits the meilisearch-backed search endpoint; the
 # per-card definition is served as chara_card_v2 JSON (not embedded in a PNG),
-# so download parses it via tavern_cards.from_json_obj and fetches the avatar
+# so download parses it via parsing.from_json_obj and fetches the avatar
 # image separately.
 
 _CHARARC_BASE = "https://chararc.bernkastel.pictures"
@@ -336,8 +336,8 @@ async def _download_chararc_card(token: str):
         raise HTTPException(status_code=400, detail="Unexpected card definition format")
 
     try:
-        card = tavern_cards.from_json_obj(definition)
-        card_dict = tavern_cards.card_to_dict(card)
+        card = parsing.from_json_obj(definition)
+        card_dict = parsing.card_to_dict(card)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -499,9 +499,9 @@ async def _download_botbooru_card(full_path: str):
         tmp_path = tmp.name
 
     try:
-        orb_id = tavern_cards.read_orb_id(tmp_path)
-        card = tavern_cards.parse(tmp_path)
-        card_dict = tavern_cards.card_to_dict(card)
+        orb_id = parsing.read_orb_id(tmp_path)
+        card = parsing.parse(tmp_path)
+        card_dict = parsing.card_to_dict(card)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -726,8 +726,8 @@ async def _download_wyvern_card(full_path: str):
         raise HTTPException(status_code=400, detail="Unexpected Wyvern character format")
 
     try:
-        card = tavern_cards.from_json_obj(_wyvern_to_v2_jobj(obj))
-        card_dict = tavern_cards.card_to_dict(card)
+        card = parsing.from_json_obj(_wyvern_to_v2_jobj(obj))
+        card_dict = parsing.card_to_dict(card)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:

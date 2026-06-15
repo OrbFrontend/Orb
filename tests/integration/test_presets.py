@@ -11,7 +11,7 @@ def _snap_dir(db_path):
 
 async def _full_snapshot(client, label=""):
     """A restorable full-coverage snapshot, via the same route the UI uses."""
-    from backend.presets import ALL_DOMAINS
+    from backend.features.presets import ALL_DOMAINS
 
     resp = await client.post(
         "/api/presets/export",
@@ -204,7 +204,7 @@ async def test_restore_succeeds_with_open_connection(client, db_path):
     """Regression: restoring while another connection holds the live DB open
     (as the running app does for any overlapping request) used to fail with
     'database is locked' because the file/WAL was swapped out from under it."""
-    from backend import presets
+    from backend.features.presets import engine as presets
 
     await client.post("/api/characters", json={"name": "Before"})
     snap = await _full_snapshot(client, "safe")
@@ -484,7 +484,7 @@ def test_library_path_rejects_traversal():
     """A request-supplied name must stay inside the snapshots dir."""
     import pytest
 
-    from backend import presets
+    from backend.features.presets import engine as presets
 
     for bad in ("../secret.db", "sub/dir.db", "/etc/passwd", "..\\evil.db", "noext"):
         with pytest.raises(presets.PresetError):
