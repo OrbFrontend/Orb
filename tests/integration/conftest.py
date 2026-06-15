@@ -31,7 +31,7 @@ def _reset_module_locks():
     """Clear the process-global asyncio.Lock dicts between tests.
 
     Several lock caches key ``asyncio.Lock`` objects by id/key tuples:
-    ``backend.main._workflow_root_locks`` (root_id) and
+    ``backend.api.deps._workflow_root_locks`` (root_id) and
     ``_conversation_stream_locks`` (conversation id), plus
     ``backend.core.locks._workflow_state_locks`` and
     ``_workflow_character_state_locks`` (both ``(key, workflow_id)`` tuples)
@@ -46,12 +46,12 @@ def _reset_module_locks():
     (``workflow_config_lock`` is excluded: it already keys its dict by running
     loop, so its entries are self-isolating.)
     """
-    from backend import main
+    from backend.api import deps
     from backend.core import locks
 
     lock_dicts = (
-        main._workflow_root_locks,
-        main._conversation_stream_locks,
+        deps._workflow_root_locks,
+        deps._conversation_stream_locks,
         locks._workflow_state_locks,
         locks._workflow_character_state_locks,
     )
@@ -93,15 +93,19 @@ async def db(db_path: Path):
 def llm_mock(monkeypatch):
     """Substitute the streaming LLM client across every bound import.
 
-    ``from .inference import LLMClient`` binds a local name at import
+    ``from ..inference import LLMClient`` binds a local name at import
     time, so patching only ``backend.inference.client.LLMClient`` is not
-    enough -- ``backend.main`` and ``backend.pipeline.orchestrator`` retain
-    pre-patch references. The fixture patches all three.
+    enough -- the route modules that construct a client
+    (``backend.api.routes.conversations`` for /summarize and
+    ``backend.api.routes.workflows`` for the workflow hooks) and
+    ``backend.pipeline.orchestrator`` retain pre-patch references. The
+    fixture patches every bound name.
     """
     fake = FakeLLMClient()
     factory = llm_factory(fake)
     monkeypatch.setattr("backend.inference.client.LLMClient", factory)
-    monkeypatch.setattr("backend.main.LLMClient", factory)
+    monkeypatch.setattr("backend.api.routes.conversations.LLMClient", factory)
+    monkeypatch.setattr("backend.api.routes.workflows.LLMClient", factory)
     monkeypatch.setattr("backend.pipeline.orchestrator.LLMClient", factory)
     return fake
 
