@@ -9,9 +9,9 @@ are reported with an unusably long sentence context that the editor can't locate
 in the draft.
 """
 
-from backend.passes.editor.contrastive_negation import _split_sentences as neg_split
-from backend.passes.editor.slop_detector import _split_sentences as slop_split
-from backend.passes.editor.slop_detector import detect_cliches
+from backend.analysis.detectors.contrastive_negation import _split_sentences as neg_split
+from backend.analysis.detectors.slop_detector import _split_sentences as slop_split
+from backend.analysis.detectors.slop_detector import detect_cliches
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # slop_detector._split_sentences

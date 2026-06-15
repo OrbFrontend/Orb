@@ -16,12 +16,12 @@ import pytest
 
 from backend.inference import CachedBase
 from backend.inference import LLMClient
-from backend.passes.editor.audit import AuditReport
+from backend.analysis import AuditReport
 from backend.passes.editor.editor import editor_pass
-from backend.passes.editor.opening_monotony import MonotonyResult
-from backend.passes.editor.slop_detector import DetectionResult
-from backend.passes.editor.structural_repetition import StructuralResult
-from backend.passes.editor.template_repetition import TemplateResult
+from backend.analysis.detectors.opening_monotony import MonotonyResult
+from backend.analysis.detectors.slop_detector import DetectionResult
+from backend.analysis.detectors.structural_repetition import StructuralResult
+from backend.analysis.detectors.template_repetition import TemplateResult
 from backend.inference import enabled_schemas
 
 

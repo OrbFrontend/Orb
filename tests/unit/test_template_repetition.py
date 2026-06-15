@@ -9,7 +9,7 @@ Organised into:
 
 import pytest
 
-from backend.passes.editor.template_repetition import (
+from backend.analysis.detectors.template_repetition import (
     detect_template_repetition,
 )
 
