@@ -90,23 +90,22 @@ class ModelLane:
 
 
 def is_dual_model(agent_client: LLMClient | None) -> bool:
-    """The pipeline runs in one of two modes:
+    """Return True when a separate agent endpoint is configured (dual-model mode).
 
-    * **single-model** — the writer and the agent (director + editor) share one
-      endpoint, prefix, tool blob, and KV cache; both lanes are the *same*
-      :class:`ModelLane` object.
-    * **dual-model** — a separate agent endpoint is configured, so the agent
-      runs on its own client/prefix/tools/model with a disjoint KV cache.
+    Single-model: writer and agent share one endpoint and KV cache.
+    Dual-model: agent (director + editor) runs on its own endpoint with a
+    separate KV cache.
     """
     return agent_client is not None
 
 
 def agent_enabled(settings: Mapping[str, Any]) -> bool:
-    """The global Agent toggle. Single source of truth for the ``enable_agent``
-    setting and its default-on (``1``) semantics: every feature gated on the
-    agent (director, editor, length guard, feedback, tool exposure, mood/state
-    persistence) reads it through here so the default can't drift between call
-    sites."""
+    """Return True when the global Agent toggle is on (default).
+
+    All agent-gated features — director, editor, length guard, feedback,
+    mood/state persistence — read this single function so the default-on
+    semantics stay consistent everywhere.
+    """
     return bool(settings.get("enable_agent", 1))
 
 
@@ -142,30 +141,26 @@ def _resolve_pipeline_config(
     phrase_bank: list[PhraseGroup] | None,
     schema_overrides: Mapping[str, dict],
 ) -> _PipelineConfig:
-    """Derive the per-turn pipeline configuration (see :class:`_PipelineConfig`)."""
+    """Build the immutable per-turn config used throughout the pipeline.
+
+    Resolves feature flags (audit, length guard, reasoning per pass), builds
+    the two model lanes (writer and agent), and returns a :class:`_PipelineConfig`.
+    Called once at the start of each turn by :func:`_run_pipeline` and
+    :func:`handle_magic_rewrite`.
+    """
     agent_on = agent_enabled(settings)
     reasoning_passes = settings.get("reasoning_enabled_passes") or {}
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
 
-    # Length guard: resolve the config (None when off) and mirror its required
-    # editor_rewrite tool into the shared schema blob. Both live in length_guard.py.
+    # editor_rewrite is mirrored into the schema blob when the length guard is on.
     length_guard: LengthGuard | None = resolve_length_guard(settings, agent_on)
     enabled_tools = apply_length_guard_tools(enabled_tools, length_guard)
 
-    # In dual-model mode the agent's KV cache is disjoint from the writer's; skip
-    # tool schemas and the OOC "no tools" notice from the writer call — neither is
-    # useful and both add unnecessary tokens.
+    # In dual-model mode the writer's KV cache is disjoint; skip tool schemas there.
     dual_model = is_dual_model(agent_client)
     writer_enabled_tools = {} if dual_model else enabled_tools
 
-    # The two lanes, computed once here. The writer lane carries the writer's
-    # client + base. The agent lane (director + editor) is the *same object* in
-    # single-model mode and a distinct one only when a separate agent endpoint is
-    # configured — so the byte-identity "director + editor + writer ride the same
-    # base" is structural, not a convention each pass must independently honour.
-    # The tool blobs are built via enabled_schemas exactly once each so no pass
-    # can rebuild them differently.
     writer_lane = ModelLane(
         client=client,
         base=CachedBase(
@@ -176,7 +171,7 @@ def _resolve_pipeline_config(
         ),
     )
     if dual_model:
-        assert agent_client is not None  # dual_model is True iff agent_client was resolved
+        assert agent_client is not None
         agent_lane = ModelLane(
             client=agent_client,
             base=CachedBase(
@@ -187,9 +182,7 @@ def _resolve_pipeline_config(
             ),
         )
     else:
-        # Single-model mode: agent rides the writer's lane verbatim. In this mode
-        # agent_prefix is None and writer_enabled_tools == enabled_tools, so the
-        # writer base already carries exactly the bytes the agent needs.
+        # Single-model: agent shares the writer's lane (same KV cache base).
         agent_lane = writer_lane
 
     return _PipelineConfig(
@@ -320,13 +313,12 @@ def _make_result(state: TurnState, staged: list[dict] | None = None, staged_stat
 def _split_interactive_fragments(
     fragments: Sequence[Mapping[str, Any]],
 ) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]]]:
-    """Split interactive fragments by consumer.
+    """Split interactive fragments into writer vs. feedback groups.
 
-    Returns ``(writer_fragments, feedback_fragments)``: ``field_type="feedback"``
-    fragments drive the post-writer feedback step (an editor sub-step) and never
-    reach the writer; everything else shapes ``direct_scene`` + the Scene
-    Direction block. Single source of truth so the split can't drift between the
-    main turn, magic-rewrite, and the pipeline body.
+    Returns ``(writer_fragments, feedback_fragments)``. ``field_type="feedback"``
+    fragments are surfaced to the user via the post-writer feedback step and
+    never reach the writer prompt; all others shape the ``direct_scene`` tool
+    and the Scene Direction block.
     """
     writer = [df for df in fragments if df.get("field_type") != "feedback"]
     feedback = [df for df in fragments if df.get("field_type") == "feedback"]
@@ -340,19 +332,14 @@ def _build_writer_tools_blob(
     *,
     agentic_lorebook: bool = False,
 ) -> dict:
-    """Build the per-turn ``schema_overrides`` for the writer lane, mutating
-    *enabled_tools* in place to add ``give_feedback`` when feedback is active.
+    """Build the dynamic tool schema overrides shared by every writer-cached call.
 
-    This is the single source of truth for the writer-lane tools blob. Every
-    entry point that issues a writer-cached call (the main turn and
-    magic-rewrite) must build its blob here so all of them ship byte-identical
-    tools (Invariant 3); the give_feedback mirroring that keeps cross-turn cache
-    parity can then never be forgotten at a call site. ``direct_scene`` is built
-    from the writer fragments; ``give_feedback`` rides the same blob exactly like
-    it, built once from the enabled feedback fragments. *agentic_lorebook* adds
-    the fixed ``selected_lorebook_entries`` parameter to ``direct_scene`` (see
-    :func:`_agentic_lorebook_active`); it grows the blob by a fixed ~1 property
-    and must be computed identically at both call sites.
+    Mutates *enabled_tools* in place to add ``give_feedback`` when feedback is
+    active. Returns the ``schema_overrides`` dict (``direct_scene`` plus
+    optionally ``give_feedback``) that keeps the tool blob byte-identical across
+    the main turn and magic-rewrite so the LLM's KV cache is not busted.
+
+    Called by :func:`_prepare_turn` and :func:`handle_magic_rewrite`.
     """
     writer_fragments, feedback_fragments = _split_interactive_fragments(interactive_fragments)
     overrides: dict = {"direct_scene": build_direct_scene_override(writer_fragments, agentic_lorebook=agentic_lorebook)}
@@ -391,35 +378,17 @@ async def _run_pipeline(
     history: Sequence[Mapping[str, Any]] | None = None,
     lorebook_messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
-    """Three-pass pipeline: director → writer → editor, plus a post-pipeline
-    workflow iteration before persistence.
+    """Run the three-pass pipeline (director → writer → editor) for one turn.
 
-    KV cache strategy: *prefix* (system prompt + chat history) and the tool
-    schema list returned by ``enabled_schemas(enabled_tools, schema_overrides)``
-    are kept byte-identical across all three passes so the LLM can reuse cached
-    KV entries. ``direct_scene`` is dynamic per character; its schema is built
-    once by the caller via ``build_direct_scene_tool(interactive_fragments)`` and
-    threaded as ``schema_overrides`` to every pass so the tools blob matches.
-    Only ``tool_choice`` and the trailing user message differ per pass.
-    ``editor_rewrite`` is included in the schema set whenever the length guard
-    is enabled (mirroring how ``editor_apply_patch`` tracks ``audit_enabled``).
+    Streams SSE events as each pass runs, then drives the post-pipeline
+    workflow hooks and emits a single ``_result`` event carrying the final
+    draft and any workflow-staged attachments.
 
-    *enabled_tools* is already merged (settings plus any pre-pipeline
-    contribution, with the enable_agent zeroing already applied) and *prefix*
-    is the final pipeline prefix including any extra system blocks --
-    construction lives in the caller so the pre-pipeline iteration site can
-    yield its own SSE events before the pipeline starts. *turn_scratch* is the
-    per-turn workflow scratch dict, ref-shared with every workflow hook this
-    turn. *kv_tracker* is likewise constructed by the caller and finalised
-    here via ``log_summary()`` after the post-pipeline loop closes.
-    *schema_overrides* is the per-turn dynamic-schema map the caller builds
-    (today: ``{"direct_scene": build_direct_scene_tool(interactive_fragments)}``)
-    and threads here so every pass receives it for byte-identical tools.
-    *history* is the prior-message list forwarded read-only onto each
-    ``PostCtx``; the passes read history through *prefix*, not this argument.
+    If the user stops generation during the director pass the pipeline exits
+    cleanly with no output. If they stop during the writer pass the partial
+    draft is still carried out via ``_result`` so the caller can persist it.
 
-    The single ``_result`` event fires after the post-pipeline iteration and
-    carries both the final draft and any workflow-staged attachments.
+    Called by :func:`_generate_reply` for every generating entry point.
     """
     if macros is None:
         macros = Macros("User", "")
@@ -428,10 +397,7 @@ async def _run_pipeline(
 
     user_message = macros.resolve_message(user_message)
 
-    # Resolved per-turn config; referenced as cfg.* throughout so each use site
-    # reads as immutable derived config, distinct from the mutable turn state
-    # below. cfg.enabled_tools is the length-guard-folded map (not the bare
-    # *enabled_tools* parameter), so the pipeline reads tools through cfg.
+    # Resolved once; cfg.enabled_tools is the length-guard-folded map.
     cfg = _resolve_pipeline_config(
         settings,
         enabled_tools,
@@ -444,16 +410,10 @@ async def _run_pipeline(
         schema_overrides=schema_overrides,
     )
 
-    # Interactive fragments split on field_type, where they are consumed: only
-    # non-feedback fragments reach the writer (direct_scene tool + Scene Direction
-    # block); field_type="feedback" fragments drive the post-writer feedback step
-    # (run inside the editor pass) and never enter the writer prompt. (The
-    # direct_scene schema in schema_overrides is already filtered to writer
-    # fragments by the caller via the same split.)
+    # feedback fragments are handled post-writer; the rest shape the writer prompt.
     writer_fragments, feedback_fragments = _split_interactive_fragments(interactive_fragments)
 
-    # Mutable turn state, accumulated as the three passes run below. Threaded by
-    # reference into each stage; seeded from the director baseline + user message.
+    # Mutable state threaded through the three passes; seeded from director + user message.
     _valid_progressive_ids = {df["id"] for df in writer_fragments if df.get("field_type") == "progressive"}
     state = TurnState(
         user_message=user_message,
@@ -482,8 +442,7 @@ async def _run_pipeline(
     ):
         yield ev
 
-    # Bail out if stop was clicked during the director pass. The writer and
-    # agent clients share one abort token, so checking either is equivalent.
+    # Both clients share one abort token, so checking either is equivalent.
     if client.is_aborted:
         return
 
@@ -497,9 +456,7 @@ async def _run_pipeline(
     ):
         yield ev
 
-    # If the turn was aborted during writer, persist what streamed so far and
-    # skip the editor + post-pipeline iteration. The single _result still
-    # fires so the persistence path stays uniform.
+    # Aborted mid-writer: persist partial output and skip remaining passes.
     if client.is_aborted:
         yield _make_result(state)
         kv_tracker.log_summary()
@@ -518,10 +475,7 @@ async def _run_pipeline(
         yield ev
 
     # --- Post-pipeline workflow iteration ---
-    # PostCtx.director_output is a read-only mapping (workflow contract), so this
-    # stays a dict rather than the DirectorResult dataclass. Keys mirror the
-    # dataclass field names — notably ``agent_raw`` (not ``raw``) — so a single
-    # name follows each value from the director pass through to every consumer.
+    # director_output is a plain dict (PostCtx expects a read-only mapping).
     director_output = {
         "active_moods": state.active_moods,
         "agent_raw": state.agent_raw,
@@ -554,8 +508,7 @@ async def _run_pipeline(
             yield ev
     assert post is not None
 
-    # A post-pipeline hook may have rewritten the draft; fold it back so the
-    # terminal _result carries the persisted text.
+    # Fold any hook-rewritten draft back into state before emitting _result.
     state.resp_text = post.draft
     yield _make_result(state, post.staged_attachments, post.staged_message_state)
     kv_tracker.log_summary()
@@ -588,15 +541,14 @@ async def _run_post_pipeline(
     kv_tracker: _KVCacheTracker,
     schema_overrides: Mapping[str, dict],
 ) -> AsyncIterator[dict | _PostPipelineResult]:
-    """Drive each POST_PIPELINE subscription over the finished *draft*, streaming
-    pass-through SSE events and yielding one terminal :class:`_PostPipelineResult`.
+    """Run every POST_PIPELINE workflow hook over the finished draft.
 
-    Each hook may yield ``draft_replaced`` (one applied per hook per turn) to
-    mutate the draft for downstream hooks and final persistence, plus zero or
-    more ``attach_artifact`` entries that are validated, path-normalized, and
-    staged for the upcoming add_message transaction, and ``set_message_state``
-    slots written once the assistant row id is known. Per-workflow exceptions are
-    logged-and-skipped; one bad hook does not crash a turn.
+    Streams pass-through SSE events from each hook and yields one terminal
+    :class:`_PostPipelineResult` when all hooks have run. Each hook may
+    replace the draft once, attach artifacts, or set per-message state.
+    Hook failures are logged and skipped so one bad hook cannot crash a turn.
+
+    Called by :func:`_run_pipeline` after the editor pass.
     """
     staged_attachments: list[dict] = []
     staged_message_state: dict[str, dict] = {}
@@ -606,6 +558,7 @@ async def _run_post_pipeline(
         # /trigger calls and any other in-flight pipeline that reaches this
         # hook on the same conversation. Different workflows on the same
         # conversation keep distinct lock keys, so they still run in parallel.
+        # Serialize same-(cid, wid) writers; different workflows run in parallel.
         async with (
             workflow_state_lock(conversation_id or "", sub.workflow_id),
             workflow_character_state_lock(character_id or "", sub.workflow_id),
@@ -654,9 +607,7 @@ async def _run_post_pipeline(
                         }
                         continue
                     if t == "attach_artifact":
-                        # Only workflows declared with produces_artifacts=True
-                        # may persist attachments. Drop silently otherwise so a
-                        # misconfigured workflow cannot corrupt the turn.
+                        # Only workflows with produces_artifacts=True may persist attachments.
                         w = get_workflow(sub.workflow_id)
                         if not (w and w.produces_artifacts):
                             logger.warning(
@@ -674,10 +625,7 @@ async def _run_post_pipeline(
                             staged_attachments.append(staged)
                         continue
                     if t == "set_message_state":
-                        # The assistant row is minted in _persist_result after
-                        # this loop, so the slot is written there. The owning
-                        # workflow comes from the subscription, so a hook can
-                        # only address its own slot.
+                        # Written in _persist_result once the assistant row id is known.
                         state = ev.get("state") if isinstance(ev, dict) else None
                         if not isinstance(state, dict):
                             logger.warning(
@@ -688,11 +636,8 @@ async def _run_post_pipeline(
                             continue
                         staged_message_state[sub.workflow_id] = state
                         continue
-                    # Underscore-prefixed event names are reserved by
-                    # _consume_pipeline for internal persistence signals
-                    # (_result). Refuse them here so a hook cannot
-                    # drive an extra db.add_message or rewrite of the assistant
-                    # row via impersonation.
+                    # Reject reserved internal events (underscore-prefixed) so hooks
+                    # cannot impersonate _result and trigger spurious persistence.
                     e_name = ev.get("event") if isinstance(ev, dict) else None
                     if isinstance(e_name, str) and e_name.startswith("_"):
                         logger.warning(
@@ -709,14 +654,13 @@ async def _run_post_pipeline(
 
 
 def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
-    """Validate a workflow ``attach_artifact`` entry and normalize it to the
-    bytes-only shape ``add_message`` consumes.
+    """Validate and normalize a workflow ``attach_artifact`` entry.
 
-    Returns the staged dict on acceptance, or ``None`` (with a logged warning)
-    when validation fails. Never raises -- workflow noise must not crash a
-    turn. The orchestrator owns this validation so the DB layer can trust
-    incoming staged attachments and write them in the same transaction as the
-    parent message row.
+    Returns a bytes-only dict ready for ``add_message``, or ``None`` if
+    validation fails (with a logged warning). Never raises — bad workflow
+    output must not crash a turn.
+
+    Called by :func:`_run_post_pipeline` for each ``attach_artifact`` yield.
     """
     if not isinstance(att, dict):
         logger.warning(
@@ -753,8 +697,7 @@ def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
         return None
 
     out = dict(att)
-    # Whitespace-only annotation collapses to None so the history renderer
-    # sees one sentinel for "no LLM-visible footprint".
+    # Whitespace-only annotation collapses to None ("no LLM-visible footprint").
     if isinstance(raw_annotation, str) and not raw_annotation.strip():
         out["annotation"] = None
 
@@ -813,24 +756,20 @@ async def _iterate_pre_pipeline_hooks(
     schema_overrides: Mapping[str, dict],
     accumulators: dict,
 ) -> AsyncIterator[dict]:
-    """Drive each pre_pipeline subscription in priority-ascending order,
-    ties broken by registration order. Yields SSE pass-through events;
-    mutates *accumulators* with the merged enable_tools map and the
-    system_prompt block list.
+    """Run every PRE_PIPELINE workflow hook before the main pipeline starts.
 
-    *accumulators* must enter populated with
-    ``{"merged_enabled_tools": <fresh dict>, "extras": []}``; this helper
-    updates both in place. PreCtx construction is inside the try block so a
-    ``_readonly`` failure on pathological input is logged-and-skipped rather
-    than crashing the turn. *schema_overrides* carries the per-turn
-    dynamic-schema map the pipeline ships to ``enabled_schemas(...)``; it is
-    ref-shared with every PreCtx so workflow hooks issuing forced calls can
-    pass it through to ``forced_tool_call`` for byte-identical cache reuse.
+    Yields pass-through SSE events and mutates *accumulators* in place:
+    ``enable_tools`` yields fold extra tools into the merged map;
+    ``system_prompt`` yields append blocks to the extras list. Hook failures
+    are logged and skipped.
+
+    *accumulators* must be pre-populated with
+    ``{"merged_enabled_tools": <dict>, "extras": []}``.
+
+    Called by :func:`_prepare_turn`.
     """
     for sub in iter_subscriptions(HookType.PRE_PIPELINE):
-        # See workflow_state_lock invariant in backend/locks.py: held across the
-        # hook's full lifetime to keep its workflow_state RMW atomic against any
-        # concurrent /trigger or pipeline iteration on the same (cid, wid).
+        # Lock held for the hook's full lifetime to keep workflow_state RMW atomic.
         async with (
             workflow_state_lock(conversation_id, sub.workflow_id),
             workflow_character_state_lock(character_id or "", sub.workflow_id),
@@ -893,9 +832,7 @@ async def _iterate_pre_pipeline_hooks(
                             continue
                         accumulators["extras"].append(block)
                         continue
-                    # Reserved by _consume_pipeline; refused here as
-                    # defense-in-depth even though pre_pipeline events do not
-                    # currently flow through that consumer.
+                    # Reject reserved internal events (defense-in-depth).
                     e_name = ev.get("event") if isinstance(ev, dict) else None
                     if isinstance(e_name, str) and e_name.startswith("_"):
                         logger.warning(
@@ -962,14 +899,16 @@ def resolve_persona_id(
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
-    """Load everything the pipeline needs: settings, conversation, director,
-    mood_fragments, phrase_bank, and an LLMClient.
+    """Load all per-conversation inputs needed to run the pipeline.
 
-    *abort_token* is the turn-wide stop signal; both the writer and (optional)
-    agent clients share it so a single ``/stop`` aborts every pass. A private
-    token is created when the caller does not supply one.
+    Fetches settings, conversation, character card, director state, fragments,
+    phrase bank, lorebook entries, and builds LLM clients. Both the writer and
+    agent clients share the same *abort_token* so a single ``/stop`` cancels
+    every pass. Creates a private token when none is supplied.
 
-    Returns a :class:`PipelineContext`, or None if the conversation was not found.
+    Returns a :class:`PipelineContext`, or ``None`` if the conversation was not found.
+
+    Called by every public entry point before any pipeline work begins.
     """
     abort_token = abort_token or AbortToken()
     settings = await db.get_settings()
@@ -979,9 +918,8 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
 
     director = await db.get_director_state(conversation_id)
     mood_fragments = await db.get_mood_fragments()
-    # Filter out disabled mood fragments
     mood_fragments = [f for f in mood_fragments if f.get("enabled", True)]
-    # Remove disabled mood fragments from active moods
+    # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
@@ -999,13 +937,11 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     card = await db.get_character_card(card_id) if card_id else None
     system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
 
-    # Load the effective persona (conversation/character lock overrides global)
     active_persona = None
     active_persona_id = resolve_persona_id(conv, card, settings)
     if active_persona_id:
         active_persona = await db.get_user_persona(active_persona_id)
 
-    # Resolve agent client and system prompt when separate from writer
     agent_same = settings.get("agent_same_as_writer", True)
     agent_client = None
     agent_system_prompt = None
@@ -1047,12 +983,13 @@ def _build_prefix_from_ctx(
     system_prompt: str | None = None,
     extra_system_blocks: list[str] | None = None,
 ) -> list[ChatMessage]:
-    """Build the LLM prefix from a :class:`PipelineContext`.
+    """Build the LLM message prefix (system prompt + chat history) from *ctx*.
 
-    When *system_prompt* is provided it overrides ``ctx.system_prompt``
-    (used for the agent prefix when it has its own system prompt).
-    *extra_system_blocks* appends contributions from pre-pipeline hooks; None
-    or an empty list preserves baseline byte parity.
+    *system_prompt* overrides ``ctx.system_prompt`` when provided — used for
+    the agent prefix in dual-model mode. *extra_system_blocks* appends
+    additional system sections contributed by pre-pipeline hooks.
+
+    Called by :func:`_build_prefixes`.
     """
     conv = ctx.conv
     active_persona = ctx.active_persona
@@ -1078,11 +1015,14 @@ def _build_prefixes(
     *,
     extra_system_blocks: list[str] | None = None,
 ) -> tuple[list[ChatMessage], list[ChatMessage] | None]:
-    """Build (prefix, agent_prefix) from *ctx* and *history*.
+    """Build the writer prefix and optional agent prefix for a turn.
 
-    *agent_prefix* is ``None`` when no separate agent system prompt is
-    configured. *extra_system_blocks* is applied to both prefixes so the
-    system body stays identical across director / writer / editor.
+    Returns ``(prefix, agent_prefix)``. ``agent_prefix`` is ``None`` when no
+    separate agent system prompt is configured (single-model mode).
+    *extra_system_blocks* from pre-pipeline hooks is applied to both so the
+    system body stays identical across all passes.
+
+    Called by :func:`_prepare_turn`.
     """
     prefix = _build_prefix_from_ctx(ctx, history, extra_system_blocks=extra_system_blocks)
     agent_sp = ctx.agent_system_prompt
@@ -1100,7 +1040,10 @@ def _build_prefixes(
 
 
 def _compute_lorebook(macros: Macros, ctx: PipelineContext, messages: Sequence[Mapping[str, Any]]) -> str:
-    """Compute the lorebook injection block for a sequence of *messages*."""
+    """Scan *messages* for lorebook keyword matches and return the injection block.
+
+    Called by :func:`_prepare_turn` when agentic lorebook mode is off.
+    """
     return compute_lorebook_injection_block(
         messages,
         ctx.lorebook_entries,
@@ -1144,8 +1087,11 @@ async def _prepare_turn(
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
 ) -> AsyncIterator[dict | _TurnSetup]:
-    """Run the turn-setup sequence shared by every entry point and stream its
-    pre-pipeline SSE events, then yield one terminal :class:`_TurnSetup`.
+    """Prepare everything a turn needs before the pipeline starts.
+
+    Builds macros, prefixes, tool maps, the lorebook block, runs pre-pipeline
+    workflow hooks (which may stream SSE events), then yields a single
+    :class:`_TurnSetup` as the last item.
 
     Drain it as::
 
@@ -1157,38 +1103,23 @@ async def _prepare_turn(
                 yield ev
         assert setup is not None
 
-    *history* builds the prefixes and seeds the hooks (the extended history for
-    super-regenerate). *settings* is the pipeline settings whose
-    ``enabled_tools`` seeds the pre-merge map and which the hooks receive
-    (super-regenerate passes its rewrite-disabled copy). *last_user_message* is
-    handed to the hooks; *lorebook_messages* is the full message list (history
-    plus the turn's probe message) scanned for lorebook keywords. Macros and
-    prefixes are always built from ``ctx.settings`` so the system body stays
-    byte-identical across passes regardless of per-call setting tweaks.
+    Called by :func:`_generate_reply` for every generating entry point.
     """
     macros = Macros.from_settings(ctx.settings, ctx.conv["character_name"], ctx.active_persona)
 
     prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
 
-    # Per-turn shared identities — ref-shared across the hooks and every pass.
     turn_scratch: dict = {}
     kv_tracker = _KVCacheTracker(conversation_id=conversation_id)
-    # Built once and never mutated for the rest of the turn -- frozen here so the
-    # ref shared across every pass and hook cannot have entries added/swapped/dropped.
-    # Values stay plain dicts so they remain json-serializable into the tools blob.
+    # Built once; when the agent is off, all tools are force-disabled.
     enabled_tools_setting = settings.get("enabled_tools") or {}
     if agent_enabled(settings):
         enabled_tools_pre_merge = dict(enabled_tools_setting)
     else:
         enabled_tools_pre_merge = {k: False for k in enabled_tools_setting}
 
-    # Agentic lorebook decides the up-front lorebook computation. When active, the
-    # Director drives activation: skip the keyword scan (lorebook_block stays "")
-    # and instead build the candidate catalog for the director OOC; the writer's
-    # block is computed post-director from its selection. When inactive, scan as
-    # before. The flag is derived from the same pre-merge map and entries the
-    # tools blob is built from, so the blob (which gains selected_lorebook_entries iff
-    # active) stays consistent with the value threaded to _run_pipeline.
+    # When agentic lorebook is active the keyword scan is skipped; the Director
+    # picks entries from a catalog instead and the writer block is built post-director.
     agentic_active = _agentic_lorebook_active(
         settings, enabled_tools_pre_merge, ctx.lorebook_entries, agent_on=agent_enabled(settings)
     )
@@ -1199,14 +1130,8 @@ async def _prepare_turn(
         lorebook_block = _compute_lorebook(macros, ctx, lorebook_messages)
         lorebook_catalog = ""
 
-    # _build_writer_tools_blob is the single source of truth for the tools blob:
-    # direct_scene from the writer fragments, plus give_feedback mirrored into the
-    # same blob (and enabled_tools) when feedback is active so every pass ships
-    # byte-identical bytes (Invariant 3) and the feedback step reuses the cached
-    # base. The mirror lands in the full enabled_tools map (the agent lane's) and
-    # after the agent-zeroing above, since feedback runs even with the agent off
-    # and not on writer_enabled_tools, which _resolve_pipeline_config blanks in
-    # dual-model mode (Invariant 5).
+    # Builds direct_scene + optionally give_feedback; must be called once so all
+    # passes get byte-identical tool blobs (KV cache Invariants 3 & 5).
     overrides = _build_writer_tools_blob(
         settings, ctx.interactive_fragments, enabled_tools_pre_merge, agentic_lorebook=agentic_active
     )
@@ -1216,9 +1141,7 @@ async def _prepare_turn(
         "extras": [],
     }
 
-    # Workflow pre-pipeline iteration. Hooks may yield enable_tools or
-    # system_prompt yields that fold into the merged tool map and the extra
-    # system blocks below; any other yield passes through to the SSE stream.
+    # Pre-pipeline hooks may extend the tool map or append system blocks.
     async for ev in _iterate_pre_pipeline_hooks(
         conversation_id=conversation_id,
         character_id=ctx.conv.get("character_card_id"),
@@ -1257,14 +1180,13 @@ async def _prepare_turn(
 
 
 def _conversation_log_writer(conversation_id: str, log_turn_index: int):
-    """Build the post-persist ``extra_on_result`` callback that writes the
-    turn's ``conversation_logs`` row.
+    """Return an async callback that writes the turn's ``conversation_logs`` row.
 
-    Every entry point logs the same director/reasoning payload; they differ
-    only in which ``turn_index`` the row is filed under — the user turn for a
-    fresh turn, the assistant turn for the branch-creating regenerate paths
-    (see ``handle_fork_edit``'s docstring for why branches log at the assistant
-    turn)."""
+    The callback is passed as ``extra_on_result`` to :func:`_consume_pipeline`
+    and runs right after the assistant message is persisted. Fresh turns log at
+    the user turn index; branch-creating paths (fork-edit, regenerate) log at
+    the assistant turn index so branches stay distinguishable in the log.
+    """
 
     async def _on_result(res: _PipelineResult, asst_id):
         await db.add_conversation_log(
@@ -1289,9 +1211,13 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
 async def _resolve_target_and_parent(
     conversation_id: str, assistant_msg_id: int
 ) -> tuple[Mapping[str, Any], Mapping[str, Any]] | str:
-    """Validate *assistant_msg_id* and load its parent user message.
+    """Load an assistant message and its parent user message.
 
-    Returns ``(target, user_msg)`` on success, or an error string on failure.
+    Returns ``(target, user_msg)`` on success, or an error string if the
+    message is missing, belongs to a different conversation, or is not an
+    assistant message.
+
+    Called by all regenerate-style entry points.
     """
     target = await db.get_message_by_id(assistant_msg_id)
     if not target or target["conversation_id"] != conversation_id or target["role"] != "assistant":
@@ -1309,10 +1235,13 @@ async def _prepare_regen_context(
     target: Mapping[str, Any],
     user_msg: Mapping[str, Any],
 ) -> tuple[Sequence[Mapping[str, Any]], Sequence[Mapping[str, Any]]]:
-    """Prepare history and attachments for a regeneration pass.
+    """Load history and attachments for a regeneration pass.
 
-    Also resets director moods to the pre-turn baseline.
-    Returns ``(history, attachments)``.
+    Also resets the director's active moods and progressive fields to the
+    pre-turn baseline so the regenerated reply starts from the same state
+    as the original. Returns ``(history, attachments)``.
+
+    Called by :func:`handle_regenerate` and :func:`handle_super_regenerate`.
     """
     parent_id: int | None = user_msg.get("parent_id")
     history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
@@ -1328,9 +1257,8 @@ async def _prepare_regen_context(
 async def _persist_rewrite(res: _PipelineResult, user_msg_id: int | None) -> None:
     """Overwrite the stored user message with the director's rewrite, if any.
 
-    Touches the DB, so it stays in the orchestrator rather than the pure
-    ``prompt_rewrite`` module. Shared by both persistence paths (``_persist_result``
-    and ``_fallback_persist``) so the overwrite condition lives in one place.
+    No-op when the director did not rewrite the message. Shared by both the
+    normal and fallback persistence paths so the logic lives in one place.
     """
     if res.rewritten_msg and user_msg_id:
         await db.update_message_content(user_msg_id, res.effective_msg)
@@ -1343,13 +1271,18 @@ async def _persist_result(
     user_msg_id: int | None,
     turn_index: int,
 ) -> tuple[int | None, list[dict]]:
-    """Persist the assistant message after _result. Returns
-    ``(asst_id, rejected_workflow_atts)``. The rejected list is empty
-    when the cache accepted all workflow atts; populated when the cache
-    dropped atts for rehydratability reasons (oversize without
-    seed+generation_metadata). The caller (``_consume_pipeline``) emits
-    a SSE event for non-empty rejections so the frontend can surface a
-    warning chip on the affected message."""
+    """Persist the assistant message and all turn side-effects after ``_result`` fires.
+
+    Updates director state, saves the assistant message row with any workflow
+    attachments, writes per-message workflow state, advances the active leaf,
+    and increments the lifetime character counter.
+
+    Returns ``(asst_id, rejected_workflow_atts)``. ``rejected_workflow_atts``
+    is non-empty when the attachment cache dropped entries that lacked the
+    metadata needed for re-synthesis.
+
+    Called by :func:`_consume_pipeline`.
+    """
     if agent_enabled(settings):
         await db.update_director_state(
             conversation_id,
@@ -1358,14 +1291,10 @@ async def _persist_result(
         )
     await _persist_rewrite(res, user_msg_id)
 
-    # Only create a message if there's actual content.
-    # The writer pass can produce empty resp_text if the LLM completes
-    # without generating any non‑reasoning tokens (e.g., reasoning‑only mode).
+    # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
     resp_text = res.resp_text
     if resp_text.strip():
-        # Workflow-staged attachments ride the same transaction as the row
-        # INSERT so they persist iff the message persists; an aborted turn
-        # that never reaches this call leaves no orphan attachment rows.
+        # Attachments ride the same INSERT transaction; aborted turns leave no orphans.
         staged = res.staged_attachments or None
         asst_id, rejected = await db.add_message(
             conversation_id,
@@ -1376,9 +1305,7 @@ async def _persist_result(
             attachments=staged,
             progressive_fields=res.progressive_fields,
         )
-        # Per-workflow state staged by post-pipeline hooks targets this row,
-        # whose id is only known now. The row is not yet the active leaf and
-        # no other caller can name it, so each blind first write needs no lock.
+        # Row id only known here; no other caller can name it yet, so no lock needed.
         for wid, payload in res.staged_message_state.items():
             try:
                 await db.set_workflow_message_state(asst_id, wid, payload)
@@ -1396,9 +1323,7 @@ async def _persist_result(
                 "Failed to set active leaf to assistant message %s; row already committed",
                 asst_id,
             )
-        # Lifetime "tokens generated" homepage stat. Must run after add_message:
-        # the counter's first-use seed scans existing assistant rows, and ordering
-        # it this way lets the seed absorb this turn's text without double counting.
+        # Counter seed scans existing rows, so this must run after add_message.
         try:
             await db.add_generated_chars(len(resp_text))
         except Exception:
@@ -1417,12 +1342,13 @@ async def _fallback_persist(
     turn_index: int,
     accumulated_text: str,
 ):
-    """Best-effort save when the pipeline aborted before _result was consumed.
+    """Best-effort save for a turn that was aborted before ``_result`` fired.
 
-    Only saves if there's actual writer output (token events). Reasoning-only
-    content (director/writer/editor reasoning) does NOT create a message node,
-    because reasoning deltas are yielded as 'reasoning' SSE events and are NOT
-    included in accumulated_text.
+    Saves whatever the writer streamed (``accumulated_text``) if non-empty.
+    Reasoning-only output does not create a message node. Errors are swallowed
+    so a save failure does not propagate to the caller.
+
+    Called from the ``finally`` block of :func:`_consume_pipeline`.
     """
     try:
         if res.active_moods and agent_enabled(settings):
@@ -1433,11 +1359,7 @@ async def _fallback_persist(
             )
         await _persist_rewrite(res, user_msg_id)
 
-        # Only save if there's actual writer output (token events).
-        # accumulated_text only contains streamed tokens from the writer pass;
-        # reasoning deltas are yielded as separate 'reasoning' events and are
-        # NOT included here. This prevents creating message nodes when the
-        # user stops generation during the reasoning phase (no writer output).
+        # accumulated_text holds only writer tokens (not reasoning deltas).
         if accumulated_text.strip():
             asst_id, _ = await db.add_message(
                 conversation_id,
@@ -1463,7 +1385,11 @@ async def _shielded_fallback(
     turn_index: int,
     accumulated_text: str,
 ):
-    """Run _fallback_persist inside asyncio.shield, with a retry on CancelledError."""
+    """Run :func:`_fallback_persist` under ``asyncio.shield``, retrying once on cancellation.
+
+    Ensures partial output is saved even when the surrounding request task is
+    cancelled mid-write. Called from the ``finally`` block of :func:`_consume_pipeline`.
+    """
     try:
         await asyncio.shield(
             _fallback_persist(
@@ -1490,18 +1416,16 @@ async def _shielded_fallback(
 
 
 async def _shielded_log_save(extra_on_result, res: _PipelineResult, asst_id: int | None):
-    """Run the post-persist ``extra_on_result`` callback exactly once, under
-    ``asyncio.shield`` so a cancellation arriving mid-write cannot leave it
-    half-done.
+    """Run the ``extra_on_result`` callback exactly once under ``asyncio.shield``.
 
-    ``add_conversation_log`` is a bare INSERT with no dedup, so a retry after a
-    partially-committed write would duplicate the row. ``shield`` guarantees the
-    inner write runs to completion even when the surrounding task is cancelled,
-    so we deliberately do *not* retry on ``CancelledError`` (unlike
-    ``_shielded_fallback``, whose ``add_message`` target is dedup-guarded): the
-    write has already happened once, and re-running it is exactly the duplicate
-    we are avoiding. Non-cancel errors are swallowed inside the shielded
-    coroutine so one failed log never crashes the turn."""
+    The callback writes a ``conversation_logs`` row, which is a bare INSERT
+    with no dedup guard. Unlike :func:`_shielded_fallback`, cancellation is
+    not retried — a partial write has already committed the row once, and
+    re-running it would create a duplicate. Non-cancel errors are swallowed
+    so a log failure never crashes the turn.
+
+    Called from the ``finally`` block of :func:`_consume_pipeline`.
+    """
 
     async def _run():
         try:
@@ -1523,11 +1447,17 @@ async def _consume_pipeline(
     *,
     extra_on_result=None,
 ) -> AsyncIterator[dict]:
-    """Shared event-consumption loop used by both handle_turn and handle_regenerate.
+    """Drain the pipeline's SSE events, persist results, and emit ``done``.
 
-    *extra_on_result* is an optional async callback ``(res, asst_id) -> None``
-    that runs right after the assistant message is persisted (for handle_turn's
-    conversation-log write, for example).
+    Passes ``token`` and all other public events straight to the caller.
+    When the ``_result`` event arrives, persists the assistant message and
+    calls the optional *extra_on_result* callback ``(res, asst_id) -> None``
+    (used by every entry point to write the conversation log).
+
+    Falls back to partial persistence in the ``finally`` block if the pipeline
+    exits before ``_result`` fires (abort or error).
+
+    Called by :func:`_generate_reply`.
     """
     res = _PipelineResult()
     asst_id = None
@@ -1541,20 +1471,11 @@ async def _consume_pipeline(
                 accumulated_text += event["data"]
                 yield event
             elif etype == "_result":
-                # Rebuild the typed result from the dict-shaped SSE payload
-                # (see _PipelineResult.as_event_data). The bare _PipelineResult()
-                # seed above stays in place if the turn aborts before _result.
                 res = _PipelineResult(**event["data"])
                 asst_id, rejected = await _persist_result(conversation_id, res, settings, user_msg_id, turn_index)
                 persisted = True
                 if rejected and asst_id is not None:
-                    # Surface the cache's rejections so the frontend can render a warning
-                    # chip on the message. Bytes never enter the SSE payload. ``reason``
-                    # falls back to the oversize-no-metadata constant for any legacy
-                    # entry the helper failed to tag. ``originating_attachment_id`` is
-                    # always None on this path because no DB row was produced for these
-                    # rejected entries (they are first-write rejections); the frontend
-                    # interprets null as "message-level, not bound to a swipe widget".
+                    # originating_attachment_id is None (first-write rejection, no DB row).
                     yield {
                         "event": "workflow_attachments_rejected",
                         "data": {
@@ -1574,10 +1495,7 @@ async def _consume_pipeline(
             else:
                 yield event
     finally:
-        # The conversation-log write lives only here so it runs exactly once on
-        # every exit path — normal completion, an in-loop exception after the
-        # message persisted, or cancellation — without the racy "write outside
-        # finally, retry inside" pattern that could double-insert the row.
+        # Runs on every exit path (normal, exception, cancellation) exactly once.
         if not persisted:
             await _shielded_fallback(
                 conversation_id,
@@ -1609,18 +1527,20 @@ async def _generate_reply(
     editor_audit_msgs: list[str] | None = None,
     consume_settings: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict]:
-    """Shared tail for every generating entry point: run the pre-pipeline setup,
-    the three-pass pipeline, and result consumption, streaming all SSE events
-    through. The user row has already been persisted by the caller.
+    """Run the full turn (setup → pipeline → persist) and stream all SSE events.
 
-    *pipeline_settings* feeds the setup and the passes (super-regenerate hands a
-    rewrite-disabled copy). *consume_settings* is what ``_consume_pipeline``
-    persists under; it defaults to *pipeline_settings* and diverges only for
-    super-regenerate. *user_message* is the message the writer answers, which is
-    not always *last_user_message* (super-regenerate generates from an OOC
-    steering message while seeding hooks with the real last user turn).
-    *asst_turn_index* is the turn the assistant row is filed at; *log_turn_index*
-    is where the conversation-log row lands (see :func:`_conversation_log_writer`).
+    The user message row must already be persisted before this is called.
+    Calls :func:`_prepare_turn`, :func:`_run_pipeline`, and
+    :func:`_consume_pipeline` in sequence.
+
+    *pipeline_settings* drives the passes; *consume_settings* (defaults to the
+    same) controls what settings are used during persistence — they differ only
+    for super-regenerate, which passes a rewrite-disabled copy to the pipeline
+    but persists under the original settings. *user_message* is what the writer
+    actually receives, which may differ from *last_user_message* (e.g.
+    super-regenerate uses an OOC steering message as the writer input).
+
+    Called by every public entry point that generates a reply.
     """
     setup: _TurnSetup | None = None
     async for ev in _prepare_turn(
@@ -1688,6 +1608,16 @@ async def handle_turn(
     attachments: Optional[List[dict]] = None,
     abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
+    """Handle a new user message: save it, run the pipeline, stream the reply.
+
+    The main entry point for ``POST /conversations/{cid}/send`` and
+    ``POST /conversations/{cid}/continue``. For ``/continue``
+    (``skip_user_persist=True``) the user row already exists as the last
+    message; the pipeline runs from there without creating a duplicate row.
+
+    Streams SSE events: ``user_message_created``, then all pipeline events
+    (``director_done``, ``token``, ``editor_done``, etc.), and finally ``done``.
+    """
     try:
         if attachments is None:
             attachments = []
@@ -1704,26 +1634,19 @@ async def handle_turn(
         user_parent_id = conv.get("active_leaf_id")
         next_turn = (messages[-1]["turn_index"] + 1) if messages else 0
 
-        # The user turn this generation answers. For a fresh send it is the
-        # turn we mint the user row at (next_turn); for the /continue path
-        # (skip_user_persist) the user row already exists, so it is that row's
-        # own turn_index. The conversation log is filed at this index so it
-        # lands at the user turn in both cases, per _conversation_log_writer.
+        # For /continue the user row already exists; use its turn_index.
         user_turn = next_turn
 
         if skip_user_persist and messages and messages[-1]["role"] == "user":
             history, user_msg_id = messages[:-1], messages[-1]["id"]
             user_turn = messages[-1]["turn_index"]
 
-        # Derive progressive_fields from the grandparent message node (branch-aware)
-        # rather than conversation_logs which are indexed by turn_index and can
-        # return data from a different branch after a branch switch.
+        # Read progressive_fields from the grandparent node (branch-aware, unlike conversation_logs).
         grandparent = next((m for m in reversed(messages) if m["role"] == "assistant"), None)
         ctx.director["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
 
-        # Save user message BEFORE pipeline
         if not skip_user_persist:
-            # Convert frontend attachment format to database format
+            # Normalize frontend attachment format to DB format before persisting.
             db_attachments = []
             for att in attachments:
                 db_attachments.append(
@@ -1747,8 +1670,7 @@ async def handle_turn(
 
         asst_turn = user_turn + 1
 
-        # The lorebook scan includes the current user message so its keywords
-        # are picked up, not just prior history.
+        # Include the current user message in lorebook scan, not just history.
         async for event in _generate_reply(
             ctx,
             conversation_id,
@@ -1775,20 +1697,16 @@ async def handle_fork_edit(
     new_content: str,
     abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
-    """Fork the conversation at a user message.
+    """Fork the conversation at a user message: save an edited sibling and generate a fresh reply.
 
-    Persists an edited copy of *user_msg_id* as a new sibling (same parent_id
-    and turn_index) and generates a fresh reply through the full
-    director→writer→editor pipeline -- i.e. a regenerate whose input the user
-    rewrote first. The original message and its whole subtree are left intact;
-    ``get_messages_with_branch_info`` then reports the user row as a multi-branch
-    node and the existing swipe-nav drives navigation between the siblings.
+    Entry point for ``POST /messages/{id}/fork-edit``. Persists the edited text
+    as a new sibling of *user_msg_id* (same parent and turn index), resets the
+    director to the branch point, then runs the full pipeline to produce a new
+    reply. The original message and its subtree are left intact; branch
+    navigation then shows both versions.
 
-    The user-message persistence mirrors ``handle_turn``; the mood/turn handling
-    mirrors ``handle_regenerate`` (moods reset to the branch point, assistant
-    logged at the branch turn) because ``conversation_logs.turn_index`` is shared
-    across branches -- logging at the assistant turn keeps the new branch's moods
-    distinguishable from the original turn's log at the user turn.
+    Logs at the assistant turn (not the user turn) so this branch's log row is
+    distinct from the original turn's log at the user turn.
     """
     try:
         ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
@@ -1807,17 +1725,12 @@ async def handle_fork_edit(
         asst_turn = turn_index + 1
         history = await db.get_path_to_leaf(conversation_id, parent_id) if parent_id is not None else []
 
-        # Reset the director to the pre-turn baseline, exactly like a regenerate:
-        # moods as of the branch point, and progressive_fields read branch-aware
-        # from the grandparent assistant node (not conversation_logs, which are
-        # turn-indexed and can leak across branches).
+        # Reset director to branch-point baseline (branch-aware progressive_fields).
         ctx.director["active_moods"] = await db.get_moods_before_turn(conversation_id, turn_index)
         grandparent = next((m for m in reversed(history) if m["role"] == "assistant"), None)
         ctx.director["progressive_fields"] = grandparent.get("progressive_fields") or {} if grandparent else {}
 
-        # Carry the original message's user attachments onto the new sibling and
-        # into the prompt. DB-format dicts (mime_type/data_b64) pass straight
-        # through add_message and build_multimodal_content, as in handle_regenerate.
+        # Carry original attachments onto the new sibling.
         carried_atts = await db.get_user_attachments_for_message(user_msg_id)
 
         new_user_id, _ = await db.add_message(
@@ -1831,7 +1744,6 @@ async def handle_fork_edit(
         await db.set_active_leaf(conversation_id, new_user_id)
         yield {"event": "user_message_created", "data": {"id": new_user_id}}
 
-        # Mirrors handle_turn, but logs at the assistant turn (see docstring).
         async for event in _generate_reply(
             ctx,
             conversation_id,
@@ -1843,7 +1755,7 @@ async def handle_fork_edit(
             attachments=carried_atts,
             user_msg_id=new_user_id,
             asst_turn_index=asst_turn,
-            log_turn_index=asst_turn,
+            log_turn_index=asst_turn,  # log at assistant turn, unlike handle_turn
         ):
             yield event
 
@@ -1857,6 +1769,13 @@ async def handle_regenerate(
     assistant_msg_id: int,
     abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
+    """Regenerate an existing assistant message as a new sibling branch.
+
+    Entry point for ``POST /messages/{id}/regenerate``. Resets the director to
+    the pre-turn baseline and re-runs the full pipeline from the parent user
+    message, producing a new reply at the same turn index. The original message
+    is kept; branch navigation shows both.
+    """
     try:
         ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
@@ -1904,6 +1823,14 @@ async def handle_super_regenerate(
     assistant_msg_id: int,
     abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
+    """Regenerate a reply with the original exchange kept as context (super-regenerate).
+
+    Entry point for ``POST /messages/{id}/super_regenerate``. Extends history to
+    include the original user + assistant exchange so the model sees what it
+    previously wrote, then sends an OOC steering message asking for a different
+    direction. The rewrite tool is disabled to prevent the director from altering
+    that steering message. The result is saved as a new sibling branch.
+    """
     try:
         ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
@@ -1920,29 +1847,20 @@ async def handle_super_regenerate(
         user_msg_id = target["parent_id"]
         history, attachments = await _prepare_regen_context(ctx, conversation_id, target, user_msg)
 
-        # Extend history to include the original user+assistant exchange so the
-        # model sees what it wrote before being asked to go a different direction.
+        # Include the original exchange so the model sees what it wrote before being steered.
         extended_history = [
             *history,
             {"role": "user", "content": user_msg["content"]},
             {"role": "assistant", "content": target["content"]},
         ]
-        # rewrite_user_prompt must not alter the OOC steering message.
         super_regen_settings = {
             **settings,
             "enabled_tools": disable_rewrite(settings.get("enabled_tools") or {}),
         }
 
-        # Collect audit context from history only — exclude target["content"] so
-        # the editor doesn't flag the new draft for repeating the message it replaced.
+        # Exclude target content from audit so the new draft isn't penalised for repeating it.
         editor_audit_msgs = [msg["content"] for msg in reversed(history) if msg.get("role") == "assistant"][:3]
 
-        # The pipeline runs over the extended history with the rewrite-disabled
-        # settings and the OOC steering message as the writer's input, while the
-        # hooks still see the real last user turn. The result is saved as a
-        # sibling of the original (same parent_id / turn_index), and
-        # _consume_pipeline persists under the *original* settings — only the
-        # pipeline itself needs the rewrite-disabled copy.
         async for event in _generate_reply(
             ctx,
             conversation_id,
@@ -1971,6 +1889,15 @@ async def handle_magic_rewrite(
     direction: str,
     abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
+    """Rewrite an assistant message in place following a user-supplied direction.
+
+    Entry point for ``POST /messages/{id}/magic_rewrite``. Appends the original
+    exchange to history, then runs a single writer-style LLM call (no director
+    or editor passes) with an OOC instruction built from *direction*. Uses the
+    same writer lane and tool blob as a normal turn so the LLM's KV cache is
+    reused. On success, overwrites the stored message content; on abort, the
+    original is left unchanged.
+    """
     try:
         ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
         if ctx is None:
@@ -1996,30 +1923,11 @@ async def handle_magic_rewrite(
 
         direction_msg = f"[OOC: Rewrite the above response. Direction: {direction}]"
 
-        # Magic rewrite is a writer-style call with no director/editor passes, so
-        # it must ride the *writer lane* to stay byte-identical with the cached
-        # prefix the conversation's normal turns leave on the server. Reusing
-        # _resolve_pipeline_config's writer lane (rather than calling the client
-        # directly) gives us the right tool blob for free in both modes:
-        #   * single-model — the writer ships the full shared tool schemas (with
-        #     tool_choice="none"); sending tools=None here was diverging the
-        #     prompt at the tool section near the top and busting the whole cache.
-        #   * dual-model — the writer lane's tools are empty (Invariant 5), so the
-        #     rewrite drops tools to match the writer server's tool-less cache.
-        # The writer lane also runs on the writer client/model/system-prompt,
-        # which is the endpoint that generated (and cached) the message we rewrite.
+        # Use the writer lane so the tool blob is byte-identical to normal turns
+        # (single-model ships the shared schema; dual-model drops tools per Invariant 5).
         macros = Macros.from_settings(settings, ctx.conv["character_name"], ctx.active_persona)
         enabled_tools_setting = settings.get("enabled_tools") or {}
         enabled_tools = dict(enabled_tools_setting) if agent_enabled(settings) else {k: False for k in enabled_tools_setting}
-        # Build the tools blob through the shared helper so this writer-style call
-        # ships the exact same bytes a normal turn does. In single-model with
-        # feedback on, normal turns carry give_feedback in the writer blob
-        # (Invariant 3); the helper mirrors it here too, so the rewrite can't
-        # diverge the tool section and bust the cache. No feedback step runs here —
-        # this is purely cross-turn byte-parity; in dual-model the writer blob is
-        # empty so it's a no-op. agentic_lorebook is recomputed the same way the
-        # normal turn does (same settings/entries) so direct_scene's selected_lorebook_entries
-        # parameter matches and the rewrite doesn't bust the cached tool section.
         agentic_active = _agentic_lorebook_active(
             settings, enabled_tools, ctx.lorebook_entries, agent_on=agent_enabled(settings)
         )
@@ -2050,8 +1958,7 @@ async def handle_magic_rewrite(
             writer_lane.client,
             label="magic_rewrite",
             trailing=[{"role": "user", "content": direction_msg}],
-            # base.tools is empty in dual-model → no tools/tool_choice; otherwise
-            # ship the shared blob but bar the rewrite from calling anything.
+            # Empty in dual-model (no tools); otherwise prevent the model from calling any.
             tool_choice="none" if writer_lane.base.tools else None,
             kv_tracker=kv_tracker,
             **extra,
@@ -2060,9 +1967,6 @@ async def handle_magic_rewrite(
             if item["type"] == "done":
                 break
             if item["type"] == "reasoning":
-                # Stream reasoning deltas like the main pipeline does, labelled
-                # "writer" since this is a writer-style rewrite with no
-                # director/editor passes.
                 yield {
                     "event": "reasoning",
                     "data": {"pass": "writer", "delta": item["delta"]},
@@ -2073,14 +1977,10 @@ async def handle_magic_rewrite(
 
         kv_tracker.log_summary()
 
-        # On abort, keep the original message intact rather than overwriting it
-        # with the partial rewrite that streamed before the stop.
+        # Don't overwrite on abort; keep the original message.
         if accumulated.strip() and not ctx.client.is_aborted:
             await db.update_message_content(assistant_msg_id, accumulated)
 
-        # Emitted on the success path only — on error we yield "error" and stop,
-        # matching the other entry points (whose "done" lives in _consume_pipeline
-        # and is skipped when an exception aborts the turn).
         yield {"event": "done"}
 
     except Exception:
