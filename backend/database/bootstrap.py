@@ -30,12 +30,12 @@ def schema_safety_problems() -> list[str]:
     ``presets.assert_schema_safe`` and fail hard on the same problems, so no backup is
     ever built or applied against an unsafe schema.
 
-    ``backend.presets`` is imported lazily here because it pulls in the migration
-    runner and would otherwise close an import cycle through this package. ``DB_PATH``
-    is read off the ``connection`` module at call time (not the import-time binding)
-    so a monkeypatched path in tests resolves correctly.
+    ``backend.features.presets`` is imported lazily here because it pulls in the
+    migration runner and would otherwise close an import cycle through this package.
+    ``DB_PATH`` is read off the ``connection`` module at call time (not the
+    import-time binding) so a monkeypatched path in tests resolves correctly.
     """
-    from .. import presets
+    from ..features import presets
     from . import connection
 
     conn = sqlite3.connect(connection.DB_PATH)

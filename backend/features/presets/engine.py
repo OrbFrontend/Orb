@@ -35,9 +35,9 @@ import re
 import shutil
 import sqlite3
 
-from .database import preset_schema as ps
-from .database.migrations import MIGRATIONS, run_pending
-from .database.schema import CREATE_TABLES_SQL
+from ...database import preset_schema as ps
+from ...database.migrations import MIGRATIONS, run_pending
+from ...database.schema import CREATE_TABLES_SQL
 
 META_TABLE = "orb_preset_meta"
 
@@ -414,7 +414,7 @@ def assert_schema_safe(conn: sqlite3.Connection) -> None:
 
 def _db_path() -> str:
     # Resolved dynamically so tests that monkeypatch connection.DB_PATH work.
-    from .database import connection
+    from ...database import connection
 
     return connection.DB_PATH
 
