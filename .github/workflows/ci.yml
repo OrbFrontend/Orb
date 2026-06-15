@@ -79,9 +79,13 @@ jobs:
         if: needs.detect-changes.outputs.backend == 'true'
         run: pip install -r requirements-dev.txt
 
-      - name: Black format check
+      - name: Ruff import sort check
         if: needs.detect-changes.outputs.backend == 'true'
-        run: python -m black --line-length 128 --check backend/ tests/
+        run: python -m ruff check --select I backend/ tests/
+
+      - name: Ruff format check
+        if: needs.detect-changes.outputs.backend == 'true'
+        run: python -m ruff format --line-length 128 --check backend/ tests/
 
       - name: Flake8 lint
         if: needs.detect-changes.outputs.backend == 'true'
