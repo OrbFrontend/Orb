@@ -52,7 +52,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         ep_col_names = [d[0] for d in ep_cursor.description]
         ep_rows = ep_cursor.fetchall()
         for ep_row in ep_rows:
-            ep = dict(zip(ep_col_names, ep_row))
+            ep = dict(zip(ep_col_names, ep_row, strict=True))
             mc_cursor = conn.execute(
                 "SELECT * FROM model_configs WHERE endpoint_id = ? AND id = ?",
                 (ep["id"], ep.get("active_model_config_id")),
@@ -67,7 +67,7 @@ def migrate(conn: sqlite3.Connection) -> None:
                 mc_col_names = [d[0] for d in mc_cursor.description]
                 mc_rows = mc_cursor.fetchall()
             if mc_rows:
-                mc = dict(zip(mc_col_names, mc_rows[0]))
+                mc = dict(zip(mc_col_names, mc_rows[0], strict=True))
                 cur = conn.execute(
                     "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, 'agent')",
                     (

@@ -163,7 +163,7 @@ def _port_tts(conn: sqlite3.Connection) -> None:
             workflow_config = json.loads(row[0] or "{}")
         except (TypeError, json.JSONDecodeError):
             workflow_config = {}
-        legacy = dict(zip(legacy_cols, row[1:]))
+        legacy = dict(zip(legacy_cols, row[1:], strict=True))
 
         if has_voice_table:
             cc_cols = {r[1] for r in conn.execute("PRAGMA table_info(character_cards)").fetchall()}

@@ -735,7 +735,7 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
     if reasoning_on:
         # Append-only: every iteration extends the previous prompt verbatim, so
         # even the writer's draft pancake stays cached (the doc §7 ideal).
-        for a, b in zip(editor_calls, editor_calls[1:]):
+        for a, b in zip(editor_calls, editor_calls[1:], strict=False):
             assert b["msgs_serialized"].startswith(a["msgs_serialized"]), (
                 "CACHE BUST: reasoning-mode editor iteration is not append-only — "
                 "it rebuilt the message list instead of appending the tool turn."

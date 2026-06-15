@@ -94,7 +94,7 @@ def detect_opening_monotony(
             max_runs[current_opener] = len(current_run)
             run_sentences[current_opener] = list(current_run)
 
-    for sent, opener in zip(sentences, openers):
+    for sent, opener in zip(sentences, openers, strict=True):
         if opener and opener == current_opener:
             current_run.append(sent)
         else:

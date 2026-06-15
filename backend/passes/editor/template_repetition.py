@@ -132,7 +132,7 @@ def _cluster_templates(
     # Greedy clustering first
     clusters: list[list[tuple[str, str]]] = []
 
-    for sent, tmpl in zip(sentences, templates):
+    for sent, tmpl in zip(sentences, templates, strict=True):
         if tmpl is None:
             continue
 

@@ -535,7 +535,7 @@ class AttachmentIn(BaseModel):
         try:
             base64.b64decode(v, validate=True)
         except Exception:
-            raise ValueError("Invalid base64 string")
+            raise ValueError("Invalid base64 string") from None
         return v
 
 
@@ -656,7 +656,7 @@ async def api_create_model_config(endpoint_id: int, data: ModelConfigCreate):
         return await create_model_config(endpoint_id, data.model_dump())
     except Exception as e:
         if "FOREIGN KEY constraint failed" in str(e):
-            raise HTTPException(status_code=404, detail="Endpoint not found")
+            raise HTTPException(status_code=404, detail="Endpoint not found") from e
         raise
 
 
@@ -899,7 +899,7 @@ def _validate_phrase_group(kind: str, variants: list[str], pattern: str) -> tupl
         try:
             re.compile(pattern)
         except re.error as e:
-            raise HTTPException(status_code=400, detail=f"Invalid regular expression: {e}")
+            raise HTTPException(status_code=400, detail=f"Invalid regular expression: {e}") from e
         # Regex groups carry no literal variants.
         return [], pattern
 
@@ -1541,7 +1541,7 @@ async def api_export_preset(data: PresetExportRequest):
         try:
             name = await asyncio.to_thread(presets.build_preset, data.domains, data.strip_keys, data.label)
         except presets.PresetError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
     return {"name": name}
 
 
@@ -1550,7 +1550,7 @@ async def api_download_preset(name: str):
     try:
         path = await asyncio.to_thread(presets._library_path, name)
     except presets.PresetError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     return FileResponse(
         path,
         media_type="application/octet-stream",
@@ -1570,7 +1570,7 @@ async def api_import_preset(file: Annotated[UploadFile, File(...)]):
         try:
             stored = await asyncio.to_thread(presets.ingest_upload, tmp_path, label)
         except presets.PresetError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
@@ -1585,7 +1585,7 @@ async def api_apply_preset(name: str):
             backup = await asyncio.to_thread(presets.create_snapshot, f"before applying {name}")
             summary = await asyncio.to_thread(presets.apply_preset, path)
         except presets.PresetError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
     return {"backup": backup, "summary": summary}
 
 
@@ -1603,7 +1603,7 @@ async def api_restore_preset(name: str):
             else:
                 summary = await asyncio.to_thread(presets.restore_partial, path)
         except presets.PresetError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
     return {"backup": backup, "ok": True, "summary": summary}
 
 
@@ -1612,7 +1612,7 @@ async def api_delete_preset(name: str):
     try:
         await asyncio.to_thread(presets.delete_library_entry, name)
     except presets.PresetError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     return {"ok": True}
 
 
@@ -2120,7 +2120,7 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                 return await sub.callable(od_ctx, body)
             except Exception:
                 logger.exception("on_demand hook %r failed", scrub_log(workflow_id))
-                raise HTTPException(status_code=500, detail="On-demand handler raised; see server logs")
+                raise HTTPException(status_code=500, detail="On-demand handler raised; see server logs") from None
 
 
 @app.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate")
@@ -2173,7 +2173,7 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
             new_dicts = await sub.callable(regen_ctx, body)
         except Exception:
             logger.exception("regenerate hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
-            raise HTTPException(status_code=500, detail="Regenerate handler raised; see server logs")
+            raise HTTPException(status_code=500, detail="Regenerate handler raised; see server logs") from None
 
         if not isinstance(new_dicts, list):
             logger.warning(
@@ -2220,7 +2220,7 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
             new_ids, helper_rejected = await insert_workflow_attachments(mid, fixed)
         except (ValueError, LookupError, OSError):
             logger.exception("regenerate hook %r batch insert failed", wid)
-            raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs")
+            raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs") from None
 
         helper_rejected_projected = [
             {
@@ -2345,7 +2345,7 @@ async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = B
             result = await sub.callable(ctx, params, seed)
         except Exception:
             logger.exception("reroll_gen hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
-            raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs")
+            raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs") from None
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
 
@@ -2367,7 +2367,7 @@ async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = B
             new_id, rejected = await insert_workflow_attachment(mid, new_attachment)
         except (ValueError, LookupError, OSError):
             logger.exception("reroll_gen hook %r yielded an attachment that failed insert", wid)
-            raise HTTPException(status_code=500, detail="reroll_gen insert failed; see server logs")
+            raise HTTPException(status_code=500, detail="reroll_gen insert failed; see server logs") from None
 
         return {
             "attachment_id": new_id,
@@ -2457,7 +2457,7 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
             result = await sub.callable(ctx, params, seed)
         except Exception:
             logger.exception("reroll_gen (rehydrate) %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
-            raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs")
+            raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs") from None
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
 
@@ -2470,10 +2470,10 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
             # Race with a concurrent rehydrate that already restored the bytes.
             # End state is correct; surface as 409 so the client treats it as
             # success rather than the generic 500.
-            raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate")
+            raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate") from None
         except (LookupError, ValueError):
             logger.exception("rehydrate write failed for attachment %r", scrub_log(aid))
-            raise HTTPException(status_code=500, detail="rehydrate write failed; see server logs")
+            raise HTTPException(status_code=500, detail="rehydrate write failed; see server logs") from None
 
         return {"attachment_id": aid}
 
@@ -2501,9 +2501,9 @@ async def api_activate_workflow_attachment(cid: str, mid: int, aid: int, body: d
         async with _workflow_root_lock(aid):
             await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
     except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"active_sibling_id": raw_sibling_id}
 
 
@@ -2532,9 +2532,9 @@ async def api_delete_workflow_attachment(cid: str, mid: int, aid: int, body: dic
         async with _workflow_root_lock(root_id):
             result = await delete_workflow_attachments(aid, scope=scope, expected_message_id=mid)
     except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return result
 
 

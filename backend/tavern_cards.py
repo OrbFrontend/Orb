@@ -1,9 +1,9 @@
-from __future__ import annotations
-
 """
 Tavern Cards, as defined by Character Card Spec V2:
     https://github.com/malfoyslastname/character-card-spec-v2
 """
+
+from __future__ import annotations
 
 import base64
 import binascii

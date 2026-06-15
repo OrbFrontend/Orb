@@ -199,7 +199,7 @@ def reconcile_boundaries(dialogue_text: str, boundaries: list[dict]) -> list[dic
             j += 1
 
     spans: list[dict] = []
-    for s, e in zip(starts, ends):
+    for s, e in zip(starts, ends, strict=True):
         if s is None or e is None:
             return None
         spans.append({"start_ms": float(s), "end_ms": float(e)})
