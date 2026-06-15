@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Optional, Sequenc
 from ...cached_call import CachedBase
 from ...kv_tracker import _KVCacheTracker
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ...llm_types import ChatMessage
+from ...core import ChatMessage
 from ...prompt_builder import (
     build_director_tool_prompt,
     compute_agentic_lorebook_block,
@@ -26,7 +26,7 @@ from ...tool_registry import (
     TOOLS,
     build_direct_scene_tool,
 )
-from ...utils import build_multimodal_content, extract_hyperparams
+from ...core import build_multimodal_content, extract_hyperparams
 from .prompt_rewrite import (
     apply_rewrite,
     extract_rewritten_message,
@@ -35,7 +35,7 @@ from .prompt_rewrite import (
 )
 
 if TYPE_CHECKING:
-    from ...macros import Macros
+    from ...core import Macros
     from ...pipeline_state import TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)

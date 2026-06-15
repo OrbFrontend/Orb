@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 
-from backend.locks import workflow_character_state_lock
+from backend.core.locks import workflow_character_state_lock
 
 
 async def _hold(character_id: str, wid: str, gate: asyncio.Event, release: asyncio.Event) -> None:

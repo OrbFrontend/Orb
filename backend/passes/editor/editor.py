@@ -20,13 +20,13 @@ if TYPE_CHECKING:
 from ...cached_call import CachedBase
 from ...kv_tracker import _KVCacheTracker
 from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ...llm_types import AssistantToolMessage, ContentPart, WireMessage
+from ...core import AssistantToolMessage, ContentPart, WireMessage
 from ...prompt_builder import build_editor_prompt
 from ...tool_registry import (
     TOOLS,
     build_feedback_tool,
 )
-from ...utils import extract_hyperparams
+from ...core import extract_hyperparams
 from .length_guard import LengthGuard, evaluate_length_guard
 from .opening_monotony import FlaggedOpener, MonotonyResult
 from .template_repetition import FlaggedTemplate, TemplateResult
