@@ -12,7 +12,13 @@ from types import MappingProxyType
 from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
 
 from .. import database as db
-from ..inference import CachedBase
+from ..core import (
+    ChatMessage,
+    Macros,
+    extract_hyperparams,
+    workflow_character_state_lock,
+    workflow_state_lock,
+)
 from ..database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
@@ -24,11 +30,26 @@ from ..database.models import (
     SettingsRow,
     UserPersonaRow,
 )
-from ..inference import _KVCacheTracker
-from ..inference import AbortToken, LLMClient, reasoning_cfg
-from ..core import ChatMessage
-from ..core import workflow_character_state_lock, workflow_state_lock
-from ..core import Macros
+from ..inference import (
+    TOOLS,
+    AbortToken,
+    CachedBase,
+    LLMClient,
+    _KVCacheTracker,
+    build_prefix,
+    compute_lorebook_injection_block,
+    enabled_schemas,
+    reasoning_cfg,
+)
+from ..workflows import (
+    HookType,
+    PostCtx,
+    PreCtx,
+    _readonly,
+    get_workflow,
+    iter_subscriptions,
+)
+from ..workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 from .passes.director import (
     _agentic_lorebook_active,
     build_direct_scene_override,
@@ -44,24 +65,6 @@ from .passes.editor.length_guard import (
 )
 from .passes.writer import writer_stage
 from .state import ModelLane, TurnState, _PipelineConfig
-from ..inference import (
-    build_prefix,
-    compute_lorebook_injection_block,
-)
-from ..inference import (
-    TOOLS,
-    enabled_schemas,
-)
-from ..core import extract_hyperparams
-from ..workflows import (
-    HookType,
-    PostCtx,
-    PreCtx,
-    _readonly,
-    get_workflow,
-    iter_subscriptions,
-)
-from ..workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 
 logger = logging.getLogger(__name__)
 

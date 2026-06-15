@@ -13,7 +13,10 @@ if TYPE_CHECKING:
 from .detectors.contrastive_negation import detect_contrastive_negation
 from .detectors.opening_monotony import MonotonyResult, detect_opening_monotony
 from .detectors.phrase_repetition import PhraseResult, detect_phrase_repetition
-from .detectors.structural_repetition import StructuralResult, detect_structural_repetition
+from .detectors.structural_repetition import (
+    StructuralResult,
+    detect_structural_repetition,
+)
 from .detectors.template_repetition import TemplateResult, detect_template_repetition
 
 # Audit toggles

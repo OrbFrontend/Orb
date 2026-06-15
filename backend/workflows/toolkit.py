@@ -20,6 +20,13 @@ through one chokepoint.
 
 from __future__ import annotations
 
+from ..analysis import format_report, run_audit
+from ..core import (
+    Macros,
+    workflow_character_state_lock,
+    workflow_config_lock,
+    workflow_state_lock,
+)
 from ..database import (
     get_character_card,
     get_conversation,
@@ -31,21 +38,18 @@ from ..database import (
     get_phrase_bank,
     get_user_personas,
 )
-from ..inference import LLMClient, parse_tool_calls, reasoning_cfg
-from ..core import (
-    workflow_character_state_lock,
-    workflow_config_lock,
-    workflow_state_lock,
-)
-from ..core import Macros
-from ..analysis import format_report, run_audit
 from ..inference import (
+    STANDALONE_TOOLS,
+    TOOLS,
+    LLMClient,
     build_prefix,
     compute_lorebook_injection_block,
     compute_style_injection_block,
+    enabled_schemas,
     format_message_with_attachments,
+    parse_tool_calls,
+    reasoning_cfg,
 )
-from ..inference import STANDALONE_TOOLS, TOOLS, enabled_schemas
 from ._forced_call import forced_tool_call
 from .attachment_cache import insert_workflow_attachment
 from .registry import (

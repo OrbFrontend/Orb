@@ -18,9 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Mapping
 
-from ..inference import CachedBase
-from ..inference import LLMClient
 from ..core import ContentPart
+from ..inference import CachedBase, LLMClient
 from .passes.editor.length_guard import LengthGuard
 
 
