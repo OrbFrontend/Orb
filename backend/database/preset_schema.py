@@ -1,6 +1,6 @@
 """Preset engine policy -- the human-decided facts the schema can't tell the engine.
 
-The merge engine in ``backend/presets.py`` reads the live SQLite schema and derives
+The merge engine in ``backend/features/presets/engine.py`` reads the live SQLite schema and derives
 every *mechanical* decision itself (merge order, id remapping, FK rewrite,
 child-replace scope), so most schema changes need **no edit here**. This file holds
 only the handful of facts no ``PRAGMA`` can reveal:

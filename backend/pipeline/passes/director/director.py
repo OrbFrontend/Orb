@@ -1,5 +1,5 @@
 """
-passes/director.py — Director pass: the pre-processing phase that selects
+passes/director/director.py — Director pass: the pre-processing phase that selects
 moods, plot direction, and optionally rewrites the user's prompt before
 the writer pass runs.
 """
@@ -79,7 +79,7 @@ def build_direct_scene_override(
 ) -> dict:
     """Build the ``direct_scene`` dynamic-tool schema from *writer_fragments*.
 
-    Thin wrapper over :func:`~backend.tool_registry.build_direct_scene_tool` so the
+    Thin wrapper over :func:`~backend.inference.tool_registry.build_direct_scene_tool` so the
     orchestrator's tools-blob composition (``_build_writer_tools_blob``) reaches
     the direct_scene schema through the director module rather than importing the
     schema builder directly — symmetric to ``build_feedback_override``.
@@ -92,7 +92,7 @@ class DirectorResult:
     """Typed payload of the director pass's terminal ``done`` event.
 
     Field names match the orchestrator's turn-state locals and
-    :class:`~backend.orchestrator._PipelineResult` (notably ``agent_raw``,
+    :class:`~backend.pipeline.orchestrator._PipelineResult` (notably ``agent_raw``,
     ``rewritten_msg``) so a single name follows each value end to end. This
     replaces the former 6-positional ``result`` tuple: adding or reordering a
     field can no longer silently transpose values at the unpack site.

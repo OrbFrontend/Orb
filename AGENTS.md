@@ -24,12 +24,12 @@ graph TD
     end
 
     subgraph Backend ["Backend (FastAPI + SQLite)"]
-        orch["handle_turn() in orchestrator.py"]
+        orch["handle_turn() in pipeline/orchestrator.py"]
 
-        dir["Director Pass (passes/director/) — pre-writer phase (optional)<br/>Runs the enabled PRE_WRITER_TOOLS, each as its own LLM call:<br/>1. rewrite_user_prompt (optional) → rewrites vague user messages<br/>2. direct_scene → fills fragments<br/>Fragments are user-defined (interactive_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
-        writer["Writer Pass (passes/writer.py)<br/>Main generation pass. System prompt + history +<br/>Lorebook entries + Scene Direction injection block + user message.<br/>Streams response tokens via SSE."]
-        editor["[Post-Writer] Editor Pass (passes/editor/) (optional)<br/>Checks: slop/contrastive negation, banned phrases,<br/>repetitive openers, templates, phrase repetition,<br/>structural repetition, length guard.<br/>Tools: editor_apply_patch or editor_rewrite.<br/>Up to 3 iterations."]
-        summarizer["Summarizer (summarizer.py)<br/>Narrative summary + compress flow<br/>Not part of the pipeline — triggered manually"]
+        dir["Director Pass (pipeline/passes/director/) — pre-writer phase (optional)<br/>Runs the enabled PRE_WRITER_TOOLS, each as its own LLM call:<br/>1. rewrite_user_prompt (optional) → rewrites vague user messages<br/>2. direct_scene → fills fragments<br/>Fragments are user-defined (interactive_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
+        writer["Writer Pass (pipeline/passes/writer.py)<br/>Main generation pass. System prompt + history +<br/>Lorebook entries + Scene Direction injection block + user message.<br/>Streams response tokens via SSE."]
+        editor["[Post-Writer] Editor Pass (pipeline/passes/editor/) (optional)<br/>Checks (via analysis/): slop/contrastive negation, banned phrases,<br/>repetitive openers, templates, phrase repetition,<br/>structural repetition, length guard.<br/>Tools: editor_apply_patch or editor_rewrite.<br/>Up to 3 iterations."]
+        summarizer["Summarizer (features/summarization/summarizer.py)<br/>Narrative summary + compress flow<br/>Not part of the pipeline — triggered manually"]
 
         orch --> dir --> writer --> editor
     end
@@ -48,9 +48,9 @@ flowchart LR
     writer_prefix --> pipeline["_run_pipeline()"]
     agent_prefix --> pipeline
     lorebook --> pipeline
-    pipeline --> dir_stage["director_stage() (passes/director/director.py)<br/>Runs director pass → folds DirectorResult into TurnState<br/>Applies prompt rewrite → computes style injection block<br/>Computes writer lorebook block (agentic or keyword-scanned)"]
-    dir_stage --> writer_stage["writer_stage() (passes/writer.py)<br/>Builds writer_content from TurnState.inj_block + lorebook_block<br/>Streams tokens → folds resp_text + latency into TurnState"]
-    writer_stage --> editor_stage["editor_stage() (passes/editor/editor.py)<br/>Emits writer_done → runs editor pass (if do_edit or feedback needed)<br/>Folds refined text + feedback_values + latency into TurnState"]
+    pipeline --> dir_stage["director_stage() (pipeline/passes/director/director.py)<br/>Runs director pass → folds DirectorResult into TurnState<br/>Applies prompt rewrite → computes style injection block<br/>Computes writer lorebook block (agentic or keyword-scanned)"]
+    dir_stage --> writer_stage["writer_stage() (pipeline/passes/writer.py)<br/>Builds writer_content from TurnState.inj_block + lorebook_block<br/>Streams tokens → folds resp_text + latency into TurnState"]
+    writer_stage --> editor_stage["editor_stage() (pipeline/passes/editor/editor.py)<br/>Emits writer_done → runs editor pass (if do_edit or feedback needed)<br/>Folds refined text + feedback_values + latency into TurnState"]
 ```
 
 ## Directory Structure
@@ -58,15 +58,80 @@ flowchart LR
 ```
 Orb/
 ├── backend/
-│   ├── main.py              # FastAPI app: all API routes, Pydantic models
-│   ├── orchestrator.py      # Pipeline orchestration: handle_turn, _run_pipeline,
-│   │                        # _make_result (projects TurnState → _result SSE event);
-│   │                        # builds the per-turn contracts defined in pipeline_state.py
-│   ├── pipeline_state.py    # Per-turn contract dataclasses shared across passes:
-│   │                        # ModelLane, _PipelineConfig, TurnState (mutable per-turn
-│   │                        # bag threaded through stages). Passes import down into here.
-│   ├── database/            # DB package (aiosqlite). __init__.py re-exports the
-│   │                        # full public API for backwards-compatible imports.
+│   ├── main.py              # THIN entry point: `from .api import build_app; app = build_app()`
+│   │                        # + uvicorn __main__ guard. `backend.main:app` stays valid.
+│   ├── api/                 # HTTP LAYER (top of the stack) — the route half of old main.py
+│   │   ├── __init__.py      # build_app(): FastAPI app factory — lifespan (DB init, migrations,
+│   │   │                    # schema check), no_cache middleware, auto-include routers, /static mount LAST
+│   │   ├── deps.py          # ALL cross-route shared state/helpers: _active_aborts, the
+│   │   │                    # _workflow_root_lock/_conversation_stream_lock helpers + backing
+│   │   │                    # registries, _CleanupStreamingResponse/_sse_stream/_safe_aclose,
+│   │   │                    # require_world/require_lorebook_entry Depends, validators, FRONTEND_DIR
+│   │   ├── schemas.py       # Pydantic request/response models (SettingsUpdate, etc.)
+│   │   └── routes/          # One APIRouter per domain; build_app() includes routes.ROUTERS in order
+│   │       ├── __init__.py  # ROUTERS list (include order mirrors old main.py); add a domain = drop a file
+│   │       ├── settings.py  endpoints.py  conversations.py  messages.py
+│   │       ├── characters.py  fragments.py  worlds.py  phrase_bank.py
+│   │       └── personas.py  presets.py  workflows.py  stats.py  misc.py
+│   ├── pipeline/            # PIPELINE LAYER — the Director→Writer→Editor turn engine
+│   │   ├── __init__.py      # Facade: handle_turn, handle_regenerate, handle_fork_edit,
+│   │   │                    # handle_super_regenerate, handle_magic_rewrite, resolve_persona_id,
+│   │   │                    # agent_enabled, TurnState/ModelLane/_PipelineConfig
+│   │   ├── orchestrator.py  # Pipeline orchestration: handle_turn, _run_pipeline,
+│   │   │                    # _make_result (projects TurnState → _result SSE event);
+│   │   │                    # builds the per-turn contracts defined in state.py
+│   │   ├── state.py         # Per-turn contract dataclasses (was pipeline_state.py):
+│   │   │                    # ModelLane, _PipelineConfig, TurnState (mutable per-turn
+│   │   │                    # bag threaded through stages). Passes import down into here.
+│   │   └── passes/
+│   │       ├── director/    # Director pass package
+│   │       │   ├── __init__.py  # Re-exports: DirectorResult, director_pass, director_stage,
+│   │       │   │                # _agentic_lorebook_active, build_direct_scene_override,
+│   │       │   │                # build_lorebook_catalog
+│   │       │   ├── director.py  # director_pass (raw LLM loop) + director_stage (full stage:
+│   │       │   │                # pass + rewrite + style injection + lorebook block)
+│   │       │   └── prompt_rewrite.py # apply_rewrite, order_director_tools, suppresses_reasoning
+│   │       ├── writer.py    # writer_pass (raw LLM loop) + writer_stage (builds
+│   │       │                # writer_content, streams tokens, folds latency into TurnState)
+│   │       └── editor/      # editor_pass + editor_stage + feedback + length_guard
+│   │           ├── __init__.py  # Re-exports: editor_pass, editor_stage, _feedback_active,
+│   │           │                # build_feedback_override, FeedbackResult, feedback_step
+│   │           ├── editor.py    # editor_pass (raw edit loop) + editor_stage (gating +
+│   │           │                # writer_done boundary + event translation)
+│   │           ├── feedback.py     # give_feedback post-writer step
+│   │           └── length_guard.py # length-guard feature
+│   ├── features/            # FEATURE SLICES — each feature its own self-contained folder
+│   │   │                    # (facade __init__.py; imports only downward; never another slice)
+│   │   ├── cards/           # parsing.py (was tavern_cards.py — PNG tEXt/V2 parse) +
+│   │   │                    # downloader.py (was card_downloader.py — external card fetch)
+│   │   ├── summarization/   # summarizer.py — narrative summary + compress flow
+│   │   └── presets/         # engine.py (was presets.py): selective export, merge-import,
+│   │                        # full snapshots/restore (ATTACH + VACUUM INTO). Schema-driven;
+│   │                        # policy declared in database/preset_schema.py
+│   ├── analysis/            # ANALYSIS LAYER (shared, pure) — prose-quality detection;
+│   │   │                    # deps: database.models + stdlib only. Shared by editor pass + workflows.
+│   │   ├── __init__.py      # Facade: run_audit, format_report, AuditReport, AUDIT_TYPES + result types
+│   │   ├── audit.py         # Phrase bank matching, opener/template detection
+│   │   └── detectors/       # slop_detector, text_segmentation, contrastive_negation,
+│   │                        # opening_monotony, phrase_repetition, structural_repetition,
+│   │                        # template_repetition
+│   ├── inference/           # INFERENCE LAYER — LLM transport + prompt/tool assembly; deps: core
+│   │   ├── __init__.py      # Facade re-export
+│   │   ├── client.py        # LLM API client (was llm_client.py): OpenAI-compatible, streaming, reasoning
+│   │   ├── endpoint_profiles.py # Per-provider quirks (url patterns, body transforms) — a LEAF here
+│   │   ├── cached_call.py   # Core cached-call path: CachedBase (byte-identical
+│   │   │                    # prefix+tools+model base every pass extends) + cached_complete
+│   │   ├── kv_tracker.py    # Debug KV-cache tracker: logs messages/tools to JSON for inspection
+│   │   ├── prompt_builder.py # System prompt assembly, style injection, lorebook injection
+│   │   └── tool_registry.py # Tool schemas (direct_scene, rewrite, editor tools), constants
+│   ├── core/               # SHARED KERNEL (bottom) — dependency-free leaves; imports nothing upward
+│   │   ├── __init__.py      # Re-exports the kernel surface
+│   │   ├── llm_types.py     # Wire contracts (ChatMessage, ToolCall, ContentPart, …)
+│   │   ├── macros.py        # Macro resolution ({{user}}, {{char}}, {{roll}}, etc.) — dependency-free leaf
+│   │   ├── locks.py         # Process-level asyncio locks (workflow_state / character_state / config / maintenance)
+│   │   └── utils.py         # estimate_tokens, scrub_log, build_multimodal_content, extract_hyperparams
+│   ├── database/            # FOUNDATION — DB package (aiosqlite); may read core, never imports up.
+│   │   │                    # __init__.py re-exports the full public API for backwards-compatible imports.
 │   │   ├── models.py        # Model layer: TypedDict row contracts + PhraseGroup;
 │   │   │                    # depends on nothing else (see Data Contracts below)
 │   │   ├── connection.py    # DB_PATH, get_db() async context manager, _build_set_clause
@@ -77,46 +142,6 @@ Orb/
 │   │   ├── bootstrap.py     # init_db() (schema + inline ALTERs + seed inserts), reset_to_defaults()
 │   │   ├── queries/         # Per-domain CRUD modules (one file per table group)
 │   │   └── migrations/      # DB migrations scripts + run_pending() runner
-│   ├── llm_client.py        # LLM API client (OpenAI-compatible), streaming, reasoning
-│   ├── prompt_builder.py    # System prompt assembly, style injection, lorebook injection
-│   ├── tool_registry.py     # Tool schemas (direct_scene, rewrite, editor tools), constants
-│   ├── endpoint_profiles.py # Per-provider quirks (url patterns, body transforms)
-│   ├── tavern_cards.py      # PNG card import (tEXt chunk extraction, V2 spec parsing)
-│   ├── card_downloader.py   # Download character cards from external sources (CharacterHub, etc.)
-│   ├── summarizer.py        # Narrative summary generation + compress flow
-│   ├── macros.py            # Macro resolution ({{user}}, {{char}}, {{roll}}, etc.)
-│   ├── cached_call.py       # Core cached-call path: CachedBase (byte-identical
-│   │                        # prefix+tools+model base every pass extends) + cached_complete
-│   ├── kv_tracker.py        # Debug KV-cache tracker: logs messages/tools to JSON for inspection
-│   ├── presets.py           # Preset/backup engine: selective export, merge-import,
-│   │                        # full snapshots/restore (sqlite ATTACH + VACUUM INTO).
-│   │                        # Schema-driven: mechanics derived from live schema via
-│   │                        # PRAGMA; policy declared in database/preset_schema.py
-│   ├── locks.py             # Cross-module asyncio locks (workflow_state / character_state / config / maintenance)
-│   ├── utils.py             # Shared utilities
-│   ├── passes/
-│   │   ├── director/        # Director pass package
-│   │   │   ├── __init__.py  # Re-exports: DirectorResult, director_pass, director_stage,
-│   │   │   │                # _agentic_lorebook_active, build_direct_scene_override,
-│   │   │   │                # build_lorebook_catalog
-│   │   │   ├── director.py  # director_pass (raw LLM loop) + director_stage (full stage:
-│   │   │   │                # pass + rewrite + style injection + lorebook block);
-│   │   │   │                # _agentic_lorebook_active, build_direct_scene_override
-│   │   │   └── prompt_rewrite.py # apply_rewrite, order_director_tools, suppresses_reasoning
-│   │   ├── writer.py        # writer_pass (raw LLM loop) + writer_stage (builds
-│   │   │                    # writer_content, streams tokens, folds latency into TurnState)
-│   │   └── editor/
-│   │       ├── __init__.py  # Re-exports: editor_pass, editor_stage, _feedback_active,
-│   │       │                # build_feedback_override, FeedbackResult, feedback_step
-│   │       ├── editor.py    # editor_pass (raw edit loop) + editor_stage (gating +
-│   │       │                # writer_done boundary + event translation);
-│   │       │                # _feedback_active, build_feedback_override
-│   │       ├── audit.py     # Phrase bank matching, opener/template detection
-│   │       ├── slop_detector.py       # Regex-based banned phrase detection
-│   │       ├── opening_monotony.py    # Repetitive sentence opener detection
-│   │       ├── template_repetition.py # Part-of-speech pattern repetition
-│   │       ├── structural_repetition.py # Same paragraph layout as previous msgs
-│   │       └── contrastive_negation.py # "not X, but Y" cliché detection
 │   ├── workflows/           # Secondary workflow framework + shipped workflows
 │   │   │                    # (see docs/architecture/secondary-workflow.md)
 │   │   ├── __init__.py      # Registration site: register_workflow + subscribe + finalize_registry
@@ -196,6 +221,71 @@ Orb/
 └── README.md
 ```
 
+## Architecture Layers
+
+The backend is a **layered architecture with a shared kernel + vertical feature
+slices**. Each package is a named layer (or an isolated feature slice) with the
+same internal shape — a facade `__init__.py` re-exporting its public surface — and
+dependencies run **strictly downward**:
+
+```
+api  →  {pipeline, features}  →  workflows  →  {inference, analysis}  →  core
+                                                            ↘        ↘
+                                                          database  →  core
+```
+
+- **`core/`** — the dependency-free leaf (everything may import it; it imports nothing upward).
+- **`database/`** — a foundation that *may read* `core` (e.g. `queries/workflow_attachments.py` uses `core.utils.scrub_log`) and is read by every layer above, but **never imports up**.
+- **`inference/`** — LLM transport + prompt/tool assembly; depends only on `core`.
+- **`analysis/`** — pure prose-quality detection; depends only on `database.models` (+ stdlib). Sits below `workflows` and `pipeline`, parallel to `inference`. It exists so the auditor can be shared by both the editor pass *and* `workflows/toolkit` without a `workflows → pipeline` back-edge.
+- **`workflows/`** — the plugin-registry gold standard; sits *below* `pipeline/` and *above* `inference`/`analysis`. `pipeline/orchestrator.py` imports it; it imports only `inference`, `analysis`, `core`, `database` — all downward.
+- **`pipeline/`** — the Director→Writer→Editor turn engine + its per-turn contracts (`state.py`) + its passes.
+- **`features/`** — vertical slices (`cards`, `summarization`, `presets`), each self-contained.
+- **`api/`** — the HTTP layer at the top; the only layer that wires everything together.
+
+**The one-way rule:** a layer may import *downward* but never *up* or *sideways into a peer slice*. `database/` already enforced this; the reorg generalized it to every layer. When a lower layer genuinely needs higher-layer *behavior* at a fixed seam, use **dependency inversion** (the lower layer declares a registration hook; the higher layer registers an impl at import) — see `database/queries/messages.py`'s `register_workflow_attachment_persister`, registered by `workflows/attachment_cache.py`. Don't dodge the rule with a lazy `import backend.<higher layer>` inside a lower-layer function; that hides the inversion from the import graph without removing it. (The sanctioned lazy-import exception — `database/bootstrap.py`'s `from ..features import presets` — is documented and explicit.)
+
+> **A passing `python -c "import backend.main"` does not prove the DAG is clean** — a back-edge only crashes if it forms a true import *cycle*. The one-way rule is a design invariant, not something the smoke test enforces; an `import-linter` contract is the proper backstop (see *Optional follow-up* — not yet wired).
+
+### The bottom-up retarget rule
+
+When relocating a module, the cost-free method is to move layers **bottom-up**
+(`core` → `inference`/`analysis` → `pipeline` → `features` → `api`) and **retarget
+every importer of a moved module in the same step** — even importers that will
+themselves move later. Because each new layer package sits at the `backend` top
+level exactly where the flat module used to, a facade re-export changes only the
+*name* you import from (`from .llm_client` → `from .inference`), **keeping the dot
+count unchanged**. A module that both imports a lower layer *and* moves later is
+touched twice: once to **retarget the name** (when the lower layer moves) and once
+to **bump the dots** (when it moves deeper). Both edits are mechanical, and the
+gate after each step — `import backend.main` + pyright 0 + `./scripts/tests.sh all`
++ a `grep tests/` for stale paths — catches any miss. Note the second blast radius
+the facades do **not** cover: test imports of deep submodule paths, and
+`monkeypatch.setattr`/`mock.patch` **string** targets (e.g. `LLMClient` is patched
+in several namespaces) — these fail at *runtime*, not at import, so update each
+string target when *its* module moves.
+
+### The Standard Slice Shape (the symmetry contract)
+
+Every `features/<name>/` slice follows one shape (mirroring `workflows/tts/`):
+
+```
+features/<name>/
+├── __init__.py     # facade: re-export the slice's public callables
+├── contracts.py    # (optional) slice-local dataclasses/TypedDicts; import only from core/ + database/models
+├── <logic>.py      # pure logic, testable in isolation
+└── <integration>.py# wiring that reads context, calls logic, persists via database/
+```
+
+A slice may import **downward** (`core`, `inference`, `analysis`, `database`) but
+never from another slice, `pipeline/`, `workflows/`, or `api/`.
+
+### Three ways to add a feature (without editing `orchestrator.py` or `main.py`)
+
+1. **HTTP route** — drop `api/routes/<feature>.py` exposing `router = APIRouter()` and append it to `ROUTERS` in `api/routes/__init__.py`. `build_app()` includes it automatically; no edit to `main.py`.
+2. **Pipeline-adjacent feature (the default)** — use the `workflows/` plugin path: a new folder plus one `register_workflow(...)`/`subscribe(...)` block in `workflows/__init__.py`. See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
+3. **Self-contained domain feature** — a new `features/<name>/` slice (Standard Slice Shape) plus one router file. The only shared files it touches are additive (`database/schema.py` + a numbered migration when it needs persistence).
+
 ## Database Schema
 
 ### Core Tables
@@ -261,7 +351,7 @@ erDiagram
 
 ### Presets & Backups
 
-`backend/presets.py` exports, imports, and snapshots the database as standalone
+`backend/features/presets/engine.py` exports, imports, and snapshots the database as standalone
 SQLite `.db` files (built with `VACUUM INTO`, merged via `ATTACH`). Tables are
 grouped into coarse **domains** (`characters`, `chats`, `lorebooks`, `fragments`,
 `phrase_bank`, `configs`); a *preset* carries a chosen subset, a *snapshot* is a
@@ -277,7 +367,7 @@ just lands an external `.db` in the library (the user then applies or restores i
 Destructive ops auto-snapshot first.
 
 **The merge engine is schema-driven.** It introspects the live schema with
-`PRAGMA` (`_build_schema_model()`) to derive *all* of its mechanics — per-table
+`PRAGMA` (`_build_schema_model()` in `features/presets/engine.py`) to derive *all* of its mechanics — per-table
 classification (`singleton` = a `CHECK (id = 1)` table updated in place; `stable`
 = portable identity, upserted by PK; `surrogate` = autoincrement rowid, reinserted
 under fresh ids with an old→new map), the FK graph, the topological insert order,
@@ -285,7 +375,7 @@ and which edges to defer (self refs + cross-table cycles, inserted NULL then fix
 up). Ownership (`ON DELETE CASCADE`) edges define the entity tree and the
 child-replace scope; non-CASCADE edges are soft cross-references, reconciled after
 a full replace. **Adding a child table or an FK column needs zero edits in
-`presets.py`** — the model just grows.
+`features/presets/engine.py`** — the model just grows.
 
 The *only* hand-maintained input is the product/security **policy** in
 `backend/database/preset_schema.py`: `DOMAIN_ROOTS` (root table → user-facing
@@ -299,11 +389,11 @@ or a column that looks secret, update that file. A drift backstop —
 — fails loudly the moment a freshly-migrated table maps to no domain, an FK
 references an unclassified parent, or a sensitive-looking column is missing from
 `SECRET_COLUMNS`. Runs synchronously off the event loop via `asyncio.to_thread`
-under `backend.locks.maintenance_lock`.
+under `backend.core.locks.maintenance_lock`.
 
 ## Data Contracts (the model layer)
 
-`backend/database/models.py` is the **model layer**: domain data contracts (a `TypedDict` per table-group row, plus the `PhraseGroup` union — `list[str] | LiteralPhraseGroup | RegexPhraseGroup`, a discriminated union keyed on `kind`) that describe the *shape* of persisted data and depend on nothing else in the codebase. The dependency rule is one-way — every other layer points its dependencies **inward**, toward the data, and `backend/database/` must never import "up" into `passes/`, `orchestrator.py`, or `workflows/`. (The introducing commit moved `PhraseGroup` *down* into `models.py` from `slop_detector.py` to kill the last upward import; anything in `database/` that reaches up for a shared shape is an architectural inversion — put the shape here instead.) When the database layer genuinely needs higher-layer *behavior* at a fixed seam — `add_message` persisting workflow attachments inside its own write transaction — it declares the contract and the higher layer registers an implementation (dependency inversion): `database/queries/messages.py` owns `register_workflow_attachment_persister`, and `workflows/attachment_cache.py` registers `insert_workflow_attachments` into it at import. Don't reintroduce a lazy `import backend.workflows` inside a `database/` function to dodge the rule — that hides the inversion from the import graph without removing it.
+`backend/database/models.py` is the **model layer**: domain data contracts (a `TypedDict` per table-group row, plus the `PhraseGroup` union — `list[str] | LiteralPhraseGroup | RegexPhraseGroup`, a discriminated union keyed on `kind`) that describe the *shape* of persisted data and depend on nothing else in the codebase. The dependency rule is one-way — every other layer points its dependencies **inward**, toward the data, and `backend/database/` must never import "up" into `pipeline/`, `inference/`, `analysis/`, `workflows/`, or `api/` (see **Architecture Layers** below). (The introducing commit moved `PhraseGroup` *down* into `models.py` from `slop_detector.py` to kill the last upward import; the same move later extracted the prose auditor *down* into `analysis/` to kill the last `workflows → passes` edge. Anything in `database/` that reaches up for a shared shape is an architectural inversion — put the shape here instead.) When the database layer genuinely needs higher-layer *behavior* at a fixed seam — `add_message` persisting workflow attachments inside its own write transaction — it declares the contract and the higher layer registers an implementation (dependency inversion): `database/queries/messages.py` owns `register_workflow_attachment_persister`, and `workflows/attachment_cache.py` registers `insert_workflow_attachments` into it at import. Don't reintroduce a lazy `import backend.workflows` inside a `database/` function to dodge the rule — that hides the inversion from the import graph without removing it.
 
 - **The TypedDicts label plain dicts, with zero runtime change.** The query layer still returns ordinary `dict(row)` objects; each query stamps the shape at its boundary with `cast(SomeRow, ...)` (a `TypedDict` is not assignable from a bare `dict`). So `row["col"]` access is checked against the schema without any wrapper object, validation, or runtime cost. Each `queries/*.py` module imports just the contract(s) for its tables (`SettingsRow`, `ConversationRow`/`ConversationListRow`, `MessageRow`/`MessageWithAttachments`, `EndpointRow`, `ModelConfigRow`, `WorldRow`, `LorebookEntryRow`, `CharacterCardRow`, `DirectorStateRow`, `InteractiveFragmentRow`, `MoodFragmentRow`, `UserPersonaRow`, `ConversationLogRow`, `PhraseBankRow`, and the attachment rows).
 - **Every row-shaped query return is typed; only free-form blobs stay `dict`.** A query that returns table rows uses a contract. The lone exception is the per-workflow JSON state/config accessors (`get_workflow_state`, `get_workflow_message_state`, `get_workflow_character_state`, `get_workflow_config`) — these decode an arbitrary per-workflow slot with no fixed schema, so they correctly return bare `dict`/`dict | None`. Don't invent a contract for those.
@@ -311,11 +401,11 @@ under `backend.locks.maintenance_lock`.
 - **SQLite has no boolean type**, so flag columns (`enabled`, `required`, `case_insensitive`, `constant`, …) are typed `int` to match the 0/1 that `dict(row)` returns — not `bool`.
 - **`total=False`** marks contracts whose keys are only conditionally present: the `DEFAULT_SETTINGS` fallback vs the `SELECT *` branch, the column subsets different readers project, and the attachment/branch-nav metadata glued on after the base row.
 - **Required base + optional extension** is the idiom when one reader projects a strict superset of another's columns: a `total=True` base holds the always-present keys (so consumers can subscript them) and a subclass adds the rest. `_SettingsBase` → `SettingsRow`, and `WorkflowAttachmentRowBase` → `WorkflowAttachmentRow` (the base is what `get_workflow_attachments_for_message()` returns — it omits the redundant `message_id` it filters on; the full row that single-row and glue readers return adds it).
-- **The write side mirrors the read side.** `SettingsRow` ⇄ the Pydantic `SettingsUpdate` in `main.py`; `database/schema.py` is the source of truth for columns. When you add, rename, or retype a column, update all three (schema, the row contract, the write-side Pydantic model) in lockstep.
+- **The write side mirrors the read side.** `SettingsRow` ⇄ the Pydantic `SettingsUpdate` in `api/schemas.py`; `database/schema.py` is the source of truth for columns. When you add, rename, or retype a column, update all three (schema, the row contract, the write-side Pydantic model) in lockstep.
 
 ### Type checking (pyright)
 
-`pyrightconfig.json` runs pyright in **standard** mode over `backend/` (target Python 3.12, missing imports downgraded to warnings), and the **whole backend passes clean — zero errors, no file-level suppressions.** (An earlier stage suppressed four rules in `main.py`/`orchestrator.py` while the row TypedDicts were threaded through bare-`dict` helpers; those suppressions are gone now that the consumer signatures were widened.) Keep it at zero:
+`pyrightconfig.json` runs pyright in **standard** mode over `backend/` (target Python 3.12, missing imports downgraded to warnings), and the **whole backend passes clean — zero errors, no file-level suppressions.** (An earlier stage suppressed four rules in what are now `api/`/`pipeline/orchestrator.py` while the row TypedDicts were threaded through bare-`dict` helpers; those suppressions are gone now that the consumer signatures were widened.) Keep it at zero:
 
 - **Widen consumers, don't re-tighten producers.** When a typed row flows into a helper, the helper takes `Mapping[str, Any]` (read-only dict) and `Sequence[Mapping[str, Any]]` (read-only list), not bare `dict`/`list[dict]` — `list[SomeRow]` is *not* assignable to `list[dict]` (list is invariant), but it *is* to `Sequence[Mapping[str, Any]]` (covariant). The pipeline already types `history`, `settings`, and the fragment lists this way; `attachments` now matches. Use the concrete `dict`/`list[dict]` only where the code actually mutates the value (e.g. the attachment-cache writer tags and copies dicts — `add_message` materializes `dict(att)` at that boundary).
 - **Don't add suppressions to dodge a type error** — fix the contract or widen the consumer. A `# pyright: ignore` or file-level `# pyright:` header reintroduced here is a regression.
@@ -431,7 +521,7 @@ flowchart TD
 
 Multiple model configs per endpoint. Active one selected via `endpoints.active_model_config_id`. Agent (Director) can use a separate endpoint (`agent_endpoint_id`) or share the writer's.
 
-**Persona resolution.** `settings.active_persona_id` is only the *global default*. The effective persona for a turn is resolved by `resolve_persona_id()` (`orchestrator.py`) top-down: conversation pin (`conversations.persona_lock_id`) → character pin (`character_cards.persona_lock_id`) → global default. The frontend mirror is `effectivePersonaId()` in `utils.js`. Pins are managed from the user menu (`settings_personas.js`); see [docs/features/persona-pinning.md](docs/features/persona-pinning.md).
+**Persona resolution.** `settings.active_persona_id` is only the *global default*. The effective persona for a turn is resolved by `resolve_persona_id()` (`pipeline/orchestrator.py`) top-down: conversation pin (`conversations.persona_lock_id`) → character pin (`character_cards.persona_lock_id`) → global default. The frontend mirror is `effectivePersonaId()` in `utils.js`. Pins are managed from the user menu (`settings_personas.js`); see [docs/features/persona-pinning.md](docs/features/persona-pinning.md).
 
 **Director feature flags** (not model-callable tools, so they live in their own `settings` columns like the length guard — see *Adding a Feature Flag* below): `agentic_lorebook_enabled` lets the Director pick lorebook entries from a catalog instead of the keyword scan ([docs/features/agentic-lorebook.md](docs/features/agentic-lorebook.md)), and `feedback_enabled` gates the post-writer `give_feedback` step that surfaces `feedback`-type fragments to the user ([docs/features/feedback-fragments.md](docs/features/feedback-fragments.md)).
 
@@ -459,8 +549,8 @@ Because the writer's KV cache now lives on a different server than the agent pas
 
 ### Where it lives in code
 
-- **Resolution** — `_load_pipeline_context()` in `orchestrator.py` builds `agent_client` and `agent_system_prompt` only when `not agent_same_as_writer and agent_endpoint_id`; `_build_prefixes()` builds the separate `agent_prefix`.
-- **Routing** — the Director and Editor run on `agent_client or client` with `agent_prefix or prefix`; when `agent_client` is set, `writer_enabled_tools` is forced to `{}` (`orchestrator.py`).
+- **Resolution** — `_load_pipeline_context()` in `pipeline/orchestrator.py` builds `agent_client` and `agent_system_prompt` only when `not agent_same_as_writer and agent_endpoint_id`; `_build_prefixes()` builds the separate `agent_prefix`.
+- **Routing** — the Director and Editor run on `agent_client or client` with `agent_prefix or prefix`; when `agent_client` is set, `writer_enabled_tools` is forced to `{}` (`pipeline/orchestrator.py`).
 - **Config** — `settings.agent_same_as_writer`, `settings.agent_endpoint_id`, `settings.agent_shared_system_prompt`, and `endpoints.agent_active_model_config_id`.
 - **UI** — Settings → Endpoints → **Agent** section → "Same as Writer" toggle (`frontend/settings.js`). Unchecking reveals the agent endpoint/model fields and warns if they exactly match the writer's (which would make the split pointless).
 
@@ -496,6 +586,17 @@ When running under Codex's filesystem/network sandbox, `aiosqlite` integration t
 
 ## Common Development Workflows
 
+### Adding a Feature (route / workflow / slice)
+
+Pick the lightest of the three extension points (full detail under **Architecture
+Layers → Three ways to add a feature**):
+
+- **An HTTP endpoint** → drop `api/routes/<feature>.py` (`router = APIRouter()`) and append it to `ROUTERS`. No edit to `main.py`.
+- **A pipeline-adjacent behavior** (the *default* for anything that hooks the turn) → author a secondary workflow (new folder + one `register_workflow`/`subscribe` block). See *Adding a New Secondary Workflow* below.
+- **A self-contained domain feature** → a new `features/<name>/` slice (Standard Slice Shape) + one router file.
+
+In all three, respect the **one-way downward dependency rule** — a new module imports only *lower* layers, never `api/` from below it, never a peer feature slice.
+
 ### Adding a New Tool
 
 A *tool* is a model-callable function schema. `settings.enabled_tools` holds
@@ -503,7 +604,7 @@ A *tool* is a model-callable function schema. `settings.enabled_tools` holds
 so a non-tool key there is dropped on save. For a UI toggle that is *not* a model
 function (a "feature flag"), see the next subsection instead.
 
-1. Define the tool schema in `tool_registry.py` (OpenAI function-calling format)
+1. Define the tool schema in `inference/tool_registry.py` (OpenAI function-calling format)
 2. Register in `TOOLS` dict with `choice` and `schema` entries
 3. Add to `PRE_WRITER_TOOLS` or `POST_WRITER_TOOLS` sets
 4. Handle the tool call response in the relevant pass
@@ -516,7 +617,7 @@ For a pipeline/UI feature that is *not* a model function (e.g. the length guard)
 1. Add a dedicated `settings` column (boolean → `INTEGER NOT NULL DEFAULT 0`) in
    `database/schema.py`, `database/seeds.py`, and a numbered migration
 2. Add it to the `allowed` list in `database/queries/settings.py` and the
-   `SettingsUpdate` model in `main.py`
+   `SettingsUpdate` model in `api/schemas.py`
 3. Read it from `settings` (not `enabled_tools`) in the pipeline
 4. Persist it as a top-level field from the frontend (not via `enabled_tools`)
 
@@ -540,7 +641,7 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 
 1. **Message tree branching** — Messages use `parent_id` to form a tree. `conversations.active_leaf_id` marks the visible leaf. The API returns branch navigation metadata (branch_count, branch_index, prev/next IDs). Deleting a message cascades to all descendants.
 
-2. **Streaming lifecycle** — SSE connections must be properly cleaned up. The `_CleanupStreamingResponse` wrapper handles client disconnects. The `stop` endpoint sets an abort flag checked between pipeline stages. The abort logic is complex (aborting mid-writer stream must also save partial output to DB) and may need an audit.
+2. **Streaming lifecycle** — SSE connections must be properly cleaned up. The `_CleanupStreamingResponse` wrapper (`api/deps.py`, shared across streaming routes) handles client disconnects. The `stop` endpoint sets an abort flag checked between pipeline stages. The abort logic is complex (aborting mid-writer stream must also save partial output to DB) and may need an audit.
 
 3. **Tool call parsing** — The Director pass parses JSON tool call arguments. Malformed JSON from the LLM can crash the pipeline. Error handling wraps these in try/except but edge cases exist.
 
@@ -554,6 +655,6 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 
 8. **Phrase bank format** — `phrase_bank.variants` is a JSON array of strings. The editor audit matches these against response text using case-insensitive regex.
 
-9. **Lorebook scan depth** — Hard-coded to 6 messages (`LOREBOOK_SCAN_DEPTH` in `prompt_builder.py`). Only the last 6 messages are scanned for lorebook keyword matches.
+9. **Lorebook scan depth** — Hard-coded to 6 messages (`LOREBOOK_SCAN_DEPTH` in `inference/prompt_builder.py`). Only the last 6 messages are scanned for lorebook keyword matches.
 
-10. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire. `macros.py` is a **dependency-free leaf** (it imports nothing else in the codebase — like `database/models.py` and `llm_types.py`): it transforms strings and message dicts, and knows nothing about the LLM client. The transport-boundary catch-all that scrubs `{{user}}`/`{{char}}` from *every* outgoing message (the director's tool prompt embeds user-authored fragment text that can carry `{{char}}`) is `Macros.resolve_prompt_messages`, wired in as the `CachedBase.resolve` hook in `cached_call.py` — applied to `[*prefix, *trailing]` right before the call, so the KV tracker snapshots the exact resolved bytes sent. There is **no** macro-resolving `LLMClient` subclass/wrapper; don't reintroduce one.
+10. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, inline macros like {{roll}}). `resolve_prompt()` only does {{user}}/{{char}} substitution. Use `resolve_prompt()` for historical messages where inline macros shouldn't fire. `core/macros.py` is a **dependency-free leaf** (it imports nothing else in the codebase — like `database/models.py` and `core/llm_types.py`): it transforms strings and message dicts, and knows nothing about the LLM client. The transport-boundary catch-all that scrubs `{{user}}`/`{{char}}` from *every* outgoing message (the director's tool prompt embeds user-authored fragment text that can carry `{{char}}`) is `Macros.resolve_prompt_messages`. It is **bound** as the `CachedBase.resolve` hook in `pipeline/orchestrator.py` (`resolve=macros.resolve_prompt_messages`, where `macros` is a local `Macros` instance) and **applied** inside `inference/cached_call.py` — to `[*prefix, *trailing]` right before the call, so the KV tracker snapshots the exact resolved bytes sent. There is **no** macro-resolving `LLMClient` subclass/wrapper; don't reintroduce one.

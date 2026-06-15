@@ -3,8 +3,8 @@
 These describe the *shape* of persisted data and depend on nothing else in the
 codebase, so every other layer can point its dependencies inward, toward the
 data — never the reverse. Anything in backend/database/ that reaches "up" into
-passes/ or the orchestrator for a shared shape is an architectural inversion;
-put the shape here instead.
+the pipeline, analysis, or any other higher layer for a shared shape is an
+architectural inversion; put the shape here instead.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Literal, TypedDict, Union
 # two ``{"kind": ...}`` dicts; the bare ``list[str]`` is a legacy literal group
 # still accepted by the detector for backwards compatibility. The matching
 # semantics that consume these shapes live in
-# backend/passes/editor/slop_detector.py.
+# backend/analysis/detectors/slop_detector.py.
 class LiteralPhraseGroup(TypedDict):
     """A set of equivalent literal variant phrases."""
 

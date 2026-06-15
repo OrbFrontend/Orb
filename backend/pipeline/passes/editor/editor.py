@@ -64,7 +64,7 @@ def _feedback_active(
 def build_feedback_override(feedback_fragments: Sequence[Mapping[str, Any]]) -> dict:
     """Build the ``give_feedback`` dynamic-tool schema from *feedback_fragments*.
 
-    Thin wrapper over :func:`~backend.tool_registry.build_feedback_tool` so the
+    Thin wrapper over :func:`~backend.inference.tool_registry.build_feedback_tool` so the
     orchestrator's tools-blob composition (``_build_writer_tools_blob``) reaches
     the give_feedback schema through the editor module rather than importing the
     schema builder directly — symmetric to ``build_direct_scene_override``.

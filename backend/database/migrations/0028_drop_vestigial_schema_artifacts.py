@@ -6,7 +6,7 @@ All four artefact groups are the same class of bug: a feature (or an early cut o
 one) shipped schema via a since-rewritten migration or the old inline ``init_db``
 path, the feature was removed or redesigned, and nothing dropped the leftovers from
 databases that booted in the window. Each tripped the fresh-vs-migrated
-schema-equivalence gate (backend/presets.py ``assert_schema_safe``), refusing every
+schema-equivalence gate (backend/features/presets/engine.py ``assert_schema_safe``), refusing every
 preset export/snapshot/restore. The full inventory, found by fresh-installing every
 historical DDL version in git history and migrating it to HEAD:
 
