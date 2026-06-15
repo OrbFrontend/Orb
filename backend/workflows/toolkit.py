@@ -1,7 +1,7 @@
 """Stable import surface for workflow authors.
 
 Workflows import from this module rather than reaching directly into
-``backend.llm_client``, ``backend.prompt_builder``, etc. The set of
+``backend.inference.client``, ``backend.inference.prompt_builder``, etc. The set of
 re-exports is the workflow author's API: LLM client, tool-schema
 assembly, prompt assembly, macro resolution, read-only DB helpers for
 core state, workflow-scoped storage wrappers, the locks guarding

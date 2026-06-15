@@ -22,7 +22,7 @@ Two ways to bring a file's data into the live DB:
 
 All logic here is synchronous ``sqlite3`` (mirroring the migration runner) so it
 can ``ATTACH`` databases and run ``VACUUM INTO``; routes invoke it via
-``asyncio.to_thread`` while holding ``backend.locks.maintenance_lock``.
+``asyncio.to_thread`` while holding ``backend.core.locks.maintenance_lock``.
 """
 
 from __future__ import annotations

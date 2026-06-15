@@ -5,7 +5,7 @@ A dependency-free leaf: it turns ``{{user}}``/``{{char}}`` and inline macros
 like ``{{roll}}`` into literal text and imports nothing else in the codebase.
 It knows about *strings and message dicts*, not about the LLM client — the
 pipeline applies :meth:`Macros.resolve_prompt_messages` at the transport
-boundary (the cached-base ``resolve`` hook in ``kv_tracker.py``) rather than
+boundary (the cached-base ``resolve`` hook in ``cached_call.py``) rather than
 this module reaching up into the client layer.
 
 Public API:

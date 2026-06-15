@@ -1,6 +1,6 @@
 # Workflow development guide
 
-Navigation map for authoring a workflow. Reader is assumed to know the rest of Orb's backend (FastAPI + aiosqlite, three-pass pipeline in `backend/orchestrator.py`) and frontend (vanilla JS modules mutating the global `S` object in `frontend/state.js`), and to be new to the workflow framework. Every section points at code; build the mental model from the cited source.
+Navigation map for authoring a workflow. Reader is assumed to know the rest of Orb's backend (FastAPI + aiosqlite, three-pass pipeline in `backend/pipeline/orchestrator.py`) and frontend (vanilla JS modules mutating the global `S` object in `frontend/state.js`), and to be new to the workflow framework. Every section points at code; build the mental model from the cited source.
 
 ---
 
@@ -36,9 +36,9 @@ Adjacent backend pieces a workflow author touches:
 
 | Path | Role |
 |---|---|
-| `backend/locks.py` | `workflow_state_lock`, `workflow_character_state_lock`, `workflow_config_lock`. |
-| `backend/main.py` | Workflow HTTP routes + `_workflow_root_lock`. |
-| `backend/orchestrator.py` | Pre-pipeline hook loop (`_iterate_pre_pipeline_hooks`) + post-pipeline hook loop (inline, over `iter_subscriptions(HookType.POST_PIPELINE)`) + `_stage_workflow_attachment` + `_persist_result` + `_consume_pipeline`. |
+| `backend/core/locks.py` | `workflow_state_lock`, `workflow_character_state_lock`, `workflow_config_lock`. |
+| `backend/api/routes/workflows.py` | Workflow HTTP routes. (`_workflow_root_lock` lives in `backend/api/deps.py`.) |
+| `backend/pipeline/orchestrator.py` | Pre-pipeline hook loop (`_iterate_pre_pipeline_hooks`) + post-pipeline hook loop (inline, over `iter_subscriptions(HookType.POST_PIPELINE)`) + `_stage_workflow_attachment` + `_persist_result` + `_consume_pipeline`. |
 | `backend/database/queries/workflow_attachments.py` | Raw row INSERT (`insert_workflow_attachment_row`) -- no budget/eviction; the cache wraps this. |
 | `backend/database/migrations/0020_workflows.py` | Schema for `workflow_attachments` + per-scope `workflow_state` columns (conversations / messages / character_cards) + `workflow_config` + `attachment_cache_budget_bytes` + `attachment_access_counter`. |
 | `backend/database/schema.py` | Mirror of post-migration shape for fresh installs. |
@@ -214,7 +214,7 @@ PRE/POST hooks are async generators yielding dict events. The rest are awaited a
 
 ## 5. Locks
 
-### 5.1 Shared in-process locks (`backend/locks.py`)
+### 5.1 Shared in-process locks (`backend/core/locks.py`)
 
 | Lock | Key | Scope |
 |---|---|---|
@@ -224,7 +224,7 @@ PRE/POST hooks are async generators yielding dict events. The rest are awaited a
 
 Non-reentrant `asyncio.Lock`s. Nesting order at every site: `workflow_state_lock` outer, `workflow_character_state_lock` inner.
 
-### 5.2 `_workflow_root_lock(root_id)` (`backend/main.py`)
+### 5.2 `_workflow_root_lock(root_id)` (`backend/api/deps.py`)
 
 Distinct, int-keyed space (`dict[int, asyncio.Lock]`), keyed on the root attachment id. Held by the five attachment-mutating routes: `/regenerate`, `/reroll-gen`, `/rehydrate`, `/activate`, `/delete`. It serializes concurrent edits to one attachment's variant group (the root row plus its sibling variants), so two callers cannot interleave a read-modify-write on the same group. It is never nested with `workflow_state_lock` or `workflow_character_state_lock` at any call site and so sits outside their ordering rule.
 
@@ -291,13 +291,13 @@ Fresh `dict` copy of `base` with `contribution`'s True entries merged. Accepts `
 
 The only attachment writer exposed to authors. See sec. 9.
 
-### 6.7 Workflow locks (re-exports from `backend.locks`)
+### 6.7 Workflow locks (re-exports from `backend.core.locks`)
 
 `workflow_state_lock(cid, wid)`, `workflow_character_state_lock(character_id, wid)`, and `workflow_config_lock()`. Hold the matching lock across a read-modify-write on the corresponding state tier (sec. 5, sec. 10). `workflow_character_state_lock` nests inside `workflow_state_lock` (conversation lock outer, character lock inner). There is no dedicated message-state lock: serialize a message-state RMW under `workflow_state_lock(cid, wid)` of the message's owning conversation.
 
 ---
 
-## 7. In-turn integration (`backend/orchestrator.py`)
+## 7. In-turn integration (`backend/pipeline/orchestrator.py`)
 
 ### 7.1 Turn entry points
 
@@ -434,7 +434,7 @@ Note: when `resp_text` is empty, `_persist_result` short-circuits (sec. 7.7) and
 
 ---
 
-## 8. HTTP routes (`backend/main.py`)
+## 8. HTTP routes (`backend/api/routes/`)
 
 ### 8.1 Per-route reference cards
 

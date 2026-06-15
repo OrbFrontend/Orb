@@ -2,8 +2,8 @@
 
 Locks confined to a single module (workflow-attachment root, conversation
 stream) live alongside that module; this file holds only the locks that
-are taken from both ``backend.main`` routes and the pipeline iteration in
-``backend.orchestrator``, so they need a neutral home to avoid a circular
+are taken from both ``backend.api`` routes and the pipeline iteration in
+``backend.pipeline.orchestrator``, so they need a neutral home to avoid a circular
 import.
 
 ``workflow_state_lock(cid, workflow_id)`` is acquired around each

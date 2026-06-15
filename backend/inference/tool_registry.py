@@ -249,7 +249,7 @@ assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys()), "BUILTIN_TOOL_NAMES drift 
 
 # Built-in tools partitioned by pipeline phase. PRE = director (pre-writer) tools;
 # POST = editor + feedback (post-writer) tools. give_feedback is a post-writer
-# feedback-step tool (passes/editor/feedback.py): it rides the shared per-turn tools
+# feedback-step tool (pipeline/passes/editor/feedback.py): it rides the shared per-turn tools
 # blob (Invariant 3) but must NOT be offered to or triggered by the director.
 PRE_WRITER_TOOLS = {"direct_scene", "rewrite_user_prompt"}
 POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite", "give_feedback"}

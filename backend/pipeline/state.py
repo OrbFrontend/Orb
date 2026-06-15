@@ -1,5 +1,5 @@
 """
-pipeline_state.py — The per-turn contract dataclasses shared across passes.
+state.py — The per-turn contract dataclasses shared across passes.
 
 These three dataclasses are the turn-state contract every pass reads: the
 orchestrator builds them and the director / writer / editor passes consume them.

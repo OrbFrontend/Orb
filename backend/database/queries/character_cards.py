@@ -289,7 +289,7 @@ async def set_workflow_character_state(character_id: str, workflow_id: str, payl
     """Atomic per-slot write via SQLite JSON1. payload=None removes the slot;
     empty dict stores {}. No-op if card missing (UPDATE matches zero rows).
 
-    Caller must hold backend.locks.workflow_character_state_lock(character_id,
+    Caller must hold backend.core.locks.workflow_character_state_lock(character_id,
     workflow_id) across the read-then-write the payload was computed from.
     """
     async with get_db() as db:
