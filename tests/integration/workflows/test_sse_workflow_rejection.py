@@ -14,7 +14,7 @@ from typing import AsyncIterator
 import pytest
 
 from backend.database import add_message, set_active_leaf
-from backend.orchestrator import _consume_pipeline
+from backend.pipeline.orchestrator import _consume_pipeline
 from backend.workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 
 from ._fixtures import make_workflow, register_for_test

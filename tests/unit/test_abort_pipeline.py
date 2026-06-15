@@ -18,8 +18,8 @@ import pytest
 
 from backend.inference import _KVCacheTracker
 from backend.inference import LLMClient
-from backend.orchestrator import _run_pipeline
-from backend.passes.director import DirectorResult
+from backend.pipeline.orchestrator import _run_pipeline
+from backend.pipeline.passes.director import DirectorResult
 
 _DIRECTOR_STATE = {"active_moods": []}
 _PREFIX = [{"role": "system", "content": "You are an assistant."}]
@@ -68,8 +68,8 @@ class TestAbortPropagation:
         }
 
         with (
-            patch("backend.passes.director.director.director_pass", new=mock_director),
-            patch("backend.passes.writer.writer_pass", new=mock_writer),
+            patch("backend.pipeline.passes.director.director.director_pass", new=mock_director),
+            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
         ):
             await _drain(
                 _run_pipeline(
@@ -108,8 +108,8 @@ class TestAbortPropagation:
         }
 
         with (
-            patch("backend.passes.writer.writer_pass", new=mock_writer),
-            patch("backend.passes.editor.editor.editor_pass", new=mock_editor),
+            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
+            patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
         ):
             await _drain(
                 _run_pipeline(
@@ -152,8 +152,8 @@ class TestErrorAborts:
         }
 
         with (
-            patch("backend.passes.director.director.director_pass", new=mock_director),
-            patch("backend.passes.writer.writer_pass", new=mock_writer),
+            patch("backend.pipeline.passes.director.director.director_pass", new=mock_director),
+            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
         ):
             with pytest.raises(RuntimeError, match="director endpoint exploded"):
                 await _drain(
@@ -192,8 +192,8 @@ class TestErrorAborts:
         }
 
         with (
-            patch("backend.passes.writer.writer_pass", new=mock_writer),
-            patch("backend.passes.editor.editor.editor_pass", new=mock_editor),
+            patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer),
+            patch("backend.pipeline.passes.editor.editor.editor_pass", new=mock_editor),
         ):
             with pytest.raises(RuntimeError, match="editor endpoint exploded"):
                 await _drain(

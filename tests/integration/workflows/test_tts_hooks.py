@@ -22,7 +22,7 @@ from backend.database import (
 )
 from backend.inference import _KVCacheTracker
 from backend.inference import LLMClient
-from backend.orchestrator import _run_pipeline
+from backend.pipeline.orchestrator import _run_pipeline
 from backend.workflows import (
     PostCtx,
     RegenCtx,
@@ -124,7 +124,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": '"Hello there."'}
 
-    with patch("backend.passes.writer.writer_pass", new=mock_writer):
+    with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
         events = [
             ev
             async for ev in _run_pipeline(

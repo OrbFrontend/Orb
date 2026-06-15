@@ -114,7 +114,7 @@ from .core import (
     workflow_state_lock,
 )
 from .core import Macros
-from .orchestrator import (
+from .pipeline import (
     agent_enabled,
     handle_fork_edit,
     handle_magic_rewrite,

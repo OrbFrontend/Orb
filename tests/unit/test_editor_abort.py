@@ -14,7 +14,7 @@ import pytest
 from backend.inference import CachedBase
 from backend.inference import LLMClient
 from backend.analysis import AuditReport
-from backend.passes.editor.editor import editor_pass
+from backend.pipeline.passes.editor.editor import editor_pass
 from backend.analysis.detectors.opening_monotony import MonotonyResult
 from backend.analysis.detectors.slop_detector import (
     ClicheHit,
@@ -119,7 +119,7 @@ async def test_editor_iteration_exception_propagates():
         pytest.fail(f"_run_contextual_audit called {audit_call_count} times; iteration should have aborted after LLM failure")
 
     with patch(
-        "backend.passes.editor.editor._run_contextual_audit",
+        "backend.pipeline.passes.editor.editor._run_contextual_audit",
         new=fake_run_contextual_audit,
     ):
         base = CachedBase(

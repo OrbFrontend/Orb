@@ -10,23 +10,23 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
 
-from ...analysis import AuditReport, DetectionResult, format_report, run_audit
+from ....analysis import AuditReport, DetectionResult, format_report, run_audit
 from .feedback import FeedbackResult, feedback_step
 
 if TYPE_CHECKING:
-    from ...database.models import PhraseGroup
-    from ...pipeline_state import TurnState, _PipelineConfig
-from ...inference import CachedBase
-from ...inference import _KVCacheTracker
-from ...inference import LLMClient, parse_tool_calls, reasoning_cfg
-from ...core import AssistantToolMessage, ContentPart, WireMessage
-from ...inference import build_editor_prompt
-from ...inference import (
+    from ....database.models import PhraseGroup
+    from ...state import TurnState, _PipelineConfig
+from ....inference import CachedBase
+from ....inference import _KVCacheTracker
+from ....inference import LLMClient, parse_tool_calls, reasoning_cfg
+from ....core import AssistantToolMessage, ContentPart, WireMessage
+from ....inference import build_editor_prompt
+from ....inference import (
     TOOLS,
     build_feedback_tool,
 )
-from ...core import extract_hyperparams
-from ...analysis import (
+from ....core import extract_hyperparams
+from ....analysis import (
     FlaggedOpener,
     FlaggedTemplate,
     MonotonyResult,

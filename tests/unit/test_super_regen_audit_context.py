@@ -17,7 +17,7 @@ import pytest
 from backend.inference import CachedBase
 from backend.inference import LLMClient
 from backend.analysis import AuditReport
-from backend.passes.editor.editor import editor_pass
+from backend.pipeline.passes.editor.editor import editor_pass
 from backend.analysis.detectors.opening_monotony import MonotonyResult
 from backend.analysis.detectors.slop_detector import DetectionResult
 from backend.analysis.detectors.structural_repetition import StructuralResult
@@ -78,7 +78,7 @@ async def test_audit_context_msgs_overrides_prefix():
         return _clean_report(), ""
 
     with patch(
-        "backend.passes.editor.editor._run_contextual_audit",
+        "backend.pipeline.passes.editor.editor._run_contextual_audit",
         new=fake_contextual_audit,
     ):
         events = []
@@ -121,7 +121,7 @@ async def test_no_audit_context_msgs_falls_back_to_prefix():
         return _clean_report(), ""
 
     with patch(
-        "backend.passes.editor.editor._run_contextual_audit",
+        "backend.pipeline.passes.editor.editor._run_contextual_audit",
         new=fake_contextual_audit,
     ):
         async for _ in editor_pass(
@@ -174,7 +174,7 @@ async def test_super_regen_prior_history_still_scanned():
         return _clean_report(), ""
 
     with patch(
-        "backend.passes.editor.editor._run_contextual_audit",
+        "backend.pipeline.passes.editor.editor._run_contextual_audit",
         new=fake_contextual_audit,
     ):
         async for _ in editor_pass(
@@ -220,7 +220,7 @@ async def test_super_regen_does_not_flag_replaced_message():
         return _clean_report(), ""
 
     with patch(
-        "backend.passes.editor.editor._run_contextual_audit",
+        "backend.pipeline.passes.editor.editor._run_contextual_audit",
         new=fake_contextual_audit,
     ):
         events = []

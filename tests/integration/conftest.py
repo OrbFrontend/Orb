@@ -95,14 +95,14 @@ def llm_mock(monkeypatch):
 
     ``from .inference import LLMClient`` binds a local name at import
     time, so patching only ``backend.inference.client.LLMClient`` is not
-    enough -- ``backend.main`` and ``backend.orchestrator`` retain
+    enough -- ``backend.main`` and ``backend.pipeline.orchestrator`` retain
     pre-patch references. The fixture patches all three.
     """
     fake = FakeLLMClient()
     factory = llm_factory(fake)
     monkeypatch.setattr("backend.inference.client.LLMClient", factory)
     monkeypatch.setattr("backend.main.LLMClient", factory)
-    monkeypatch.setattr("backend.orchestrator.LLMClient", factory)
+    monkeypatch.setattr("backend.pipeline.orchestrator.LLMClient", factory)
     return fake
 
 
