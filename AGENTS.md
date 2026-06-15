@@ -26,7 +26,7 @@ graph TD
     subgraph Backend ["Backend (FastAPI + SQLite)"]
         orch["handle_turn() in orchestrator.py"]
 
-        dir["Director Pass (passes/director.py) — pre-writer phase (optional)<br/>Runs the enabled PRE_WRITER_TOOLS, each as its own LLM call:<br/>1. rewrite_user_prompt (optional) → rewrites vague user messages<br/>2. direct_scene → fills fragments<br/>Fragments are user-defined (interactive_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
+        dir["Director Pass (passes/director/) — pre-writer phase (optional)<br/>Runs the enabled PRE_WRITER_TOOLS, each as its own LLM call:<br/>1. rewrite_user_prompt (optional) → rewrites vague user messages<br/>2. direct_scene → fills fragments<br/>Fragments are user-defined (interactive_fragments table),<br/>except moods (mood_fragments table).<br/>Returns: moods, plot_summary, keywords, next_event,<br/>writing_direction, detected_repetitions, etc."]
         writer["Writer Pass (passes/writer.py)<br/>Main generation pass. System prompt + history +<br/>Lorebook entries + Scene Direction injection block + user message.<br/>Streams response tokens via SSE."]
         editor["[Post-Writer] Editor Pass (passes/editor/) (optional)<br/>Checks: slop/contrastive negation, banned phrases,<br/>repetitive openers, templates, phrase repetition,<br/>structural repetition, length guard.<br/>Tools: editor_apply_patch or editor_rewrite.<br/>Up to 3 iterations."]
         summarizer["Summarizer (summarizer.py)<br/>Narrative summary + compress flow<br/>Not part of the pipeline — triggered manually"]
@@ -48,8 +48,9 @@ flowchart LR
     writer_prefix --> pipeline["_run_pipeline()"]
     agent_prefix --> pipeline
     lorebook --> pipeline
-    pipeline --> style_inj["Style injection computed inside _run_pipeline()<br/>via compute_style_injection_block()"]
-    pipeline --> writer["_writer_pass() receives prefix + inj_block + lorebook_block"]
+    pipeline --> dir_stage["director_stage() (passes/director/director.py)<br/>Runs director pass → folds DirectorResult into TurnState<br/>Applies prompt rewrite → computes style injection block<br/>Computes writer lorebook block (agentic or keyword-scanned)"]
+    dir_stage --> writer_stage["writer_stage() (passes/writer.py)<br/>Builds writer_content from TurnState.inj_block + lorebook_block<br/>Streams tokens → folds resp_text + latency into TurnState"]
+    writer_stage --> editor_stage["editor_stage() (passes/editor/editor.py)<br/>Emits writer_done → runs editor pass (if do_edit or feedback needed)<br/>Folds refined text + feedback_values + latency into TurnState"]
 ```
 
 ## Directory Structure
@@ -58,7 +59,9 @@ flowchart LR
 Orb/
 ├── backend/
 │   ├── main.py              # FastAPI app: all API routes, Pydantic models
-│   ├── orchestrator.py      # Pipeline orchestration: handle_turn, _run_pipeline
+│   ├── orchestrator.py      # Pipeline orchestration: handle_turn, _run_pipeline,
+│   │                        # TurnState (mutable per-turn bag threaded through stages),
+│   │                        # _make_result (projects TurnState → _result SSE event)
 │   ├── database/            # DB package (aiosqlite). __init__.py re-exports the
 │   │                        # full public API for backwards-compatible imports.
 │   │   ├── models.py        # Model layer: TypedDict row contracts + PhraseGroup;
@@ -87,10 +90,22 @@ Orb/
 │   ├── locks.py             # Cross-module asyncio locks (workflow_state / character_state / config / maintenance)
 │   ├── utils.py             # Shared utilities
 │   ├── passes/
-│   │   ├── director.py      # Director pass: LLM calls direct_scene tool
-│   │   ├── writer.py        # Writer pass: main streaming generation
+│   │   ├── director/        # Director pass package
+│   │   │   ├── __init__.py  # Re-exports: DirectorResult, director_pass, director_stage,
+│   │   │   │                # _agentic_lorebook_active, build_direct_scene_override,
+│   │   │   │                # build_lorebook_catalog
+│   │   │   ├── director.py  # director_pass (raw LLM loop) + director_stage (full stage:
+│   │   │   │                # pass + rewrite + style injection + lorebook block);
+│   │   │   │                # _agentic_lorebook_active, build_direct_scene_override
+│   │   │   └── prompt_rewrite.py # apply_rewrite, order_director_tools, suppresses_reasoning
+│   │   ├── writer.py        # writer_pass (raw LLM loop) + writer_stage (builds
+│   │   │                    # writer_content, streams tokens, folds latency into TurnState)
 │   │   └── editor/
-│   │       ├── editor.py    # Editor orchestrator: audit → patch/rewrite loop
+│   │       ├── __init__.py  # Re-exports: editor_pass, editor_stage, _feedback_active,
+│   │       │                # build_feedback_override, FeedbackResult, feedback_step
+│   │       ├── editor.py    # editor_pass (raw edit loop) + editor_stage (gating +
+│   │       │                # writer_done boundary + event translation);
+│   │       │                # _feedback_active, build_feedback_override
 │   │       ├── audit.py     # Phrase bank matching, opener/template detection
 │   │       ├── slop_detector.py       # Regex-based banned phrase detection
 │   │       ├── opening_monotony.py    # Repetitive sentence opener detection
