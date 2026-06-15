@@ -45,6 +45,7 @@ from .utils import extract_hyperparams
 from .passes.director import DirectorResult, director_pass
 from .passes.writer import writer_pass, build_writer_content
 from .passes.editor import editor_pass
+from .passes.director.prompt_rewrite import apply_rewrite, disable_rewrite
 from .passes.editor.length_guard import (
     LengthGuard,
     apply_length_guard_tools,
@@ -459,12 +460,9 @@ async def _run_pipeline(
                 extra_fields = result.extra_fields
                 selected_lorebook_entries = result.selected_lorebook_entries
                 progressive_fields = {k: v for k, v in extra_fields.items() if k in _valid_progressive_ids}
-        if rewritten_msg:
-            effective_msg = rewritten_msg
-            yield {
-                "event": "prompt_rewritten",
-                "data": {"refined_message": rewritten_msg},
-            }
+        effective_msg, did_rewrite = apply_rewrite(user_message, rewritten_msg)
+        if did_rewrite:
+            yield {"event": "prompt_rewritten", "data": {"refined_message": rewritten_msg}}
 
     # Bail out if stop was clicked during the director pass. The writer and
     # agent clients share one abort token, so checking either is equivalent.
@@ -1456,6 +1454,17 @@ async def _prepare_regen_context(
     return history, attachments
 
 
+async def _persist_rewrite(res: _PipelineResult, user_msg_id: int | None) -> None:
+    """Overwrite the stored user message with the director's rewrite, if any.
+
+    Touches the DB, so it stays in the orchestrator rather than the pure
+    ``prompt_rewrite`` module. Shared by both persistence paths (``_persist_result``
+    and ``_fallback_persist``) so the overwrite condition lives in one place.
+    """
+    if res.rewritten_msg and user_msg_id:
+        await db.update_message_content(user_msg_id, res.effective_msg)
+
+
 async def _persist_result(
     conversation_id: str,
     res: _PipelineResult,
@@ -1476,8 +1485,7 @@ async def _persist_result(
             res.active_moods,
             progressive_fields=res.progressive_fields,
         )
-    if res.rewritten_msg and user_msg_id:
-        await db.update_message_content(user_msg_id, res.effective_msg)
+    await _persist_rewrite(res, user_msg_id)
 
     # Only create a message if there's actual content.
     # The writer pass can produce empty resp_text if the LLM completes
@@ -1552,8 +1560,7 @@ async def _fallback_persist(
                 res.active_moods,
                 progressive_fields=res.progressive_fields,
             )
-        if res.rewritten_msg and user_msg_id:
-            await db.update_message_content(user_msg_id, res.effective_msg)
+        await _persist_rewrite(res, user_msg_id)
 
         # Only save if there's actual writer output (token events).
         # accumulated_text only contains streamed tokens from the writer pass;
@@ -2052,10 +2059,7 @@ async def handle_super_regenerate(
         # rewrite_user_prompt must not alter the OOC steering message.
         super_regen_settings = {
             **settings,
-            "enabled_tools": {
-                **(settings.get("enabled_tools") or {}),
-                "rewrite_user_prompt": False,
-            },
+            "enabled_tools": disable_rewrite(settings.get("enabled_tools") or {}),
         }
 
         # Collect audit context from history only — exclude target["content"] so

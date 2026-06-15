@@ -12,15 +12,16 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Optional, Sequence
 
-from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ..kv_tracker import CachedBase
-from ..tool_defs import (
+from ...llm_client import LLMClient, parse_tool_calls, reasoning_cfg
+from ...kv_tracker import CachedBase
+from ...tool_defs import (
     TOOLS,
     PRE_WRITER_TOOLS,
 )
-from ..prompt_builder import build_director_tool_prompt
-from ..llm_types import ChatMessage
-from ..utils import extract_hyperparams, build_multimodal_content
+from ...prompt_builder import build_director_tool_prompt
+from ...llm_types import ChatMessage
+from ...utils import extract_hyperparams, build_multimodal_content
+from .prompt_rewrite import extract_rewritten_message, order_director_tools, suppresses_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ def apply_tool_calls(
                 k: v for k, v in args.items() if k not in ("moods", "selected_lorebook_entries") and v not in (None, "", [])
             }
         elif tc["name"] == "rewrite_user_prompt":
-            refined = args.get("refined_message") or None
+            refined = extract_rewritten_message(args)
 
     return (moods, refined, extra_fields, selected_lorebook_entries)
 
@@ -123,8 +124,7 @@ async def director_pass(
     # Enforce priority order: rewrite_user_prompt first so users can abort
     # early if they dislike the rewrite before the full director runs.
     if len(tool_names) > 1:
-        priority = ["rewrite_user_prompt", "direct_scene"]
-        tool_names.sort(key=lambda x: priority.index(x) if x in priority else len(priority))
+        tool_names = order_director_tools(tool_names)
 
     if not tool_names:
         yield {
@@ -169,7 +169,7 @@ async def director_pass(
         resp: dict = {}
         # Errors are not caught here: a failed tool call propagates out of the
         # pass and aborts the turn, like the writer/editor passes.
-        reasoning_params = reasoning_cfg(reasoning_on and name != "rewrite_user_prompt")
+        reasoning_params = reasoning_cfg(reasoning_on and not suppresses_reasoning(name))
         hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
         async for event in base.complete(
             client,

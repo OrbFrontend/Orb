@@ -228,7 +228,13 @@ def build_director_tool_prompt(
             parts.append("Previous progressive fields - dynamically update these:\n" + "\n".join(progressive_lines))
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
     elif tool_name == "rewrite_user_prompt":
-        parts.append(f'User\'s message:\n"""[{user_message}]"""')
+        # Deferred import: the passes depend on prompt_builder (director.py imports
+        # build_director_tool_prompt), so importing prompt_rewrite at module top
+        # would cycle through the passes.director package __init__. Local import
+        # keeps the layering one-directional at load time.
+        from .passes.director.prompt_rewrite import build_rewrite_prompt
+
+        parts.append(build_rewrite_prompt(user_message))
     return "\n\n".join(parts)
 
 
