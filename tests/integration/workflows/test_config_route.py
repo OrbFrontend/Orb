@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 
-from backend.locks import workflow_config_lock
+from backend.core.locks import workflow_config_lock
 from backend.workflows import (
     Workflow,
     get_workflow_config,

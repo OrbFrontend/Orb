@@ -32,12 +32,12 @@ from ..database import (
     get_user_personas,
 )
 from ..llm_client import LLMClient, parse_tool_calls, reasoning_cfg
-from ..locks import (
+from ..core import (
     workflow_character_state_lock,
     workflow_config_lock,
     workflow_state_lock,
 )
-from ..macros import Macros
+from ..core import Macros
 from ..passes.editor.audit import format_report, run_audit
 from ..prompt_builder import (
     build_prefix,

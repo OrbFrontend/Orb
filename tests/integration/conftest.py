@@ -33,7 +33,7 @@ def _reset_module_locks():
     Several lock caches key ``asyncio.Lock`` objects by id/key tuples:
     ``backend.main._workflow_root_locks`` (root_id) and
     ``_conversation_stream_locks`` (conversation id), plus
-    ``backend.locks._workflow_state_locks`` and
+    ``backend.core.locks._workflow_state_locks`` and
     ``_workflow_character_state_locks`` (both ``(key, workflow_id)`` tuples)
     which the orchestrator and ``/trigger`` route acquire. Each test gets a
     fresh temp DB, so autoincrement ids restart at 1 and those keys collide
@@ -46,7 +46,8 @@ def _reset_module_locks():
     (``workflow_config_lock`` is excluded: it already keys its dict by running
     loop, so its entries are self-isolating.)
     """
-    from backend import locks, main
+    from backend import main
+    from backend.core import locks
 
     lock_dicts = (
         main._workflow_root_locks,

@@ -21,7 +21,7 @@ import tempfile
 from datetime import datetime, timezone
 from typing import cast
 
-from ...utils import scrub_log
+from ...core import scrub_log
 from ..connection import get_db
 from ..models import WorkflowAttachmentRow
 

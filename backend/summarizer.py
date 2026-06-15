@@ -4,8 +4,8 @@ from typing import Any, AsyncGenerator, Mapping, Sequence
 
 from . import prompt_builder
 from .llm_client import LLMClient
-from .llm_types import ChatMessage
-from .macros import Macros
+from .core import ChatMessage
+from .core import Macros
 
 DEFAULT_SUMMARY_INSTRUCTIONS = (
     "[OOC: Write a rich prose narrative summary of the story so far. "

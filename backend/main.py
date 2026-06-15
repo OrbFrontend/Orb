@@ -106,13 +106,13 @@ from .database import (
 from .database.migrations import run_pending
 from .database.models import ConversationRow
 from .llm_client import AbortToken, LLMClient
-from .locks import (
+from .core import (
     maintenance_lock,
     workflow_character_state_lock,
     workflow_config_lock,
     workflow_state_lock,
 )
-from .macros import Macros
+from .core import Macros
 from .orchestrator import (
     agent_enabled,
     handle_fork_edit,
@@ -124,7 +124,7 @@ from .orchestrator import (
 )
 from .summarizer import ConversationSummarizer
 from .tool_registry import TOOLS
-from .utils import estimate_tokens, scrub_log
+from .core import estimate_tokens, scrub_log
 from .workflows import (
     HookType,
     OnDemandCtx,

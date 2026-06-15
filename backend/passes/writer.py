@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
 from ..cached_call import CachedBase
 from ..kv_tracker import _KVCacheTracker
 from ..llm_client import LLMClient, reasoning_cfg
-from ..llm_types import ChatMessage, ContentPart
-from ..utils import build_multimodal_content, extract_hyperparams
+from ..core import ChatMessage, ContentPart
+from ..core import build_multimodal_content, extract_hyperparams
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
