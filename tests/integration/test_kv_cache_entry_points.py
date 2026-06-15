@@ -241,9 +241,9 @@ async def test_entry_point_tools_blob_and_prefix_match_the_turn(client, llm_mock
             "cached system prefix — build_prefix rendered the system body differently."
         )
         sent = _serialize_messages(c["messages"])
-        assert (
-            "{{char}}" not in sent and "{{user}}" not in sent
-        ), f"MACRO LEAK: entry point {name!r} shipped an unresolved placeholder to the model."
+        assert "{{char}}" not in sent and "{{user}}" not in sent, (
+            f"MACRO LEAK: entry point {name!r} shipped an unresolved placeholder to the model."
+        )
 
 
 async def test_magic_rewrite_ships_the_turns_full_tools_blob(client, llm_mock):

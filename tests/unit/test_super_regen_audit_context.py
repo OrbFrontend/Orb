@@ -96,9 +96,9 @@ async def test_audit_context_msgs_overrides_prefix():
             events.append(event)
 
     assert len(captured_prev_msgs) == 1, "audit should run exactly once (clean result)"
-    assert (
-        captured_prev_msgs[0] == []
-    ), f"audit_context_msgs=[] must be forwarded directly; got {captured_prev_msgs[0]!r} instead (prefix-derived)"
+    assert captured_prev_msgs[0] == [], (
+        f"audit_context_msgs=[] must be forwarded directly; got {captured_prev_msgs[0]!r} instead (prefix-derived)"
+    )
 
 
 @pytest.mark.asyncio
@@ -240,6 +240,6 @@ async def test_super_regen_does_not_flag_replaced_message():
     done_events = [e for e in events if e.get("type") == "done"]
     assert len(done_events) == 1
     # Clean audit → no LLM call needed → draft is returned as None (unchanged)
-    assert (
-        done_events[0]["draft"] is None
-    ), "Editor should not attempt to rewrite when audit_context_msgs excludes the replaced message and the audit is clean"
+    assert done_events[0]["draft"] is None, (
+        "Editor should not attempt to rewrite when audit_context_msgs excludes the replaced message and the audit is clean"
+    )

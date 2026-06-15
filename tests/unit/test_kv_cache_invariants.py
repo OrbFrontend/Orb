@@ -484,9 +484,9 @@ async def test_feedback_step_reuses_shared_blob_no_cache_bust():
     assert '"give_feedback"' in the_blob, "give_feedback schema is missing from the shared tools blob"
 
     # Explicit cross-pass equality: feedback's blob == writer's blob == editor's.
-    assert (
-        wire["feedback"] == wire["writer"] == wire["editor"]
-    ), "feedback/writer/editor tools blobs differ — the feedback step is not reusing the frozen shared base."
+    assert wire["feedback"] == wire["writer"] == wire["editor"], (
+        "feedback/writer/editor tools blobs differ — the feedback step is not reusing the frozen shared base."
+    )
 
     # Message-stack guard — the half a tools-only check misses. The feedback call
     # must EXTEND the writer/editor stack, not fork off base.prefix with a fresh
@@ -580,9 +580,9 @@ async def test_dual_model_agent_passes_share_agent_prefix_and_writer_drops_tools
 
     # Agent passes (director + editor) ride the agent prefix.
     for label in ("director:direct_scene", "editor"):
-        assert entries[label]["msgs_serialized"].startswith(
-            agent_prefix_bytes
-        ), f"CACHE BUST: agent pass {label!r} does not start with the agent prefix."
+        assert entries[label]["msgs_serialized"].startswith(agent_prefix_bytes), (
+            f"CACHE BUST: agent pass {label!r} does not start with the agent prefix."
+        )
 
     # Writer rides its own prefix and ships NO tools (Inv-5).
     assert entries["writer"]["msgs_serialized"].startswith(writer_prefix_bytes)
@@ -597,9 +597,9 @@ async def test_dual_model_agent_passes_share_agent_prefix_and_writer_drops_tools
     wire = _wire_tools_by_label(client, agent_client)
     director_blobs = wire["director:direct_scene"]
     editor_blobs = wire["editor"]
-    assert (
-        director_blobs == editor_blobs and len(director_blobs) == 1
-    ), "CACHE BUST: Director and Editor (both on the agent server) no longer share a byte-identical tools blob."
+    assert director_blobs == editor_blobs and len(director_blobs) == 1, (
+        "CACHE BUST: Director and Editor (both on the agent server) no longer share a byte-identical tools blob."
+    )
     assert next(iter(editor_blobs)), "agent passes should carry a non-empty tools blob"
     # Writer (other server) genuinely sends no tools.
     assert wire["writer"] == {""}
