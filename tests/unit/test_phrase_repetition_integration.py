@@ -46,9 +46,29 @@ def test_phrase_repetition_no_false_positive_when_draft_is_distinct():
     )
 
 
-def test_phrase_repetition_below_threshold_not_flagged():
-    """An echo across only two messages (draft + one previous) must NOT be
-    flagged, since the default threshold is three messages."""
+def test_phrase_repetition_two_word_pair_below_threshold_not_flagged():
+    """A two-word pair echoed across only two messages (draft + one previous)
+    must NOT be flagged: short phrases keep the higher three-message threshold,
+    since a 2-word match is easily a coincidence."""
+    prev1 = "His eyes burned with quiet fury at the news."
+    draft = "A quiet fury settled over the room as he left."
+
+    report, _ = _run_contextual_audit(
+        draft=draft,
+        phrase_bank=[],
+        previous_assistant_msgs=[prev1],
+    )
+    assert report.phrase_result is not None
+    assert not report.phrase_result.flagged_phrases, (
+        "A two-word pair shared by only two messages must not be flagged at the "
+        f"three-message threshold, got {[p.phrase for p in report.phrase_result.flagged_phrases]}"
+    )
+
+
+def test_phrase_repetition_long_phrase_flagged_at_two_messages():
+    """A three-word phrase echoed across only two messages (draft + one previous)
+    MUST be flagged: longer phrases are distinctive enough that a single repeat is
+    damning, so they use the lower two-message threshold."""
     draft = "She met the shadowed red eyes across the crowded table without a word."
 
     report, _ = _run_contextual_audit(
@@ -57,9 +77,9 @@ def test_phrase_repetition_below_threshold_not_flagged():
         previous_assistant_msgs=[_PREV1],
     )
     assert report.phrase_result is not None
-    assert not report.phrase_result.flagged_phrases, (
-        "A phrase shared by only two messages must not be flagged at the "
-        f"three-message threshold, got {[p.phrase for p in report.phrase_result.flagged_phrases]}"
+    phrases = [p.phrase for p in report.phrase_result.flagged_phrases]
+    assert "shadowed red eyes" in phrases, (
+        f"A distinctive 3-word phrase shared by two messages must be flagged at the two-message threshold, got {phrases}"
     )
 
 

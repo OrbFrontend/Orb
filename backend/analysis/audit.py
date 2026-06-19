@@ -19,6 +19,7 @@ from .detectors.structural_repetition import (
     detect_structural_repetition,
 )
 from .detectors.template_repetition import TemplateResult, detect_template_repetition
+from .text.lexical import is_contiguous_subsequence
 
 # Audit toggles
 #
@@ -45,6 +46,30 @@ def _on(toggles: dict | None, key: str) -> bool:
     """Whether scanner *key* is enabled. Missing key / None toggles → enabled,
     so callers (and older databases) default to the prior all-on behaviour."""
     return True if toggles is None else bool(toggles.get(key, True))
+
+
+def _merge_phrase_results(short: PhraseResult, long: PhraseResult) -> PhraseResult:
+    """Combine the short-phrase (high-threshold) and long-phrase (low-threshold)
+    phrase-repetition passes into a single result.
+
+    A short phrase is dropped when it is a contiguous sub-phrase of a long phrase
+    covering the exact same messages. This mirrors the detector's own sub-gram
+    suppression across the two passes, so a longer phrase repeating often doesn't
+    also surface its 2-word fragment (e.g. "shadowed red" alongside
+    "shadowed red eyes")."""
+    long_signatures = [(tuple(p.phrase.split()), frozenset(p.message_indices)) for p in long.flagged_phrases]
+    merged = list(long.flagged_phrases)
+    for sp in short.flagged_phrases:
+        s_tokens = tuple(sp.phrase.split())
+        s_messages = frozenset(sp.message_indices)
+        if any(
+            s_messages == l_messages and is_contiguous_subsequence(s_tokens, l_tokens)
+            for l_tokens, l_messages in long_signatures
+        ):
+            continue
+        merged.append(sp)
+    merged.sort(key=lambda p: (-p.count, -len(p.phrase.split()), p.phrase))
+    return PhraseResult(flagged_phrases=merged, total_messages=short.total_messages)
 
 
 # Data container
@@ -139,6 +164,8 @@ def run_audit(
     phrase_min_n: int = 2,
     phrase_max_n: int = 5,
     phrase_min_messages: int = 3,
+    phrase_short_max_n: int = 2,
+    phrase_long_min_messages: int = 2,
     phrase_min_content_words: int = 2,
     assistant_messages: list[str] | None = None,
     structural_text: str | None = None,
@@ -181,14 +208,29 @@ def run_audit(
             )
         if _on(audit_toggles, "phrase_repetition"):
             # The draft must be last so require_last_message focuses flags on it.
-            phrase_result = detect_phrase_repetition(
-                assistant_messages + [current_msg],
+            phrase_messages = assistant_messages + [current_msg]
+            # Two universal passes with different thresholds by phrase length:
+            #  - short phrases (up to phrase_short_max_n words) need phrase_min_messages
+            #    repeats, since a 2-word match is easily a coincidence.
+            #  - longer phrases are distinctive enough that phrase_long_min_messages
+            #    (a lower threshold) repeats are damning.
+            short_phrases = detect_phrase_repetition(
+                phrase_messages,
                 min_n=phrase_min_n,
-                max_n=phrase_max_n,
+                max_n=phrase_short_max_n,
                 min_messages=phrase_min_messages,
                 min_content_words=phrase_min_content_words,
                 require_last_message=True,
             )
+            long_phrases = detect_phrase_repetition(
+                phrase_messages,
+                min_n=phrase_short_max_n + 1,
+                max_n=phrase_max_n,
+                min_messages=phrase_long_min_messages,
+                min_content_words=phrase_min_content_words,
+                require_last_message=True,
+            )
+            phrase_result = _merge_phrase_results(short_phrases, long_phrases)
 
     return AuditReport(
         cliche_result=(
