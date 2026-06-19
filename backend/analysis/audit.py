@@ -136,7 +136,7 @@ def run_audit(
     template_flag_threshold: int = 2,
     structural_similarity_threshold: float = 0.75,
     structural_min_complexity: int = 2,
-    phrase_min_n: int = 3,
+    phrase_min_n: int = 2,
     phrase_max_n: int = 5,
     phrase_min_messages: int = 3,
     phrase_min_content_words: int = 2,

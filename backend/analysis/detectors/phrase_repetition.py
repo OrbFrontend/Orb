@@ -5,7 +5,7 @@ Catches stock phrases the model keeps reaching for across multiple turns, like
 a description that reappears word-for-word in three different messages.
 
 Public API:
-    detect_phrase_repetition(messages, min_n=3, max_n=5, min_messages=2,
+    detect_phrase_repetition(messages, min_n=2, max_n=5, min_messages=2,
                              min_content_words=2, require_last_message=True)
     PhraseResult, FlaggedPhrase  (dataclasses)
 
@@ -109,7 +109,7 @@ def _suppress_subgrams(
 
 def detect_phrase_repetition(
     messages: list[str],
-    min_n: int = 3,
+    min_n: int = 2,
     max_n: int = 5,
     min_messages: int = 2,
     min_content_words: int = 2,
@@ -125,6 +125,9 @@ def detect_phrase_repetition(
         min_messages: how many distinct messages a phrase must appear in to be flagged.
         min_content_words: minimum content words (non-stopwords) in a phrase.
             Filters out grammatical glue like "in the air" or "I don't know".
+            Load-bearing at min_n=2: a value of 2 forces both tokens of a 2-gram
+            to be content words, so 2-word flags can't degenerate into a
+            single-word match dressed up with a stopword ("the eyes", "his gaze").
         require_last_message: when True, only flag phrases that also appear in
             the last message. Set to False to flag any repeated phrase across the
             full list.
