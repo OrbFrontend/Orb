@@ -48,6 +48,7 @@ DEBUG = "DEBUG_PHRASE_REPETITION" in os.environ
 
 __all__ = [
     "detect_phrase_repetition",
+    "deduplicate_phrases",
     "PhraseResult",
     "FlaggedPhrase",
 ]
@@ -77,31 +78,57 @@ class PhraseResult:
 _split_sentences = split_narration_sentences
 
 
-# ---------- n-gram suppression ----------
+# ---------- redundancy suppression ----------
 # n-gram extraction and the contiguous-containment test both live in lexical
 # (shared, were duplicated here); this module keeps only the suppression policy.
+# deduplicate_phrases is the single source of truth, used here and by audit's
+# two-pass merge so the same phrase can't surface twice across passes.
 
 
-def _suppress_subgrams(
-    candidates: dict[tuple[str, ...], dict[int, str]],
-) -> dict[tuple[str, ...], dict[int, str]]:
-    """Drop shorter n-grams that are fully contained in a longer n-gram appearing in the same set of messages."""
-    by_fingerprint: dict[frozenset[int], list[tuple[tuple[str, ...], dict[int, str]]]] = {}
-    for gram, docs in candidates.items():
-        fp = frozenset(docs.keys())
-        by_fingerprint.setdefault(fp, []).append((gram, docs))
+def _rank(p: FlaggedPhrase) -> tuple[int, int, str]:
+    """Best-first ordering: most frequent, then longest, then alphabetical."""
+    return (-p.count, -len(p.phrase.split()), p.phrase)
 
-    survivors: dict[tuple[str, ...], dict[int, str]] = {}
-    for items in by_fingerprint.values():
-        # Longest first; keep only ones not contained in something already kept.
-        items.sort(key=lambda x: len(x[0]), reverse=True)
-        kept: list[tuple[str, ...]] = []
-        for gram, docs in items:
-            if any(is_contiguous_subsequence(gram, k) for k in kept):
-                continue
-            kept.append(gram)
-            survivors[gram] = docs
-    return survivors
+
+def _overlap_chains(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
+    """True when a and b tile a longer phrase head-to-tail — a suffix of one
+    equals a prefix of the other — and the shared run carries a content word.
+    Catches one long repeat surfacing as two overlapping fragments, e.g.
+    "the tight ring" + "ring of muscle" (overlap "ring"). The content-word
+    requirement stops stopword joints ("into the" + "the dark") from merging."""
+    for x, y in ((a, b), (b, a)):
+        for k in range(min(len(x), len(y)) - 1, 0, -1):  # k < len excludes containment
+            if x[-k:] == y[:k] and count_content_words(x[-k:]):
+                return True
+    return False
+
+
+def deduplicate_phrases(phrases: list[FlaggedPhrase]) -> list[FlaggedPhrase]:
+    """Drop phrases that restate the same underlying repeat as another.
+
+    A shorter phrase contiguously contained in a longer one always recurs in a
+    superset of the longer's messages, so for each containment pair keep:
+      - the longer phrase when both span the same messages (more specific), else
+      - the shorter phrase, which recurs more widely (the longer is a partial
+        coincidence: "six centuries" in 3 msgs subsumes "for six centuries" in 2).
+    For phrases that merely overlap head-to-tail across the same messages, keep
+    the higher-ranked one ("ring of muscle" / "the tight ring" -> one line).
+    Survivors are returned best-first (_rank order); callers need not re-sort.
+    """
+    grams = {id(p): tuple(p.phrase.split()) for p in phrases}
+    msgs = {id(p): frozenset(p.message_indices) for p in phrases}
+    suppressed: set[int] = set()
+    for i, a in enumerate(phrases):
+        for b in phrases[i + 1 :]:
+            ga, gb = grams[id(a)], grams[id(b)]
+            short, long = (a, b) if len(ga) <= len(gb) else (b, a)
+            sg, lg = grams[id(short)], grams[id(long)]
+            if len(sg) < len(lg) and is_contiguous_subsequence(sg, lg):
+                same = msgs[id(short)] == msgs[id(long)]
+                suppressed.add(id(short) if same else id(long))
+            elif msgs[id(a)] == msgs[id(b)] and _overlap_chains(ga, gb):
+                suppressed.add(id(max((a, b), key=_rank)))
+    return sorted((p for p in phrases if id(p) not in suppressed), key=_rank)
 
 
 # ---------- public API ----------
@@ -175,13 +202,8 @@ def detect_phrase_repetition(
     if DEBUG:
         sys.stderr.write(f"[phrase_repetition] {len(candidates)} candidates after filters\n")
 
-    survivors = _suppress_subgrams(candidates)
-
-    if DEBUG:
-        sys.stderr.write(f"[phrase_repetition] {len(survivors)} after sub-gram suppression\n")
-
     flagged: list[FlaggedPhrase] = []
-    for gram, docs in survivors.items():
+    for gram, docs in candidates.items():
         ordered = sorted(docs.keys())
         flagged.append(
             FlaggedPhrase(
@@ -192,5 +214,9 @@ def detect_phrase_repetition(
             )
         )
 
-    flagged.sort(key=lambda p: (-p.count, -len(p.phrase.split()), p.phrase))
+    flagged = deduplicate_phrases(flagged)
+
+    if DEBUG:
+        sys.stderr.write(f"[phrase_repetition] {len(flagged)} after redundancy suppression\n")
+
     return PhraseResult(flagged_phrases=flagged, total_messages=total)

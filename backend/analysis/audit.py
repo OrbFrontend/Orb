@@ -13,13 +13,16 @@ if TYPE_CHECKING:
 from .detectors.anti_echo import EchoResult, detect_anti_echo
 from .detectors.contrastive_negation import detect_contrastive_negation
 from .detectors.opening_monotony import MonotonyResult, detect_opening_monotony
-from .detectors.phrase_repetition import PhraseResult, detect_phrase_repetition
+from .detectors.phrase_repetition import (
+    PhraseResult,
+    deduplicate_phrases,
+    detect_phrase_repetition,
+)
 from .detectors.structural_repetition import (
     StructuralResult,
     detect_structural_repetition,
 )
 from .detectors.template_repetition import TemplateResult, detect_template_repetition
-from .text.lexical import is_contiguous_subsequence
 
 # Audit toggles
 #
@@ -52,23 +55,12 @@ def _merge_phrase_results(short: PhraseResult, long: PhraseResult) -> PhraseResu
     """Combine the short-phrase (high-threshold) and long-phrase (low-threshold)
     phrase-repetition passes into a single result.
 
-    A short phrase is dropped when it is a contiguous sub-phrase of a long phrase
-    covering the exact same messages. This mirrors the detector's own sub-gram
-    suppression across the two passes, so a longer phrase repeating often doesn't
-    also surface its 2-word fragment (e.g. "shadowed red" alongside
-    "shadowed red eyes")."""
-    long_signatures = [(tuple(p.phrase.split()), frozenset(p.message_indices)) for p in long.flagged_phrases]
-    merged = list(long.flagged_phrases)
-    for sp in short.flagged_phrases:
-        s_tokens = tuple(sp.phrase.split())
-        s_messages = frozenset(sp.message_indices)
-        if any(
-            s_messages == l_messages and is_contiguous_subsequence(s_tokens, l_tokens)
-            for l_tokens, l_messages in long_signatures
-        ):
-            continue
-        merged.append(sp)
-    merged.sort(key=lambda p: (-p.count, -len(p.phrase.split()), p.phrase))
+    deduplicate_phrases drops any phrase that restates the same repeat as another
+    across the two passes — a sub-phrase of a longer one ("shadowed red" under
+    "shadowed red eyes"), a longer phrase that recurs less than its frequent core
+    ("for six centuries" under "six centuries"), or an overlapping fragment
+    ("the tight ring" beside "ring of muscle")."""
+    merged = deduplicate_phrases(long.flagged_phrases + short.flagged_phrases)
     return PhraseResult(flagged_phrases=merged, total_messages=short.total_messages)
 
 
