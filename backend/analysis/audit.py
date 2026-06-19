@@ -305,10 +305,18 @@ def format_report(report: AuditReport) -> str:
     # 5. Exact phrase repetition (echoed across messages)
     if report.phrase_result and report.phrase_result.flagged_phrases:
         lines = ["Repeated Phrases (echoed across messages)"]
+        # Group phrases that cite the same target sentence so it's shown once, not
+        # repeated under every phrase that happens to live in it.
+        groups: dict[str, list] = {}
         for fp in report.phrase_result.flagged_phrases:
-            lines.append(f'   - "{_strip_asterisks(fp.phrase)}" (in {fp.count} previous messages):')
-            if fp.example_sentences:
-                lines.append(f"     • {_strip_asterisks(fp.example_sentences[-1])}")
+            sentence = fp.example_sentences[-1] if fp.example_sentences else ""
+            groups.setdefault(sentence, []).append(fp)
+        for sentence, fps in groups.items():
+            for j, fp in enumerate(fps):
+                suffix = ":" if sentence and j == len(fps) - 1 else ""
+                lines.append(f'   - "{_strip_asterisks(fp.phrase)}" (in {fp.count} previous messages){suffix}')
+            if sentence:
+                lines.append(f"     • {_strip_asterisks(sentence)}")
         sections.append("\n".join(lines))
 
     # 6. Structural repetition
