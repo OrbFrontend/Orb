@@ -375,6 +375,38 @@ async def test_complete_text_grammar_overrides_json_schema():
     assert "json_schema" not in captured["body"]
 
 
+async def test_complete_text_json_schema_narrows_forced_grammar():
+    # Per-fragment director steps: the caller-supplied json_schema replaces the
+    # tool-derived one, constraining decoding without touching the prompt.
+    client = _text_client()
+    captured: dict = {}
+
+    async def fake_apply(root, msgs):
+        return "P"
+
+    async def fake_props(root):
+        return ""
+
+    async def fake_stream(url, body):
+        captured["body"] = body
+        yield {"content": "{}", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._apply_template = fake_apply  # type: ignore[method-assign]
+    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    full = {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "string"}}}
+    narrow = {"type": "object", "properties": {"a": {"type": "string"}}, "required": []}
+    tools = [{"type": "function", "function": {"name": "t", "parameters": full}}]
+    choice = {"type": "function", "function": {"name": "t"}}
+    await _drain(
+        client.complete(
+            messages=[{"role": "user", "content": "hi"}], model="m", tools=tools, tool_choice=choice, json_schema=narrow
+        )
+    )
+    assert captured["body"]["json_schema"] == narrow
+
+
 async def test_chat_transport_drops_grammar():
     client = LLMClient("http://x/v1", completion_mode="chat")
     captured: dict = {}
@@ -384,8 +416,16 @@ async def test_chat_transport_drops_grammar():
         yield {"type": "done", "message": {}, "usage": None}
 
     client._complete_chat = fake_chat  # type: ignore[method-assign]
-    await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", grammar="root ::= x"))
+    await _drain(
+        client.complete(
+            messages=[{"role": "user", "content": "hi"}],
+            model="m",
+            grammar="root ::= x",
+            json_schema={"type": "object"},
+        )
+    )
     assert "grammar" not in captured["params"]
+    assert "json_schema" not in captured["params"]
 
 
 async def test_complete_text_apply_template_error_falls_back_to_chat():

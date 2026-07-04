@@ -124,10 +124,12 @@ class LLMClient:
             async for event in self._complete_text(messages, model, tools, tool_choice, **params):
                 yield event
             return
-        # Chat transport: prefill (no render step) and raw GBNF grammar are
-        # text-mode concepts; drop them so such calls degrade cleanly here.
+        # Chat transport: prefill (no render step), raw GBNF grammar, and the
+        # per-call json_schema narrowing are text-mode concepts; drop them so
+        # such calls degrade cleanly here.
         params.pop("prefill", None)
         params.pop("grammar", None)
+        params.pop("json_schema", None)
         async for event in self._complete_chat(messages, model, tools, tool_choice, **params):
             yield event
 
@@ -409,6 +411,7 @@ class LLMClient:
         """
         prefill = params.pop("prefill", None)
         grammar = params.pop("grammar", None)
+        schema_override = params.pop("json_schema", None)
         render_msgs: list[Mapping[str, Any]] = list(messages)
         if prefill:
             # F9: a trailing assistant message renders as an open model turn ending
@@ -432,7 +435,12 @@ class LLMClient:
 
         # Forced tool_choice → grammar-constrain the whole output to the tool's
         # JSON schema. tools is otherwise unused in text mode (never rendered).
+        # A caller-supplied json_schema narrows the forced grammar per call
+        # (e.g. one direct_scene field per step) — decoding-only, so the prompt
+        # bytes and KV cache are untouched.
         schema = text_completion.forced_schema(tools, tool_choice)
+        if schema is not None and schema_override is not None:
+            schema = schema_override
         forced_name: str | None = None
         if schema is not None and isinstance(tool_choice, dict):
             forced_name = (tool_choice.get("function") or {}).get("name")

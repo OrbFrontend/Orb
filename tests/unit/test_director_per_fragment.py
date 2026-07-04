@@ -46,9 +46,11 @@ class _FakeBase:
         self.prefix: list = []
         self._responses = list(responses)
         self.calls: list[tuple[str, str]] = []
+        self.schemas: list[dict | None] = []
 
-    async def complete(self, *_, label, trailing, **__):
+    async def complete(self, *_, label, trailing, **kw):
         self.calls.append((label, trailing[0]["content"]))
+        self.schemas.append(kw.get("json_schema"))
         yield {"type": "done", "message": self._responses.pop(0)}
 
 
@@ -133,7 +135,22 @@ class TestPerFragmentLoop:
         assert len(base.calls) == 4  # one moods call + one per fragment
         assert result.active_moods == ["tense"]  # fragment-stage moods are ignored
         assert result.extra_fields == {"user_intent": "wants X", "keywords": ["a", "b"]}  # empty next_event skipped
-        assert len(result.calls) == 4
+        # Each recorded call keeps only its stage's field — extras the model
+        # volunteered (moods on call 2, user_intent on call 3) are stripped.
+        assert [tc["arguments"] for tc in result.calls] == [
+            {"moods": ["tense"]},
+            {"user_intent": "wants X"},
+            {"keywords": ["a", "b"]},
+            {},
+        ]
+        # Each step call narrows the decoding grammar to its target field only
+        # (applied in text mode; the chat transport drops it).
+        assert [list((s or {}).get("properties", {})) for s in base.schemas] == [
+            ["moods"],
+            ["user_intent"],
+            ["keywords"],
+            ["next_event"],
+        ]
 
     def _toggle_on(self):
         return {"director_individual_fragments": 1}

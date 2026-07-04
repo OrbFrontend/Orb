@@ -58,6 +58,25 @@ def build_direct_scene_override(
     return build_direct_scene_tool(writer_fragments)
 
 
+def _step_schema(tool_schema: dict, keep: str) -> dict | None:
+    """Single-field variant of the ``direct_scene`` parameters for one step call.
+
+    Passed as the per-call ``json_schema`` decoding constraint so the model
+    physically cannot fill any field but the step's target — text mode applies
+    it to the grammar (prompt bytes and KV cache untouched); the chat transport
+    drops it and relies on the post-parse filter in the loop below.
+    """
+    params = tool_schema["function"]["parameters"]
+    prop = params.get("properties", {}).get(keep)
+    if prop is None:
+        return None
+    return {
+        "type": "object",
+        "properties": {keep: prop},
+        "required": [keep] if keep in (params.get("required") or []) else [],
+    }
+
+
 @dataclass
 class DirectorResult:
     """Typed result of the director pass, yielded as the ``done`` event payload.
@@ -213,6 +232,7 @@ async def director_pass(
                         trailing=trailing,
                         tool_choice=TOOLS["direct_scene"]["choice"],
                         kv_tracker=kv_tracker,
+                        json_schema=_step_schema(tool_schema, target) if tool_schema else None,
                         **hyperparams,
                         **reasoning_params,
                     ):
@@ -233,6 +253,15 @@ async def director_pass(
                 if not parsed:
                     logger.info("Agent tool=direct_scene target=%s: model skipped", target)
                     continue
+                # The model often fills fields besides the step's target despite the
+                # "Fill ONLY" instruction (the byte-stable schema still offers them
+                # all). Only the target is kept below, so strip the extras from the
+                # recorded call too — otherwise the inspector/tool-call log shows
+                # every step re-deciding fragments already settled earlier.
+                keep = "moods" if stage is None else stage["id"]
+                for tc in parsed:
+                    if tc.get("name") == "direct_scene":
+                        tc["arguments"] = {k: v for k, v in tc.get("arguments", {}).items() if k == keep}
                 all_calls.extend(parsed)
                 if stage is None:
                     # Reuse the shared unpacker so moods behave exactly as in the
