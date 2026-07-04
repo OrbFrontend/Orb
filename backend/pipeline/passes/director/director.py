@@ -206,19 +206,27 @@ async def director_pass(
                     json.dumps([*base.prefix, *trailing], indent=2, ensure_ascii=False),
                 )
                 resp = {}
-                async for event in base.complete(
-                    client,
-                    label="director:direct_scene",
-                    trailing=trailing,
-                    tool_choice=TOOLS["direct_scene"]["choice"],
-                    kv_tracker=kv_tracker,
-                    **hyperparams,
-                    **reasoning_params,
-                ):
-                    if event["type"] == "reasoning":
-                        yield {"type": "reasoning", "delta": event["delta"]}
-                    elif event["type"] == "done":
-                        resp = event["message"]
+                try:
+                    async for event in base.complete(
+                        client,
+                        label="director:direct_scene",
+                        trailing=trailing,
+                        tool_choice=TOOLS["direct_scene"]["choice"],
+                        kv_tracker=kv_tracker,
+                        **hyperparams,
+                        **reasoning_params,
+                    ):
+                        if event["type"] == "reasoning":
+                            yield {"type": "reasoning", "delta": event["delta"]}
+                        elif event["type"] == "done":
+                            resp = event["message"]
+                except Exception:
+                    # A failed call skips this fragment but must not propagate: the
+                    # remaining fragments and the writer still run, like the
+                    # lorebook-select and direction-note steps. Aborting the turn
+                    # here would also skip persisting the finished reply.
+                    logger.exception("Agent tool=direct_scene target=%s: call failed; skipping", target)
+                    continue
                 last_raw = json.dumps(resp, default=str)
                 logger.info("Agent tool=direct_scene target=%s output:\n%s", target, last_raw)
                 parsed = parse_tool_calls(resp)
@@ -257,23 +265,29 @@ async def director_pass(
             json.dumps([*base.prefix, *trailing], indent=2, ensure_ascii=False),
         )
         resp: dict = {}
-        # Errors are not caught here: a failed tool call propagates out of the
-        # pass and aborts the turn, like the writer/editor passes.
+        # A failed call skips this tool but must not propagate: the remaining
+        # tools and the writer still run, like the lorebook-select and
+        # direction-note steps. Aborting the turn here would also skip
+        # persisting the finished reply.
         reasoning_params = reasoning_cfg(reasoning_on and not suppresses_reasoning(name))
         hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
-        async for event in base.complete(
-            client,
-            label=f"director:{name}",
-            trailing=trailing,
-            tool_choice=TOOLS[name]["choice"],
-            kv_tracker=kv_tracker,
-            **hyperparams,
-            **reasoning_params,
-        ):
-            if event["type"] == "reasoning":
-                yield {"type": "reasoning", "delta": event["delta"]}
-            elif event["type"] == "done":
-                resp = event["message"]
+        try:
+            async for event in base.complete(
+                client,
+                label=f"director:{name}",
+                trailing=trailing,
+                tool_choice=TOOLS[name]["choice"],
+                kv_tracker=kv_tracker,
+                **hyperparams,
+                **reasoning_params,
+            ):
+                if event["type"] == "reasoning":
+                    yield {"type": "reasoning", "delta": event["delta"]}
+                elif event["type"] == "done":
+                    resp = event["message"]
+        except Exception:
+            logger.exception("Agent tool=%s: call failed; skipping", name)
+            continue
         last_raw = json.dumps(resp, default=str)
         logger.info("Agent tool=%s output:\n%s", name, last_raw)
         if parsed := parse_tool_calls(resp):

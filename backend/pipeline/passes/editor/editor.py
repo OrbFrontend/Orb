@@ -53,7 +53,7 @@ AUDIT_BASELINE_WINDOW = 20
 
 # Per-iteration cap on prefilled per-finding calls (text mode); the re-audit
 # picks up anything beyond the cap on the next iteration.
-MAX_PREFILL_TARGETS = 8  # ponytail: flat cap; raise if audits routinely exceed it
+MAX_PREFILL_TARGETS = 8
 
 # GBNF for the generated remainder of a prefilled editor_apply_patch call: the
 # prompt already ends with `{"patches": [{"search": <span>, "replace": "` so
@@ -1031,7 +1031,12 @@ def _prefill_targets(report: AuditReport, draft: str) -> list[tuple[str, str]]:
     targets: list[tuple[str, str]] = []
     seen: set[str] = set()
     for span, why in raw:
-        if span in seen or draft.count(span) != 1:
+        # Flagged sentences keep the narration's outer `*` (format_report strips
+        # them only for display). Anchoring the prefilled search on them makes the
+        # model's asterisk-free replace eat the paragraph's opening/closing marker,
+        # so match on the plain text and leave the `*` wrapping untouched.
+        span = _strip_outer_asterisks(span)
+        if not span or span in seen or draft.count(span) != 1:
             continue
         seen.add(span)
         targets.append((span, why))

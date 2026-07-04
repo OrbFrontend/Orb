@@ -158,6 +158,30 @@ class TestPerFragmentLoop:
         result = await _run(base, _FRAGMENTS[:1], self._toggle_on(), director={"active_moods": ["pre"]})
         assert result.active_moods == []
 
+    async def test_failed_fragment_call_is_skipped_not_fatal(self):
+        # Second fragment's call raises; the pass must skip it and still finish,
+        # so the turn keeps going (director failures are non-fatal).
+        class _FlakyBase(_FakeBase):
+            async def complete(self, *_, label, trailing, **__):
+                self.calls.append((label, trailing[0]["content"]))
+                r = self._responses.pop(0)
+                if r is None:
+                    raise RuntimeError("boom")
+                yield {"type": "done", "message": r}
+
+        responses = [
+            _ds_message({"moods": ["tense"]}),
+            _ds_message({"user_intent": "wants X"}),
+            None,  # keywords call fails
+            _ds_message({"next_event": "she leaves"}),
+        ]
+        base = _FlakyBase(_FRAGMENTS, responses)
+        result = await _run(base, _FRAGMENTS, self._toggle_on())
+
+        assert len(base.calls) == 4  # every fragment still attempted
+        assert result.active_moods == ["tense"]
+        assert result.extra_fields == {"user_intent": "wants X", "next_event": "she leaves"}  # failed keywords absent
+
     async def test_toggle_off_uses_single_call(self):
         responses = [_ds_message({"moods": ["tense"], "user_intent": "x", "keywords": ["k"]})]
         base = _FakeBase(_FRAGMENTS, responses)
