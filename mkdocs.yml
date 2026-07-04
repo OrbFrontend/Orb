@@ -92,4 +92,5 @@ nav:
           - Homepage Stats: features/homepage-stats.md
           - Mobile Compatibility: features/mobile.md
           - Integrated TTS: features/tts.md
+          - Text Completion Mode: features/text-completion.md
   - Contributing: contributing.md
