@@ -284,7 +284,7 @@ def build_director_scene_step_prompt(
     parts = [DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")]
 
     if target_fragment is None:
-        parts.append(f"Call ONLY direct_scene - {desc}\nFill ONLY: moods. Leave every scene-direction field empty.")
+        parts.append(f"Call ONLY direct_scene - {desc}\nFill ONLY: moods.")
         moods = ", ".join(active_moods) or "none"
         frags = "\n".join(f"* [{f['id']}] - use in case: {f['description']}" for f in mood_fragments)
         parts.append(f"Previously active moods: {moods}\n\nAvailable writing moods:\n{frags}")
@@ -448,6 +448,24 @@ def build_editor_prompt(
 
     # Close the [OOC: aside opened in EDITOR_PREAMBLE; the whole instruction is the aside.
     return "\n\n".join(parts) + "]"
+
+
+def build_patch_target_prompt(span: str, why: str) -> str:
+    """Per-finding editor request for the text-mode prefill path.
+
+    One flagged sentence per call; the ``search`` string is prefilled
+    transport-side, so the model only writes the replacement. Self-contained
+    (names the sentence and the issue) so the chat-transport fallback still
+    yields a usable patch.
+    """
+    return (
+        EDITOR_PREAMBLE
+        + f"\n\nFlagged issue: {why}."
+        + f"\n\nFlagged sentence:\n{span}"
+        + "\n\nCall `editor_apply_patch` with exactly one patch whose `search` is that sentence, "
+        "copied EXACTLY from the draft. Rewrite it boldly to fix the issue — do not just swap in "
+        "similar words. Keep the surrounding narrative flow; an empty `replace` deletes the sentence.]"
+    )
 
 
 # ── Style injection block

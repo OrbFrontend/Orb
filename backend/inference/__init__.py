@@ -18,12 +18,14 @@ from .prompt_builder import (
     build_editor_prompt,
     build_feedback_prompt,
     build_lorebook_select_prompt,
+    build_patch_target_prompt,
     build_prefix,
     build_style_injection,
     compute_style_injection_block,
     format_message_with_attachments,
     render_direction_notes_block,
 )
+from .text_completion import has_image_parts
 from .tool_registry import (
     BUILTIN_TOOL_NAMES,
     GIVE_FEEDBACK_CHOICE,
@@ -53,6 +55,8 @@ __all__ = [
     # cached_call / kv_tracker
     "CachedBase",
     "_KVCacheTracker",
+    # text_completion
+    "has_image_parts",
     # prompt_builder
     "build_director_scene_step_prompt",
     "build_director_tool_prompt",
@@ -60,6 +64,7 @@ __all__ = [
     "build_feedback_prompt",
     "build_lorebook_select_prompt",
     "build_direction_note_prompt",
+    "build_patch_target_prompt",
     "build_prefix",
     "build_style_injection",
     "compute_style_injection_block",

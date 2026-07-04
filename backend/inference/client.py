@@ -124,9 +124,10 @@ class LLMClient:
             async for event in self._complete_text(messages, model, tools, tool_choice, **params):
                 yield event
             return
-        # Chat transport: prefill is meaningless without a render step, so drop
-        # it so a prefill-carrying call degrades cleanly on a chat endpoint.
+        # Chat transport: prefill (no render step) and raw GBNF grammar are
+        # text-mode concepts; drop them so such calls degrade cleanly here.
         params.pop("prefill", None)
+        params.pop("grammar", None)
         async for event in self._complete_chat(messages, model, tools, tool_choice, **params):
             yield event
 
@@ -407,6 +408,7 @@ class LLMClient:
         See text_completion.py for the pure helpers.
         """
         prefill = params.pop("prefill", None)
+        grammar = params.pop("grammar", None)
         render_msgs: list[Mapping[str, Any]] = list(messages)
         if prefill:
             # F9: a trailing assistant message renders as an open model turn ending
@@ -438,15 +440,21 @@ class LLMClient:
         body = text_completion.build_completion_params(params)
         body["prompt"] = prompt
         body["stream"] = True
-        if schema is not None:
+        if grammar is not None:
+            # Caller-supplied raw GBNF wins over the schema-derived grammar: a
+            # prefilled call continues mid-JSON, where json_schema (which
+            # constrains a fresh, complete object) would reject the remainder.
+            body["grammar"] = grammar
+        elif schema is not None:
             body["json_schema"] = schema
 
         logger.info(
-            "LLM complete (text): model=%s, forced=%s, reasoning=%s, prefill=%s",
+            "LLM complete (text): model=%s, forced=%s, reasoning=%s, prefill=%s, grammar=%s",
             model,
             forced_name,
             text_completion.reasoning_enabled(params),
             bool(prefill),
+            bool(grammar),
         )
 
         splitter = text_completion.ThinkSplitter(tags)
@@ -473,7 +481,9 @@ class LLMClient:
                 break
 
         if forced_name is not None:
-            message = text_completion.forced_tool_message(forced_name, "".join(forced_buf))
+            # The arguments are the whole assistant turn: the prompt-side
+            # prefill bytes plus the generated continuation.
+            message = text_completion.forced_tool_message(forced_name, (prefill or "") + "".join(forced_buf))
         else:
             for kind, text in splitter.flush():
                 (reasoning_parts if kind == "reasoning" else content_parts).append(text)

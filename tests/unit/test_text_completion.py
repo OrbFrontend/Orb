@@ -306,6 +306,88 @@ async def test_complete_text_prefill_appends_assistant_message():
     assert captured["msgs"][-1] == {"role": "assistant", "content": "Once upon"}
 
 
+async def test_complete_text_forced_prefill_prepends_arguments():
+    # Editor prefill path: arguments = prompt-side prefill bytes + generated
+    # remainder, so json.loads sees one complete object.
+    client = _text_client()
+
+    async def fake_apply(root, msgs):
+        return "P"
+
+    async def fake_props(root):
+        return ""
+
+    async def fake_stream(url, body):
+        for piece in ['REPL"', "}]}"]:
+            yield {"content": piece, "stop": False}
+        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._apply_template = fake_apply  # type: ignore[method-assign]
+    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    tools = [{"type": "function", "function": {"name": "editor_apply_patch", "parameters": {"type": "object"}}}]
+    choice = {"type": "function", "function": {"name": "editor_apply_patch"}}
+    events = await _drain(
+        client.complete(
+            messages=[{"role": "user", "content": "hi"}],
+            model="m",
+            tools=tools,
+            tool_choice=choice,
+            prefill='{"patches": [{"search": "old", "replace": "',
+        )
+    )
+    assert parse_tool_calls(events[-1]["message"]) == [
+        {"name": "editor_apply_patch", "arguments": {"patches": [{"search": "old", "replace": "REPL"}]}}
+    ]
+
+
+async def test_complete_text_grammar_overrides_json_schema():
+    client = _text_client()
+    captured: dict = {}
+
+    async def fake_apply(root, msgs):
+        return "P"
+
+    async def fake_props(root):
+        return ""
+
+    async def fake_stream(url, body):
+        captured["body"] = body
+        yield {"content": "x", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._apply_template = fake_apply  # type: ignore[method-assign]
+    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    tools = [{"type": "function", "function": {"name": "t", "parameters": {"type": "object"}}}]
+    choice = {"type": "function", "function": {"name": "t"}}
+    await _drain(
+        client.complete(
+            messages=[{"role": "user", "content": "hi"}],
+            model="m",
+            tools=tools,
+            tool_choice=choice,
+            grammar='root ::= "x"',
+        )
+    )
+    assert captured["body"]["grammar"] == 'root ::= "x"'
+    assert "json_schema" not in captured["body"]
+
+
+async def test_chat_transport_drops_grammar():
+    client = LLMClient("http://x/v1", completion_mode="chat")
+    captured: dict = {}
+
+    async def fake_chat(messages, model, tools=None, tool_choice=None, **params):
+        captured["params"] = params
+        yield {"type": "done", "message": {}, "usage": None}
+
+    client._complete_chat = fake_chat  # type: ignore[method-assign]
+    await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", grammar="root ::= x"))
+    assert "grammar" not in captured["params"]
+
+
 async def test_complete_text_apply_template_error_falls_back_to_chat():
     client = _text_client()
 
