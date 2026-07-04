@@ -105,6 +105,7 @@ def _resolve_pipeline_config(
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard is not None,
         writer_enabled_tools=writer_enabled_tools,
+        writer_text_mode=getattr(client, "completion_mode", "chat") == "text",
         writer_lane=writer_lane,
         agent_lane=agent_lane,
     )

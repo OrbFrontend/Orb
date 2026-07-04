@@ -23,6 +23,15 @@ const SETTING_FIELDS = [
   { k: "endpoint_url", l: "Endpoint URL", t: "text" },
   { k: "api_key", l: "API Key", t: "api_key" },
   { k: "model_name", l: "Model Name", t: "text" },
+  {
+    k: "completion_mode",
+    l: "API Mode",
+    t: "select",
+    opts: [
+      ["chat", "Chat Completions"],
+      ["text", "Text Completion (llama.cpp)"],
+    ],
+  },
   { k: "shared_system_prompt", l: "System Prompt (global)", t: "textarea" },
   { k: "system_prompt", l: "System Prompt (model)", t: "textarea" },
   { k: "temperature", l: "Temperature", t: "number", s: "0.05", mn: "0", mx: "2" },
@@ -44,6 +53,15 @@ const AGENT_SETTING_FIELDS = [
   { k: "agent_endpoint_url", l: "Agent Endpoint URL", t: "text" },
   { k: "agent_api_key", l: "Agent API Key", t: "api_key" },
   { k: "agent_model_name", l: "Agent Model Name", t: "text" },
+  {
+    k: "agent_completion_mode",
+    l: "Agent API Mode",
+    t: "select",
+    opts: [
+      ["chat", "Chat Completions"],
+      ["text", "Text Completion (llama.cpp)"],
+    ],
+  },
   { k: "agent_shared_system_prompt", l: "Agent System Prompt (global)", t: "textarea" },
   { k: "agent_temperature", l: "Agent Temperature", t: "number", s: "0.05", mn: "0", mx: "2" },
   { k: "agent_top_p", l: "Agent Top P", t: "number", s: "0.05", mn: "0", mx: "1" },
@@ -59,6 +77,7 @@ const WRITER_CTX = {
   urlField: "endpoint_url",
   apiKeyField: "api_key",
   modelField: "model_name",
+  completionModeField: "completion_mode",
   activeConfigDbField: "active_model_config_id",
   settingsEndpointField: "active_endpoint_id",
   hyperparamKeys: MODEL_HYPERPARAM_KEYS,
@@ -73,6 +92,7 @@ const AGENT_CTX = {
   urlField: "agent_endpoint_url",
   apiKeyField: "agent_api_key",
   modelField: "agent_model_name",
+  completionModeField: "agent_completion_mode",
   activeConfigDbField: "agent_active_model_config_id",
   settingsEndpointField: "agent_endpoint_id",
   hyperparamKeys: AGENT_MODEL_HYPERPARAM_KEYS,
@@ -135,6 +155,14 @@ export function renderEndpoints() {
         </div>
         ${warningHtml}
       </div>`;
+    }
+    if (f.t === "select") {
+      const opts = f.opts
+        .map(([val, label]) => `<option value="${val}"${v === val ? " selected" : ""}>${esc(label)}</option>`)
+        .join("");
+      return `<div class="field"><label>${f.l}</label>
+                <select data-key="${f.k}" onchange="${saveFn}(this)">${opts}</select>
+              </div>`;
     }
     const attrs = f.s ? `step="${f.s}" min="${f.mn}" max="${f.mx}"` : "";
     return `<div class="field"><label>${f.l}</label>
@@ -516,6 +544,8 @@ function _fillEndpointFields(ctx) {
     if (epEl) epEl.value = ep.url || "";
     const keyEl = document.querySelector(`[data-key="${ctx.apiKeyField}"]`);
     if (keyEl) keyEl.value = ep.api_key || "";
+    const cmEl = document.querySelector(`[data-key="${ctx.completionModeField}"]`);
+    if (cmEl) cmEl.value = ep.completion_mode || "chat";
   }
   const activeModel = S[ctx.configsKey].find((m) => m.id === S[ctx.configIdKey]) || S[ctx.configsKey][0];
   if (activeModel) {
@@ -641,6 +671,10 @@ async function _doSaveEndpointSetting(ctx, el) {
       await _syncEndpointRecord(ctx, v, payload[ctx.apiKeyField] || "");
     } else if (key === ctx.apiKeyField && S[ctx.endpointIdKey]) {
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { api_key: v });
+    } else if (baseKey === "completion_mode" && S[ctx.endpointIdKey]) {
+      // Endpoint-scoped like api_key; the /settings PUT above is a harmless
+      // no-op (not in the settings allowlist — it lives on the endpoint row).
+      await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { completion_mode: v });
     } else if (key === ctx.modelField) {
       await _syncModelConfigRecord(ctx, v, payload);
     } else if (ctx.hyperparamKeys.includes(key) && S[ctx.configIdKey]) {
@@ -668,6 +702,8 @@ async function _onHybridInputCtx(ctx, el) {
     }
     const apiKeyEl = document.querySelector(`[data-key="${ctx.apiKeyField}"]`);
     if (apiKeyEl) apiKeyEl.value = match.api_key || "";
+    const cmEl = document.querySelector(`[data-key="${ctx.completionModeField}"]`);
+    if (cmEl) cmEl.value = match.completion_mode || "chat";
     await _loadConfigs(ctx, match.id);
     const modelEl = document.querySelector(`[data-key="${ctx.modelField}"]`);
     if (!modelEl || !S[ctx.configsKey].length) return;

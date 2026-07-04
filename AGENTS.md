@@ -157,7 +157,8 @@ Orb/
 │   │                        # structural_repetition, template_repetition, anti_echo (user→assistant echo)
 │   ├── inference/           # INFERENCE LAYER — LLM transport + prompt/tool assembly; deps: core
 │   │   ├── __init__.py      # Facade re-export
-│   │   ├── client.py        # LLM API client: OpenAI-compatible, streaming, reasoning
+│   │   ├── client.py        # LLM API client: chat (OpenAI-compat) + text (llama.cpp native) transports, streaming, reasoning
+│   │   ├── text_completion.py # Text-mode pure helpers (think-splitter, /props tag sniff, param remap, usage synth) — a LEAF here
 │   │   ├── endpoint_profiles.py # Per-provider quirks (url patterns, body transforms) — a LEAF here
 │   │   ├── cached_call.py   # Core cached-call path: CachedBase (byte-identical
 │   │   │                    # prefix+tools+model base every pass extends) + cached_complete
@@ -331,7 +332,7 @@ never from another slice, `pipeline/`, `workflows/`, or `api/`.
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `settings` | Global singleton config (id=1) | endpoint_url, model_name, enabled_tools (JSON — registered tools only), length_guard_* (enabled/enforce/max_words/max_paragraphs), agentic_lorebook_enabled, feedback_enabled, direction_notes_record, direction_notes_inject (`off`/`director`/`writer`/`both`), reasoning_enabled_passes, active_persona_id, active_endpoint_id, agent_*, workflow_config (JSON), generated_chars (lifetime LLM-output char counter; NULL = unseeded), attachment_cache_budget_bytes, attachment_access_counter |
-| `endpoints` | LLM API endpoints | url, api_key, active_model_config_id, agent_active_model_config_id → model_configs.id |
+| `endpoints` | LLM API endpoints | url, api_key, active_model_config_id, agent_active_model_config_id → model_configs.id, completion_mode (`chat`\|`text`; `text` = llama.cpp native transport, surfaced by the settings overlay as `completion_mode`/`agent_completion_mode` and threaded into every `LLMClient` ctor) |
 | `model_configs` | Per-endpoint model settings | endpoint_id, model_name, temperature, top_p, top_k, min_p, repetition_penalty, max_tokens, system_prompt, role |
 | `conversations` | Chat sessions | character_card_id, character_name, character_scenario, post_history_instructions, active_leaf_id → messages.id, persona_lock_id → user_personas.id, workflow_state (JSON) |
 | `messages` | All messages (tree branching via parent_id) | conversation_id, role (user/assistant), content, turn_index, parent_id → messages.id, progressive_fields (JSON), created_at, workflow_state (JSON) |

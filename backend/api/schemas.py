@@ -89,6 +89,7 @@ class EndpointUpdate(BaseModel):
     api_key: Optional[str] = None
     active_model_config_id: Optional[int] = None
     agent_active_model_config_id: Optional[int] = None
+    completion_mode: Optional[Literal["chat", "text"]] = None
 
 
 class ModelConfigCreate(BaseModel):

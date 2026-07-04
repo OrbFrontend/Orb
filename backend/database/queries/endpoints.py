@@ -10,7 +10,7 @@ async def get_endpoints() -> list[EndpointRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints ORDER BY id ASC"
+                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode FROM endpoints ORDER BY id ASC"
             )
         )
         return [cast(EndpointRow, dict(r)) for r in rows]
@@ -20,7 +20,7 @@ async def get_endpoint(endpoint_id: int) -> EndpointRow | None:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints WHERE id = ?",
+                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode FROM endpoints WHERE id = ?",
                 (endpoint_id,),
             )
         )
@@ -46,7 +46,7 @@ async def create_endpoint(url: str, api_key: str = "") -> EndpointRow:
         await db.commit()
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints WHERE id = ?",
+                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode FROM endpoints WHERE id = ?",
                 (endpoint_id,),
             )
         )
@@ -60,6 +60,7 @@ async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
             "api_key",
             "active_model_config_id",
             "agent_active_model_config_id",
+            "completion_mode",
         ]
         sets, vals = _build_set_clause(allowed, data)
         if sets:
@@ -71,7 +72,7 @@ async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
             await db.commit()
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints WHERE id = ?",
+                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode FROM endpoints WHERE id = ?",
                 (endpoint_id,),
             )
         )

@@ -31,20 +31,22 @@ def build_writer_content(
     effective_msg: str,
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard: LengthGuard | None,
+    text_mode: bool = False,
 ) -> "str | list[ContentPart]":
     """Build the writer's user-message content (string or multimodal list).
 
     Built once and threaded into both the writer pass and the editor, which
     replays it verbatim to extend the writer's KV-cached prefix. The length-guard
     nudge (preventive arm) fires only in enforce mode; a non-None *length_guard*
-    already means the feature is enabled.
+    already means the feature is enabled. In *text_mode* the no-tools nudge is
+    dropped — no tool harness is rendered, so the instruction is meaningless.
     """
     tail = ""
     if lorebook_block:
         tail += "___\n\n" + lorebook_block + "\n\n"
     if inj_block:
         tail += "___\n\n" + inj_block + "\n\n"
-    if enabled_tools:
+    if enabled_tools and not text_mode:
         tail += "**Do not use tool or function calls this turn.**\n\n"
     tail += writer_nudge(length_guard)
     tail += "___\n\n" + effective_msg + "\n\n"
@@ -114,6 +116,7 @@ async def writer_stage(
         state.effective_msg,
         attachments,
         cfg.length_guard,
+        cfg.writer_text_mode,
     )
     writer_t0 = time.monotonic()
     async for item in writer_pass(

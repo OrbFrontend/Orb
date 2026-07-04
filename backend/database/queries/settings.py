@@ -37,12 +37,13 @@ async def get_settings() -> SettingsRow:
         if active_ep_id:
             ep_rows = list(
                 await db.execute_fetchall(
-                    "SELECT id, url, api_key, active_model_config_id FROM endpoints WHERE id = ?",
+                    "SELECT id, url, api_key, active_model_config_id, completion_mode FROM endpoints WHERE id = ?",
                     (active_ep_id,),
                 )
             )
             if ep_rows:
                 ep = dict(ep_rows[0])
+                s["completion_mode"] = ep.get("completion_mode", "chat")
                 mc_id = ep.get("active_model_config_id")
                 if mc_id:
                     mc_rows = list(
@@ -80,12 +81,13 @@ async def get_settings() -> SettingsRow:
         if not s["agent_same_as_writer"] and agent_ep_id:
             agent_ep_rows = list(
                 await db.execute_fetchall(
-                    "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints WHERE id = ?",
+                    "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode FROM endpoints WHERE id = ?",
                     (agent_ep_id,),
                 )
             )
             if agent_ep_rows:
                 agent_ep = dict(agent_ep_rows[0])
+                s["agent_completion_mode"] = agent_ep.get("completion_mode", "chat")
                 agent_mc_id = agent_ep.get("agent_active_model_config_id")
                 if agent_mc_id:
                     agent_mc_rows = list(
@@ -114,6 +116,10 @@ async def get_settings() -> SettingsRow:
                                 s[f"agent_{field}"] = amc[field]
                         if amc.get("system_prompt") is not None:
                             s["agent_system_prompt"] = amc["system_prompt"]
+        # Transport mode defaults: no active endpoint => 'chat'; agent sharing the
+        # writer endpoint inherits the writer's mode (its own overlay never ran).
+        s.setdefault("completion_mode", "chat")
+        s.setdefault("agent_completion_mode", s["completion_mode"])
         return cast(SettingsRow, s)
 
 

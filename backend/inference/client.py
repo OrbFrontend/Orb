@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator, Mapping, Sequence
 
 import httpx
 
-from . import endpoint_profiles
+from . import endpoint_profiles, text_completion
 from .gemma_tool_format import parse_gemma_tool_calls
 
 logger = logging.getLogger(__name__)
@@ -63,10 +63,15 @@ class LLMClient:
         api_key: str = "",
         timeout: float = 120.0,
         abort_token: AbortToken | None = None,
+        completion_mode: str = "chat",
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        # "chat" = OpenAI-compatible /chat/completions; "text" = llama.cpp's
+        # native /apply-template + /completion transport (byte-level prompt
+        # control). See text_completion.py and _complete_text.
+        self.completion_mode = completion_mode
         # Shared across the turn's clients when passed in; otherwise a private
         # token so a standalone client (e.g. a workflow hook) is still abortable.
         self.abort_token = abort_token or AbortToken()
@@ -87,6 +92,13 @@ class LLMClient:
     def _url(self) -> str:
         return f"{self.base_url}/chat/completions"
 
+    def _server_root(self) -> str:
+        """Server root for llama.cpp native endpoints (/completion, /apply-template,
+        /props), which sit beside the OpenAI-compat ``/v1`` surface. Strips a
+        trailing ``/v1`` from ``base_url``."""
+        b = self.base_url
+        return b[:-3] if b.endswith("/v1") else b
+
     async def complete(
         self,
         messages: Sequence[Mapping[str, Any]],
@@ -95,7 +107,11 @@ class LLMClient:
         tool_choice: dict | str | None = None,
         **params,
     ) -> AsyncIterator[dict]:
-        """Stream a chat completion. Yields deltas then a final assembled message.
+        """Stream a completion. Yields deltas then a final assembled message.
+
+        Transport is chosen by ``completion_mode``: text mode routes through
+        :meth:`_complete_text` (llama.cpp native), except calls carrying image
+        parts, which fall back to chat (no text-mode multimodal path yet).
 
         Yields:
             ``{"type": "reasoning", "delta": str}`` — zero or more reasoning chunks
@@ -104,6 +120,25 @@ class LLMClient:
                 — assembled message (content and/or tool_calls) and the
                   provider usage object (``None`` when the server omits it).
         """
+        if self.completion_mode == "text" and not text_completion.has_image_parts(messages):
+            async for event in self._complete_text(messages, model, tools, tool_choice, **params):
+                yield event
+            return
+        # Chat transport: prefill is meaningless without a render step, so drop
+        # it so a prefill-carrying call degrades cleanly on a chat endpoint.
+        params.pop("prefill", None)
+        async for event in self._complete_chat(messages, model, tools, tool_choice, **params):
+            yield event
+
+    async def _complete_chat(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        model: str,
+        tools: list[dict] | None = None,
+        tool_choice: dict | str | None = None,
+        **params,
+    ) -> AsyncIterator[dict]:
+        """The OpenAI-compatible ``/chat/completions`` transport (default)."""
         body = {
             "model": model,
             "messages": messages,
@@ -169,103 +204,61 @@ class LLMClient:
                                 logger.warning("LLM recovery: %s", fix)
                                 continue  # leave async-with cleanly, then retry
                         resp.raise_for_status()
-                    # Race each line read against the abort signal so that client.abort()
-                    # breaks out of this loop immediately, letting the async-with block
-                    # exit *normally* and cleanly close the TCP connection to the LLM
-                    # server. (Using asyncio task cancellation instead would leave the
-                    # connection open under Python 3.11+ strict cancellation semantics.)
-                    aiter = resp.aiter_lines().__aiter__()
-                    abort_wait = asyncio.create_task(self.abort_token.wait())
-                    try:
-                        while True:
-                            line_task = asyncio.ensure_future(aiter.__anext__())
-                            try:
-                                done, _ = await asyncio.wait(
-                                    {line_task, abort_wait},
-                                    return_when=asyncio.FIRST_COMPLETED,
-                                )
-                            except BaseException:
-                                line_task.cancel()
-                                raise
-
-                            if abort_wait in done:
-                                line_task.cancel()
-                                try:
-                                    await line_task
-                                except (asyncio.CancelledError, StopAsyncIteration):
-                                    pass
-                                break  # exit loop → async-with closes connection cleanly
-
-                            try:
-                                line = line_task.result()
-                            except StopAsyncIteration:
-                                break
-
-                            if not line.startswith("data: "):
-                                continue
-                            payload = line[6:].strip()
-                            if payload == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(payload)
-                            except json.JSONDecodeError:
-                                continue
-
-                            # Usage may appear in a terminal chunk (choices=[]) or on the final content chunk; last-write-wins since totals are monotonic.
-                            u = chunk.get("usage")
-                            if isinstance(u, dict):
-                                usage = u
-
-                            choices = chunk.get("choices") or []
-                            if not choices:
-                                # Pure usage/metadata chunk — nothing else to do.
-                                continue
-
-                            try:
-                                choice = choices[0]
-                                delta = choice.get("delta", {})
-
-                                # Reasoning delta (field name varies by server)
-                                rc = delta.get("reasoning_content") or delta.get("reasoning")
-                                if rc:
-                                    reasoning_parts.append(rc)
-                                    yield {"type": "reasoning", "delta": rc}
-
-                                # Content delta
-                                c = delta.get("content")
-                                if c:
-                                    content_parts.append(c)
-                                    yield {"type": "content", "delta": c}
-
-                                # Tool call argument deltas — accumulate by index
-                                for tc_delta in delta.get("tool_calls") or []:
-                                    idx = tc_delta.get("index", 0)
-                                    if idx not in tool_calls_acc:
-                                        tool_calls_acc[idx] = {
-                                            "id": "",
-                                            "type": "function",
-                                            "function": {"name": "", "arguments": ""},
-                                        }
-                                    entry = tool_calls_acc[idx]
-                                    if tc_delta.get("id"):
-                                        entry["id"] = tc_delta["id"]
-                                    fn = tc_delta.get("function", {})
-                                    if fn.get("name"):
-                                        entry["function"]["name"] += fn["name"]
-                                    if fn.get("arguments"):
-                                        entry["function"]["arguments"] += fn["arguments"]
-
-                                if choice.get("finish_reason"):
-                                    finish_reason = choice["finish_reason"]
-
-                            except (KeyError, IndexError):
-                                continue
-                    finally:
-                        abort_wait.cancel()
+                    async for payload in self._iter_sse_payloads(resp):
                         try:
-                            await abort_wait
-                        except asyncio.CancelledError:
-                            pass
+                            chunk = json.loads(payload)
+                        except json.JSONDecodeError:
+                            continue
+
+                        # Usage may appear in a terminal chunk (choices=[]) or on the final content chunk; last-write-wins since totals are monotonic.
+                        u = chunk.get("usage")
+                        if isinstance(u, dict):
+                            usage = u
+
+                        choices = chunk.get("choices") or []
+                        if not choices:
+                            # Pure usage/metadata chunk — nothing else to do.
+                            continue
+
+                        try:
+                            choice = choices[0]
+                            delta = choice.get("delta", {})
+
+                            # Reasoning delta (field name varies by server)
+                            rc = delta.get("reasoning_content") or delta.get("reasoning")
+                            if rc:
+                                reasoning_parts.append(rc)
+                                yield {"type": "reasoning", "delta": rc}
+
+                            # Content delta
+                            c = delta.get("content")
+                            if c:
+                                content_parts.append(c)
+                                yield {"type": "content", "delta": c}
+
+                            # Tool call argument deltas — accumulate by index
+                            for tc_delta in delta.get("tool_calls") or []:
+                                idx = tc_delta.get("index", 0)
+                                if idx not in tool_calls_acc:
+                                    tool_calls_acc[idx] = {
+                                        "id": "",
+                                        "type": "function",
+                                        "function": {"name": "", "arguments": ""},
+                                    }
+                                entry = tool_calls_acc[idx]
+                                if tc_delta.get("id"):
+                                    entry["id"] = tc_delta["id"]
+                                fn = tc_delta.get("function", {})
+                                if fn.get("name"):
+                                    entry["function"]["name"] += fn["name"]
+                                if fn.get("arguments"):
+                                    entry["function"]["arguments"] += fn["arguments"]
+
+                            if choice.get("finish_reason"):
+                                finish_reason = choice["finish_reason"]
+
+                        except (KeyError, IndexError):
+                            continue
             # Streamed to completion (or aborted) without a retry-triggering
             # error -- done, no second attempt.
             break
@@ -295,6 +288,206 @@ class LLMClient:
 
         logger.info(
             "LLM complete: assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
+            list(message.keys()),
+            "tool_calls" in message,
+            len(message.get("content", "") or "") if message.get("content") else "null",
+            usage,
+        )
+        yield {"type": "done", "message": message, "usage": usage}
+
+    async def _iter_sse_payloads(self, resp) -> AsyncIterator[str]:
+        """Yield each SSE ``data:`` payload string, racing reads against abort.
+
+        Each line read is raced against the abort signal so ``client.abort()``
+        breaks out immediately, letting the caller's ``async with`` exit
+        *normally* and cleanly close the TCP connection to the LLM server.
+        (asyncio task cancellation instead would leave the connection open under
+        Python 3.11+ strict cancellation semantics.) Stops at ``[DONE]``. Shared
+        by the chat and text transports so the abort race lives in one place.
+        """
+        aiter = resp.aiter_lines().__aiter__()
+        abort_wait = asyncio.create_task(self.abort_token.wait())
+        try:
+            while True:
+                line_task = asyncio.ensure_future(aiter.__anext__())
+                try:
+                    done, _ = await asyncio.wait(
+                        {line_task, abort_wait},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                except BaseException:
+                    line_task.cancel()
+                    raise
+
+                if abort_wait in done:
+                    line_task.cancel()
+                    try:
+                        await line_task
+                    except (asyncio.CancelledError, StopAsyncIteration):
+                        pass
+                    return  # stop iterating → async-with closes connection cleanly
+
+                try:
+                    line = line_task.result()
+                except StopAsyncIteration:
+                    return
+
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:].strip()
+                if payload == "[DONE]":
+                    return
+                yield payload
+        finally:
+            abort_wait.cancel()
+            try:
+                await abort_wait
+            except asyncio.CancelledError:
+                pass
+
+    async def _apply_template(self, server_root: str, messages: Sequence[Mapping[str, Any]]) -> str:
+        """Render *messages* to a prompt string via llama.cpp ``POST /apply-template``."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.post(
+                f"{server_root}/apply-template",
+                json={"messages": list(messages)},
+                headers=self._headers(),
+            )
+            resp.raise_for_status()
+            return resp.json()["prompt"]
+
+    async def _fetch_chat_template(self, server_root: str) -> str:
+        """Fetch the server's ``chat_template`` text via ``GET /props`` (for tag sniff).
+
+        Returns ``""`` on any failure so the caller falls back to a no-op reasoning
+        toggle without caching the miss (see text_completion.get_think_tags).
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.get(f"{server_root}/props", headers=self._headers())
+                resp.raise_for_status()
+                return resp.json().get("chat_template", "") or ""
+        except (httpx.HTTPError, ValueError, KeyError) as e:
+            logger.warning("text mode: /props fetch failed (%r); reasoning toggle disabled this call", e)
+            return ""
+
+    async def _stream_completion(self, url: str, body: dict) -> AsyncIterator[dict]:
+        """POST *body* to llama.cpp ``/completion`` and yield each parsed SSE chunk.
+
+        Races reads against abort via the shared :meth:`_iter_sse_payloads`.
+        The single HTTP seam of the text transport (patched wholesale in tests).
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with client.stream("POST", url, json=body, headers=self._headers()) as resp:
+                if resp.status_code >= 400:
+                    try:
+                        err_text = (await resp.aread()).decode("utf-8", errors="replace")
+                    except Exception as read_err:
+                        err_text = f"<failed to read response body: {read_err!r}>"
+                    logger.error("LLM HTTP %d from %s: %s", resp.status_code, url, err_text)
+                    resp.raise_for_status()
+                async for payload in self._iter_sse_payloads(resp):
+                    try:
+                        yield json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+
+    async def _complete_text(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        model: str,
+        tools: list[dict] | None = None,
+        tool_choice: dict | str | None = None,
+        **params,
+    ) -> AsyncIterator[dict]:
+        """llama.cpp native text-completion transport (``/apply-template`` + ``/completion``).
+
+        Preserves the ``complete()`` event contract. Falls back to the chat
+        transport on any ``/apply-template`` HTTP error (odd templates/shapes).
+        See text_completion.py for the pure helpers.
+        """
+        prefill = params.pop("prefill", None)
+        render_msgs: list[Mapping[str, Any]] = list(messages)
+        if prefill:
+            # F9: a trailing assistant message renders as an open model turn ending
+            # exactly at *prefill* (the follow-up editor feature's hook).
+            render_msgs = [*render_msgs, {"role": "assistant", "content": prefill}]
+
+        server_root = self._server_root()
+        try:
+            prompt = await self._apply_template(server_root, render_msgs)
+        except httpx.HTTPError as e:
+            logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
+            async for event in self._complete_chat(messages, model, tools, tool_choice, **params):
+                yield event
+            return
+
+        tags = await text_completion.get_think_tags(server_root, lambda: self._fetch_chat_template(server_root))
+        # Reasoning off → append the template's disable bytes (F3). Skip when
+        # prefilling: the open assistant turn already pre-closes the thought channel.
+        if not prefill and not text_completion.reasoning_enabled(params):
+            prompt += tags[2]
+
+        # Forced tool_choice → grammar-constrain the whole output to the tool's
+        # JSON schema. tools is otherwise unused in text mode (never rendered).
+        schema = text_completion.forced_schema(tools, tool_choice)
+        forced_name: str | None = None
+        if schema is not None and isinstance(tool_choice, dict):
+            forced_name = (tool_choice.get("function") or {}).get("name")
+
+        body = text_completion.build_completion_params(params)
+        body["prompt"] = prompt
+        body["stream"] = True
+        if schema is not None:
+            body["json_schema"] = schema
+
+        logger.info(
+            "LLM complete (text): model=%s, forced=%s, reasoning=%s, prefill=%s",
+            model,
+            forced_name,
+            text_completion.reasoning_enabled(params),
+            bool(prefill),
+        )
+
+        splitter = text_completion.ThinkSplitter(tags)
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        forced_buf: list[str] = []
+        usage: dict | None = None
+        async for data in self._stream_completion(f"{server_root}/completion", body):
+            stop = bool(data.get("stop"))
+            if stop:
+                usage = text_completion.synthesize_usage(data)
+            delta = data.get("content") or ""
+            if delta:
+                if forced_name is not None:
+                    # Forced call: buffer as arguments, emit no content deltas
+                    # (mirrors chat mode, where args stream as tool_calls deltas
+                    # the pipeline doesn't surface).
+                    forced_buf.append(delta)
+                else:
+                    for kind, text in splitter.feed(delta):
+                        (reasoning_parts if kind == "reasoning" else content_parts).append(text)
+                        yield {"type": kind, "delta": text}
+            if stop:
+                break
+
+        if forced_name is not None:
+            message = text_completion.forced_tool_message(forced_name, "".join(forced_buf))
+        else:
+            for kind, text in splitter.flush():
+                (reasoning_parts if kind == "reasoning" else content_parts).append(text)
+                yield {"type": kind, "delta": text}
+            message = {}
+            content = "".join(content_parts)
+            if content:
+                message["content"] = content
+            reasoning = "".join(reasoning_parts)
+            if reasoning:
+                message["reasoning_content"] = reasoning
+
+        logger.info(
+            "LLM complete (text): assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
             list(message.keys()),
             "tool_calls" in message,
             len(message.get("content", "") or "") if message.get("content") else "null",

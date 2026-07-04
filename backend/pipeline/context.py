@@ -112,6 +112,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         settings["endpoint_url"],
         api_key=settings.get("api_key", ""),
         abort_token=abort_token,
+        completion_mode=settings.get("completion_mode", "chat"),
     )
 
     card_id = conv.get("character_card_id")
@@ -133,6 +134,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
             agent_url,
             api_key=agent_api_key,
             abort_token=abort_token,
+            completion_mode=settings.get("agent_completion_mode", "chat"),
         )
         agent_system_prompt, _, _ = await db.resolve_char_context(
             conv, settings, shared_key="agent_shared_system_prompt", card=card
