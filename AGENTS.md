@@ -165,7 +165,11 @@ Orb/
 │   │   ├── kv_tracker.py    # Debug KV-cache tracker: logs messages/tools to JSON for inspection
 │   │   ├── prompt_builder.py # System prompt assembly, style injection (positions the
 │   │   │                    # lorebook catalog string; block computation lives in features/lorebook/)
-│   │   └── tool_registry.py # Tool schemas (direct_scene, rewrite, editor tools), constants
+│   │   ├── tool_registry.py # Tool schemas (direct_scene, rewrite, editor tools), constants
+│   │   └── local_ml.py      # Opt-in in-process CPU local-ML scaffold (MODELS registry,
+│   │                        # hf download, per-feature Llama). Powers input autocomplete
+│   │                        # (/api/conversations/{cid}/autocomplete) + /api/local-ml/* routes;
+│   │                        # lazy-imports llama_cpp/huggingface_hub so base Orb needs no ML deps
 │   ├── core/               # SHARED KERNEL (bottom) — dependency-free leaves; imports nothing upward
 │   │   ├── __init__.py      # Re-exports the kernel surface
 │   │   ├── llm_types.py     # Wire contracts (ChatMessage, ToolCall, ContentPart, …)

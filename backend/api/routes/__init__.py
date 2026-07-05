@@ -12,6 +12,7 @@ from . import (
     conversations,
     endpoints,
     fragments,
+    local_ml,
     messages,
     misc,
     personas,
@@ -39,4 +40,5 @@ ROUTERS = [
     presets.router,
     messages.router,
     workflows.router,
+    local_ml.router,
 ]

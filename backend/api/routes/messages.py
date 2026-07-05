@@ -20,7 +20,7 @@ from ...database import (
     switch_to_branch,
     update_message_content,
 )
-from ...inference import AbortToken, local_completion
+from ...inference import AbortToken, local_ml
 from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -227,13 +227,15 @@ async def api_autocomplete(cid: str, data: AutocompleteInput):
     conv = await get_conversation(cid)
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    ok, reason = local_completion.available()
+    settings = await get_settings()
+    if not settings.get("local_ml_enabled", {}).get("autocomplete", True):
+        raise HTTPException(status_code=503, detail="Autocomplete unavailable: disabled")
+    ok, reason = local_ml.available()
     if not ok:
         raise HTTPException(status_code=503, detail=f"Autocomplete unavailable: {reason}")
     if not data.draft.strip():
         return {"completion": ""}
 
-    settings = await get_settings()
     card_id = conv.get("character_card_id")
     card = await get_character_card(card_id) if card_id else None
     persona_id = resolve_persona_id(conv, card, settings)
@@ -245,7 +247,7 @@ async def api_autocomplete(cid: str, data: AutocompleteInput):
     messages = await get_messages(cid)
     recent = [{"role": m["role"], "content": macros.resolve_prompt(m["content"] or "")} for m in messages[-4:]]
     summary = macros.resolve_prompt((card or {}).get("description") or "")
-    prompt = local_completion.build_prompt(char_name, user_name, summary, recent, macros.resolve_prompt(data.draft))
+    prompt = local_ml.build_prompt(char_name, user_name, summary, recent, macros.resolve_prompt(data.draft))
 
-    completion = await local_completion.complete(prompt)
+    completion = await local_ml.complete(prompt)
     return {"completion": completion}

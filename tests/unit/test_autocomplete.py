@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from backend.inference import local_completion as lc
+from backend.inference import local_ml as lc
 
 # ── Tier 1: pure prompt trimmer, no model, no DB ────────────────────────────
 
@@ -52,8 +52,8 @@ def test_build_prompt_skips_empty_summary_and_messages():
 
 def test_real_model_completes():
     pytest.importorskip("llama_cpp", reason="opt-in: needs requirements-ml.txt")
-    if not os.path.exists(lc.model_path()):
-        pytest.skip(f"GGUF not on disk: {lc.model_path()}")
+    if not os.path.exists(lc.resolve_path("autocomplete")):
+        pytest.skip(f"GGUF not on disk: {lc.resolve_path('autocomplete')}")
 
     prompt = lc.build_prompt(
         "Aria",

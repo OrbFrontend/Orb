@@ -8,7 +8,7 @@ import backend.database as dbmod
 
 async def test_autocomplete_503_when_unavailable(client, monkeypatch):
     monkeypatch.setattr(
-        "backend.inference.local_completion.available",
+        "backend.inference.local_ml.available",
         lambda: (False, "extra not installed"),
     )
     await dbmod.create_conversation("conv-ac", "Chat", "Nova", "")
@@ -18,14 +18,14 @@ async def test_autocomplete_503_when_unavailable(client, monkeypatch):
 
 
 async def test_autocomplete_returns_completion(client, monkeypatch):
-    monkeypatch.setattr("backend.inference.local_completion.available", lambda: (True, ""))
+    monkeypatch.setattr("backend.inference.local_ml.available", lambda: (True, ""))
 
     async def fake_complete(prompt, *a, **k):
         assert "Nova" in prompt  # char name threaded into the trimmed prompt
         assert prompt.endswith("I walk into the")  # draft is the trailing line
         return " tavern and look around."
 
-    monkeypatch.setattr("backend.inference.local_completion.complete", fake_complete)
+    monkeypatch.setattr("backend.inference.local_ml.complete", fake_complete)
     await dbmod.create_conversation("conv-ac2", "Chat", "Nova", "")
     mid, _ = await dbmod.add_message("conv-ac2", "assistant", "You arrive at the gate.", 0, parent_id=None)
     await dbmod.set_active_leaf("conv-ac2", mid)
@@ -36,12 +36,12 @@ async def test_autocomplete_returns_completion(client, monkeypatch):
 
 
 async def test_autocomplete_blank_draft_skips_model(client, monkeypatch):
-    monkeypatch.setattr("backend.inference.local_completion.available", lambda: (True, ""))
+    monkeypatch.setattr("backend.inference.local_ml.available", lambda: (True, ""))
 
     async def boom(*a, **k):
         raise AssertionError("model must not be called for a blank draft")
 
-    monkeypatch.setattr("backend.inference.local_completion.complete", boom)
+    monkeypatch.setattr("backend.inference.local_ml.complete", boom)
     await dbmod.create_conversation("conv-ac3", "Chat", "Nova", "")
 
     resp = await client.post("/api/conversations/conv-ac3/autocomplete", json={"draft": "   "})

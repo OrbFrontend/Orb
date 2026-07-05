@@ -160,6 +160,8 @@ async function _requestGhost() {
   const draft = inp.value;
   const cid = S.activeConvId;
   if (!cid || !draft.trim() || S.isStreaming || inp.selectionStart !== draft.length) return;
+  // Toggle takes effect live (no reload); the 503 path below still backstops deps/model-missing.
+  if (S.settings?.local_ml_enabled?.autocomplete === false) return;
   if (_ghostAbort) _ghostAbort.abort();
   _ghostAbort = new AbortController();
   try {

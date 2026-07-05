@@ -1,6 +1,7 @@
 # Opt-in ML extras for in-process CPU features (input-box autocomplete;
 # later, the AI-slop classifier). Base Orb runs without these.
 #   pip install -r requirements-ml.txt
-# Then drop a GGUF at the repo root (default LFM2.5-230M-Q8_0.gguf) or set
-# ORB_AUTOCOMPLETE_MODEL to its path.
+# Then use Settings → Local ML to download the model (granite-4.0-350m-base-Q8_0.gguf)
+# into backend/data/models/, or set ORB_AUTOCOMPLETE_MODEL to an existing GGUF's path.
 llama-cpp-python>=0.3.0
+huggingface_hub

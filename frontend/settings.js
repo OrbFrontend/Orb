@@ -10,7 +10,7 @@ import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
-import { S, effectiveWorkflowEnabled } from "./state.js";
+import { effectiveWorkflowEnabled, S } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -172,12 +172,93 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
     </div>
+    <div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Local ML</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+    <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
     <div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Data</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
     <div class="field" style="display:flex;flex-direction:column;gap:8px">
       <button class="btn btn-block btn-sm" onclick="showPresetsModal()">💾 Backup &amp; Presets</button>
       <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>
     </div>
   `;
+  loadLocalMLSection();
+}
+
+// Human labels for local-ML features (keys match backend local_ml.MODELS).
+const LOCAL_ML_LABELS = { autocomplete: "Input Autocomplete", slop_classifier: "AI-Slop Classifier" };
+const LOCAL_ML_DESCS = {
+  autocomplete: "Autocomplete input as you type.",
+  slop_classifier: "",
+};
+
+// Tri-state per feature: deps missing → grayed Download + hint; deps ok & model
+// absent → active Download; model present → enable/disable toggle. Fetched fresh
+// (not from S.settings) because deps/present are server-filesystem facts.
+async function loadLocalMLSection() {
+  const el = $("local-ml-section");
+  if (!el) return;
+  let st;
+  try {
+    st = await api.get("/local-ml/status");
+  } catch (e) {
+    el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
+    return;
+  }
+  el.innerHTML = Object.entries(st.features)
+    .map(([f, info]) => {
+      const name = esc(LOCAL_ML_LABELS[f] || f);
+      if (!st.deps_ok) {
+        return `<div class="tool-card" style="opacity:0.5">
+          <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+            <button class="btn btn-sm" disabled>Download</button></div>
+          <div class="tool-card-desc" style="user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
+        </div>`;
+      }
+      if (!info.present) {
+        return `<div class="tool-card">
+          <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+            <button class="btn btn-sm" id="local-ml-dl-${f}" onclick="downloadLocalMlModel('${f}')">Download</button></div>
+          <div class="tool-card-desc">Model not downloaded yet (~370 MB).</div>
+        </div>`;
+      }
+      const desc = LOCAL_ML_DESCS[f] || "";
+      return `<div class="tool-card ${info.enabled ? "tool-on" : ""}">
+        <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+          <label class="tog" onclick="event.stopPropagation()">
+            <input type="checkbox" ${info.enabled ? "checked" : ""} onchange="toggleLocalMlEnabled('${f}', this.checked)">
+            <span class="tog-slider"></span>
+          </label></div>
+        ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
+      </div>`;
+    })
+    .join("");
+}
+
+export async function downloadLocalMlModel(feature) {
+  const btn = $(`local-ml-dl-${feature}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Downloading…";
+  }
+  try {
+    await api.post(`/local-ml/${feature}/download`, {});
+    await loadLocalMLSection(); // flips the card to a toggle
+  } catch (e) {
+    toast("Download failed", true);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Download";
+    }
+  }
+}
+
+export async function toggleLocalMlEnabled(feature, on) {
+  try {
+    const res = await api.post(`/local-ml/${feature}/enabled`, { enabled: on });
+    if (res && typeof res.local_ml_enabled === "object") S.settings.local_ml_enabled = res.local_ml_enabled;
+  } catch (e) {
+    toast("Failed to toggle", true);
+  }
+  loadLocalMLSection();
 }
 
 // ── Agent Tools Panel

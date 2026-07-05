@@ -30,6 +30,7 @@ async def get_settings() -> SettingsRow:
             '"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true}'
         )
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
+        s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         # Overlay endpoint_url, api_key, model_name, and hyperparameters from the
         # active endpoint's active model config so callers always get live values
         # rather than the stale flat columns.
@@ -191,6 +192,23 @@ async def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
             "SET workflow_enabled = json_set(COALESCE(workflow_enabled, '{}'), '$.' || ?, json(?)) "
             "WHERE id = 1",
             (workflow_id, json.dumps(bool(enabled))),
+        )
+        await db.commit()
+
+
+async def set_local_ml_enabled(feature: str, enabled: bool) -> None:
+    """Set one local-ML feature's on/off flag via a per-key JSON1 write.
+
+    Near-identical to ``set_workflow_enabled``: a single atomic ``json_set`` on
+    the named key only, so concurrent tabs flipping different features can't
+    clobber each other and no application lock is needed. Missing key => enabled.
+    """
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE settings "
+            "SET local_ml_enabled = json_set(COALESCE(local_ml_enabled, '{}'), '$.' || ?, json(?)) "
+            "WHERE id = 1",
+            (feature, json.dumps(bool(enabled))),
         )
         await db.commit()
 
