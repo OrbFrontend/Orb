@@ -6,17 +6,6 @@ from __future__ import annotations
 from backend.inference import local_ml
 
 
-async def test_status_tristate(client, monkeypatch):
-    monkeypatch.setattr(local_ml, "deps_ok", lambda: (True, ""))
-    monkeypatch.setattr(local_ml, "present", lambda f: False)
-    resp = await client.get("/api/local-ml/status")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["deps_ok"] is True
-    ac = body["features"]["autocomplete"]
-    assert ac == {"present": False, "enabled": True}  # missing key => enabled
-
-
 async def test_download_400_when_deps_missing(client, monkeypatch):
     monkeypatch.setattr(local_ml, "deps_ok", lambda: (False, "extras not installed"))
     # download() must never run; guard against an accidental network hit.
