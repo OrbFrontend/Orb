@@ -30,16 +30,19 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 class ModelSpec:
     repo_id: str
     filename: str
+    size_mb: int
 
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
         repo_id="ibm-granite/granite-4.0-350m-base-GGUF",
         filename="granite-4.0-350m-base-Q8_0.gguf",
+        size_mb=370,
     ),
     "slop_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin68m-purple-GGUF",
         filename="ettin68m-purple-q8_0.gguf",
+        size_mb=71,
     ),
 }
 
@@ -110,8 +113,6 @@ def download(feature: str) -> None:
     from huggingface_hub import hf_hub_download  # noqa: PLC0415 — deferred
 
     spec = MODELS[feature]
-    # ponytail: synchronous download in a threadpool, no progress bar — ~370 MB;
-    # add SSE progress only if users complain.
     hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, local_dir=model_dir())
 
 
@@ -133,7 +134,6 @@ def _load_blocking(feature: str) -> None:
         _llamas[feature] = Llama(
             model_path=resolve_path(feature),
             n_ctx=1024,
-            # ponytail: capped low — these are background helpers, never the main model.
             n_threads=int(os.environ.get("ORB_AUTOCOMPLETE_THREADS", "4")),
             verbose=False,
         )

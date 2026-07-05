@@ -15,8 +15,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ponytail: one global lock — a download is a big, rare, one-off; no need for
-# per-feature locks. Serializes concurrent /download clicks.
 _download_lock = asyncio.Lock()
 
 
@@ -30,7 +28,10 @@ async def api_local_ml_status():
         "deps_ok": ok,
         "reason": reason,
         "install_cmd": local_ml.install_cmd(),
-        "features": {f: {"present": local_ml.present(f), "enabled": enabled_map.get(f, True)} for f in local_ml.MODELS},
+        "features": {
+            f: {"present": local_ml.present(f), "enabled": enabled_map.get(f, True), "size_mb": spec.size_mb}
+            for f, spec in local_ml.MODELS.items()
+        },
     }
 
 

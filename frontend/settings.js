@@ -217,7 +217,7 @@ async function loadLocalMLSection() {
         return `<div class="tool-card">
           <div class="tool-card-header"><span class="tool-card-name">${name}</span>
             <button class="btn btn-sm" id="local-ml-dl-${f}" onclick="downloadLocalMlModel('${f}')">Download</button></div>
-          <div class="tool-card-desc">Model not downloaded yet (~370 MB).</div>
+          <div class="tool-card-desc">Model not downloaded yet (~${info.size_mb} MB).</div>
         </div>`;
       }
       const desc = LOCAL_ML_DESCS[f] || "";
