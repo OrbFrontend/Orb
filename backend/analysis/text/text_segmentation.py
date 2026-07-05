@@ -118,11 +118,7 @@ def extract_narration(paragraph: str) -> str:
         # not a closing single-quote — keep it so the word survives intact rather
         # than being clipped to "castle s".
         is_apostrophe = (
-            ch == "’"
-            and i > 0
-            and paragraph[i - 1].isalnum()
-            and i + 1 < len(paragraph)
-            and paragraph[i + 1].isalnum()
+            ch == "’" and i > 0 and paragraph[i - 1].isalnum() and i + 1 < len(paragraph) and paragraph[i + 1].isalnum()
         )
         if not is_apostrophe:
             if ch in TOGGLE_QUOTES:
