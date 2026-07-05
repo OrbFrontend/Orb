@@ -289,11 +289,11 @@ async def test_complete_text_enable_thinking_delegated_to_template_no_manual_suf
     client._stream_completion = fake_stream  # type: ignore[method-assign]
 
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(False)))
-    assert captured["ctk"] == {"enable_thinking": False}
+    assert captured["ctk"] == {"enable_thinking": False, "thinking": False}  # both toggle aliases
     assert captured["prompt"] == "BASE" + GEMMA_DISABLE  # from the template, not the client
 
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True)))
-    assert captured["ctk"] == {"enable_thinking": True}
+    assert captured["ctk"] == {"enable_thinking": True, "thinking": True}
     assert captured["prompt"] == "BASE"  # reasoning on → template renders no disable bytes
 
 
@@ -386,6 +386,36 @@ async def test_complete_text_forced_prefill_prepends_arguments():
     assert parse_tool_calls(events[-1]["message"]) == [
         {"name": "editor_apply_patch", "arguments": {"patches": [{"search": "old", "replace": "REPL"}]}}
     ]
+
+
+async def test_complete_text_pre_open_detected_from_bytes_even_when_reasoning_off():
+    # Kimi K2 case: the template keys thinking off a boolean `thinking`, not the
+    # `enable_thinking` we send, so a reasoning-OFF request still renders a
+    # pre-opened <think>. The splitter must detect the pre-open from the rendered
+    # bytes (not our flag) and route the CoT to reasoning instead of collapsing.
+    client = _text_client()
+
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
+        return "<|im_assistant|>assistant<|im_middle|><think>"  # pre-opened despite off
+
+    async def fake_props(root):
+        return "<think>...</think>"  # sniffs to _THINK
+
+    async def fake_stream(url, body):
+        for piece in ["reasoning here", "</think>", "the answer"]:
+            yield {"content": piece, "stop": False}
+        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._apply_template = fake_apply  # type: ignore[method-assign]
+    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    events = await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(False)))
+    reasoning = "".join(e["delta"] for e in events if e.get("type") == "reasoning")
+    content = "".join(e["delta"] for e in events if e.get("type") == "content")
+    assert reasoning == "reasoning here"
+    assert content == "the answer"
+    assert "</think>" not in content  # no collapse, no leaked token despite reasoning=off
 
 
 async def test_complete_text_grammar_overrides_json_schema():

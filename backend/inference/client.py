@@ -40,17 +40,23 @@ def reasoning_cfg(on: bool) -> dict:
 
     Covers all known API styles in one place (OpenAI-style, llama.cpp,
     Anthropic thinking).
+
+    ``chat_template_kwargs`` carries two aliases for the same toggle because
+    templates disagree on the name: Qwen3/Gemma read ``enable_thinking``; Kimi K2
+    reads a boolean ``thinking``. Each template reads only the name it knows and
+    ignores the other, so sending both is safe and makes the toggle actually take
+    on all of them (a template that silently ignores the flag would keep thinking).
     """
     return (
         {
             "reasoning": {"effort": "low", "enabled": True},
-            "chat_template_kwargs": {"enable_thinking": True},
+            "chat_template_kwargs": {"enable_thinking": True, "thinking": True},
             "thinking": {"type": "enabled"},
         }
         if on
         else {
             "reasoning": {"effort": "none", "enabled": False},
-            "chat_template_kwargs": {"enable_thinking": False},
+            "chat_template_kwargs": {"enable_thinking": False, "thinking": False},
             "thinking": {"type": "disabled"},
         }
     )
@@ -439,7 +445,7 @@ class LLMClient:
         # output). Hand-appending double-opened Qwen's tag and leaked its CoT as
         # content. Skip for prefill: the trailing assistant turn, not the generation
         # prompt, governs thinking there.
-        ctk = None if prefill else {"enable_thinking": reasoning_on}
+        ctk = None if prefill else {"enable_thinking": reasoning_on, "thinking": reasoning_on}
         try:
             prompt = await self._apply_template(server_root, render_msgs, ctk)
         except httpx.HTTPError as e:
@@ -449,11 +455,9 @@ class LLMClient:
             return
 
         tags = await text_completion.get_think_tags(server_root, lambda: self._fetch_chat_template(server_root))
-        # If the template pre-opened the think tag in the prompt, the model's stream
-        # starts *inside* the reasoning span (no open tag to see) → prime the splitter
-        # as already-open. Detected from the rendered bytes, so it stays correct for
-        # both template styles. reasoning-off prompts never end open.
-        pre_opened = reasoning_on and bool(tags[0]) and prompt.rstrip().endswith(tags[0].rstrip())
+        # Prime the splitter from what the template ACTUALLY rendered, not from the
+        # requested reasoning flag.
+        pre_opened = bool(tags[0]) and prompt.rstrip().endswith(tags[0].rstrip())
 
         # Forced tool_choice → grammar-constrain the whole output to the tool's
         # JSON schema. tools is otherwise unused in text mode (never rendered).
