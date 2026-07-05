@@ -40,10 +40,8 @@ function clearSlop(body) {
 
 function paint(body, sentIndices, bySent, scores) {
   let flagged = 0;
-  let sum = 0;
   sentIndices.forEach((si, i) => {
     const score = Number(scores[i]) || 0;
-    sum += score;
     if (score < SLOP_THRESHOLD) return;
     flagged++;
     const spans = bySent.get(si);
@@ -63,7 +61,7 @@ function paint(body, sentIndices, bySent, scores) {
   const total = sentIndices.length;
   const chip = document.createElement("span");
   chip.className = "slop-chip";
-  chip.textContent = `Slop ${Math.round((sum / total) * 100)}% · ${flagged}/${total} flagged`;
+  chip.textContent = `Slop ${Math.round((flagged / total) * 100)}% · ${flagged}/${total} flagged`;
   // Sibling *after* the toolbar: the toolbar is opacity:0 unless hovered, so a
   // chip inside it would vanish; here it stays visible after scoring.
   const msg = body.closest(".message");
