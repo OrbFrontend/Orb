@@ -102,13 +102,111 @@ function _resizeChatInput() {
   el.style.height = `${Math.min(el.scrollHeight, 150)}px`;
 }
 
+// ── Inline autocomplete (ghost text)
+// A debounced POST to /autocomplete predicts a short continuation, shown as gray
+// ghost text and accepted with Tab. Only fires at the end of a non-empty draft
+// and never mid-generation. A server 503 (ML extra not installed) disables it
+// for the session so we stop polling.
+// ponytail: single in-flight request, aborted on each keystroke.
+const GHOST_DEBOUNCE_MS = 180;
+let _ghostText = "";
+let _ghostTimer = null;
+let _ghostAbort = null;
+let _ghostDisabled = false;
+
+function _renderGhost() {
+  const g = $("chat-ghost");
+  const inp = $("chat-input");
+  if (!g) return;
+  g.textContent = "";
+  if (!_ghostText) return;
+  g.appendChild(document.createTextNode(inp.value)); // transparent prefix pushes the suggestion to the caret
+  const s = document.createElement("span");
+  s.className = "ghost-suggestion";
+  s.textContent = _ghostText;
+  g.appendChild(s);
+  g.scrollTop = inp.scrollTop;
+}
+
+function clearGhost() {
+  if (_ghostTimer) {
+    clearTimeout(_ghostTimer);
+    _ghostTimer = null;
+  }
+  if (_ghostText) {
+    _ghostText = "";
+    _renderGhost();
+  }
+}
+
+function acceptGhost() {
+  const inp = $("chat-input");
+  inp.value += _ghostText;
+  _ghostText = "";
+  _renderGhost();
+  onComposerInput(); // resize + schedule the next suggestion
+}
+
+function scheduleGhost() {
+  if (_ghostDisabled) return;
+  if (_ghostTimer) clearTimeout(_ghostTimer);
+  _ghostTimer = setTimeout(_requestGhost, GHOST_DEBOUNCE_MS);
+}
+
+async function _requestGhost() {
+  _ghostTimer = null;
+  if (_ghostDisabled) return;
+  const inp = $("chat-input");
+  const draft = inp.value;
+  const cid = S.activeConvId;
+  if (!cid || !draft.trim() || S.isStreaming || inp.selectionStart !== draft.length) return;
+  if (_ghostAbort) _ghostAbort.abort();
+  _ghostAbort = new AbortController();
+  try {
+    const r = await fetch(`/api/conversations/${cid}/autocomplete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ draft }),
+      signal: _ghostAbort.signal,
+    });
+    if (r.status === 503) {
+      _ghostDisabled = true; // ML extra not installed — stop trying this session
+      return;
+    }
+    if (!r.ok) return;
+    const { completion } = await r.json();
+    if (inp.value !== draft) return; // draft moved on while we waited
+    _ghostText = completion || "";
+    _renderGhost();
+  } catch {
+    /* AbortError (superseded) or network error: ignore */
+  }
+}
+
 function onComposerInput() {
-  if (_resizeScheduled) return;
-  _resizeScheduled = true;
-  requestAnimationFrame(_resizeChatInput);
+  if (!_resizeScheduled) {
+    _resizeScheduled = true;
+    requestAnimationFrame(_resizeChatInput);
+  }
+  clearGhost();
+  scheduleGhost();
 }
 
 function onComposerKeydown(e) {
+  if (_ghostText) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      acceptGhost();
+      return;
+    }
+    if (e.key === "Escape") {
+      clearGhost();
+      return;
+    }
+    // Any other key (typing, caret move) invalidates the shown suggestion;
+    // typing then reschedules a fresh one via onComposerInput.
+    if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) clearGhost();
+  }
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     const validation = validate.validateChatInput(this.value);
@@ -116,6 +214,7 @@ function onComposerKeydown(e) {
       toast(validation.error, true);
       return;
     }
+    clearGhost();
     sendMessage();
   }
 }
@@ -127,4 +226,11 @@ export function initComposer() {
   const input = $("chat-input");
   input.addEventListener("input", onComposerInput);
   input.addEventListener("keydown", onComposerKeydown);
+  // Clear ghost text when focus leaves (e.g. clicking Send) and keep the
+  // overlay scrolled in step with the textarea.
+  input.addEventListener("blur", clearGhost);
+  input.addEventListener("scroll", () => {
+    const g = $("chat-ghost");
+    if (g) g.scrollTop = input.scrollTop;
+  });
 }

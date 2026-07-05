@@ -343,6 +343,10 @@ class MagicRewriteMsg(BaseModel):
     direction: str
 
 
+class AutocompleteInput(BaseModel):
+    draft: str
+
+
 class PhraseGroupCreate(BaseModel):
     variants: list[str] = []
     kind: str = "literal"

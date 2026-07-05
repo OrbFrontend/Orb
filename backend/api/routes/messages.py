@@ -7,16 +7,20 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ...core.macros import Macros
 from ...database import (
     delete_message_with_descendants,
+    get_character_card,
     get_conversation,
     get_message_by_id,
     get_messages,
     get_messages_with_branch_info,
+    get_settings,
+    get_user_persona,
     switch_to_branch,
     update_message_content,
 )
-from ...inference import AbortToken
+from ...inference import AbortToken, local_completion
 from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -24,8 +28,15 @@ from ...pipeline import (
     handle_super_regenerate,
     handle_turn,
 )
+from ...pipeline.predicates import resolve_persona_id
 from ..deps import _CleanupStreamingResponse, _conversation_stream_lock, _sse_stream
-from ..schemas import EditMessage, MagicRewriteMsg, RegenerateMsg, SendMessage
+from ..schemas import (
+    AutocompleteInput,
+    EditMessage,
+    MagicRewriteMsg,
+    RegenerateMsg,
+    SendMessage,
+)
 
 router = APIRouter()
 
@@ -204,3 +215,37 @@ async def api_continue_from_user(cid: str, request: Request, data: Optional[Rege
         ),
         media_type="text/event-stream",
     )
+
+
+@router.post("/api/conversations/{cid}/autocomplete")
+async def api_autocomplete(cid: str, data: AutocompleteInput):
+    """Predict a short continuation of the user's in-progress draft (CPU, in-process).
+
+    Opt-in: 503 unless the llama-cpp-python extra and the GGUF are present. Uses a
+    trimmed context (char/persona names + last few messages), NOT the Director pipeline.
+    """
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    ok, reason = local_completion.available()
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"Autocomplete unavailable: {reason}")
+    if not data.draft.strip():
+        return {"completion": ""}
+
+    settings = await get_settings()
+    card_id = conv.get("character_card_id")
+    card = await get_character_card(card_id) if card_id else None
+    persona_id = resolve_persona_id(conv, card, settings)
+    persona = await get_user_persona(persona_id) if persona_id else None
+    user_name = (persona or {}).get("name") or settings.get("user_name") or "User"
+    char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
+
+    macros = Macros(user=user_name, char=char_name)
+    messages = await get_messages(cid)
+    recent = [{"role": m["role"], "content": macros.resolve_prompt(m["content"] or "")} for m in messages[-4:]]
+    summary = macros.resolve_prompt((card or {}).get("description") or "")
+    prompt = local_completion.build_prompt(char_name, user_name, summary, recent, macros.resolve_prompt(data.draft))
+
+    completion = await local_completion.complete(prompt)
+    return {"completion": completion}
