@@ -187,7 +187,7 @@ export function renderSettings() {
 const LOCAL_ML_LABELS = { autocomplete: "Input Autocomplete", slop_classifier: "AI-Slop Classifier" };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
-  slop_classifier: "",
+  slop_classifier: "Unlock AI slop scorer.",
 };
 
 // Tri-state per feature: deps missing → grayed Download + hint; deps ok & model

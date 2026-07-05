@@ -51,6 +51,22 @@ async def api_local_ml_download(feature: str):
     return {"ok": True, "present": local_ml.present(feature)}
 
 
+@router.post("/api/local-ml/slop-score")
+async def api_slop_score(data: dict = Body(...)):  # noqa: B008
+    """Score each sentence for AI-slop → {"scores": [float in 0..1, ...]} in input order.
+
+    Sentences come pre-split from the frontend (which owns the coloring), so scores
+    map back to spans by index. 503 when the extra/model is missing or the toggle is off.
+    """
+    ok, reason = local_ml.available("slop_classifier")
+    settings = await get_settings()
+    if not ok or not settings.get("local_ml_enabled", {}).get("slop_classifier", True):
+        raise HTTPException(status_code=503, detail=reason or "AI-Slop Classifier disabled")
+    sentences = [str(s) for s in (data.get("sentences") or [])][:400]  # cap runaway input
+    scores = await local_ml.ascore("slop_classifier", sentences)
+    return {"scores": scores}
+
+
 @router.post("/api/local-ml/{feature}/enabled")
 async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B008
     """Flip one feature's on/off toggle; return the full decoded map."""

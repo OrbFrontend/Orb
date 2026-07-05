@@ -265,6 +265,34 @@
   50% { background: var(--accent-glow); }
 }
 
+/* Slop scorer: tint flagged sentences (alpha scaled by confidence via --slop-a),
+   a small superscript % after each, and a summary chip under the toolbar. */
+.message .msg-body .seg.slop-flag {
+  background: color-mix(in srgb, var(--red, #c45d5d) var(--slop-a, 30%), transparent);
+  border-radius: 2px;
+}
+.message .msg-body .slop-badge {
+  font-size: .7em;
+  opacity: .75;
+  margin-left: 1px;
+  color: var(--red, #c45d5d);
+  vertical-align: super;
+}
+.msg-toolbar .msg-btn-slop {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+.slop-chip {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: .75rem;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border-radius: 10px;
+}
+
 .wf-seg-caret {
   position: fixed;
   display: none;
