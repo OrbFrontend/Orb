@@ -348,12 +348,24 @@ class LLMClient:
             except asyncio.CancelledError:
                 pass
 
-    async def _apply_template(self, server_root: str, messages: Sequence[Mapping[str, Any]]) -> str:
-        """Render *messages* to a prompt string via llama.cpp ``POST /apply-template``."""
+    async def _apply_template(
+        self,
+        server_root: str,
+        messages: Sequence[Mapping[str, Any]],
+        chat_template_kwargs: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Render *messages* to a prompt string via llama.cpp ``POST /apply-template``.
+
+        *chat_template_kwargs* (e.g. ``{"enable_thinking": False}``) is forwarded so
+        the template renders its own reasoning on/off bytes — see ``_complete_text``.
+        """
+        body: dict[str, Any] = {"messages": list(messages)}
+        if chat_template_kwargs is not None:
+            body["chat_template_kwargs"] = dict(chat_template_kwargs)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(
                 f"{server_root}/apply-template",
-                json={"messages": list(messages)},
+                json=body,
                 headers=self._headers(),
             )
             resp.raise_for_status()
@@ -419,8 +431,17 @@ class LLMClient:
             render_msgs = [*render_msgs, {"role": "assistant", "content": prefill}]
 
         server_root = self._server_root()
+        reasoning_on = text_completion.reasoning_enabled(params)
+        # Let the chat template own reasoning on/off via ``enable_thinking`` rather
+        # than hand-appending disable bytes: templates disagree on where the think
+        # tag lives (Qwen3 pre-opens ``<think>`` in the generation prompt and closes
+        # it for enable_thinking=false; Gemma 4 leaves the open tag to the model's
+        # output). Hand-appending double-opened Qwen's tag and leaked its CoT as
+        # content. Skip for prefill: the trailing assistant turn, not the generation
+        # prompt, governs thinking there.
+        ctk = None if prefill else {"enable_thinking": reasoning_on}
         try:
-            prompt = await self._apply_template(server_root, render_msgs)
+            prompt = await self._apply_template(server_root, render_msgs, ctk)
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
             async for event in self._complete_chat(messages, model, tools, tool_choice, **params):
@@ -428,10 +449,11 @@ class LLMClient:
             return
 
         tags = await text_completion.get_think_tags(server_root, lambda: self._fetch_chat_template(server_root))
-        # Reasoning off → append the template's disable bytes (F3). Skip when
-        # prefilling: the open assistant turn already pre-closes the thought channel.
-        if not prefill and not text_completion.reasoning_enabled(params):
-            prompt += tags[2]
+        # If the template pre-opened the think tag in the prompt, the model's stream
+        # starts *inside* the reasoning span (no open tag to see) → prime the splitter
+        # as already-open. Detected from the rendered bytes, so it stays correct for
+        # both template styles. reasoning-off prompts never end open.
+        pre_opened = reasoning_on and bool(tags[0]) and prompt.rstrip().endswith(tags[0].rstrip())
 
         # Forced tool_choice → grammar-constrain the whole output to the tool's
         # JSON schema. tools is otherwise unused in text mode (never rendered).
@@ -460,12 +482,12 @@ class LLMClient:
             "LLM complete (text): model=%s, forced=%s, reasoning=%s, prefill=%s, grammar=%s",
             model,
             forced_name,
-            text_completion.reasoning_enabled(params),
+            reasoning_on,
             bool(prefill),
             bool(grammar),
         )
 
-        splitter = text_completion.ThinkSplitter(tags)
+        splitter = text_completion.ThinkSplitter(tags, already_open=pre_opened)
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         forced_buf: list[str] = []

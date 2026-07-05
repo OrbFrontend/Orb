@@ -120,12 +120,24 @@ class ThinkSplitter:
     never opens a thought channel stays here and everything is content),
     ``reasoning`` (inside the span), ``content`` (after the span; no more tags).
     A non-thinking model (empty open tag) starts in ``content``.
+
+    ``already_open`` starts in ``reasoning`` instead of ``pre``: some chat
+    templates (Qwen3) emit the *opening* think tag in the generation prompt, so
+    the model's stream begins *inside* the span with no open tag to see. The
+    caller sets this by inspecting the rendered prompt (see ``_complete_text``).
+    Templates that leave the open tag to the model's output (Gemma 4) pass
+    ``False`` and the default ``pre`` scan catches it.
     """
 
-    def __init__(self, tags: ThinkTags) -> None:
+    def __init__(self, tags: ThinkTags, already_open: bool = False) -> None:
         self._open, self._close, _ = tags
         self._buf = ""
-        self._state = "pre" if self._open else "content"
+        if not self._open:
+            self._state = "content"
+        elif already_open:
+            self._state = "reasoning"
+        else:
+            self._state = "pre"
 
     def feed(self, delta: str) -> list[tuple[str, str]]:
         out: list[tuple[str, str]] = []

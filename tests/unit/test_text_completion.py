@@ -52,6 +52,13 @@ def test_splitter_think_pair():
     assert c == "answer"
 
 
+def test_splitter_already_open_starts_in_reasoning():
+    # Qwen3: prompt pre-opened <think>, so the stream has no leading open tag.
+    r, c = _run(tc.ThinkSplitter(tc._THINK, already_open=True), ["reason", "</think>", "answer"])
+    assert r == "reason"
+    assert c == "answer"
+
+
 def test_splitter_non_thinking_passthrough():
     # Empty tags → everything is content, from the first byte.
     r, c = _run(tc.ThinkSplitter(tc._NONE), ["hello ", "world"])
@@ -230,7 +237,7 @@ async def _drain(agen):
 async def test_complete_text_forced_call_end_to_end():
     client = _text_client()
 
-    async def fake_apply(root, msgs):
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
         return "PROMPT"
 
     async def fake_props(root):
@@ -258,12 +265,17 @@ async def test_complete_text_forced_call_end_to_end():
     assert done["usage"]["prompt_tokens_details"]["cached_tokens"] == 6
 
 
-async def test_complete_text_disable_suffix_toggles_with_reasoning():
+async def test_complete_text_enable_thinking_delegated_to_template_no_manual_suffix():
+    # The template owns reasoning on/off: the client forwards enable_thinking to
+    # /apply-template and does NOT hand-append disable bytes (which double-opened
+    # Qwen3's pre-opened <think>). The fake template echoes what it was told.
     client = _text_client()
     captured: dict = {}
 
-    async def fake_apply(root, msgs):
-        return "BASE"
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
+        captured["ctk"] = chat_template_kwargs
+        # Mimic a template that closes an empty think block when thinking is off.
+        return "BASE" + ("" if (chat_template_kwargs or {}).get("enable_thinking", True) else GEMMA_DISABLE)
 
     async def fake_props(root):
         return "<|channel>thought"
@@ -277,18 +289,51 @@ async def test_complete_text_disable_suffix_toggles_with_reasoning():
     client._stream_completion = fake_stream  # type: ignore[method-assign]
 
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(False)))
-    assert captured["prompt"] == "BASE" + GEMMA_DISABLE
+    assert captured["ctk"] == {"enable_thinking": False}
+    assert captured["prompt"] == "BASE" + GEMMA_DISABLE  # from the template, not the client
 
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True)))
-    assert captured["prompt"] == "BASE"  # reasoning on → no suffix
+    assert captured["ctk"] == {"enable_thinking": True}
+    assert captured["prompt"] == "BASE"  # reasoning on → template renders no disable bytes
+
+
+async def test_complete_text_primes_splitter_when_prompt_pre_opens_think():
+    # Qwen3 case: template pre-opens <think> in the prompt, so the model stream
+    # starts INSIDE reasoning (no leading <think>). The splitter must classify the
+    # CoT as reasoning and only the post-</think> text as content.
+    client = _text_client()
+    events_seen: list = []
+
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
+        return "<|im_start|>assistant\n<think>\n"  # ends with the open tag
+
+    async def fake_props(root):
+        return "<think>...</think>"  # sniffs to _THINK
+
+    async def fake_stream(url, body):
+        for piece in ["Analyzing", " the ask.", "</think>", "\n\nSarah smiled."]:
+            yield {"content": piece, "stop": False}
+        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._apply_template = fake_apply  # type: ignore[method-assign]
+    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    events_seen = await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True)))
+    reasoning = "".join(e["delta"] for e in events_seen if e.get("type") == "reasoning")
+    content = "".join(e["delta"] for e in events_seen if e.get("type") == "content")
+    assert reasoning == "Analyzing the ask."
+    assert content == "\n\nSarah smiled."
+    assert "</think>" not in content  # the special token no longer leaks
 
 
 async def test_complete_text_prefill_appends_assistant_message():
     client = _text_client()
     captured: dict = {}
 
-    async def fake_apply(root, msgs):
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
         captured["msgs"] = list(msgs)
+        captured["ctk"] = chat_template_kwargs
         return "P"
 
     async def fake_props(root):
@@ -304,6 +349,7 @@ async def test_complete_text_prefill_appends_assistant_message():
 
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", prefill="Once upon"))
     assert captured["msgs"][-1] == {"role": "assistant", "content": "Once upon"}
+    assert captured["ctk"] is None  # prefill skips enable_thinking; the trailing turn governs it
 
 
 async def test_complete_text_forced_prefill_prepends_arguments():
@@ -311,7 +357,7 @@ async def test_complete_text_forced_prefill_prepends_arguments():
     # remainder, so json.loads sees one complete object.
     client = _text_client()
 
-    async def fake_apply(root, msgs):
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
         return "P"
 
     async def fake_props(root):
@@ -346,7 +392,7 @@ async def test_complete_text_grammar_overrides_json_schema():
     client = _text_client()
     captured: dict = {}
 
-    async def fake_apply(root, msgs):
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
         return "P"
 
     async def fake_props(root):
@@ -381,7 +427,7 @@ async def test_complete_text_json_schema_narrows_forced_grammar():
     client = _text_client()
     captured: dict = {}
 
-    async def fake_apply(root, msgs):
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
         return "P"
 
     async def fake_props(root):
@@ -431,7 +477,7 @@ async def test_chat_transport_drops_grammar():
 async def test_complete_text_apply_template_error_falls_back_to_chat():
     client = _text_client()
 
-    async def boom(root, msgs):
+    async def boom(root, msgs, chat_template_kwargs=None):
         raise httpx.ConnectError("nope")
 
     async def fake_chat(messages, model, tools=None, tool_choice=None, **params):
