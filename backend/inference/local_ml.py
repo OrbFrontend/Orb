@@ -37,13 +37,10 @@ MODELS: dict[str, ModelSpec] = {
     # "slop_classifier": ModelSpec(...),   # future — repo TBD, no code yet
 }
 
-# Decoding knobs — the calibration surface for output quality. A small model
-# loops ("word word word") without a firm repetition penalty; llama.cpp's 1.1
-# default is too weak here. This is the main lever, tune before blaming the model.
-_REPEAT_PENALTY = 1.1
+_REPEAT_PENALTY = 1.5
 _FREQUENCY_PENALTY = 0.5
 _TOP_P = 0.9
-_TOP_K = 40
+_TOP_K = 20
 
 # Llama is a single, non-reentrant context; serialize every call through a
 # per-feature lock so two features never share one handle's thread of execution.
@@ -198,12 +195,12 @@ def build_prompt(
     *recent* is oldest→newest ``{"role": "user"|"assistant", "content": str}``.
     Deliberately excludes the Director/pipeline injection block — this is a
     lightweight typeahead, not a full turn. The model continues the final line.
-    # ponytail: naive char truncation; if quality needs it, trim on token count.
     """
     lines: list[str] = []
     summary = (char_summary or "").strip()
     if summary:
         lines.append(summary[:max_summary_chars])
+        lines.append("***Roleplay chat below***")
     for m in recent:
         name = user_name if m.get("role") == "user" else char_name
         content = (m.get("content") or "").strip()[:max_msg_chars]
