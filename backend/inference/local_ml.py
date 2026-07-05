@@ -40,9 +40,9 @@ MODELS: dict[str, ModelSpec] = {
         size_mb=370,
     ),
     "slop_classifier": ModelSpec(
-        repo_id="chartreuse-verte/ettin68m-purple-GGUF",
-        filename="ettin68m-purple-q8_0.gguf",
-        size_mb=71,
+        repo_id="chartreuse-verte/ettin150m-purple-GGUF",
+        filename="ettin150m-purple-q8_0.gguf",
+        size_mb=161,
     ),
 }
 
