@@ -5,15 +5,15 @@
 ![Orb](Orb.png)
 ## Problem Statement
 
-LLMs suffer from stylistic inertia in long roleplay sessions. Once a tone, pacing, or prose style is established over several turns, the model tends to perpetuate it regardless of narrative shifts. A lighthearted conversation that turns tragic will often retain the cadence and vocabulary of the earlier tone because the weight of prior context anchors the model's generation.
-
-Static system prompts cannot solve this. The system prompt is written once and does not adapt to evolving scenes.
+LLM Roleplaying and Creative Writing have a low floor and a high ceiling. Common problems: passiveness and directionlessness, slop (overused, cliche word choices), various types of repetition (degradation as context grows), writing style inertia.
 
 ## Solution Overview
 
-An **agentic middleware layer** sits between the user and the model. It intercepts each user message, runs a short analytical pass to "read the room," then dynamically assembles prompt directives that shape the model's writing before the actual roleplay generation happens.
+A **Director** sits between the user and the model. It intercepts each user message, runs a short analytical pass to "read the room," then dynamically assembles prompt directives that shape the model's writing before the actual roleplay generation happens.
 
-The user never sees the agentic layer. The writer model doesn't know it's being directed. The result is a roleplay session that naturally adapts its style, tone, and pacing as the narrative evolves.
+We essentially break the RP task into smaller, more focused tasks before the final response is generated.
+
+An **Editor** audits the LLM's response then surgically fixes it.
 
 ## Notable Features
 1. **Director**: Grounding the story + actively steering the writing style = better output

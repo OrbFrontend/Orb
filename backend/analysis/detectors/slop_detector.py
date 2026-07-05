@@ -6,11 +6,16 @@ A phrase bank is a list of groups. Each group is one of two kinds:
 - literal — a set of equivalent variant phrases. Short variants (up to 3 tokens)
   match by exact substring (comma-insensitive); longer variants (4+ tokens)
   match by trigram containment scoring.
-- regex — a single regular expression checked against each sentence
+- regex — a single regular expression checked against each segment
   (case-insensitive). The matched text is reported verbatim. A match is always
-  scoped to a single sentence — if a greedy pattern would bridge a sentence
+  scoped to a single segment — if a greedy pattern would bridge a sentence
   boundary (e.g. via .*), it's rejected, so the reported phrase is never
   multi-sentence.
+
+Matching runs per *segment*, not per grammatical sentence: dialogue, emphasis,
+and narration are separated first (split_segment_sentences), so a hit in the
+attribution tail of a dialogue line flags only the narration fragment — the
+quoted speech never appears in the report.
 
 Groups are accepted in two shapes for backward compatibility:
 
@@ -30,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ..text.lexical import ngrams
-from ..text.text_segmentation import split_sentences
+from ..text.text_segmentation import split_segment_sentences
 
 if TYPE_CHECKING:
     from ...database.models import PhraseGroup
@@ -85,8 +90,10 @@ def _containment(phrase_grams: set, window_grams: set) -> float:
     return len(phrase_grams & window_grams) / len(phrase_grams)
 
 
-# Dialogue is intentionally kept: cliché matching must see text inside quotes.
-_split_sentences = split_sentences
+# Dialogue is kept (cliché matching must see text inside quotes) but segmented
+# apart from narration, so a flagged snippet never drags quoted speech into the
+# audit report when the offending phrase sits in the attribution tail.
+_split_sentences = split_segment_sentences
 
 
 def _group_kind(group: PhraseGroup) -> str:

@@ -82,10 +82,14 @@ class TestSlopSplitterDialogueQuotes:
         sentences = slop_split("He yelled! She ran. They stopped.")
         assert sentences == ["He yelled!", "She ran.", "They stopped."]
 
-    def test_mid_sentence_quote_no_spurious_split(self):
-        """A quoted word inside a sentence must not cause a spurious split."""
-        sentences = slop_split('She said "hello" to him. He nodded.')
-        assert sentences == ['She said "hello" to him.', "He nodded."]
+    def test_mid_sentence_quote_separates_segments(self):
+        """A quoted word inside a sentence is its own segment — dialogue and
+        narration never share a segment, and each segment is a contiguous
+        substring of the source (the editor's patching relies on that)."""
+        text = 'She said "hello" to him. He nodded.'
+        sentences = slop_split(text)
+        assert sentences == ["She said", '"hello"', "to him.", "He nodded."]
+        assert all(s in text for s in sentences)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

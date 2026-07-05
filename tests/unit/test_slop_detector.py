@@ -185,3 +185,42 @@ class TestSingleSentenceContainment:
         result = detect_cliches(text, phrase_bank)
 
         assert result.flagged_count == 0
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Dialogue/narration separation — a flagged snippet never mixes the two
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestDialogueNarrationSeparation:
+    def test_hit_in_attribution_tail_excludes_dialogue(self):
+        """A banned phrase in the attribution after a quote flags only the
+        narration fragment, not the quoted speech (regression: the editor was
+        rewriting dialogue cited in the audit report)."""
+        phrase_bank = [{"kind": "regex", "pattern": r"voice\W+(\w+\W+){0,2}(low|dangerous|dropping)"}]
+        text = '"You\'ve got some nerve, Kai," she says, her voice dropping an octave.'
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 1
+        assert result.flagged_sentences[0].sentence == "she says, her voice dropping an octave."
+
+    def test_hit_inside_dialogue_excludes_narration(self):
+        """A banned phrase inside the quote flags only the quoted segment."""
+        phrase_bank = [["don't you dare"]]
+        text = '"Don\'t you dare," she whispered, stepping closer.'
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 1
+        assert result.flagged_sentences[0].sentence == '"Don\'t you dare,"'
+
+    def test_flagged_segment_is_substring_of_source(self):
+        """Reported snippets stay contiguous substrings of the draft — the
+        editor's flagged-sentence filter and search/replace depend on it."""
+        phrase_bank = [{"kind": "regex", "pattern": r"voice\W+(\w+\W+){0,2}dropping"}, ["barely a whisper"]]
+        text = '"Stop right there," he warned, his voice dropping low.\n\nIt was barely a whisper. *He knew.* "Fine."'
+        result = detect_cliches(text, phrase_bank)
+
+        assert result.flagged_count == 2
+        for fs in result.flagged_sentences:
+            assert fs.sentence in text
+            assert not (fs.sentence.count('"') == 1)  # no half-quoted snippets
