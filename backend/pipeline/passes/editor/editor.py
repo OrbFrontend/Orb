@@ -1040,7 +1040,12 @@ def _prefill_targets(report: AuditReport, draft: str) -> list[tuple[str, str]]:
             continue
         seen.add(span)
         targets.append((span, why))
-    return targets[:MAX_PREFILL_TARGETS]
+    # Emit in forward (top-to-bottom) document order rather than audit-category
+    # order, so the prefilled per-finding calls walk the draft the way the model
+    # reads it. Each span is unique (draft.count == 1 above), so index() is exact.
+    targets = targets[:MAX_PREFILL_TARGETS]
+    targets.sort(key=lambda t: draft.index(t[0]))
+    return targets
 
 
 async def _collect_prefill_patches(

@@ -66,7 +66,9 @@ def test_prefill_targets_extracts_dedupes_and_filters_non_unique():
 
     targets = _prefill_targets(r, draft)
     spans = [s for s, _ in targets]
-    assert spans == ["Alpha one.", "Beta three.", "Beta two."]
+    # Forward document order, not audit-category order (opener "Beta three." is
+    # found before phrase "Beta two." in category order, but sits after it in the draft).
+    assert spans == ["Alpha one.", "Beta two.", "Beta three."]
     whys = dict(targets)
     assert '"alpha"' in whys["Alpha one."]
     assert '"Beta"' in whys["Beta three."]

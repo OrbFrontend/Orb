@@ -68,9 +68,9 @@ OPEN_QUOTES = frozenset({"\u201c", "\u2018"})  # " '
 CLOSE_QUOTES = frozenset({"\u201d", "\u2019"})  # " '
 # Straight double quote has no direction; we toggle on each occurrence.
 # The straight single quote is intentionally excluded from every set so that
-# contractions like I'm and don't survive. (Note: U+2019 also doubles as a
-# typographic apostrophe, so curly-apostrophe contractions may be clipped —
-# an accepted trade-off for recognizing single-quoted dialogue.)
+# contractions like I'm and don't survive. U+2019 also doubles as a typographic
+# apostrophe; extract_narration keeps it intact when it sits between two word
+# characters (castle's, don't) and only treats it as a closing quote otherwise.
 TOGGLE_QUOTES = frozenset({'"'})
 
 
@@ -112,19 +112,31 @@ def extract_narration(paragraph: str) -> str:
     inside = False
     prev_was_quote = False
 
-    for ch in paragraph:
-        if ch in TOGGLE_QUOTES:
-            inside = not inside
-            prev_was_quote = True
-            continue
-        if ch in OPEN_QUOTES:
-            inside = True
-            prev_was_quote = True
-            continue
-        if ch in CLOSE_QUOTES:
-            inside = False
-            prev_was_quote = True
-            continue
+    for i, ch in enumerate(paragraph):
+        # U+2019 doubles as the typographic apostrophe. When it sits between two
+        # word characters (don't, castle's, it's) it's a contraction/possessive,
+        # not a closing single-quote — keep it so the word survives intact rather
+        # than being clipped to "castle s".
+        is_apostrophe = (
+            ch == "’"
+            and i > 0
+            and paragraph[i - 1].isalnum()
+            and i + 1 < len(paragraph)
+            and paragraph[i + 1].isalnum()
+        )
+        if not is_apostrophe:
+            if ch in TOGGLE_QUOTES:
+                inside = not inside
+                prev_was_quote = True
+                continue
+            if ch in OPEN_QUOTES:
+                inside = True
+                prev_was_quote = True
+                continue
+            if ch in CLOSE_QUOTES:
+                inside = False
+                prev_was_quote = True
+                continue
 
         if not inside:
             # Insert a space where a quote was stripped, to prevent fusion.
