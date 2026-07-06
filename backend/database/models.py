@@ -471,6 +471,7 @@ class CharacterCardRow(TypedDict, total=False):
     workflow_state: str | None
     persona_lock_id: int | None
     has_avatar: bool
+    has_expressions: bool
 
 
 class CharacterExpressionRow(TypedDict):

@@ -152,6 +152,8 @@ export async function selectConversation(id) {
   } else {
     av.textContent = CHAT_AVATAR_ICON;
   }
+  const hasExpr = (S.characters || []).find((c) => c.id === conv?.character_card_id)?.has_expressions;
+  av.classList.toggle("has-expr-halo", !!hasExpr);
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;
 
