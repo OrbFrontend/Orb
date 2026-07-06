@@ -925,7 +925,7 @@ async def _run_edit_loop(
             # never grows the tail): replace the draft + prompt in-place so the
             # message list stays flat.
             if replay_structured:
-                _append_iteration_context(trailing, resp, patches, errors, report_text, reasoning_on=True)
+                _append_iteration_context(trailing, resp, errors, report_text)
             else:
                 trailing[-2] = {"role": "assistant", "content": current_draft}
                 trailing[-1] = {
@@ -1106,54 +1106,30 @@ async def _collect_prefill_patches(
 def _append_iteration_context(
     msgs: list[WireMessage],
     resp: dict,
-    patches: list[dict],
     errors: list[str],
     report_text: str,
-    *,
-    reasoning_on: bool,
 ):
-    """Append the assistant recap and tool-result turns for the next iteration.
-
-    ``reasoning_on=True``: structured tool-use format (role=tool) so the model
-    sees its exact call and the remaining issues in the form it was trained on.
-    ``reasoning_on=False``: a human-readable recap, more reliable for models
-    without reasoning.
+    """Append the assistant tool-call recap + tool-result turn for the next
+    iteration, in structured tool-use format (role=tool) so the model sees its
+    exact call and the remaining issues in the form it was trained on. Only the
+    reasoning/structured-replay path reaches this; non-reasoning modes re-send
+    the updated draft in place instead.
     """
     tool_response = ("\n".join(errors) + "\n\n" if errors else "") + report_text
-    if reasoning_on:
-        tool_calls = resp.get("tool_calls", [])
-        asst_msg: AssistantToolMessage = {
-            "role": "assistant",
-            "content": resp.get("content") or "",
-            "tool_calls": tool_calls,
-        }
-        if resp.get("reasoning_content"):
-            asst_msg["reasoning_content"] = resp["reasoning_content"]
-        msgs.append(asst_msg)
-        for tc in tool_calls:
-            msgs.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc.get("id", ""),
-                    "content": tool_response,
-                }
-            )
-    else:
-        reasoning = resp.get("content", "") or ""
-        reasoning_content = resp.get("reasoning_content", "") or ""
-        patch_summary = (
-            "; ".join(f'replaced "{p.get("search", "")[:40]}…"' for p in patches if p.get("search") != p.get("replace"))
-            or "no effective changes"
-        )
-        if reasoning or reasoning_content:
-            combined = (reasoning + "\n" + reasoning_content).strip()
-            assistant_recap = combined + "\n\n" + f"[Applied patches: {patch_summary}]"
-        else:
-            assistant_recap = f"[Applied patches: {patch_summary}]"
-        msgs.append({"role": "assistant", "content": assistant_recap})
+    tool_calls = resp.get("tool_calls", [])
+    asst_msg: AssistantToolMessage = {
+        "role": "assistant",
+        "content": resp.get("content") or "",
+        "tool_calls": tool_calls,
+    }
+    if resp.get("reasoning_content"):
+        asst_msg["reasoning_content"] = resp["reasoning_content"]
+    msgs.append(asst_msg)
+    for tc in tool_calls:
         msgs.append(
             {
-                "role": "user",
-                "content": f"[Tool result — updated audit after your patches]\n{tool_response}",
+                "role": "tool",
+                "tool_call_id": tc.get("id", ""),
+                "content": tool_response,
             }
         )

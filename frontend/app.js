@@ -190,6 +190,7 @@ import {
   saveUserDirectionNote,
   toggleDirectionNotesPanel,
 } from "./direction_notes_panel.js";
+import { scoreSlop } from "./slop_score.js";
 import { S } from "./state.js";
 import { initTabLock, setLockStateChangeCallback } from "./tabLock.js";
 import { $ } from "./utils.js";
@@ -264,6 +265,7 @@ Object.assign(window, {
   toggleWorkflowEnabled,
   downloadLocalMlModel,
   toggleLocalMlEnabled,
+  scoreSlop,
   // phrase bank
   showPhraseBankModal,
   showAddPhraseGroupModal,
