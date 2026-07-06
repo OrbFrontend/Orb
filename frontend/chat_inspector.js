@@ -550,7 +550,7 @@ function _renderInspectorMain() {
 }
 
 // Expression polling: while the avatar popup is open and the character has an
-// uploaded expression pack, re-classify the latest assistant message every 2s
+// uploaded expression pack, re-classify the latest assistant message every 1s
 // and swap the popup image to the matching expression.
 let _exprTimer = null;
 
@@ -614,7 +614,7 @@ export async function showAvatarPopup() {
   if (popup.classList.contains("hidden") || !labels.length || !img) return;
   img._exprLabels = labels;
   _expressionTick(charId);
-  _exprTimer = setInterval(() => _expressionTick(charId), 2000);
+  _exprTimer = setInterval(() => _expressionTick(charId), 1000);
 }
 
 export function hideAvatarPopup() {
