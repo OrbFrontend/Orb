@@ -550,7 +550,7 @@ function _renderInspectorMain() {
 }
 
 // Expression polling: while the avatar popup is open and the character has an
-// uploaded expression pack, re-classify the latest assistant message every 3s
+// uploaded expression pack, re-classify the latest assistant message every 2s
 // and swap the popup image to the matching expression.
 let _exprTimer = null;
 
@@ -561,6 +561,10 @@ async function _expressionTick(charId) {
     ? S.streamingContent
     : [...S.messages].reverse().find((m) => m.role === "assistant" && m.id)?.content;
   if (!text) return;
+  // Same text as last tick → same result. Skip the network call while idle;
+  // streaming changes `text` every tick so expressions still update live.
+  if (img._exprText === text) return;
+  img._exprText = text;
   let label;
   try {
     ({ label } = await api.post("/local-ml/classify-emotion", { text }));
@@ -596,6 +600,7 @@ export async function showAvatarPopup() {
   if (img) {
     img.src = `/api/characters/${charId}/avatar?t=${Date.now()}`;
     img._exprSrc = null;
+    img._exprText = null;
   }
   popup.classList.remove("hidden");
 
@@ -609,7 +614,7 @@ export async function showAvatarPopup() {
   if (popup.classList.contains("hidden") || !labels.length || !img) return;
   img._exprLabels = labels;
   _expressionTick(charId);
-  _exprTimer = setInterval(() => _expressionTick(charId), 3000);
+  _exprTimer = setInterval(() => _expressionTick(charId), 2000);
 }
 
 export function hideAvatarPopup() {
