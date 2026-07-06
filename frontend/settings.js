@@ -184,10 +184,15 @@ export function renderSettings() {
 }
 
 // Human labels for local-ML features (keys match backend local_ml.MODELS).
-const LOCAL_ML_LABELS = { autocomplete: "Input Autocomplete", slop_classifier: "AI-Slop Classifier" };
+const LOCAL_ML_LABELS = {
+  autocomplete: "Input Autocomplete",
+  slop_classifier: "AI-Slop Classifier",
+  emotion_classifier: "Character Expressions",
+};
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
   slop_classifier: "Unlock AI slop scorer.",
+  emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
 };
 
 // Tri-state per feature: deps missing → grayed Download + hint; deps ok & model

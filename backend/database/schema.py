@@ -100,6 +100,14 @@ CREATE TABLE IF NOT EXISTS character_cards (
     persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS character_expressions (
+    character_card_id TEXT NOT NULL REFERENCES character_cards(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    data_b64 TEXT NOT NULL,
+    mime TEXT NOT NULL DEFAULT 'image/png',
+    PRIMARY KEY (character_card_id, label)
+);
+
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

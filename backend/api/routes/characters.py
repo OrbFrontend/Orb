@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import logging
 import os
 import tempfile
 import uuid
+import zipfile
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -19,18 +21,25 @@ from ...database import (
     create_lorebook_entry,
     create_world,
     delete_character_card,
+    delete_character_expressions,
     get_character_avatar,
     get_character_card,
+    get_character_expression,
     get_lorebook_entries,
     get_user_persona,
     get_world,
     get_world_by_name,
     list_character_cards,
+    list_expression_labels,
+    set_character_expressions,
     sync_conversations_for_card,
     update_character_card,
 )
 from ...features.cards import downloader as card_downloader
 from ...features.cards import parsing as tavern_cards
+from ...inference.local_ml import (
+    GO_EMOTIONS,  # dep-free tuple; importing triggers no llama import
+)
 from ..deps import _normalise_lorebook_entry
 from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest
 
@@ -246,3 +255,80 @@ async def api_export_character(card_id: str):
         media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}.png"'},
     )
+
+
+# ── Character expressions (SillyTavern-style expression packs) ────────────────
+
+_EXPR_EXT_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}
+_EXPR_GO_EMOTIONS = frozenset(GO_EMOTIONS)
+
+
+def _extract_expressions(zip_bytes: bytes) -> dict[str, tuple[str, str]]:
+    """Parse a zip of expression images → {label: (data_b64, mime)}.
+
+    Flattens paths (basename), keeps files whose lowercase stem is a go-emotions
+    label and whose extension is a known image type. Zip-bomb guards (trust
+    boundary): reject > 200 entries or any declared entry > 5 MB before reading.
+    """
+    out: dict[str, tuple[str, str]] = {}
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        infos = zf.infolist()
+        if len(infos) > 200:
+            raise ValueError("Zip has too many entries (max 200)")
+        for info in infos:
+            if info.is_dir():
+                continue
+            if info.file_size > 5 * 1024 * 1024:
+                raise ValueError(f"Entry {info.filename!r} exceeds 5 MB")
+            name = os.path.basename(info.filename)
+            stem, _, ext = name.rpartition(".")
+            label = stem.lower()
+            mime = _EXPR_EXT_MIME.get(ext.lower())
+            if not mime or label not in _EXPR_GO_EMOTIONS:
+                continue
+            out[label] = (base64.b64encode(zf.read(info)).decode("ascii"), mime)
+    return out
+
+
+@router.post("/api/characters/{card_id}/expressions")
+async def api_upload_expressions(card_id: str, file: Annotated[UploadFile, File(...)]):
+    """Upload a .zip of expression images; replaces the card's whole set."""
+    if not await get_character_card(card_id):
+        raise HTTPException(status_code=404, detail="Character card not found")
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Upload exceeds 50 MB")
+    try:
+        images = _extract_expressions(content)
+    except (zipfile.BadZipFile, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Bad zip: {e}") from e
+    if not images:
+        raise HTTPException(status_code=400, detail="No files matched a go-emotions expression label")
+    await set_character_expressions(card_id, images)
+    return {"labels": sorted(images)}
+
+
+@router.get("/api/characters/{card_id}/expressions")
+async def api_list_expressions(card_id: str):
+    return {"labels": await list_expression_labels(card_id)}
+
+
+@router.get("/api/characters/{card_id}/expressions/{label}")
+async def api_get_expression(card_id: str, label: str, request: Request):
+    result = await get_character_expression(card_id, label)
+    if not result:
+        raise HTTPException(status_code=404, detail="No expression found")
+    image_bytes, mime = result
+    # Same private-cache + conditional-GET block as avatars: expressions change
+    # only on re-upload, and the popup swaps src on label change without a buster.
+    etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
+    cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+    return Response(content=image_bytes, media_type=mime or "image/png", headers=cache_headers)
+
+
+@router.delete("/api/characters/{card_id}/expressions")
+async def api_delete_expressions(card_id: str):
+    await delete_character_expressions(card_id)
+    return {"ok": True}

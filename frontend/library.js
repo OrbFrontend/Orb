@@ -227,6 +227,32 @@ export function exportCharacter(id, name) {
   document.body.removeChild(a);
 }
 
+// ── Expression images (uploaded per character, shown in the avatar popup)
+
+export async function handleExpressionsZip(inp, id) {
+  const f = inp.files[0];
+  if (!f) return;
+  inp.value = "";
+  const status = inp.parentElement.parentElement.querySelector('[id$="-expr-status"]');
+  if (status) status.textContent = "Uploading…";
+  try {
+    const r = await api.upload(`/characters/${id}/expressions`, f);
+    if (status) status.textContent = `${r.labels.length} expressions loaded`;
+  } catch (e) {
+    if (status) status.textContent = "Error: " + e.message;
+  }
+}
+
+export async function clearExpressions(id) {
+  try {
+    await api.del(`/characters/${id}/expressions`);
+    const status = document.querySelector('[id$="-expr-status"]');
+    if (status) status.textContent = "Cleared";
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 // ── Shared tab template for create / edit modals
 function charFormTabs(prefix, d, isEdit, worlds = []) {
   const agHtml = (d.alternate_greetings || [])
@@ -285,6 +311,19 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="field"><label>Creator's Note</label><textarea id="${prefix}-creator-notes" rows="1">${esc(d.creator_notes || "")}</textarea></div>
       <div class="field"><label>System Prompt Override</label><textarea id="${prefix}-sysprompt" rows="1">${esc(d.system_prompt || "")}</textarea></div>
       <div class="field"><label>Post-History Instructions</label><textarea id="${prefix}-posthist" rows="1">${esc(d.post_history_instructions || "")}</textarea></div>
+      ${
+        d.id
+          ? `<div class="field">
+        <label>Expression Images</label>
+        <input type="file" id="${prefix}-expr-zip" accept=".zip" style="display:none" onchange="handleExpressionsZip(this, '${d.id}')">
+        <div>
+          <button class="btn btn-sm" onclick="document.getElementById('${prefix}-expr-zip').click()">Upload .zip</button>
+          <button class="btn btn-sm" onclick="clearExpressions('${d.id}')">Clear</button>
+        </div>
+        <div id="${prefix}-expr-status" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
+      </div>`
+          : ""
+      }
       ${
         d.character_book
           ? `<div style="font-size:11px;color:var(--text-muted);margin-top:8px">Imported card contains an embedded lorebook (${(d.character_book.entries || []).length} entries). It will be imported as a new lorebook unless you select one above.</div>`

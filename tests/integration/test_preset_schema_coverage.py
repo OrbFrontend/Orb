@@ -435,6 +435,7 @@ def _insert_conv_tree(path: str, cid: str, persona_id: int | None) -> None:
 SIGNATURE_TABLES = frozenset(
     {
         "character_cards",
+        "character_expressions",
         "user_personas",
         "conversations",
         "messages",
@@ -484,6 +485,10 @@ def _signature(path: str) -> dict:
             "characters": q(
                 "SELECT cc.name, cc.world_id, up.name FROM character_cards cc "
                 "LEFT JOIN user_personas up ON cc.persona_lock_id = up.id"
+            ),
+            "character_expressions": q(
+                "SELECT cc.name, ce.label, ce.mime FROM character_expressions ce "
+                "JOIN character_cards cc ON ce.character_card_id = cc.id"
             ),
             "conversations": q("SELECT id, title FROM conversations"),
             "conv_persona": q(

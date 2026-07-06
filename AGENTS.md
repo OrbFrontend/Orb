@@ -167,9 +167,11 @@ Orb/
 │   │   │                    # lorebook catalog string; block computation lives in features/lorebook/)
 │   │   ├── tool_registry.py # Tool schemas (direct_scene, rewrite, editor tools), constants
 │   │   └── local_ml.py      # Opt-in in-process CPU local-ML scaffold (MODELS registry,
-│   │                        # hf download, per-feature Llama). Powers input autocomplete
-│   │                        # (/api/conversations/{cid}/autocomplete) + /api/local-ml/* routes;
-│   │                        # lazy-imports llama_cpp/huggingface_hub so base Orb needs no ML deps
+│   │                        # hf download, per-feature Llama). Three features: input autocomplete
+│   │                        # (/api/conversations/{cid}/autocomplete), slop scorer, and the
+│   │                        # go-emotions expression classifier (aclassify → character expressions);
+│   │                        # all via /api/local-ml/* routes. lazy-imports llama_cpp/huggingface_hub
+│   │                        # so base Orb needs no ML deps
 │   ├── core/               # SHARED KERNEL (bottom) — dependency-free leaves; imports nothing upward
 │   │   ├── __init__.py      # Re-exports the kernel surface
 │   │   ├── llm_types.py     # Wire contracts (ChatMessage, ToolCall, ContentPart, …)
@@ -341,6 +343,7 @@ never from another slice, `pipeline/`, `workflows/`, or `api/`.
 | `conversations` | Chat sessions | character_card_id, character_name, character_scenario, post_history_instructions, active_leaf_id → messages.id, persona_lock_id → user_personas.id, workflow_state (JSON) |
 | `messages` | All messages (tree branching via parent_id) | conversation_id, role (user/assistant), content, turn_index, parent_id → messages.id, progressive_fields (JSON), created_at, workflow_state (JSON) |
 | `character_cards` | Imported/created characters (V2 spec) | name, description, personality, scenario, first_mes, mes_example, system_prompt, avatar_b64, world_id, persona_lock_id → user_personas.id, workflow_state (JSON) |
+| `character_expressions` | Per-character expression images (SillyTavern-style) | character_card_id → character_cards.id (CASCADE), label (go-emotions), data_b64, mime; PK (character_card_id, label) |
 | `user_personas` | User profiles injected into system prompt | name, description, avatar_color |
 
 ### Agent/Auditor Tables
@@ -380,6 +383,7 @@ erDiagram
     settings }o--o| user_personas : "active_persona_id"
     conversations }o--o| user_personas : "persona_lock_id (pin)"
     character_cards }o--o| user_personas : "persona_lock_id (pin)"
+    character_cards ||--o{ character_expressions : "character_card_id (CASCADE)"
     character_cards ||--o{ conversations : "character_card_id (logical, no DB FK)"
     conversations ||--o{ messages : has
     messages ||--o{ messages : "parent_id (tree)"
@@ -499,6 +503,10 @@ When the database layer genuinely needs higher-layer *behavior* at a fixed seam 
 - `GET/PUT/DELETE /api/characters/{id}` — CRUD
 - `GET /api/characters/{id}/avatar` — Serve avatar image
 - `GET /api/characters/{id}/export` — Export as PNG card
+- `POST /api/characters/{id}/expressions` — Upload a .zip of expression images (go-emotions labels); replaces the set
+- `GET /api/characters/{id}/expressions` — List uploaded expression labels
+- `GET /api/characters/{id}/expressions/{label}` — Serve one expression image (private cache + ETag/304)
+- `DELETE /api/characters/{id}/expressions` — Clear a card's expressions
 
 ### Fragments & Moods
 - `GET/POST /api/fragments` — List/create mood fragments
