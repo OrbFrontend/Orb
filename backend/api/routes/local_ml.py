@@ -15,8 +15,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# ponytail: one global lock — a download is a big, rare, one-off; no need for
-# per-feature locks. Serializes concurrent /download clicks.
 _download_lock = asyncio.Lock()
 
 
@@ -30,7 +28,10 @@ async def api_local_ml_status():
         "deps_ok": ok,
         "reason": reason,
         "install_cmd": local_ml.install_cmd(),
-        "features": {f: {"present": local_ml.present(f), "enabled": enabled_map.get(f, True)} for f in local_ml.MODELS},
+        "features": {
+            f: {"present": local_ml.present(f), "enabled": enabled_map.get(f, True), "size_mb": spec.size_mb}
+            for f, spec in local_ml.MODELS.items()
+        },
     }
 
 
@@ -49,6 +50,22 @@ async def api_local_ml_download(feature: str):
             logger.exception("local-ml download %r failed", feature)
             raise HTTPException(status_code=500, detail="Download failed; see server logs") from None
     return {"ok": True, "present": local_ml.present(feature)}
+
+
+@router.post("/api/local-ml/slop-score")
+async def api_slop_score(data: dict = Body(...)):  # noqa: B008
+    """Score each sentence for AI-slop → {"scores": [float in 0..1, ...]} in input order.
+
+    Sentences come pre-split from the frontend (which owns the coloring), so scores
+    map back to spans by index. 503 when the extra/model is missing or the toggle is off.
+    """
+    ok, reason = local_ml.available("slop_classifier")
+    settings = await get_settings()
+    if not ok or not settings.get("local_ml_enabled", {}).get("slop_classifier", True):
+        raise HTTPException(status_code=503, detail=reason or "AI-Slop Classifier disabled")
+    sentences = [str(s) for s in (data.get("sentences") or [])][:400]  # cap runaway input
+    scores = await local_ml.ascore("slop_classifier", sentences)
+    return {"scores": scores}
 
 
 @router.post("/api/local-ml/{feature}/enabled")

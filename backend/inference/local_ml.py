@@ -6,15 +6,18 @@ imports live inside functions so a stock install runs fine and each local-ML
 route just 503s.
 
 One registry (``MODELS``), one download path, and per-feature cached ``Llama``
-handles. Today's only feature is input-box ``autocomplete``; the planned
-AI-slop classifier plugs in as another ``MODELS`` entry with no new plumbing.
-The ``available`` / ``complete`` / ``build_prompt`` names are the autocomplete
-route's stable surface.
+handles. ``autocomplete`` is a text-generation model (``create_completion``);
+``slop_classifier`` is a ModernBERT sequence classifier scored via ``ascore``.
+A new model reuses the download/toggle/path plumbing for free, but its
+*inference* path is its own — generation and classification don't share a call.
+The ``available`` / ``complete`` / ``build_prompt`` / ``ascore`` names are the
+routes' stable surface.
 """
 
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sys
 from dataclasses import dataclass
@@ -27,14 +30,20 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 class ModelSpec:
     repo_id: str
     filename: str
+    size_mb: int
 
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
         repo_id="ibm-granite/granite-4.0-350m-base-GGUF",
         filename="granite-4.0-350m-base-Q8_0.gguf",
+        size_mb=370,
     ),
-    # "slop_classifier": ModelSpec(...),   # future — repo TBD, no code yet
+    "slop_classifier": ModelSpec(
+        repo_id="chartreuse-verte/ettin150m-purple-GGUF",
+        filename="ettin150m-purple-q8_0.gguf",
+        size_mb=161,
+    ),
 }
 
 _REPEAT_PENALTY = 1.5
@@ -104,18 +113,16 @@ def download(feature: str) -> None:
     from huggingface_hub import hf_hub_download  # noqa: PLC0415 — deferred
 
     spec = MODELS[feature]
-    # ponytail: synchronous download in a threadpool, no progress bar — ~370 MB;
-    # add SSE progress only if users complain.
     hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, local_dir=model_dir())
 
 
-def available() -> tuple[bool, str]:
-    """Autocomplete-facing readiness: extras installed AND its model present."""
+def available(feature: str = "autocomplete") -> tuple[bool, str]:
+    """Feature readiness: extras installed AND this feature's model present."""
     ok, reason = deps_ok()
     if not ok:
         return False, reason
-    if not present("autocomplete"):
-        return False, f"model file not found: {resolve_path('autocomplete')}"
+    if not present(feature):
+        return False, f"model file not found: {resolve_path(feature)}"
     return True, ""
 
 
@@ -127,7 +134,6 @@ def _load_blocking(feature: str) -> None:
         _llamas[feature] = Llama(
             model_path=resolve_path(feature),
             n_ctx=1024,
-            # ponytail: capped low — these are background helpers, never the main model.
             n_threads=int(os.environ.get("ORB_AUTOCOMPLETE_THREADS", "4")),
             verbose=False,
         )
@@ -178,6 +184,60 @@ async def complete(
 ) -> str:
     """Autocomplete continuation — thin alias over ``acomplete('autocomplete', ...)``."""
     return await acomplete("autocomplete", prompt, n_predict, stop, temperature)
+
+
+# --- Sequence classification (slop scorer) -------------------------------------
+# A separate Llama mode from generation: the GGUF carries a 2-class head, scored
+# with RANK pooling. `embed()` then returns a buffer whose first two floats are
+# the class logits (rest is uninitialized) — softmax them, class 1 is "slop".
+_SLOP_MAX_CHARS = 2000  # ~n_ctx guard: one over-long "sentence" can't blow past 512 tokens
+
+
+def _load_scorer_blocking(feature: str) -> None:
+    if feature in _llamas or feature in _load_errors:
+        return
+    try:
+        import llama_cpp  # noqa: PLC0415 — deferred; need the pooling-type constant
+
+        _llamas[feature] = llama_cpp.Llama(
+            model_path=resolve_path(feature),
+            embedding=True,
+            pooling_type=llama_cpp.LLAMA_POOLING_TYPE_RANK,
+            n_ctx=512,
+            n_threads=int(os.environ.get("ORB_AUTOCOMPLETE_THREADS", "4")),
+            verbose=False,
+        )
+    except Exception as e:  # bad wheel, unknown arch, OOM
+        _load_errors[feature] = f"failed to load {resolve_path(feature)}: {e}"
+
+
+def _score_blocking(feature: str, sentences: Sequence[str]) -> list[float]:
+    _load_scorer_blocking(feature)
+    llama = _llamas.get(feature)
+    if llama is None:
+        raise RuntimeError(_load_errors.get(feature) or "model unavailable")
+    out: list[float] = []
+    for s in sentences:
+        text = (s or "").strip()[:_SLOP_MAX_CHARS]
+        if not text:
+            out.append(0.0)
+            continue
+        v = llama.embed(text)
+        a, b = float(v[0]), float(v[1])  # 2 class logits; softmax → P(slop)
+        m = max(a, b)
+        ea, eb = math.exp(a - m), math.exp(b - m)
+        out.append(eb / (ea + eb))
+    return out
+
+
+async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
+    """Per-sentence slop confidence in [0, 1] (class-1 softmax), aligned to input order.
+
+    Lazy-loads on first call; serialized by the feature's lock (Llama isn't
+    reentrant) and run off the event loop.
+    """
+    async with _lock(feature):
+        return await asyncio.to_thread(_score_blocking, feature, list(sentences))
 
 
 def build_prompt(

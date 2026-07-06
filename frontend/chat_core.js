@@ -149,6 +149,14 @@ export function buildMsgToolbar(m, childByParent = null) {
         : `<button onclick="addUserDirectionNote(${m.id})" title="Add direction note">${ICON_NOTE}</button>`
       : "";
 
+  // Read-only local classifier; no persistence, so multi-tab is fine. Shown on
+  // every assistant message (greeting included). Gated on the AI-slop toggle
+  // (default on) -- 503s to a helpful toast if the model isn't downloaded.
+  const slopBtn =
+    isAssistant && m.id && S.settings?.local_ml_enabled?.slop_classifier !== false
+      ? `<button class="msg-btn-slop" onclick="scoreSlop(${m.id},this)" title="Score AI-slop">AI</button>`
+      : "";
+
   const delBtn = !m.id
     ? `<button disabled class="msg-btn-del">${ICON_DEL}</button>`
     : isGreeting
@@ -160,7 +168,7 @@ export function buildMsgToolbar(m, childByParent = null) {
       ? `<button onclick="clearRefineDiff()" title="Clear diff highlights" class="btn-clear-diff">${ICON_CLEAR}</button>`
       : "";
 
-  return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${magicInput}${noteBtn}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
+  return `${editBtn}${forkBtn}${regenBtn}${superRegenBtn}${magicBtn}${magicInput}${noteBtn}${slopBtn}${_renderExtraButtons(m)}${delBtn}${diffBtn}`;
 }
 
 function _renderExtraButtons(msg) {

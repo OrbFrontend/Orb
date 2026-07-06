@@ -107,7 +107,6 @@ function _resizeChatInput() {
 // ghost text and accepted with Tab. Only fires at the end of a non-empty draft
 // and never mid-generation. A server 503 (ML extra not installed) disables it
 // for the session so we stop polling.
-// ponytail: single in-flight request, aborted on each keystroke.
 const GHOST_DEBOUNCE_MS = 180;
 let _ghostText = "";
 let _ghostTimer = null;
