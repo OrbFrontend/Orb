@@ -89,6 +89,7 @@ nav:
           - Fetch Cards from Internet: features/fetch-cards.md
           - Backups & Presets: features/backups-presets.md
           - Persona Pinning: features/persona-pinning.md
+          - Character Expressions: features/character-expressions.md
           - Homepage Stats: features/homepage-stats.md
           - Mobile Compatibility: features/mobile.md
           - Integrated TTS: features/tts.md
