@@ -549,7 +549,45 @@ function _renderInspectorMain() {
   renderContextSize();
 }
 
-export function showAvatarPopup() {
+// Expression polling: while the avatar popup is open and the character has an
+// uploaded expression pack, re-classify the latest assistant message every 1s
+// and swap the popup image to the matching expression.
+let _exprTimer = null;
+
+async function _expressionTick(charId) {
+  const img = document.getElementById("avatar-popup-image");
+  if (!img) return;
+  const text = S.isStreaming
+    ? S.streamingContent
+    : [...S.messages].reverse().find((m) => m.role === "assistant" && m.id)?.content;
+  if (!text) return;
+  // Same text as last tick → same result. Skip the network call while idle;
+  // streaming changes `text` every tick so expressions still update live.
+  if (img._exprText === text) return;
+  img._exprText = text;
+  let label;
+  try {
+    ({ label } = await api.post("/local-ml/classify-emotion", { text }));
+  } catch (e) {
+    // 503 = feature off / model missing; anything else — stop silently.
+    clearInterval(_exprTimer);
+    _exprTimer = null;
+    return;
+  }
+  const labels = img._exprLabels || [];
+  const resolved = labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null;
+  if (!resolved) {
+    img.src = `/api/characters/${charId}/avatar`; // no matching expression → plain avatar
+    return;
+  }
+  const next = `/api/characters/${charId}/expressions/${resolved}`;
+  if (img._exprSrc !== next) {
+    img._exprSrc = next; // swap only on change (ETag handles caching; no ?t= flicker)
+    img.src = next;
+  }
+}
+
+export async function showAvatarPopup() {
   if (!S.activeCharId) return;
   const popup = document.getElementById("avatar-popup");
   if (!popup) return;
@@ -557,12 +595,31 @@ export function showAvatarPopup() {
     hideAvatarPopup();
     return;
   }
+  const charId = S.activeCharId;
   const img = document.getElementById("avatar-popup-image");
-  if (img) img.src = `/api/characters/${S.activeCharId}/avatar?t=${Date.now()}`;
+  if (img) {
+    img.src = `/api/characters/${charId}/avatar?t=${Date.now()}`;
+    img._exprSrc = null;
+    img._exprText = null;
+  }
   popup.classList.remove("hidden");
+
+  let labels = [];
+  try {
+    ({ labels } = await api.get(`/characters/${charId}/expressions`));
+  } catch {
+    labels = [];
+  }
+  // Popup may have been closed while the fetch was in flight.
+  if (popup.classList.contains("hidden") || !labels.length || !img) return;
+  img._exprLabels = labels;
+  _expressionTick(charId);
+  _exprTimer = setInterval(() => _expressionTick(charId), 1000);
 }
 
 export function hideAvatarPopup() {
   const popup = document.getElementById("avatar-popup");
   if (popup) popup.classList.add("hidden");
+  clearInterval(_exprTimer);
+  _exprTimer = null;
 }

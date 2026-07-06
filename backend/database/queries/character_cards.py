@@ -22,7 +22,9 @@ async def list_character_cards() -> list[CharacterCardRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, name, creator_notes, tags, creator, source_format, created_at, updated_at, avatar_mime, world_id, persona_lock_id FROM character_cards ORDER BY updated_at DESC"
+                "SELECT c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
+                "EXISTS(SELECT 1 FROM character_expressions e WHERE e.character_card_id = c.id) AS has_expressions "
+                "FROM character_cards c ORDER BY c.updated_at DESC"
             )
         )
         result: list[CharacterCardRow] = []
@@ -31,6 +33,7 @@ async def list_character_cards() -> list[CharacterCardRow]:
             d["tags"] = json.loads(d["tags"]) if d["tags"] else []
             d["has_avatar"] = d["avatar_mime"] is not None
             del d["avatar_mime"]
+            d["has_expressions"] = bool(d["has_expressions"])
             result.append(cast(CharacterCardRow, d))
         return result
 

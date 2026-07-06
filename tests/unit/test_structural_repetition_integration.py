@@ -26,14 +26,14 @@ Mira checked her bag. "One moment." She smiled. "All good."
 """
 
 
-def test_structural_repetition_detected_through_contextual_audit():
+async def test_structural_repetition_detected_through_contextual_audit():
     """_run_contextual_audit must flag identical-structure messages.
 
     Previously this returned is_repetitive=False because the draft was passed
     to detect_structural_repetition as part of a concatenated full_text blob
     rather than as a standalone message.
     """
-    report, _ = _run_contextual_audit(
+    report, _ = await _run_contextual_audit(
         draft=_MSG2,
         phrase_bank=[],
         previous_assistant_msgs=[_MSG1],
@@ -47,7 +47,7 @@ def test_structural_repetition_detected_through_contextual_audit():
     )
 
 
-def test_structural_repetition_no_false_positive_different_sentence_counts():
+async def test_structural_repetition_no_false_positive_different_sentence_counts():
     """Messages with different sentence counts per block must NOT be flagged.
 
     Splitting by sentences (not paragraphs) means that two messages sharing
@@ -57,7 +57,7 @@ def test_structural_repetition_no_false_positive_different_sentence_counts():
     msg1 = '"Let me see." Kael looked. Then he said. "This is bad."'
     msg2 = '"I told you so." Lira replied. "I\'m never wrong."'
 
-    report, _ = _run_contextual_audit(
+    report, _ = await _run_contextual_audit(
         draft=msg2,
         phrase_bank=[],
         previous_assistant_msgs=[msg1],

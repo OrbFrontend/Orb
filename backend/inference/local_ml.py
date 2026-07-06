@@ -44,7 +44,46 @@ MODELS: dict[str, ModelSpec] = {
         filename="ettin150m-purple-q8_0.gguf",
         size_mb=161,
     ),
+    "emotion_classifier": ModelSpec(
+        repo_id="chartreuse-verte/distilbert-base-uncased-go-emotions-student-GGUF",
+        filename="goemotions-Q8_0.gguf",
+        size_mb=73,
+    ),
 }
+
+# The 28 go-emotions labels in standard id2label order (neutral last, index 27).
+# Order MUST match the GGUF head's logit order — the classifier reads argmax(v[0:28])
+# and maps back through this tuple. Also == SillyTavern's default expression set.
+GO_EMOTIONS: tuple[str, ...] = (
+    "admiration",
+    "amusement",
+    "anger",
+    "annoyance",
+    "approval",
+    "caring",
+    "confusion",
+    "curiosity",
+    "desire",
+    "disappointment",
+    "disapproval",
+    "disgust",
+    "embarrassment",
+    "excitement",
+    "fear",
+    "gratitude",
+    "grief",
+    "joy",
+    "love",
+    "nervousness",
+    "optimism",
+    "pride",
+    "realization",
+    "relief",
+    "remorse",
+    "sadness",
+    "surprise",
+    "neutral",
+)
 
 _REPEAT_PENALTY = 1.5
 _FREQUENCY_PENALTY = 0.5
@@ -238,6 +277,36 @@ async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
     """
     async with _lock(feature):
         return await asyncio.to_thread(_score_blocking, feature, list(sentences))
+
+
+# --- Emotion classification (character expressions) ----------------------------
+# Same RANK-pooling embed() path as the scorer, but a 28-class go-emotions head:
+# argmax over the first 28 logits → GO_EMOTIONS[i]. No softmax — we only need the
+# single top label. Classify-local char cap (the scorer's per-sentence 2000 would
+# ride n_ctx=512 on a full message tail).
+_CLASSIFY_MAX_CHARS = 1500
+
+
+def _classify_blocking(feature: str, text: str) -> str:
+    _load_scorer_blocking(feature)  # same embedding+RANK load as the scorer
+    llama = _llamas.get(feature)
+    if llama is None:
+        raise RuntimeError(_load_errors.get(feature) or "model unavailable")
+    text = (text or "").strip()[-_CLASSIFY_MAX_CHARS:]  # tail: latest mood wins
+    if not text:
+        return "neutral"
+    v = llama.embed(text)
+    if len(v) < 28:  # buffer past the class logits is uninitialized — short = wrong head
+        raise RuntimeError(f"classifier returned {len(v)} logits, expected >=28 (wrong head?)")
+    i = max(range(28), key=lambda j: float(v[j]))
+    return GO_EMOTIONS[i]
+
+
+async def aclassify(feature: str, text: str) -> str:
+    """Single latest message → single go-emotions label. Not batched (one message,
+    one mood — YAGNI). Lazy-loads; serialized by the feature's lock; off the loop."""
+    async with _lock(feature):
+        return await asyncio.to_thread(_classify_blocking, feature, text)
 
 
 def build_prompt(

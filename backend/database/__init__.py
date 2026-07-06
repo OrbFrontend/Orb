@@ -21,6 +21,12 @@ from .queries.character_cards import (
     sync_conversations_for_card,
     update_character_card,
 )
+from .queries.character_expressions import (
+    delete_character_expressions,
+    get_character_expression,
+    list_expression_labels,
+    set_character_expressions,
+)
 from .queries.conversation_logs import (
     add_conversation_log,
     get_conversation_logs,
@@ -160,6 +166,7 @@ __all__ = [
     "create_user_persona",
     "create_world",
     "delete_character_card",
+    "delete_character_expressions",
     "delete_conversation",
     "delete_interactive_fragment",
     "delete_endpoint",
@@ -175,6 +182,7 @@ __all__ = [
     "get_active_lorebook_entries",
     "get_character_avatar",
     "get_character_card",
+    "get_character_expression",
     "get_conversation",
     "get_conversation_logs",
     "get_db",
@@ -220,9 +228,11 @@ __all__ = [
     "insert_workflow_attachment_row",
     "list_character_cards",
     "list_conversations",
+    "list_expression_labels",
     "reset_to_defaults",
     "resolve_char_context",
     "set_active_leaf",
+    "set_character_expressions",
     "set_local_ml_enabled",
     "set_workflow_character_state",
     "set_workflow_config",

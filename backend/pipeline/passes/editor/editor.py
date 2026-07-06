@@ -5,6 +5,7 @@ the writer's output.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -231,7 +232,7 @@ def _baseline_window(base: CachedBase, audit_context_msgs: list[str] | None) -> 
     return window
 
 
-def _run_contextual_audit(
+async def _run_contextual_audit(
     draft: str,
     phrase_bank: list[PhraseGroup],
     previous_assistant_msgs: list[str],
@@ -246,8 +247,10 @@ def _run_contextual_audit(
     Returns ``(report, report_text)``.
     """
     full_text = _build_audit_text(draft, previous_assistant_msgs)
-    # run_audit will append the current text to assistant_messages internally
-    raw_report = run_audit(
+    # run_audit is CPU-bound; offload it so the single event loop stays free for
+    # concurrent requests (e.g. the expression classifier polling during audit).
+    raw_report = await asyncio.to_thread(
+        run_audit,
         full_text,
         phrase_bank,
         assistant_messages=previous_assistant_msgs,
@@ -623,7 +626,7 @@ async def _run_edit_loop(
             len(assistant_messages),
             len(phrase_bank),
         )
-        report, report_text = _run_contextual_audit(draft, phrase_bank, assistant_messages, audit_toggles, effective_msg)
+        report, report_text = await _run_contextual_audit(draft, phrase_bank, assistant_messages, audit_toggles, effective_msg)
         structural_issues = (
             1 if report.structural_repetition_result and report.structural_repetition_result.is_repetitive else 0
         )
@@ -819,7 +822,7 @@ async def _run_edit_loop(
                 debug_parts.append(f"Iteration {iteration + 1}: rewrite applied ({pre_len}→{len(current_draft)} chars)")
 
                 if audit_enabled:
-                    report, report_text = _run_contextual_audit(
+                    report, report_text = await _run_contextual_audit(
                         current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg
                     )
                     debug_parts.append(f"Post-rewrite audit ({report.total_issues} issues):\n{report_text}")
@@ -891,7 +894,7 @@ async def _run_edit_loop(
             for e in errors:
                 logger.warning("Editor iteration %d patch error: %s", iteration + 1, e)
 
-            report, report_text = _run_contextual_audit(
+            report, report_text = await _run_contextual_audit(
                 current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg
             )
             logger.info(

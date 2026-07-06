@@ -68,6 +68,21 @@ async def api_slop_score(data: dict = Body(...)):  # noqa: B008
     return {"scores": scores}
 
 
+@router.post("/api/local-ml/classify-emotion")
+async def api_classify_emotion(data: dict = Body(...)):  # noqa: B008
+    """Classify one text (latest assistant message) → {"label": go-emotions label}.
+
+    503 when the extra/model is missing or the toggle is off — the expression popup
+    treats that as "no expressions" and falls back to the plain avatar.
+    """
+    ok, reason = local_ml.available("emotion_classifier")
+    settings = await get_settings()
+    if not ok or not settings.get("local_ml_enabled", {}).get("emotion_classifier", True):
+        raise HTTPException(status_code=503, detail=reason or "Character Expressions disabled")
+    label = await local_ml.aclassify("emotion_classifier", str(data.get("text") or ""))
+    return {"label": label}
+
+
 @router.post("/api/local-ml/{feature}/enabled")
 async def api_local_ml_enabled(feature: str, data: dict = Body(...)):  # noqa: B008
     """Flip one feature's on/off toggle; return the full decoded map."""

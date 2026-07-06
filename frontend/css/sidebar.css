@@ -180,6 +180,14 @@
 
 .char-avatar-sm img { width: 100%; height: 100%; object-fit: cover; }
 
+/* Halo marking characters that have an expression pack (shared: sidebar + chat header) */
+.has-expr-halo {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px var(--accent, #6c8),
+    0 0 6px 1px var(--accent-glow, rgba(102, 204, 136, 0.6));
+}
+
 .char-item-info {
   flex: 1;
   min-width: 0;
