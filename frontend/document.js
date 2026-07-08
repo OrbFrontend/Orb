@@ -60,7 +60,7 @@ function setDocumentMode(on) {
   }
   const btn = $("mode-switch-btn");
   if (btn) {
-    btn.textContent = on ? "💬" : "📄";
+    btn.textContent = on ? "📄" : "💬";
     btn.title = on ? "Switch to Chat mode" : "Switch to Document mode";
   }
 }

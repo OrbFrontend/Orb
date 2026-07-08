@@ -18,7 +18,6 @@
 #app.document-mode .sidebar-section.chat-only { display: none; }
 
 #mode-switch-btn {
-  margin-left: auto;
   background: none;
   border: none;
   cursor: pointer;
@@ -28,8 +27,8 @@
   border-radius: var(--radius);
   opacity: 0.8;
 }
-#mode-switch-btn:hover { opacity: 1; background: var(--bg-hover); }
-#app.document-mode #mode-switch-btn { background: var(--accent-glow); opacity: 1; }
+#mode-switch-btn:hover { opacity: 1; }
+#app.document-mode #mode-switch-btn { opacity: 1; }
 
 /* ── Sidebar documents list. ─────────────────────────────────────────────── */
 .doc-item {
