@@ -139,6 +139,27 @@
 #app:not(.doc-open) #doc-title-edit-btn { display: none; }
 #doc-page.generating { opacity: 0.92; cursor: progress; }
 
+/* Collapsed-by-default prompting help; no JS, no mode detection (labelled "text mode"). */
+#doc-help { border-bottom: 1px solid var(--border); font-size: 13px; }
+#doc-help > summary {
+  cursor: pointer;
+  padding: 8px 16px;
+  color: var(--text-muted);
+  user-select: none;
+}
+#doc-help .doc-help-body { padding: 0 16px 12px; color: var(--text-secondary); max-width: 820px; }
+#doc-help pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: var(--bg-deep);
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+#doc-help code { font-family: monospace; }
+
 /* Generated-text tint (advisory; serializer records whatever spans remain).
    box-decoration-break:clone keeps the highlight rounded per wrapped line instead
    of drawing one full-width band with hard edges. No underline/inset shadow. */
