@@ -185,6 +185,10 @@ export async function switchBranch(msgId) {
 // Shared gate for arrow-key / touch-swipe branch navigation. Returns true if
 // we should ignore the gesture entirely (typing, streaming, modal open, …).
 function isChatNavBlocked(target) {
+  // Document mode hides the chat but keeps it mounted; without this, ←/→ with
+  // focus on a button (e.g. right after Generate) would silently switch branches
+  // of the hidden chat.
+  if (S.documentMode) return true;
   if (target) {
     const tag = target.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable) return true;

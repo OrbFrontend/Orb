@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, List, Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class SettingsUpdate(BaseModel):
@@ -226,6 +226,39 @@ class CompressRequest(BaseModel):
 
 class CheckpointRequest(BaseModel):
     title: Optional[str] = None
+
+
+class DocumentSpan(BaseModel):
+    # Offsets are JS/UTF-16-domain and opaque to the backend — only shape-validated.
+    # ge=0 only, deliberately NO coupling to len(content): Python counts code points
+    # and JS counts UTF-16 units, so a valid JS offset can legitimately exceed
+    # Python's string length on emoji-bearing docs (see plan design table).
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+
+
+class DocumentCreate(BaseModel):
+    title: Optional[str] = None
+
+
+class DocumentUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    generated_spans: Optional[List[DocumentSpan]] = None
+
+    @model_validator(mode="after")
+    def _spans_need_content(self) -> "DocumentUpdate":
+        # content and generated_spans must travel together: spans without content
+        # would apply offsets to stale server-side text. Title-only updates are
+        # unaffected (neither field set). Uses model_fields_set so an explicit
+        # content="" still counts as "provided".
+        if "generated_spans" in self.model_fields_set and "content" not in self.model_fields_set:
+            raise ValueError("generated_spans requires content in the same update")
+        return self
+
+
+class DocumentGenerateRequest(BaseModel):
+    prompt: str
 
 
 class CharacterCardCreate(BaseModel):

@@ -106,6 +106,7 @@ def llm_mock(monkeypatch):
     factory = llm_factory(fake)
     monkeypatch.setattr("backend.inference.client.LLMClient", factory)
     monkeypatch.setattr("backend.api.routes.conversations.LLMClient", factory)
+    monkeypatch.setattr("backend.api.routes.documents.LLMClient", factory)
     monkeypatch.setattr("backend.api.routes.workflows.LLMClient", factory)
     monkeypatch.setattr("backend.pipeline.context.LLMClient", factory)
     return fake

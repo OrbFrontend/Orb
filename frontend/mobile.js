@@ -222,7 +222,7 @@ function handleDocumentClick(event) {
   // Tapping a character or a world/lorebook opens content in the main pane, so
   // get the off-canvas sidebar out of the way. (The world toggle switch lives
   // outside .world-item-main, so flipping a lorebook on/off won't close it.)
-  if (sidebarOpen && matcher.matches(".char-item, .world-item-main")) {
+  if (sidebarOpen && matcher.matches(".char-item, .world-item-main, .doc-item")) {
     setTimeout(closeMobileSidebar, 0);
   }
 

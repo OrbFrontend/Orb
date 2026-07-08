@@ -128,6 +128,10 @@ Orb/
 │   │   │                    # (facade __init__.py; imports only downward; never another slice)
 │   │   ├── cards/           # parsing.py (PNG tEXt/V2 parse) +
 │   │   │                    # downloader.py (external card fetch)
+│   │   ├── documents/       # continuation.py — Document mode (free-form writing):
+│   │   │                    # prompt + transport policy (raw /completion in text mode,
+│   │   │                    # chat fallback otherwise). DocumentContinuer mirrors
+│   │   │                    # ConversationSummarizer; consumed by routes/documents.py
 │   │   ├── summarization/   # summarizer.py — narrative summary + compress flow
 │   │   ├── presets/         # engine.py: selective export, merge-import,
 │   │   │                    # full snapshots/restore (ATTACH + VACUUM INTO). Schema-driven;
@@ -214,6 +218,10 @@ Orb/
 │   ├── state.js             # Global state object (S.*), reactive getters
 │   ├── api.js               # All fetch() calls to backend
 │   ├── chat.js              # Chat rendering, message display, Inspector, streaming
+│   ├── document_editor.js   # Document mode: PURE editor model (serialize/render/
+│   │                        # caret/plain-text guards over #doc-page; no S, no fetch)
+│   ├── document.js          # Document mode: list/CRUD, mode toggle, autosave,
+│   │                        # generation (SSE), shortcuts. Imports document_editor.js
 │   ├── library.js           # Character card grid/list, CRUD UI
 │   ├── presets.js           # Presets/backups UI: export, import, apply, restore, snapshot library
 │   ├── settings.js          # Settings panel, endpoint/model config UI
@@ -368,6 +376,7 @@ never from another slice, `pipeline/`, `workflows/`, or `api/`.
 
 | Table | Purpose |
 |-------|---------|
+| `documents` | Document mode (free-form LLM-assisted writing) — one row per document: `title`, plain `content` (directly usable as prompt), and `generated_spans` (JSON offsets tinting generated text). Offsets are JS/UTF-16-domain and **opaque to the backend** — never bounds-checked against `len(content)` (Python code points ≠ JS UTF-16 units). Its own `documents` preset domain. |
 | `user_attachments` | User-uploaded images attached to messages (mime_type, data_b64, filename, size). Surfaced on a message dict as `user_attachments`. |
 | `workflow_attachments` | Byte artifacts produced by secondary workflows. Two-level variant/sibling groups (`parent_attachment_id`, `active_sibling_id`), backed by an LRU-3 byte-budget cache with eviction (`seed`, `generation_metadata`, `consumption_metadata`, `recent_accesses`; `data_b64` becomes `[evicted]` when evicted). See [secondary-workflow.md](docs/architecture/secondary-workflow.md) §9. |
 | `message_attachments` | **Vestigial.** Kept in the base schema only because migration 0002 deletes from it on fresh install before any table-creating migration runs. Migration 0020 copies surviving rows into `user_attachments` and **drops** this table — no rows persist in a fully-migrated DB. |
@@ -559,6 +568,12 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 - `POST /api/presets/{name}/apply` — Merge a library file's data by identity (auto-snapshots first)
 - `POST /api/presets/{name}/restore` — Roll back to a library file: full-file replace for full-coverage backups, domain-scoped wholesale replace for partial ones (imported included; auto-snapshots first)
 - `DELETE /api/presets/{name}` — Delete a library entry
+
+### Documents (Document mode)
+- `GET /api/documents` / `POST /api/documents` — List (title/timestamps projection) / create
+- `GET/PUT/DELETE /api/documents/{did}` — CRUD single document (`PUT` rejects `generated_spans` without `content`, 422)
+- `POST /api/documents/{did}/generate` — SSE (`token`/`done`/`error`) LLM continuation of the prompt prefix; stateless proxy (client persists). Prefers the text-completion transport, chat fallback otherwise. Reuses the `_sse_stream` lock/abort namespace via `cid=doc:{did}`.
+- `POST /api/documents/{did}/stop` — Abort the active continuation
 
 ### Other
 - `GET /` — Serve frontend (SPA shell)

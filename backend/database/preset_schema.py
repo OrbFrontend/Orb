@@ -53,6 +53,7 @@ DOMAIN_ROOTS: dict[str, str] = {
     "mood_fragments": "fragments",
     "interactive_fragments": "fragments",
     "phrase_bank": "phrase_bank",
+    "documents": "documents",
     "settings": "configs",
     "endpoints": "configs",
     "user_personas": "configs",

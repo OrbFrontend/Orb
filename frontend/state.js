@@ -84,6 +84,14 @@ export const S = {
   inspectedMsgId: null, // when set, Inspector shows director data for this message instead of current state
   inspectedDirectorData: null, // fetched director log data for the inspected message
 
+  // ── Document mode (free-form LLM-assisted writing; orthogonal to chat).
+  documents: [], // sidebar list rows {id, title, created_at, updated_at}
+  activeDocId: null,
+  documentMode: false, // when true, #app.document-mode hides the chat UI
+  docStreaming: false,
+  docAbortController: null,
+  docDirty: false, // unsaved editor edits pending a flush
+
   // Workflow slot registries -- pushed into at module load by workflow JS files.
   // Built-in chat/settings/index code iterates these; no built-in code knows about specific workflows.
   // The four production registries below carry the owning workflowId so the framework can filter each

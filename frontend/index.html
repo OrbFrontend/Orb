@@ -15,7 +15,7 @@
 <div id="app">
   <div id="sidebar">
     <div class="sidebar-header">
-      <div class="sidebar-header-top"><h1>Orb</h1><div class="subtitle">Agentic Writing</div></div>
+      <div class="sidebar-header-top"><h1>Orb</h1><div class="subtitle">Agentic Writing</div><button id="mode-switch-btn" onclick="toggleDocumentMode()" title="Switch to Document mode">📄</button></div>
       <div class="theme-row">
         <label for="theme-select" class="theme-label">Theme</label>
         <select id="theme-select" class="theme-select" onchange="applyTheme(this.value)">
@@ -23,7 +23,7 @@
       </div>
     </div>
     <div class="sidebar-scroll">
-      <div class="sidebar-section">
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Worlds<span id="worlds-active-count" style="display:none;margin-left:6px;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-muted,color-mix(in srgb,var(--accent) 18%,transparent));padding:1px 6px;border-radius:8px;"></span> <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="worlds-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
@@ -36,7 +36,7 @@
           <div id="worlds-list"></div>
         </div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Characters <span class="arrow">▼</span></div>
         <div class="sidebar-section-body" id="char-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
@@ -49,13 +49,20 @@
         </div>
       </div>
       <div class="sidebar-section">
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Documents <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-body collapsed" id="documents-section">
+          <button class="btn btn-block btn-sm" style="margin-bottom:8px" onclick="createDocument()">+ New Document</button>
+          <div id="documents-list"></div>
+        </div>
+      </div>
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Interactive Fragments <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="interactive-frag-section">
           <div id="interactive-frag-list"></div>
           <button class="btn btn-block btn-sm" onclick="showInteractiveFragmentModal()" style="margin-top:6px">+ Add Interactive Fragment</button>
         </div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Mood Fragments <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="frag-section">
           <div id="frag-list"></div>
@@ -126,6 +133,28 @@
         </div>
         <button id="send-btn" onclick="sendMessage()" disabled title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
         <button id="stop-btn" onclick="stopGeneration()" title="Stop generation"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
+      </div>
+    </div>
+  </div>
+  <div id="document-main">
+    <div id="doc-header">
+      <button id="doc-mobile-sidebar-toggle" onclick="event.stopPropagation();toggleMobileSidebar()" title="Toggle sidebar">☰</button>
+      <div class="doc-title" id="doc-title-text">No document</div>
+      <button class="doc-title-edit" id="doc-title-edit-btn" onclick="renameActiveDocument()" title="Rename document"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+    </div>
+    <div id="doc-editor-scroll">
+      <div id="doc-page" contenteditable="false" spellcheck="true"></div>
+    </div>
+    <div id="doc-footer">
+      <div class="doc-footer-info">
+        <span id="doc-token-count">~0 tokens</span>
+        <span id="doc-save-state" class="doc-save-state"></span>
+        <span id="doc-gen-status" class="doc-gen-status hidden">Generating…</span>
+      </div>
+      <div class="doc-footer-actions">
+        <button class="btn btn-sm" id="doc-undo-btn" onclick="docUndoLastGen()" disabled title="Undo last generation">↶ Undo generation</button>
+        <button class="btn btn-sm" id="doc-generate-btn" onclick="docGenerate()" title="Continue from cursor (Ctrl/⌘+Enter)">✨ Generate</button>
+        <button class="btn btn-sm hidden" id="doc-stop-btn" onclick="docStop()" title="Stop (Esc)">■ Stop</button>
       </div>
     </div>
   </div>

@@ -52,6 +52,13 @@ from .queries.direction_notes import (
     update_direction_note,
 )
 from .queries.director_state import get_director_state, update_director_state
+from .queries.documents import (
+    create_document,
+    delete_document,
+    get_document,
+    get_documents,
+    update_document,
+)
 from .queries.endpoints import (
     create_endpoint,
     create_model_config,
@@ -163,6 +170,7 @@ __all__ = [
     "create_model_config",
     "create_mood_fragment",
     "create_direction_notes",
+    "create_document",
     "create_user_persona",
     "create_world",
     "delete_character_card",
@@ -175,6 +183,7 @@ __all__ = [
     "delete_model_config",
     "delete_mood_fragment",
     "delete_direction_note",
+    "delete_document",
     "delete_phrase_group",
     "delete_user_persona",
     "delete_world",
@@ -191,6 +200,8 @@ __all__ = [
     "get_interactive_fragments",
     "get_director_log_for_message",
     "get_director_state",
+    "get_document",
+    "get_documents",
     "get_endpoint",
     "get_endpoints",
     "get_lorebook_entries",
@@ -252,6 +263,7 @@ __all__ = [
     "update_model_config",
     "update_mood_fragment",
     "update_direction_note",
+    "update_document",
     "update_phrase_group",
     "update_settings",
     "update_user_persona",

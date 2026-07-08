@@ -11,6 +11,7 @@ const DOMAINS = [
   { id: "lorebooks", label: "Lorebooks" },
   { id: "fragments", label: "Fragments (mood & director)" },
   { id: "phrase_bank", label: "Phrase bank" },
+  { id: "documents", label: "Documents" },
   { id: "configs", label: "Settings & endpoints" },
 ];
 

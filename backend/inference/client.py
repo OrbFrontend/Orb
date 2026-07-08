@@ -539,6 +539,43 @@ class LLMClient:
         )
         yield {"type": "done", "message": message, "usage": usage}
 
+    async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[dict]:
+        """Stream a raw text completion from a bare *prompt* string (no chat template).
+
+        Text-transport only: POSTs *prompt* verbatim to llama.cpp's native
+        ``/completion``. There is no ``/apply-template`` step and no
+        ThinkSplitter — a raw continuation has no chat template, so no reasoning
+        channel; provider bytes are streamed through as content. Preserves the
+        ``complete()`` event contract (``content`` deltas then a ``done`` message
+        with synthesized usage). ``cache_prompt: true`` gives KV reuse across
+        successive continuations of the same document for free.
+
+        *model* is accepted for signature symmetry with ``complete()`` (the
+        native ``/completion`` endpoint serves whatever model the server loaded,
+        so it is not sent in the body).
+        """
+        body = text_completion.build_completion_params(params)
+        body["prompt"] = prompt
+        body["stream"] = True
+
+        logger.info("LLM complete_raw (text): prompt_len=%d, n_predict=%s", len(prompt), body.get("n_predict"))
+
+        content_parts: list[str] = []
+        usage: dict | None = None
+        async for data in self._stream_completion(f"{self._server_root()}/completion", body):
+            stop = bool(data.get("stop"))
+            if stop:
+                usage = text_completion.synthesize_usage(data)
+            delta = data.get("content") or ""
+            if delta:
+                content_parts.append(delta)
+                yield {"type": "content", "delta": delta}
+            if stop:
+                break
+
+        message = {"content": "".join(content_parts)}
+        yield {"type": "done", "message": message, "usage": usage}
+
 
 def _sanitize_args(obj):
     """Recursively strip tokenizer-artifact quote tokens (``<|"|>``) from string values."""

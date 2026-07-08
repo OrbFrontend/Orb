@@ -128,7 +128,7 @@ def test_domain_list_is_frozen():
     breaks import for every preset already out there. This frozen literal turns a
     rename into a CI failure; *adding* a domain is a deliberate one-line edit here
     (append only)."""
-    assert presets.ALL_DOMAINS == ["characters", "chats", "configs", "fragments", "lorebooks", "phrase_bank"]
+    assert presets.ALL_DOMAINS == ["characters", "chats", "configs", "documents", "fragments", "lorebooks", "phrase_bank"]
 
 
 # ── reverse policy validation (a stale/typo'd constant must be caught) ───────────
@@ -445,6 +445,7 @@ SIGNATURE_TABLES = frozenset(
         "phrase_bank",
         "mood_fragments",
         "interactive_fragments",
+        "documents",
     }
 )
 
@@ -503,6 +504,7 @@ def _signature(path: str) -> dict:
             "phrase_bank": q("SELECT variants, kind, pattern FROM phrase_bank"),
             "fragments": q("SELECT id, label FROM mood_fragments"),
             "interactive_fragments": q("SELECT id, label FROM interactive_fragments"),
+            "documents": q("SELECT title, content, generated_spans FROM documents"),
         }
     finally:
         conn.close()
@@ -554,6 +556,10 @@ async def test_full_round_trip_is_identity_modulo_surrogate_ids(client, db_path)
         seed.execute("INSERT INTO phrase_bank (variants, kind, pattern) VALUES ('[\"hi\"]', 'literal', NULL)")
         seed.execute(
             "INSERT INTO mood_fragments (id, label, description, prompt_text) VALUES ('frag-1', 'Calm', 'desc', 'be calm')"
+        )
+        seed.execute(
+            "INSERT INTO documents (id, title, content, generated_spans, created_at, updated_at) "
+            "VALUES ('doc-1', 'Draft', 'once upon a time', '[[10,16]]', '2026-01-01', '2026-01-01')"
         )
         seed.commit()
     finally:

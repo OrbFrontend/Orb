@@ -25,3 +25,4 @@
 @import "css/workflows.css"; /* workflow artifact widgets + status pill */
 @import "css/audio-transport.css"; /* workflow audio player transport bar */
 @import "css/character-browser-internet.css"; /* character browser: internet panel */
+@import "css/document.css"; /* document mode: free-form LLM-assisted writing surface */

@@ -274,6 +274,15 @@ CREATE TABLE IF NOT EXISTS direction_notes (
 CREATE INDEX IF NOT EXISTS idx_dirnote_message ON direction_notes(message_id);
 CREATE INDEX IF NOT EXISTS idx_dirnote_conversation ON direction_notes(conversation_id);
 
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT 'Untitled',
+    content TEXT NOT NULL DEFAULT '',
+    generated_spans TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 """
 
 

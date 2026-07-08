@@ -481,3 +481,30 @@ class CharacterExpressionRow(TypedDict):
     label: str
     data_b64: str
     mime: str
+
+
+class DocumentListRow(TypedDict):
+    """The lightweight ``documents`` projection the sidebar list consumes
+    (``get_documents``): identity + timestamps, never the full ``content``.
+
+    NOTE: this is deliberately the *inverse* of the
+    ``ConversationListRow(ConversationRow)`` relationship. There the list row
+    *adds* join columns to the full base row; here the list view is a strict
+    *column projection* (it must not drag every document's full body into a list
+    payload), so the full :class:`DocumentRow` extends this projection instead.
+    """
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class DocumentRow(DocumentListRow):
+    """A full ``documents`` row as ``get_document`` returns it. Extends the list
+    projection with the body and the decoded spans. ``generated_spans`` is the
+    JSON-*decoded* list (only ``get_document`` decodes it — the list query never
+    selects the column)."""
+
+    content: str
+    generated_spans: list

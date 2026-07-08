@@ -127,6 +127,12 @@ class FakeLLMClient:
             "direction_note": [],
             "workflow": [],
         }
+        # Raw text-completion queue (complete_raw, document text mode) — separate
+        # from the tool_choice-dispatched chat queues above; keyed by the call,
+        # not by a pass. capture prompt+params for assertions.
+        self._raw_queue: list[str] = []
+        self.raw_calls: list[dict] = []
+        self.completion_mode = "chat"
         self._gates: dict[str, list[PassGate]] = {
             "director": [],
             "writer": [],
@@ -188,6 +194,10 @@ class FakeLLMClient:
 
     def enqueue_workflow(self, message: dict) -> None:
         self._queues["workflow"].append({"message": message})
+
+    def enqueue_raw(self, text: str) -> None:
+        """Queue a raw text-completion response (``complete_raw``, doc text mode)."""
+        self._raw_queue.append(text)
 
     def gate(self, pass_name: str) -> PassGate:
         """Return a ``PassGate`` controlling the next *pass_name* call.
@@ -291,13 +301,30 @@ class FakeLLMClient:
             },
         }
 
+    async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[dict]:
+        """Raw text-completion stand-in (document text mode). Captures the
+        verbatim prompt + params, then yields the next enqueued raw response."""
+        self.raw_calls.append({"prompt": prompt, "model": model, "params": params})
+        if self.abort_token.is_aborted:
+            return
+        text = self._raw_queue.pop(0) if self._raw_queue else ""
+        if text:
+            yield {"type": "content", "delta": text}
+        yield {"type": "done", "message": {"content": text}, "usage": None}
+
 
 def llm_factory(fake: FakeLLMClient):
     """Wrap *fake* so calling ``LLMClient(url, api_key=..., profile=...)``
     inside production code yields the same shared instance the test holds.
+
+    Propagates the ``completion_mode`` ctor kwarg onto the shared fake so a
+    route that constructs its client with the endpoint's mode (e.g. the document
+    generate route) makes ``DocumentContinuer`` branch on the real value.
     """
 
-    def make(*_args, **_kwargs):
+    def make(*_args, **kwargs):
+        if "completion_mode" in kwargs:
+            fake.completion_mode = kwargs["completion_mode"]
         return fake
 
     return make

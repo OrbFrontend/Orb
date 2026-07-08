@@ -1,0 +1,183 @@
+/* Document mode — free-form LLM-assisted writing surface. Orthogonal to chat:
+   the class toggle on #app hides the chat UI and reveals #document-main. */
+
+/* ── Mode toggle (no router; class on #app). ─────────────────────────────── */
+#document-main { display: none; }
+#app.document-mode #main,
+#app.document-mode #tools-panel,
+#app.document-mode #inspector,
+#app.document-mode #direction-notes-panel { display: none !important; }
+#app.document-mode #document-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+/* Document mode is about writing, not RP setup: hide the character/world/fragment
+   sections. Documents, Endpoints and Settings (generation config) stay. */
+#app.document-mode .sidebar-section.chat-only { display: none; }
+
+#mode-switch-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--radius);
+  opacity: 0.8;
+}
+#mode-switch-btn:hover { opacity: 1; background: var(--bg-hover); }
+#app.document-mode #mode-switch-btn { background: var(--accent-glow); opacity: 1; }
+
+/* ── Sidebar documents list. ─────────────────────────────────────────────── */
+.doc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  margin-bottom: 2px;
+  transition: background .1s;
+}
+.doc-item:hover { background: var(--bg-hover); }
+.doc-item.active {
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-dim);
+}
+.doc-item-info { flex: 1; min-width: 0; }
+.doc-item-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-item-meta { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+.doc-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.doc-item:hover .doc-item-actions { opacity: 1; }
+.doc-item-actions button { font-size: 18px; padding: 2px 6px; color: var(--text-muted); }
+.doc-item-actions button:hover { color: var(--text-primary); }
+.doc-item-actions .del-btn:hover { color: var(--red); }
+
+/* ── Header. ─────────────────────────────────────────────────────────────── */
+#doc-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+#doc-header .doc-title {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-title-edit {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 2px;
+  display: inline-flex;
+}
+.doc-title-edit:hover { color: var(--text-primary); }
+#doc-mobile-sidebar-toggle {
+  display: none; /* shown < 900px */
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+/* ── Editor page (Word-like sheet inside a scroller). ────────────────────── */
+#doc-editor-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* centre the sheet horizontally */
+  padding: 28px 20px;
+  background: var(--bg-deep);
+}
+#doc-page {
+  width: 100%;
+  max-width: 760px;
+  flex: 1 0 auto; /* fill the desk vertically so there's no dead space below */
+  padding: 56px 68px;
+  background: var(--bg-elevated); /* lift the sheet above the --bg-deep desk */
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-prose);
+  font-size: var(--font-prose-size, 16px);
+  line-height: 1.7;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  outline: none;
+  caret-color: var(--accent);
+}
+#doc-page:empty::before {
+  content: "Start writing…";
+  color: var(--text-muted);
+  pointer-events: none;
+}
+/* No document open: the sheet isn't editable, so make the empty state say so and
+   drop the rename ✎ (nothing to rename). #app gets .doc-open in openDocument. */
+#app:not(.doc-open) #doc-page:empty::before { content: "Create or select a document from the sidebar."; }
+#app:not(.doc-open) #doc-title-edit-btn { display: none; }
+#doc-page.generating { opacity: 0.92; cursor: progress; }
+
+/* Generated-text tint (advisory; serializer records whatever spans remain).
+   box-decoration-break:clone keeps the highlight rounded per wrapped line instead
+   of drawing one full-width band with hard edges. No underline/inset shadow. */
+#doc-page .gen-text {
+  background: var(--accent-glow);
+  border-radius: 3px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+#doc-page .gen-text.gen-active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* ── Footer (status + actions). ──────────────────────────────────────────── */
+#doc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.doc-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.doc-save-state { color: var(--text-secondary); }
+.doc-gen-status { color: var(--accent); }
+.doc-footer-actions { display: flex; gap: 8px; }
+
+/* ── Mobile. ─────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  #doc-mobile-sidebar-toggle { display: inline-block; }
+  #doc-editor-scroll { padding: 12px 10px; }
+  #doc-page { padding: 28px 20px; border-radius: 0; }
+  #doc-header { padding: 10px 14px; }
+  #doc-footer { padding: 8px 12px; }
+}
