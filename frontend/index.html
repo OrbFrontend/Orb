@@ -143,27 +143,30 @@
       <button class="doc-title-edit" id="doc-title-edit-btn" onclick="renameActiveDocument()" title="Rename document"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
     </div>
     <details id="doc-help">
-      <summary>How to prompt (Raw vs Assisted)</summary>
+      <summary id="doc-help-summary">How to prompt</summary>
       <div class="doc-help-body">
-        <p><strong>Assisted</strong> — write readable role notes and the server applies the model's own chat template (BOS/EOS and turn markers included — don't type them). A line starting <code>### SYSTEM:</code>, <code>### USER:</code> or <code>### ASSISTANT:</code> is a note; every other line is your prose. Generate continues from the cursor.</p>
-        <pre>### SYSTEM: You are a co-writer. Match the voice and style.
+        <div id="doc-help-assisted">
+          <p>Write role notes in plain text — the server wraps them in the model's own chat template, so you never type turn markers or BOS/EOS. Lines starting <code>### SYSTEM:</code>, <code>### USER:</code> or <code>### ASSISTANT:</code> are notes; every other line is your prose. Generate continues from the cursor.</p>
+          <pre>### SYSTEM: You are a co-writer. Match the voice and style.
 ### USER: Write a story about a monkey. Ornate prose.
 Once upon a time, beneath the gilded canopy…
 ### USER: Write tersely now. Short sentences.
 The monkey woke. He▮</pre>
-        <ul>
-          <li>A note <strong>above prose</strong> steers that prose's continuation — put one over an in-progress sentence to redirect it.</li>
-          <li>A note at the <strong>bottom</strong> (no prose after it) starts a <strong>fresh paragraph</strong>; it will not continue the previous sentence.</li>
-          <li>A wrapped multi-line note needs <code>### USER:</code> on <strong>each</strong> line (consecutive note lines join into one turn).</li>
-          <li>Output stops when the model ends its turn — often a sentence or paragraph, not your token limit. Hit Generate again to keep going.</li>
-        </ul>
-        <p><strong>Raw</strong> — the document is sent verbatim; type the model's chat-template turn markers yourself, then Generate with the cursor after the open assistant turn (ChatML shown; Llama-3 uses <code>&lt;|start_header_id|&gt;…&lt;|eot_id|&gt;</code>):</p>
-        <pre>&lt;|im_start|&gt;system
+          <ul>
+            <li>Wrapping a note over several lines? Repeat the tag on each line.</li>
+            <li>Output stops when the model ends its turn — often a sentence or two. Hit Generate again to keep going.</li>
+          </ul>
+        </div>
+        <div id="doc-help-raw" hidden>
+          <p>The document is sent verbatim — type the model's chat-template turn markers yourself, then Generate with the cursor after the open assistant turn (ChatML shown; Llama-3 uses <code>&lt;|start_header_id|&gt;…&lt;|eot_id|&gt;</code>).</p>
+          <pre>&lt;|im_start|&gt;system
 You are a helpful assistant.&lt;|im_end|&gt;
 &lt;|im_start|&gt;user
 Write a haiku about the sea.&lt;|im_end|&gt;
 &lt;|im_start|&gt;assistant
 </pre>
+        </div>
+        <p class="doc-help-cap">Each Generate adds up to <span id="doc-help-maxtok">512</span> tokens (set by the writer model's Max Tokens).</p>
       </div>
     </details>
     <div id="doc-editor-scroll">

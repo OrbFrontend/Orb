@@ -84,6 +84,18 @@ export function toggleDocumentMode() {
 function reflectAssistedToggle() {
   $("doc-mode-raw")?.classList.toggle("active", !docAssisted);
   $("doc-mode-assisted")?.classList.toggle("active", docAssisted);
+  // Show only the help for the active mode + fill the real token cap.
+  const assisted = $("doc-help-assisted");
+  if (assisted) assisted.hidden = !docAssisted;
+  const raw = $("doc-help-raw");
+  if (raw) raw.hidden = docAssisted;
+  const summary = $("doc-help-summary");
+  if (summary) summary.textContent = `How to prompt (${docAssisted ? "Assisted" : "Raw"})`;
+  const cap = $("doc-help-maxtok");
+  if (cap) {
+    const cfg = S.modelConfigs?.find((m) => m.id === S.activeModelConfigId);
+    cap.textContent = cfg?.max_tokens || 512; // 512 = server fallback in DocumentContinuer
+  }
 }
 
 export function setDocAssisted(on) {
@@ -465,6 +477,8 @@ export function initDocumentMode() {
   if (!page) return;
   docAssisted = localStorage.getItem(LS_ASSISTED) === "1";
   reflectAssistedToggle();
+  // Re-read the token cap on open — modelConfigs may load / change after init.
+  $("doc-help")?.addEventListener("toggle", (e) => e.target.open && reflectAssistedToggle());
   installPlainTextGuards(page);
   page.addEventListener("input", onEditorInput);
   page.addEventListener("blur", () => {
