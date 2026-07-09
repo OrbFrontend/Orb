@@ -18,6 +18,9 @@
    only meaningful in document mode, so hide it in chat mode. */
 #app.document-mode .sidebar-section.chat-only { display: none; }
 #app:not(.document-mode) .sidebar-section.doc-only { display: none; }
+/* Endpoints stays visible in doc mode, but its system-prompt fields and Agent
+   block are chat-only concerns — hide them there. */
+#app.document-mode .ep-chat-only { display: none; }
 
 #mode-switch-btn {
   background: none;

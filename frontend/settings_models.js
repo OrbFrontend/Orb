@@ -123,7 +123,9 @@ export function renderEndpoints() {
     const saveFn = isAgent ? "saveAgentSetting" : "saveSetting";
     if (f.t === "textarea") {
       const rows = f.k === "system_prompt" || f.k === "agent_system_prompt" ? ' rows="2"' : "";
-      return `<div class="field"><label>${f.l}</label>
+      // System-prompt fields are chat-only: hidden in document mode (see document.css).
+      const cls = f.k === "system_prompt" || f.k === "shared_system_prompt" ? " ep-chat-only" : "";
+      return `<div class="field${cls}"><label>${f.l}</label>
                 <textarea data-key="${f.k}"${rows} onchange="${saveFn}(this)">${v}</textarea>
               </div>`;
     }
@@ -172,21 +174,24 @@ export function renderEndpoints() {
 
   const agentHidden = S.agentSameAsWriter ? ' style="display:none"' : "";
 
+  // The whole Agent block is chat-only: hidden in document mode (see document.css).
   $("endpoints-form").innerHTML = `
     ${SETTING_FIELDS.map((f) => renderField(f, false)).join("")}
-    <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Agent</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
-    <div class="tool-card" style="margin-bottom:12px">
-      <div class="tool-card-header">
-        <span class="tool-card-name">Same as Writer</span>
-        <label class="tog" onclick="event.stopPropagation()">
-          <input type="checkbox" ${S.agentSameAsWriter ? "checked" : ""} onchange="toggleAgentSameAsWriter(this.checked)">
-          <span class="tog-slider"></span>
-        </label>
+    <div class="ep-chat-only">
+      <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Agent</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+      <div class="tool-card" style="margin-bottom:12px">
+        <div class="tool-card-header">
+          <span class="tool-card-name">Same as Writer</span>
+          <label class="tog" onclick="event.stopPropagation()">
+            <input type="checkbox" ${S.agentSameAsWriter ? "checked" : ""} onchange="toggleAgentSameAsWriter(this.checked)">
+            <span class="tog-slider"></span>
+          </label>
+        </div>
+        <div class="tool-card-desc">Use the same endpoint and model for Agent passes as the Writer.</div>
       </div>
-      <div class="tool-card-desc">Use the same endpoint and model for Agent passes as the Writer.</div>
-    </div>
-    <div id="agent-fields"${agentHidden}>
-      ${AGENT_SETTING_FIELDS.map((f) => renderField(f, true)).join("")}
+      <div id="agent-fields"${agentHidden}>
+        ${AGENT_SETTING_FIELDS.map((f) => renderField(f, true)).join("")}
+      </div>
     </div>
   `;
   initComboboxes();
