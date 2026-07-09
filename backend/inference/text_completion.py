@@ -15,6 +15,7 @@ Mirrors the HTTP-free leaf pattern of ``gemma_tool_format.py`` /
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
@@ -38,20 +39,24 @@ _MINIMAX: ThinkTags = ("<mm:think>", "</mm:think>", "<mm:think>\n\n</mm:think>\n
 # Non-thinking model: no span, no-op suffix (reasoning toggle does nothing).
 _NONE: ThinkTags = ("", "", "")
 
+# An (optionally namespaced) reasoning tag pair: <think>, <thinking>,
+# <thought>, <reason>, <reasoning>, <mm:think> (MiniMax M3),
+# <seed:think> (ByteDance Seed), ...
+_THINK_RE = re.compile(r"<((?:[A-Za-z0-9_-]+:)?(?:think(?:ing)?|thought|reason(?:ing)?))>")
+
 
 def think_tags_from_template(chat_template: str) -> ThinkTags:
     """Sniff the reasoning-tag triple from a server's ``chat_template`` text.
 
-    Gemma-4 channel pair wins over ``<think>`` when both markers appear (a
-    template can mention both); MiniMax's ``<mm:think>`` is checked before the
-    bare ``<think>`` for the same reason. Neither present => non-thinking model.
+    Gemma-4 channel pair wins over any ``<think>``-family tag when both markers
+    appear (a template can mention both). Neither present => non-thinking model.
     """
     if "<|channel>thought" in chat_template:
         return _GEMMA4
-    if "<mm:think>" in chat_template:
-        return _MINIMAX
-    if "<think>" in chat_template:
-        return _THINK
+    m = _THINK_RE.search(chat_template)
+    if m:
+        name = m.group(1)
+        return (f"<{name}>", f"</{name}>", f"<{name}>\n\n</{name}>\n\n")
     return _NONE
 
 

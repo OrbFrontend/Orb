@@ -102,9 +102,27 @@ def test_think_tags_none_for_non_thinking():
     assert tc.think_tags_from_template("plain jinja no markers") == tc._NONE
 
 
-def test_think_tags_minimax_wins_over_think():
-    # MiniMax M3: <mm:think> sniffed before the bare <think> branch.
+def test_think_tags_minimax_namespaced_pair():
     assert tc.think_tags_from_template("...<mm:think>...</mm:think>...") == tc._MINIMAX
+
+
+def test_think_tags_novel_namespace_derived():
+    # The tag-pair family generalizes: any <ns:think> yields its own triple.
+    assert tc.think_tags_from_template("...<seed:think>...") == (
+        "<seed:think>",
+        "</seed:think>",
+        "<seed:think>\n\n</seed:think>\n\n",
+    )
+
+
+def test_think_tags_thinking_and_thought_variants():
+    assert tc.think_tags_from_template("...<thinking>...")[0:2] == ("<thinking>", "</thinking>")
+    assert tc.think_tags_from_template("...<thought>...")[0:2] == ("<thought>", "</thought>")
+
+
+def test_think_tags_prose_word_does_not_match():
+    # Bare words without the tag brackets are not a reasoning span.
+    assert tc.think_tags_from_template("think about thought and thinking") == tc._NONE
 
 
 def test_splitter_minimax_pair():
