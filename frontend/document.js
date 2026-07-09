@@ -54,7 +54,7 @@ function updateTokenCount() {
 
 // ── Undo history. One chronological timeline for typing AND generation, since
 // native contenteditable undo can't survive renderEditor rebuilds and never sees
-// streamed tokens. ponytail: O(doc) snapshots {content, spans, caret}, cap 100;
+// streamed tokens. ponytail: O(doc) snapshots {content, spans}, cap 100;
 // switch to diffs if docs get huge.
 let docHistory = [];
 let docHistoryIndex = -1;
@@ -82,7 +82,7 @@ function docCheckpoint() {
   const cur = docHistory[docHistoryIndex];
   if (!cur || cur.content !== content || JSON.stringify(cur.spans) !== JSON.stringify(spans)) {
     docHistory.length = docHistoryIndex + 1; // truncate the redo tail
-    docHistory.push({ content, spans, caret: computeCaretOffset(page) });
+    docHistory.push({ content, spans });
     if (docHistory.length > HISTORY_MAX) docHistory.shift();
     docHistoryIndex = docHistory.length - 1;
   }
@@ -91,8 +91,15 @@ function docCheckpoint() {
 
 function docRestore(snap) {
   const page = $("doc-page");
+  // Caret goes to where the current content diverges from the target — the edit
+  // being undone/redone — not a stored position (which drifted to end-of-doc for
+  // snapshots taken while focus was off the editor).
+  const before = serializeEditor(page).content;
+  let caret = 0;
+  const max = Math.min(before.length, snap.content.length);
+  while (caret < max && before[caret] === snap.content[caret]) caret++;
   renderEditor(page, snap.content, snap.spans);
-  setCaretOffset(page, snap.caret);
+  setCaretOffset(page, caret);
   if (MOBILE.matches) page.blur(); // addRange refocuses the box → keyboard pops while reading; kill it on mobile
   // Programmatic render fires no input event → same bookkeeping as onEditorInput.
   S.docDirty = true;
