@@ -85,6 +85,7 @@ nav:
           - Super-regenerate: features/super-regenerate.md
           - Magic Rewrite: features/magic-rewrite.md
           - Compress History: features/compress-history.md
+          - Document Mode: features/document-mode.md
       - App & Data:
           - Fetch Cards from Internet: features/fetch-cards.md
           - Backups & Presets: features/backups-presets.md

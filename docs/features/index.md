@@ -32,6 +32,7 @@ User-initiated regeneration and context controls.
 | [Super-regenerate](super-regenerate.md) | Ask for a different take instead of a samey regen |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message in a user-defined direction |
 | [Compress History](compress-history.md) | Summarize chat context into a new conversation |
+| [Document Mode](document-mode.md) | Distraction-free editor for freeform writing, outside any character chat |
 
 ## App & Data
 
