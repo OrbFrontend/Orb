@@ -8,6 +8,8 @@ tests use ``enqueue_writer``; only text-mode tests use ``enqueue_raw``.
 
 from __future__ import annotations
 
+from backend.features.documents import DOC_ASSIST_CONTINUE, DOC_ASSIST_INSTRUCTION
+
 
 def _parse_sse(text: str) -> list[dict]:
     """Parse an SSE body into ``[{event, data}]``, unescaping ``\\n`` and
@@ -114,6 +116,61 @@ async def test_generate_text_mode(client, llm_mock):
 
     # complete_raw got the prompt verbatim; no chat fallback fired.
     assert llm_mock.raw_calls[-1]["prompt"] == "verbatim prefix"
+
+
+async def test_generate_text_mode_assisted_parses_multiturn(client, llm_mock):
+    # assisted:true in text mode → parse_doc_macros → complete() (writer queue),
+    # NOT complete_raw. The mock sees the parsed multi-turn shape + open prefill.
+    await _activate_text_endpoint(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    llm_mock.enqueue_writer(" a steered continuation")
+
+    prompt = "### USER: be terse\nThe monkey woke. He"
+    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": prompt, "assisted": True})
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+    assert events[0] == {"event": "token", "data": " a steered continuation"}
+    assert events[-1]["event"] == "done"
+
+    assert not llm_mock.raw_calls  # assisted never touches the raw path
+    cap = llm_mock.captured[-1]
+    assert cap["messages"] == [
+        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
+        {"role": "user", "content": "be terse"},
+    ]
+    assert cap["params"]["prefill"] == "The monkey woke. He"
+    # Reasoning suppressed on every assisted call.
+    assert cap["params"]["chat_template_kwargs"] == {"enable_thinking": False, "thinking": False}
+
+
+async def test_generate_chat_mode_assisted_closes_prefill(client, llm_mock):
+    # assisted:true on a chat endpoint → prefill closed as an assistant turn +
+    # a re-anchor user turn (chat transport can't hold an open prefill).
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    llm_mock.enqueue_writer(" continued.")
+
+    prompt = "### USER: keep it dark\nThe hollow"
+    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": prompt, "assisted": True})
+    assert r.status_code == 200
+
+    cap = llm_mock.captured[-1]
+    assert cap["messages"] == [
+        {"role": "system", "content": DOC_ASSIST_INSTRUCTION},
+        {"role": "user", "content": "keep it dark"},
+        {"role": "assistant", "content": "The hollow"},
+        {"role": "user", "content": DOC_ASSIST_CONTINUE},
+    ]
+    assert "prefill" not in cap["params"]
+
+
+async def test_generate_assisted_defaults_false_hits_raw(client, llm_mock):
+    # Omitting `assisted` keeps the verbatim Raw path (complete_raw), unchanged.
+    await _activate_text_endpoint(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    llm_mock.enqueue_raw(" raw")
+    await client.post("/api/documents/" + did + "/generate", json={"prompt": "### USER: literal now"})
+    # No macro interpretation: the whole prompt went verbatim to complete_raw.
+    assert llm_mock.raw_calls[-1]["prompt"] == "### USER: literal now"
 
 
 async def test_generate_preserves_newlines(client, llm_mock):

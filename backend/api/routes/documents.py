@@ -85,7 +85,7 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
 
     async def _gen():
         try:
-            async for delta in continuer.stream(data.prompt, settings.get("model_name", "")):
+            async for delta in continuer.stream(data.prompt, settings.get("model_name", ""), assisted=data.assisted):
                 yield {"event": "token", "data": delta}
             yield {"event": "done", "data": ""}
         except Exception as e:

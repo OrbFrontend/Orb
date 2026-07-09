@@ -259,6 +259,9 @@ class DocumentUpdate(BaseModel):
 
 class DocumentGenerateRequest(BaseModel):
     prompt: str
+    # Assisted continuation: interpret ### SYSTEM/USER/ASSISTANT line macros and
+    # render through the model's chat template. Defaults false → Raw (verbatim).
+    assisted: bool = False
 
 
 class CharacterCardCreate(BaseModel):

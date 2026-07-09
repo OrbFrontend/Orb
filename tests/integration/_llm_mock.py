@@ -237,6 +237,9 @@ class FakeLLMClient:
                 "tool_choice": copy.deepcopy(tool_choice),
                 "messages": copy.deepcopy(messages),
                 "tools": copy.deepcopy(tools),
+                # Full param spread (prefill, reasoning kwargs, hyperparams) so
+                # doc-mode tests can assert the assisted prefill / reasoning shape.
+                "params": copy.deepcopy(params),
             }
         )
 

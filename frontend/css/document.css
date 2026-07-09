@@ -158,6 +158,10 @@
   font-size: 12.5px;
 }
 #doc-help code { font-family: monospace; }
+#doc-help ul { margin: 8px 0 0; padding-left: 18px; }
+#doc-help li { margin: 3px 0; }
+#doc-help p + p { margin-top: 10px; }
+#doc-help strong { color: var(--text-primary); }
 
 /* Generated-text tint (advisory; serializer records whatever spans remain).
    box-decoration-break:clone keeps the highlight rounded per wrapped line instead
@@ -192,6 +196,31 @@
 .doc-save-state { color: var(--text-secondary); }
 .doc-gen-status { color: var(--accent); }
 .doc-footer-actions { display: flex; gap: 8px; }
+
+/* Prompting-strategy segmented toggle (Raw ⇄ Assisted). */
+.doc-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.doc-mode-opt {
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.doc-mode-opt + .doc-mode-opt { border-left: 1px solid var(--border); }
+.doc-mode-opt:hover { color: var(--text-primary); }
+.doc-mode-opt.active {
+  background: var(--accent-glow);
+  color: var(--text-primary);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
 
 /* ── Mobile. ─────────────────────────────────────────────────────────────── */
 @media (max-width: 900px) {

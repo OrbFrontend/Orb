@@ -16,6 +16,7 @@ import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 
 const LS_MODE = "orb-doc-mode";
 const LS_ACTIVE = "orb-active-doc";
+const LS_ASSISTED = "orb-doc-assisted"; // Raw (0) ⇄ Assisted (1) prompting strategy
 const SAVE_DEBOUNCE_MS = 1500;
 const STREAM_FLUSH_MS = 5000; // interval flush while streaming → tab crash loses ≤5s
 
@@ -23,6 +24,7 @@ let saveTimer = null;
 let flushInterval = null;
 let lastGenSpanEl = null; // the finalized generated span "Undo generation" removes
 let anchorTextNode = null; // text node tokens stream into during generation
+let docAssisted = false; // false = Raw (verbatim), true = Assisted (### macros → chat template)
 
 // ── Small DOM helpers ────────────────────────────────────────────────────────
 function setSaveState(text) {
@@ -73,6 +75,21 @@ export function toggleDocumentMode() {
   const entering = !S.documentMode;
   if (!entering && S.docDirty) flushSave();
   setDocumentMode(entering);
+}
+
+// ── Prompting-strategy toggle (Raw ⇄ Assisted), persisted like documentMode. ──
+// Raw sends the document verbatim (text mode) — the user types chat-template
+// tokens. Assisted interprets ### SYSTEM/USER/ASSISTANT line macros and renders
+// through the model's own template. Sent as `assisted` in the generate POST.
+function reflectAssistedToggle() {
+  $("doc-mode-raw")?.classList.toggle("active", !docAssisted);
+  $("doc-mode-assisted")?.classList.toggle("active", docAssisted);
+}
+
+export function setDocAssisted(on) {
+  docAssisted = !!on;
+  localStorage.setItem(LS_ASSISTED, docAssisted ? "1" : "0");
+  reflectAssistedToggle();
 }
 
 // ── Documents list. ──────────────────────────────────────────────────────────
@@ -364,7 +381,7 @@ export async function docGenerate() {
     const resp = await fetch(`/api/documents/${S.activeDocId}/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, assisted: docAssisted }),
       signal: S.docAbortController.signal,
     });
     if (!resp.ok) throw new Error(await resp.text());
@@ -446,6 +463,8 @@ function onDocKeydown(e) {
 export function initDocumentMode() {
   const page = $("doc-page");
   if (!page) return;
+  docAssisted = localStorage.getItem(LS_ASSISTED) === "1";
+  reflectAssistedToggle();
   installPlainTextGuards(page);
   page.addEventListener("input", onEditorInput);
   page.addEventListener("blur", () => {

@@ -71,6 +71,7 @@ import {
   openDocument,
   renameActiveDocument,
   renameDocument,
+  setDocAssisted,
   toggleDocumentMode,
 } from "./document.js";
 import {
@@ -392,6 +393,7 @@ Object.assign(window, {
   hideAvatarPopup,
   // document mode
   toggleDocumentMode,
+  setDocAssisted,
   createDocument,
   openDocument,
   deleteDocument,
