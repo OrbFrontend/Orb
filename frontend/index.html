@@ -52,6 +52,9 @@
         <div class="sidebar-section-header" onclick="toggleSection(this)">Documents <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="documents-section">
           <button class="btn btn-block btn-sm" style="margin-bottom:8px" onclick="createDocument()">+ New Document</button>
+          <div id="documents-search-wrap" style="display:none;margin-bottom:8px">
+            <input id="documents-search" class="worlds-search" type="text" placeholder="Search documents…" autocomplete="off" oninput="onDocSearch(this.value)">
+          </div>
           <div id="documents-list"></div>
         </div>
       </div>

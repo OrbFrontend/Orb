@@ -23,7 +23,10 @@ const STREAM_FLUSH_MS = 5000; // interval flush while streaming → tab crash lo
 const HISTORY_DEBOUNCE_MS = 800; // typing pause → one undo step per burst
 const HISTORY_MAX = 100;
 const MOBILE = window.matchMedia("(max-width: 900px)"); // matches document.css breakpoint
+const DOC_LIMIT = 10; // documents shown before the list collapses behind "show all"
 
+let _docSearch = "";
+let _docsExpanded = false;
 let saveTimer = null;
 let flushInterval = null;
 let anchorTextNode = null; // text node tokens stream into during generation
@@ -181,16 +184,9 @@ export function setDocAssisted(on) {
 }
 
 // ── Documents list. ──────────────────────────────────────────────────────────
-export function renderDocuments() {
-  const list = $("documents-list");
-  if (!list) return;
-  if (!S.documents.length) {
-    list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No documents yet.</div>';
-    return;
-  }
-  list.innerHTML = S.documents
-    .map(
-      (d) => `<div class="doc-item${S.activeDocId === d.id ? " active" : ""}" onclick="openDocument('${d.id}')">
+const _docItemHtml = (
+  d,
+) => `<div class="doc-item${S.activeDocId === d.id ? " active" : ""}" onclick="openDocument('${d.id}')">
       <div class="doc-item-info">
         <div class="doc-item-name">${esc(d.title)}</div>
         <div class="doc-item-meta">${formatRelativeDate(d.updated_at)}</div>
@@ -199,9 +195,58 @@ export function renderDocuments() {
         <button onclick="event.stopPropagation();renameDocument('${d.id}')" title="Rename">✏</button>
         <button class="del-btn" onclick="event.stopPropagation();deleteDocument('${d.id}')" title="Delete">✕</button>
       </div>
-    </div>`,
-    )
-    .join("");
+    </div>`;
+
+export function renderDocuments() {
+  const list = $("documents-list");
+  if (!list) return;
+
+  // Search box only appears once the list outgrows the default view (mirrors Worlds).
+  const searchWrap = $("documents-search-wrap");
+  if (searchWrap) {
+    searchWrap.style.display = S.documents.length > DOC_LIMIT || _docSearch.trim() ? "" : "none";
+  }
+  const searchInp = $("documents-search");
+  if (searchInp && searchInp.value !== _docSearch) searchInp.value = _docSearch;
+
+  if (!S.documents.length) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No documents yet.</div>';
+    return;
+  }
+
+  const q = _docSearch.trim().toLowerCase();
+  const matched = q ? S.documents.filter((d) => d.title.toLowerCase().includes(q)) : S.documents;
+  if (q && !matched.length) {
+    list.innerHTML = `<div class="worlds-empty">No documents match “${esc(_docSearch.trim())}”</div>`;
+    return;
+  }
+
+  const collapsed = !q && !_docsExpanded && matched.length > DOC_LIMIT;
+  const shown = collapsed ? matched.slice(0, DOC_LIMIT) : matched;
+  let html = shown.map(_docItemHtml).join("");
+  if (!q) {
+    if (collapsed) {
+      html += `<button type="button" class="worlds-more" onclick="expandDocs()">+${matched.length - DOC_LIMIT} more — show all</button>`;
+    } else if (_docsExpanded && matched.length > DOC_LIMIT) {
+      html += `<button type="button" class="worlds-more" onclick="collapseDocs()">Show less</button>`;
+    }
+  }
+  list.innerHTML = html;
+}
+
+export function onDocSearch(value) {
+  _docSearch = value;
+  renderDocuments();
+}
+
+export function expandDocs() {
+  _docsExpanded = true;
+  renderDocuments();
+}
+
+export function collapseDocs() {
+  _docsExpanded = false;
+  renderDocuments();
 }
 
 // Upsert a document into the sidebar list and re-sort by updated_at DESC (mirrors
