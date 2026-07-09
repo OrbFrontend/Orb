@@ -391,10 +391,42 @@ function stopFlushInterval() {
   }
 }
 
-function scrollAnchorIntoView() {
+// Smart autoscroll (mirrors chat's): follow the stream while the caret's at the
+// bottom; wheel/touch-up cuts it instantly, scrolling back to the bottom re-arms.
+let docAutoscroll = true;
+function initDocAutoscroll() {
   const scroll = $("doc-editor-scroll");
   if (!scroll) return;
-  if (scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 140) scroll.scrollTop = scroll.scrollHeight;
+  const THRESHOLD = 40;
+  let touchY = 0;
+  scroll.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.deltaY < 0) docAutoscroll = false;
+    },
+    { passive: true },
+  );
+  scroll.addEventListener(
+    "touchstart",
+    (e) => {
+      touchY = e.touches[0].clientY;
+    },
+    { passive: true },
+  );
+  scroll.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches[0].clientY > touchY) docAutoscroll = false;
+    },
+    { passive: true },
+  );
+  scroll.addEventListener("scroll", () => {
+    docAutoscroll = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= THRESHOLD;
+  });
+}
+function scrollAnchorIntoView() {
+  const scroll = $("doc-editor-scroll");
+  if (scroll && docAutoscroll) scroll.scrollTop = scroll.scrollHeight;
 }
 
 // Dedicated SSE reader (do NOT reuse the chat-coupled processSSEStream). Handles
@@ -448,6 +480,7 @@ export async function docGenerate() {
 
   page.setAttribute("contenteditable", "false");
   page.classList.add("generating");
+  docAutoscroll = true; // each generation starts by following the stream
   S.docStreaming = true;
   S.docAbortController = new AbortController();
   swapGenButtons(true);
@@ -544,6 +577,7 @@ export function initDocumentMode() {
   // Re-read the token cap on open — modelConfigs may load / change after init.
   $("doc-help")?.addEventListener("toggle", (e) => e.target.open && reflectAssistedToggle());
   installPlainTextGuards(page);
+  initDocAutoscroll();
   page.addEventListener("input", onEditorInput);
   // Context-menu Undo/Redo must hit our history, never the orphaned native stack.
   page.addEventListener("beforeinput", (e) => {
