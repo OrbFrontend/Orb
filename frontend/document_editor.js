@@ -135,23 +135,80 @@ export function computeCaretOffset(pageEl) {
   return serializeEditor(tmp).content.length;
 }
 
-// Enforce plain text in a contenteditable: paste lands as text at the caret
-// (execCommand fires an input event, so autosave/undo history pick it up),
-// Enter becomes a literal "\n", and rich transforms / drops are blocked. The serializer tolerates anything that slips through, so this is
+// True when the collapsed caret sits inside a .gen-text span, i.e. native typing
+// would absorb the keystroke into the highlight (the mikupad-mismatch bug).
+function caretInGenText(pageEl) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const n = sel.getRangeAt(0).startContainer;
+  if (!pageEl.contains(n)) return false;
+  const el = n.nodeType === Node.TEXT_NODE ? n.parentElement : n;
+  return !!el?.closest?.(".gen-text");
+}
+
+// Insert *text* as plain (never-tinted) text at the selection, splitting/escaping
+// any enclosing .gen-text span so user text is never highlighted like AI text.
+// Manual DOM edits fire no input event, so we dispatch one → autosave/undo pick it
+// up (mirrors why the old paste path used execCommand).
+export function insertPlainText(pageEl, text) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  if (!pageEl.contains(range.startContainer)) return;
+  if (!range.collapsed) range.deleteContents();
+
+  const node = range.startContainer;
+  const offset = range.startOffset;
+  const plain = document.createTextNode(text);
+  const span = node.nodeType === Node.TEXT_NODE ? node.parentElement?.closest(".gen-text") : null;
+
+  if (span?.contains(node)) {
+    // Split the (single-text-node) span so `plain` lands between the tinted halves.
+    const T = node.data;
+    const right = T.slice(offset);
+    node.data = T.slice(0, offset); // may become ""
+    const before = span.nextSibling;
+    span.parentNode.insertBefore(plain, before);
+    if (right) {
+      const rspan = document.createElement("span");
+      rspan.className = "gen-text";
+      rspan.textContent = right;
+      span.parentNode.insertBefore(rspan, before);
+    }
+    if (!node.data) span.remove(); // don't leave an empty highlighted span
+  } else {
+    range.insertNode(plain);
+  }
+
+  const r = document.createRange();
+  r.setStartAfter(plain);
+  r.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(r);
+  pageEl.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+}
+
+// Enforce plain text in a contenteditable: paste/Enter land as plain text at the
+// caret (never inside a gen-text span), and rich transforms / drops are blocked.
+// The serializer tolerates anything that slips through, so this is
 // belt-and-suspenders, not the only guard.
 export function installPlainTextGuards(pageEl) {
   pageEl.addEventListener("paste", (e) => {
     e.preventDefault();
     const text = (e.clipboardData || window.clipboardData)?.getData("text/plain") ?? "";
-    document.execCommand("insertText", false, text);
+    insertPlainText(pageEl, text);
   });
   pageEl.addEventListener("beforeinput", (e) => {
     const t = e.inputType || "";
     if (t === "insertParagraph" || t === "insertLineBreak") {
       e.preventDefault();
-      document.execCommand("insertText", false, "\n");
+      insertPlainText(pageEl, "\n");
     } else if (t === "insertFromDrop" || t.startsWith("format")) {
       e.preventDefault();
+    } else if (t === "insertText" && e.data != null && caretInGenText(pageEl)) {
+      // Typing at the edge of / inside AI text: keep the keystroke un-tinted.
+      e.preventDefault();
+      insertPlainText(pageEl, e.data);
     }
   });
 }
