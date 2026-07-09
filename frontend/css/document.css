@@ -81,6 +81,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+.doc-header-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 .doc-title-edit {
   background: none;

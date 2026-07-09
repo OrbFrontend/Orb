@@ -141,6 +141,10 @@
       <button id="doc-mobile-sidebar-toggle" onclick="event.stopPropagation();toggleMobileSidebar()" title="Toggle sidebar">☰</button>
       <div class="doc-title" id="doc-title-text">No document</div>
       <button class="doc-title-edit" id="doc-title-edit-btn" onclick="renameActiveDocument()" title="Rename document"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+      <div class="doc-header-status">
+        <span id="doc-token-count">~0 tokens</span>
+        <span id="doc-save-state" class="doc-save-state"></span>
+      </div>
     </div>
     <details id="doc-help">
       <summary id="doc-help-summary">How to prompt</summary>
@@ -178,8 +182,6 @@ Write a haiku about the sea.&lt;|im_end|&gt;
           <button type="button" class="doc-mode-opt active" id="doc-mode-raw" onclick="setDocAssisted(false)" title="Raw: send the document verbatim — you type any chat-template tokens">Raw</button>
           <button type="button" class="doc-mode-opt" id="doc-mode-assisted" onclick="setDocAssisted(true)" title="Assisted: write ### SYSTEM / ### USER notes and the model's chat template is applied for you">Assisted</button>
         </div>
-        <span id="doc-token-count">~0 tokens</span>
-        <span id="doc-save-state" class="doc-save-state"></span>
         <span id="doc-gen-status" class="doc-gen-status hidden">Generating…</span>
       </div>
       <div class="doc-footer-actions">

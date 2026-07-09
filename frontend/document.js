@@ -22,6 +22,7 @@ const SAVE_DEBOUNCE_MS = 1500;
 const STREAM_FLUSH_MS = 5000; // interval flush while streaming → tab crash loses ≤5s
 const HISTORY_DEBOUNCE_MS = 800; // typing pause → one undo step per burst
 const HISTORY_MAX = 100;
+const MOBILE = window.matchMedia("(max-width: 900px)"); // matches document.css breakpoint
 
 let saveTimer = null;
 let flushInterval = null;
@@ -91,8 +92,8 @@ function docCheckpoint() {
 function docRestore(snap) {
   const page = $("doc-page");
   renderEditor(page, snap.content, snap.spans);
-  page.focus();
   setCaretOffset(page, snap.caret);
+  if (MOBILE.matches) page.blur(); // addRange refocuses the box → keyboard pops while reading; kill it on mobile
   // Programmatic render fires no input event → same bookkeeping as onEditorInput.
   S.docDirty = true;
   setSaveState("Unsaved…");
@@ -532,6 +533,7 @@ function finalizeGeneration() {
       caretAfter(anchor);
     }
   }
+  if (MOBILE.matches) $("doc-page").blur(); // no keyboard pop on Stop / gen-end while reading
   S.docDirty = true;
   flushSave(); // immediate save at stream end
   updateTokenCount();
