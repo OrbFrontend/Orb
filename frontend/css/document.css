@@ -14,8 +14,10 @@
   min-width: 0;
 }
 /* Document mode is about writing, not RP setup: hide the character/world/fragment
-   sections. Documents, Endpoints and Settings (generation config) stay. */
+   sections plus Settings; Documents and Endpoints stay. Documents is the inverse —
+   only meaningful in document mode, so hide it in chat mode. */
 #app.document-mode .sidebar-section.chat-only { display: none; }
+#app:not(.document-mode) .sidebar-section.doc-only { display: none; }
 
 #mode-switch-btn {
   background: none;
