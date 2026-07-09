@@ -22,26 +22,54 @@ async def test_update_settings_persists_to_db(client, db):
         json={
             "user_name": "TestUser",
             "user_description": "A test user",
-            "max_tokens": 1024,
         },
     )
     assert resp.status_code == 200
     assert resp.json()["user_name"] == "TestUser"
 
     # Verify directly in the DB
-    async with db.execute("SELECT user_name, user_description, max_tokens FROM settings WHERE id = 1") as cur:
+    async with db.execute("SELECT user_name, user_description FROM settings WHERE id = 1") as cur:
         row = await cur.fetchone()
     assert row["user_name"] == "TestUser"
     assert row["user_description"] == "A test user"
-    # Note: max_tokens may be overridden by active model config in get_settings()
-    # but is stored in settings table when updated via settings API
-    assert row["max_tokens"] == 1024
+
+
+async def test_update_settings_ignores_hyperparams(client, db):
+    # Hyperparameters live on the active model_config, not the settings row.
+    # A /settings PUT that includes them must not touch the settings table's
+    # flat columns (extra fields are ignored, mirroring completion_mode).
+    async with db.execute("SELECT max_tokens FROM settings WHERE id = 1") as cur:
+        before = (await cur.fetchone())["max_tokens"]
+
+    resp = await client.put("/api/settings", json={"max_tokens": before + 1000})
+    assert resp.status_code == 200
+
+    async with db.execute("SELECT max_tokens FROM settings WHERE id = 1") as cur:
+        after = (await cur.fetchone())["max_tokens"]
+    assert after == before
 
 
 async def test_update_settings_reflected_in_get(client, db):
     await client.put("/api/settings", json={"user_name": "Tester"})
     resp = await client.get("/api/settings")
     assert resp.json()["user_name"] == "Tester"
+
+
+async def test_hyperparam_edit_via_model_config_reflected_in_get_settings(client, db):
+    # The live path: hyperparams are edited on the active endpoint's model_config
+    # (PUT /api/models/{id}); get_settings() overlays them so consumers see the
+    # new value. This is what replaces the removed /settings write path.
+    settings = (await client.get("/api/settings")).json()
+    endpoint_id = settings["active_endpoint_id"]
+    assert endpoint_id is not None
+    active_mc_id = (await client.get(f"/api/endpoints/{endpoint_id}")).json()["active_model_config_id"]
+
+    resp = await client.put(f"/api/models/{active_mc_id}", json={"max_tokens": 1234, "temperature": 0.33})
+    assert resp.status_code == 200
+
+    updated = (await client.get("/api/settings")).json()
+    assert updated["max_tokens"] == 1234
+    assert updated["temperature"] == 0.33
 
 
 async def test_update_enabled_tools_json_field(client, db):

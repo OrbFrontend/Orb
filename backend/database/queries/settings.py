@@ -219,12 +219,10 @@ async def update_settings(data: dict) -> SettingsRow:
             "endpoint_url",
             "api_key",
             "model_name",
-            "temperature",
-            "min_p",
-            "top_k",
-            "top_p",
-            "repetition_penalty",
-            "max_tokens",
+            # Hyperparameters (temperature, min_p, top_k, top_p, repetition_penalty,
+            # max_tokens) are deliberately excluded: get_settings() always overlays
+            # them from the active model_config, so writing them here is a dead path.
+            # They are edited via /models/{id}. See SettingsUpdate for the contract.
             "shared_system_prompt",
             "system_prompt",
             "user_name",

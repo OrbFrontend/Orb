@@ -18,12 +18,12 @@ class SettingsUpdate(BaseModel):
     endpoint_url: Optional[str] = None
     api_key: Optional[str] = None
     model_name: Optional[str] = None
-    temperature: Optional[float] = None
-    min_p: Optional[float] = None
-    top_k: Optional[int] = None
-    top_p: Optional[float] = None
-    repetition_penalty: Optional[float] = None
-    max_tokens: Optional[int] = None
+    # Hyperparameters (temperature, min_p, top_k, top_p, repetition_penalty,
+    # max_tokens) are intentionally NOT on this contract: they live on the active
+    # endpoint's model_config and are edited via /models/{id}. get_settings()
+    # overlays them for reads, so a write here would be silently discarded. The
+    # frontend still includes them in its /settings PUT payload; extra fields are
+    # ignored (default Pydantic behavior), mirroring completion_mode.
     shared_system_prompt: Optional[str] = None
     system_prompt: Optional[str] = None
     user_name: Optional[str] = None
