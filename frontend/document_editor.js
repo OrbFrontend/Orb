@@ -135,9 +135,9 @@ export function computeCaretOffset(pageEl) {
   return serializeEditor(tmp).content.length;
 }
 
-// Enforce plain text in a contenteditable: paste lands as text (preserving the
-// native undo stack), Enter becomes a literal "\n", and rich transforms / drops
-// are blocked. The serializer tolerates anything that slips through, so this is
+// Enforce plain text in a contenteditable: paste lands as text at the caret
+// (execCommand fires an input event, so autosave/undo history pick it up),
+// Enter becomes a literal "\n", and rich transforms / drops are blocked. The serializer tolerates anything that slips through, so this is
 // belt-and-suspenders, not the only guard.
 export function installPlainTextGuards(pageEl) {
   pageEl.addEventListener("paste", (e) => {
@@ -154,6 +154,37 @@ export function installPlainTextGuards(pageEl) {
       e.preventDefault();
     }
   });
+}
+
+// Inverse of computeCaretOffset: place a collapsed caret at serialized string
+// *offset*. Walks text nodes in document order, so it is exact on the DOM
+// renderEditor produces (text nodes + spans, newlines literal); called only
+// right after a render. Offsets past the end land at end-of-doc.
+export function setCaretOffset(pageEl, offset) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+  let remaining = Math.max(0, offset);
+  const walker = document.createTreeWalker(pageEl, NodeFilter.SHOW_TEXT);
+  let placed = false;
+  let node = walker.nextNode();
+  while (node) {
+    if (remaining <= node.data.length) {
+      range.setStart(node, remaining);
+      placed = true;
+      break;
+    }
+    remaining -= node.data.length;
+    node = walker.nextNode();
+  }
+  if (!placed) {
+    range.selectNodeContents(pageEl);
+    range.collapse(false);
+  } else {
+    range.collapse(true);
+  }
+  sel.removeAllRanges();
+  sel.addRange(range);
 }
 
 // Place the caret immediately after *node* (used to drop the caret past the

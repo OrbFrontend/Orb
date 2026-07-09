@@ -9,6 +9,7 @@ import {
   installPlainTextGuards,
   renderEditor,
   serializeEditor,
+  setCaretOffset,
 } from "./document_editor.js";
 import { showConfirmModal } from "./modal.js";
 import { S } from "./state.js";
@@ -19,10 +20,11 @@ const LS_ACTIVE = "orb-active-doc";
 const LS_ASSISTED = "orb-doc-assisted"; // Raw (0) ⇄ Assisted (1) prompting strategy
 const SAVE_DEBOUNCE_MS = 1500;
 const STREAM_FLUSH_MS = 5000; // interval flush while streaming → tab crash loses ≤5s
+const HISTORY_DEBOUNCE_MS = 800; // typing pause → one undo step per burst
+const HISTORY_MAX = 100;
 
 let saveTimer = null;
 let flushInterval = null;
-let lastGenSpanEl = null; // the finalized generated span "Undo generation" removes
 let anchorTextNode = null; // text node tokens stream into during generation
 let docAssisted = false; // false = Raw (verbatim), true = Assisted (### macros → chat template)
 
@@ -47,6 +49,72 @@ function updateTokenCount() {
   const len = page ? serializeEditor(page).content.length : 0;
   const el = $("doc-token-count");
   if (el) el.textContent = `~${Math.round(len / 4)} tokens`; // mirrors CHARS_PER_TOKEN=4
+}
+
+// ── Undo history. One chronological timeline for typing AND generation, since
+// native contenteditable undo can't survive renderEditor rebuilds and never sees
+// streamed tokens. ponytail: O(doc) snapshots {content, spans, caret}, cap 100;
+// switch to diffs if docs get huge.
+let docHistory = [];
+let docHistoryIndex = -1;
+let docHistoryTimer = null;
+
+function updateUndoButton() {
+  setUndoEnabled(!S.docStreaming && (docHistoryIndex > 0 || docHistoryTimer !== null));
+}
+
+function docHistoryReset() {
+  clearTimeout(docHistoryTimer);
+  docHistoryTimer = null;
+  docHistory = [];
+  docHistoryIndex = -1;
+  updateUndoButton();
+}
+
+// Snapshot the current editor state; no-op if content/spans are unchanged.
+function docCheckpoint() {
+  clearTimeout(docHistoryTimer);
+  docHistoryTimer = null;
+  const page = $("doc-page");
+  if (!page || !S.activeDocId) return;
+  const { content, spans } = serializeEditor(page);
+  const cur = docHistory[docHistoryIndex];
+  if (!cur || cur.content !== content || JSON.stringify(cur.spans) !== JSON.stringify(spans)) {
+    docHistory.length = docHistoryIndex + 1; // truncate the redo tail
+    docHistory.push({ content, spans, caret: computeCaretOffset(page) });
+    if (docHistory.length > HISTORY_MAX) docHistory.shift();
+    docHistoryIndex = docHistory.length - 1;
+  }
+  updateUndoButton();
+}
+
+function docRestore(snap) {
+  const page = $("doc-page");
+  renderEditor(page, snap.content, snap.spans);
+  page.focus();
+  setCaretOffset(page, snap.caret);
+  // Programmatic render fires no input event → same bookkeeping as onEditorInput.
+  S.docDirty = true;
+  setSaveState("Unsaved…");
+  updateTokenCount();
+  scheduleSave();
+  updateUndoButton();
+}
+
+export function docUndo() {
+  if (S.docStreaming || !S.activeDocId) return;
+  docCheckpoint(); // pending typing becomes its own (redoable) step
+  if (docHistoryIndex <= 0) return;
+  docHistoryIndex--;
+  docRestore(docHistory[docHistoryIndex]);
+}
+
+export function docRedo() {
+  if (S.docStreaming || !S.activeDocId) return;
+  docCheckpoint(); // pending typing truncates the redo tail (standard behavior)
+  if (docHistoryIndex >= docHistory.length - 1) return;
+  docHistoryIndex++;
+  docRestore(docHistory[docHistoryIndex]);
 }
 
 // ── Mode toggle (class on #app; no router). ──────────────────────────────────
@@ -183,8 +251,8 @@ export async function openDocument(id) {
   page.setAttribute("contenteditable", "true");
   $("doc-generate-btn").disabled = false;
   $("doc-title-text").textContent = doc.title;
-  lastGenSpanEl = null;
-  setUndoEnabled(false);
+  docHistoryReset();
+  docCheckpoint(); // baseline snapshot
   S.docDirty = false;
   setSaveState("Saved");
   updateTokenCount();
@@ -202,8 +270,7 @@ function clearEditor() {
   }
   $("doc-title-text").textContent = "No document";
   $("doc-generate-btn").disabled = true;
-  lastGenSpanEl = null;
-  setUndoEnabled(false);
+  docHistoryReset();
   S.docDirty = false;
   setSaveState("");
   updateTokenCount();
@@ -299,16 +366,13 @@ async function flushSave({ keepalive = false } = {}) {
 }
 
 function onEditorInput() {
-  // First edit after a finalized generation invalidates the undo target — the
-  // user may have typed inside the span, and removing it would eat their words.
-  if (lastGenSpanEl) {
-    lastGenSpanEl = null;
-    setUndoEnabled(false);
-  }
   S.docDirty = true;
   setSaveState("Unsaved…");
   updateTokenCount();
   scheduleSave();
+  clearTimeout(docHistoryTimer);
+  docHistoryTimer = setTimeout(docCheckpoint, HISTORY_DEBOUNCE_MS);
+  updateUndoButton(); // pending burst is already undoable
 }
 
 // ── Generation. ──────────────────────────────────────────────────────────────
@@ -371,6 +435,7 @@ export async function docGenerate() {
   if (!S.activeDocId || S.docStreaming) return;
   const page = $("doc-page");
   if (S.docDirty) await flushSave();
+  docCheckpoint(); // pre-generation state — Ctrl+Z after gen lands here
 
   // Split in the string domain: caret offset → prompt is the prefix before it.
   const caret = computeCaretOffset(page);
@@ -387,6 +452,7 @@ export async function docGenerate() {
   S.docAbortController = new AbortController();
   swapGenButtons(true);
   showGenStatus(true);
+  updateUndoButton(); // greyed while streaming
   startFlushInterval();
 
   try {
@@ -428,18 +494,15 @@ function finalizeGeneration() {
     anchor.classList.remove("gen-active");
     if (!anchor.textContent) {
       anchor.remove(); // empty span (immediate EOS / abort before any token)
-      lastGenSpanEl = null;
-      setUndoEnabled(false);
       toast("No text was generated");
     } else {
-      lastGenSpanEl = anchor;
-      setUndoEnabled(true);
       caretAfter(anchor);
     }
   }
   S.docDirty = true;
   flushSave(); // immediate save at stream end
   updateTokenCount();
+  docCheckpoint(); // post-generation snapshot (no-op if nothing streamed)
 }
 
 export function docStop() {
@@ -448,27 +511,28 @@ export function docStop() {
   fetch(`/api/documents/${S.activeDocId}/stop`, { method: "POST" }).catch(() => {});
 }
 
-export async function docUndoLastGen() {
-  if (!lastGenSpanEl) return;
-  lastGenSpanEl.remove();
-  lastGenSpanEl = null;
-  setUndoEnabled(false);
-  S.docDirty = true;
-  updateTokenCount();
-  await flushSave();
+// ── Shortcuts: Ctrl/Cmd+Enter generates, Esc stops, Ctrl/Cmd+Z / +Shift+Z / +Y
+// undo/redo. Scoped to document mode and no open modal so they can't collide
+// with modal.js / mobile.js Esc handlers.
+function isOtherEditableTarget(t) {
+  return t instanceof Element && t.id !== "doc-page" && (t.matches("input, textarea, select") || t.isContentEditable);
 }
 
-// ── Shortcuts: Ctrl/Cmd+Enter generates, Esc stops. Scoped to document mode and
-// no open modal so they can't collide with modal.js / mobile.js Esc handlers.
 function onDocKeydown(e) {
   if (!S.documentMode) return;
   if ($("modal-root")?.innerHTML) return;
+  const key = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
     e.preventDefault();
     docGenerate();
   } else if (e.key === "Escape" && S.docStreaming) {
     e.preventDefault();
     docStop();
+  } else if ((e.ctrlKey || e.metaKey) && !e.altKey && (key === "z" || key === "y")) {
+    if (isOtherEditableTarget(e.target)) return; // other text boxes keep native undo
+    e.preventDefault();
+    if (key === "y" || e.shiftKey) docRedo();
+    else docUndo();
   }
 }
 
@@ -481,6 +545,14 @@ export function initDocumentMode() {
   $("doc-help")?.addEventListener("toggle", (e) => e.target.open && reflectAssistedToggle());
   installPlainTextGuards(page);
   page.addEventListener("input", onEditorInput);
+  // Context-menu Undo/Redo must hit our history, never the orphaned native stack.
+  page.addEventListener("beforeinput", (e) => {
+    if (e.inputType === "historyUndo" || e.inputType === "historyRedo") {
+      e.preventDefault();
+      if (e.inputType === "historyUndo") docUndo();
+      else docRedo();
+    }
+  });
   page.addEventListener("blur", () => {
     if (S.docDirty) flushSave();
   });
