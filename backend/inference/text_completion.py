@@ -33,6 +33,8 @@ ThinkTags = tuple[str, str, str]
 _GEMMA4: ThinkTags = ("<|channel>thought\n", "<channel|>", "<|channel>thought\n<channel|>")
 # Qwen/DeepSeek-style <think></think> pair; disable is an empty think block.
 _THINK: ThinkTags = ("<think>", "</think>", "<think>\n\n</think>\n\n")
+# MiniMax M3 namespaced pair; disable is an empty think block.
+_MINIMAX: ThinkTags = ("<mm:think>", "</mm:think>", "<mm:think>\n\n</mm:think>\n\n")
 # Non-thinking model: no span, no-op suffix (reasoning toggle does nothing).
 _NONE: ThinkTags = ("", "", "")
 
@@ -41,10 +43,13 @@ def think_tags_from_template(chat_template: str) -> ThinkTags:
     """Sniff the reasoning-tag triple from a server's ``chat_template`` text.
 
     Gemma-4 channel pair wins over ``<think>`` when both markers appear (a
-    template can mention both). Neither present => non-thinking model.
+    template can mention both); MiniMax's ``<mm:think>`` is checked before the
+    bare ``<think>`` for the same reason. Neither present => non-thinking model.
     """
     if "<|channel>thought" in chat_template:
         return _GEMMA4
+    if "<mm:think>" in chat_template:
+        return _MINIMAX
     if "<think>" in chat_template:
         return _THINK
     return _NONE

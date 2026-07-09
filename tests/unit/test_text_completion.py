@@ -102,6 +102,17 @@ def test_think_tags_none_for_non_thinking():
     assert tc.think_tags_from_template("plain jinja no markers") == tc._NONE
 
 
+def test_think_tags_minimax_wins_over_think():
+    # MiniMax M3: <mm:think> sniffed before the bare <think> branch.
+    assert tc.think_tags_from_template("...<mm:think>...</mm:think>...") == tc._MINIMAX
+
+
+def test_splitter_minimax_pair():
+    r, c = _run(tc.ThinkSplitter(tc._MINIMAX), ["<mm:think>", "reason", "</mm:think>", "answer"])
+    assert r == "reason"
+    assert c == "answer"
+
+
 async def test_get_think_tags_caches_successful_sniff():
     tc._tag_cache.clear()
     calls = []
