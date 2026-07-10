@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 from typing import Any, AsyncIterator, Mapping, Sequence
 
@@ -60,6 +61,44 @@ def reasoning_cfg(on: bool) -> dict:
             "thinking": {"type": "disabled"},
         }
     )
+
+
+def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
+    """Normalize an OpenAI-compat ``choice.logprobs`` block to Orb's prob shape.
+
+    Reads ``logprobs.content`` — an array of
+    ``{token, logprob, top_logprobs:[{token, logprob}]}`` — folding each into
+    ``{"token", "prob", "top": [{"t","p"}]}`` with linear probabilities
+    (``math.exp``). This is the chat-transport twin of
+    ``text_completion.parse_token_probs``; the output shape is identical so the
+    route frames both the same way. Returns ``[]`` when the provider omits
+    logprobs (graceful degrade → no popup) and skips malformed records; never
+    raises.
+    """
+    logprobs = choice.get("logprobs")
+    if not isinstance(logprobs, dict):
+        return []
+    content = logprobs.get("content")
+    if not isinstance(content, list):
+        return []
+    out: list[dict] = []
+    for rec in content:
+        if not isinstance(rec, dict) or not isinstance(rec.get("token"), str):
+            continue
+        try:
+            prob = math.exp(float(rec["logprob"]))
+        except (TypeError, ValueError, KeyError, OverflowError):
+            continue
+        top: list[dict] = []
+        for alt in rec.get("top_logprobs") or []:
+            if not isinstance(alt, dict) or not isinstance(alt.get("token"), str):
+                continue
+            try:
+                top.append({"t": alt["token"], "p": math.exp(float(alt["logprob"]))})
+            except (TypeError, ValueError, KeyError, OverflowError):
+                continue
+        out.append({"token": rec["token"], "prob": prob, "top": top})
+    return out
 
 
 class LLMClient:
@@ -136,6 +175,9 @@ class LLMClient:
         params.pop("prefill", None)
         params.pop("grammar", None)
         params.pop("json_schema", None)
+        # n_probs is a llama.cpp /completion field; a text→chat fallback (e.g. a
+        # call carrying image parts) must not leak it into the OpenAI-compat body.
+        params.pop("n_probs", None)
         async for event in self._complete_chat(messages, model, tools, tool_choice, **params):
             yield event
 
@@ -244,6 +286,12 @@ class LLMClient:
                             if c:
                                 content_parts.append(c)
                                 yield {"type": "content", "delta": c}
+
+                            # Per-token alternatives (Document mode steering) —
+                            # present only when the caller passed logprobs and the
+                            # provider honoured them; otherwise a no-op.
+                            for rec in _parse_chat_logprobs(choice):
+                                yield {"type": "token_probs", **rec}
 
                             # Tool call argument deltas — accumulate by index
                             for tc_delta in delta.get("tool_calls") or []:
@@ -511,6 +559,12 @@ class LLMClient:
                     for kind, text in splitter.feed(delta):
                         (reasoning_parts if kind == "reasoning" else content_parts).append(text)
                         yield {"type": kind, "delta": text}
+            # Per-token alternatives ride a separate channel (Document mode's
+            # token-swap steering); never for a forced tool call, whose output is
+            # buffered as arguments rather than surfaced as content.
+            if forced_name is None:
+                for rec in text_completion.parse_token_probs(data):
+                    yield {"type": "token_probs", **rec}
             if stop:
                 break
 
@@ -570,6 +624,10 @@ class LLMClient:
             if delta:
                 content_parts.append(delta)
                 yield {"type": "content", "delta": delta}
+            # Per-token alternatives on a separate channel (Document mode). Absent
+            # unless the caller passed n_probs, so this is a no-op by default.
+            for rec in text_completion.parse_token_probs(data):
+                yield {"type": "token_probs", **rec}
             if stop:
                 break
 

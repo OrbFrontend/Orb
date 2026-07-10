@@ -129,8 +129,9 @@ class FakeLLMClient:
         }
         # Raw text-completion queue (complete_raw, document text mode) — separate
         # from the tool_choice-dispatched chat queues above; keyed by the call,
-        # not by a pass. capture prompt+params for assertions.
-        self._raw_queue: list[str] = []
+        # not by a pass. capture prompt+params for assertions. Each entry is
+        # {"content": str, "probs": list} so a test can attach per-token probs.
+        self._raw_queue: list[dict] = []
         self.raw_calls: list[dict] = []
         self.completion_mode = "chat"
         self._gates: dict[str, list[PassGate]] = {
@@ -169,8 +170,11 @@ class FakeLLMClient:
         _validate_tool_calls(tool_calls)
         self._queues["director"].append({"tool_calls": tool_calls})
 
-    def enqueue_writer(self, text: str) -> None:
-        self._queues["writer"].append({"content": text})
+    def enqueue_writer(self, text: str, probs: list[dict] | None = None) -> None:
+        # Optional *probs* is a list of normalized token-prob records
+        # ({"token","prob","top":[{"t","p"}]}); the mock interleaves them as
+        # token_probs chunks after the content delta (chat doc path with logprobs).
+        self._queues["writer"].append({"content": text, "probs": probs or []})
 
     def enqueue_editor(self, decision: dict | None = None) -> None:
         """Queue an editor response. ``decision`` is the ``message`` dict
@@ -195,9 +199,14 @@ class FakeLLMClient:
     def enqueue_workflow(self, message: dict) -> None:
         self._queues["workflow"].append({"message": message})
 
-    def enqueue_raw(self, text: str) -> None:
-        """Queue a raw text-completion response (``complete_raw``, doc text mode)."""
-        self._raw_queue.append(text)
+    def enqueue_raw(self, text: str, probs: list[dict] | None = None) -> None:
+        """Queue a raw text-completion response (``complete_raw``, doc text mode).
+
+        Optional *probs* is a list of normalized token-prob records
+        (``{"token","prob","top":[{"t","p"}]}``); when given the mock interleaves
+        them as token_probs chunks after the content delta (mirrors the real
+        client when n_probs is requested)."""
+        self._raw_queue.append({"content": text, "probs": probs or []})
 
     def gate(self, pass_name: str) -> PassGate:
         """Return a ``PassGate`` controlling the next *pass_name* call.
@@ -257,6 +266,11 @@ class FakeLLMClient:
             text = payload.get("content", "")
             if text:
                 yield {"type": "content", "delta": text}
+            # Faithful to a real provider: probs come back only when logprobs
+            # were requested (the token_probs flag threads through to params).
+            if params.get("logprobs"):
+                for rec in payload.get("probs") or []:
+                    yield {"type": "token_probs", **rec}
             yield {"type": "done", "message": {"role": "assistant", "content": text}}
             return
 
@@ -310,9 +324,14 @@ class FakeLLMClient:
         self.raw_calls.append({"prompt": prompt, "model": model, "params": params})
         if self.abort_token.is_aborted:
             return
-        text = self._raw_queue.pop(0) if self._raw_queue else ""
+        payload = self._raw_queue.pop(0) if self._raw_queue else {"content": "", "probs": []}
+        text = payload["content"]
         if text:
             yield {"type": "content", "delta": text}
+        # llama.cpp returns completion_probabilities only when n_probs is set.
+        if params.get("n_probs"):
+            for rec in payload.get("probs") or []:
+                yield {"type": "token_probs", **rec}
         yield {"type": "done", "message": {"content": text}, "usage": None}
 
 

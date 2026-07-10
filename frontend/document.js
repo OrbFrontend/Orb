@@ -11,6 +11,18 @@ import {
   serializeEditor,
   setCaretOffset,
 } from "./document_editor.js";
+import {
+  addToken,
+  beginRun,
+  clearPending,
+  commitRun,
+  hideProbPopup,
+  initDocProbs,
+  runAt,
+  spliceRunOffsets,
+  swapRunToken,
+  syncContent,
+} from "./document_probs.js";
 import { showConfirmModal } from "./modal.js";
 import { S } from "./state.js";
 import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
@@ -18,6 +30,7 @@ import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 const LS_MODE = "orb-doc-mode";
 const LS_ACTIVE = "orb-active-doc";
 const LS_ASSISTED = "orb-doc-assisted"; // Raw (0) ⇄ Assisted (1) prompting strategy
+const LS_PROBS = "orb-doc-probs"; // capture per-token alternatives (0/1)
 const SAVE_DEBOUNCE_MS = 1500;
 const STREAM_FLUSH_MS = 5000; // interval flush while streaming → tab crash loses ≤5s
 const HISTORY_DEBOUNCE_MS = 800; // typing pause → one undo step per burst
@@ -31,6 +44,7 @@ let saveTimer = null;
 let flushInterval = null;
 let anchorTextNode = null; // text node tokens stream into during generation
 let docAssisted = false; // false = Raw (verbatim), true = Assisted (### macros → chat template)
+let docProbsOn = false; // capture per-token alternatives (mikupad-style token swapping)
 
 // ── Small DOM helpers ────────────────────────────────────────────────────────
 function setSaveState(text) {
@@ -102,6 +116,7 @@ function docRestore(snap) {
   const max = Math.min(before.length, snap.content.length);
   while (caret < max && before[caret] === snap.content[caret]) caret++;
   renderEditor(page, snap.content, snap.spans);
+  if (S.activeDocId) syncContent(S.activeDocId, snap.content); // remap token-runs across the undo/redo jump
   setCaretOffset(page, caret);
   if (MOBILE.matches) page.blur(); // addRange refocuses the box → keyboard pops while reading; kill it on mobile
   // Programmatic render fires no input event → same bookkeeping as onEditorInput.
@@ -181,6 +196,19 @@ export function setDocAssisted(on) {
   docAssisted = !!on;
   localStorage.setItem(LS_ASSISTED, docAssisted ? "1" : "0");
   reflectAssistedToggle();
+}
+
+// ── Per-token alternatives toggle (mikupad-style token swapping), persisted. ──
+// Opt-in: logprobs cost generation speed on llama.cpp, and providers that can't
+// supply them degrade to no-popup. Sent as `token_probs` in the generate POST.
+function reflectProbsToggle() {
+  $("doc-probs-btn")?.classList.toggle("active", docProbsOn);
+}
+
+export function setDocProbs(on) {
+  docProbsOn = !!on;
+  localStorage.setItem(LS_PROBS, docProbsOn ? "1" : "0");
+  reflectProbsToggle();
 }
 
 // ── Documents list. ──────────────────────────────────────────────────────────
@@ -286,6 +314,7 @@ export async function openDocument(id) {
     toast("Stop generation first", true);
     return;
   }
+  hideProbPopup(); // switching docs → drop any popup from the previous one
   if (S.activeDocId && S.activeDocId !== id && S.docDirty) await flushSave();
   let doc;
   try {
@@ -301,6 +330,7 @@ export async function openDocument(id) {
 
   const page = $("doc-page");
   renderEditor(page, doc.content, doc.generated_spans || []);
+  syncContent(id, doc.content); // realign any session token-runs to the loaded content
   page.setAttribute("contenteditable", "true");
   $("doc-generate-btn").disabled = false;
   $("doc-title-text").textContent = doc.title;
@@ -422,6 +452,7 @@ function onEditorInput() {
   S.docDirty = true;
   setSaveState("Unsaved…");
   updateTokenCount();
+  if (S.activeDocId) syncContent(S.activeDocId, serializeEditor($("doc-page")).content); // keep token offsets aligned
   scheduleSave();
   clearTimeout(docHistoryTimer);
   docHistoryTimer = setTimeout(docCheckpoint, HISTORY_DEBOUNCE_MS);
@@ -483,10 +514,11 @@ function scrollAnchorIntoView() {
 }
 
 // Dedicated SSE reader (do NOT reuse the chat-coupled processSSEStream). Handles
-// the three wire facts of the backend's _sse_stream: \n is escaped in data,
+// the wire facts of the backend's _sse_stream: string data has \n escaped (token /
+// error), dict data is raw JSON (probs — must NOT be unescaped or the JSON breaks),
 // ": keepalive" comment frames appear during silent stretches, and errors arrive
 // in-band as `event: error`.
-async function readDocSSE(resp, onToken, onError) {
+async function readDocSSE(resp, onToken, onProbs, onError) {
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -506,10 +538,18 @@ async function readDocSSE(resp, onToken, onError) {
         if (line.startsWith("event: ")) event = line.slice(7);
         else if (line.startsWith("data: ")) data = line.slice(6);
       }
-      data = data.replace(/\\n/g, "\n"); // newlines are load-bearing in the editor
-      if (event === "token") onToken(data);
-      else if (event === "error") {
-        onError(data);
+      // Unescape ONLY string-data channels; probs data is JSON where a real
+      // newline inside a token would already be `\n`-escaped by json.dumps —
+      // unescaping it here would corrupt the payload.
+      if (event === "token") onToken(data.replace(/\\n/g, "\n"));
+      else if (event === "probs") {
+        try {
+          onProbs(JSON.parse(data));
+        } catch {
+          /* malformed probs frame → skip, never break the text stream */
+        }
+      } else if (event === "error") {
+        onError(data.replace(/\\n/g, "\n"));
         return;
       } else if (event === "done") return;
     }
@@ -519,6 +559,7 @@ async function readDocSSE(resp, onToken, onError) {
 export async function docGenerate() {
   if (!S.activeDocId || S.docStreaming) return;
   const page = $("doc-page");
+  hideProbPopup(); // no stale alternatives popup over a regenerating region
   if (S.docDirty) await flushSave();
   docCheckpoint(); // pre-generation state — Ctrl+Z after gen lands here
 
@@ -526,6 +567,7 @@ export async function docGenerate() {
   const caret = computeCaretOffset(page);
   const { content, spans } = serializeEditor(page);
   const prompt = content.slice(0, caret);
+  beginRun(S.activeDocId, caret); // token records (if any) collect against this run
 
   // Re-render with an empty streaming anchor at the caret (splits a straddling span).
   const anchor = renderEditor(page, content, spans, caret);
@@ -545,7 +587,7 @@ export async function docGenerate() {
     const resp = await fetch(`/api/documents/${S.activeDocId}/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, assisted: docAssisted }),
+      body: JSON.stringify({ prompt, assisted: docAssisted, token_probs: docProbsOn }),
       signal: S.docAbortController.signal,
     });
     if (!resp.ok) throw new Error(await resp.text());
@@ -555,6 +597,7 @@ export async function docGenerate() {
         anchorTextNode.appendData(delta);
         scrollAnchorIntoView();
       },
+      (rec) => addToken(rec), // per-token alternatives → side-store (Step 5)
       (msg) => toast(msg || "Generation error", true),
     );
   } catch (e) {
@@ -576,14 +619,26 @@ function finalizeGeneration() {
   showGenStatus(false);
 
   const anchor = page.querySelector(".gen-active");
+  let committedText = null;
   if (anchor) {
     anchor.classList.remove("gen-active");
     if (!anchor.textContent) {
       anchor.remove(); // empty span (immediate EOS / abort before any token)
+      clearPending();
       toast("No text was generated");
     } else {
+      committedText = anchor.textContent;
       caretAfter(anchor);
     }
+  } else {
+    clearPending();
+  }
+  // Sync the side-store to the post-generation content FIRST (shifts any
+  // pre-existing runs for the inserted text), THEN commit the fresh run in those
+  // same coordinates — committing first would let the remap double-shift it.
+  if (S.activeDocId) {
+    syncContent(S.activeDocId, serializeEditor(page).content);
+    if (committedText != null) commitRun(S.activeDocId, committedText);
   }
   if (MOBILE.matches) $("doc-page").blur(); // no keyboard pop on Stop / gen-end while reading
   S.docDirty = true;
@@ -596,6 +651,45 @@ export function docStop() {
   if (!S.docStreaming) return;
   S.docAbortController?.abort();
   fetch(`/api/documents/${S.activeDocId}/stop`, { method: "POST" }).catch(() => {});
+}
+
+// Swap a generated token for one of its alternatives (mikupad-style), then
+// auto-continue from that point. Passed to initDocProbs as ctx.requestSwap.
+// Surgery is confined to the swapped token's own run: user text and later runs
+// are preserved by construction (slice boundaries at tokStart and run.end).
+function docSwapToken(run, tokenIndex, alt) {
+  if (S.docStreaming || !S.activeDocId) return;
+  const page = $("doc-page");
+  const { content, spans } = serializeEditor(page);
+
+  // Token start = run start + the lengths of the tokens before it.
+  let tokStart = run.start;
+  for (let i = 0; i < tokenIndex; i++) tokStart += run.tokens[i].text.length;
+  // Revalidate: the run must still tile the current content (no edit since hover).
+  // runAt drops the run and returns null on a mismatch → bail without touching text.
+  if (runAt(S.activeDocId, tokStart, content) !== run) {
+    hideProbPopup();
+    return;
+  }
+  hideProbPopup();
+  docCheckpoint(); // pre-swap undo step
+
+  // Replace [tokStart, run.end) with the alternative — the swapped token plus the
+  // rest of this run only. content.slice(0, tokStart) (incl. user text) and
+  // content.slice(run.end) (later runs / user text) are untouched.
+  const newContent = content.slice(0, tokStart) + alt.t + content.slice(run.end);
+  const newSpans = spliceRunOffsets(spans, tokStart, run.end, alt.t.length);
+  swapRunToken(S.activeDocId, run, tokenIndex, alt, newContent);
+
+  renderEditor(page, newContent, newSpans);
+  setCaretOffset(page, tokStart + alt.t.length); // caret right after the swapped token
+  S.docDirty = true;
+  setSaveState("Unsaved…");
+  updateTokenCount();
+
+  // Continue generation: docGenerate slices prompt = content up to the caret, so
+  // the swapped token is in the prompt and a fresh run begins exactly at the cut.
+  docGenerate();
 }
 
 // ── Shortcuts: Ctrl/Cmd+Enter generates, Esc stops, Ctrl/Cmd+Z / +Shift+Z / +Y
@@ -628,10 +722,19 @@ export function initDocumentMode() {
   if (!page) return;
   docAssisted = localStorage.getItem(LS_ASSISTED) === "1";
   reflectAssistedToggle();
+  docProbsOn = localStorage.getItem(LS_PROBS) === "1";
+  reflectProbsToggle();
   // Re-read the token cap on open — modelConfigs may load / change after init.
   $("doc-help")?.addEventListener("toggle", (e) => e.target.open && reflectAssistedToggle());
   installPlainTextGuards(page);
   initDocAutoscroll();
+  // Hover-to-inspect / click-to-swap per-token alternatives. Context is injected
+  // (S-free module): current doc, streaming guard, and the swap action.
+  initDocProbs(page, {
+    getDocId: () => S.activeDocId,
+    isStreaming: () => S.docStreaming,
+    requestSwap: docSwapToken,
+  });
   page.addEventListener("input", onEditorInput);
   // Context-menu Undo/Redo must hit our history, never the orphaned native stack.
   page.addEventListener("beforeinput", (e) => {

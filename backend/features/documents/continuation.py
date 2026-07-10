@@ -61,6 +61,12 @@ _DEFAULT_USER = "Continue the text. Write several paragraphs."
 # literal prose.
 _MACRO_RE = re.compile(r"^###\s*(SYSTEM|USER|ASSISTANT)\s*:\s?(.*)$", re.IGNORECASE)
 
+# Per-token-alternatives counts, requested only when the client toggles probs on.
+# Text mode (llama.cpp /completion) matches mikupad's default of 10; chat mode
+# asks for 5, a safe floor across OpenAI-compat providers that support logprobs.
+_N_PROBS_TEXT = 10
+_TOP_LOGPROBS_CHAT = 5
+
 
 def _msg(role: str, content: str) -> ChatMessage:
     """Build a ChatMessage, narrowing *role* to the TypedDict's Literal."""
@@ -166,7 +172,9 @@ class DocumentContinuer:
             {"role": "user", "content": prompt},
         ]
 
-    async def stream(self, prompt: str, model: str, assisted: bool = False) -> AsyncGenerator[str, None]:
+    async def stream(
+        self, prompt: str, model: str, assisted: bool = False, token_probs: bool = False
+    ) -> AsyncGenerator[dict, None]:
         # Transport branch on the client's own completion_mode (single source of
         # truth — not a second settings read), crossed with the assisted flag:
         #
@@ -179,12 +187,20 @@ class DocumentContinuer:
         # Reasoning is always off in assisted mode: a no-op on the text/prefill
         # path (client drops chat_template_kwargs there) but load-bearing for the
         # chat fallback and the trailing-note generation prompt.
+        #
+        # token_probs adds the per-transport alternatives request (mikupad-style
+        # token swapping): n_probs on the llama.cpp branches, logprobs/top_logprobs
+        # on the OpenAI-compat branches. Unset → no extra fields, unchanged bodies.
+        probs_text = {"n_probs": _N_PROBS_TEXT} if token_probs else {}
+        probs_chat = {"logprobs": True, "top_logprobs": _TOP_LOGPROBS_CHAT} if token_probs else {}
         if self.client.completion_mode == "text":
             if assisted:
                 messages, prefill = parse_doc_macros(prompt)
-                gen = self.client.complete(messages, model, prefill=prefill, **self.params, **reasoning_cfg(False))
+                gen = self.client.complete(
+                    messages, model, prefill=prefill, **self.params, **probs_text, **reasoning_cfg(False)
+                )
             else:
-                gen = self.client.complete_raw(prompt, model, **self.params)
+                gen = self.client.complete_raw(prompt, model, **self.params, **probs_text)
         else:
             if assisted:
                 messages, prefill = parse_doc_macros(prompt)
@@ -198,11 +214,13 @@ class DocumentContinuer:
                         _msg("assistant", prefill),
                         _msg("user", DOC_ASSIST_CONTINUE),
                     ]
-                gen = self.client.complete(messages, model, **self.params, **reasoning_cfg(False))
+                gen = self.client.complete(messages, model, **self.params, **probs_chat, **reasoning_cfg(False))
             else:
-                gen = self.client.complete(self.build_chat_messages(prompt), model, **self.params, **reasoning_cfg(False))
-        # Yield content deltas only (drop reasoning) — same filter as
-        # ConversationSummarizer.stream.
+                gen = self.client.complete(
+                    self.build_chat_messages(prompt), model, **self.params, **probs_chat, **reasoning_cfg(False)
+                )
+        # Yield content + token_probs chunks (drop reasoning). The route frames
+        # content as `event: token` and token_probs as `event: probs`.
         async for chunk in gen:
-            if chunk["type"] == "content":
-                yield chunk["delta"]
+            if chunk["type"] in ("content", "token_probs"):
+                yield chunk

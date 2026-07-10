@@ -9,9 +9,10 @@ no httpx faking.
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from backend.inference import text_completion as tc
-from backend.inference.client import LLMClient, parse_tool_calls, reasoning_cfg
+from backend.inference.client import LLMClient, _parse_chat_logprobs, parse_tool_calls, reasoning_cfg
 
 GEMMA_OPEN, GEMMA_CLOSE, GEMMA_DISABLE = tc._GEMMA4
 
@@ -185,6 +186,148 @@ def test_build_completion_params_remaps_and_drops():
         "n_predict": 512,
         "repeat_penalty": 1.1,
     }
+
+
+def test_build_completion_params_n_probs_adds_post_sampling():
+    out = tc.build_completion_params({"n_probs": 10})
+    assert out["n_probs"] == 10
+    assert out["post_sampling_probs"] is True
+
+
+def test_build_completion_params_n_probs_absent_by_default():
+    # No n_probs → neither field appears (old servers, probs toggle off).
+    out = tc.build_completion_params({"temperature": 0.7})
+    assert "n_probs" not in out
+    assert "post_sampling_probs" not in out
+
+
+def test_build_completion_params_n_probs_ignores_nonpositive_and_bool():
+    # 0, negatives, and the bool True (an int subclass) are not real requests.
+    for bad in (0, -1, True, "10", None):
+        out = tc.build_completion_params({"n_probs": bad})
+        assert "n_probs" not in out, bad
+        assert "post_sampling_probs" not in out, bad
+
+
+# ── parse_token_probs: three llama.cpp shapes + garbage ───────────────────────
+
+
+def test_parse_token_probs_post_sampling_shape():
+    # Current shape: {token, prob, top_probs:[{token, prob}]} (linear probs).
+    data = {
+        "completion_probabilities": [
+            {
+                "token": " Paris",
+                "prob": 0.86,
+                "top_probs": [{"token": " Paris", "prob": 0.86}, {"token": " own", "prob": 0.1}],
+            }
+        ]
+    }
+    assert tc.parse_token_probs(data) == [
+        {"token": " Paris", "prob": 0.86, "top": [{"t": " Paris", "p": 0.86}, {"t": " own", "p": 0.1}]}
+    ]
+
+
+def test_parse_token_probs_logprob_shape_exponentiated():
+    # {token, logprob, top_logprobs:[{token, logprob}]} → math.exp to linear.
+    import math
+
+    data = {
+        "completion_probabilities": [
+            {"token": "x", "logprob": -0.1, "top_logprobs": [{"token": "x", "logprob": -0.1}, {"token": "y", "logprob": -2.0}]}
+        ]
+    }
+    [rec] = tc.parse_token_probs(data)
+    assert rec["token"] == "x"
+    assert rec["prob"] == pytest.approx(math.exp(-0.1))
+    assert rec["top"][0]["t"] == "x" and rec["top"][0]["p"] == pytest.approx(math.exp(-0.1))
+    assert rec["top"][1]["p"] == pytest.approx(math.exp(-2.0))
+
+
+def test_parse_token_probs_legacy_shape_derives_prob_from_alts():
+    # Legacy {content, probs:[{tok_str, prob}]} — no top-level prob; the sampled
+    # token's prob is read from the alternatives.
+    data = {
+        "completion_probabilities": [
+            {"content": " the", "probs": [{"tok_str": " the", "prob": 0.7}, {"tok_str": " a", "prob": 0.2}]}
+        ]
+    }
+    assert tc.parse_token_probs(data) == [
+        {"token": " the", "prob": 0.7, "top": [{"t": " the", "p": 0.7}, {"t": " a", "p": 0.2}]}
+    ]
+
+
+def test_parse_token_probs_garbage_returns_empty_never_raises():
+    assert tc.parse_token_probs({}) == []
+    assert tc.parse_token_probs({"completion_probabilities": None}) == []
+    assert tc.parse_token_probs({"completion_probabilities": "nope"}) == []
+    assert tc.parse_token_probs({"completion_probabilities": [42, "x", None]}) == []
+    # A record with no usable token string is skipped, not fatal.
+    assert tc.parse_token_probs({"completion_probabilities": [{"prob": 0.5}]}) == []
+
+
+def test_parse_token_probs_multiple_records_and_missing_alts():
+    # More than one token in a chunk; a record with no alternatives keeps prob.
+    data = {
+        "completion_probabilities": [
+            {"token": "a", "prob": 0.9, "top_probs": []},
+            {"token": "b", "prob": 0.5},
+        ]
+    }
+    assert tc.parse_token_probs(data) == [
+        {"token": "a", "prob": 0.9, "top": []},
+        {"token": "b", "prob": 0.5, "top": []},
+    ]
+
+
+# ── Chat-transport logprobs normalization ─────────────────────────────────────
+
+
+def test_parse_chat_logprobs_exponentiates_to_linear():
+    import math
+
+    choice = {
+        "logprobs": {
+            "content": [
+                {
+                    "token": " the",
+                    "logprob": -0.2,
+                    "top_logprobs": [{"token": " the", "logprob": -0.2}, {"token": " a", "logprob": -1.6}],
+                }
+            ]
+        }
+    }
+    [rec] = _parse_chat_logprobs(choice)
+    assert rec["token"] == " the"
+    assert rec["prob"] == pytest.approx(math.exp(-0.2))
+    assert rec["top"][0] == {"t": " the", "p": pytest.approx(math.exp(-0.2))}
+    assert rec["top"][1] == {"t": " a", "p": pytest.approx(math.exp(-1.6))}
+
+
+def test_parse_chat_logprobs_absent_returns_empty():
+    # Provider omitted logprobs entirely (graceful degrade → no popup).
+    assert _parse_chat_logprobs({}) == []
+    assert _parse_chat_logprobs({"logprobs": None}) == []
+    assert _parse_chat_logprobs({"logprobs": {}}) == []
+    assert _parse_chat_logprobs({"logprobs": {"content": None}}) == []
+
+
+def test_parse_chat_logprobs_skips_malformed_records():
+    choice = {
+        "logprobs": {
+            "content": [
+                42,
+                {"token": None, "logprob": -0.1},  # non-str token → skip
+                {"token": "x"},  # missing logprob → skip
+                {"token": "y", "logprob": -0.5, "top_logprobs": ["junk", {"token": "z", "logprob": -0.9}]},
+            ]
+        }
+    }
+    out = _parse_chat_logprobs(choice)
+    assert len(out) == 1
+    assert out[0]["token"] == "y"
+    # The junk alternative is dropped; the valid one survives.
+    assert out[0]["top"] == [{"t": "z", "p": pytest.approx(__import__("math").exp(-0.9))}]
 
 
 # ── Usage synthesis (F8) ──────────────────────────────────────────────────────

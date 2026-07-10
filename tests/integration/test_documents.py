@@ -8,6 +8,8 @@ tests use ``enqueue_writer``; only text-mode tests use ``enqueue_raw``.
 
 from __future__ import annotations
 
+import json
+
 from backend.features.documents import DOC_ASSIST_CONTINUE, DOC_ASSIST_INSTRUCTION
 
 
@@ -185,3 +187,65 @@ async def test_stop_with_and_without_active_token(client):
     did = (await client.post("/api/documents", json={})).json()["id"]
     # no active generation → still a clean 200
     assert (await client.post("/api/documents/" + did + "/stop")).json() == {"ok": True}
+
+
+# ── token_probs wire: `event: probs` frames ───────────────────────────────────
+
+# Mock token records live on a separate channel from the text; keep their token
+# strings newline-free so the test-only _parse_sse (which unescapes \n on every
+# frame, unlike the real reader) doesn't corrupt the probs JSON.
+_PROBS = [{"token": " Paris", "prob": 0.86, "top": [{"t": " Paris", "p": 0.86}, {"t": " Lyon", "p": 0.1}]}]
+
+
+async def test_generate_text_mode_probs_frames(client, llm_mock):
+    await _activate_text_endpoint(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    llm_mock.enqueue_raw(" Paris", probs=_PROBS)
+
+    r = await client.post(
+        "/api/documents/" + did + "/generate",
+        json={"prompt": "The capital of France is", "token_probs": True},
+    )
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+
+    # token frame is byte-identical to the no-probs wire.
+    assert events[0] == {"event": "token", "data": " Paris"}
+    # a probs frame follows, JSON-decoding to the normalized shape.
+    probs = [json.loads(e["data"]) for e in events if e["event"] == "probs"]
+    assert probs == _PROBS
+    assert events[-1]["event"] == "done"
+    # n_probs threaded into the /completion request.
+    assert llm_mock.raw_calls[-1]["params"]["n_probs"] == 10
+
+
+async def test_generate_chat_mode_probs_frames(client, llm_mock):
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    llm_mock.enqueue_writer(" Paris", probs=_PROBS)
+
+    r = await client.post(
+        "/api/documents/" + did + "/generate",
+        json={"prompt": "The capital of France is", "token_probs": True},
+    )
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+    assert events[0] == {"event": "token", "data": " Paris"}
+    probs = [json.loads(e["data"]) for e in events if e["event"] == "probs"]
+    assert probs == _PROBS
+    # logprobs threaded into the chat request.
+    assert llm_mock.captured[-1]["params"]["logprobs"] is True
+    assert llm_mock.captured[-1]["params"]["top_logprobs"] == 5
+
+
+async def test_generate_no_probs_frames_when_flag_unset(client, llm_mock):
+    # Probs enqueued, but token_probs omitted → the continuer sends no n_probs, so
+    # the mock (like a real server) returns none; the wire carries only tokens.
+    await _activate_text_endpoint(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    llm_mock.enqueue_raw(" Paris", probs=_PROBS)
+
+    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": "x"})
+    assert r.status_code == 200
+    events = _parse_sse(r.text)
+    assert not any(e["event"] == "probs" for e in events)
+    assert "n_probs" not in llm_mock.raw_calls[-1]["params"]

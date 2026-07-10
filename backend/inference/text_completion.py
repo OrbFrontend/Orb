@@ -15,6 +15,7 @@ Mirrors the HTTP-free leaf pattern of ``gemma_tool_format.py`` /
 from __future__ import annotations
 
 import logging
+import math
 import re
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
@@ -216,6 +217,87 @@ def build_completion_params(params: Mapping[str, Any]) -> dict:
         out["n_predict"] = params["max_tokens"]
     if params.get("repetition_penalty") is not None:
         out["repeat_penalty"] = params["repetition_penalty"]
+    # Per-token alternatives (mikupad-style steering). ``post_sampling_probs``
+    # asks for linear probabilities after sampling (matches what a writer sees);
+    # old servers ignore both unknown fields. ``bool`` is an ``int`` subclass, so
+    # exclude it explicitly — ``n_probs=True`` is not a request for 1 alternative.
+    n_probs = params.get("n_probs")
+    if isinstance(n_probs, int) and not isinstance(n_probs, bool) and n_probs > 0:
+        out["n_probs"] = n_probs
+        out["post_sampling_probs"] = True
+    return out
+
+
+def _linear_prob(rec: Mapping[str, Any]) -> float | None:
+    """Read a linear probability from a prob record, converting ``logprob`` via exp.
+
+    Prefers an explicit ``prob`` (post_sampling_probs / legacy); falls back to
+    ``math.exp(logprob)`` (the OpenAI-style logprob shape). Returns ``None`` when
+    neither is a finite number.
+    """
+    if "prob" in rec:
+        try:
+            return float(rec["prob"])
+        except (TypeError, ValueError):
+            return None
+    if "logprob" in rec:
+        try:
+            return math.exp(float(rec["logprob"]))
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return None
+
+
+def _tok_str(rec: Mapping[str, Any]) -> str | None:
+    """Read a token string across the field names the three shapes use."""
+    for key in ("token", "tok_str", "content"):
+        v = rec.get(key)
+        if isinstance(v, str):
+            return v
+    return None
+
+
+def parse_token_probs(data: Mapping[str, Any]) -> list[dict]:
+    """Normalize a ``/completion`` chunk's ``completion_probabilities`` to Orb's shape.
+
+    llama.cpp has shipped three per-token-probability shapes across versions;
+    fold them all into ``[{"token", "prob", "top": [{"t","p"}]}]`` with linear
+    probabilities (logprob variants are ``math.exp``-ed):
+
+    * ``{token, prob, top_probs:[{token, prob}]}``   — current (post_sampling_probs)
+    * ``{token, logprob, top_logprobs:[{token, logprob}]}`` — OpenAI-style logprobs
+    * ``{content, probs:[{tok_str, prob}]}``          — legacy
+
+    Never raises: a missing/garbage payload or an unknown shape drift degrades to
+    ``[]`` (no popup) rather than breaking the stream. Individual malformed
+    records are skipped, not fatal.
+    """
+    records = data.get("completion_probabilities")
+    if not isinstance(records, list):
+        return []
+    out: list[dict] = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        token = _tok_str(rec)
+        if token is None:
+            continue
+        raw_alts = rec.get("top_probs") or rec.get("top_logprobs") or rec.get("probs") or []
+        top: list[dict] = []
+        if isinstance(raw_alts, list):
+            for alt in raw_alts:
+                if not isinstance(alt, dict):
+                    continue
+                t = _tok_str(alt)
+                p = _linear_prob(alt)
+                if t is not None and p is not None:
+                    top.append({"t": t, "p": p})
+        prob = _linear_prob(rec)
+        if prob is None:
+            # Legacy shape has no top-level prob: read the sampled token's own
+            # entry from the alternatives list.
+            prob = next((a["p"] for a in top if a["t"] == token), 0.0)
+        out.append({"token": token, "prob": prob, "top": top})
     return out
 
 

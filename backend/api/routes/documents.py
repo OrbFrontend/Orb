@@ -85,8 +85,20 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
 
     async def _gen():
         try:
-            async for delta in continuer.stream(data.prompt, settings.get("model_name", ""), assisted=data.assisted):
-                yield {"event": "token", "data": delta}
+            async for chunk in continuer.stream(
+                data.prompt,
+                settings.get("model_name", ""),
+                assisted=data.assisted,
+                token_probs=data.token_probs,
+            ):
+                if chunk["type"] == "content":
+                    # Byte-identical wire: plain string, \n-escaped by _sse_stream.
+                    yield {"event": "token", "data": chunk["delta"]}
+                else:  # token_probs — dict data auto-JSON-serialized by _sse_stream
+                    yield {
+                        "event": "probs",
+                        "data": {"token": chunk["token"], "prob": chunk["prob"], "top": chunk["top"]},
+                    }
             yield {"event": "done", "data": ""}
         except Exception as e:
             logger.error("Document generate error: %s", e)

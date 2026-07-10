@@ -76,6 +76,7 @@ import {
   renameActiveDocument,
   renameDocument,
   setDocAssisted,
+  setDocProbs,
   toggleDocumentMode,
 } from "./document.js";
 import {
@@ -398,6 +399,7 @@ Object.assign(window, {
   // document mode
   toggleDocumentMode,
   setDocAssisted,
+  setDocProbs,
   createDocument,
   openDocument,
   deleteDocument,

@@ -67,3 +67,76 @@ async def test_complete_raw_streams_content_deltas_no_think_split():
     content = "".join(e["delta"] for e in events if e["type"] == "content")
     assert content == "<think>not reasoning</think> tail"
     assert events[-1]["message"]["content"] == content
+
+
+async def test_complete_raw_body_carries_n_probs_when_passed():
+    client = _client()
+    captured: dict = {}
+
+    async def fake_stream(url, body):
+        captured["body"] = body
+        yield {"content": "x", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    await _drain(client.complete_raw("p", "m", n_probs=10))
+    assert captured["body"]["n_probs"] == 10
+    assert captured["body"]["post_sampling_probs"] is True
+
+
+async def test_complete_raw_body_omits_n_probs_when_absent():
+    client = _client()
+    captured: dict = {}
+
+    async def fake_stream(url, body):
+        captured["body"] = body
+        yield {"content": "x", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    await _drain(client.complete_raw("p", "m"))
+    assert "n_probs" not in captured["body"]
+    assert "post_sampling_probs" not in captured["body"]
+
+
+async def test_complete_raw_interleaves_token_probs_chunks():
+    client = _client()
+
+    async def fake_stream(url, body):
+        yield {
+            "content": " Paris",
+            "stop": False,
+            "completion_probabilities": [
+                {
+                    "token": " Paris",
+                    "prob": 0.86,
+                    "top_probs": [{"token": " Paris", "prob": 0.86}, {"token": " own", "prob": 0.1}],
+                }
+            ],
+        }
+        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    events = await _drain(client.complete_raw("p", "m", n_probs=10))
+    # content delta precedes its token_probs frame; the frame carries the normalized shape.
+    types = [e["type"] for e in events]
+    assert types[0] == "content" and types[1] == "token_probs"
+    probs = [e for e in events if e["type"] == "token_probs"]
+    assert probs == [
+        {"type": "token_probs", "token": " Paris", "prob": 0.86, "top": [{"t": " Paris", "p": 0.86}, {"t": " own", "p": 0.1}]}
+    ]
+
+
+async def test_complete_raw_no_token_probs_when_server_omits_them():
+    client = _client()
+
+    async def fake_stream(url, body):
+        # Server ignored n_probs (old build) → no completion_probabilities field.
+        yield {"content": "hi", "stop": False}
+        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    events = await _drain(client.complete_raw("p", "m", n_probs=10))
+    assert not any(e["type"] == "token_probs" for e in events)

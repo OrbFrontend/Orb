@@ -185,6 +185,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
           <button type="button" class="doc-mode-opt active" id="doc-mode-raw" onclick="setDocAssisted(false)" title="Raw: send the document verbatim — you type any chat-template tokens">Raw</button>
           <button type="button" class="doc-mode-opt" id="doc-mode-assisted" onclick="setDocAssisted(true)" title="Assisted: write ### SYSTEM / ### USER notes and the model's chat template is applied for you">Assisted</button>
         </div>
+        <button type="button" class="doc-probs-toggle" id="doc-probs-btn" onclick="setDocProbs(!this.classList.contains('active'))" title="Capture per-token alternatives (may slow local generation)">Probs</button>
         <span id="doc-gen-status" class="doc-gen-status hidden">Generating…</span>
       </div>
       <div class="doc-footer-actions">
@@ -193,6 +194,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
         <button class="btn btn-sm hidden" id="doc-stop-btn" onclick="docStop()" title="Stop (Esc)">■ Stop</button>
       </div>
     </div>
+    <div id="doc-prob-popup" class="hidden"></div>
   </div>
   <div id="tools-panel"><div class="tools-inner">
     <div class="inspector-title">Workflows</div>

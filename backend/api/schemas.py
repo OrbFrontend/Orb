@@ -262,6 +262,10 @@ class DocumentGenerateRequest(BaseModel):
     # Assisted continuation: interpret ### SYSTEM/USER/ASSISTANT line macros and
     # render through the model's chat template. Defaults false → Raw (verbatim).
     assisted: bool = False
+    # Capture per-token alternatives (mikupad-style token swapping). Off by
+    # default: logprobs cost generation speed on llama.cpp, and providers that
+    # can't supply them degrade to no-popup. Emits `event: probs` SSE frames.
+    token_probs: bool = False
 
 
 class CharacterCardCreate(BaseModel):
