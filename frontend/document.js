@@ -12,6 +12,7 @@ import {
   setCaretOffset,
 } from "./document_editor.js";
 import {
+  addDelta,
   addToken,
   beginRun,
   clearPending,
@@ -19,7 +20,6 @@ import {
   hideProbPopup,
   initDocProbs,
   runAt,
-  spliceRunOffsets,
   swapRunToken,
   syncContent,
 } from "./document_probs.js";
@@ -595,9 +595,10 @@ export async function docGenerate() {
       resp,
       (delta) => {
         anchorTextNode.appendData(delta);
+        addDelta(delta); // positions the chunk's probs records within the run
         scrollAnchorIntoView();
       },
-      (rec) => addToken(rec), // per-token alternatives → side-store (Step 5)
+      (rec) => addToken(rec), // per-token alternatives → side-store
       (msg) => toast(msg || "Generation error", true),
     );
   } catch (e) {
@@ -655,8 +656,9 @@ export function docStop() {
 
 // Swap a generated token for one of its alternatives (mikupad-style), then
 // auto-continue from that point. Passed to initDocProbs as ctx.requestSwap.
-// Surgery is confined to the swapped token's own run: user text and later runs
-// are preserved by construction (slice boundaries at tokStart and run.end).
+// Everything after the swapped token is deleted — the continuation is being
+// rewritten from the swap point, so stale tail text (even user-typed) goes;
+// docCheckpoint makes the whole swap one Ctrl+Z step.
 function docSwapToken(run, tokenIndex, alt) {
   if (S.docStreaming || !S.activeDocId) return;
   const page = $("doc-page");
@@ -674,11 +676,14 @@ function docSwapToken(run, tokenIndex, alt) {
   hideProbPopup();
   docCheckpoint(); // pre-swap undo step
 
-  // Replace [tokStart, run.end) with the alternative — the swapped token plus the
-  // rest of this run only. content.slice(0, tokStart) (incl. user text) and
-  // content.slice(run.end) (later runs / user text) are untouched.
-  const newContent = content.slice(0, tokStart) + alt.t + content.slice(run.end);
-  const newSpans = spliceRunOffsets(spans, tokStart, run.end, alt.t.length);
+  // Truncate at the swap point: keep content before the token, then the
+  // alternative; everything after is deleted. Spans clip at tokStart and the
+  // swapped token itself stays tinted as generated text.
+  const newContent = content.slice(0, tokStart) + alt.t;
+  const newSpans = spans
+    .filter((s) => s.start < tokStart)
+    .map((s) => ({ start: s.start, end: Math.min(s.end, tokStart) }));
+  newSpans.push({ start: tokStart, end: newContent.length });
   swapRunToken(S.activeDocId, run, tokenIndex, alt, newContent);
 
   renderEditor(page, newContent, newSpans);

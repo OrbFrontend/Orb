@@ -85,8 +85,8 @@ GO_EMOTIONS: tuple[str, ...] = (
     "neutral",
 )
 
-_REPEAT_PENALTY = 1.5
-_FREQUENCY_PENALTY = 0.5
+_REPEAT_PENALTY = 1.1
+_FREQUENCY_PENALTY = 0.0
 _TOP_P = 0.9
 _TOP_K = 20
 

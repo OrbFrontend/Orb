@@ -8,7 +8,9 @@
 //   { start, end, tokens: [{ text, prob, top: [{ t, p }] }] }
 // where [start, end) are UTF-16 offsets into the document's current content
 // (kept aligned by remapRuns on every edit) and concatenating tokens' text
-// exactly tiles content.slice(start, end).
+// exactly tiles content.slice(start, end). One generation can commit several
+// runs: servers may send probs for only some tokens (llama.cpp speculative
+// decoding skips draft-accepted ones), and each covered stretch is a run.
 //
 // document_editor.js is a pure leaf (it never imports this module), so importing
 // its offset helpers here introduces no cycle — unlike document.js, whose context
@@ -58,23 +60,29 @@ export function remapRuns(runs, oldContent, newContent) {
   return out;
 }
 
-// The longest leading run of *tokens* whose concatenation is a prefix of *text*
-// (chat-mode reconciliation: deltas don't always tile 1:1 onto token records).
-// Stops at the first token that would diverge — a full mismatch returns [], so
-// commitRun discards and no popup appears; the text is never touched.
-export function trimTokensToText(tokens, text) {
-  const out = [];
-  let acc = "";
+// Group position-carrying token records ({ text, start, … }) into contiguous
+// segments that exactly tile *text* — probs coverage can have gaps (llama.cpp
+// speculative decoding omits probs for draft-accepted tokens), so one generation
+// may yield several covered stretches, each committed as its own run. A token
+// whose text no longer matches *text* at its recorded start (chat-mode deltas
+// that don't tile 1:1, abort truncation) is dropped and splits the segment.
+export function segmentTokens(tokens, text) {
+  const segs = [];
+  let cur = null;
   for (const tok of tokens) {
-    const next = acc + tok.text;
-    if (text.startsWith(next)) {
-      out.push(tok);
-      acc = next;
+    if (text.slice(tok.start, tok.start + tok.text.length) !== tok.text) {
+      cur = null;
+      continue;
+    }
+    if (cur && tok.start === cur.start + cur.len) {
+      cur.tokens.push(tok);
+      cur.len += tok.text.length;
     } else {
-      break;
+      cur = { start: tok.start, len: tok.text.length, tokens: [tok] };
+      segs.push(cur);
     }
   }
-  return out;
+  return segs;
 }
 
 // Which token of *run* covers absolute offset *offset*, by cumulative lengths.
@@ -88,16 +96,6 @@ export function tokenAtOffset(run, offset) {
     pos = tokEnd;
   }
   return null;
-}
-
-// Adjust generated-span offsets for a token swap that replaces the content in
-// [tokStart, runEnd) with text of length *insertLen*. Endpoints at or before
-// tokStart hold; at or after runEnd shift by the length delta; interior points
-// clamp to the swapped token's new end (so the swapped token stays tinted).
-export function spliceRunOffsets(spans, tokStart, runEnd, insertLen) {
-  const delta = insertLen - (runEnd - tokStart);
-  const adj = (x) => (x <= tokStart ? x : x >= runEnd ? x + delta : tokStart + insertLen);
-  return spans.map((s) => ({ start: adj(s.start), end: adj(s.end) }));
 }
 
 // Render whitespace-only tokens legibly in the popup: space→␣, tab→⇥, newline→↵.
@@ -122,17 +120,32 @@ function _entry(docId) {
 
 // Start collecting the tokens of a new run at *startOffset* (the generation caret).
 export function beginRun(docId, startOffset) {
-  _pending = { docId, start: startOffset, tokens: [] };
+  _pending = { docId, start: startOffset, tokens: [], text: "", chunkPos: 0 };
 }
 
-// Append one streamed token record ({token, prob, top}) to the pending run.
+// Record one streamed content delta. The route emits a chunk's content before its
+// probs records, so the delta's start is where that chunk's tokens begin — this
+// is what positions probs records even when earlier chunks carried none.
+export function addDelta(delta) {
+  if (!_pending || typeof delta !== "string") return;
+  _pending.chunkPos = _pending.text.length;
+  _pending.text += delta;
+}
+
+// Append one streamed token record ({token, prob, top}) to the pending run,
+// anchored at the current chunk position. A record that doesn't match the
+// streamed text there (reasoning tokens, provider drift) is dropped.
 export function addToken(rec) {
   if (!_pending || !rec || typeof rec.token !== "string") return;
+  const start = _pending.chunkPos;
+  if (_pending.text.slice(start, start + rec.token.length) !== rec.token) return;
   _pending.tokens.push({
     text: rec.token,
     prob: typeof rec.prob === "number" ? rec.prob : 0,
     top: Array.isArray(rec.top) ? rec.top : [],
+    start,
   });
+  _pending.chunkPos = start + rec.token.length;
 }
 
 // Discard the pending run (nothing generated / aborted before any token).
@@ -140,23 +153,27 @@ export function clearPending() {
   _pending = null;
 }
 
-// Finalize the pending run against the text that actually landed in the editor.
-// Trims to the exactly-tiling prefix; commits only if ≥1 token survives (else the
-// run is dropped — no popup, honest for chat mode where tiling can fail).
+// Finalize the pending tokens against the text that actually landed in the
+// editor: each contiguous covered stretch becomes its own run (probs coverage
+// can be gappy — see segmentTokens); zero surviving tokens → nothing committed.
 export function commitRun(docId, finalText) {
   const pending = _pending;
   _pending = null;
   if (!pending || pending.docId !== docId) return;
-  const tokens = trimTokensToText(pending.tokens, finalText);
-  if (!tokens.length) return;
-  let tiled = 0;
-  for (const t of tokens) tiled += t.text.length;
-  const run = { start: pending.start, end: pending.start + tiled, tokens };
+  const segs = segmentTokens(pending.tokens, finalText);
+  if (!segs.length) return;
   const e = _entry(docId);
-  // A fresh run shouldn't overlap existing ones (syncContent shifted them first),
-  // but drop any overlap defensively, then insert sorted and cap to the newest.
-  e.runs = e.runs.filter((r) => r.end <= run.start || r.start >= run.end);
-  e.runs.push(run);
+  for (const seg of segs) {
+    const run = {
+      start: pending.start + seg.start,
+      end: pending.start + seg.start + seg.len,
+      tokens: seg.tokens.map(({ text, prob, top }) => ({ text, prob, top })),
+    };
+    // Fresh runs shouldn't overlap existing ones (syncContent shifted them
+    // first), but drop any overlap defensively.
+    e.runs = e.runs.filter((r) => r.end <= run.start || r.start >= run.end);
+    e.runs.push(run);
+  }
   e.runs.sort((a, b) => a.start - b.start);
   if (e.runs.length > RUNS_CAP) e.runs = e.runs.slice(e.runs.length - RUNS_CAP);
 }
@@ -174,27 +191,19 @@ export function syncContent(docId, content) {
 
 // Apply a token swap to the store (the mutation half of docSwapToken): replace
 // run.tokens[index] with the chosen alternative — keeping the token's ORIGINAL
-// top-N list so it can be swapped again — discard the tokens after it (mikupad
-// truncates the run tail, which is being regenerated), set the new run end, and
-// shift later runs by the content-length delta. Sets lastContent to *newContent*
-// so the runs are already aligned and a following syncContent won't re-remap them.
+// top-N list so it can be swapped again — and discard everything after it: the
+// run's own tail tokens AND all later runs, since the document is truncated at
+// the swap point (mikupad semantics). Sets lastContent to *newContent* so the
+// runs are already aligned and a following syncContent won't re-remap them.
 export function swapRunToken(docId, run, index, alt, newContent) {
   const e = _store.get(docId);
   if (!e?.runs.includes(run) || index < 0 || index >= run.tokens.length) return;
   let tokStart = run.start;
   for (let i = 0; i < index; i++) tokStart += run.tokens[i].text.length;
-  const oldEnd = run.end;
-  const newEnd = tokStart + alt.t.length;
-  const delta = newEnd - oldEnd;
   const origTop = run.tokens[index].top;
   run.tokens = [...run.tokens.slice(0, index), { text: alt.t, prob: alt.p, top: origTop }];
-  run.end = newEnd;
-  for (const r of e.runs) {
-    if (r !== run && r.start >= oldEnd) {
-      r.start += delta;
-      r.end += delta;
-    }
-  }
+  run.end = tokStart + alt.t.length;
+  e.runs = e.runs.filter((r) => r === run || r.end <= run.start);
   e.lastContent = newContent;
 }
 
