@@ -124,11 +124,7 @@ def test_think_tags_novel_namespace_derived():
 def test_think_tags_hunyuan_format_constructed():
     # Hunyuan builds the tag from a namespace var rather than writing it
     # literally; the sniff must resolve `.format(HYTK)` to see the real bytes.
-    raw = (
-        "{%- set HYTK = ':opensource' %}"
-        "{%- set think_begin_token = '<think{}>'.format(HYTK) %}"
-        "{{ think_begin_token }}"
-    )
+    raw = "{%- set HYTK = ':opensource' %}{%- set think_begin_token = '<think{}>'.format(HYTK) %}{{ think_begin_token }}"
     assert tc.think_tags_from_template(raw) == (
         "<think:opensource>",
         "</think:opensource>",

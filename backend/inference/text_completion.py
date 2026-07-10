@@ -44,9 +44,7 @@ _NONE: ThinkTags = ("", "", "")
 # <thought>, <reason>, <reasoning>, <mm:think> (MiniMax M3),
 # <seed:think> (ByteDance Seed), <think:opensource> (Hunyuan), ...
 # Namespace may sit before or after the keyword (models differ on which).
-_THINK_RE = re.compile(
-    r"<((?:[A-Za-z0-9_-]+:)?(?:think(?:ing)?|thought|reason(?:ing)?)(?::[A-Za-z0-9_-]+)?)>"
-)
+_THINK_RE = re.compile(r"<((?:[A-Za-z0-9_-]+:)?(?:think(?:ing)?|thought|reason(?:ing)?)(?::[A-Za-z0-9_-]+)?)>")
 
 # Some templates don't write the tag literally; they build it from a namespace
 # variable, e.g. Hunyuan:  {% set HYTK=':opensource' %}
