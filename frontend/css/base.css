@@ -7,13 +7,15 @@ body {
   font-family: var(--font-ui);
   background: var(--bg-deep);
   color: var(--text-primary);
-  height: 100vh;
+  height: var(--app-height, 100vh); /* mobile.js shrinks --app-height when the keyboard opens */
   overflow: hidden;
 }
 
 #app {
   display: flex;
-  height: 100vh;
+  height: var(--app-height, 100vh);
+  position: relative;
+  top: var(--app-offset, 0px); /* re-align with the visual viewport when the browser pans it (iOS) */
 }
 
 .hidden { display: none !important; }

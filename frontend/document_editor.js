@@ -249,6 +249,27 @@ export function installPlainTextGuards(pageEl) {
       insertPlainText(pageEl, e.data);
     }
   });
+  // Mobile IMEs commit via composition (insertCompositionText), which beforeinput
+  // can't cancel — the chars land tinted inside the gen-text span. Once the
+  // composition commits, lift the just-typed run back out as plain text (this is
+  // what desktop gets up-front from the beforeinput guard above).
+  pageEl.addEventListener("compositionend", (e) => {
+    const data = e.data;
+    if (!data || !caretInGenText(pageEl)) return;
+    const sel = window.getSelection();
+    const range = sel.getRangeAt(0);
+    const node = range.startContainer;
+    const end = range.startOffset;
+    const start = end - data.length;
+    // ponytail: only the common case — the commit is a plain trailing run in one
+    // text node. Anything fancier (multi-node, autocorrect replacement) bails.
+    if (node.nodeType !== Node.TEXT_NODE || start < 0 || node.data.slice(start, end) !== data) return;
+    range.setStart(node, start);
+    range.deleteContents(); // drop the tinted copy; range collapses to `start`
+    sel.removeAllRanges();
+    sel.addRange(range);
+    insertPlainText(pageEl, data); // re-insert plain + split span + fire input
+  });
 }
 
 // Inverse of computeCaretOffset: place a collapsed caret at serialized string

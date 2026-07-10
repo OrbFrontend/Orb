@@ -59,9 +59,6 @@ function swapGenButtons(streaming) {
   $("doc-generate-btn")?.classList.toggle("hidden", streaming);
   $("doc-stop-btn")?.classList.toggle("hidden", !streaming);
 }
-function showGenStatus(on) {
-  $("doc-gen-status")?.classList.toggle("hidden", !on);
-}
 function updateTokenCount() {
   const page = $("doc-page");
   const len = page ? serializeEditor(page).content.length : 0;
@@ -579,7 +576,6 @@ export async function docGenerate() {
   S.docStreaming = true;
   S.docAbortController = new AbortController();
   swapGenButtons(true);
-  showGenStatus(true);
   updateUndoButton(); // greyed while streaming
   startFlushInterval();
 
@@ -596,6 +592,7 @@ export async function docGenerate() {
       (delta) => {
         anchorTextNode.appendData(delta);
         addDelta(delta); // positions the chunk's probs records within the run
+        updateTokenCount(); // live count instead of a static "Generating" label
         scrollAnchorIntoView();
       },
       (rec) => addToken(rec), // per-token alternatives → side-store
@@ -617,7 +614,6 @@ function finalizeGeneration() {
   page.setAttribute("contenteditable", "true");
   page.classList.remove("generating");
   swapGenButtons(false);
-  showGenStatus(false);
 
   const anchor = page.querySelector(".gen-active");
   let committedText = null;

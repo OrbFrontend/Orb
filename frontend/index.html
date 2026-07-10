@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <title>Orb</title>
 <link rel="stylesheet" href="/static/fonts.css">
 <link id="theme-link" rel="stylesheet" href="/static/themes/dark.css">
@@ -186,7 +186,6 @@ Write a haiku about the sea.&lt;|im_end|&gt;
           <button type="button" class="doc-mode-opt" id="doc-mode-assisted" onclick="setDocAssisted(true)" title="Assisted: write ### SYSTEM / ### USER notes and the model's chat template is applied for you">Assisted</button>
         </div>
         <button type="button" class="doc-probs-toggle" id="doc-probs-btn" onclick="setDocProbs(!this.classList.contains('active'))" title="Capture per-token alternatives (may slow local generation)">Probs</button>
-        <span id="doc-gen-status" class="doc-gen-status hidden">Generating…</span>
       </div>
       <div class="doc-footer-actions">
         <button class="btn btn-sm" id="doc-undo-btn" onclick="docUndo()" disabled title="Undo (Ctrl+Z)">↶ Undo</button>

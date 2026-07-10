@@ -210,7 +210,6 @@
   color: var(--text-muted);
 }
 .doc-save-state { color: var(--text-secondary); }
-.doc-gen-status { color: var(--accent); }
 .doc-footer-actions { display: flex; gap: 8px; }
 
 /* Prompting-strategy segmented toggle (Raw ⇄ Assisted). */

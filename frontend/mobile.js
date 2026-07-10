@@ -295,11 +295,32 @@ function bindViewportListener(handler) {
   MOBILE_VIEWPORT.addListener(handler);
 }
 
+// Mobile keyboards shrink the visual viewport but leave 100vh at full height, so
+// the footer buttons get stranded under the keyboard. Mirror the visible height
+// into --app-height (the shell keys off it) so the app shrinks to fit instead.
+// ponytail: assumes the viewport top stays at 0 (bottom-docked keyboard).
+function trackVisualViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const apply = () => {
+    const root = document.documentElement.style;
+    root.setProperty("--app-height", `${Math.round(vv.height)}px`);
+    // Browsers that don't resize the layout viewport (iOS Safari; Chrome without
+    // interactive-widget support) pan it instead — offsetTop shifts the visible
+    // window down and the shrunken app slides off-screen. Pull it back in line.
+    root.setProperty("--app-offset", `${Math.round(vv.offsetTop)}px`);
+  };
+  apply();
+  vv.addEventListener("resize", apply);
+  vv.addEventListener("scroll", apply); // offsetTop changes fire scroll, not resize
+}
+
 // ── Init
 export function initMobileUi(deps) {
   if (_initialized) return;
   _initialized = true;
   _closeBurger = deps.closeBurger;
+  trackVisualViewport();
 
   document.addEventListener("click", handleDocumentClick);
   window.addEventListener("keydown", handleEscape);
