@@ -12,7 +12,12 @@ import httpx
 import pytest
 
 from backend.inference import text_completion as tc
-from backend.inference.client import LLMClient, _parse_chat_logprobs, parse_tool_calls, reasoning_cfg
+from backend.inference.client import (
+    LLMClient,
+    _parse_chat_logprobs,
+    parse_tool_calls,
+    reasoning_cfg,
+)
 
 GEMMA_OPEN, GEMMA_CLOSE, GEMMA_DISABLE = tc._GEMMA4
 
