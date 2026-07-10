@@ -42,8 +42,35 @@ _NONE: ThinkTags = ("", "", "")
 
 # An (optionally namespaced) reasoning tag pair: <think>, <thinking>,
 # <thought>, <reason>, <reasoning>, <mm:think> (MiniMax M3),
-# <seed:think> (ByteDance Seed), ...
-_THINK_RE = re.compile(r"<((?:[A-Za-z0-9_-]+:)?(?:think(?:ing)?|thought|reason(?:ing)?))>")
+# <seed:think> (ByteDance Seed), <think:opensource> (Hunyuan), ...
+# Namespace may sit before or after the keyword (models differ on which).
+_THINK_RE = re.compile(
+    r"<((?:[A-Za-z0-9_-]+:)?(?:think(?:ing)?|thought|reason(?:ing)?)(?::[A-Za-z0-9_-]+)?)>"
+)
+
+# Some templates don't write the tag literally; they build it from a namespace
+# variable, e.g. Hunyuan:  {% set HYTK=':opensource' %}
+#   {% set think_begin_token = '<think{}>'.format(HYTK) %}
+# The sniff below reads raw jinja, so it would only see the literal ``<think{}>``
+# unless we first resolve the ``.format(VAR)`` call. This pre-pass inlines any
+# ``'...{}...'.format(VAR)`` where VAR is a ``set``-bound string literal.
+_SET_STR_RE = re.compile(r"""\bset\s+(\w+)\s*=\s*(['"])([^'"]*)\2""")
+_FORMAT_RE = re.compile(r"""(['"])([^'"]*)\1\.format\(\s*(\w+)\s*\)""")
+
+
+def _resolve_format_tokens(chat_template: str) -> str:
+    """Inline ``'<tag{}>'.format(VAR)`` constructions using ``set``-bound vars."""
+    if ".format(" not in chat_template:
+        return chat_template
+    vars_ = {m[0]: m[2] for m in _SET_STR_RE.findall(chat_template)}
+
+    def sub(m: re.Match[str]) -> str:
+        literal, var = m.group(2), m.group(3)
+        if var in vars_ and "{}" in literal:
+            return literal.replace("{}", vars_[var])
+        return m.group(0)
+
+    return _FORMAT_RE.sub(sub, chat_template)
 
 
 def think_tags_from_template(chat_template: str) -> ThinkTags:
@@ -52,6 +79,7 @@ def think_tags_from_template(chat_template: str) -> ThinkTags:
     Gemma-4 channel pair wins over any ``<think>``-family tag when both markers
     appear (a template can mention both). Neither present => non-thinking model.
     """
+    chat_template = _resolve_format_tokens(chat_template)
     if "<|channel>thought" in chat_template:
         return _GEMMA4
     m = _THINK_RE.search(chat_template)
