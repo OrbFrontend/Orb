@@ -333,7 +333,7 @@ One blast radius the facades do **not** cover: test imports of deep submodule pa
 
 ### The Standard Slice Shape (the symmetry contract)
 
-Every `features/<name>/` slice follows one shape (mirroring `workflows/tts/`):
+Every `features/<name>/` slice follows one shape:
 
 ```
 features/<name>/
@@ -612,10 +612,6 @@ flowchart TD
 
 Multiple model configs per endpoint. Active one selected via `endpoints.active_model_config_id`. Agent (Director) can use a separate endpoint (`agent_endpoint_id`) or share the writer's.
 
-**Persona resolution.** `settings.active_persona_id` is only the *global default*. The effective persona for a turn is resolved by `resolve_persona_id()` (`pipeline/predicates.py`) top-down: conversation pin (`conversations.persona_lock_id`) → character pin (`character_cards.persona_lock_id`) → global default. The frontend mirror is `effectivePersonaId()` in `utils.js`. Pins are managed from the user menu (`settings_personas.js`); see [docs/features/persona-pinning.md](docs/features/persona-pinning.md).
-
-**Director feature flags** (not model-callable tools, so they live in their own `settings` columns like the length guard — see *Adding a Feature Flag* below): `agentic_lorebook_enabled` lets the Director pick lorebook entries from a catalog (in addition to the keyword scan) via its own forced `select_lorebook` call — independent of `direct_scene` ([docs/features/agentic-lorebook.md](docs/features/agentic-lorebook.md)), and `feedback_enabled` gates the post-writer `give_feedback` step that surfaces `feedback`-type fragments to the user ([docs/features/feedback-fragments.md](docs/features/feedback-fragments.md)). `direction_notes_record` gates the `record_direction_note` step that persists `direction_note`-type fragments across a branch, and `direction_notes_inject` (`off`/`director`/`writer`/`both`) feeds stored notes back to the Director and/or Writer, independently of recording ([docs/features/direction-notes.md](docs/features/direction-notes.md)).
-
 ## Single-Model vs Dual-Model Mode
 
 Orb routes its pipeline passes (Director → Writer → Editor) in one of two modes, controlled by `settings.agent_same_as_writer` (default `true`). "Agent" here means the **Director and Editor** passes; the Writer is always the main generation pass.
@@ -626,7 +622,7 @@ All three passes run on the **same** endpoint and model — the Writer's (`setti
 
 ### Dual-model mode (`agent_same_as_writer = false` + `agent_endpoint_id` set)
 
-The agent passes (Director + Editor) run on a **separate** endpoint/model from the Writer:
+The agent passes (Director + Editor) may run on a **separate** endpoint/model from the Writer:
 
 | Aspect | Single-model | Dual-model |
 |--------|--------------|------------|
@@ -637,13 +633,6 @@ The agent passes (Director + Editor) run on a **separate** endpoint/model from t
 | KV cache | One shared prefix across all passes | Writer prefix on writer server; agent prefix shared by Director + Editor on the agent server |
 
 Because the writer's KV cache now lives on a different server than the agent passes, shipping tool schemas (or the OOC "no tools" notice) to the writer buys nothing, so the writer drops them. The Director and Editor still share a cache with each other, built from their own `agent_prefix` (agent system prompt + history). The cross-pass hand-off into the editor's first iteration also differs in dual-model — see Invariant 5 and the editor ReAct-loop section of [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) for the full caching consequences.
-
-### Where it lives in code
-
-- **Resolution** — `_load_pipeline_context()` in `pipeline/context.py` builds `agent_client` and `agent_system_prompt` only when `not agent_same_as_writer and agent_endpoint_id`; `_build_prefixes()` (also `context.py`) builds the separate `agent_prefix`.
-- **Routing** — the Director and Editor run on `agent_client or client` with `agent_prefix or prefix`; when `agent_client` is set, `writer_enabled_tools` is forced to `{}` in `_resolve_pipeline_config()` (`pipeline/config.py`).
-- **Config** — `settings.agent_same_as_writer`, `settings.agent_endpoint_id`, `settings.agent_shared_system_prompt`, and `endpoints.agent_active_model_config_id`.
-- **UI** — Settings → Endpoints → **Agent** section → "Same as Writer" toggle (`frontend/settings.js`). Unchecking reveals the agent endpoint/model fields and warns if they exactly match the writer's (which would make the split pointless).
 
 ## Frontend Architecture
 
@@ -657,21 +646,6 @@ Vanilla ES modules, no build step, served flat from `/static/`. There is no fram
 - **Plugin facade** (`workflow_api.js`): **THE plugin surface** (ABI v2, versioned, additive-only). A `frontend/workflows/**` module imports `/static/workflow_api.js` and nothing else in the app. New exports may be added; existing ones never change name or signature (the ABI-snapshot lint enforces this). Plugin buttons wire via `registerAction(wid, name, fn)` + `data-wf-action="wid:name"` on the element — **never** a `window.*` global or an inline `on*` attribute. Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) §11.5.
 - **Guardrails** (`scripts/check_frontend_layers.py`, run by `scripts/lint.sh`): layer import-direction (per a `{file: layer}` manifest + an `ALLOWED_UPWARD` allowlist that shrinks over time), two ratchets that may only decrease (inline `on*=` count; underscore cross-module imports), the plugin-import rule (workflows import only the facade), and the workflow_api.js ABI snapshot. Frontend unit tests are `node --test tests/frontend/*.test.mjs` (zero-dep: SSE parser, validators, selector/bus). The `{file: layer}` manifest is the `LAYERS` table at the top of `check_frontend_layers.py`.
 - **Branching**: messages use `parent_id` forming a tree; `conversations.active_leaf_id` selects the visible leaf. UI shows branch count/index with prev/next nav.
-
-### Frontend smoke checklist (no automated e2e — walk this before shipping a frontend change)
-
-Boot the app (`./run_unix.sh`), open the console, and verify:
-
-1. **Boot** — clean console, no errors; homepage stats grid renders.
-2. **Send / abort / regenerate** — send a message (streams), Stop mid-stream (aborts cleanly), regenerate + super-regenerate a reply.
-3. **Branch nav** — ◀/▶ swipe buttons and ←/→ keys switch branches; touch-swipe on mobile.
-4. **Edit + fork** — edit a message in place; Edit & Fork a user message (new sibling streams, swipe-nav appears).
-5. **Document mode** — switch to Document mode, generate (Ctrl+Enter), toggle token-probs and hover/swap a token, Esc aborts.
-6. **Panels / modals** — open every panel and modal; each closes on Escape and on overlay click.
-7. **TTS round-trip** — Tools → TTS Settings opens; change a setting (persists); generate speech on a reply; play/pause; click-to-speak; karaoke highlight.
-8. **Two-tab gating** — open a second tab; mutating workflow actions (e.g. TTS create) are disabled in both (`canMutate()`).
-9. **Settings persist** — change a setting, reload, it stuck.
-10. **CRUD** — create/edit/delete a character (tag chips), lorebook (keyword chips), persona, fragment, preset; delete confirmations appear.
 
 ## Context Management
 
@@ -687,13 +661,6 @@ Orb sends the **full active message path** (leaf to root) every turn — no auto
 - **Integration tests** (`tests/integration/`): FastAPI `TestClient` against real DB — CRUD for characters, conversations, endpoints, settings, fragments, personas, context size.
 - **Run**: `cd ~/repos/Orb && ./scripts/tests.sh all`
 - **No e2e tests** for the frontend.
-
-### Codex Sandbox Caveat
-
-When running under Codex's filesystem/network sandbox, `aiosqlite` integration tests can hang before the first test body runs. The sandbox stalls `sqlite3.connect()` when it is executed from `aiosqlite`'s worker thread. This is a Codex execution-environment limitation, not an Orb database bug.
-
-- Unit tests that do not initialize the async DB can run normally in the sandbox.
-- Integration tests, app startup checks, and any command calling `init_db()` from the `backend.database` package should be run with Codex escalated execution (`sandbox_permissions: "require_escalated"`).
 
 ## Common Development Workflows
 
@@ -740,34 +707,11 @@ See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workfl
 
 1. Create `frontend/themes/your_theme.css`
 2. Follow the pattern of existing themes — CSS custom properties on `[data-theme="your_theme"]`
-3. The theme is automatically listed via `GET /api/themes`
+3. Font files are in `frontend/fonts`
+4. The theme is automatically listed via `GET /api/themes`
 
 ### Formatting and linting the code
 
 1. Format backend code with 128-char lines Ruff: ./scripts/format_backend.sh
 2. Format frontend code with Biome: ./scripts/format_frontend.sh
 3. Lint both backend and frontend and check for static issues: ./scripts/lint.sh
-
-## Gotchas and Pitfalls
-
-1. **Message tree branching** — Messages use `parent_id` to form a tree. `conversations.active_leaf_id` marks the visible leaf. The API returns branch navigation metadata (branch_count, branch_index, prev/next IDs). Deleting a message cascades to all descendants.
-
-2. **Streaming lifecycle** — SSE connections must be properly cleaned up. The `_CleanupStreamingResponse` wrapper (`api/deps.py`, shared across streaming routes) handles client disconnects. The `stop` endpoint sets an abort flag checked between pipeline stages. The abort logic is complex (aborting mid-writer stream must also save partial output to DB) and may need an audit.
-
-3. **Tool call parsing** — The Director pass parses JSON tool call arguments. Malformed JSON from the LLM can crash the pipeline. Error handling wraps these in try/except but edge cases exist.
-
-4. **SQLite + aiosqlite** — All DB operations are async via aiosqlite. No ORM — raw SQL inside `backend/database/queries/`, one module per table group. Rows come back as plain `dict(row)` objects, `cast(...)` to the `TypedDict` contracts in `database/models.py` at the query boundary (see **Data Contracts** above) — there is no runtime row class. The package's `__init__.py` re-exports every public function so callers can keep importing from `backend.database` directly. Migrations run sequentially by number prefix.
-
-5. **Endpoint profiles** — Middleware layer to handle unsupported params where the provider returns an error instead of ignoring them. Not every provider needs its own profile — only add one when a provider's API quirks require body transformation.
-
-6. **Reasoning models** — Some models emit `reasoning_content` before `content`. The streaming handler separates these. `reasoning_enabled_passes` in settings controls which pipeline passes get reasoning enabled.
-
-7. **Patching `DB_PATH` in tests** — The canonical `DB_PATH` lives in `backend/database/connection.py`. Tests must patch `backend.database.connection.DB_PATH` (which is what `get_db()` reads). Patching the package re-export `backend.database.DB_PATH` will *not* reach the connection module. See `tests/integration/conftest.py` for the working pattern.
-
-8. **Phrase bank format** — `phrase_bank.variants` is a JSON array of strings. The editor audit matches these against response text using case-insensitive regex.
-
-9. **Lorebook scan depth** — Hard-coded to 6 messages (`LOREBOOK_SCAN_DEPTH` in `backend/features/lorebook/activation.py`). Only the last 6 messages are scanned for lorebook keyword matches.
-
-10. **Macros resolve at different levels** — `resolve_message()` expands everything ({{user}}, {{char}}, and inline macros like {{roll}}), while `resolve_prompt()` only substitutes {{user}}/{{char}}. Use `resolve_prompt()` for historical messages, where inline macros shouldn't fire again. `core/macros.py` is a **dependency-free leaf** (like `database/models.py` and `core/llm_types.py`, it imports nothing else in the codebase): it transforms strings and message dicts and knows nothing about the LLM client.
-
-    The transport-boundary catch-all is `Macros.resolve_prompt_messages`, which scrubs `{{user}}`/`{{char}}` from *every* outgoing message (the director's tool prompt embeds user-authored fragment text that can carry `{{char}}`). It is **bound** as the `CachedBase.resolve` hook in `_resolve_pipeline_config()` (`pipeline/config.py`, as `resolve=macros.resolve_prompt_messages` where `macros` is a local `Macros` instance) and **applied** inside `inference/cached_call.py` — to `[*prefix, *trailing]` right before the call, so the KV tracker snapshots the exact resolved bytes sent. There is **no** macro-resolving `LLMClient` subclass or wrapper; don't reintroduce one.
