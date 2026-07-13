@@ -6,7 +6,7 @@
 import { api } from "./api.js";
 import { renderInspectorSecondary, renderMessages } from "./chat.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
-import { showConfirmModal, showModal } from "./modal.js";
+import { confirmDelete, showConfirmModal, showModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
@@ -873,22 +873,15 @@ window.editPhraseGroup = async (groupId) => {
 };
 
 window.deletePhraseGroup = async (groupId) => {
-  showConfirmModal(
-    {
-      title: "Delete Phrase Group",
-      message: "Are you sure you want to delete this phrase group?",
-      confirmText: "Delete",
-    },
-    async () => {
-      try {
-        await api.del(`/phrase-bank/${groupId}`);
-        toast("Phrase group deleted");
-        showPhraseBankModal();
-      } catch (e) {
-        toast(`Failed to delete: ${e.message}`, true);
-      }
-    },
-  );
+  confirmDelete("Phrase Group", "Are you sure you want to delete this phrase group?", async () => {
+    try {
+      await api.del(`/phrase-bank/${groupId}`);
+      toast("Phrase group deleted");
+      showPhraseBankModal();
+    } catch (e) {
+      toast(`Failed to delete: ${e.message}`, true);
+    }
+  });
 };
 
 window.savePhraseGroup = async (editId) => {

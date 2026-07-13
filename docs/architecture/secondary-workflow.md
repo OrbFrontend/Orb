@@ -668,7 +668,9 @@ Both run inside `initAll` in `app.js`.
 
 A workflow's frontend code lives under `frontend/workflows/<id>/`. The framework dynamic-imports only `index.js` (served at `/static/workflows/<id>/index.js`). Multi-file workflows fan out through ordinary relative imports from `index.js`. CSS: inject a `<link href="/static/workflows/<id>/<file>.css">` from `index.js`, guarded by element id; framework does not load workflow CSS.
 
-Top-level `register*` and `S.workflow*` push/assign calls run on import. Manifest order = module load order = registry push order.
+**A workflow imports from `/static/workflow_api.js` and nothing else in the app** (its own `./` files aside). That single module is THE plugin surface — the facade documented in sec. 11.5. Do not import `/static/chat.js`, `/static/state.js`, `/static/api.js`, `/static/utils.js`, `/static/modal.js`, `/static/audio_player.js`, or the `workflow_*.js` helpers directly: those deep imports are the deprecated-but-stable ABI v1 (kept working for external plugins only), and the in-repo layer check (`scripts/check_frontend_layers.py`) fails a `frontend/workflows/**` file that imports anything but `workflow_api.js` and relative paths.
+
+Top-level `register*` calls run on import. Manifest order = module load order = registry push order.
 
 ### 11.3 `S.workflow*` slots (`state.js`)
 
@@ -678,9 +680,9 @@ Top-level `register*` and `S.workflow*` push/assign calls run on import. Manifes
 | `workflowToolsPanelRenderers` | `[]` | `registerWorkflowToolsPanelCard(wid, () => htmlString)` -> `[{workflowId, render}]` (card *body*, folded into the workflow's on/off card) | `buildWorkflowToggleRows` (`settings.js`); body shown only while enabled |
 | `workflowMessageButtonRenderers` | `[]` | `registerWorkflowMessageButton(wid, (msg) => htmlString)` -> `[{workflowId, render}]` | `_renderExtraButtons` (`chat.js`); skips disabled |
 | `workflowEventHandlers` | `{}` | `registerWorkflowEventHandler(wid, "my_event", (data, msgDiv) => ...)` -> `{[event]: {workflowId, handler}}` | `handleSSEEvent` default (`chat.js`); skips disabled |
-| `workflowAttachmentRenderers` | `{}` | `S.workflowAttachmentRenderers[wid] = (ctx) => htmlString` | `_renderWorkflowSwipeContainer` (`chat.js`) |
+| `workflowAttachmentRenderers` | `{}` | `registerAttachmentRenderer(wid, (ctx) => htmlString)` (facade; wraps the slot assign) | `_renderWorkflowSwipeContainer` (`chat.js`) |
 | `workflowPipelines` | `[]` | via `registerWorkflowPipeline` only | SSE `reasoning` routing (`chat.js`); Inspector Secondary rail |
-| `workflowState` | `{}` | `S.workflowState[wid] = <opaque>` | author only (framework never reads) |
+| `workflowState` | `{}` | `setWorkflowState(wid, <opaque>)` / `getWorkflowState(wid)` (facade) | author only (framework never reads) |
 | `workflowPhases` | `{}` | via `setWorkflowPhase` / `clearWorkflowPhase` only | `_renderWorkflowPhasesPill` (`chat.js`) |
 | `workflowTextEffects` | `[]` | via `registerTextEffect` only | segmentation gate (`chat.js`) |
 | `workflowClickHandlers` | `[]` | via `registerClickHandler` only | segmentation gate (`chat.js`); click router (`workflow_text_interaction.js`) |
@@ -692,7 +694,9 @@ Top-level `register*` and `S.workflow*` push/assign calls run on import. Manifes
 
 An author may read its own entry from `S.workflowManifest` (matched by `id`) for `display_name`, `config_schema`, or `config_defaults` (`main.py`). Config *values* are not in the manifest -- read or write the live config slot via `GET` / `PUT /workflows/<id>/config`.
 
-### 11.4 Exported registrars (`state.js`)
+### 11.4 Exported registrars (via the facade)
+
+Plugins import these from `/static/workflow_api.js`. Their implementations live in `workflow_registry.js`; `state.js` re-exports them so the ABI v1 deep-import path stays valid for external plugins.
 
 ```
 registerWorkflowPipeline({id, label?, passes:[{id, label?}]})
@@ -725,7 +729,7 @@ registerClickHandler({id, label?, priority?, claims?, onClick})
 
 All three registrars are idempotent on `id` (replace in place).
 
-Production-surface registrars (`state.js`) -- the four enablement-gated slots from sec. 11.3. Prefer these over pushing/assigning raw functions: each stamps the entry with `workflowId` so the framework can gate it (sec. 3.7). The read sites now destructure `{workflowId, render}` / `{workflowId, handler}`, so a bare function pushed directly carries no `workflowId` to gate on and no `render`/`handler` for the reader to call.
+Production-surface registrars -- the four enablement-gated slots from sec. 11.3. Prefer these over pushing/assigning raw functions: each stamps the entry with `workflowId` so the framework can gate it (sec. 3.7). The read sites now destructure `{workflowId, render}` / `{workflowId, handler}`, so a bare function pushed directly carries no `workflowId` to gate on and no `render`/`handler` for the reader to call.
 
 ```
 registerWorkflowInspectorCard(workflowId, render)        # render: () => htmlString
@@ -734,9 +738,72 @@ registerWorkflowMessageButton(workflowId, render)        # render: (msg) => html
 registerWorkflowEventHandler(workflowId, event, handler) # handler: (data, msgDiv|null) => void
 ```
 
-The three array registrars are idempotent on `workflowId` (re-registration replaces in place); `registerWorkflowEventHandler` is keyed by `event` (one handler per event name, last writer wins). Bad args `console.error` and skip. The consumption renderer is the deliberate exception -- assign `S.workflowAttachmentRenderers[wid] = (ctx) => htmlString` directly; it is never gated, so a disabled workflow's existing artifacts still render.
+The three array registrars are idempotent on `workflowId` (re-registration replaces in place); `registerWorkflowEventHandler` is keyed by `event` (one handler per event name, last writer wins). Bad args `console.error` and skip. The consumption renderer is the deliberate exception -- register it with `registerAttachmentRenderer(wid, (ctx) => htmlString)` (facade wrapper for the slot assign); it is never gated, so a disabled workflow's existing artifacts still render.
 
-`effectiveWorkflowEnabled(wid)` (`state.js`) -- the frontend mirror of the backend truth table (sec. 3.7), read off `S.settings`. Safe before settings load (defaults to enabled); a malformed map degrades to enabled.
+`effectiveWorkflowEnabled(wid)` (facade) -- the frontend mirror of the backend truth table (sec. 3.7), read off `S.settings`. Safe before settings load (defaults to enabled); a malformed map degrades to enabled.
+
+### 11.5 The plugin facade (`workflow_api.js`) — ABI v2
+
+`frontend/workflow_api.js` is **THE plugin surface**. Everything a workflow is allowed to touch is re-exported (or wrapped) here, so a plugin never reaches into `state.js` / `chat.js` / `audio_player.js` / etc. directly.
+
+**Stability policy — additive only.** New exports may be added; an existing export **never changes name or signature**. That single rule is the extensibility contract. `WORKFLOW_API_VERSION` (currently `1`) bumps only when surface is added (still additive). The stage-0 ABI snapshot check (`scripts/check_frontend_layers.py`) diffs this file's exports against a frozen list, so an accidental rename/removal fails CI. Canonical names throughout — no aliases (`setWorkflowPhase` is `setWorkflowPhase`, one name per operation).
+
+**ABI reference.** Tier `frozen` = payload/signature is contract; `stable` = additive-only like the rest.
+
+| Export | Signature | Semantics | Tier |
+|---|---|---|---|
+| `WORKFLOW_API_VERSION` | `number` | Facade version (additive bumps). | frozen |
+| `registerWorkflowPipeline` | `({id, label?, passes})` | Register a reasoning pipeline (Inspector rail + `reasoning` routing). | stable |
+| `registerTextEffect` | `({id, label?})` | Register a text-effect driver; enables `.seg` segmentation. | stable |
+| `registerClickHandler` | `({id, label?, priority?, claims?, onClick})` | Claim clickable word units. | stable |
+| `registerWorkflowInspectorCard` | `(wid, () => html)` | Inspector Secondary card (gated). | stable |
+| `registerWorkflowToolsPanelCard` | `(wid, () => html)` | Tools-panel card body (gated). | stable |
+| `registerWorkflowMessageButton` | `(wid, (msg) => html)` | Per-message toolbar button (gated). | stable |
+| `registerWorkflowEventHandler` | `(wid, event, (data, msgDiv) => void)` | Custom SSE event handler (gated). | stable |
+| `registerAttachmentRenderer` | `(wid, (ctx) => html)` | Attachment widget renderer (ungated by design). | stable |
+| `registerAction` | `(wid, name, (el, event) => void)` | Handler for a `data-wf-action="wid:name"` element (see below). | stable |
+| `api` | `{get,post,put,del,upload}` | HTTP helper. | stable |
+| `convUrl` | `(...parts) => string` | Build `/conversations/...` paths. | stable |
+| `esc` / `escAttr` | `(s) => string` | HTML / attribute escaping. | stable |
+| `toast` | `(msg, isError?)` | Transient notification. | stable |
+| `showModal` / `closeModal` | `(html)` / `()` | Framework modal. | stable |
+| `playAudio` | `({channel, segments, loop?, volume?, stopOn?})` | Play on a shared audio channel. | stable |
+| `stopChannel`/`stopAll`/`pauseChannel`/`resumeChannel`/`seekChannel`/`setChannelVolume`/`setChannelRepeat`/`replayChannel` | channel controls | See sec. 15.3. | stable |
+| `channelState` | `(channel) => state\|null` | Live channel state (sec. 15.4). | stable |
+| `onChannel` | `(channel, (ev) => void)` | Subscribe to channel events (sec. 15.5). | stable |
+| `messageSegments` | `(msgId) => [{wordIndex, sentIndex, word}]` | Rendered word units (sec. 16.3). | stable |
+| `startTextEffect` / `clearTextEffect` | `({msgId, effectId, grain?, variant?})` / `()` | Drive/stop a text effect (sec. 16.5). | stable |
+| `setWorkflowPhase` / `clearWorkflowPhase` | `(channel, label)` / `(channel?)` | Status pill (sec. 13.1). | stable |
+| `refreshConversationMessages` | `(msgId?) => Promise` | Refetch + repaint messages (sec. 13.4). | stable |
+| `selectWorkflowPipelinePass` | `(pipelineId, passId)` | Select a pipeline pass in the rail. | stable |
+| `broadcastWorkflowMutation` | `({convId, msgId})` | Announce a cross-tab artifact mutation (sec. 18). | stable |
+| `effectiveWorkflowEnabled` | `(wid) => bool` | Frontend enablement mirror (sec. 3.7). | stable |
+| `subscribe` | `(topic, (detail) => void) => off` | Subscribe to a **public** state topic: `messages`, `conversations`, `settings`, `workflow-phase` (payload shapes frozen). Plugins are subscribe-only. | frozen |
+| `requestRepaint` | `()` | rAF-debounced `renderMessages`; **no-ops while streaming**. | stable |
+| `getActiveConvId` | `() => id\|null` | Active conversation id. | stable |
+| `getMessages` | `() => msg[]` | Live messages array (read-only). | stable |
+| `getManifestEntry` | `(wid) => entry\|null` | This workflow's `/api/workflows` entry. | stable |
+| `canMutate` | `() => bool` | Whether this tab may perform mutating actions (multi-tab gate). | stable |
+| `getWorkflowState` / `setWorkflowState` | `(wid)` / `(wid, v)` | Opaque per-workflow UI-state slot. | stable |
+
+**Wiring buttons — `registerAction` + `data-wf-action`.** A plugin never uses a `window.*` global or an inline `on*` attribute. Put `data-wf-action="<wid>:<name>"` on the element (add `data-wf-on="change"` for an `<input>`/`<select>` that fires on change instead of click), stash any parameters in `data-*`, and register the handler with `registerAction(wid, name, (el, event) => …)`. One framework-owned delegated listener on `document` resolves the attribute and calls your handler with the element that carries it. (This is the plugin-sized slice of the core `data-action` dispatcher stage 5 introduces; both use the same attribute convention.)
+
+**Skeleton `index.js`:**
+
+```js
+import { registerWorkflowToolsPanelCard, registerAction, toast } from "/static/workflow_api.js";
+
+const WID = "my_workflow";
+
+registerWorkflowToolsPanelCard(
+  WID,
+  () => `<div class="tool-card-desc">What this workflow does.</div>
+         <button data-wf-action="${WID}:hello">Say hi</button>`,
+);
+registerAction(WID, "hello", () => toast("hi from my_workflow"));
+```
+
+**Scope.** Backend registration still edits `backend/workflows/__init__.py` by design (the frontend side is already zero-core-edit via the manifest loader) — that is outside this refactor.
 
 ---
 
@@ -831,13 +898,16 @@ broadcastWorkflowMutation({convId, msgId})   # tabLock.js peer-tab refresh
 
 ### 13.5 HTTP / DOM helpers
 
+All imported from `/static/workflow_api.js` (not the deep modules named below — those are the ABI v1 originals):
+
 ```
-api.get(path)                # frontend/api.js prepends /api (via _req)
+api.get(path)                # api.js prepends /api (via _req)
 api.post(path, body)         # JSON body
 api.put(path, body)          # JSON body
-convUrl(...parts)            # frontend/utils.js -> "/conversations/<part1>/<part2>/..."
-esc(s)                       # frontend/utils.js HTML-escape; null/undefined -> ""
-showModal(html) / closeModal()   # frontend/modal.js
+convUrl(...parts)            # utils.js -> "/conversations/<part1>/<part2>/..."
+esc(s) / escAttr(s)          # utils.js HTML- / attribute-escape; null/undefined -> ""
+toast(msg, isError?)         # utils.js transient notification
+showModal(html) / closeModal()   # modal.js
 ```
 
 Paths passed to `api.*` must NOT include `/api` -- `_req` adds it. A conversation-scoped call: `api.post(convUrl(cid, "foo"), body)`, equivalently `api.post("/conversations/" + cid + "/foo", body)`; both hit `/api/conversations/<cid>/foo`.
@@ -1079,7 +1149,7 @@ Painter applies CSS class `"fx-" + variant` to `.seg[data-seg=<idx>]` (word grai
 
 `clearTextEffect()` -- tears down the global session.
 
-### 16.6 `registerClickHandler({id, label?, priority?, claims?, onClick})` (`state.js`)
+### 16.6 `registerClickHandler({id, label?, priority?, claims?, onClick})` (facade)
 
 `priority` (default 0) breaks contention when several workflows claim one word -- higher wins, registration order on ties. The sort happens at click time in `_claimantsFor` (`workflow_text_interaction.js`), not at registration. `claims(seg)` decides which words the handler wants (default: all). `onClick(seg, msgId)` runs on click.
 
@@ -1125,11 +1195,14 @@ To ship a new workflow:
 
 ### 17.2 Frontend
 
-1. Create `frontend/workflows/<id>/index.js`. Top-level imports and registry pushes run on import.
+**Import everything from `/static/workflow_api.js`** — never `/static/chat.js`, `/static/state.js`, or the other deep modules (those are the deprecated ABI v1; the layer check rejects them for in-repo plugins). See the skeleton in sec. 11.5.
+
+1. Create `frontend/workflows/<id>/index.js`. Top-level imports and `register*` calls run on import.
 2. Register renderers via `registerWorkflowInspectorCard("<id>", ...)` / `registerWorkflowToolsPanelCard("<id>", ...)` / `registerWorkflowMessageButton("<id>", ...)` as needed (sec. 11.4). These carry your workflow id so the framework hides them while your workflow is disabled (sec. 3.7); the read sites expect the `{workflowId, render}` shape, so a bare function pushed directly will not render.
-3. Assign your attachment renderer to `S.workflowAttachmentRenderers["<id>"]` if you produce artifacts (this consumption surface is intentionally never gated).
+3. Register your attachment renderer with `registerAttachmentRenderer("<id>", (ctx) => html)` if you produce artifacts (this consumption surface is intentionally never gated).
 4. Register custom SSE handlers via `registerWorkflowEventHandler("<id>", "<custom_event>", handler)` for non-reserved events the backend hook yields.
 5. If your backend hook emits `reasoning` with a pipeline pass id, call `registerWorkflowPipeline({id: "<wid>", passes: [{id: "<wid>:<passname>"}]})`.
+6. Wire any buttons/inputs with `registerAction("<id>", "<name>", (el) => …)` + `data-wf-action="<id>:<name>"` on the element (`data-wf-on="change"` for change-firing inputs) — never a `window.*` global or an inline `on*` attribute (sec. 11.5).
 6. Inject CSS via `<link>` to `/static/workflows/<id>/<file>.css` from `index.js` (guard by element id).
 7. For workflow phase pill, use `setWorkflowPhase(channel, label)` from frontend code OR yield `{event: "phase_status", data: {channel, label, state?}}` from a hook. `channel` is any string starting with `"workflow:"` (subkey it per operation, e.g. `"workflow:<id>:regen:<rootId>"`); `state == "done"` or a blank label clears it.
 

@@ -1,4 +1,4 @@
-import { S } from "./state.js";
+import { charactersView, S } from "./state.js";
 
 export function $(id) {
   return document.getElementById(id);
@@ -414,7 +414,7 @@ export function resolvePlaceholders(text) {
 export function effectivePersonaId() {
   const conv = S.conversations?.find((c) => c.id === S.activeConvId);
   if (conv?.persona_lock_id) return conv.persona_lock_id;
-  const card = conv?.character_card_id ? (S.allCharacters || []).find((c) => c.id === conv.character_card_id) : null;
+  const card = conv?.character_card_id ? charactersView().find((c) => c.id === conv.character_card_id) : null;
   return card?.persona_lock_id || S.activePersonaId || null;
 }
 
@@ -424,4 +424,20 @@ export function formatBytes(bytes) {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
+}
+
+// Trigger a browser download of `source` (a URL string, or a Blob) as `filename`
+// via a transient anchor. Replaces the hand-rolled createElement("a") + append +
+// click + remove dance duplicated across export/download sites. A Blob source is
+// wrapped in an object URL and revoked after the click.
+export function downloadBlob(filename, source) {
+  const isBlob = source instanceof Blob;
+  const href = isBlob ? URL.createObjectURL(source) : source;
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  if (isBlob) setTimeout(() => URL.revokeObjectURL(href), 0);
 }

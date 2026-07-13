@@ -10,9 +10,7 @@
 // real decoded length. The browser's decode stays the single duration source --
 // no server-side audio parsing.
 
-import { channelState, onChannel } from "/static/audio_player.js";
-import { registerTextEffect } from "/static/state.js";
-import { startTextEffect } from "/static/workflow_text_effects.js";
+import { channelState, onChannel, registerTextEffect, startTextEffect } from "/static/workflow_api.js";
 
 const CHANNEL = "tts";
 const EFFECT_ID = "tts";

@@ -3,7 +3,7 @@
 
 import { api } from "./api.js";
 import { closeSubModal, showModal, showSubConfirmModal, showSubModal } from "./modal.js";
-import { $, esc, toast } from "./utils.js";
+import { $, downloadBlob, esc, toast } from "./utils.js";
 
 const DOMAINS = [
   { id: "characters", label: "Characters" },
@@ -150,12 +150,7 @@ export async function handlePresetImportFile(inp) {
 }
 
 export function downloadPreset(name) {
-  const a = document.createElement("a");
-  a.href = `/api/presets/${encodeURIComponent(name)}/download`;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  downloadBlob(name, `/api/presets/${encodeURIComponent(name)}/download`);
 }
 
 export function applyPreset(name) {

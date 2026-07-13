@@ -3,12 +3,17 @@
 // config route, and the active conversation's per-character voice profile read
 // and written through the on-demand trigger.
 
-import { api } from "/static/api.js";
-import { playAudio } from "/static/audio_player.js";
-import { renderMessages } from "/static/chat.js";
-import { showModal } from "/static/modal.js";
-import { S } from "/static/state.js";
-import { convUrl, esc } from "/static/utils.js";
+import {
+  api,
+  closeModal,
+  convUrl,
+  esc,
+  getActiveConvId,
+  playAudio,
+  registerAction,
+  requestRepaint,
+  showModal,
+} from "/static/workflow_api.js";
 
 const WORKFLOW_ID = "tts";
 
@@ -48,16 +53,19 @@ let cfg = { auto_play: false, volume: 0.75, click_granularity: "block", click_pl
 
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
-  window.ttsOpenSettings = openSettings;
-  window.ttsCfgGlobal = saveGlobal;
-  window.ttsBackendChange = onBackendChange;
-  window.ttsVoiceReload = loadVoices;
-  window.ttsProfileSave = saveProfile;
-  window.ttsPreview = preview;
+  // All panel controls wire via data-wf-action (see the markup below) resolved by
+  // the framework's delegated dispatcher — no window globals, no inline on*.
+  registerAction(WORKFLOW_ID, "openSettings", () => openSettings());
+  registerAction(WORKFLOW_ID, "closeSettings", () => closeModal());
+  registerAction(WORKFLOW_ID, "cfgGlobal", () => saveGlobal());
+  registerAction(WORKFLOW_ID, "backendChange", () => onBackendChange());
+  registerAction(WORKFLOW_ID, "voiceReload", () => loadVoices());
+  registerAction(WORKFLOW_ID, "profileSave", () => saveProfile());
+  registerAction(WORKFLOW_ID, "preview", () => preview());
 }
 
 function triggerUrl() {
-  return convUrl(S.activeConvId, "workflows", WORKFLOW_ID, "trigger");
+  return convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger");
 }
 
 // Tools-panel card body: the framework owns the card frame (name + on/off toggle);
@@ -66,7 +74,7 @@ function triggerUrl() {
 // into the panel.
 export function configPanelRenderer() {
   return `<div class="tool-card-desc">Generate and play spoken audio for assistant replies.</div>
-    <button class="tts-settings-btn" onclick="window.ttsOpenSettings()">Settings</button>`;
+    <button class="tts-settings-btn" data-wf-action="tts:openSettings">Settings</button>`;
 }
 
 function settingsBodyHtml() {
@@ -74,18 +82,18 @@ function settingsBodyHtml() {
     <div class="tts-config">
       <div class="tts-config-section">
         <div class="tts-config-heading">Speech</div>
-        <label class="tts-config-row"><input type="checkbox" id="tts-cfg-autoplay"${cfg.auto_play ? " checked" : ""} onchange="window.ttsCfgGlobal()"> Play new speech automatically</label>
-        <label class="tts-config-row">Volume <input type="range" min="0" max="1" step="0.05" id="tts-cfg-volume" value="${cfg.volume}" onchange="window.ttsCfgGlobal()"></label>
-        <label class="tts-config-row"><input type="checkbox" id="tts-cfg-karaoke"${cfg.show_karaoke ? " checked" : ""} onchange="window.ttsCfgGlobal()"> Highlight words as they're spoken</label>
+        <label class="tts-config-row"><input type="checkbox" id="tts-cfg-autoplay"${cfg.auto_play ? " checked" : ""} data-wf-action="tts:cfgGlobal" data-wf-on="change"> Play new speech automatically</label>
+        <label class="tts-config-row">Volume <input type="range" min="0" max="1" step="0.05" id="tts-cfg-volume" value="${cfg.volume}" data-wf-action="tts:cfgGlobal" data-wf-on="change"></label>
+        <label class="tts-config-row"><input type="checkbox" id="tts-cfg-karaoke"${cfg.show_karaoke ? " checked" : ""} data-wf-action="tts:cfgGlobal" data-wf-on="change"> Highlight words as they're spoken</label>
         <label class="tts-config-row">Click to speak
-          <select id="tts-cfg-granularity" onchange="window.ttsCfgGlobal()">
+          <select id="tts-cfg-granularity" data-wf-action="tts:cfgGlobal" data-wf-on="change">
             <option value="none"${cfg.click_granularity === "none" ? " selected" : ""}>Off</option>
             <option value="message"${cfg.click_granularity === "message" ? " selected" : ""}>Whole message</option>
             <option value="block"${cfg.click_granularity === "block" ? " selected" : ""}>Block</option>
           </select>
         </label>
         <label class="tts-config-row">Click plays
-          <select id="tts-cfg-playscope" onchange="window.ttsCfgGlobal()">
+          <select id="tts-cfg-playscope" data-wf-action="tts:cfgGlobal" data-wf-on="change">
             <option value="unit"${cfg.click_play_scope === "unit" ? " selected" : ""}>Clicked unit</option>
             <option value="whole"${cfg.click_play_scope === "whole" ? " selected" : ""}>Whole reply</option>
           </select>
@@ -93,7 +101,7 @@ function settingsBodyHtml() {
       </div>
       <div class="tts-config-section" id="tts-profile">Loading voice settings...</div>
     </div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
+    <div class="modal-actions"><button class="btn" data-wf-action="tts:closeSettings">Close</button></div>`;
 }
 
 // Opens the settings modal. The per-character section is filled after the modal
@@ -119,7 +127,7 @@ function saveGlobal() {
   // Clickable-word marking is applied per render and not torn down live, so a
   // granularity change must repaint to add or clear the affordance on the
   // already-rendered messages.
-  if (cfg.click_granularity !== prevGranularity) renderMessages();
+  if (cfg.click_granularity !== prevGranularity) requestRepaint();
   // The config slot is replaced wholesale on write, so every key must be sent
   // or an omitted one reverts to its default.
   api
@@ -138,7 +146,7 @@ function saveGlobal() {
 async function populateProfile() {
   let el = document.getElementById("tts-profile");
   if (!el) return;
-  if (!S.activeConvId) {
+  if (!getActiveConvId()) {
     el.innerHTML = `<div class="tts-config-note">Open a conversation to set its character's voice.</div>`;
     return;
   }
@@ -184,7 +192,7 @@ function profileFormHtml(p, backends) {
     <div class="tts-config-heading">Voice (this character)</div>
     <label class="tts-config-row"><input type="checkbox" id="tts-pf-enabled"${p.enabled ? " checked" : ""}> Auto-generate speech for this character's replies</label>
     <label class="tts-config-row">Backend
-      <select id="tts-pf-backend" onchange="window.ttsBackendChange()">${backendOpts}</select>
+      <select id="tts-pf-backend" data-wf-action="tts:backendChange" data-wf-on="change">${backendOpts}</select>
     </label>
     ${field("api_url", `<label class="tts-config-row">API URL <input type="text" id="tts-pf-api_url" value="${esc(p.api_url || "")}"></label>`)}
     ${field("api_key", `<label class="tts-config-row">API key <input type="password" id="tts-pf-api_key" value="${esc(p.api_key || "")}"></label>`)}
@@ -192,13 +200,13 @@ function profileFormHtml(p, backends) {
     ${field("language", `<label class="tts-config-row">Language <select id="tts-pf-language">${langOpts}</select></label>`)}
     <label class="tts-config-row">Voice
       <select id="tts-pf-voice"><option value="${esc(p.voice_id || "")}" selected>${esc(p.voice_id || "(default)")}</option></select>
-      <button type="button" onclick="window.ttsVoiceReload()">Reload</button>
+      <button type="button" data-wf-action="tts:voiceReload">Reload</button>
     </label>
     ${field("rate", `<label class="tts-config-row">Rate <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-rate" value="${esc(p.rate)}"></label>`)}
     ${field("pitch", `<label class="tts-config-row">Pitch <input type="range" min="0.5" max="2.0" step="0.1" id="tts-pf-pitch" value="${esc(p.pitch)}"></label>`)}
     <div class="tts-config-row">
-      <button type="button" onclick="window.ttsProfileSave()">Save voice</button>
-      <button type="button" onclick="window.ttsPreview()">Preview</button>
+      <button type="button" data-wf-action="tts:profileSave">Save voice</button>
+      <button type="button" data-wf-action="tts:preview">Preview</button>
       <span id="tts-pf-status"></span>
     </div>`;
 }
@@ -236,7 +244,7 @@ function onBackendChange() {
 
 async function loadVoices(selectId) {
   const sel = document.getElementById("tts-pf-voice");
-  if (!sel || !S.activeConvId) return;
+  if (!sel || !getActiveConvId()) return;
   const f = readForm();
   const want = selectId != null ? selectId : sel.value;
   try {
@@ -258,7 +266,7 @@ async function loadVoices(selectId) {
 
 async function loadModels(selectId) {
   const sel = document.getElementById("tts-pf-model");
-  if (!sel || !S.activeConvId) return;
+  if (!sel || !getActiveConvId()) return;
   const f = readForm();
   const want = selectId != null ? selectId : sel.value;
   try {
@@ -278,7 +286,7 @@ async function loadModels(selectId) {
 }
 
 async function saveProfile() {
-  if (!S.activeConvId) return;
+  if (!getActiveConvId()) return;
   const status = document.getElementById("tts-pf-status");
   try {
     const res = await api.post(triggerUrl(), { action: "set_profile", profile: readForm() });
@@ -290,7 +298,7 @@ async function saveProfile() {
 }
 
 async function preview() {
-  if (!S.activeConvId) return;
+  if (!getActiveConvId()) return;
   const status = document.getElementById("tts-pf-status");
   try {
     const res = await api.post(triggerUrl(), { action: "preview", ...readForm() });

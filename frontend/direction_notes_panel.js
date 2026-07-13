@@ -3,7 +3,7 @@
 // Mirrors the Inspector's right-rail panel -- the model authors notes during a
 // turn; the user curates them here.
 import { api } from "./api.js";
-import { closeModal, showConfirmModal, showModal } from "./modal.js";
+import { closeModal, confirmDelete, showModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { S } from "./state.js";
 import { $, convUrl, esc, toast } from "./utils.js";
@@ -170,16 +170,13 @@ export async function saveDirectionNote(fid) {
 }
 
 export function deleteDirectionNote(fid) {
-  showConfirmModal(
-    { title: "Delete Direction Note", message: "Delete this direction note?", confirmText: "Delete" },
-    async () => {
-      try {
-        await api.del(convUrl(S.activeConvId, "direction-notes", fid));
-        await renderDirectionNotesPanel();
-        toast("Note deleted");
-      } catch (e) {
-        toast(e.message, true);
-      }
-    },
-  );
+  confirmDelete("Direction Note", "Delete this direction note?", async () => {
+    try {
+      await api.del(convUrl(S.activeConvId, "direction-notes", fid));
+      await renderDirectionNotesPanel();
+      toast("Note deleted");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
 }

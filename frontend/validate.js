@@ -18,7 +18,6 @@ const MAX_FRAGMENT_LABEL = 100;
 const MAX_FRAGMENT_DESCRIPTION = 1000;
 const MAX_FRAGMENT_PROMPT = 10000;
 const MAX_FRAGMENT_NEGATIVE_PROMPT = 5000;
-const _MAX_SETTINGS_TEXT = 2048;
 const MAX_SETTINGS_PROMPT = 50000;
 const MAX_USER_PROFILE_NAME = 50;
 const MAX_USER_PROFILE_DESC = 1000;
@@ -28,11 +27,11 @@ const MAX_PHRASE_VARIANT = 100;
 const MAX_BROWSE_SEARCH = 200;
 const MAX_CONVERSATION_TITLE = 100;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
-const _MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5 MB
-const _MIN_AVATAR_DIMENSION = 200;
 const ALLOWED_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const FRAGMENT_ID_REGEX = /^[a-z0-9][a-z0-9_-]*$/;
 const VALID_URL_REGEX = /^https?:\/\/.+$/;
+// _MAX_SETTINGS_TEXT / _MAX_AVATAR_SIZE / _MIN_AVATAR_DIMENSION were dead
+// (declared, never read) and have been removed.
 
 // ── Generic Validators ──
 
@@ -595,21 +594,9 @@ export function validateConversationTitle(title) {
   return { valid: true };
 }
 
-/**
- * Validate an edit message.
- * @param {string} content - The message content
- * @returns {{ valid: boolean, error?: string }}
- */
-export function validateEditMessage(content) {
-  const trimmed = (content || "").trim();
-  if (!trimmed) {
-    return { valid: false, error: "Message cannot be empty" };
-  }
-  if (trimmed.length > MAX_CHAT_INPUT) {
-    return { valid: false, error: `Message must be ${MAX_CHAT_INPUT} characters or less` };
-  }
-  return { valid: true };
-}
+// An edit message obeys the identical rules to a fresh chat message; alias so
+// there is one implementation (and one place to change the limit).
+export const validateEditMessage = validateChatInput;
 
 // ── Export all validators to window for inline handler access ──
 

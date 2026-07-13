@@ -1,13 +1,30 @@
+// The single shared state bag. Every key is declared here (no key is born by a
+// stray write in a feature module) and grouped under a domain banner naming its
+// OWNER — the module responsible for that slice's writes and its render. Reads
+// are open; cross-module *writes* should announce via notify(topic) (see the bus
+// below) rather than reaching into another domain's renderer. The flat shape is
+// deliberate: ~600 read/write sites and the plugin ABI depend on `S.<key>`, so
+// this stays flat + a pub/sub bus, not a nested tree.
 export const S = {
+  // ── Conversations & active selection · owner: chat_conversations.js
   conversations: [],
   activeConvId: null,
   activeCharId: null,
-  messages: [],
+  _selectCharLock: false,
+
+  // ── Characters · owner: library.js
+  allCharacters: [], // the full character set; canonical source for id lookups (see charactersView)
+  characters: [], // recent-filtered subset shown in the sidebar
+
+  // ── Fragments · owner: library_fragments.js
   moodFragments: [],
   interactiveFragments: [],
-  characters: [],
+
+  // ── Personas · owner: settings_personas.js
   personas: [],
   activePersonaId: null,
+
+  // ── Settings, endpoints & models · owner: settings.js / settings_models.js
   settings: {},
   endpoints: [],
   activeEndpointId: null,
@@ -17,11 +34,6 @@ export const S = {
   agentEndpointId: null,
   agentModelConfigs: [],
   agentModelConfigId: null,
-  directorState: null,
-  lastDirectorData: null,
-  isStreaming: false,
-  streamingBodyEl: null,
-  streamCutoffIndex: null,
   agentEnabled: true,
   enabledTools: {},
   lengthGuardEnabled: false,
@@ -29,38 +41,14 @@ export const S = {
   lengthGuardMaxParagraphs: 4,
   lengthGuardEnforce: false,
   agenticLorebookEnabled: false,
-  editingMsgId: null,
-  forkEditMsgId: null, // user message whose "Edit & Fork" textarea is open (creates a sibling + new reply)
-  magicInputMsgId: null,
-  abortController: null,
-  streamingContent: null,
-  contextSize: null,
-  pendingUserMsg: null,
-  attachments: [],
-  wasAborted: false,
-  _selectCharLock: false,
-  generationPhase: null,
-  hideStreamingBox: false,
-  reasoningDirector: "",
-  reasoningWriter: "",
-  reasoningEditor: "", // also carries the feedback sub-step's reasoning (folded into the editor channel)
-  lastFeedback: null, // {values: {...}} from the editor feedback sub-step for the current/streamed turn (null when none)
-  lastDirectionNotes: null, // {notes: [...]} recorded by the direction-note sub-step this turn (null when none)
   feedbackEnabled: false,
   directorIndividualFragments: false,
   directionNotesRecord: false, // master Writing switch; a fragment also needs its own enabled + timing
   directionNotesInject: "off", // injection target: off | director | writer | both (read side, independent of recording)
-  reasoningPassActive: 0,
-  reasoningPassSelected: 0,
-  reasoningUserOverride: false,
-  reasoningOpen: true,
-  toolCallsOpen: false,
-  injectionBlockOpen: false,
-  contextSizeOpen: true,
-  reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
-  pendingRefineDiff: null, // {original, ops} set on writer_rewrite, cleared on next stream
-  editorDraftBaseline: null, // writer's pre-editor text; diff anchor across draft_update/writer_rewrite, reset on next stream
+  hideUntilBaked: false, // when true, in-flight streaming message is kept detached from DOM until stream finalizes
+  preventPromptOverrides: false, // when true, character card system_prompt and post_history_instructions are ignored
   showEditorDiff: true, // when false, editor-pass diff highlights + "clear diff" button are suppressed
+  reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
   editorAuditToggles: {
     // per-scanner on/off for the Output Auditor; keys match backend AUDIT_TYPES
     banned_phrases: true,
@@ -73,19 +61,56 @@ export const S = {
     // The deterministic RP format-consistency normalizer is not listed here — it
     // is not user-toggleable and always runs (see backend editor.py).
   },
-  hideUntilBaked: false, // when true, in-flight streaming message is kept detached from DOM until stream finalizes
-  preventPromptOverrides: false, // when true, character card system_prompt and post_history_instructions are ignored
-  autoscrollEnabled: true, // whether to auto-scroll chat to bottom during streaming
-  _programmaticScroll: false, // true while scrollToBottom() is executing — suppresses scroll listener
-  renderWindowStart: 0, // index into S.messages of the first message rendered; older messages are backfilled lazily on scroll-up. 0 means full history is in view.
-  hasMultipleTabs: false, // true if multiple tabs of the app are open
+
+  // ── Messages & per-message editing · owner: chat_core.js / chat_messages.js
+  messages: [],
+  editingMsgId: null,
+  forkEditMsgId: null, // user message whose "Edit & Fork" textarea is open (creates a sibling + new reply)
+  magicInputMsgId: null,
   editingPendingUserMsg: false, // true when the pending (not-yet-persisted) user message is in edit mode
   pendingUserMsgEdit: null, // stores edited content for the id-less pending user message to apply after streaming
   queuedEdits: {}, // { [msgId]: content } edits to persisted messages saved mid-stream, applied after the stream (the /edit route blocks on the stream lock)
+  renderWindowStart: 0, // index into S.messages of the first message rendered; older messages are backfilled lazily on scroll-up. 0 means full history is in view.
+  autoscrollEnabled: true, // whether to auto-scroll chat to bottom during streaming
+  _programmaticScroll: false, // true while scrollToBottom() is executing — suppresses scroll listener
+
+  // ── Streaming / generation lifecycle · owner: chat_stream.js
+  isStreaming: false,
+  streamingBodyEl: null,
+  streamCutoffIndex: null,
+  abortController: null,
+  streamingContent: null,
+  pendingUserMsg: null,
+  attachments: [],
+  wasAborted: false,
+  generationPhase: null,
+  hideStreamingBox: false,
+  contextSize: null,
+  pendingRefineDiff: null, // {original, ops} set on writer_rewrite, cleared on next stream
+  editorDraftBaseline: null, // writer's pre-editor text; diff anchor across draft_update/writer_rewrite, reset on next stream
+
+  // ── Reasoning rail & Inspector · owner: chat_inspector.js
+  directorState: null,
+  lastDirectorData: null,
+  reasoningDirector: "",
+  reasoningWriter: "",
+  reasoningEditor: "", // also carries the feedback sub-step's reasoning (folded into the editor channel)
+  lastFeedback: null, // {values: {...}} from the editor feedback sub-step for the current/streamed turn (null when none)
+  lastDirectionNotes: null, // {notes: [...]} recorded by the direction-note sub-step this turn (null when none)
+  reasoningPassActive: 0,
+  reasoningPassSelected: 0,
+  reasoningUserOverride: false,
+  reasoningOpen: true,
+  toolCallsOpen: false,
+  injectionBlockOpen: false,
+  contextSizeOpen: true,
   inspectedMsgId: null, // when set, Inspector shows director data for this message instead of current state
   inspectedDirectorData: null, // fetched director log data for the inspected message
+  reasoningByPass: {}, // {[pass_id]: accumulatedText}, per-workflow-pipeline reasoning buffer
+  inspectorTab: "main", // "main" | "secondary"
+  toolsTab: "main", // "main" | "secondary"
 
-  // ── Document mode (free-form LLM-assisted writing; orthogonal to chat).
+  // ── Document mode (free-form LLM-assisted writing; orthogonal to chat) · owner: document.js
   documents: [], // sidebar list rows {id, title, created_at, updated_at}
   activeDocId: null,
   documentMode: false, // when true, #app.document-mode hides the chat UI
@@ -93,7 +118,12 @@ export const S = {
   docAbortController: null,
   docDirty: false, // unsaved editor edits pending a flush
 
-  // Workflow slot registries -- pushed into at module load by workflow JS files.
+  // ── Multi-tab presence · owner: tabLock.js
+  hasMultipleTabs: false, // true if multiple tabs of the app are open
+
+  // ── Workflow slot registries · owner: workflow_registry.js (writes) / chat_workflow.js (reads)
+  // Pushed into at module load by workflow JS files via the registrars (now in
+  // workflow_registry.js, re-exported below so the plugin ABI is unchanged).
   // Built-in chat/settings/index code iterates these; no built-in code knows about specific workflows.
   // The four production registries below carry the owning workflowId so the framework can filter each
   // entry by effectiveWorkflowEnabled(workflowId) at its read site: a disabled workflow's production
@@ -110,9 +140,6 @@ export const S = {
   workflowClickHandlers: [], // [{id, label, priority, claims, onClick}], clickable-text-unit claimants
 
   workflowManifest: [], // fetched from /api/workflows at boot
-  reasoningByPass: {}, // {[pass_id]: accumulatedText}, per-workflow-pipeline reasoning buffer
-  inspectorTab: "main", // "main" | "secondary"
-  toolsTab: "main", // "main" | "secondary"
 
   // Flat list of workflow-attachment rejection records. Each entry:
   //   {message_id (number), originating_attachment_id (number|null),
@@ -140,134 +167,90 @@ export function effectiveWorkflowEnabled(wid) {
   return globalOn && localOn;
 }
 
-const RESERVED_PASS_IDS = new Set(["director", "writer", "editor"]);
+// The 8 workflow registrars live in workflow_registry.js now; re-exported here so
+// the ABI v1 import path `/static/state.js` stays valid (plugin ABI unchanged).
+export {
+  registerClickHandler,
+  registerTextEffect,
+  registerWorkflowEventHandler,
+  registerWorkflowInspectorCard,
+  registerWorkflowMessageButton,
+  registerWorkflowPipeline,
+  registerWorkflowToolsPanelCard,
+} from "./workflow_registry.js";
 
-// Registers a workflow's reasoning pipeline so its pass dots and reasoning box render
-// in the Inspector Secondary tab and so the SSE router can route `reasoning` events
-// by `data.pass`. Validates per the pass id namespace rule: each pass id must start
-// with `<workflow_id>:`, must not equal a reserved built-in pass name, and must not
-// contain a second `:`. Failure path: console.error and skip registration so the
-// missing rail is visible during development. Idempotent on workflow id.
-export function registerWorkflowPipeline(entry) {
-  if (!entry || typeof entry.id !== "string" || !entry.id) {
-    console.error("registerWorkflowPipeline: missing or empty workflow id", entry);
+// ── Selectors
+
+// The character list for id lookups. S.allCharacters (library.js owns it) is the
+// canonical full set; while it is still empty (pre-load) fall back to the recent-
+// filtered S.characters. Both are always arrays now, so callers drop the old
+// hand-rolled `(S.allCharacters || S.characters || [])` / `(S.allCharacters || [])`
+// guards and go through this single selector instead.
+export function charactersView() {
+  return S.allCharacters.length ? S.allCharacters : S.characters;
+}
+
+// ── Pub/sub bus
+// A ~20-line synchronous fan-out so a module that MUTATES a slice of S can
+// announce the change and every interested module re-renders, without the
+// mutator importing each renderer. This is the seam that lets later stages
+// dissolve the window bridge and the cross-module underscore imports; it is
+// infrastructure here — Stage 2 wires no call sites beyond the selector above.
+//
+// Rule: the bus is for CROSS-module mutate→render pairs. A same-module
+// mutate→render pair stays a plain function call.
+//
+// Topics are enumerated and tiered. The public-for-plugins tier becomes ABI the
+// moment the facade re-exports `subscribe`, so its payload shapes are frozen;
+// the internal tier is free to change through stages 3–5. Plugins are
+// subscribe-only — `notify` is NEVER exposed through the facade.
+//   public-for-plugins: messages, conversations, settings, workflow-phase
+//   internal:           characters, personas, documents, attachments, tabs
+const TOPICS = new Set([
+  "messages",
+  "conversations",
+  "settings",
+  "workflow-phase",
+  "characters",
+  "personas",
+  "documents",
+  "attachments",
+  "tabs",
+]);
+
+const _subscribers = new Map(); // topic -> Set<fn>
+
+// Subscribe `fn(detail)` to a topic; returns an unsubscribe function. An unknown
+// topic is a programming error (logged, not silent) so a typo surfaces in dev.
+export function subscribe(topic, fn) {
+  if (!TOPICS.has(topic)) {
+    console.error("subscribe: unknown topic", topic);
+    return () => {};
+  }
+  let set = _subscribers.get(topic);
+  if (!set) {
+    set = new Set();
+    _subscribers.set(topic, set);
+  }
+  set.add(fn);
+  return () => set.delete(fn);
+}
+
+// Synchronously fan a change out to a topic's subscribers. Each handler runs in
+// its own try/catch so one throwing subscriber can't starve the rest or the
+// caller that just mutated S. Iterates a snapshot so a handler may (un)subscribe.
+export function notify(topic, detail) {
+  if (!TOPICS.has(topic)) {
+    console.error("notify: unknown topic", topic);
     return;
   }
-  const id = entry.id;
-  const passes = Array.isArray(entry.passes) ? entry.passes : [];
-  const prefix = `${id}:`;
-  for (const p of passes) {
-    if (!p || typeof p.id !== "string") {
-      console.error("registerWorkflowPipeline: pass id missing for workflow", id, p);
-      return;
+  const set = _subscribers.get(topic);
+  if (!set) return;
+  for (const fn of [...set]) {
+    try {
+      fn(detail);
+    } catch (e) {
+      console.error(`subscriber for "${topic}" threw:`, e);
     }
-    if (RESERVED_PASS_IDS.has(p.id)) {
-      console.error("registerWorkflowPipeline: pass id", p.id, "is a reserved built-in (workflow", `${id})`);
-      return;
-    }
-    if (!p.id.startsWith(prefix)) {
-      console.error("registerWorkflowPipeline: pass id", p.id, "must start with", prefix);
-      return;
-    }
-    if (p.id.indexOf(":", prefix.length) !== -1) {
-      console.error("registerWorkflowPipeline: pass id", p.id, "contains a second ':'");
-      return;
-    }
   }
-  for (const p of passes) {
-    if (!(p.id in S.reasoningByPass)) S.reasoningByPass[p.id] = "";
-  }
-  const existing = S.workflowPipelines.findIndex((e) => e.id === id);
-  const record = { id, label: entry.label || id, passes };
-  if (existing >= 0) S.workflowPipelines[existing] = record;
-  else S.workflowPipelines.push(record);
-}
-
-// Registers a transient text-effect driver. The id gates body word-segmentation
-// -- a registered effect needs `.seg` spans to paint. Idempotent on id;
-// console.error and skip on a missing id.
-export function registerTextEffect(entry) {
-  if (!entry || typeof entry.id !== "string" || !entry.id) {
-    console.error("registerTextEffect: missing or empty effect id", entry);
-    return;
-  }
-  const record = { id: entry.id, label: entry.label || entry.id };
-  const existing = S.workflowTextEffects.findIndex((e) => e.id === entry.id);
-  if (existing >= 0) S.workflowTextEffects[existing] = record;
-  else S.workflowTextEffects.push(record);
-}
-
-// Registers a clickable-text claimant. `claims(seg)` decides which word units
-// this workflow wants (defaults to all); `priority` breaks contention when
-// several workflows claim the same unit (higher wins, registration order on
-// ties); `onClick(seg, msgId)` is the action. Idempotent on id; console.error
-// and skip on a missing id or non-function onClick.
-export function registerClickHandler(entry) {
-  if (!entry || typeof entry.id !== "string" || !entry.id) {
-    console.error("registerClickHandler: missing or empty handler id", entry);
-    return;
-  }
-  if (typeof entry.onClick !== "function") {
-    console.error("registerClickHandler: onClick must be a function (handler", `${entry.id})`);
-    return;
-  }
-  const record = {
-    id: entry.id,
-    label: entry.label || entry.id,
-    priority: Number.isInteger(entry.priority) ? entry.priority : 0,
-    claims: typeof entry.claims === "function" ? entry.claims : () => true,
-    onClick: entry.onClick,
-  };
-  const existing = S.workflowClickHandlers.findIndex((e) => e.id === entry.id);
-  if (existing >= 0) S.workflowClickHandlers[existing] = record;
-  else S.workflowClickHandlers.push(record);
-}
-
-// Production registrars. Each entry carries its owning workflowId so the framework
-// suppresses it for a disabled workflow at the read site. Validation matches the
-// registrars above (console.error and skip on a bad arg). Idempotent on workflowId:
-// re-registering the same workflow replaces its entry rather than duplicating it.
-function _registerWorkflowArrayEntry(arr, workflowId, render, where) {
-  if (typeof workflowId !== "string" || !workflowId) {
-    console.error(`${where}: missing or empty workflowId`, workflowId);
-    return;
-  }
-  if (typeof render !== "function") {
-    console.error(`${where}: render must be a function (workflow ${workflowId})`);
-    return;
-  }
-  const record = { workflowId, render };
-  const existing = arr.findIndex((e) => e.workflowId === workflowId);
-  if (existing >= 0) arr[existing] = record;
-  else arr.push(record);
-}
-
-export function registerWorkflowInspectorCard(workflowId, render) {
-  _registerWorkflowArrayEntry(S.workflowInspectorCardRenderers, workflowId, render, "registerWorkflowInspectorCard");
-}
-
-export function registerWorkflowToolsPanelCard(workflowId, render) {
-  _registerWorkflowArrayEntry(S.workflowToolsPanelRenderers, workflowId, render, "registerWorkflowToolsPanelCard");
-}
-
-export function registerWorkflowMessageButton(workflowId, render) {
-  _registerWorkflowArrayEntry(S.workflowMessageButtonRenderers, workflowId, render, "registerWorkflowMessageButton");
-}
-
-// Keyed by event name (last writer per event wins), so the workflowId rides along
-// for the read-site gate rather than acting as the map key.
-export function registerWorkflowEventHandler(workflowId, event, handler) {
-  if (typeof workflowId !== "string" || !workflowId) {
-    console.error("registerWorkflowEventHandler: missing or empty workflowId", workflowId);
-    return;
-  }
-  if (typeof event !== "string" || !event) {
-    console.error(`registerWorkflowEventHandler: missing or empty event (workflow ${workflowId})`);
-    return;
-  }
-  if (typeof handler !== "function") {
-    console.error(`registerWorkflowEventHandler: handler must be a function (workflow ${workflowId})`);
-    return;
-  }
-  S.workflowEventHandlers[event] = { workflowId, handler };
 }

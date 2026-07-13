@@ -2,8 +2,8 @@
 // and persona create / edit / delete / activate. Split out of settings.js; the
 // public surface is re-exported from settings.js.
 import { api } from "./api.js";
-import { closeModal, showConfirmModal, showModal } from "./modal.js";
-import { S } from "./state.js";
+import { closeModal, confirmDelete, showModal } from "./modal.js";
+import { charactersView, S } from "./state.js";
 import { $, effectivePersonaId, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -49,11 +49,11 @@ export function updateUserBtn() {
 }
 
 // The active conversation / character card a persona lock would attach to.
-// The card lookup goes through S.allCharacters: S.characters is the
-// recent-filtered subset and may not contain the active card.
+// The card lookup goes through charactersView() (the full set): S.characters is
+// the recent-filtered subset and may not contain the active card.
 export function activeLockContext() {
   const conv = S.conversations.find((c) => c.id === S.activeConvId);
-  const card = conv?.character_card_id ? (S.allCharacters || []).find((c) => c.id === conv.character_card_id) : null;
+  const card = conv?.character_card_id ? charactersView().find((c) => c.id === conv.character_card_id) : null;
   const charName = conv?.character_name || card?.name || "";
   return { conv, card, charName };
 }
@@ -215,28 +215,21 @@ export async function savePersona(personaId) {
 }
 
 export async function deletePersona(personaId) {
-  showConfirmModal(
-    {
-      title: "Delete Persona",
-      message: "Are you sure you want to delete this persona?",
-      confirmText: "Delete",
-    },
-    async () => {
-      try {
-        await api.del(`/user-personas/${personaId}`);
-        if (S.activePersonaId === personaId) {
-          await api.put("/settings", { active_persona_id: null });
-          S.activePersonaId = null;
-          updateUserBtn();
-        }
-        await loadPersonas();
-        showUserModal();
-        toast("Persona deleted");
-      } catch (e) {
-        toast(`Failed: ${e.message}`, true);
+  confirmDelete("Persona", "Are you sure you want to delete this persona?", async () => {
+    try {
+      await api.del(`/user-personas/${personaId}`);
+      if (S.activePersonaId === personaId) {
+        await api.put("/settings", { active_persona_id: null });
+        S.activePersonaId = null;
+        updateUserBtn();
       }
-    },
-  );
+      await loadPersonas();
+      showUserModal();
+      toast("Persona deleted");
+    } catch (e) {
+      toast(`Failed: ${e.message}`, true);
+    }
+  });
 }
 
 export async function activatePersona(personaId) {

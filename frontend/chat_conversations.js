@@ -16,7 +16,8 @@ import { isUtilityPanelOpen } from "./panels.js";
 // Imported from settings_personas.js directly: going through settings.js would
 // close an import cycle (settings.js → chat.js → this module).
 import { updateUserBtn } from "./settings_personas.js";
-import { S } from "./state.js";
+import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
+import { charactersView, S } from "./state.js";
 import {
   $,
   avatarCell,
@@ -62,8 +63,8 @@ export async function selectChar(id, source = "recent") {
   if (S.activeCharId === id || S._selectCharLock) return;
   S._selectCharLock = true;
   try {
-    const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
-    const newWorldId = (S.allCharacters || []).find((c) => c.id === id)?.world_id || null;
+    const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
+    const newWorldId = charactersView().find((c) => c.id === id)?.world_id || null;
     S.activeCharId = id;
     renderCharacters();
     if (oldWorldId && oldWorldId !== newWorldId) {
@@ -105,8 +106,8 @@ export async function newConvForChar(id) {
     return;
   }
   try {
-    const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
-    const newWorldId = (S.allCharacters || []).find((c) => c.id === id)?.world_id || null;
+    const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
+    const newWorldId = charactersView().find((c) => c.id === id)?.world_id || null;
     const conv = await api.post("/conversations", { character_card_id: id });
     await loadConversations();
     S.activeCharId = id;
@@ -125,7 +126,7 @@ export async function selectConversation(id) {
     toast("Stop generation before switching conversations", true);
     return;
   }
-  const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
+  const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
   S.activeConvId = id;
   S.lastDirectorData = null;
   S.reasoningDirector = "";
@@ -159,13 +160,13 @@ export async function selectConversation(id) {
 
   // If the character has a linked lorebook, activate it and move it to the top
   if (conv?.character_card_id) {
-    const char = (S.allCharacters || []).find((c) => c.id === conv.character_card_id);
+    const char = charactersView().find((c) => c.id === conv.character_card_id);
     if (char?.world_id) {
       await activateAndPrioritizeWorld(char.world_id);
     }
   }
 
-  const newWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
+  const newWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
   if (oldWorldId && oldWorldId !== newWorldId) {
     await deactivateWorld(oldWorldId);
   }
@@ -370,17 +371,6 @@ export function cancelCompression() {
   closeModal();
 }
 
-// Streams an SSE summary, so it returns the raw Response for resp.body.getReader()
-// and takes an abort signal — neither of which the `api` helper supports.
-function summarizeConversation(convId, { keepCount, customInstructions }, signal) {
-  return fetch(`/api/conversations/${convId}/summarize`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keep_count: keepCount, custom_instructions: customInstructions }),
-    signal,
-  });
-}
-
 export async function generateCompressionSummary() {
   if (_compressAbort) {
     _compressAbort.abort();
@@ -422,42 +412,24 @@ export async function generateCompressionSummary() {
   let summaryText = "";
 
   try {
-    const resp = await summarizeConversation(
-      S.activeConvId,
-      { keepCount: _compressKeepCount, customInstructions },
+    // Streams an SSE token summary over the app-wide sse.js path. The summarize
+    // route emits only `token` (text, newline-escaped) and `error` events.
+    const resp = await streamPost(
+      `/conversations/${S.activeConvId}/summarize`,
+      { keep_count: _compressKeepCount, custom_instructions: customInstructions },
       _compressAbort.signal,
     );
-
     if (!resp.ok) {
       const detail = await resp.text();
       throw new Error(detail);
     }
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let currentEvent = null;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith("data: ") && currentEvent) {
-          const data = line.slice(6);
-          if (currentEvent === "token") {
-            summaryText += data.replace(/\\n/g, "\n");
-            if (textarea) textarea.value = summaryText;
-          } else if (currentEvent === "error") {
-            throw new Error(data);
-          }
-          currentEvent = null;
-        }
+    for await (const { event, data } of sseEvents(resp.body, { signal: _compressAbort.signal })) {
+      if (event === "token") {
+        summaryText += unescapeSSE(data);
+        if (textarea) textarea.value = summaryText;
+      } else if (event === "error") {
+        throw new Error(data);
       }
     }
 

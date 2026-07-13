@@ -2,7 +2,7 @@
 // CRUD + reorder. Split out of library.js; the public surface is re-exported
 // from library.js.
 import { api } from "./api.js";
-import { closeModal, showConfirmModal, showModal } from "./modal.js";
+import { closeModal, confirmDelete, showModal } from "./modal.js";
 import { S } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -103,22 +103,15 @@ export async function saveMoodFragment(isEdit) {
 }
 
 export async function deleteMoodFragment(id) {
-  showConfirmModal(
-    {
-      title: "Delete Mood Fragment",
-      message: "Are you sure you want to delete this mood fragment?",
-      confirmText: "Delete",
-    },
-    async () => {
-      try {
-        await api.del(`/fragments/${id}`);
-        await loadMoodFragments();
-        toast("Mood fragment deleted");
-      } catch (e) {
-        toast(e.message, true);
-      }
-    },
-  );
+  confirmDelete("Mood Fragment", "Are you sure you want to delete this mood fragment?", async () => {
+    try {
+      await api.del(`/fragments/${id}`);
+      await loadMoodFragments();
+      toast("Mood fragment deleted");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
 }
 
 export async function toggleMoodFragmentEnabled(id, newEnabled) {
@@ -422,22 +415,15 @@ export async function saveInteractiveFragment(isEdit) {
 }
 
 export async function deleteInteractiveFragment(id) {
-  showConfirmModal(
-    {
-      title: "Delete Interactive Fragment",
-      message: "Are you sure you want to delete this interactive fragment?",
-      confirmText: "Delete",
-    },
-    async () => {
-      try {
-        await api.del(`/interactive-fragments/${id}`);
-        await loadInteractiveFragments();
-        toast("Interactive fragment deleted");
-      } catch (e) {
-        toast(e.message, true);
-      }
-    },
-  );
+  confirmDelete("Interactive Fragment", "Are you sure you want to delete this interactive fragment?", async () => {
+    try {
+      await api.del(`/interactive-fragments/${id}`);
+      await loadInteractiveFragments();
+      toast("Interactive fragment deleted");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
 }
 
 export async function toggleInteractiveFragmentEnabled(id, newEnabled) {

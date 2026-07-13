@@ -11,17 +11,9 @@ import {
   setMessages,
 } from "./chat_core.js";
 import { renderInspector } from "./chat_inspector.js";
-import {
-  afterStream,
-  agentPayload,
-  createStreamingDiv,
-  processSSEStream,
-  setGenerationPhase,
-  setStreaming,
-  streamPost,
-} from "./chat_stream.js";
+import { agentPayload, runStreamRequest } from "./chat_stream.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
-import { showConfirmModal } from "./modal.js";
+import { confirmDelete } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { S } from "./state.js";
 import { $, convUrl, resolvePlaceholders, scrollToBottom, scrollToMessage, toast } from "./utils.js";
@@ -124,30 +116,23 @@ function focusEditTextarea(ta, onEscape) {
 
 export async function deleteMessage(msgId) {
   if (S.isStreaming) return;
-  showConfirmModal(
-    {
-      title: "Delete Message",
-      message: "Delete this message, all its siblings, and all their children?",
-      confirmText: "Delete",
-    },
-    async () => {
-      try {
-        setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
-        S.lastDirectorData = null;
-        // Re-fetch director state so moods are correct after deletion
-        S.directorState = await api.get(convUrl(S.activeConvId, "director"));
-        renderMessages();
-        clearInspectedMessage();
-        // Deletion cascades to the notes on the removed messages and moves the active branch,
-        // so the panel's path-scoped set is stale; refetch it if open (mirrors switchBranch).
-        if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
-        scrollToBottom();
-        toast("Message deleted");
-      } catch (e) {
-        toast(e.message, true);
-      }
-    },
-  );
+  confirmDelete("Message", "Delete this message, all its siblings, and all their children?", async () => {
+    try {
+      setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
+      S.lastDirectorData = null;
+      // Re-fetch director state so moods are correct after deletion
+      S.directorState = await api.get(convUrl(S.activeConvId, "director"));
+      renderMessages();
+      clearInspectedMessage();
+      // Deletion cascades to the notes on the removed messages and moves the active branch,
+      // so the panel's path-scoped set is stale; refetch it if open (mirrors switchBranch).
+      if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
+      scrollToBottom();
+      toast("Message deleted");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
 }
 
 export async function switchBranch(msgId) {
@@ -432,40 +417,28 @@ export async function saveForkEdit(msgId) {
     next_branch_id: null,
     user_attachments: original?.user_attachments ? [...original.user_attachments] : [],
   };
-  if (idx >= 0) {
-    S.messages.splice(idx, 0, userMsg);
-    S.streamCutoffIndex = idx + 1;
-  } else {
-    S.messages.push(userMsg);
-    S.streamCutoffIndex = S.messages.length;
-  }
-  S.pendingUserMsg = userMsg;
-  S.autoscrollEnabled = true;
 
-  setStreaming(true);
-  setGenerationPhase("pending");
-  $("send-btn").disabled = true;
-  renderMessages();
-
-  const ct = $("chat-messages");
-  const msgDiv = createStreamingDiv();
-  if (!S.hideUntilBaked) ct.appendChild(msgDiv);
-  scrollToBottom();
-
-  S.abortController = new AbortController();
-  try {
-    const resp = await streamPost(
-      convUrl(S.activeConvId, "messages", msgId, "fork-edit"),
-      { content: resolved, ...agentPayload() },
-      S.abortController.signal,
-    );
-    await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
-  } catch (e) {
-    if (e.name === "AbortError") S.wasAborted = true;
-    else toast(`Error: ${e.message}`, true);
-  }
-  await afterStream();
-  renderMessages();
+  await runStreamRequest(
+    convUrl(S.activeConvId, "messages", msgId, "fork-edit"),
+    { content: resolved, ...agentPayload() },
+    {
+      beforeRender() {
+        if (idx >= 0) {
+          S.messages.splice(idx, 0, userMsg);
+          S.streamCutoffIndex = idx + 1;
+        } else {
+          S.messages.push(userMsg);
+          S.streamCutoffIndex = S.messages.length;
+        }
+        S.pendingUserMsg = userMsg;
+        S.autoscrollEnabled = true;
+      },
+      // The trailing renderMessages() guarantees the user row repaints with its
+      // sibling swipe-nav (afterStream's in-place finalize only adds nav to the
+      // assistant bubble).
+      afterDone: renderMessages,
+    },
+  );
 }
 
 // ── Edit Pending Message

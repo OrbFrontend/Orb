@@ -24,7 +24,8 @@ import {
   swapRunToken,
   syncContent,
 } from "./document_probs.js";
-import { showConfirmModal } from "./modal.js";
+import { confirmDelete, showConfirmModal } from "./modal.js";
+import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { S } from "./state.js";
 import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
 
@@ -392,24 +393,17 @@ export function deleteDocument(id) {
     return;
   }
   const doc = S.documents.find((d) => d.id === id);
-  showConfirmModal(
-    {
-      title: "Delete Document",
-      message: `Delete "${esc(doc ? doc.title : "this document")}"? This cannot be undone.`,
-      confirmText: "Delete",
-    },
-    async () => {
-      try {
-        await api.del(`/documents/${id}`);
-        S.documents = S.documents.filter((d) => d.id !== id);
-        if (S.activeDocId === id) clearEditor();
-        renderDocuments();
-        toast("Deleted");
-      } catch (e) {
-        toast(e.message, true);
-      }
-    },
-  );
+  confirmDelete("Document", `Delete "${esc(doc ? doc.title : "this document")}"? This cannot be undone.`, async () => {
+    try {
+      await api.del(`/documents/${id}`);
+      S.documents = S.documents.filter((d) => d.id !== id);
+      if (S.activeDocId === id) clearEditor();
+      renderDocuments();
+      toast("Deleted");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
 }
 
 // ── Autosave. Content + spans always travel together (backend validator). ────
@@ -512,49 +506,6 @@ function scrollAnchorIntoView() {
   if (scroll && docAutoscroll) scroll.scrollTop = scroll.scrollHeight;
 }
 
-// Dedicated SSE reader (do NOT reuse the chat-coupled processSSEStream). Handles
-// the wire facts of the backend's _sse_stream: string data has \n escaped (token /
-// error), dict data is raw JSON (probs — must NOT be unescaped or the JSON breaks),
-// ": keepalive" comment frames appear during silent stretches, and errors arrive
-// in-band as `event: error`.
-async function readDocSSE(resp, onToken, onProbs, onError) {
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    while (true) {
-      const idx = buf.indexOf("\n\n");
-      if (idx === -1) break;
-      const frame = buf.slice(0, idx);
-      buf = buf.slice(idx + 2);
-      if (!frame || frame.startsWith(":")) continue; // keepalive comment
-      let event = "message";
-      let data = "";
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("event: ")) event = line.slice(7);
-        else if (line.startsWith("data: ")) data = line.slice(6);
-      }
-      // Unescape ONLY string-data channels; probs data is JSON where a real
-      // newline inside a token would already be `\n`-escaped by json.dumps —
-      // unescaping it here would corrupt the payload.
-      if (event === "token") onToken(data.replace(/\\n/g, "\n"));
-      else if (event === "probs") {
-        try {
-          onProbs(JSON.parse(data));
-        } catch {
-          /* malformed probs frame → skip, never break the text stream */
-        }
-      } else if (event === "error") {
-        onError(data.replace(/\\n/g, "\n"));
-        return;
-      } else if (event === "done") return;
-    }
-  }
-}
-
 export async function docGenerate() {
   if (!S.activeDocId || S.docStreaming) return;
   const page = $("doc-page");
@@ -582,24 +533,36 @@ export async function docGenerate() {
   startFlushInterval();
 
   try {
-    const resp = await fetch(`/api/documents/${S.activeDocId}/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, assisted: docAssisted, token_probs: docProbsOn }),
-      signal: S.docAbortController.signal,
-    });
+    const resp = await streamPost(
+      `/documents/${S.activeDocId}/generate`,
+      { prompt, assisted: docAssisted, token_probs: docProbsOn },
+      S.docAbortController.signal,
+    );
     if (!resp.ok) throw new Error(await resp.text());
-    await readDocSSE(
-      resp,
-      (delta) => {
+    // Document mode keeps its own thin lifecycle over the shared sse.js parser:
+    // string channels (token/error) are un-escaped, but the `probs` channel is
+    // raw JSON and must NOT be un-escaped (json.dumps already escaped in-token
+    // newlines — un-escaping would corrupt it).
+    for await (const { event, data } of sseEvents(resp.body, { signal: S.docAbortController.signal })) {
+      if (event === "token") {
+        const delta = unescapeSSE(data);
         anchorTextNode.appendData(delta);
         addDelta(delta); // positions the chunk's probs records within the run
         updateTokenCount(); // live count instead of a static "Generating" label
         scrollAnchorIntoView();
-      },
-      (rec) => addToken(rec), // per-token alternatives → side-store
-      (msg) => toast(msg || "Generation error", true),
-    );
+      } else if (event === "probs") {
+        try {
+          addToken(JSON.parse(data)); // per-token alternatives → side-store
+        } catch {
+          /* malformed probs frame → skip, never break the text stream */
+        }
+      } else if (event === "error") {
+        toast(unescapeSSE(data) || "Generation error", true);
+        break;
+      } else if (event === "done") {
+        break;
+      }
+    }
   } catch (e) {
     if (e.name !== "AbortError") toast(`Generation failed: ${e.message}`, true);
   } finally {

@@ -71,6 +71,15 @@ export function runConfirmCb() {
   closeModal();
 }
 
+// Thin wrapper over showConfirmModal for the common "Delete <thing>?" dialog: a
+// titled confirm with the default red Delete button. Collapses the copy-pasted
+// `{ title: "Delete X", message, confirmText: "Delete" }` bodies scattered across
+// features. For a delete that needs extra body markup (a checkbox, a count note,
+// a linked-item list), call showConfirmModal directly.
+export function confirmDelete(label, message, onOk) {
+  showConfirmModal({ title: `Delete ${label}`, message, confirmText: "Delete" }, onOk);
+}
+
 // ── Secondary modal layer (#modal-sub-root)
 // A single second overlay rendered above the main modal, so a sub-modal or a
 // yes/no confirmation opened from within a modal does not tear down its parent.

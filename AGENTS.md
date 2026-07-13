@@ -17,9 +17,10 @@ Orb is an **agentic AI roleplay/writing frontend** with a Python/FastAPI backend
 ```mermaid
 graph TD
     subgraph Frontend ["Frontend (vanilla JS)"]
-        state["state.js"] <--> api["api.js"]
-        api <--> sse["SSE streaming"]
-        sse <--> chat["chat.js (rendering)"]
+        state["state.js (S + bus)"] <--> chat["chat.js barrel (chat_core/stream/…)"]
+        sse["sse.js (one SSE parser)"] <--> chat
+        api["api.js (JSON fetch)"] <--> chat
+        facade["workflow_api.js (plugin ABI)"] --> chat
         inspector["Inspector panel: moods, reasoning, tool calls, injection block"]
     end
 
@@ -215,9 +216,19 @@ Orb/
 ├── frontend/
 │   ├── index.html           # Single-page app shell
 │   ├── app.js               # Bootstrap: wire up sidebar, tabs, modals
-│   ├── state.js             # Global state object (S.*), reactive getters
-│   ├── api.js               # All fetch() calls to backend
-│   ├── chat.js              # Chat rendering, message display, Inspector, streaming
+│   ├── state.js             # Global S object (every key declared + owner-tagged); selectors; subscribe/notify bus
+│   ├── api.js               # Non-streaming fetch() JSON calls to backend (prepends /api)
+│   ├── sse.js               # THE SSE parser + streaming transport (sseEvents/unescapeSSE/streamPost)
+│   ├── chat.js              # Barrel re-exporting the six chat_* modules below (stable import path)
+│   ├── chat_core.js         # Message normalization, renderMessages, toolbar/icons, context counter
+│   ├── chat_stream.js       # Streaming lifecycle (runStreamRequest), handleSSEEvent, send/regen/magic
+│   ├── chat_messages.js     # Per-message edit/fork/inspect/delete + branch/keyboard/touch nav
+│   ├── chat_inspector.js    # Reasoning rail, pipeline passes, phase pills, avatar
+│   ├── chat_workflow.js     # Workflow attachment widgets, swipe/regen/reroll, cross-tab mutation listener
+│   ├── chat_conversations.js # Conversation lifecycle, compression (SSE summarize), title editing
+│   ├── chips.js             # Shared chip-input widget (lorebook keywords + character tags)
+│   ├── workflow_registry.js # Workflow registrars (state.js re-exports them for ABI v1)
+│   ├── workflow_api.js      # THE plugin facade (ABI v2, versioned, additive-only, snapshot-checked)
 │   ├── document_editor.js   # Document mode: PURE editor model (serialize/render/
 │   │                        # caret/plain-text guards over #doc-page; no S, no fetch)
 │   ├── document.js          # Document mode: list/CRUD, mode toggle, autosave,
@@ -241,7 +252,8 @@ Orb/
 │   ├── audio_player.js      # playAudio + channel controls (TTS playback)
 │   ├── audio_schedule.js    # Pure audio scheduling math
 │   ├── audio_transport.js   # Transport bar mount (channel selector + controls)
-│   ├── style.css            # Main stylesheet
+│   ├── css/                 # Component stylesheets (base, chat, inspector, forms, document, …)
+│   ├── style.css            # Component entrypoint: @imports css/*.css in cascade order
 │   ├── mobile.css           # Mobile breakpoints
 │   ├── fonts.css            # Custom font declarations
 │   ├── fonts/               # Self-hosted: Crimson, Exo2, Lora, Playfair, Spectral, Fira Code
@@ -255,6 +267,7 @@ Orb/
 │   ├── contributing.md      # Contributor guide
 │   ├── architecture/
 │   │   ├── kv-cache.md      # How Orb reuses the LLM KV cache across passes & turns
+│   │   ├── sse-stream.md    # The frontend↔backend SSE wire contract (one turn, event by event)
 │   │   └── secondary-workflow.md # Workflow framework dev guide
 │   ├── features/            # Per-feature guides (director, feedback-fragments,
 │   │                        # agentic-lorebook, anti-slop, length-guard, compress-history,
@@ -634,11 +647,31 @@ Because the writer's KV cache now lives on a different server than the agent pas
 
 ## Frontend Architecture
 
-- **State** (`state.js`): Single global `S` object. No reactive framework — components call `render*()` functions after state mutations.
-- **Rendering** (`chat.js`): `renderMessages()` rebuilds the entire message list from `S.messages`. Inspector panel rendered by `renderInspector()`.
-- **Streaming**: SSE events parsed in `chat.js` — `director_start`, `director_done`, `prompt_rewritten`, `token`, `reasoning`, `draft_update` (intermediate editor drafts: per iteration, per forced patch call in text mode), `writer_rewrite`, `editor_done`, `direction_notes`, `user_message_created`, `done`, `error`, plus workflow-driven events (`phase_status` for the phase pill, `workflow_attachments_rejected`, and any custom passthrough event a workflow hook yields, dispatched via `S.workflowEventHandlers`). `_result`, `_refined_result`, and other underscore-prefixed events are backend-internal, consumed before reaching the frontend. Tokens accumulate into the current message div in real-time.
-- **API** (`api.js`): All backend calls via `fetch()`. SSE streams handled by `EventSource`-like parsing in `chat.js`.
-- **Branching**: Messages use `parent_id` forming a tree. `conversations.active_leaf_id` selects the visible leaf. UI shows branch count/index with prev/next navigation buttons.
+Vanilla ES modules, no build step, served flat from `/static/`. There is no framework — modules call `render*()` after mutating state. `chat.js` is a **barrel** re-exporting the public surface of six focused modules (`chat_core` rendering, `chat_stream` streaming lifecycle, `chat_messages` per-message edit/branch, `chat_inspector` reasoning rail, `chat_workflow` attachment widgets, `chat_conversations` conversation lifecycle); importers use `chat.js`.
+
+- **State** (`state.js`): single global `S`. **Every key is declared here** under a domain banner naming its `owner:` module — no key is born by a stray write in a feature module. Reads are open; a cross-module mutate→render should announce via the bus (below). `charactersView()` is the selector for character-by-id lookups (full set with recent-list fallback). A ~20-line pub/sub bus (`subscribe(topic, fn)` / `notify(topic, detail)`) is the cross-module seam: topics are enumerated, and the **public-for-plugins tier** (`messages`, `conversations`, `settings`, `workflow-phase`) is frozen ABI (re-exported through the facade); the internal tier is free to change. Plugins are subscribe-only.
+- **SSE** (`sse.js`): the **only** SSE parser + streaming transport in the app. `sseEvents(body, {signal})` yields raw `{event, data}` frames (never un-escapes — `unescapeSSE()` is consumer-side, because token escaping and probs-JSON are opposite rules); `streamPost()` is the streaming sibling of `api._req`. Chat (`chat_stream.js` → `handleSSEEvent`), conversation-summarize, and document-generate all consume it. See [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
+- **Rendering** (`chat_core.js`): `renderMessages()` rebuilds the message list from `S.messages`; the Inspector is `renderInspector()` (`chat_inspector.js`). The one chat generation lifecycle is `runStreamRequest()` in `chat_stream.js` — send/continue/regenerate/super-regenerate/fork-edit/magic-rewrite all route through it.
+- **API** (`api.js`): non-streaming JSON calls via `fetch` (prepends `/api`). Streaming goes through `sse.js`, not `api.js`.
+- **Workflow registrars** (`workflow_registry.js`): the functions plugins call to push into the `S.workflow*` slots. `state.js` re-exports them (ABI v1 deep-import path stays valid); the pair is a documented load-safe L1 exception.
+- **Plugin facade** (`workflow_api.js`): **THE plugin surface** (ABI v2, versioned, additive-only). A `frontend/workflows/**` module imports `/static/workflow_api.js` and nothing else in the app. New exports may be added; existing ones never change name or signature (the ABI-snapshot lint enforces this). Plugin buttons wire via `registerAction(wid, name, fn)` + `data-wf-action="wid:name"` on the element — **never** a `window.*` global or an inline `on*` attribute. Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) §11.5.
+- **Guardrails** (`scripts/check_frontend_layers.py`, run by `scripts/lint.sh`): layer import-direction (per a `{file: layer}` manifest + an `ALLOWED_UPWARD` allowlist that shrinks over time), two ratchets that may only decrease (inline `on*=` count; underscore cross-module imports), the plugin-import rule (workflows import only the facade), and the workflow_api.js ABI snapshot. Frontend unit tests are `node --test tests/frontend/*.test.mjs` (zero-dep: SSE parser, validators, selector/bus). The `{file: layer}` manifest is the `LAYERS` table at the top of `check_frontend_layers.py`.
+- **Branching**: messages use `parent_id` forming a tree; `conversations.active_leaf_id` selects the visible leaf. UI shows branch count/index with prev/next nav.
+
+### Frontend smoke checklist (no automated e2e — walk this before shipping a frontend change)
+
+Boot the app (`./run_unix.sh`), open the console, and verify:
+
+1. **Boot** — clean console, no errors; homepage stats grid renders.
+2. **Send / abort / regenerate** — send a message (streams), Stop mid-stream (aborts cleanly), regenerate + super-regenerate a reply.
+3. **Branch nav** — ◀/▶ swipe buttons and ←/→ keys switch branches; touch-swipe on mobile.
+4. **Edit + fork** — edit a message in place; Edit & Fork a user message (new sibling streams, swipe-nav appears).
+5. **Document mode** — switch to Document mode, generate (Ctrl+Enter), toggle token-probs and hover/swap a token, Esc aborts.
+6. **Panels / modals** — open every panel and modal; each closes on Escape and on overlay click.
+7. **TTS round-trip** — Tools → TTS Settings opens; change a setting (persists); generate speech on a reply; play/pause; click-to-speak; karaoke highlight.
+8. **Two-tab gating** — open a second tab; mutating workflow actions (e.g. TTS create) are disabled in both (`canMutate()`).
+9. **Settings persist** — change a setting, reload, it stuck.
+10. **CRUD** — create/edit/delete a character (tag chips), lorebook (keyword chips), persona, fragment, preset; delete confirmations appear.
 
 ## Context Management
 

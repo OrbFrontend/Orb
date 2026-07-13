@@ -81,9 +81,6 @@ import {
 } from "./document.js";
 import {
   addAltGreeting,
-  charTagInput,
-  charTagKeydown,
-  charTagRemoveChip,
   clearExpressions,
   createCharacter,
   deleteCharacter,
@@ -128,14 +125,11 @@ import {
   expandWorlds,
   lbAddEntry,
   lbBackToList,
-  lbChipInput,
-  lbChipKeydown,
   lbDeleteEntry,
   lbDiscardChanges,
   lbDraftChange,
   lbEntrySearch,
   lbImportJson,
-  lbRemoveChip,
   lbSaveEntry,
   lbSelectEntry,
   lbToggleConstant,
@@ -337,9 +331,6 @@ Object.assign(window, {
   importInternetChar,
   randomizeInternet,
   refreshCharacters,
-  charTagKeydown,
-  charTagInput,
-  charTagRemoveChip,
   // crop modal
   closeCropModal,
   // conversations
@@ -434,9 +425,6 @@ Object.assign(window, {
   lbDiscardChanges,
   lbDraftChange,
   lbToggleConstant,
-  lbChipKeydown,
-  lbChipInput,
-  lbRemoveChip,
   lbImportJson,
   // state
   S,

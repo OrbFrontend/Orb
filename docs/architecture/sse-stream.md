@@ -36,12 +36,15 @@ data: <payload>
             ← blank line terminates the frame
 ```
 
-On the backend, `handle_turn` is an `async` generator that `yield`s `{"event": ..., "data": ...}` dicts. The `_sse_stream` wrapper in `main.py` serialises each one:
+On the backend, `handle_turn` is an `async` generator that `yield`s `{"event": ..., "data": ...}` dicts. The `_sse_stream` wrapper in `backend/api/deps.py` serialises each one:
 
-- `data` that is a `dict` is JSON-encoded.
+- `data` that is a `dict` is JSON-encoded (single-line `json.dumps`).
 - `data` that is a string has its newlines escaped to literal `\n` (so a multi-line frame can't break the parser).
+- Silent stretches emit a `: keepalive\n\n` comment frame so proxies don't drop the connection.
 
-On the frontend, `processSSEStream` (in `chat_stream.js`) reads the byte stream, splits on `\n`, collects the `event:` and `data:` lines, and hands each `(event, data)` pair to `handleSSEEvent` — one big `switch` keyed on the **event name**. The name is the entire contract; the payload just fills in detail.
+Because string data is newline-escaped and dict data is single-line JSON, a payload **never contains a real newline** — which makes `\n\n` an unambiguous frame terminator and `\n` an unambiguous line terminator inside a frame.
+
+On the frontend, one module parses this wire format for **every** streaming route: `sse.js`. Its `sseEvents(body, {signal})` async generator splits the byte stream into frames, skips keepalive comments, and yields `{event, data}` pairs — where `data` is the **raw** payload string. It is transport-only: it knows the frame shape and nothing about event names, and it **never un-escapes** `data` (a string channel's `\n` escaping and a JSON channel's raw payload are opposite rules, so un-escaping is the consumer's call via `unescapeSSE`). The chat dispatcher (`processSSEStream` → `handleSSEEvent` in `chat_stream.js`) consumes `sseEvents` and routes each pair through one big `switch` keyed on the **event name**; the conversation-summary and document-generate readers consume the same `sseEvents` with their own tiny event handling. The name is the entire contract; the payload just fills in detail.
 
 ---
 
