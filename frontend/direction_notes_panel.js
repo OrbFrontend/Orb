@@ -6,6 +6,7 @@ import { api } from "./api.js";
 import { closeModal, confirmDelete, showModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { S } from "./state.js";
+import { requestSendPermission } from "./tabLock.js";
 import { $, convUrl, esc, toast } from "./utils.js";
 
 // interactive_fragment_id stamped on user-authored notes (vs the model's real fragment ids).
@@ -124,6 +125,7 @@ export function addUserDirectionNote(msgId) {
 }
 
 export async function saveUserDirectionNote(msgId) {
+  if (!requestSendPermission()) return;
   const label = document.getElementById("user-note-label").value.trim() || "Note";
   const content = document.getElementById("user-note-content").value.trim();
   if (!content) {

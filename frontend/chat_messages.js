@@ -16,6 +16,7 @@ import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { confirmDelete } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { S } from "./state.js";
+import { requestSendPermission } from "./tabLock.js";
 import { $, convUrl, resolvePlaceholders, scrollToBottom, scrollToMessage, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -116,6 +117,7 @@ function focusEditTextarea(ta, onEscape) {
 
 export async function deleteMessage(msgId) {
   if (S.isStreaming) return;
+  if (!requestSendPermission()) return;
   confirmDelete("Message", "Delete this message, all its siblings, and all their children?", async () => {
     try {
       setMessages(await api.del(convUrl(S.activeConvId, "messages", msgId)));
@@ -137,6 +139,8 @@ export async function deleteMessage(msgId) {
 
 export async function switchBranch(msgId) {
   if (!msgId || S.isStreaming) return;
+  // Branch switching mutates active_leaf_id server-side, so it's tab-locked too.
+  if (!requestSendPermission()) return;
   try {
     // Use the parent user message as scroll anchor so the viewport doesn't jump
     const currentBranchMsg = S.messages.find((m) => m.next_branch_id === msgId || m.prev_branch_id === msgId);
@@ -346,6 +350,9 @@ export function initChatSwipeNav() {
 
 // ── Edit Message
 export async function saveEdit(msgId, _role) {
+  // Multi-tab guard sits here (not canStartGeneration): edits are legal during
+  // streaming via the queued-edit path below, which that helper would block.
+  if (!requestSendPermission()) return;
   const ta = $(`edit-textarea-${msgId}`);
   if (!ta) return;
   const content = ta.value;

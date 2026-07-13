@@ -33,8 +33,6 @@ function _evictedAttachmentHtml(msg, att) {
     // off), so the action is suppressed; the evicted-card display is consumption
     // and stays. Restoring the bytes requires re-enabling the workflow.
     btn = `<span class="workflow-rehydrate-disabled" title="Re-enable ${esc(_workflowLabel(att))} to restore">Workflow off</span>`;
-  } else if (S.hasMultipleTabs) {
-    btn = `<button class="workflow-rehydrate-button" disabled title="Close other tabs to rehydrate">Rehydrate</button>`;
   } else {
     btn = `<button class="workflow-rehydrate-button" onclick="event.stopPropagation();workflowRehydrate(${msg.id},${att.id},this)">Rehydrate</button>`;
   }
@@ -50,9 +48,6 @@ function _workflowRegenButtonHtml(msg, att) {
   const entry = S.workflowManifest.find((w) => w.id === wid);
   if (!entry) return "";
   if (!effectiveWorkflowEnabled(wid)) return "";
-  if (S.hasMultipleTabs) {
-    return `<button class="workflow-regen-button" disabled title="Close other tabs to regenerate">${ICON_REGEN}</button>`;
-  }
   return `<button class="workflow-regen-button" title="Regenerate" onclick="event.stopPropagation();workflowRegenerate(${msg.id},${att.id},this)">${ICON_REGEN}</button>`;
 }
 
@@ -62,9 +57,6 @@ function _workflowRerollButtonHtml(msg, att) {
   const entry = S.workflowManifest.find((w) => w.id === wid);
   if (!entry) return "";
   if (!effectiveWorkflowEnabled(wid)) return "";
-  if (S.hasMultipleTabs) {
-    return `<button class="workflow-reroll-button" disabled title="Close other tabs to reroll">${ICON_REROLL}</button>`;
-  }
   return `<button class="workflow-reroll-button" title="Reroll" onclick="event.stopPropagation();workflowReroll(${msg.id},${att.id},this)">${ICON_REROLL}</button>`;
 }
 
@@ -187,18 +179,16 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
     bodyHtml = `<div class="workflow-widget" data-workflow-id="${esc(active.workflow_id)}" data-attachment-id="${active.id}">${widgetHtml}</div>`;
   }
   const indicator = total > 1 ? `<span class="workflow-artifact-counter">${idx + 1} / ${total}</span>` : "";
-  // No cycling: each arrow dies at its end of the list (also when other tabs are
-  // open, or there is only one sibling).
-  const navLocked = total <= 1 || S.hasMultipleTabs;
-  const prevDisabled = navLocked || idx === 0 ? " disabled" : "";
-  const nextDisabled = navLocked || idx === total - 1 ? " disabled" : "";
-  const navTitle = S.hasMultipleTabs ? ` title="Close other tabs to swipe"` : "";
+  // No cycling: each arrow dies at its end of the list (also when there is only
+  // one sibling).
+  const prevDisabled = total <= 1 || idx === 0 ? " disabled" : "";
+  const nextDisabled = total <= 1 || idx === total - 1 ? " disabled" : "";
   return `<div class="workflow-artifact-swipe" id="${instanceId}" data-msg-id="${msg.id}" data-root-id="${rootId}">
     ${header}
     <div class="workflow-artifact-nav">
-      <button class="workflow-swipe-btn"${prevDisabled}${navTitle} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',-1)">&#9664;</button>
+      <button class="workflow-swipe-btn"${prevDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',-1)">&#9664;</button>
       <div class="workflow-artifact-body">${bodyHtml}</div>
-      <button class="workflow-swipe-btn"${nextDisabled}${navTitle} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',1)">&#9654;</button>
+      <button class="workflow-swipe-btn"${nextDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',1)">&#9654;</button>
     </div>
     ${indicator}
   </div>${rejectionChip}`;

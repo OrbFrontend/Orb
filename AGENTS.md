@@ -175,3 +175,8 @@ Create `frontend/themes/your_theme.css` using CSS custom properties on `[data-th
 ## Context Management
 
 Full active message path sent every turn — no automatic truncation. Manual compress: `POST /summarize` → review → `POST /compress` → new conversation with summary + last N messages.
+
+## Golden Rules for Codebase health
+1. Symmetry
+2. Separation of Concerns
+3. Robustness of Data Contracts

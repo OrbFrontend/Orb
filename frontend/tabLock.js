@@ -8,15 +8,9 @@ const HEARTBEAT_MS = 2000;
 const PEER_TIMEOUT_MS = 5000;
 
 let broadcastChannel = null;
-let onLockStateChange = null;
 let onWorkflowMutationCallback = null;
 const peers = new Map();
 let heartbeatTimer = null;
-
-// Register a callback to be called when the lock state changes
-export function setLockStateChangeCallback(callback) {
-  onLockStateChange = callback;
-}
 
 // Payload shape is {convId, msgId}; the listener decides whether to refetch.
 export function setWorkflowMutationCallback(callback) {
@@ -171,49 +165,11 @@ export function initTabLock() {
   updateTabLockUI();
 }
 
-// Check if the current tab can send input
-export function canSendInput() {
-  return !S.hasMultipleTabs;
-}
-
-// Update the UI to reflect tab lock status
+// Reflect lock state in the UI. All visual locking (banner, composer, message
+// toolbars, swipe navs) hangs off this one class — see forms.css §9.5. This is
+// presentation only; enforcement is requestSendPermission() in the handlers.
 function updateTabLockUI() {
-  const banner = document.getElementById("tab-lock-banner");
-  const chatInput = document.getElementById("chat-input");
-  const sendBtn = document.getElementById("send-btn");
-
-  if (S.hasMultipleTabs) {
-    // Show warning banner
-    if (banner) {
-      banner.classList.remove("hidden");
-    }
-    // Disable input if there's an active conversation
-    if (chatInput && S.activeConvId) {
-      chatInput.disabled = true;
-      chatInput.placeholder = "Multiple tabs detected. Close other tabs to continue.";
-    }
-    if (sendBtn) {
-      sendBtn.disabled = true;
-    }
-  } else {
-    // Hide warning banner
-    if (banner) {
-      banner.classList.add("hidden");
-    }
-    // Re-enable input if there's an active conversation and not streaming
-    if (chatInput && S.activeConvId && !S.isStreaming) {
-      chatInput.disabled = false;
-      chatInput.placeholder = "Write your message...";
-    }
-    if (sendBtn && S.activeConvId && !S.isStreaming) {
-      sendBtn.disabled = false;
-    }
-  }
-
-  // Notify subscribers that lock state changed
-  if (onLockStateChange) {
-    onLockStateChange(S.hasMultipleTabs);
-  }
+  document.getElementById("main")?.classList.toggle("tab-locked", S.hasMultipleTabs);
 }
 
 // Request permission to send (call this before sendMessage)

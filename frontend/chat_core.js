@@ -98,9 +98,7 @@ export function buildMsgToolbar(m, childByParent = null) {
   const regenTargetId = isAssistant ? m.id : childAssistant?.id;
   const canRegen = !isGreeting && (isAssistant || !!childAssistant || !!m.id);
 
-  const editBtn = S.hasMultipleTabs
-    ? `<button disabled title="Close other tabs to edit">${ICON_EDIT}</button>`
-    : `<button onclick="${m.id ? `startEdit(${m.id})` : `startEditPending()`}" title="Edit">${ICON_EDIT}</button>`;
+  const editBtn = `<button onclick="${m.id ? `startEdit(${m.id})` : `startEditPending()`}" title="Edit">${ICON_EDIT}</button>`;
 
   // Edit & Fork: only for persisted user messages. Forks the conversation by
   // saving the edit as a new sibling and generating a fresh reply, leaving the
@@ -108,29 +106,23 @@ export function buildMsgToolbar(m, childByParent = null) {
   // to fork, so it's omitted there.
   const forkBtn =
     m.role === "user" && m.id
-      ? S.hasMultipleTabs
-        ? `<button disabled title="Close other tabs to fork">${ICON_FORK}</button>`
-        : `<button onclick="startForkEdit(${m.id})" title="Edit &amp; Fork">${ICON_FORK}</button>`
+      ? `<button onclick="startForkEdit(${m.id})" title="Edit &amp; Fork">${ICON_FORK}</button>`
       : "";
 
   const regenBtn = isGreeting
     ? ""
-    : S.hasMultipleTabs || !canRegen
-      ? `<button disabled title="${S.hasMultipleTabs ? "Close other tabs to regenerate" : ""}">${ICON_REGEN}</button>`
+    : !canRegen
+      ? `<button disabled>${ICON_REGEN}</button>`
       : `<button onclick="${regenTargetId ? `regenerate(${regenTargetId})` : `continueFromUser()`}" title="Regenerate">${ICON_REGEN}</button>`;
 
   const superRegenBtn =
     isAssistant && m.id && !isGreeting
-      ? S.hasMultipleTabs
-        ? `<button disabled title="Close other tabs to regenerate">${ICON_SUPER_REGEN}</button>`
-        : `<button onclick="superRegenerate(${m.id})" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`
+      ? `<button onclick="superRegenerate(${m.id})" title="Super Regenerate">${ICON_SUPER_REGEN}</button>`
       : "";
 
   const magicBtn =
     isAssistant && m.id && !isGreeting
-      ? S.hasMultipleTabs
-        ? `<button disabled title="Close other tabs to use Magic">${ICON_MAGIC}</button>`
-        : `<button onclick="toggleMagicInput(${m.id})" title="Magic Rewrite">${ICON_MAGIC}</button>`
+      ? `<button onclick="toggleMagicInput(${m.id})" title="Magic Rewrite">${ICON_MAGIC}</button>`
       : "";
 
   const magicInput =
@@ -144,9 +136,7 @@ export function buildMsgToolbar(m, childByParent = null) {
   // so the panel the button opens is always reachable when the button shows.
   const noteBtn =
     m.id && !isGreeting && S.directionNotesRecord
-      ? S.hasMultipleTabs
-        ? `<button disabled title="Close other tabs to add a note">${ICON_NOTE}</button>`
-        : `<button onclick="addUserDirectionNote(${m.id})" title="Add direction note">${ICON_NOTE}</button>`
+      ? `<button onclick="addUserDirectionNote(${m.id})" title="Add direction note">${ICON_NOTE}</button>`
       : "";
 
   // Read-only local classifier; no persistence, so multi-tab is fine. Shown on

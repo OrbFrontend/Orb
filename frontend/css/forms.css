@@ -209,11 +209,14 @@ label {
 /* ═══════════════════════════════════════════
    9.5 Tab Lock Banner
    ═══════════════════════════════════════════ */
+/* All multi-tab visual locking hangs off `#main.tab-locked` (toggled by
+   tabLock.js). This is presentation only — enforcement lives in the handlers
+   via requestSendPermission(). */
 .tab-lock-banner {
+  display: none;
   background: var(--red);
   color: var(--text-on-accent);
   padding: 10px 16px;
-  display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
@@ -221,8 +224,31 @@ label {
   font-weight: 500;
 }
 
-.tab-lock-banner.hidden {
-  display: none !important;
+#main.tab-locked .tab-lock-banner {
+  display: flex;
+}
+
+/* Composer, message toolbars, branch/workflow swipe navs, and workflow artifact
+   actions. Messages stay scrollable/readable; keyboard paths (Tab+Enter into the
+   composer) fall through to the functional guards, which toast. */
+#main.tab-locked
+  :is(
+    #chat-input-wrap,
+    .msg-toolbar,
+    .swipe-nav,
+    .workflow-swipe-btn,
+    .workflow-regen-button,
+    .workflow-reroll-button,
+    .workflow-rehydrate-button
+  ) {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+/* Stop must stay reachable: a stream may already be running when a second tab opens. */
+#main.tab-locked #stop-btn {
+  pointer-events: auto;
+  opacity: 1;
 }
 
 .tab-lock-icon {

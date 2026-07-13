@@ -205,7 +205,7 @@ import {
 } from "./settings.js";
 import { scoreSlop } from "./slop_score.js";
 import { S } from "./state.js";
-import { initTabLock, setLockStateChangeCallback } from "./tabLock.js";
+import { initTabLock } from "./tabLock.js";
 import { $ } from "./utils.js";
 import { loadWorkflowModules } from "./workflow_loader.js";
 import { initWorkflowTextInteraction } from "./workflow_text_interaction.js";
@@ -440,12 +440,6 @@ initChatSwipeNav();
 initWorkflowTextInteraction();
 initAudioPlayer();
 initTabLock();
-// Re-render messages when tab lock state changes to update toolbar buttons
-setLockStateChangeCallback((_hasMultipleTabs) => {
-  if (S.activeConvId && !S.isStreaming) {
-    renderMessages();
-  }
-});
 initWorkflowMutationListener();
 
 // On a fresh load with no conversation selected, render the JS empty state so
