@@ -208,16 +208,23 @@ async function loadLocalMLSection() {
     el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
     return;
   }
+  // Deps missing → one grouped opt-in card instead of repeating the install
+  // command on every feature.
+  if (!st.deps_ok) {
+    const names = Object.keys(st.features)
+      .map((f) => `<li>${esc(LOCAL_ML_LABELS[f] || f)}</li>`)
+      .join("");
+    el.innerHTML = `<div class="tool-card" style="opacity:0.5">
+      <div class="tool-card-header"><span class="tool-card-name">Local ML features</span>
+        <button class="btn btn-sm" disabled>Download</button></div>
+      <div class="tool-card-desc">Opt in to unlock:<ul style="margin:4px 0 0;padding-left:18px">${names}</ul></div>
+      <div class="tool-card-desc" style="user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
+    </div>`;
+    return;
+  }
   el.innerHTML = Object.entries(st.features)
     .map(([f, info]) => {
       const name = esc(LOCAL_ML_LABELS[f] || f);
-      if (!st.deps_ok) {
-        return `<div class="tool-card" style="opacity:0.5">
-          <div class="tool-card-header"><span class="tool-card-name">${name}</span>
-            <button class="btn btn-sm" disabled>Download</button></div>
-          <div class="tool-card-desc" style="user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
-        </div>`;
-      }
       if (!info.present) {
         return `<div class="tool-card">
           <div class="tool-card-header"><span class="tool-card-name">${name}</span>
