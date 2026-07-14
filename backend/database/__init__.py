@@ -47,6 +47,7 @@ from .queries.conversations import (
 from .queries.direction_notes import (
     create_direction_notes,
     delete_direction_note,
+    direction_note_projection,
     get_direction_notes_for_message,
     get_direction_notes_for_path,
     update_direction_note,
@@ -187,6 +188,7 @@ __all__ = [
     "delete_phrase_group",
     "delete_user_persona",
     "delete_world",
+    "direction_note_projection",
     "fork_conversation",
     "get_active_lorebook_entries",
     "get_character_avatar",

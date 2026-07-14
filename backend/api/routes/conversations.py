@@ -7,9 +7,9 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core import Macros, estimate_tokens, scrub_log
+from ...core import estimate_tokens, scrub_log
 from ...database import (
     add_conversation_log,
     add_message,
@@ -17,6 +17,7 @@ from ...database import (
     create_direction_notes,
     delete_conversation,
     delete_direction_note,
+    direction_note_projection,
     fork_conversation,
     get_active_lorebook_entries,
     get_character_card,
@@ -46,9 +47,14 @@ from ...database import (
 from ...database.models import ConversationRow
 from ...features import lorebook
 from ...features.summarization import ConversationSummarizer
-from ...inference import AbortToken, LLMClient, prompt_builder
-from ...pipeline import agent_enabled, resolve_persona_id
-from ..deps import _active_aborts, _CleanupStreamingResponse, _sse_stream
+from ...inference import AbortToken, client_from_settings, prompt_builder
+from ...pipeline import agent_enabled, persona_macros, resolve_card_and_persona
+from ..deps import (
+    _active_aborts,
+    _CleanupStreamingResponse,
+    _sse_stream,
+    require_conversation,
+)
 from ..schemas import (
     CheckpointRequest,
     CompressRequest,
@@ -138,10 +144,11 @@ async def api_touch_conversation(cid: str):
 
 
 @router.put("/api/conversations/{cid}")
-async def api_update_conversation(cid: str, data: ConversationUpdate):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_update_conversation(
+    cid: str,
+    data: ConversationUpdate,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     update_data = data.model_dump(exclude_unset=True)
     # Migrated DBs carry no FK on the ALTER-added persona_lock_id column, so
     # the API is the only guard against locking to a nonexistent persona.
@@ -152,14 +159,15 @@ async def api_update_conversation(cid: str, data: ConversationUpdate):
 
 
 @router.post("/api/conversations/{cid}/summarize")
-async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: Request):
+async def api_summarize_conversation(
+    cid: str,
+    data: SummarizeRequest,
+    request: Request,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Stream a narrative summary of the conversation history, excluding the last keep_count messages."""
     if data.keep_count not in (2, 4, 6, 8):
         raise HTTPException(status_code=400, detail="keep_count must be one of 2, 4, 6, 8")
-
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
 
     messages = await get_messages_with_branch_info(cid)
     history_slice = messages[: max(0, len(messages) - data.keep_count)]
@@ -171,21 +179,12 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
     char_name = conv.get("character_name", "Character") or "Character"
     # Resolve the same effective persona the chat would use (conversation/character
     # lock overrides the global active persona) so a summary stays consistent.
-    card_id = conv.get("character_card_id")
-    card = await get_character_card(card_id) if card_id else None
-    active_persona_id = resolve_persona_id(conv, card, settings)
-    active_persona = await get_user_persona(active_persona_id) if active_persona_id else None
+    card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-    macros = Macros.from_settings(settings, char_name, active_persona)
-    user_description = active_persona.get("description", "") if active_persona else settings.get("user_description", "")
+    macros, user_description = persona_macros(settings, char_name, active_persona)
 
     abort_token = AbortToken()
-    client = LLMClient(
-        settings["endpoint_url"],
-        api_key=settings.get("api_key", ""),
-        abort_token=abort_token,
-        completion_mode=settings.get("completion_mode", "chat"),
-    )
+    client = client_from_settings(settings, abort_token=abort_token)
     summarizer = ConversationSummarizer(client, settings)
     llm_messages = summarizer.build_messages(
         system_prompt,
@@ -215,16 +214,16 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
 
 
 @router.post("/api/conversations/{cid}/compress")
-async def api_compress_conversation(cid: str, data: CompressRequest):
+async def api_compress_conversation(
+    cid: str,
+    data: CompressRequest,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Create a new conversation seeded with a summary, then re-append the last keep_count messages."""
     if data.keep_count not in (2, 4, 6, 8):
         raise HTTPException(status_code=400, detail="keep_count must be one of 2, 4, 6, 8")
     if not data.summary.strip():
         raise HTTPException(status_code=400, detail="summary must not be empty")
-
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
 
     messages = await get_messages_with_branch_info(cid)
     tail = messages[max(0, len(messages) - data.keep_count) :]
@@ -336,14 +335,14 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
 
 
 @router.post("/api/conversations/{cid}/checkpoint")
-async def api_checkpoint_conversation(cid: str, data: CheckpointRequest):
+async def api_checkpoint_conversation(
+    cid: str,
+    data: CheckpointRequest,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Duplicate the conversation's active path into a new 'checkpoint'
     conversation (SillyTavern-style). See :func:`_checkpoint_conversation` for
     exactly what is and isn't carried."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
     if data.title and data.title.strip():
         new_title = data.title.strip()
     else:
@@ -367,11 +366,7 @@ async def api_stop_generation(cid: str):
 
 
 @router.get("/api/conversations/{cid}/context-size")
-async def api_get_context_size(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
+async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     settings = await get_settings()
     messages = await get_messages(cid)
     director = await get_director_state(cid) or {}
@@ -382,12 +377,8 @@ async def api_get_context_size(cid: str):
     # Resolve the same effective persona generation would use (conversation/
     # character lock overrides the global active persona) so the size
     # breakdown matches the prompt that is actually sent.
-    card_id = conv.get("character_card_id")
-    card = await get_character_card(card_id) if card_id else None
-    persona_id = resolve_persona_id(conv, card, settings)
-    active_persona = await get_user_persona(persona_id) if persona_id else None
-    macros = Macros.from_settings(settings, conv["character_name"], active_persona)
-    user_desc = active_persona.get("description", "") if active_persona else settings.get("user_description", "")
+    card, active_persona = await resolve_card_and_persona(conv, settings)
+    macros, user_desc = persona_macros(settings, conv["character_name"], active_persona)
 
     # Resolve character context
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
@@ -447,37 +438,25 @@ async def api_get_context_size(cid: str):
 
 
 @router.get("/api/conversations/{cid}/director")
-async def api_get_director_state(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_get_director_state(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     return await get_director_state(cid)
 
 
 @router.get("/api/conversations/{cid}/logs")
-async def api_get_logs(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_get_logs(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     return await get_conversation_logs(cid)
 
 
 @router.get("/api/conversations/{cid}/messages/{msg_id}/director-log")
-async def api_get_message_director_log(cid: str, msg_id: int):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_get_message_director_log(
+    cid: str,
+    msg_id: int,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     msg = await get_message_by_id(msg_id)
     if not msg or msg.get("conversation_id") != cid:
         raise HTTPException(status_code=404, detail="Message not found")
-    direction_notes = [
-        {
-            "interactive_fragment_id": r["interactive_fragment_id"],
-            "interactive_fragment_label": r["interactive_fragment_label"],
-            "content": r["content"],
-        }
-        for r in await get_direction_notes_for_message(msg_id)
-    ]
+    direction_notes = [direction_note_projection(r) for r in await get_direction_notes_for_message(msg_id)]
     log = await get_director_log_for_message(msg_id)
     if not log:
         return {
@@ -505,19 +484,14 @@ async def api_get_message_director_log(cid: str, msg_id: int):
 
 
 @router.get("/api/conversations/{cid}/direction-notes")
-async def api_list_direction_notes(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_list_direction_notes(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     messages = await get_messages(cid)
     by_id = {m["id"]: m for m in messages}
     rows = await get_direction_notes_for_path(cid, list(by_id))
     return [
         {
             "id": r["id"],
-            "interactive_fragment_id": r["interactive_fragment_id"],
-            "interactive_fragment_label": r["interactive_fragment_label"],
-            "content": r["content"],
+            **direction_note_projection(r),
             "message_id": r["message_id"],
             "turn_index": by_id[r["message_id"]]["turn_index"],
         }

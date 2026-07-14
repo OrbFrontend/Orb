@@ -19,7 +19,7 @@ import logging
 from typing import Any, AsyncIterator, Mapping
 
 from .. import database as db
-from ..workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
+from ..workflows.attachment_cache import project_rejected_attachment
 from .predicates import agent_enabled
 from .state import TurnState
 
@@ -276,16 +276,7 @@ async def _consume_pipeline(
                         "event": "workflow_attachments_rejected",
                         "data": {
                             "message_id": asst_id,
-                            "rejected": [
-                                {
-                                    "filename": a.get("filename"),
-                                    "workflow_id": a.get("workflow_id"),
-                                    "mime": a.get("mime"),
-                                    "reason": a.get("reason") or OVERSIZE_NO_METADATA_REASON,
-                                    "originating_attachment_id": None,
-                                }
-                                for a in rejected
-                            ],
+                            "rejected": [project_rejected_attachment(a, None) for a in rejected],
                         },
                     }
             else:

@@ -181,8 +181,8 @@ class TurnState:
 class LorebookTurn:
     """The lorebook inputs for one main-pipeline turn.
 
-    Bundles what was previously five loose parameters threaded through the
-    pipeline. ``block`` and ``catalog`` are the Director-facing context and are
+    Bundles the per-turn lorebook inputs threaded through the pipeline.
+    ``block`` and ``catalog`` are the Director-facing context and are
     mutually exclusive by mode (kept separate because they inject at different
     positions in the Director prompt). ``writer_block`` derives the final block
     shown to the writer.

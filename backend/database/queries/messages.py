@@ -72,51 +72,43 @@ async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachment
         return path
 
 
-async def _attach_user_attachments(messages: list[MessageWithAttachments]) -> None:
-    if not messages:
-        return
+_USER_ATTACHMENT_COLUMNS = "id, message_id, mime_type, data_b64, filename, size, created_at"
+_WORKFLOW_ATTACHMENT_COLUMNS = (
+    "id, message_id, mime_type, data_b64, filename, created_at, "
+    "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
+    "consumption_metadata, active_sibling_id, recent_accesses"
+)
+
+
+async def _child_rows_by_message(messages: list[MessageWithAttachments], *, table: str, columns: str) -> dict[int, list]:
+    """Fetch per-message child rows from *table* grouped by ``message_id``.
+
+    Every message id gets an entry (empty list when it has no children), so
+    callers can assign unconditionally.
+    """
     ids = [m["id"] for m in messages]
     placeholders = ",".join("?" * len(ids))
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                f"SELECT id, message_id, mime_type, data_b64, filename, size, created_at "
-                f"FROM user_attachments WHERE message_id IN ({placeholders}) ORDER BY id",  # nosec B608
+                f"SELECT {columns} FROM {table} WHERE message_id IN ({placeholders}) ORDER BY id",  # nosec B608 -- table/columns are module literals; values parameterised
                 ids,
             )
         )
     by_msg: dict[int, list] = {m["id"]: [] for m in messages}
     for r in rows:
         by_msg[r["message_id"]].append(dict(r))
-    for m in messages:
-        m["user_attachments"] = by_msg[m["id"]]
-
-
-async def _attach_workflow_attachments(messages: list[MessageWithAttachments]) -> None:
-    if not messages:
-        return
-    ids = [m["id"] for m in messages]
-    placeholders = ",".join("?" * len(ids))
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT id, message_id, mime_type, data_b64, filename, created_at, "
-                f"workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
-                f"consumption_metadata, active_sibling_id, recent_accesses "
-                f"FROM workflow_attachments WHERE message_id IN ({placeholders}) ORDER BY id",  # nosec B608
-                ids,
-            )
-        )
-    by_msg: dict[int, list] = {m["id"]: [] for m in messages}
-    for r in rows:
-        by_msg[r["message_id"]].append(dict(r))
-    for m in messages:
-        m["workflow_attachments"] = by_msg[m["id"]]
+    return by_msg
 
 
 async def _attach_attachments(messages: list[MessageWithAttachments]) -> None:
-    await _attach_user_attachments(messages)
-    await _attach_workflow_attachments(messages)
+    if not messages:
+        return
+    user_by_msg = await _child_rows_by_message(messages, table="user_attachments", columns=_USER_ATTACHMENT_COLUMNS)
+    wf_by_msg = await _child_rows_by_message(messages, table="workflow_attachments", columns=_WORKFLOW_ATTACHMENT_COLUMNS)
+    for m in messages:
+        m["user_attachments"] = user_by_msg[m["id"]]
+        m["workflow_attachments"] = wf_by_msg[m["id"]]
 
 
 async def get_messages(cid: str) -> list[MessageWithAttachments]:

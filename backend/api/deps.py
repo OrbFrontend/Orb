@@ -19,12 +19,13 @@ import logging
 import os
 import re
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Mapping, cast
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, cast
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from ..database import get_lorebook_entry, get_world
+from ..database import get_conversation, get_lorebook_entry, get_world
+from ..database.models import ConversationRow
 from ..inference import AbortToken
 
 logger = logging.getLogger(__name__)
@@ -222,7 +223,33 @@ async def _sse_stream(
         await _safe_aclose(gen)
 
 
-# ── Worlds / Lorebooks: shared Depends providers ─────────────────────────────
+def _pipeline_sse_response(
+    make_gen: Callable[[AbortToken], AsyncIterator[Any]],
+    request: Request,
+    cid: str,
+) -> _CleanupStreamingResponse:
+    """Standard SSE response for a turn-lifecycle event generator.
+
+    *make_gen* receives a fresh :class:`AbortToken` and returns the event
+    generator; the same token is registered with the stream so POST /stop can
+    signal it.
+    """
+    abort_token = AbortToken()
+    return _CleanupStreamingResponse(
+        _sse_stream(make_gen(abort_token), request, abort_token=abort_token, cid=cid),
+        media_type="text/event-stream",
+    )
+
+
+# ── Shared Depends providers ─────────────────────────────────────────────────
+
+
+async def require_conversation(cid: str) -> ConversationRow:
+    """404 guard shared by the ``/api/conversations/{cid}/...`` routes."""
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
 
 
 async def require_world(world_id: str) -> Mapping[str, Any]:

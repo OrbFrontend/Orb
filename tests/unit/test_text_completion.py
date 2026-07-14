@@ -334,16 +334,17 @@ def test_parse_chat_logprobs_skips_malformed_records():
             "content": [
                 42,
                 {"token": None, "logprob": -0.1},  # non-str token → skip
-                {"token": "x"},  # missing logprob → skip
+                {"token": "x"},  # no readable prob → degrades to 0.0
                 {"token": "y", "logprob": -0.5, "top_logprobs": ["junk", {"token": "z", "logprob": -0.9}]},
             ]
         }
     }
     out = _parse_chat_logprobs(choice)
-    assert len(out) == 1
-    assert out[0]["token"] == "y"
+    assert len(out) == 2
+    assert out[0] == {"token": "x", "prob": 0.0, "top": []}
+    assert out[1]["token"] == "y"
     # The junk alternative is dropped; the valid one survives.
-    assert out[0]["top"] == [{"t": "z", "p": pytest.approx(__import__("math").exp(-0.9))}]
+    assert out[1]["top"] == [{"t": "z", "p": pytest.approx(__import__("math").exp(-0.9))}]
 
 
 # ── Usage synthesis (F8) ──────────────────────────────────────────────────────

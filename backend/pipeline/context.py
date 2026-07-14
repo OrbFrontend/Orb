@@ -11,8 +11,9 @@ Two phases:
   extend the tool map or system prompt), computes the lorebook block or agentic
   catalog, builds the tool blob, and yields a single :class:`_TurnSetup`.
 
-``LLMClient`` is constructed here and only here — tests patch
-``backend.pipeline.context.LLMClient`` to substitute the streaming client.
+LLM clients are built via :func:`backend.inference.client_from_settings` /
+:func:`agent_client_from_settings` — tests substitute the streaming client by
+patching ``backend.inference.client.LLMClient``.
 """
 
 from __future__ import annotations
@@ -42,7 +43,9 @@ from ..inference import (
     AbortToken,
     LLMClient,
     _KVCacheTracker,
+    agent_client_from_settings,
     build_prefix,
+    client_from_settings,
 )
 from .config import _build_writer_tools_blob
 from .predicates import agent_enabled, resolve_persona_id
@@ -108,34 +111,16 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     interactive_fragments = [df for df in interactive_fragments if df.get("enabled", True)]
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
-    client = LLMClient(
-        settings["endpoint_url"],
-        api_key=settings.get("api_key", ""),
-        abort_token=abort_token,
-        completion_mode=settings.get("completion_mode", "chat"),
-    )
+    client = client_from_settings(settings, abort_token=abort_token)
 
-    card_id = conv.get("character_card_id")
-    card = await db.get_character_card(card_id) if card_id else None
+    card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
-
-    active_persona = None
-    active_persona_id = resolve_persona_id(conv, card, settings)
-    if active_persona_id:
-        active_persona = await db.get_user_persona(active_persona_id)
 
     agent_same = settings.get("agent_same_as_writer", True)
     agent_client = None
     agent_system_prompt = None
     if not agent_same and settings.get("agent_endpoint_id"):
-        agent_url = settings.get("agent_endpoint_url", settings["endpoint_url"])
-        agent_api_key = settings.get("agent_api_key", settings.get("api_key", ""))
-        agent_client = LLMClient(
-            agent_url,
-            api_key=agent_api_key,
-            abort_token=abort_token,
-            completion_mode=settings.get("agent_completion_mode", "chat"),
-        )
+        agent_client = agent_client_from_settings(settings, abort_token=abort_token)
         agent_system_prompt, _, _ = await db.resolve_char_context(
             conv, settings, shared_key="agent_shared_system_prompt", card=card
         )
@@ -159,6 +144,33 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     )
 
 
+async def resolve_card_and_persona(
+    conv: Mapping[str, Any], settings: Mapping[str, Any]
+) -> tuple[CharacterCardRow | None, UserPersonaRow | None]:
+    """Fetch the conversation's card and resolve the effective persona row.
+
+    Applies the same conversation-pin → card-pin → global precedence as
+    generation (:func:`resolve_persona_id`), so callers estimating or
+    summarizing stay consistent with the prompt that is actually sent.
+    """
+    card_id = conv.get("character_card_id")
+    card = await db.get_character_card(card_id) if card_id else None
+    persona_id = resolve_persona_id(conv, card, settings)
+    persona = await db.get_user_persona(persona_id) if persona_id else None
+    return card, persona
+
+
+def persona_macros(settings: Mapping[str, Any], char_name: str, persona: Mapping[str, Any] | None) -> tuple[Macros, str]:
+    """Build the turn :class:`Macros` plus the resolved user description.
+
+    The description falls back to the global ``user_description`` setting when
+    no persona row is active.
+    """
+    macros = Macros.from_settings(settings, char_name, persona)
+    user_description = persona.get("description", "") if persona else settings.get("user_description", "")
+    return macros, user_description
+
+
 def _build_prefix_from_ctx(
     ctx: PipelineContext,
     history: Sequence[Mapping[str, Any]],
@@ -173,9 +185,7 @@ def _build_prefix_from_ctx(
     sections contributed by pre-pipeline workflow hooks.
     """
     conv = ctx.conv
-    active_persona = ctx.active_persona
-    macros = Macros.from_settings(ctx.settings, conv["character_name"], active_persona)
-    user_description = active_persona.get("description", "") if active_persona else ctx.settings.get("user_description", "")
+    macros, user_description = persona_macros(ctx.settings, conv["character_name"], ctx.active_persona)
 
     return build_prefix(
         system_prompt if system_prompt is not None else ctx.system_prompt,

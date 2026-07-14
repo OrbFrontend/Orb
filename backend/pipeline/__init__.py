@@ -15,6 +15,7 @@ Each turn is handled by a chain of single-purpose modules:
 
 from __future__ import annotations
 
+from .context import persona_macros, resolve_card_and_persona
 from .entrypoints import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -35,6 +36,9 @@ __all__ = [
     # predicates — turn predicates
     "agent_enabled",
     "resolve_persona_id",
+    # context — persona/macros resolution shared with the api layer
+    "persona_macros",
+    "resolve_card_and_persona",
     # state — per-turn contracts
     "LorebookTurn",
     "ModelLane",

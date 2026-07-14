@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any
+from typing import Any, Mapping
 
 from ..database.connection import get_db
 from ..database.queries.messages import register_workflow_attachment_persister
@@ -66,6 +66,24 @@ OVERSIZE_NO_METADATA_REASON = "too large to cache, no recovery metadata"
 WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON = "workflow does not declare produces_artifacts"
 
 
+def project_rejected_attachment(a: Mapping[str, Any], originating_attachment_id: int | None) -> dict:
+    """Client-facing projection of one rejected-attachment record.
+
+    The HTTP routes and the SSE persistence layer both surface rejections in
+    this shape. ``reason`` falls back to ``OVERSIZE_NO_METADATA_REASON`` for
+    helper-class entries that carry none; ``originating_attachment_id`` is the
+    group root the rejection relates to (``None`` for first-write rejections,
+    which have no DB row yet).
+    """
+    return {
+        "filename": a.get("filename"),
+        "workflow_id": a.get("workflow_id"),
+        "mime": a.get("mime"),
+        "reason": a.get("reason") or OVERSIZE_NO_METADATA_REASON,
+        "originating_attachment_id": originating_attachment_id,
+    }
+
+
 def _is_produces_artifacts_workflow(workflow_id: str) -> bool:
     """True iff ``workflow_id`` resolves to a registered workflow whose
     ``produces_artifacts`` is True. Unregistered ids return False so an
@@ -96,25 +114,58 @@ def _lru3_key(c: dict) -> float:
 def select_lru3_victim(candidates: list[dict]) -> int | None:
     """Pick a single eviction victim by ``_lru3_key``. Returns id or None.
 
-    The atomic insert/rehydrate paths in this module precompute the full
-    eviction set via ``sorted(candidates, key=_lru3_key)`` and peel a
-    prefix rather than calling this helper, so the single-victim path is
-    a separate pinned interface for the unit tests that exercise the LRU-3
-    ordering in isolation.
+    The atomic insert/rehydrate paths in this module cover a byte shortfall
+    via :func:`plan_eviction` rather than calling this helper, so the
+    single-victim path is a separate pinned interface for the unit tests
+    that exercise the LRU-3 ordering in isolation.
     """
     if not candidates:
         return None
     return min(candidates, key=_lru3_key)["id"]
 
 
+def plan_eviction(candidates: list[dict], shortfall: int) -> list[dict]:
+    """Oldest-first (LRU-3) eviction prefix covering *shortfall* bytes.
+
+    Returns the victim candidate dicts in eviction order; empty when
+    *shortfall* is already non-positive. Shared by the rehydrate,
+    single-insert, and batch-insert paths so all three budget the cache
+    with identical ordering.
+    """
+    victims: list[dict] = []
+    if shortfall <= 0:
+        return victims
+    for victim in sorted(candidates, key=_lru3_key):
+        if shortfall <= 0:
+            break
+        victims.append(victim)
+        shortfall -= victim["size"]
+    return victims
+
+
+def _decode_recent_accesses(raw: Any) -> list[int] | None:
+    """Decode a stored ``recent_accesses`` JSON column value.
+
+    Returns the list of int counters, or ``None`` when the value is missing,
+    malformed JSON, not a list, or contains any non-int entry. The
+    birth-counts-as-access invariant should keep every byte-bearing row
+    well-formed; ``None`` is defensive against malformed data or migration
+    leftovers.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, list) or not all(isinstance(v, int) for v in parsed):
+        return None
+    return parsed
+
+
 async def _get_budget_bytes_on(db) -> int:
     rows = list(await db.execute_fetchall("SELECT attachment_cache_budget_bytes FROM settings WHERE id = 1"))
     return int(rows[0]["attachment_cache_budget_bytes"]) if rows else 0
-
-
-async def get_budget_bytes() -> int:
-    async with get_db() as db:
-        return await _get_budget_bytes_on(db)
 
 
 async def _byte_bearing_candidates_on(db) -> list[dict]:
@@ -132,19 +183,10 @@ async def _byte_bearing_candidates_on(db) -> list[dict]:
             (EVICTED_MARKER,),
         )
     )
-    out: list[dict] = []
-    for r in rows:
-        ra_raw = r["recent_accesses"]
-        ra: list[int] | None = None
-        if ra_raw:
-            try:
-                parsed = json.loads(ra_raw)
-                if isinstance(parsed, list) and all(isinstance(v, int) for v in parsed):
-                    ra = parsed
-            except (TypeError, ValueError):
-                ra = None
-        out.append({"id": r["id"], "size": int(r["size"] or 0), "recent_accesses": ra})
-    return out
+    return [
+        {"id": r["id"], "size": int(r["size"] or 0), "recent_accesses": _decode_recent_accesses(r["recent_accesses"])}
+        for r in rows
+    ]
 
 
 async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_metadata: dict | None = None) -> None:
@@ -208,13 +250,8 @@ async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_m
         candidates = await _byte_bearing_candidates_on(db)
         candidates = [c for c in candidates if c["id"] != attachment_id]
         occupied = sum(c["size"] for c in candidates)
-        needed = (occupied + new_size) - budget
-        if needed > 0:
-            for victim in sorted(candidates, key=_lru3_key):
-                if needed <= 0:
-                    break
-                await _evict_on(db, victim["id"])
-                needed -= victim["size"]
+        for victim in plan_eviction(candidates, (occupied + new_size) - budget):
+            await _evict_on(db, victim["id"])
 
         # Reset recent_accesses alongside the bytes write so the post-rehydrate
         # row matches the birth-as-access invariant: a single freshly-assigned
@@ -292,15 +329,7 @@ async def _record_access_inner(db, attachment_ids: list[int]) -> None:
         )
         if not cur_rows:
             continue
-        cur_raw = cur_rows[0]["recent_accesses"]
-        cur: list[int] = []
-        if cur_raw:
-            try:
-                parsed = json.loads(cur_raw)
-                if isinstance(parsed, list):
-                    cur = [v for v in parsed if isinstance(v, int)]
-            except (TypeError, ValueError):
-                cur = []
+        cur = _decode_recent_accesses(cur_rows[0]["recent_accesses"]) or []
         new_list = ([assigned] + cur)[:3]
         await db.execute(
             "UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?",
@@ -542,13 +571,8 @@ async def insert_workflow_attachment(
         if not insert_as_marker:
             candidates = await _byte_bearing_candidates_on(db)
             occupied = sum(c["size"] for c in candidates)
-            needed = (occupied + new_size) - budget
-            if needed > 0:
-                for victim in sorted(candidates, key=_lru3_key):
-                    if needed <= 0:
-                        break
-                    await _evict_on(db, victim["id"])
-                    needed -= victim["size"]
+            for victim in plan_eviction(candidates, (occupied + new_size) - budget):
+                await _evict_on(db, victim["id"])
 
         new_id = await insert_workflow_attachment_row(message_id, attachment, db=db, insert_as_evicted=insert_as_marker)
         # Birth-counts-as-access: every new row starts with one counter entry
@@ -707,17 +731,8 @@ async def insert_workflow_attachments(
         # (occupied + new_byte_total > budget). Runtime over-budget
         # state (occupied alone > budget after a settings shrink) also
         # converges here on the next write.
-        plan_evict_existing: list[int] = []
-        need = (occupied + new_byte_total) - budget
-        if need > 0:
-            for victim in sorted(existing, key=_lru3_key):
-                if need <= 0:
-                    break
-                plan_evict_existing.append(victim["id"])
-                need -= victim["size"]
-
-        for eid in plan_evict_existing:
-            await _evict_on(conn, eid)
+        for victim in plan_eviction(existing, (occupied + new_byte_total) - budget):
+            await _evict_on(conn, victim["id"])
 
         new_ids_by_input_idx: dict[int, int] = {}
         rejected_atts: list[dict] = []

@@ -18,7 +18,7 @@ message they inject.
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
+from typing import Any, AsyncIterator, Callable, List, Mapping, Optional, Sequence
 
 from .. import database as db
 from ..inference import AbortToken
@@ -42,6 +42,31 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+async def _run_turn_handler(
+    conversation_id: str,
+    abort_token: AbortToken | None,
+    body: Callable[[PipelineContext], AsyncIterator[dict]],
+    *,
+    log_label: str,
+) -> AsyncIterator[dict]:
+    """Shared wrapper for the public turn handlers.
+
+    Loads the pipeline context, guards the missing-conversation case, and
+    converts any pipeline exception into the terminal SSE error event — one
+    place defines the error wire contract for every handler.
+    """
+    try:
+        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
+        if ctx is None:
+            yield {"event": "error", "data": "Conversation not found"}
+            return
+        async for event in body(ctx):
+            yield event
+    except Exception:
+        logger.exception("%s error", log_label)
+        yield {"event": "error", "data": "Generation failed; see server logs"}
+
+
 async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]]) -> None:
     """Seed ``ctx.director['direction_notes']`` with the active-branch notes.
 
@@ -54,13 +79,7 @@ async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path
     rows = await db.get_direction_notes_for_path(conversation_id, [m["id"] for m in path])
     turn_by_message = {m["id"]: m.get("turn_index") for m in path}
     ctx.director["direction_notes"] = [
-        {
-            "interactive_fragment_id": r["interactive_fragment_id"],
-            "interactive_fragment_label": r["interactive_fragment_label"],
-            "content": r["content"],
-            "turn_index": turn_by_message.get(r["message_id"]),
-        }
-        for r in rows
+        {**db.direction_note_projection(r), "turn_index": turn_by_message.get(r["message_id"])} for r in rows
     ]
 
 
@@ -205,14 +224,10 @@ async def handle_turn(
     Streams: ``user_message_created``, then pipeline events (``director_done``,
     ``token``, ``editor_done``, etc.), and finally ``done``.
     """
-    try:
-        if attachments is None:
-            attachments = []
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
-        if ctx is None:
-            yield {"event": "error", "data": "Conversation not found"}
-            return
+    if attachments is None:
+        attachments = []
 
+    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
         settings = ctx.settings
         messages = await db.get_messages(conversation_id)
         conv = ctx.conv
@@ -273,9 +288,8 @@ async def handle_turn(
         ):
             yield event
 
-    except Exception:
-        logger.exception("Pipeline error")
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label="Pipeline"):
+        yield event
 
 
 async def handle_fork_edit(
@@ -294,12 +308,8 @@ async def handle_fork_edit(
     Logs at the assistant turn (not the user turn) so this branch's log row is
     distinct from the original turn's log.
     """
-    try:
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
-        if ctx is None:
-            yield {"event": "error", "data": "Conversation not found"}
-            return
 
+    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
         settings = ctx.settings
         original = await db.get_message_by_id(user_msg_id)
         if not original or original["conversation_id"] != conversation_id or original["role"] != "user":
@@ -345,9 +355,8 @@ async def handle_fork_edit(
         ):
             yield event
 
-    except Exception:
-        logger.exception("Fork edit error")
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label="Fork edit"):
+        yield event
 
 
 async def handle_regenerate(
@@ -362,12 +371,8 @@ async def handle_regenerate(
     producing a new reply at the same turn index. The original is kept; branch
     navigation shows both.
     """
-    try:
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
-        if ctx is None:
-            yield {"event": "error", "data": "Conversation not found"}
-            return
 
+    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
@@ -396,9 +401,8 @@ async def handle_regenerate(
         ):
             yield event
 
-    except Exception:
-        logger.exception("Regenerate error")
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label="Regenerate"):
+        yield event
 
 
 _SUPER_REGEN_MSG = "[OOC: Your response was kind of meh, rewrite it in a slightly different but still realistic direction.]"
@@ -420,12 +424,8 @@ async def _regenerate_with_steering(
     against it. The prompt-rewrite tool is disabled so the director cannot alter
     the steering message. The original reply is left intact on its own branch.
     """
-    try:
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
-        if ctx is None:
-            yield {"event": "error", "data": "Conversation not found"}
-            return
 
+    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
@@ -470,9 +470,8 @@ async def _regenerate_with_steering(
         ):
             yield event
 
-    except Exception:
-        logger.exception("%s error", log_label)
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label=log_label):
+        yield event
 
 
 async def handle_super_regenerate(

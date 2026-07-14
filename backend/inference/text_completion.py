@@ -283,12 +283,14 @@ def _tok_str(rec: Mapping[str, Any]) -> str | None:
     return None
 
 
-def parse_token_probs(data: Mapping[str, Any]) -> list[dict]:
-    """Normalize a ``/completion`` chunk's ``completion_probabilities`` to Orb's shape.
+def normalize_prob_records(records: Any) -> list[dict]:
+    """Fold a list of per-token probability records into Orb's prob shape.
 
-    llama.cpp has shipped three per-token-probability shapes across versions;
-    fold them all into ``[{"token", "prob", "top": [{"t","p"}]}]`` with linear
-    probabilities (logprob variants are ``math.exp``-ed):
+    Output is ``[{"token", "prob", "top": [{"t","p"}]}]`` with linear
+    probabilities (logprob variants are ``math.exp``-ed). Accepts every record
+    shape the providers have shipped — llama.cpp's three
+    ``completion_probabilities`` variants and OpenAI-compat
+    ``logprobs.content`` records, which carry the same fields:
 
     * ``{token, prob, top_probs:[{token, prob}]}``   — current (post_sampling_probs)
     * ``{token, logprob, top_logprobs:[{token, logprob}]}`` — OpenAI-style logprobs
@@ -296,9 +298,9 @@ def parse_token_probs(data: Mapping[str, Any]) -> list[dict]:
 
     Never raises: a missing/garbage payload or an unknown shape drift degrades to
     ``[]`` (no popup) rather than breaking the stream. Individual malformed
-    records are skipped, not fatal.
+    records are skipped, not fatal; a record with a valid token but no readable
+    probability falls back to its own entry in ``top`` (the legacy shape), then 0.0.
     """
-    records = data.get("completion_probabilities")
     if not isinstance(records, list):
         return []
     out: list[dict] = []
@@ -325,6 +327,15 @@ def parse_token_probs(data: Mapping[str, Any]) -> list[dict]:
             prob = next((a["p"] for a in top if a["t"] == token), 0.0)
         out.append({"token": token, "prob": prob, "top": top})
     return out
+
+
+def parse_token_probs(data: Mapping[str, Any]) -> list[dict]:
+    """Normalize a ``/completion`` chunk's ``completion_probabilities`` to Orb's shape.
+
+    See :func:`normalize_prob_records` for the accepted record shapes and
+    degrade behaviour.
+    """
+    return normalize_prob_records(data.get("completion_probabilities"))
 
 
 def has_image_parts(messages: Sequence[Mapping[str, Any]]) -> bool:

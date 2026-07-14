@@ -14,7 +14,7 @@ Two prompting strategies, chosen per request by the ``assisted`` flag:
 * **Assisted** — the document is a transcript written with readable line macros
   (``### SYSTEM:`` / ``### USER:`` / ``### ASSISTANT:``); :func:`parse_doc_macros`
   renders it to chat messages + an open prefill and lets the model's own
-  template supply BOS/turn markers. See ``docs/document-mode-assisted-plan.md``.
+  template supply BOS/turn markers. See ``docs/features/document-mode.md``.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
       document ends with a note (fresh-turn generation) or the final prose is
       whitespace-only.
 
-    See ``docs/document-mode-assisted-plan.md`` for the convention and rationale.
+    See ``docs/features/document-mode.md`` for the convention and rationale.
     """
     system_parts: list[str] = []
     # Alternating runs by construction: prose accumulates until a USER line and

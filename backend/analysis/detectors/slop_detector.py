@@ -17,7 +17,8 @@ and narration are separated first (split_segment_sentences), so a hit in the
 attribution tail of a dialogue line flags only the narration fragment — the
 quoted speech never appears in the report.
 
-Groups are accepted in two shapes for backward compatibility:
+Groups are accepted in three shapes (the bare list is the legacy literal form,
+kept for backward compatibility):
 
     [                                     # phrase bank
         ["a mix of", "a mixture of"],     # legacy literal group (list of str)

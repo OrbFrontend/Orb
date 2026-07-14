@@ -91,24 +91,16 @@ async def db(db_path: Path):
 
 @pytest.fixture
 def llm_mock(monkeypatch):
-    """Substitute the streaming LLM client across every bound import.
+    """Substitute the streaming LLM client everywhere.
 
-    ``from ..inference import LLMClient`` binds a local name at import
-    time, so patching only ``backend.inference.client.LLMClient`` is not
-    enough -- the route modules that construct a client
-    (``backend.api.routes.conversations`` for /summarize and
-    ``backend.api.routes.workflows`` for the workflow hooks) and
-    ``backend.pipeline.context`` (which builds the writer/agent clients in
-    ``_load_pipeline_context``) retain pre-patch references. The fixture
-    patches every bound name.
+    Every production construction goes through
+    ``backend.inference.client.client_from_settings`` /
+    ``agent_client_from_settings``, which resolve ``LLMClient`` from their
+    module's globals at call time — so this single patch covers all of them.
     """
     fake = FakeLLMClient()
     factory = llm_factory(fake)
     monkeypatch.setattr("backend.inference.client.LLMClient", factory)
-    monkeypatch.setattr("backend.api.routes.conversations.LLMClient", factory)
-    monkeypatch.setattr("backend.api.routes.documents.LLMClient", factory)
-    monkeypatch.setattr("backend.api.routes.workflows.LLMClient", factory)
-    monkeypatch.setattr("backend.pipeline.context.LLMClient", factory)
     return fake
 
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import re
 from typing import Any, AsyncIterator, Mapping, Sequence
 
@@ -66,39 +65,30 @@ def reasoning_cfg(on: bool) -> dict:
 def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
     """Normalize an OpenAI-compat ``choice.logprobs`` block to Orb's prob shape.
 
-    Reads ``logprobs.content`` — an array of
-    ``{token, logprob, top_logprobs:[{token, logprob}]}`` — folding each into
-    ``{"token", "prob", "top": [{"t","p"}]}`` with linear probabilities
-    (``math.exp``). This is the chat-transport twin of
-    ``text_completion.parse_token_probs``; the output shape is identical so the
-    route frames both the same way. Returns ``[]`` when the provider omits
-    logprobs (graceful degrade → no popup) and skips malformed records; never
-    raises.
+    Thin wrapper over :func:`text_completion.normalize_prob_records`: the
+    ``logprobs.content`` records carry the same fields as llama.cpp's
+    OpenAI-style ``completion_probabilities`` variant, so one normalizer
+    serves both transports and the route frames both the same way.
     """
     logprobs = choice.get("logprobs")
     if not isinstance(logprobs, dict):
         return []
-    content = logprobs.get("content")
-    if not isinstance(content, list):
-        return []
-    out: list[dict] = []
-    for rec in content:
-        if not isinstance(rec, dict) or not isinstance(rec.get("token"), str):
-            continue
-        try:
-            prob = math.exp(float(rec["logprob"]))
-        except (TypeError, ValueError, KeyError, OverflowError):
-            continue
-        top: list[dict] = []
-        for alt in rec.get("top_logprobs") or []:
-            if not isinstance(alt, dict) or not isinstance(alt.get("token"), str):
-                continue
-            try:
-                top.append({"t": alt["token"], "p": math.exp(float(alt["logprob"]))})
-            except (TypeError, ValueError, KeyError, OverflowError):
-                continue
-        out.append({"token": rec["token"], "prob": prob, "top": top})
-    return out
+    return text_completion.normalize_prob_records(logprobs.get("content"))
+
+
+async def _read_error_body(resp: httpx.Response, url: str) -> str:
+    """Read and log an HTTP error response's body for upstream detail.
+
+    Streaming responses aren't eagerly read, so ``raise_for_status()`` alone
+    would log only the status line. Never raises — an unreadable body degrades
+    to a placeholder string.
+    """
+    try:
+        err_text = (await resp.aread()).decode("utf-8", errors="replace")
+    except Exception as read_err:
+        err_text = f"<failed to read response body: {read_err!r}>"
+    logger.error("LLM HTTP %d from %s: %s", resp.status_code, url, err_text)
+    return err_text
 
 
 class LLMClient:
@@ -236,20 +226,8 @@ class LLMClient:
             async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None)) as client:
                 async with client.stream("POST", self._url(), json=body, headers=self._headers()) as resp:
                     if resp.status_code >= 400:
-                        # Concern 1: surface the error body. Streaming responses
-                        # aren't eagerly read, so raise_for_status() alone would log
-                        # only the status line -- read the body for upstream detail.
-                        try:
-                            err_bytes = await resp.aread()
-                            err_text = err_bytes.decode("utf-8", errors="replace")
-                        except Exception as read_err:
-                            err_text = f"<failed to read response body: {read_err!r}>"
-                        logger.error(
-                            "LLM HTTP %d from %s: %s",
-                            resp.status_code,
-                            self._url(),
-                            err_text,
-                        )
+                        # Concern 1: surface the error body.
+                        err_text = await _read_error_body(resp, self._url())
 
                         # Concern 2: ask the provider layer whether this is a
                         # recognised quirk worth one retry. It mutates body in
@@ -457,11 +435,7 @@ class LLMClient:
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None)) as client:
             async with client.stream("POST", url, json=body, headers=self._headers()) as resp:
                 if resp.status_code >= 400:
-                    try:
-                        err_text = (await resp.aread()).decode("utf-8", errors="replace")
-                    except Exception as read_err:
-                        err_text = f"<failed to read response body: {read_err!r}>"
-                    logger.error("LLM HTTP %d from %s: %s", resp.status_code, url, err_text)
+                    await _read_error_body(resp, url)
                     resp.raise_for_status()
                 async for payload in self._iter_sse_payloads(resp):
                     try:
@@ -641,6 +615,35 @@ class LLMClient:
 
         message = {"content": "".join(content_parts)}
         yield {"type": "done", "message": message, "usage": usage}
+
+
+def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken | None = None) -> LLMClient:
+    """Build the writer :class:`LLMClient` from a settings row.
+
+    The single construction seam for writer clients: ``LLMClient`` is resolved
+    from this module's globals at call time, so tests substitute the client
+    everywhere by patching ``backend.inference.client.LLMClient`` alone.
+    """
+    return LLMClient(
+        settings["endpoint_url"],
+        api_key=settings.get("api_key", ""),
+        abort_token=abort_token,
+        completion_mode=settings.get("completion_mode", "chat"),
+    )
+
+
+def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken | None = None) -> LLMClient:
+    """Build the dual-model agent :class:`LLMClient` from a settings row.
+
+    Agent endpoint/key fall back to the writer's when the agent columns are
+    unset. Same patch seam as :func:`client_from_settings`.
+    """
+    return LLMClient(
+        settings.get("agent_endpoint_url", settings["endpoint_url"]),
+        api_key=settings.get("agent_api_key", settings.get("api_key", "")),
+        abort_token=abort_token,
+        completion_mode=settings.get("agent_completion_mode", "chat"),
+    )
 
 
 def _sanitize_args(obj):

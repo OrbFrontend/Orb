@@ -29,6 +29,19 @@ async def create_direction_notes(conversation_id: str, message_id: int, notes: S
     return ids
 
 
+def direction_note_projection(r: Mapping[str, Any]) -> dict:
+    """Client-facing base projection of a direction-note row.
+
+    The fragment id / label / content triple every consumer surfaces; callers
+    spread in their own extras (``id``, ``message_id``, ``turn_index``).
+    """
+    return {
+        "interactive_fragment_id": r["interactive_fragment_id"],
+        "interactive_fragment_label": r["interactive_fragment_label"],
+        "content": r["content"],
+    }
+
+
 async def get_direction_notes_for_path(conversation_id: str, path_message_ids: Sequence[int]) -> list[DirectionNoteRow]:
     """Notes whose authoring message lies on the given active path, in branch (turn) order.
 

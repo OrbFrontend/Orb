@@ -57,7 +57,7 @@ async def update_document(document_id: str, data: dict) -> DocumentRow | None:
             sets.append("updated_at = ?")
             vals.append(datetime.now(timezone.utc).isoformat())
             vals.append(document_id)
-            await db.execute(f"UPDATE documents SET {', '.join(sets)} WHERE id = ?", vals)
+            await db.execute(f"UPDATE documents SET {', '.join(sets)} WHERE id = ?", vals)  # nosec B608
             await db.commit()
         return await get_document(document_id)
 

@@ -14,8 +14,8 @@ from backend.workflows.attachment_cache import (
     EVICTED_MARKER,
     OVERSIZE_NO_METADATA_REASON,
     WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON,
+    _get_budget_bytes_on,
     evict,
-    get_budget_bytes,
     insert_workflow_attachment,
     record_access,
     rehydrate_attachment,
@@ -69,7 +69,7 @@ async def _set_budget(db, bytes_limit: int) -> None:
 
 async def test_get_budget_bytes_reads_settings_value(client, db):
     await _set_budget(db, 12345)
-    assert await get_budget_bytes() == 12345
+    assert await _get_budget_bytes_on(db) == 12345
 
 
 async def test_record_access_no_ids_no_counter_advance(client, db):

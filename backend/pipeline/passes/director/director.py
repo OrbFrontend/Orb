@@ -445,7 +445,7 @@ async def director_stage(
                 sel: LorebookSelectResult = event["result"]
                 state.selected_lorebook_entries = sel.selected
                 # Append to the turn's calls so the picks stay visible in the
-                # conversation log / inspector (they used to ride direct_scene's args).
+                # conversation log / inspector.
                 state.calls = [*state.calls, *sel.calls]
 
     # Style injection

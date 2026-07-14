@@ -2,9 +2,9 @@
 passes/director/lorebook_select.py -- Agentic-lorebook selection step.
 
 Asks the model, via a forced ``select_lorebook`` call, which lorebook entries from the
-catalog belong in the current scene. This is the standalone replacement for the old
-``selected_lorebook_entries`` parameter that used to ride the ``direct_scene`` tool, so
-agentic lorebook works whether or not the Director's scene-direction tool is enabled
+catalog belong in the current scene. The step is deliberately independent of the
+``direct_scene`` tool, so agentic lorebook works whether or not the Director's
+scene-direction tool is enabled
 (gated only by ``agentic_lorebook_enabled`` + the global agent + a non-constant entry).
 
 The wire schema is the fixed ``select_lorebook`` tool held in the shared per-turn blob, so
