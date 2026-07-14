@@ -4,12 +4,13 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, AsyncIterator, Mapping, Sequence
+from typing import Any, AsyncIterator, Callable, Mapping, Sequence
 
 import httpx
 
 from . import endpoint_profiles, text_completion
 from .gemma_tool_format import parse_gemma_tool_calls
+from .retry import RetryPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,7 @@ class LLMClient:
         timeout: float = 120.0,
         abort_token: AbortToken | None = None,
         completion_mode: str = "chat",
+        retry: RetryPolicy | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -110,6 +112,9 @@ class LLMClient:
         # Shared across the turn's clients when passed in; otherwise a private
         # token so a standalone client (e.g. a workflow hook) is still abortable.
         self.abort_token = abort_token or AbortToken()
+        # Transient-error retry, off by default: an omitted policy behaves exactly
+        # as before (single attempt, error propagates). See retry.py.
+        self.retry = retry or RetryPolicy()
 
     def abort(self) -> None:
         """Stop all ongoing completions and close their connections."""
@@ -155,21 +160,77 @@ class LLMClient:
                 — assembled message (content and/or tool_calls) and the
                   provider usage object (``None`` when the server omits it).
         """
+        # Transport choice and chat-only param scrubbing happen once, outside the
+        # retry loop; each attempt re-opens a fresh stream from the same inputs.
         if self.completion_mode == "text" and not text_completion.has_image_parts(messages):
-            async for event in self._complete_text(messages, model, tools, tool_choice, **params):
-                yield event
-            return
-        # Chat transport: prefill (no render step), raw GBNF grammar, and the
-        # per-call json_schema narrowing are text-mode concepts; drop them so
-        # such calls degrade cleanly here.
-        params.pop("prefill", None)
-        params.pop("grammar", None)
-        params.pop("json_schema", None)
-        # n_probs is a llama.cpp /completion field; a text→chat fallback (e.g. a
-        # call carrying image parts) must not leak it into the OpenAI-compat body.
-        params.pop("n_probs", None)
-        async for event in self._complete_chat(messages, model, tools, tool_choice, **params):
+            transport = self._complete_text
+        else:
+            # Chat transport: prefill (no render step), raw GBNF grammar, and the
+            # per-call json_schema narrowing are text-mode concepts; drop them so
+            # such calls degrade cleanly here.
+            params.pop("prefill", None)
+            params.pop("grammar", None)
+            params.pop("json_schema", None)
+            # n_probs is a llama.cpp /completion field; a text→chat fallback (e.g. a
+            # call carrying image parts) must not leak it into the OpenAI-compat body.
+            params.pop("n_probs", None)
+            transport = self._complete_chat
+
+        # Retry transient server failures via _with_retry, which re-opens a fresh
+        # transport stream per attempt. Disabled by default -> straight passthrough.
+        async for event in self._with_retry(lambda: transport(messages, model, tools, tool_choice, **params)):
             yield event
+
+    async def _with_retry(self, open_stream: Callable[[], AsyncIterator[dict]]) -> AsyncIterator[dict]:
+        """Yield events from ``open_stream()``, re-opening it on a transient failure.
+
+        ``open_stream`` is a zero-arg factory returning a fresh completion stream;
+        it is called once per attempt. A retry fires only while no event has been
+        yielded -- once the stream emits content, re-issuing would double it, and
+        both transports raise before their first event (HTTP status check /
+        connect), so "produced is still False" is exactly the clean-retry window.
+        With the default disabled policy ``should_retry`` is always False, so the
+        original error propagates on the first attempt, unchanged.
+        """
+        attempt = 0
+        while True:
+            produced = False
+            try:
+                async for event in open_stream():
+                    produced = True
+                    yield event
+                return
+            except httpx.HTTPError as exc:
+                if produced or self.is_aborted or attempt >= self.retry.count or not self.retry.should_retry(exc):
+                    raise
+                attempt += 1
+                detail = f"HTTP {exc.response.status_code}" if isinstance(exc, httpx.HTTPStatusError) else type(exc).__name__
+                logger.warning(
+                    "LLM retry %d/%d after %s; waiting %.1fs",
+                    attempt,
+                    self.retry.count,
+                    detail,
+                    self.retry.delay,
+                )
+                if not await self._sleep_or_abort(self.retry.delay):
+                    raise  # aborted mid-wait: surface the real error, stop retrying
+
+    async def _sleep_or_abort(self, delay: float) -> bool:
+        """Wait up to *delay* seconds, returning early if the turn is aborted.
+
+        Returns True if the full delay elapsed, False if aborted first, so the
+        retry loop drops out immediately on Stop instead of sleeping out its
+        remaining attempts. The abort token is a shared ``asyncio.Event``; waiting
+        on it (rather than a bare ``asyncio.sleep``) is what makes the delay
+        interruptible.
+        """
+        if delay <= 0:
+            return not self.is_aborted
+        try:
+            await asyncio.wait_for(self.abort_token.wait(), timeout=delay)
+            return False  # abort fired within the delay
+        except asyncio.TimeoutError:
+            return True  # full delay elapsed, no abort
 
     async def _complete_chat(
         self,
@@ -590,6 +651,11 @@ class LLMClient:
         native ``/completion`` endpoint serves whatever model the server loaded,
         so it is not sent in the body).
         """
+        async for event in self._with_retry(lambda: self._complete_raw(prompt, **params)):
+            yield event
+
+    async def _complete_raw(self, prompt: str, **params) -> AsyncIterator[dict]:
+        """Raw ``/completion`` stream backing :meth:`complete_raw` (one attempt)."""
         body = text_completion.build_completion_params(params)
         body["prompt"] = prompt
         body["stream"] = True
@@ -629,6 +695,7 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
         api_key=settings.get("api_key", ""),
         abort_token=abort_token,
         completion_mode=settings.get("completion_mode", "chat"),
+        retry=RetryPolicy.from_settings(settings),
     )
 
 
@@ -643,6 +710,7 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
         api_key=settings.get("agent_api_key", settings.get("api_key", "")),
         abort_token=abort_token,
         completion_mode=settings.get("agent_completion_mode", "chat"),
+        retry=RetryPolicy.from_settings(settings),
     )
 
 

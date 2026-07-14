@@ -221,6 +221,9 @@ DEFAULT_SETTINGS = {
     "direction_notes_record": 0,
     "direction_notes_inject": "off",
     "workflows_globally_enabled": 1,
+    "retry_enabled": 0,
+    "retry_count": 10,
+    "retry_delay_seconds": 5,
 }
 
 

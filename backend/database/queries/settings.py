@@ -252,6 +252,9 @@ async def update_settings(data: dict) -> SettingsRow:
             "direction_notes_inject",
             "inspector_open_states",
             "workflows_globally_enabled",
+            "retry_enabled",
+            "retry_count",
+            "retry_delay_seconds",
         ]
         sets, vals = _build_set_clause(
             allowed,

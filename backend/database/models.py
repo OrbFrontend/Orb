@@ -101,6 +101,9 @@ class _SettingsBase(TypedDict):
     direction_notes_record: int
     direction_notes_inject: str
     workflows_globally_enabled: int
+    retry_enabled: int
+    retry_count: int
+    retry_delay_seconds: float
 
 
 class SettingsRow(_SettingsBase, total=False):

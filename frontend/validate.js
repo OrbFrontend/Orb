@@ -470,6 +470,18 @@ export function validateSetting(key, value) {
       if (!range.valid) return range;
       return isInteger(numCheck.parsed, "Max paragraphs");
     }
+    case "retry_count": {
+      const numCheck = isNumber(value, "Max retries");
+      if (!numCheck.valid) return numCheck;
+      const range = numberRange(numCheck.parsed, 1, 100, "Max retries");
+      if (!range.valid) return range;
+      return isInteger(numCheck.parsed, "Max retries");
+    }
+    case "retry_delay_seconds": {
+      const numCheck = isNumber(value, "Retry delay");
+      if (!numCheck.valid) return numCheck;
+      return numberRange(numCheck.parsed, 0, 300, "Retry delay");
+    }
     default:
       return { valid: true };
   }

@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS settings (
     workflows_globally_enabled INTEGER NOT NULL DEFAULT 1,
     workflow_enabled TEXT NOT NULL DEFAULT '{}',
     local_ml_enabled TEXT NOT NULL DEFAULT '{}',
+    retry_enabled INTEGER NOT NULL DEFAULT 0,
+    retry_count INTEGER NOT NULL DEFAULT 10,
+    retry_delay_seconds REAL NOT NULL DEFAULT 5,
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
     attachment_access_counter INTEGER NOT NULL DEFAULT 0,
     generated_chars INTEGER DEFAULT NULL

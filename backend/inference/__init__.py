@@ -32,6 +32,7 @@ from .prompt_builder import (
     format_message_with_attachments,
     render_direction_notes_block,
 )
+from .retry import RetryPolicy
 from .text_completion import has_image_parts
 from .tool_registry import (
     BUILTIN_TOOL_NAMES,
@@ -57,6 +58,8 @@ __all__ = [
     "client_from_settings",
     "parse_tool_calls",
     "reasoning_cfg",
+    # retry
+    "RetryPolicy",
     # endpoint_profiles — provider adapter
     "ModelProfile",
     "is_forced_tool_choice",

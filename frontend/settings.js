@@ -122,6 +122,11 @@ export async function loadSettings() {
   else if (typeof S.settings.prevent_prompt_overrides === "boolean")
     S.preventPromptOverrides = S.settings.prevent_prompt_overrides;
 
+  if (typeof S.settings.retry_enabled === "number") S.retryEnabled = S.settings.retry_enabled !== 0;
+  else if (typeof S.settings.retry_enabled === "boolean") S.retryEnabled = S.settings.retry_enabled;
+  if (typeof S.settings.retry_count === "number") S.retryCount = S.settings.retry_count;
+  if (typeof S.settings.retry_delay_seconds === "number") S.retryDelay = S.settings.retry_delay_seconds;
+
   if (typeof S.settings.agent_same_as_writer === "number") S.agentSameAsWriter = S.settings.agent_same_as_writer !== 0;
   else if (typeof S.settings.agent_same_as_writer === "boolean") S.agentSameAsWriter = S.settings.agent_same_as_writer;
   S.agentEndpointId = S.settings.agent_endpoint_id || null;
@@ -172,6 +177,32 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
     </div>
+    <div class="tool-card ${S.retryEnabled ? "tool-on" : ""}">
+      <div class="tool-card-header">
+        <span class="tool-card-name">Retry on error</span>
+        <label class="tog">
+          <input id="retry-enabled" type="checkbox" ${S.retryEnabled ? "checked" : ""}>
+          <span class="tog-slider"></span>
+        </label>
+      </div>
+      <div class="tool-card-desc">Retry completions that fail with a temporary server error (503, 429, 529, dropped connection, etc).</div>
+      ${
+        S.retryEnabled
+          ? `<div class="lg-config">
+      <div class="lg-config-row">
+        <div class="lg-field">
+          <label>Max retries</label>
+          <input id="retry-count" type="number" min="1" max="100" step="1" value="${S.retryCount}">
+        </div>
+        <div class="lg-field">
+          <label>Delay (seconds)</label>
+          <input id="retry-delay" type="number" min="0" max="300" step="1" value="${S.retryDelay}">
+        </div>
+      </div>
+    </div>`
+          : ""
+      }
+    </div>
     <div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Local ML</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
     <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
     <div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Data</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
@@ -180,6 +211,11 @@ export function renderSettings() {
       <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>
     </div>
   `;
+  // Wired here rather than inline on*= handlers: the frontend layer check ratchets
+  // the inline-handler count down, so new controls attach listeners in JS.
+  $("retry-enabled")?.addEventListener("change", (e) => toggleRetryEnabled(e.target.checked));
+  $("retry-count")?.addEventListener("change", saveRetryConfig);
+  $("retry-delay")?.addEventListener("change", saveRetryConfig);
   loadLocalMLSection();
 }
 
@@ -433,6 +469,35 @@ export async function togglePreventPromptOverrides(on) {
   S.preventPromptOverrides = on;
   renderSettings();
   await persistSettings({ prevent_prompt_overrides: on });
+}
+
+export async function toggleRetryEnabled(on) {
+  S.retryEnabled = on;
+  renderSettings();
+  await persistSettings({ retry_enabled: on });
+}
+
+export async function saveRetryConfig() {
+  const count = parseInt($("retry-count").value, 10);
+  const delay = parseFloat($("retry-delay").value);
+  const countValidation = validate.validateSetting("retry_count", count);
+  if (!countValidation.valid) {
+    toast(countValidation.error, true);
+    return;
+  }
+  const delayValidation = validate.validateSetting("retry_delay_seconds", delay);
+  if (!delayValidation.valid) {
+    toast(delayValidation.error, true);
+    return;
+  }
+  S.retryCount = count;
+  S.retryDelay = delay;
+  try {
+    S.settings = await api.put("/settings", { retry_count: count, retry_delay_seconds: delay });
+    toast("Retry settings saved");
+  } catch (_e) {
+    toast("Failed to save retry settings", true);
+  }
 }
 
 export async function saveLengthGuardConfig() {

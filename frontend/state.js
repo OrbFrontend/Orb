@@ -47,6 +47,9 @@ export const S = {
   directionNotesInject: "off", // injection target: off | director | writer | both (read side, independent of recording)
   hideUntilBaked: false, // when true, in-flight streaming message is kept detached from DOM until stream finalizes
   preventPromptOverrides: false, // when true, character card system_prompt and post_history_instructions are ignored
+  retryEnabled: false, // when true, completions that fail with a transient server error are retried
+  retryCount: 10, // retries after the initial attempt
+  retryDelay: 5, // seconds between attempts
   showEditorDiff: true, // when false, editor-pass diff highlights + "clear diff" button are suppressed
   reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
   editorAuditToggles: {
