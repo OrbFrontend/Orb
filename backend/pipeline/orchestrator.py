@@ -127,10 +127,13 @@ async def _run_pipeline(
     post_turn_notes = [df for df in direction_note_fragments if df.get("direction_note_timing") != "pre_writer"]
 
     # Mutable state threaded through the three passes; seeded from director + user message.
+    # macro_choices is copied so mutations stay turn-local until persistence
+    # commits them (regenerates then re-read the committed map, like moods).
     state = TurnState(
         user_message=user_message,
         effective_msg=user_message,
         active_moods=director["active_moods"],
+        macro_choices=dict(director.get("macro_choices") or {}),
     )
 
     # --- Director pass (+ rewrite, style injection, agentic-lorebook block) ---

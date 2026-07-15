@@ -54,7 +54,7 @@ A typical `/send` turn with reasoning on (Director + Writer), an Editor pass, an
 
 | # | Event | Dir | Data | What the frontend does |
 |---|-------|-----|------|------------------------|
-| 1 | `user_message_created` | BE→FE | `{ "id": 412 }` | Patches the optimistic user bubble (`id: null`) with the real DB id. `/send` only — `/continue` skips it. |
+| 1 | `user_message_created` | BE→FE | `{ "id": 412, "content": "…" }` | Patches the optimistic user bubble (`id: null`) with the real DB id. `content` is the persisted text after inline-macro resolution (`{{roll}}`/`{{random}}`); the frontend syncs its local copy and repaints the bubble when it differs. `/send` only — `/continue` skips it. |
 | 2 | `director_start` | BE→FE | *(none)* | Phase → **directing**; clears stale inspector data. |
 | 3 | `reasoning` | BE→FE | `{ "pass": "director", "delta": "…" }` | Appends thinking tokens to the named pass's buffer; lights its dot. |
 | 4 | `director_done` | BE→FE | `{ "tool_calls": [...], ... }` | Stores director data for the inspector; advances dot to Writer. |

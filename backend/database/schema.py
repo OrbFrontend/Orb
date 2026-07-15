@@ -127,7 +127,8 @@ CREATE TABLE IF NOT EXISTS director_state (
     conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
     active_moods TEXT NOT NULL DEFAULT '[]',
     keywords TEXT NOT NULL DEFAULT '[]',
-    progressive_fields TEXT NOT NULL DEFAULT '{}'
+    progressive_fields TEXT NOT NULL DEFAULT '{}',
+    macro_choices TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS interactive_fragments (

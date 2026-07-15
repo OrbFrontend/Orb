@@ -7,7 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core.macros import Macros
+from ...core.macros import Macros, resolve_inline
 from ...database import (
     delete_message_with_descendants,
     get_character_card,
@@ -16,6 +16,8 @@ from ...database import (
     get_messages_with_branch_info,
     get_settings,
     get_user_persona,
+    reroll_unfrozen_greetings,
+    set_workflow_message_state,
     switch_to_branch,
     update_message_content,
 )
@@ -30,6 +32,7 @@ from ...pipeline import (
 )
 from ...pipeline.predicates import resolve_persona_id
 from ..deps import (
+    _active_aborts,
     _conversation_stream_lock,
     _pipeline_sse_response,
     require_conversation,
@@ -47,6 +50,11 @@ router = APIRouter()
 
 @router.get("/api/conversations/{cid}/messages")
 async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    # Greetings with inline macros re-roll freely on every fetch until the
+    # first user message freezes them. Skipped while a stream is in flight so
+    # the fetch can't disagree with the prefix the running turn was built from.
+    if cid not in _active_aborts:
+        await reroll_unfrozen_greetings(cid)
     return await get_messages_with_branch_info(cid)
 
 
@@ -66,7 +74,13 @@ async def api_edit_message(
         if not original or original["conversation_id"] != cid:
             raise HTTPException(status_code=404, detail="Message not found")
 
-        await update_message_content(msg_id, data.content)
+        # Plain edits bypass the pipeline's persist boundary, so inline macros
+        # ({{roll}}/{{random}}) typed into an edit fire once here.
+        await update_message_content(msg_id, resolve_inline(data.content))
+        # Editing an unfrozen greeting drops its stashed template — otherwise
+        # the next fetch would re-roll from it and clobber the manual edit.
+        if original["role"] == "assistant" and original["parent_id"] is None:
+            await set_workflow_message_state(msg_id, "macros", None)
         return {"ok": True}
 
 

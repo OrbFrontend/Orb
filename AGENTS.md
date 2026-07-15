@@ -84,7 +84,7 @@ features/<name>/
 | `character_cards` | V2-spec characters; `avatar_b64`, `world_id`, `persona_lock_id` |
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
-| `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields) |
+| `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields, macro_choices) |
 | `interactive_fragments` | Dynamic Director parameters; `field_type` = string/array/progressive/feedback/direction_note |
 | `mood_fragments` | Named mood presets with prompt/negative_prompt |
 | `phrase_bank` | Banned phrase variants for editor audit |

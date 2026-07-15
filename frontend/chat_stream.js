@@ -557,11 +557,22 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
         if (!realId) break;
         // Find the pending user message (most recent user message without an id)
         const pendingIdx = S.messages.findLastIndex((m) => m.role === "user" && !m.id);
+        const prevContent = pendingIdx >= 0 ? S.messages[pendingIdx].content : null;
         if (pendingIdx >= 0) {
           S.messages[pendingIdx].id = realId;
         }
         if (S.pendingUserMsg) {
           S.pendingUserMsg.id = realId;
+        }
+        // The backend resolves inline macros ({{roll}}/{{random}}) before
+        // persisting, so the stored text can differ from what was typed. Sync
+        // the local copies so content-keyed matching (patchPendingUserMessage,
+        // afterStream) holds. An edit in flight supersedes the server text.
+        const editing = S.editingPendingUserMsg || S.pendingUserMsgEdit != null;
+        const resolved = typeof d.content === "string" && !editing ? d.content : null;
+        if (resolved !== null) {
+          if (pendingIdx >= 0) S.messages[pendingIdx].content = resolved;
+          if (S.pendingUserMsg) S.pendingUserMsg.content = resolved;
         }
         // If the user is currently editing the pending message, transition to normal edit mode
         if (S.editingPendingUserMsg) {
@@ -580,6 +591,11 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
             div.setAttribute("data-msg-id", realId);
             const tb = div.querySelector(".msg-toolbar");
             if (tb) tb.innerHTML = buildMsgToolbar({ id: realId, role: "user" });
+            // Repaint only when macro resolution actually changed the text.
+            if (resolved !== null && resolved !== prevContent) {
+              const body = div.querySelector(".msg-body");
+              if (body) body.innerHTML = formatProse(resolvePlaceholders(resolved));
+            }
           }
         }
         // A queued edit (S.pendingUserMsgEdit) is intentionally NOT POSTed here:

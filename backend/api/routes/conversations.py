@@ -9,7 +9,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core import estimate_tokens, scrub_log
+from ...core import (
+    estimate_tokens,
+    has_inline_macros,
+    resolve_inline,
+    resolve_stored_random,
+    scrub_log,
+)
 from ...database import (
     add_conversation_log,
     add_message,
@@ -38,6 +44,7 @@ from ...database import (
     list_conversations,
     resolve_char_context,
     set_active_leaf,
+    set_workflow_message_state,
     touch_conversation,
     update_conversation,
     update_direction_note,
@@ -112,10 +119,16 @@ async def api_create_conversation(data: ConversationCreate):
         character_card_id=card_id,
     )
 
-    # If there's a first message, auto-add it as the first assistant turn
+    # If there's a first message, auto-add it as the first assistant turn.
+    # Content is stored macro-resolved; the raw template rides the per-message
+    # "macros" slot so the greeting can re-roll freely until the first user
+    # message freezes it (see reroll_unfrozen_greetings).
     if first_mes.strip():
-        msg_id, _ = await add_message(cid, "assistant", first_mes.strip(), 0, attachments=None)
+        raw_greeting = first_mes.strip()
+        msg_id, _ = await add_message(cid, "assistant", resolve_inline(raw_greeting), 0, attachments=None)
         await set_active_leaf(cid, msg_id)
+        if has_inline_macros(raw_greeting):
+            await set_workflow_message_state(msg_id, "macros", {"template": raw_greeting})
 
         # If we have a character card with alternate greetings, create swipe versions
         if card_id:
@@ -181,7 +194,7 @@ async def api_summarize_conversation(
     # lock overrides the global active persona) so a summary stays consistent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-    macros, user_description = persona_macros(settings, char_name, active_persona)
+    macros, user_description = persona_macros(settings, char_name, active_persona, seed=cid)
 
     abort_token = AbortToken()
     client = client_from_settings(settings, abort_token=abort_token)
@@ -305,6 +318,7 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
         director.get("active_moods", []),
         keywords=director.get("keywords", []),
         progressive_fields=director.get("progressive_fields", {}),
+        macro_choices=director.get("macro_choices", {}),
     )
 
     # Carry the per-turn inspector logs, re-pointing message_id onto the copied
@@ -378,7 +392,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # character lock overrides the global active persona) so the size
     # breakdown matches the prompt that is actually sent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
-    macros, user_desc = persona_macros(settings, conv["character_name"], active_persona)
+    macros, user_desc = persona_macros(settings, conv["character_name"], active_persona, seed=cid)
 
     # Resolve character context
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
@@ -395,12 +409,23 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
     msg_chars = sum(len(m.get("content", "") or "") for m in messages)
 
-    # Director injection
+    # Director injection — fragment {{random}} resolves against a throwaway
+    # copy of the stored choice map so the estimate matches the prompt bytes a
+    # real turn would inject, without recording new picks.
     active_moods = director.get("active_moods", []) if director else []
+    est_choices = dict(director.get("macro_choices", {}) if director else {})
+    est_mood_frags = []
+    for f in mood_frags:
+        if f["id"] in active_moods:
+            prompt_text, negative_prompt = resolve_stored_random(
+                [f.get("prompt_text", ""), f.get("negative_prompt", "")], est_choices, f"mood:{f['id']}"
+            )
+            f = {**f, "prompt_text": prompt_text, "negative_prompt": negative_prompt}
+        est_mood_frags.append(f)
     inj_block = prompt_builder.compute_style_injection_block(
         active_moods,
         active_moods,
-        mood_frags,
+        est_mood_frags,
         director_frags,
         agent_enabled(settings),
         {},

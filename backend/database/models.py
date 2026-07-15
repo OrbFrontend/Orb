@@ -401,14 +401,16 @@ class DirectorStateRow(TypedDict):
     """The director-state dict returned by ``get_director_state()``.
 
     The JSON columns are decoded before return: ``active_moods`` and
-    ``keywords`` to lists, ``progressive_fields`` to a dict. When no row exists
-    the query synthesizes the same shape with empty containers.
+    ``keywords`` to lists, ``progressive_fields`` and ``macro_choices`` to
+    dicts. When no row exists the query synthesizes the same shape with empty
+    containers.
     """
 
     conversation_id: str
     active_moods: list
     keywords: list
     progressive_fields: dict
+    macro_choices: dict
 
 
 class ConversationLogRow(TypedDict):

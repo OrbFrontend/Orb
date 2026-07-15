@@ -19,6 +19,7 @@ import logging
 from typing import Any, AsyncIterator, Mapping
 
 from .. import database as db
+from ..core import resolve_inline
 from ..workflows.attachment_cache import project_rejected_attachment
 from .predicates import agent_enabled
 from .state import TurnState
@@ -76,10 +77,13 @@ async def _persist_result(
             conversation_id,
             res.active_moods,
             progressive_fields=res.progressive_fields,
+            macro_choices=res.macro_choices,
         )
 
     # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
-    resp_text = res.resp_text
+    # Inline macros the model emitted (copied from context) fire once here — the
+    # persist boundary — so the stored history holds the final text.
+    resp_text = resolve_inline(res.resp_text)
     if resp_text.strip():
         # Attachments ride the same INSERT transaction; aborted turns leave no orphans.
         staged = res.staged_attachments or None
@@ -148,9 +152,12 @@ async def _fallback_persist(
                 conversation_id,
                 res.active_moods,
                 progressive_fields=res.progressive_fields,
+                macro_choices=res.macro_choices,
             )
 
         # accumulated_text holds only writer tokens (not reasoning deltas).
+        # Same persist-boundary macro resolution as _persist_result.
+        accumulated_text = resolve_inline(accumulated_text)
         if accumulated_text.strip():
             asst_id, _ = await db.add_message(
                 conversation_id,

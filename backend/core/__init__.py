@@ -23,7 +23,7 @@ from .locks import (
     workflow_config_lock,
     workflow_state_lock,
 )
-from .macros import Macros
+from .macros import Macros, has_inline_macros, resolve_inline, resolve_stored_random
 from .utils import (
     build_multimodal_content,
     estimate_tokens,
@@ -44,6 +44,9 @@ __all__ = [
     "workflow_state_lock",
     # macros — string/message transforms
     "Macros",
+    "has_inline_macros",
+    "resolve_inline",
+    "resolve_stored_random",
     # utils — token/log/multimodal helpers
     "build_multimodal_content",
     "estimate_tokens",

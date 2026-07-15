@@ -21,6 +21,7 @@ import logging
 from typing import Any, AsyncIterator, Callable, List, Mapping, Optional, Sequence
 
 from .. import database as db
+from ..core import resolve_inline
 from ..inference import AbortToken
 from .context import (
     PipelineContext,
@@ -222,6 +223,12 @@ async def handle_turn(
         attachments = []
 
     async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+        # Inline macros ({{roll}}/{{random}}) resolve exactly once, before the
+        # row is persisted, so history holds the final text and never re-rolls.
+        # For /continue the content came from the DB and is already resolved.
+        nonlocal user_message
+        user_message = resolve_inline(user_message)
+
         settings = ctx.settings
         messages = await db.get_messages(conversation_id)
         conv = ctx.conv
@@ -262,7 +269,9 @@ async def handle_turn(
                 attachments=db_attachments,
             )
             await db.set_active_leaf(conversation_id, user_msg_id)
-            yield {"event": "user_message_created", "data": {"id": user_msg_id}}
+            # content carries the macro-resolved text so the frontend can sync
+            # the optimistic bubble with what was actually persisted.
+            yield {"event": "user_message_created", "data": {"id": user_msg_id, "content": user_message}}
 
         asst_turn = user_turn + 1
 
@@ -304,6 +313,11 @@ async def handle_fork_edit(
     """
 
     async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+        # Same persist-boundary rule as handle_turn: inline macros in the
+        # edited text fire once, before the new sibling row is written.
+        nonlocal new_content
+        new_content = resolve_inline(new_content)
+
         settings = ctx.settings
         original = await db.get_message_by_id(user_msg_id)
         if not original or original["conversation_id"] != conversation_id or original["role"] != "user":
@@ -332,7 +346,7 @@ async def handle_fork_edit(
             attachments=carried_atts,
         )
         await db.set_active_leaf(conversation_id, new_user_id)
-        yield {"event": "user_message_created", "data": {"id": new_user_id}}
+        yield {"event": "user_message_created", "data": {"id": new_user_id, "content": new_content}}
 
         async for event in _generate_reply(
             ctx,

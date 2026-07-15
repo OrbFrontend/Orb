@@ -160,13 +160,16 @@ async def resolve_card_and_persona(
     return card, persona
 
 
-def persona_macros(settings: Mapping[str, Any], char_name: str, persona: Mapping[str, Any] | None) -> tuple[Macros, str]:
+def persona_macros(
+    settings: Mapping[str, Any], char_name: str, persona: Mapping[str, Any] | None, seed: str = ""
+) -> tuple[Macros, str]:
     """Build the turn :class:`Macros` plus the resolved user description.
 
     The description falls back to the global ``user_description`` setting when
-    no persona row is active.
+    no persona row is active. *seed* (the conversation id) keeps {{random}} in
+    per-turn-resolved prompt fields byte-stable per conversation.
     """
-    macros = Macros.from_settings(settings, char_name, persona)
+    macros = Macros.from_settings(settings, char_name, persona, seed=seed)
     user_description = persona.get("description", "") if persona else settings.get("user_description", "")
     return macros, user_description
 
@@ -185,7 +188,7 @@ def _build_prefix_from_ctx(
     sections contributed by pre-pipeline workflow hooks.
     """
     conv = ctx.conv
-    macros, user_description = persona_macros(ctx.settings, conv["character_name"], ctx.active_persona)
+    macros, user_description = persona_macros(ctx.settings, conv["character_name"], ctx.active_persona, seed=conv["id"])
 
     return build_prefix(
         system_prompt if system_prompt is not None else ctx.system_prompt,
@@ -271,7 +274,7 @@ async def _prepare_turn(
                 yield ev
         assert setup is not None
     """
-    macros = Macros.from_settings(ctx.settings, ctx.conv["character_name"], ctx.active_persona)
+    macros = Macros.from_settings(ctx.settings, ctx.conv["character_name"], ctx.active_persona, seed=ctx.conv["id"])
 
     prefix_base, agent_prefix_base = _build_prefixes(ctx, history)
 
