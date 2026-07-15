@@ -83,7 +83,7 @@ async def test_pre_pipeline_iter_empty_registry_no_events_no_accumulator_change(
 
 async def test_pre_pipeline_iter_enable_tools_dict_merges_only_true_entries():
     async def hook(pre_ctx):
-        yield {"type": "enable_tools", "tools": {"direct_scene": True, "rewrite_user_prompt": False}}
+        yield {"type": "enable_tools", "tools": {"direct_scene": True, "editor_rewrite": False}}
 
     w = make_workflow("tw_enable", pre_pipeline=hook)
     with register_for_test(w):
@@ -108,7 +108,7 @@ async def test_pre_pipeline_iter_enable_tools_dict_merges_only_true_entries():
     assert accumulators["merged_enabled_tools"]["editor_apply_patch"] is True
     assert accumulators["merged_enabled_tools"]["direct_scene"] is True
     # False entries are not added.
-    assert "rewrite_user_prompt" not in accumulators["merged_enabled_tools"]
+    assert "editor_rewrite" not in accumulators["merged_enabled_tools"]
 
 
 async def test_pre_pipeline_iter_enable_tools_set_form_treats_each_as_true():

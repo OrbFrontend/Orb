@@ -57,16 +57,15 @@ A typical `/send` turn with reasoning on (Director + Writer), an Editor pass, an
 | 1 | `user_message_created` | BE→FE | `{ "id": 412 }` | Patches the optimistic user bubble (`id: null`) with the real DB id. `/send` only — `/continue` skips it. |
 | 2 | `director_start` | BE→FE | *(none)* | Phase → **directing**; clears stale inspector data. |
 | 3 | `reasoning` | BE→FE | `{ "pass": "director", "delta": "…" }` | Appends thinking tokens to the named pass's buffer; lights its dot. |
-| 4 | `prompt_rewritten` | BE→FE | `{ "refined_message": "…" }` | *Optional.* Rewrites the displayed user message in place. |
-| 5 | `director_done` | BE→FE | `{ "tool_calls": [...], ... }` | Stores director data for the inspector; advances dot to Writer. |
-| 6 | `token` (×N) | BE→FE | bare text `delta` | The visible reply. First token reveals the bubble + phase → **generating**; each one is appended and re-rendered. |
-| 7 | `writer_done` | BE→FE | `{ "editor_will_run": true }` | Authoritative end-of-writer marker; phase → **refining** if an editor pass follows. |
-| 8 | `writer_rewrite` | BE→FE | `{ "refined_text": "…" }` | *Optional.* Editor's patched prose; FE diffs vs. the draft and swaps the bubble. |
-| 9 | `editor_done` | BE→FE | `{ "tool_calls": [...] }` | Merges editor tool calls into the inspector. |
-| 10 | `feedback` | BE→FE | `{ "values": {...} }` | *Optional.* User-facing notes; display-only, re-renders the inspector. |
-| 11 | `direction_notes` | BE→FE | `{ "notes": [...] }` | *Optional.* The Director's persistent notes recorded this turn; display-only, re-renders the inspector's Direction Notes block. |
-| 12 | `phase_status`, `tts_autoplay`, … | BE→FE | varies | Secondary-workflow passthrough (see §6). |
-| 13 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
+| 4 | `director_done` | BE→FE | `{ "tool_calls": [...], ... }` | Stores director data for the inspector; advances dot to Writer. |
+| 5 | `token` (×N) | BE→FE | bare text `delta` | The visible reply. First token reveals the bubble + phase → **generating**; each one is appended and re-rendered. |
+| 6 | `writer_done` | BE→FE | `{ "editor_will_run": true }` | Authoritative end-of-writer marker; phase → **refining** if an editor pass follows. |
+| 7 | `writer_rewrite` | BE→FE | `{ "refined_text": "…" }` | *Optional.* Editor's patched prose; FE diffs vs. the draft and swaps the bubble. |
+| 8 | `editor_done` | BE→FE | `{ "tool_calls": [...] }` | Merges editor tool calls into the inspector. |
+| 9 | `feedback` | BE→FE | `{ "values": {...} }` | *Optional.* User-facing notes; display-only, re-renders the inspector. |
+| 10 | `direction_notes` | BE→FE | `{ "notes": [...] }` | *Optional.* The Director's persistent notes recorded this turn; display-only, re-renders the inspector's Direction Notes block. |
+| 11 | `phase_status`, `tts_autoplay`, … | BE→FE | varies | Secondary-workflow passthrough (see §6). |
+| 12 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
 
 The only event whose `data` is **not** JSON is `token` — it's a raw text delta, with newlines escaped to `\n` and un-escaped on arrival.
 

@@ -64,7 +64,6 @@ async def _configure_all_features(client) -> None:
             "enable_agent": True,
             "enabled_tools": {
                 "direct_scene": True,
-                "rewrite_user_prompt": True,
                 "editor_apply_patch": True,
             },
             "length_guard_enabled": True,
@@ -182,23 +181,19 @@ async def _drive_magic_rewrite(client, llm_mock, b: _Baseline) -> None:
     _ = resp.text
 
 
-# ``expect_full_blob`` -- whether the entry point ships the turn's exact blob.
-# super_regenerate and magic_rewrite disable ``rewrite_user_prompt`` (they must
-# not rewrite the OOC steering message), so their blob is a smaller -- but still
-# non-empty and internally consistent -- schema set than the turn's.
 _ENTRY_POINTS = [
-    ("regenerate", _drive_regenerate, True),
-    ("super_regenerate", _drive_super_regenerate, False),
-    ("fork_edit", _drive_fork_edit, True),
-    ("magic_rewrite", _drive_magic_rewrite, False),
+    ("regenerate", _drive_regenerate),
+    ("super_regenerate", _drive_super_regenerate),
+    ("fork_edit", _drive_fork_edit),
+    ("magic_rewrite", _drive_magic_rewrite),
 ]
 
 
 # ── Tests ───────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("name,driver,expect_full_blob", _ENTRY_POINTS, ids=[e[0] for e in _ENTRY_POINTS])
-async def test_entry_point_tools_blob_and_prefix_match_the_turn(client, llm_mock, name, driver, expect_full_blob):
+@pytest.mark.parametrize("name,driver", _ENTRY_POINTS, ids=[e[0] for e in _ENTRY_POINTS])
+async def test_entry_point_tools_blob_and_prefix_match_the_turn(client, llm_mock, name, driver):
     """Every entry point that generates a message must, on every LLM call it
     issues, ship a NON-EMPTY tools blob (single-model), keep that blob
     byte-identical across its own calls, and start from the conversation's cached
@@ -228,11 +223,10 @@ async def test_entry_point_tools_blob_and_prefix_match_the_turn(client, llm_mock
         f"passes; distinct sizes {sorted(len(x) for x in blobs)}."
     )
 
-    if expect_full_blob:
-        assert blobs == {b.tools_blob}, (
-            f"CACHE BUST: entry point {name!r} ships a tools blob differing from the "
-            "conversation's turns — its tools region will not reuse the cached prefix."
-        )
+    assert blobs == {b.tools_blob}, (
+        f"CACHE BUST: entry point {name!r} ships a tools blob differing from the "
+        "conversation's turns — its tools region will not reuse the cached prefix."
+    )
 
     # Every call starts from the same cached system prefix the turn established.
     for c in calls:
@@ -251,10 +245,9 @@ async def test_magic_rewrite_writer_call_ships_a_stable_blob(client, llm_mock):
     with tool_choice='none', on the writer model.
 
     The rewrite runs the full pipeline (director, writer, editor); its writer
-    call mirrors super_regenerate -- a rewrite-disabled blob (smaller than the
-    turn's full blob) shipped purely to keep the templated tools region
-    byte-stable, with the writer barred from invoking a tool. An empty blob here
-    is the original ``tools=None`` cache bust."""
+    call mirrors super_regenerate -- the turn's blob shipped purely to keep the
+    templated tools region byte-stable, with the writer barred from invoking a
+    tool. An empty blob here is the original ``tools=None`` cache bust."""
     b = await _baseline_turn(client, llm_mock)
 
     start = len(llm_mock.captured)

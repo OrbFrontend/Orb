@@ -23,7 +23,7 @@ from typing import Any, AsyncIterator
 from backend.inference import AbortToken
 
 _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
-_DIRECTOR_FUNCTION_NAMES = {"direct_scene", "rewrite_user_prompt"}
+_DIRECTOR_FUNCTION_NAMES = {"direct_scene"}
 _FEEDBACK_FUNCTION_NAMES = {"give_feedback"}
 _DIRECTION_NOTE_FUNCTION_NAMES = {"record_direction_note"}
 

@@ -432,23 +432,6 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
       renderInspector();
       break;
     }
-    case "prompt_rewritten":
-      try {
-        const d = JSON.parse(data);
-        const lastUser =
-          [...S.messages].reverse().find((m) => m.role === "user" && !m.id) ||
-          [...S.messages].reverse().find((m) => m.role === "user");
-        if (lastUser) lastUser.content = d.refined_message;
-        if (S.pendingUserMsg) S.pendingUserMsg.content = d.refined_message;
-        if (S.isStreaming) {
-          const userBodies = document.querySelectorAll("#chat-messages .message.user .msg-body");
-          const last = userBodies[userBodies.length - 1];
-          if (last) last.innerHTML = formatProse(d.refined_message);
-        } else {
-          renderMessages();
-        }
-      } catch (_) {}
-      break;
     case "token":
       setGenerationPhase("generating");
       onToken();

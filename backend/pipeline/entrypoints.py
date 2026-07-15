@@ -30,7 +30,6 @@ from .context import (
 )
 from .orchestrator import _run_pipeline
 from .passes.director import progressive
-from .passes.director.prompt_rewrite import disable_rewrite
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .persistence import _consume_pipeline, _conversation_log_writer
 
@@ -130,7 +129,7 @@ async def _generate_reply(
     conversation_id: str,
     *,
     history: Sequence[Mapping[str, Any]],
-    pipeline_settings: Mapping[str, Any],
+    settings: Mapping[str, Any],
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
     user_message: str,
@@ -139,26 +138,21 @@ async def _generate_reply(
     asst_turn_index: int,
     log_turn_index: int,
     editor_audit_msgs: list[str] | None = None,
-    consume_settings: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict]:
     """Run setup → pipeline → persist and stream all SSE events.
 
     The user message row must already be persisted before this is called.
 
-    *pipeline_settings* drives the passes; *consume_settings* (defaults to the
-    same) is used during persistence. They differ for the steered-regenerate
-    paths (super-regenerate and magic-rewrite), which pass a rewrite-disabled
-    copy to the pipeline but persist under the original settings. *user_message*
-    is what the writer actually receives; it may differ from *last_user_message*
-    (the steered paths send an OOC message as the writer input while
-    *last_user_message* carries the original).
+    *user_message* is what the writer actually receives; it may differ from
+    *last_user_message* (the steered paths send an OOC message as the writer
+    input while *last_user_message* carries the original).
     """
     setup: _TurnSetup | None = None
     async for ev in _prepare_turn(
         ctx,
         conversation_id,
         history=history,
-        settings=pipeline_settings,
+        settings=settings,
         last_user_message=last_user_message,
         lorebook_messages=lorebook_messages,
     ):
@@ -170,7 +164,7 @@ async def _generate_reply(
 
     pipeline = _run_pipeline(
         ctx.client,
-        pipeline_settings,
+        settings,
         ctx.director,
         ctx.mood_fragments,
         ctx.interactive_fragments,
@@ -195,7 +189,7 @@ async def _generate_reply(
     async for event in _consume_pipeline(
         pipeline,
         conversation_id,
-        consume_settings if consume_settings is not None else pipeline_settings,
+        settings,
         user_msg_id,
         asst_turn_index,
         extra_on_result=_conversation_log_writer(conversation_id, log_turn_index),
@@ -277,7 +271,7 @@ async def handle_turn(
             ctx,
             conversation_id,
             history=history,
-            pipeline_settings=settings,
+            settings=settings,
             last_user_message=user_message,
             lorebook_messages=history + [{"role": "user", "content": user_message}],
             user_message=user_message,
@@ -344,7 +338,7 @@ async def handle_fork_edit(
             ctx,
             conversation_id,
             history=history,
-            pipeline_settings=settings,
+            settings=settings,
             last_user_message=new_content,
             lorebook_messages=history + [{"role": "user", "content": new_content}],
             user_message=new_content,
@@ -387,7 +381,7 @@ async def handle_regenerate(
             ctx,
             conversation_id,
             history=history,
-            pipeline_settings=settings,
+            settings=settings,
             last_user_message=user_msg["content"],
             lorebook_messages=[
                 *history,
@@ -421,8 +415,7 @@ async def _regenerate_with_steering(
     Extends history with the original exchange so the model sees what it wrote,
     then runs the full pipeline with *steer_msg* as the current-turn user
     message: the director reads it when shaping the scene and the writer rewrites
-    against it. The prompt-rewrite tool is disabled so the director cannot alter
-    the steering message. The original reply is left intact on its own branch.
+    against it. The original reply is left intact on its own branch.
     """
 
     async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
@@ -442,10 +435,6 @@ async def _regenerate_with_steering(
             {"role": "user", "content": user_msg["content"]},
             {"role": "assistant", "content": target["content"]},
         ]
-        steer_settings = {
-            **settings,
-            "enabled_tools": disable_rewrite(settings.get("enabled_tools") or {}),
-        }
 
         # From history, not extended_history: the reply being replaced is excluded
         # from the audit so the new draft isn't penalised for resembling it.
@@ -457,7 +446,7 @@ async def _regenerate_with_steering(
             ctx,
             conversation_id,
             history=extended_history,
-            pipeline_settings=steer_settings,
+            settings=settings,
             last_user_message=user_msg["content"],
             lorebook_messages=extended_history,
             user_message=steer_msg,
@@ -466,7 +455,6 @@ async def _regenerate_with_steering(
             asst_turn_index=target["turn_index"],
             log_turn_index=target["turn_index"],
             editor_audit_msgs=editor_audit_msgs,
-            consume_settings=settings,
         ):
             yield event
 

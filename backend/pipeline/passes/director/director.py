@@ -29,12 +29,6 @@ from ....inference import (
 from ...predicates import direction_note_to_director, direction_note_to_writer
 from . import progressive
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
-from .prompt_rewrite import (
-    apply_rewrite,
-    extract_rewritten_message,
-    order_director_tools,
-    suppresses_reasoning,
-)
 
 if TYPE_CHECKING:
     from ....core import Macros
@@ -81,7 +75,7 @@ def _step_schema(tool_schema: dict, keep: str) -> dict | None:
 class DirectorResult:
     """Typed result of the director pass, yielded as the ``done`` event payload.
 
-    Field names match ``TurnState`` (e.g. ``agent_raw``, ``rewritten_msg``) so
+    Field names match ``TurnState`` (e.g. ``agent_raw``, ``extra_fields``) so
     the same name follows each value from the pass through to persistence.
 
     ``progressive_fields`` is absent — it is derived in ``director_stage`` by
@@ -92,7 +86,6 @@ class DirectorResult:
     agent_raw: str = ""
     calls: list[dict] = field(default_factory=list)
     latency: int = 0
-    rewritten_msg: str | None = None
     extra_fields: dict = field(default_factory=dict)
 
 
@@ -102,15 +95,14 @@ class DirectorResult:
 def apply_tool_calls(
     tool_calls: list[dict],
     current_moods: list[str],
-) -> tuple[list[str], str | None, dict]:
+) -> tuple[list[str], dict]:
     """Extract values from tool calls.
 
-    Returns ``(moods, refined_message, extra_fields)``. ``extra_fields`` holds all
+    Returns ``(moods, extra_fields)``. ``extra_fields`` holds all
     ``direct_scene`` args except moods. (Lorebook selection is handled separately
     by the ``select_lorebook`` step, not this tool.)
     """
     moods = list(current_moods)
-    refined: str | None = None
     extra_fields: dict = {}
 
     for tc in tool_calls:
@@ -118,10 +110,8 @@ def apply_tool_calls(
         if tc["name"] == "direct_scene":
             moods = args.get("moods", [])
             extra_fields = {k: v for k, v in args.items() if k != "moods" and v not in (None, "", [])}
-        elif tc["name"] == "rewrite_user_prompt":
-            refined = extract_rewritten_message(args)
 
-    return (moods, refined, extra_fields)
+    return (moods, extra_fields)
 
 
 # ── Agent pass ────────────────────────────────────────────────────────────────
@@ -153,17 +143,11 @@ async def director_pass(
     if attachments is None:
         attachments = []
 
-    refined_msg: str | None = None
     extra_fields: dict = {}
     all_calls: list[dict] = []
     last_raw = ""
 
     tool_names = [n for n, on in enabled_tools.items() if on and n in PRE_WRITER_TOOLS]
-
-    # Enforce priority order: rewrite_user_prompt first so users can abort
-    # early if they dislike the rewrite before the full director runs.
-    if len(tool_names) > 1:
-        tool_names = order_director_tools(tool_names)
 
     if not tool_names:
         yield {
@@ -185,7 +169,7 @@ async def director_pass(
 
     # Prepended to direct_scene prompts as "___"-fenced sections (like the lorebook),
     # so the director decides the scene with the world facts and the established
-    # direction notes in view. Notes go only into direct_scene, never rewrite_user_prompt.
+    # direction notes in view.
     lorebook_prefix = ("___\n\n" + lorebook_block + "\n\n") if lorebook_block else ""
     notes_prefix = ("___\n\n" + direction_notes_block + "\n\n") if direction_notes_block else ""
 
@@ -195,7 +179,7 @@ async def director_pass(
             break
         tool_schema = next((s for s in tool_schemas if s["function"]["name"] == name), None)
         if name == "direct_scene" and per_fragment_on and interactive_fragments:
-            reasoning_params = reasoning_cfg(reasoning_on and not suppresses_reasoning(name))
+            reasoning_params = reasoning_cfg(reasoning_on)
             hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
 
             # One forced call per fragment, each shown the values already chosen
@@ -268,7 +252,7 @@ async def director_pass(
                     # Reuse the shared unpacker so moods behave exactly as in the
                     # combined call; any fragment values it returns are dropped,
                     # each fragment being produced in its own call.
-                    active_moods, _, _ = apply_tool_calls(parsed, active_moods)
+                    active_moods, _ = apply_tool_calls(parsed, active_moods)
                 else:
                     args = next((tc.get("arguments", {}) for tc in parsed if tc.get("name") == "direct_scene"), {})
                     val = args.get(stage["id"])
@@ -299,7 +283,7 @@ async def director_pass(
         # tools and the writer still run, like the lorebook-select and
         # direction-note steps. Aborting the turn here would also skip
         # persisting the finished reply.
-        reasoning_params = reasoning_cfg(reasoning_on and not suppresses_reasoning(name))
+        reasoning_params = reasoning_cfg(reasoning_on)
         hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
         try:
             async for event in base.complete(
@@ -322,9 +306,7 @@ async def director_pass(
         logger.info("Agent tool=%s output:\n%s", name, last_raw)
         if parsed := parse_tool_calls(resp):
             all_calls.extend(parsed)
-            active_moods, new_refined, new_extra = apply_tool_calls(parsed, active_moods)
-            if new_refined:
-                refined_msg = new_refined
+            active_moods, new_extra = apply_tool_calls(parsed, active_moods)
             if new_extra:
                 extra_fields.update(new_extra)
         else:
@@ -337,7 +319,6 @@ async def director_pass(
             agent_raw=last_raw,
             calls=all_calls,
             latency=int((time.monotonic() - t0) * 1000),
-            rewritten_msg=refined_msg,
             extra_fields=extra_fields,
         ),
     }
@@ -359,11 +340,10 @@ async def director_stage(
     """Input-prep + director pass + all post-processing for the director stage.
 
     Runs the director pass (when the agent is on and a pre-writer tool is
-    enabled), folds the :class:`DirectorResult` into *state*, applies the
-    optional prompt rewrite, computes the style-injection block (→
-    ``director_done``), and computes the writer's lorebook block (agentic
-    selection or keyword scan). Returns early on a stop during the director pass
-    so ``director_done`` and lorebook work are skipped.
+    enabled), folds the :class:`DirectorResult` into *state*, computes the
+    style-injection block (→ ``director_done``), and computes the writer's
+    lorebook block (agentic selection or keyword scan). Returns early on a stop
+    during the director pass so ``director_done`` and lorebook work are skipped.
     """
     # Prior progressive state: the seed for this turn, filtered to the fragments
     # currently marked progressive. Used to feed the director pass and (as prior
@@ -409,12 +389,8 @@ async def director_stage(
                 state.agent_raw = result.agent_raw
                 state.calls = result.calls
                 state.latency = result.latency
-                state.rewritten_msg = result.rewritten_msg
                 state.extra_fields = result.extra_fields
                 state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
-        state.effective_msg, did_rewrite = apply_rewrite(state.user_message, state.rewritten_msg)
-        if did_rewrite:
-            yield {"event": "prompt_rewritten", "data": {"refined_message": state.rewritten_msg}}
 
     # Bail out if stop was clicked during the director pass: skip style injection,
     # director_done, and the writer-lorebook computation, exactly as before. The

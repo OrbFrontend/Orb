@@ -28,6 +28,6 @@ The final set the Writer sees is: constant entries ∪ the Director's picks ∪ 
 
 ## Enabling it
 
-Open **Settings → Agents** and turn on the **Agentic Lorebook** card (it sits just under the Prompt Rewriter).
+Open **Settings → Agents** and turn on the **Agentic Lorebook** card (it sits just under the Direction card).
 
 It only needs the global **Agent** on — it works whether or not the Director's scene-direction tool (`direct_scene`) is enabled. It falls back to the plain keyword scan when there are no non-constant entries to choose from — there's nothing to manage, so no catalog is offered.

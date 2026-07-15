@@ -194,24 +194,6 @@ def build_direction_note_tool(direction_note_fragments: Sequence[Mapping[str, An
 RECORD_DIRECTION_NOTE_CHOICE = {"type": "function", "function": {"name": "record_direction_note"}}
 
 
-REWRITE_PROMPT_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "rewrite_user_prompt",
-        "description": 'Rewrite the user\'s message into a more detailed action or dialogue. Use ONLY when the input is too short or vague (e.g. "I laugh.", "Sure, what is it?", "I nod.") to generate a compelling response. Write 2 sentences max, be succinct. If the message is already detailed enough, leave empty. Do NOT call direct_scene even if it is available!',
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "refined_message": {
-                    "type": "string",
-                    "description": "An improved, more detailed version of the user's message, keep the same perspective. Leave empty or omit if already rich enough.",
-                },
-            },
-            "required": [],
-        },
-    },
-}
-
 EDITOR_REWRITE_TOOL = {
     "type": "function",
     "function": {
@@ -270,10 +252,6 @@ TOOLS: dict[str, dict] = {
         "choice": {"type": "function", "function": {"name": "direct_scene"}},
         "schema": build_direct_scene_tool([]),
     },
-    "rewrite_user_prompt": {
-        "choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}},
-        "schema": REWRITE_PROMPT_TOOL,
-    },
     "editor_apply_patch": {
         "choice": {"type": "function", "function": {"name": "editor_apply_patch"}},
         "schema": EDITOR_APPLY_PATCH_TOOL,
@@ -315,7 +293,6 @@ TOOLS: dict[str, dict] = {
 BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "direct_scene",
-        "rewrite_user_prompt",
         "editor_apply_patch",
         "editor_rewrite",
         "give_feedback",
@@ -333,7 +310,7 @@ assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys()), "BUILTIN_TOOL_NAMES drift 
 # (post-writer feedback step), record_direction_note (its own step, pre- or
 # post-writer), and select_lorebook (the pre-writer agentic-lorebook select step).
 # So "POST" here means "not a director-loop tool," not a literal pipeline phase.
-PRE_WRITER_TOOLS = {"direct_scene", "rewrite_user_prompt"}
+PRE_WRITER_TOOLS = {"direct_scene"}
 POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite", "give_feedback", "record_direction_note", "select_lorebook"}
 
 assert PRE_WRITER_TOOLS.isdisjoint(POST_WRITER_TOOLS), "phase sets overlap"

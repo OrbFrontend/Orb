@@ -21,7 +21,6 @@ def base_settings() -> dict:
         "enable_agent": 1,
         "enabled_tools": {
             "direct_scene": True,
-            "rewrite_user_prompt": False,
             "editor_apply_patch": False,
         },
         "user_name": "Tester",

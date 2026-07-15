@@ -49,7 +49,7 @@ Within a single turn, Orb makes 2–4+ LLM calls. Here's what each one looks lik
 + user's actual message
 ```
 
-`tool_choice` is forced to `direct_scene` (or `rewrite_user_prompt`). The model returns a tool call, never raw prose.
+`tool_choice` is forced to `direct_scene`. The model returns a tool call, never raw prose.
 
 ### Writer pass (1 call)
 

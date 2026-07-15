@@ -32,11 +32,6 @@ def test_direct_scene_routes_to_director():
     assert _pass_from_tool_choice(tc) == "director"
 
 
-def test_rewrite_user_prompt_routes_to_director():
-    tc = {"type": "function", "function": {"name": "rewrite_user_prompt"}}
-    assert _pass_from_tool_choice(tc) == "director"
-
-
 def test_arbitrary_function_name_routes_to_workflow():
     tc = {"type": "function", "function": {"name": "custom_workflow_tool"}}
     assert _pass_from_tool_choice(tc) == "workflow"

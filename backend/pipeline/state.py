@@ -80,7 +80,6 @@ _RESULT_FIELDS = (
     "agent_raw",
     "calls",
     "latency",
-    "rewritten_msg",
     "effective_msg",
     "resp_text",
     "inj_block",
@@ -105,7 +104,6 @@ _DIRECTOR_OUTPUT_FIELDS = (
     "agent_raw",
     "calls",
     "latency",
-    "rewritten_msg",
     "extra_fields",
     "progressive_fields",
 )
@@ -137,7 +135,6 @@ class TurnState:
     agent_raw: str = ""
     calls: list[dict] = field(default_factory=list)
     latency: int = 0
-    rewritten_msg: str | None = None
     extra_fields: dict = field(default_factory=dict)
     progressive_fields: dict = field(default_factory=dict)
     selected_lorebook_entries: list[str] = field(default_factory=list)

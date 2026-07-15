@@ -209,8 +209,8 @@ Same shape with these substitutions:
 | Field | Note |
 |---|---|
 | `draft` | str -- current draft, updated by prior hooks' `draft_replaced`. |
-| `effective_msg` | str -- user message after director rewrite. |
-| `director_output` | MappingProxyType -- `{active_moods, raw, calls, latency, rewritten_msg, extra_fields, progressive_fields}`. |
+| `effective_msg` | str -- the current turn's user message. |
+| `director_output` | MappingProxyType -- `{active_moods, raw, calls, latency, extra_fields, progressive_fields}`. |
 | `enabled_tools` | MappingProxyType -- merged pipeline tool-enable map (replaces `enabled_tools_pre_merge`). |
 | `prefix` (note differs) | Final pipeline prefix; pre-pipeline extras already appended. |
 | `history` | tuple -- same read-only prior-message list PreCtx received; excludes this turn's user message and the in-flight assistant message (the current user message is `effective_msg`). |
@@ -412,7 +412,6 @@ The orchestrator owns these `event:` names: built-ins it emits itself, and under
 | `user_message_created` | only `handle_turn` |
 | `director_start` | |
 | `director_done` | |
-| `prompt_rewritten` | |
 | `token` | |
 | `reasoning` | built-ins; custom pipelines see sec. 13.2 |
 | `writer_rewrite` | editor + post-pipeline draft_replaced |
@@ -431,15 +430,14 @@ Any other event name passes through.
 Runs unconditionally (subject to each step's own guard):
 
 1. `db.update_director_state(...)` if `enable_agent` truthy.
-2. `db.update_message_content(user_msg_id, effective_msg)` if director rewrote.
 
 Then, only when `resp_text.strip()`:
 
-3. `db.add_message(..., attachments=staged, ...)` -- single transaction. It persists workflow attachments by calling through a registered persister seam (the database layer must not import "up" into `backend.workflows`; `attachment_cache` registers `insert_workflow_attachments` via `register_workflow_attachment_persister` at import time). Returns `(asst_id, rejected_workflow_atts)`.
-4. For each post-pipeline `set_message_state` entry, `db.set_workflow_message_state(asst_id, wid, payload)`. The assistant `mid` is first known here; unlocked because the row is not yet the active leaf and no other caller can name it.
-5. `db.set_active_leaf(conversation_id, asst_id)`.
+2. `db.add_message(..., attachments=staged, ...)` -- single transaction. It persists workflow attachments by calling through a registered persister seam (the database layer must not import "up" into `backend.workflows`; `attachment_cache` registers `insert_workflow_attachments` via `register_workflow_attachment_persister` at import time). Returns `(asst_id, rejected_workflow_atts)`.
+3. For each post-pipeline `set_message_state` entry, `db.set_workflow_message_state(asst_id, wid, payload)`. The assistant `mid` is first known here; unlocked because the row is not yet the active leaf and no other caller can name it.
+4. `db.set_active_leaf(conversation_id, asst_id)`.
 
-Empty `resp_text.strip()` short-circuits steps 3-5 only: no assistant row, no attachments, no message state, returns `(None, [])`. Steps 1-2 have already run regardless.
+Empty `resp_text.strip()` short-circuits steps 2-4 only: no assistant row, no attachments, no message state, returns `(None, [])`. Step 1 has already run regardless.
 
 ### 7.8 `_consume_pipeline`
 
@@ -459,9 +457,9 @@ Note: when `resp_text` is empty, `_persist_result` short-circuits (sec. 7.7) and
 
 ### 7.9 Wire-event order on a normal turn
 
-`user_message_created`? -> PRE passthrough events* -> `director_start`? -> `reasoning(director)`? -> `prompt_rewritten`? -> `director_done`? -> `reasoning(writer)`? -> `token`* -> `reasoning(editor)`? -> `writer_rewrite`? -> `editor_done`? -> POST-hook events* (`writer_rewrite` from `draft_replaced`, plus passthrough, interleaved per hook in priority order) -> `workflow_attachments_rejected`? -> `done`.
+`user_message_created`? -> PRE passthrough events* -> `director_start`? -> `reasoning(director)`? -> `director_done`? -> `reasoning(writer)`? -> `token`* -> `reasoning(editor)`? -> `writer_rewrite`? -> `editor_done`? -> POST-hook events* (`writer_rewrite` from `draft_replaced`, plus passthrough, interleaved per hook in priority order) -> `workflow_attachments_rejected`? -> `done`.
 
-`?` = conditional. `director_start` and `reasoning(director)` run only when the agent is on and a pre-writer tool is enabled; `prompt_rewritten` additionally requires the director to have rewritten the message. `director_done` fires unconditionally (outside the director block), absent only when the turn aborts at the post-director stop check. Each `reasoning(pass)` fires only when that pass's reasoning flag is set (director on by default, writer/editor off); `user_message_created` is suppressed when the caller pre-persisted the user row.
+`?` = conditional. `director_start` and `reasoning(director)` run only when the agent is on and a pre-writer tool is enabled. `director_done` fires unconditionally (outside the director block), absent only when the turn aborts at the post-director stop check. Each `reasoning(pass)` fires only when that pass's reasoning flag is set (director on by default, writer/editor off); `user_message_created` is suppressed when the caller pre-persisted the user row.
 
 ---
 
@@ -821,7 +819,6 @@ Built-in cases:
 |---|---|
 | `director_start` | phase=directing; clear inspected; `renderInspector` |
 | `director_done` | set `S.lastDirectorData`; advance reasoning pass; `renderInspector` |
-| `prompt_rewritten` | patch user content + DOM |
 | `token` | phase=generating; appends the token to the response buffer, mirrors it into `S.streamingContent`, and repaints |
 | `writer_rewrite` | phase=refining; build sentence diff; `onRewrite(refined_text)` |
 | `reasoning` | route by `data.pass`: a built-in pass (`director`/`writer`/`editor`) appends to `S.reasoningDirector`/`Writer`/`Editor`; otherwise match against a registered pipeline's pass ids in `S.workflowPipelines` and append to `S.reasoningByPass[pass]` |
@@ -837,7 +834,7 @@ No `done` case, so `done` falls through to the default branch and reaches `S.wor
 
 ### 12.3 Reserved event names (do not author-emit as custom)
 
-These 11 names are intercepted by built-in `case`s in `handleSSEEvent` before the custom-handler default branch, so registering a handler for them has no effect: `token`, `director_start`, `director_done`, `prompt_rewritten`, `writer_rewrite`, `reasoning`, `phase_status`, `editor_done`, `user_message_created`, `workflow_attachments_rejected`, `error`. Separately, event names a workflow's pipeline hooks emit are filtered server-side: the pipeline drops any underscore-prefixed name from `post_pipeline` and `pre_pipeline` output (both hook loops in `workflow_bridge.py`), since the `_`-prefix is reserved for internal persistence signals (`_result`, `_refined_result`, `_editor_reasoning`). These never reach the frontend.
+These 10 names are intercepted by built-in `case`s in `handleSSEEvent` before the custom-handler default branch, so registering a handler for them has no effect: `token`, `director_start`, `director_done`, `writer_rewrite`, `reasoning`, `phase_status`, `editor_done`, `user_message_created`, `workflow_attachments_rejected`, `error`. Separately, event names a workflow's pipeline hooks emit are filtered server-side: the pipeline drops any underscore-prefixed name from `post_pipeline` and `pre_pipeline` output (both hook loops in `workflow_bridge.py`), since the `_`-prefix is reserved for internal persistence signals (`_result`, `_refined_result`, `_editor_reasoning`). These never reach the frontend.
 
 ### 12.4 `afterStream`
 

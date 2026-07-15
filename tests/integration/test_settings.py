@@ -103,7 +103,7 @@ async def test_endpoint_update_rejects_bad_proxy_scheme(client):
 
 
 async def test_update_enabled_tools_json_field(client, db):
-    tools = {"direct_scene": True, "rewrite_user_prompt": False}
+    tools = {"direct_scene": True, "editor_apply_patch": False}
     resp = await client.put("/api/settings", json={"enabled_tools": tools})
     assert resp.status_code == 200
     assert resp.json()["enabled_tools"] == tools

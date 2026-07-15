@@ -206,20 +206,6 @@ STRUCTURAL_REWRITE_INSTRUCTIONS = (
     "response is laid out distinctly from the previous ones."
 )
 
-#: Per-turn request tail handed to the director when running the rewrite tool: the
-#: user's raw message, quoted for the model to refine. Lives here (not in the tools
-#: blob) so it can vary per turn without busting the KV cache — mirroring
-#: ``LENGTH_GUARD_INSTRUCTIONS`` leaving ``tool_registry.py``.
-REWRITE_PROMPT_PROMPT = 'User\'s message:\n"""[{user_message}]"""'
-
-
-def build_rewrite_prompt(user_message: str) -> str:
-    """Format :data:`REWRITE_PROMPT_PROMPT` with the raw *user_message*.
-
-    Used by :func:`build_director_tool_prompt` for the ``rewrite_user_prompt`` branch.
-    """
-    return REWRITE_PROMPT_PROMPT.format(user_message=user_message)
-
 
 def build_director_tool_prompt(
     tool_name: str,
@@ -252,8 +238,6 @@ def build_director_tool_prompt(
             parts.append("Previous progressive fields - dynamically update these:\n" + "\n".join(progressive_lines))
         parts.append(_moods_options_block(active_moods, mood_fragments))
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
-    elif tool_name == "rewrite_user_prompt":
-        parts.append(build_rewrite_prompt(user_message))
     # Close the [OOC: aside opened in DIRECTOR_PREAMBLE; the whole instruction is the aside.
     return "\n\n".join(parts) + "]"
 

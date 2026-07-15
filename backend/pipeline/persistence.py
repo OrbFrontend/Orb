@@ -54,15 +54,6 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
     return _on_result
 
 
-async def _persist_rewrite(res: TurnState, user_msg_id: int | None) -> None:
-    """Overwrite the stored user message with the director's rewrite, if any.
-
-    No-op when no rewrite happened. Shared by the normal and fallback paths.
-    """
-    if res.rewritten_msg and user_msg_id:
-        await db.update_message_content(user_msg_id, res.effective_msg)
-
-
 async def _persist_result(
     conversation_id: str,
     res: TurnState,
@@ -86,7 +77,6 @@ async def _persist_result(
             res.active_moods,
             progressive_fields=res.progressive_fields,
         )
-    await _persist_rewrite(res, user_msg_id)
 
     # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
     resp_text = res.resp_text
@@ -159,7 +149,6 @@ async def _fallback_persist(
                 res.active_moods,
                 progressive_fields=res.progressive_fields,
             )
-        await _persist_rewrite(res, user_msg_id)
 
         # accumulated_text holds only writer tokens (not reasoning deltas).
         if accumulated_text.strip():

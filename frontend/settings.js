@@ -315,11 +315,6 @@ const TOOL_DEFS = [
     desc: "Gives written direction and manages fragments based on scene context.",
   },
   {
-    id: "rewrite_user_prompt",
-    name: "Prompt Rewriter",
-    desc: "Expands user's vague or lazy messages into richer input.",
-  },
-  {
     id: "editor_apply_patch",
     name: "Output Auditor",
     desc: "Scans for LLM slop and repetition, then surgically patches the draft.",
@@ -741,7 +736,6 @@ export function renderToolsPanel() {
   $("tools-list").innerHTML =
     divider("Director") +
     cardById.direct_scene +
-    cardById.rewrite_user_prompt +
     agenticLorebookCard +
     directionNotesCard +
     divider("Editor") +

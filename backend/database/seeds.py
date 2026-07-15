@@ -175,7 +175,6 @@ SEED_INTERACTIVE_FRAGMENTS = [
 
 DEFAULT_ENABLED_TOOLS = {
     "direct_scene": True,
-    "rewrite_user_prompt": False,
     "editor_apply_patch": False,
     "editor_rewrite": False,
 }

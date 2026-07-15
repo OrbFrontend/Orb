@@ -184,7 +184,7 @@ class CapturingClient:
                 return "feedback"
             if name == "record_direction_note":
                 return "direction_note"
-            if name in ("direct_scene", "rewrite_user_prompt"):
+            if name == "direct_scene":
                 return f"director:{name}"
             return name or "editor"
         return "editor"  # "auto"
