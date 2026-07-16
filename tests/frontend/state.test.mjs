@@ -36,7 +36,8 @@ test("subscribe/notify fans out synchronously and unsubscribes", () => {
   assert.deepEqual(seen, { n: 1 }); // handler removed
 });
 
-test("a throwing subscriber does not starve the others", () => {
+test("a throwing subscriber does not starve the others", (t) => {
+  t.mock.method(console, "error", () => {}); // the throw is logged on purpose; keep it out of test output
   let reached = false;
   const off1 = subscribe("settings", () => {
     throw new Error("boom");
@@ -50,7 +51,8 @@ test("a throwing subscriber does not starve the others", () => {
   off2();
 });
 
-test("notify/subscribe reject an unknown topic without throwing", () => {
+test("notify/subscribe reject an unknown topic without throwing", (t) => {
+  t.mock.method(console, "error", () => {}); // unknown-topic path logs on purpose; keep it quiet here
   assert.doesNotThrow(() => notify("not-a-topic", {}));
   const off = subscribe("not-a-topic", () => {});
   assert.equal(typeof off, "function");

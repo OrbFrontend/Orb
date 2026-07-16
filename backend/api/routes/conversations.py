@@ -54,7 +54,12 @@ from ...database.models import ConversationRow
 from ...features import lorebook
 from ...features.summarization import ConversationSummarizer
 from ...inference import AbortToken, client_from_settings, prompt_builder
-from ...pipeline import agent_enabled, conversation_macro_seed, persona_macros, resolve_card_and_persona
+from ...pipeline import (
+    agent_enabled,
+    conversation_macro_seed,
+    persona_macros,
+    resolve_card_and_persona,
+)
 from ..deps import (
     _active_aborts,
     _CleanupStreamingResponse,
