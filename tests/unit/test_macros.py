@@ -209,3 +209,47 @@ def test_unpaired_or_multiline_backticks_do_not_escape():
     # A lone backtick opens no span; spans don't cross newlines.
     assert resolve_inline("` {{random::a}}") == "` a"
     assert resolve_inline("`no close\n{{random::a}}`") == "`no close\na`"
+
+
+# ── {{pick}} alias and {{time}} ──────────────────────────────────────────────
+
+
+def test_pick_is_random_alias():
+    assert resolve_inline("{{pick::red::blue}}") in {"red", "blue"}
+    assert resolve_inline("{{PICK::up}}") == "up"
+
+
+def test_pick_seeded_deterministic():
+    text = "{{pick::a::b::c::d::e::f}}"
+    first = resolve_message(text, "U", "C", seed="conv-1")
+    assert all(resolve_message(text, "U", "C", seed="conv-1") == first for _ in range(5))
+
+
+def test_pick_works_in_stored_random():
+    choices: dict[str, str] = {}
+    (out,) = resolve_stored_random(["{{pick::x::y}}"], choices, "mood:m")
+    assert out in {"x", "y"}
+    assert resolve_stored_random(["{{pick::x::y}}"], choices, "mood:m") == [out]
+
+
+def test_time_resolves_to_hh_mm():
+    import re
+
+    assert re.fullmatch(r"\d{2}:\d{2}", resolve_inline("{{time}}"))
+    assert re.fullmatch(r"at \d{2}:\d{2}!", resolve_message("at {{TIME}}!", "U", "C", seed="conv-1"))
+
+
+def test_time_detected_and_backtick_literal():
+    assert has_inline_macros("it is {{time}}")
+    assert has_inline_macros("it is {{pick::a::b}}")
+    assert not has_inline_macros("say `{{time}}`")
+    assert resolve_inline("say `{{time}}`") == "say `{{time}}`"
+
+
+def test_date_resolves_to_iso_date():
+    import re
+
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", resolve_inline("{{date}}"))
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", resolve_message("{{DATE}}", "U", "C", seed="conv-1"))
+    assert has_inline_macros("today is {{date}}")
+    assert resolve_inline("say `{{date}}`") == "say `{{date}}`"

@@ -33,13 +33,21 @@ Public API:
         resolution rolls and records into *choices*; later turns reuse the
         stored pick so the fragment stays fixed for the conversation.
 
-Inline macros:
+Inline macros (adding one = a regex + a handler + a row in _INLINE_MACROS):
     {{roll::NdM}}                 — sum of N M-sided dice.
     {{random::opt1::opt2::...}}   — one option, ``::``-separated. Options
         cannot contain ``::`` or ``}}`` (grammar, not enforced).
-    Both re-roll on every unseeded resolution; with a seed (or a stored
-    choice) the result is stable — so a roll or pick in per-turn-rebuilt
-    prompt text (persona, scenario) stays fixed for the conversation.
+    {{pick::opt1::opt2::...}}     — alias of {{random}}, same grammar.
+    {{time}}                      — current local time, HH:MM.
+    {{date}}                      — current local date, YYYY-MM-DD.
+    Time/date ignore the seed: they always resolve to *now*, so in
+        per-turn-rebuilt prompt text they change bytes over time (KV-cache
+        bust — prefer them in messages, where they freeze at the persist
+        boundary).
+    Roll/random/pick re-roll on every unseeded resolution; with a seed (or a
+    stored choice) the result is stable — so a roll or pick in
+    per-turn-rebuilt prompt text (persona, scenario) stays fixed for the
+    conversation.
 
 Literal escape: any macro inside a single-backtick span (`{{random::a::b}}`)
     is left untouched by every resolver, {{user}}/{{char}} included. The
@@ -59,7 +67,8 @@ from __future__ import annotations
 
 import random
 import re
-from typing import Any, Mapping, MutableMapping, NamedTuple, Sequence
+from datetime import datetime
+from typing import Any, Callable, Mapping, MutableMapping, NamedTuple, Sequence
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -105,17 +114,47 @@ def _sub(text: str, user_name: str, char_name: str) -> str:
 
 
 _ROLL_RE = re.compile(r"\{\{roll::(\d+)d(\d+)\}\}", re.IGNORECASE)
-_RANDOM_RE = re.compile(r"\{\{random::(.*?)\}\}", re.IGNORECASE | re.DOTALL)
+_RANDOM_RE = re.compile(r"\{\{(?:random|pick)::(.*?)\}\}", re.IGNORECASE | re.DOTALL)
+_TIME_RE = re.compile(r"\{\{time\}\}", re.IGNORECASE)
+_DATE_RE = re.compile(r"\{\{date\}\}", re.IGNORECASE)
+
+
+def _roll(m: re.Match, rng: Any) -> str:
+    count, sides = int(m.group(1)), int(m.group(2))
+    return str(sum(rng.randint(1, sides) for _ in range(count)))
+
+
+def _rand(m: re.Match, rng: Any) -> str:
+    return rng.choice(m.group(1).split("::"))
+
+
+def _time(m: re.Match, rng: Any) -> str:
+    return datetime.now().strftime("%H:%M")
+
+
+def _date(m: re.Match, rng: Any) -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+# The inline-macro grammar. Adding a macro = one regex + one handler + one row
+# here; _resolve_inline and has_inline_macros iterate this table.
+_INLINE_MACROS: list[tuple[re.Pattern, Callable[[re.Match, Any], str]]] = [
+    (_ROLL_RE, _roll),
+    (_RANDOM_RE, _rand),
+    (_TIME_RE, _time),
+    (_DATE_RE, _date),
+]
 
 
 def _resolve_inline(text: str, seed: str = "") -> str:
-    """Resolve inline macros: {{roll::2d6}} and {{random::a::b}}.
+    """Resolve inline macros ({{roll}}, {{random}}/{{pick}}, {{time}}).
 
-    Both roll fresh when *seed* is empty; with a seed the result is a pure
-    function of (seed, macro text, occurrence), so identical text resolves
-    identically — used to keep inline macros in per-turn-rebuilt prompt
-    fields (persona, scenario) byte-stable per conversation instead of
-    re-rolling and busting the shared KV prefix.
+    Randomized macros roll fresh when *seed* is empty; with a seed the result
+    is a pure function of (seed, macro text, occurrence), so identical text
+    resolves identically — used to keep inline macros in per-turn-rebuilt
+    prompt fields (persona, scenario) byte-stable per conversation instead of
+    re-rolling and busting the shared KV prefix. {{time}} takes no randomness
+    and always resolves to the current time, seed or not.
     """
     if not text or not isinstance(text, str):
         return text or ""
@@ -130,16 +169,12 @@ def _resolve_inline(text: str, seed: str = "") -> str:
         seen[m.group(0)] = ordinal + 1
         return random.Random(f"{seed}|{m.group(0)}|{ordinal}")
 
-    def _roll(m: re.Match) -> str:
-        count, sides = int(m.group(1)), int(m.group(2))
-        rng = _seeded_rng(m) if seed else random
-        return str(sum(rng.randint(1, sides) for _ in range(count)))
+    def _fire(t: str) -> str:
+        for pattern, handler in _INLINE_MACROS:
+            t = pattern.sub(lambda m, h=handler: h(m, _seeded_rng(m) if seed else random), t)
+        return t
 
-    def _rand(m: re.Match) -> str:
-        options = m.group(1).split("::")
-        return (_seeded_rng(m) if seed else random).choice(options)
-
-    return _outside_literals(text, lambda t: _RANDOM_RE.sub(_rand, _ROLL_RE.sub(_roll, t)))
+    return _outside_literals(text, _fire)
 
 
 def _apply_content(content: str | list | None, fn) -> str | list | None:
@@ -178,11 +213,11 @@ def resolve_inline(text: str) -> str:
 
 
 def has_inline_macros(text: str) -> bool:
-    """True when *text* contains an inline macro ({{roll}} or {{random}}), backticked literals excluded."""
+    """True when *text* contains an inline macro, backticked literals excluded."""
     if not text or not isinstance(text, str):
         return False
     text = _LITERAL_RE.sub("", text)
-    return bool(_ROLL_RE.search(text) or _RANDOM_RE.search(text))
+    return any(pattern.search(text) for pattern, _ in _INLINE_MACROS)
 
 
 def resolve_stored_random(
@@ -190,7 +225,7 @@ def resolve_stored_random(
     choices: MutableMapping[str, str],
     key_prefix: str,
 ) -> list[str]:
-    """Resolve {{random}} in *texts* against a per-conversation choice map.
+    """Resolve {{random}}/{{pick}} in *texts* against a per-conversation choice map.
 
     For global rows (mood/interactive fragments) whose source text cannot be
     rewritten: each {{random}} occurrence gets the key

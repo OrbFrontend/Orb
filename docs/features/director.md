@@ -52,7 +52,7 @@ Each interactive fragment has:
 
 ### Randomizing with `{{random}}`
 
-Fragment text supports the inline [macros](macros.md). They resolve at different moments depending on where they live:
+Fragment text supports the inline [macros](macros.md); `{{pick}}` works everywhere `{{random}}` does. They resolve at different moments depending on where they live:
 
 - **In a mood fragment's prompt text** — `{{random::crimson::azure}}` rolls **once per conversation** and the pick sticks, so a randomized style stays coherent across turns.
 - **In a Director tool-call value** — if the Director itself writes `{{random::...}}` into a fragment value, it re-rolls **every turn it's emitted**.
