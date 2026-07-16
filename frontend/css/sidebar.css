@@ -336,8 +336,31 @@
 
 /* Fragment whose backing agent feature (e.g. Editor Feedback) is disabled. */
 .fragment-item.frag-feature-disabled .frag-label,
-.fragment-item.frag-feature-disabled .frag-type-badge {
+.fragment-item.frag-feature-disabled .frag-type-badge,
+.frag-card-list .frag-feature-disabled {
   opacity: 0.4;
+}
+
+/* Read-only inline list of the active character's card-embedded fragments:
+   deliberately NOT .fragment-item so the drag/reorder machinery never matches it. */
+.frag-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Divider between global fragments and the character's card-embedded ones. */
+.frag-divider {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  margin: 8px 0 4px;
+  padding: 4px 10px 0;
 }
 
 .frag-drag-handle {

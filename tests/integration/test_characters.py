@@ -300,3 +300,60 @@ async def test_post_history_instructions_synced_on_update(client, db):
     async with db.execute("SELECT post_history_instructions FROM conversations WHERE id = ?", (cid,)) as cur:
         row = await cur.fetchone()
     assert row["post_history_instructions"] == "New instructions"
+
+
+async def test_extensions_round_trip(client, db, tmp_path):
+    """extensions persists through create → get → unrelated update → PNG export,
+    with third-party keys carried verbatim alongside orb.fragments."""
+    ext = {
+        "acme_ext": {"nested": [1, 2]},
+        "orb": {
+            "fragments": {
+                "mood": [
+                    {
+                        "id": "dreamy",
+                        "label": "Dreamy",
+                        "description": "",
+                        "prompt_text": "drift",
+                        "negative_prompt": "",
+                        "enabled": True,
+                    }
+                ],
+                "interactive": [],
+            }
+        },
+    }
+    resp = await client.post("/api/characters", json={"name": "ExtChar", "extensions": ext})
+    assert resp.status_code == 200
+    card_id = resp.json()["id"]
+
+    got = (await client.get(f"/api/characters/{card_id}")).json()
+    assert got["extensions"] == ext
+
+    # An update that doesn't send extensions leaves them untouched.
+    await client.put(f"/api/characters/{card_id}", json={"scenario": "new"})
+    got = (await client.get(f"/api/characters/{card_id}")).json()
+    assert got["extensions"] == ext
+
+    # Export embeds the dict in the V2 chara chunk; a re-parse recovers it.
+    export = await client.get(f"/api/characters/{card_id}/export")
+    assert export.status_code == 200
+    png = tmp_path / "card.png"
+    png.write_bytes(export.content)
+    from backend.features.cards import parsing as tavern_cards
+
+    parsed = tavern_cards.parse(str(png))
+    assert parsed.data.extensions["acme_ext"] == {"nested": [1, 2]}
+    assert parsed.data.extensions["orb"]["fragments"]["mood"][0]["id"] == "dreamy"
+
+
+async def test_extensions_absent_decodes_to_empty_dict(client, db):
+    resp = await client.post("/api/characters", json={"name": "NoExt"})
+    card_id = resp.json()["id"]
+    got = (await client.get(f"/api/characters/{card_id}")).json()
+    assert got["extensions"] == {}
+    # Pre-migration rows have a NULL column, which must decode the same way.
+    await db.execute("UPDATE character_cards SET extensions = NULL WHERE id = ?", (card_id,))
+    await db.commit()
+    got = (await client.get(f"/api/characters/{card_id}")).json()
+    assert got["extensions"] == {}

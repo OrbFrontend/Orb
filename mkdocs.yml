@@ -88,6 +88,7 @@ nav:
           - Compress History: features/compress-history.md
           - Document Mode: features/document-mode.md
       - App & Data:
+          - Card-Embedded Fragments: features/card-fragments.md
           - Fetch Cards from Internet: features/fetch-cards.md
           - Backups & Presets: features/backups-presets.md
           - Persona Pinning: features/persona-pinning.md

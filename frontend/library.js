@@ -5,10 +5,17 @@
 // re-exports the two sub-modules so "./library.js" stays the stable import path
 // for app.js and chat modules.
 import { api } from "./api.js";
-import { loadConversations, resetChatUI } from "./chat.js";
+import { loadConversations, resetChatUI, stashCardFragments } from "./chat.js";
 import { createChipInput } from "./chips.js";
+import {
+  initCardFragments,
+  readCardFragments,
+  renderCardFragmentsTab,
+  showCardInteractiveFragmentModal,
+  showCardMoodFragmentModal,
+} from "./library_fragments.js";
 import { loadWorlds } from "./lorebooks.js";
-import { closeModal, showConfirmModal, showCropModal, showModal } from "./modal.js";
+import { closeModal, showConfirmModal, showCropModal, showModal, switchTab } from "./modal.js";
 import { charactersView, S } from "./state.js";
 import {
   $,
@@ -59,6 +66,10 @@ let _pendingImportSourceFormat = null;
 let _pendingTags = null;
 // Embedded character_book from an imported PNG (cleared on submit)
 let _pendingCharacterBook = null;
+// The card's V2 extensions dict (edit: from GET, import: from the parsed PNG).
+// _readCharEditForm sends it back with only orb.fragments replaced, so
+// third-party extension keys round-trip untouched.
+let _pendingExtensions = null;
 // Per-card cache-bust timestamps so the browser re-fetches updated avatars.
 // Shared with library_browser.js (read-only there) for its card thumbnails.
 export const _avatarBust = new Map();
@@ -282,6 +293,7 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="tab" onclick="switchTab(this,'${prefix}-ts')">Scenario</div>
       <div class="tab" onclick="switchTab(this,'${prefix}-tm')">Messages</div>
       ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-ta')">Advanced</div>` : ""}
+      ${isEdit ? `<div class="tab" id="${prefix}-tab-frag">Fragments</div>` : ""}
     </div>
     <div id="${prefix}-tp" class="tab-content active">
       <div class="field"><label>Description</label><textarea id="${prefix}-desc" rows="5">${esc(d.description || "")}</textarea></div>
@@ -302,6 +314,17 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
     ${
       isEdit
         ? `
+    <div id="${prefix}-tf" class="tab-content">
+      <div class="card-frag-hint">
+        These fragments travel with the card (and its exported PNG). Merged into the Interactive and Mood fragment lists; 
+        global fragments win on ID collision.
+      </div>
+      <div id="ce-card-frag-list"></div>
+      <div class="card-frag-actions">
+        <button class="btn btn-sm" id="ce-card-frag-add-interactive">+ Interactive</button>
+        <button class="btn btn-sm" id="ce-card-frag-add-mood">+ Mood</button>
+      </div>
+    </div>
     <div id="${prefix}-ta" class="tab-content">
       <div class="field">
         <label>Tags</label>
@@ -390,6 +413,17 @@ function _validateCharForm(prefix, { advanced = false } = {}) {
 // saveCharEdit and saveImportedChar share this shape exactly (the import path then
 // tacks on id / source_format / character_book).
 function _readCharEditForm() {
+  // Rebuild extensions around the edited fragments: only orb.fragments is
+  // replaced; sibling keys (third-party card extensions) pass through. Empty
+  // fragment lists drop the key entirely so untouched cards stay clean.
+  const ext = structuredClone(_pendingExtensions || {});
+  const frags = readCardFragments();
+  if (frags && (frags.mood.length || frags.interactive.length)) {
+    ext.orb = { ...(ext.orb || {}), fragments: frags };
+  } else if (ext.orb) {
+    delete ext.orb.fragments;
+    if (!Object.keys(ext.orb).length) delete ext.orb;
+  }
   return {
     name: $("ce-name").value.trim(),
     description: $("ce-desc").value.trim(),
@@ -403,6 +437,7 @@ function _readCharEditForm() {
     tags: _pendingTags || [],
     alternate_greetings: _readAltGreetings("ce"),
     world_id: $("ce-world-id")?.value || null,
+    extensions: ext,
   };
 }
 
@@ -468,6 +503,8 @@ export async function showCharEditModal(idOrData) {
 
   _pendingTags = c.tags || [];
   _pendingCharacterBook = isNew ? c.character_book || null : null;
+  _pendingExtensions = structuredClone(c.extensions || {});
+  initCardFragments(_pendingExtensions.orb?.fragments);
 
   const tags = (c.tags || []).map((t) => `<span class="char-tag">${esc(t)}</span>`).join("");
 
@@ -504,6 +541,11 @@ export async function showCharEditModal(idOrData) {
       }
     </div>`);
   _charTagChips.render();
+  renderCardFragmentsTab();
+  // New UI is wired programmatically (the inline-handler lint ratchet is at its ceiling).
+  $("ce-tab-frag")?.addEventListener("click", (e) => switchTab(e.currentTarget, "ce-tf"));
+  $("ce-card-frag-add-mood")?.addEventListener("click", () => showCardMoodFragmentModal());
+  $("ce-card-frag-add-interactive")?.addEventListener("click", () => showCardInteractiveFragmentModal());
   if (c.id) {
     api
       .get(`/characters/${c.id}/expressions`)
@@ -531,7 +573,9 @@ export async function saveCharEdit(id, exportAfter = false) {
   const avatarChanged = !!_pendingAvatar;
   _pendingAvatar = null;
   try {
-    await api.put(`/characters/${id}`, d);
+    const updated = await api.put(`/characters/${id}`, d);
+    // Refresh the sidepanel's ephemeral card fragments if this character is active.
+    if (S.activeCharId === id) stashCardFragments(updated);
     if (avatarChanged) {
       _avatarBust.set(id, Date.now());
       if (S.activeCharId === id) {
@@ -575,6 +619,7 @@ export async function saveImportedChar() {
   _pendingImportSourceFormat = null;
   _pendingTags = null;
   _pendingCharacterBook = null;
+  _pendingExtensions = null;
   try {
     const created = await api.post("/characters", d);
     closeModal();

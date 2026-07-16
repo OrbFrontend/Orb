@@ -6,7 +6,7 @@ import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
-import { effectiveWorkflowEnabled, S } from "./state.js";
+import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, S } from "./state.js";
 import { $, esc, sentenceTail } from "./utils.js";
 
 // ── Inspector — Reasoning stepper rail
@@ -346,7 +346,7 @@ function _buildToolCallsHtml(tc) {
 // defensive against a model that returns a list anyway.
 export function feedbackRows(values) {
   if (!values || typeof values !== "object") return [];
-  const frags = S.interactiveFragments || [];
+  const frags = interactiveFragmentsView();
   return Object.entries(values)
     .filter(([, v]) => v && (Array.isArray(v) ? v.length : true))
     .map(([id, v]) => {
@@ -447,7 +447,9 @@ function _renderInspectorMain() {
     // place rather than reordering when director data lands. Activation is
     // unknown mid-stream, so every mood renders inactive (greyed); the "active"
     // class lands in place once the director resolves.
-    const pendingMoodsHtml = S.moodFragments.map((f) => `<span class="style-tag">${esc(f.label)}</span>`).join("");
+    const pendingMoodsHtml = moodFragmentsView()
+      .map((f) => `<span class="style-tag">${esc(f.label)}</span>`)
+      .join("");
     $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
        <div class="inspector-block"><h4>Moods</h4>
@@ -467,7 +469,7 @@ function _renderInspectorMain() {
 
   if (insp) {
     const activeIds = insp.active_moods || [];
-    const stylesHtml = S.moodFragments
+    const stylesHtml = moodFragmentsView()
       .map((f) => `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""}">${esc(f.label)}</span>`)
       .join("");
     const lat = insp.agent_latency_ms || 0;
@@ -519,7 +521,7 @@ function _renderInspectorMain() {
   const ds = S.directorState || {};
   const ld = S.lastDirectorData || {};
   const activeIds = ld.active_moods || ds.active_moods || [];
-  const stylesHtml = S.moodFragments
+  const stylesHtml = moodFragmentsView()
     .map((f) => `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""}">${esc(f.label)}</span>`)
     .join("");
   const lat = ld.agent_latency_ms || 0;

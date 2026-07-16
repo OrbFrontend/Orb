@@ -2,7 +2,7 @@
 // CRUD + reorder. Split out of library.js; the public surface is re-exported
 // from library.js.
 import { api } from "./api.js";
-import { closeModal, confirmDelete, showModal } from "./modal.js";
+import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
 import { S } from "./state.js";
 import { $, esc, toast } from "./utils.js";
 import { validate } from "./validate.js";
@@ -19,13 +19,14 @@ export async function loadMoodFragments() {
 }
 
 export function renderMoodFragments() {
-  if (!S.moodFragments || S.moodFragments.length === 0) {
+  const cardHtml = _cardMoodSidepanelHtml();
+  if ((!S.moodFragments || S.moodFragments.length === 0) && !cardHtml) {
     $("frag-list").innerHTML =
       '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No mood fragments</div>';
     return;
   }
 
-  const html = S.moodFragments
+  const html = (S.moodFragments || [])
     .map((f) => {
       // Handle both boolean and numeric (0/1) enabled values from backend
       const enabled = f.enabled === true || f.enabled === 1;
@@ -46,7 +47,37 @@ export function renderMoodFragments() {
     })
     .join("");
 
-  $("frag-list").innerHTML = html;
+  $("frag-list").innerHTML = html + cardHtml;
+}
+
+// Shared field markup for the global modal and the card-scoped sub-modal (same
+// element ids — the two are never open at once).
+function _moodFragFormHtml(d, isEdit) {
+  return `
+    <div class="field-row">
+      <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
+        <input id="frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. dramatic"></div>
+      <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
+        <input id="frag-label" value="${esc(d.label)}" placeholder="Terse"></div>
+    </div>
+    <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(tells the Director when to activate — sent in its tool schema)</span></label>
+      <input id="frag-desc" value="${esc(d.description)}" placeholder="Short, clipped sentences. Minimal description."></div>
+    <div class="field"><label>Prompt Text <span style="font-size:10px;color:var(--text-muted)">(injected into the writer context when this mood is active)</span></label>
+      <textarea id="frag-text" rows="4" placeholder="Write tersely. Short sentences. No flowery language.">${esc(d.prompt_text)}</textarea></div>
+    <div class="field">
+      <label>Negative Prompt <span style="font-size:10px;color:var(--text-muted)">(injected if this fragment is removed next turn)</span></label>
+      <textarea id="frag-neg" rows="3" placeholder="Stop using short, clipped sentences.">${esc(d.negative_prompt || "")}</textarea>
+    </div>`;
+}
+
+function _readMoodFragForm() {
+  return {
+    id: $("frag-id").value.trim(),
+    label: $("frag-label").value.trim(),
+    description: $("frag-desc").value.trim(),
+    prompt_text: $("frag-text").value.trim(),
+    negative_prompt: $("frag-neg").value.trim(),
+  };
 }
 
 export function showMoodFragmentModal(fragId = null) {
@@ -56,20 +87,7 @@ export function showMoodFragmentModal(fragId = null) {
 
   showModal(`
     <h2>${isEdit ? "Edit Mood Fragment" : "New Mood Fragment"}</h2>
-    <div class="field-row">
-      <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
-        <input id="frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. dramatic"></div>
-      <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
-        <input id="frag-label" value="${esc(d.label)}" placeholder="Terse"></div>
-    </div>
-    <div class="field"><label>Description</label>
-      <input id="frag-desc" value="${esc(d.description)}" placeholder="Short, clipped sentences. Minimal description."></div>
-    <div class="field"><label>Prompt Text</label>
-      <textarea id="frag-text" rows="4" placeholder="Write tersely. Short sentences. No flowery language.">${esc(d.prompt_text)}</textarea></div>
-    <div class="field">
-      <label>Negative Prompt <span style="font-size:10px;color:var(--text-muted)">(injected if this fragment is removed next turn)</span></label>
-      <textarea id="frag-neg" rows="3" placeholder="Stop using short, clipped sentences.">${esc(d.negative_prompt || "")}</textarea>
-    </div>
+    ${_moodFragFormHtml(d, isEdit)}
     <div class="modal-actions">
       ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteMoodFragment('${esc(d.id)}')">Delete</button>` : ""}
       <div style="flex:1"></div>
@@ -79,13 +97,7 @@ export function showMoodFragmentModal(fragId = null) {
 }
 
 export async function saveMoodFragment(isEdit) {
-  const d = {
-    id: $("frag-id").value.trim(),
-    label: $("frag-label").value.trim(),
-    description: $("frag-desc").value.trim(),
-    prompt_text: $("frag-text").value.trim(),
-    negative_prompt: $("frag-neg").value.trim(),
-  };
+  const d = _readMoodFragForm();
   const validation = validate.validateMoodFragment(d);
   if (!validation.valid) {
     toast(validation.error, true);
@@ -141,13 +153,14 @@ export async function loadInteractiveFragments() {
 export function renderInteractiveFragments() {
   const el = document.getElementById("interactive-frag-list");
   if (!el) return;
-  if (!S.interactiveFragments || S.interactiveFragments.length === 0) {
+  const cardHtml = _cardInteractiveSidepanelHtml();
+  if ((!S.interactiveFragments || S.interactiveFragments.length === 0) && !cardHtml) {
     el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No interactive fragments</div>';
     return;
   }
 
   // Sort by sort_order then by id
-  const sorted = [...S.interactiveFragments].sort((a, b) => {
+  const sorted = [...(S.interactiveFragments || [])].sort((a, b) => {
     const orderA = a.sort_order || 0;
     const orderB = b.sort_order || 0;
     if (orderA !== orderB) return orderA - orderB;
@@ -191,7 +204,9 @@ export function renderInteractiveFragments() {
     })
     .join("");
 
-  el.innerHTML = html;
+  // Card items live in .frag-card-list (not .fragment-item), so the drag/reorder
+  // machinery below never sees them.
+  el.innerHTML = html + cardHtml;
   setupDragAndDrop(el);
 }
 
@@ -345,23 +360,11 @@ export function updateInteractiveFragmentExample(fieldType) {
   if (timingRow) timingRow.style.display = fieldType === "direction_note" ? "" : "none";
 }
 
-export function showInteractiveFragmentModal(fragId = null) {
-  const f = fragId ? S.interactiveFragments.find((x) => x.id === fragId) : null;
-  const isEdit = !!f;
-  const d = f || {
-    id: "",
-    label: "",
-    description: "",
-    field_type: "string",
-    required: false,
-    injection_label: "",
-    sort_order: 0,
-    direction_note_timing: "post_turn",
-  };
+// Shared field markup for the global modal and the card-scoped sub-modal (same
+// element ids — the two are never open at once).
+function _interactiveFragFormHtml(d, isEdit) {
   const ex = INTERACTIVE_FRAGMENT_EXAMPLES[d.field_type] || INTERACTIVE_FRAGMENT_EXAMPLES.string;
-
-  showModal(`
-    <h2>${isEdit ? "Edit" : "New"} Interactive Fragment</h2>
+  return `
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
         <input id="interactive-frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${esc(ex.id)}"></div>
@@ -396,7 +399,38 @@ export function showInteractiveFragmentModal(fragId = null) {
           <input type="checkbox" id="interactive-frag-required" ${d.required ? "checked" : ""}> Required
         </label>
       </div>
-    </div>
+    </div>`;
+}
+
+function _readInteractiveFragForm() {
+  return {
+    id: document.getElementById("interactive-frag-id").value.trim(),
+    label: document.getElementById("interactive-frag-label").value.trim(),
+    description: document.getElementById("interactive-frag-desc").value.trim(),
+    field_type: document.getElementById("interactive-frag-type").value,
+    required: document.getElementById("interactive-frag-required").checked,
+    injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
+    direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
+  };
+}
+
+export function showInteractiveFragmentModal(fragId = null) {
+  const f = fragId ? S.interactiveFragments.find((x) => x.id === fragId) : null;
+  const isEdit = !!f;
+  const d = f || {
+    id: "",
+    label: "",
+    description: "",
+    field_type: "string",
+    required: false,
+    injection_label: "",
+    sort_order: 0,
+    direction_note_timing: "post_turn",
+  };
+
+  showModal(`
+    <h2>${isEdit ? "Edit" : "New"} Interactive Fragment</h2>
+    ${_interactiveFragFormHtml(d, isEdit)}
     <div class="modal-actions">
       ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteInteractiveFragment('${esc(d.id)}')">Delete</button>` : ""}
       <div style="flex:1"></div>
@@ -406,15 +440,7 @@ export function showInteractiveFragmentModal(fragId = null) {
 }
 
 export async function saveInteractiveFragment(isEdit) {
-  const d = {
-    id: document.getElementById("interactive-frag-id").value.trim(),
-    label: document.getElementById("interactive-frag-label").value.trim(),
-    description: document.getElementById("interactive-frag-desc").value.trim(),
-    field_type: document.getElementById("interactive-frag-type").value,
-    required: document.getElementById("interactive-frag-required").checked,
-    injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
-    direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
-  };
+  const d = _readInteractiveFragForm();
   const validation = validate.validateInteractiveFragment(d);
   if (!validation.valid) {
     toast(validation.error, true);
@@ -453,4 +479,177 @@ export async function toggleInteractiveFragmentEnabled(id, newEnabled) {
   } catch (e) {
     toast(e.message, true);
   }
+}
+
+// ── Card-embedded fragments (extensions.orb.fragments on a character card)
+//
+// Two surfaces share this section:
+// 1. Sidepanel: the active character's fragments render read-only below a
+//    divider in both fragment lists (S.cardMoodFragments / S.cardInteractiveFragments,
+//    stashed by chat_conversations.js on selection). Not draggable, no toggles —
+//    editing happens in the character modal.
+// 2. Character modal "Fragments" tab: a pending in-memory copy edited via the
+//    sub-modal layer and saved with the card PUT/POST (library.js reads it back
+//    through readCardFragments()).
+
+function _interactiveTypeBadge(f) {
+  return f.field_type === "feedback"
+    ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>`
+    : f.field_type === "direction_note"
+      ? ` <span class="frag-type-badge" title="Direction-note fragment">D</span>`
+      : "";
+}
+
+function _cardMoodSidepanelHtml() {
+  const frags = S.cardMoodFragments || [];
+  if (!frags.length) return "";
+  const items = frags.map((f) => `<span title="${esc(f.description || "")}">${esc(f.label)}</span>`).join("");
+  return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
+}
+
+function _cardInteractiveSidepanelHtml() {
+  const frags = S.cardInteractiveFragments || [];
+  if (!frags.length) return "";
+  const items = frags
+    .map((f) => {
+      const feedbackDisabled = f.field_type === "feedback" && !S.feedbackEnabled;
+      const directionNoteDisabled = f.field_type === "direction_note" && !S.directionNotesRecord;
+      const featureDisabled = feedbackDisabled || directionNoteDisabled;
+      const itemTitle = feedbackDisabled
+        ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
+        : directionNoteDisabled
+          ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
+          : esc(f.description || "");
+      return `<span${featureDisabled ? ' class="frag-feature-disabled"' : ""} title="${itemTitle}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
+    })
+    .join("");
+  return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
+}
+
+// Pending copy of the card being edited; null when no character modal is open.
+let _cardFragPending = null;
+
+export function initCardFragments(fragments) {
+  _cardFragPending = {
+    mood: Array.isArray(fragments?.mood) ? structuredClone(fragments.mood) : [],
+    interactive: Array.isArray(fragments?.interactive) ? structuredClone(fragments.interactive) : [],
+  };
+}
+
+export function readCardFragments() {
+  return _cardFragPending;
+}
+
+export function renderCardFragmentsTab() {
+  const el = document.getElementById("ce-card-frag-list");
+  if (!el || !_cardFragPending) return;
+  const row = (type, f) => `
+    <div class="fragment-item" data-type="${type}" data-id="${esc(f.id)}">
+      <div style="flex:1; min-width:0;">
+        <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f)}
+        ${f.description ? `<div class="frag-desc">${esc(f.description)}</div>` : ""}
+      </div>
+      <div class="frag-toggle-wrapper" data-action="toggle">
+        <label class="frag-toggle">
+          <input type="checkbox" ${f.enabled === false ? "" : "checked"}>
+          <span class="frag-toggle-slider"></span>
+        </label>
+      </div>
+    </div>`;
+  const moods = _cardFragPending.mood.map((f) => row("mood", f)).join("");
+  const interactive = _cardFragPending.interactive.map((f) => row("interactive", f)).join("");
+  el.innerHTML =
+    moods || interactive
+      ? `${interactive ? `<div class="frag-divider">Interactive</div>${interactive}` : ""}
+         ${moods ? `<div class="frag-divider">Mood</div>${moods}` : ""}`
+      : '<div class="card-frag-empty">No fragments on this character yet</div>';
+  if (!el.dataset.wired) {
+    el.dataset.wired = "1";
+    el.addEventListener("click", (e) => {
+      const item = e.target.closest("[data-id]");
+      if (!item) return;
+      if (e.target.closest("[data-action='toggle']")) return; // handled on change
+      const { type, id } = item.dataset;
+      if (type === "mood") showCardMoodFragmentModal(id);
+      else showCardInteractiveFragmentModal(id);
+    });
+    el.addEventListener("change", (e) => {
+      const item = e.target.closest("[data-id]");
+      if (!item || e.target.type !== "checkbox") return;
+      const f = _cardFragPending[item.dataset.type].find((x) => x.id === item.dataset.id);
+      if (f) f.enabled = e.target.checked;
+    });
+  }
+}
+
+// Save/delete against the pending copy only; nothing touches the API until the
+// character itself is saved. Sub-modal buttons are wired programmatically.
+function _wireCardFragModal(type, isEdit, fragId) {
+  $("card-frag-cancel").addEventListener("click", closeSubModal);
+  if (isEdit) {
+    $("card-frag-delete").addEventListener("click", () => {
+      _cardFragPending[type] = _cardFragPending[type].filter((f) => f.id !== fragId);
+      closeSubModal();
+      renderCardFragmentsTab();
+    });
+  }
+  $("card-frag-save").addEventListener("click", () => {
+    const d = type === "mood" ? _readMoodFragForm() : _readInteractiveFragForm();
+    const validation = type === "mood" ? validate.validateMoodFragment(d) : validate.validateInteractiveFragment(d);
+    if (!validation.valid) {
+      toast(validation.error, true);
+      return;
+    }
+    const globals = type === "mood" ? S.moodFragments : S.interactiveFragments;
+    if (!isEdit && (globals.some((g) => g.id === d.id) || _cardFragPending[type].some((f) => f.id === d.id))) {
+      toast(`A ${type === "mood" ? "mood" : "interactive"} fragment with this ID already exists`, true);
+      return;
+    }
+    const existing = isEdit ? _cardFragPending[type].find((f) => f.id === fragId) : null;
+    d.enabled = existing ? existing.enabled !== false : true;
+    if (existing) Object.assign(existing, d);
+    else _cardFragPending[type].push(d);
+    closeSubModal();
+    renderCardFragmentsTab();
+  });
+}
+
+export function showCardMoodFragmentModal(fragId = null) {
+  const f = fragId ? _cardFragPending.mood.find((x) => x.id === fragId) : null;
+  const isEdit = !!f;
+  const d = f || { id: "", label: "", description: "", prompt_text: "", negative_prompt: "" };
+  showSubModal(`
+    <h2>${isEdit ? "Edit" : "New"} Character Mood Fragment</h2>
+    ${_moodFragFormHtml(d, isEdit)}
+    <div class="modal-actions">
+      ${isEdit ? `<button class="btn btn-danger btn-sm" id="card-frag-delete">Delete</button>` : ""}
+      <div style="flex:1"></div>
+      <button class="btn" id="card-frag-cancel">Cancel</button>
+      <button class="btn btn-accent" id="card-frag-save">${isEdit ? "Save" : "Add"}</button>
+    </div>`);
+  _wireCardFragModal("mood", isEdit, fragId);
+}
+
+export function showCardInteractiveFragmentModal(fragId = null) {
+  const f = fragId ? _cardFragPending.interactive.find((x) => x.id === fragId) : null;
+  const isEdit = !!f;
+  const d = f || {
+    id: "",
+    label: "",
+    description: "",
+    field_type: "string",
+    required: false,
+    injection_label: "",
+    direction_note_timing: "post_turn",
+  };
+  showSubModal(`
+    <h2>${isEdit ? "Edit" : "New"} Character Interactive Fragment</h2>
+    ${_interactiveFragFormHtml(d, isEdit)}
+    <div class="modal-actions">
+      ${isEdit ? `<button class="btn btn-danger btn-sm" id="card-frag-delete">Delete</button>` : ""}
+      <div style="flex:1"></div>
+      <button class="btn" id="card-frag-cancel">Cancel</button>
+      <button class="btn btn-accent" id="card-frag-save">${isEdit ? "Save" : "Add"}</button>
+    </div>`);
+  _wireCardFragModal("interactive", isEdit, fragId);
 }

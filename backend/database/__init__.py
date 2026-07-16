@@ -9,6 +9,7 @@ from __future__ import annotations
 from .bootstrap import init_db, reset_to_defaults
 from .connection import DB_PATH, get_db
 from .queries.character_cards import (
+    card_embedded_fragments,
     create_character_card,
     delete_character_card,
     get_character_avatar,
@@ -164,6 +165,7 @@ __all__ = [
     "add_generated_chars",
     "add_message",
     "add_phrase_group",
+    "card_embedded_fragments",
     "create_character_card",
     "create_conversation",
     "create_interactive_fragment",
