@@ -158,24 +158,27 @@ def resolve_stored_random(
     """Resolve {{random}} in *texts* against a per-conversation choice map.
 
     For global rows (mood/interactive fragments) whose source text cannot be
-    rewritten: each {{random}} occurrence gets the key ``f"{key_prefix}:{n}"``
-    where *n* is one shared counter across all *texts* (so a fragment's fields
-    keep stable keys in a fixed order). A stored choice is reused only while it
-    is still one of the macro's current options; otherwise a fresh pick is
-    rolled and recorded into *choices* (mutated in place). {{roll}} and
+    rewritten: each {{random}} occurrence gets the key
+    ``f"{key_prefix}:{macro_text}:{ordinal}"`` where *ordinal* counts prior
+    occurrences of the same macro text across all *texts* — the same scheme as
+    the seeded path in :func:`_resolve_inline`, so a pick survives edits around
+    it and can never be claimed by a different macro. Because the key embeds
+    the exact macro text, a stored pick is always one of the current options
+    and is reused verbatim; editing a macro's options changes its key, so the
+    edited macro re-rolls fresh (and the old key goes stale, harmlessly).
+    Fresh picks are recorded into *choices* (mutated in place). {{roll}} and
     {{user}}/{{char}} are left untouched.
     """
-    counter = 0
+    seen: dict[str, int] = {}
 
     def _pick(m: re.Match) -> str:
-        nonlocal counter
-        key = f"{key_prefix}:{counter}"
-        counter += 1
-        options = m.group(1).split("::")
+        ordinal = seen.get(m.group(0), 0)
+        seen[m.group(0)] = ordinal + 1
+        key = f"{key_prefix}:{m.group(0)}:{ordinal}"
         stored = choices.get(key)
-        if stored is not None and stored in options:
+        if stored is not None:
             return stored
-        choice = random.choice(options)
+        choice = random.choice(m.group(1).split("::"))
         choices[key] = choice
         return choice
 

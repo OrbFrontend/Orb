@@ -177,6 +177,9 @@ class ConversationRow(TypedDict):
     active_leaf_id: int | None
     workflow_state: str | None
     persona_lock_id: int | None
+    # {{random}} seed override; '' = use the conversation's own id. Set by
+    # checkpoint/compress so seeded picks match the copied history.
+    macro_seed: str
 
 
 class ConversationListRow(ConversationRow, total=False):
@@ -410,7 +413,7 @@ class DirectorStateRow(TypedDict):
     active_moods: list
     keywords: list
     progressive_fields: dict
-    macro_choices: dict
+    macro_choices: dict[str, str]
 
 
 class ConversationLogRow(TypedDict):

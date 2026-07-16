@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     last_accessed_at TEXT,
     active_leaf_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     workflow_state TEXT DEFAULT NULL,
-    persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
+    persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
+    macro_seed TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS character_cards (

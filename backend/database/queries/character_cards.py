@@ -137,33 +137,26 @@ async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[s
         return count
 
 
-async def reroll_unfrozen_greetings(cid: str) -> bool:
+async def reroll_unfrozen_greetings(cid: str) -> None:
     """Re-roll inline macros in the conversation's root greetings while unfrozen.
 
     A greeting row stores macro-resolved text in ``content`` and its raw
     template in the "macros" per-message slot. Until the conversation has a
-    user message, every fetch may re-resolve freely; once one exists the guard
-    here fails and the last-displayed resolution stays fixed forever (display,
-    DB, and the first turn's prompt all read the same bytes). Rows without a
-    stashed template (no macros, or copies made by checkpoint — which drops
-    workflow_state) are left untouched. Returns True when a re-roll happened.
+    user message, every fetch may re-resolve freely; once one exists the
+    NOT EXISTS guard matches nothing and the last-displayed resolution stays
+    fixed forever (display, DB, and the first turn's prompt all read the same
+    bytes). Rows without a stashed template (no macros, or copies made by
+    checkpoint — which drops workflow_state) are left untouched.
     """
     async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT EXISTS(SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user') AS frozen",
-                (cid,),
-            )
-        )
-        if rows and rows[0]["frozen"]:
-            return False
         greetings = list(
             await db.execute_fetchall(
                 "SELECT id, json_extract(workflow_state, '$.macros.template') AS template "
                 "FROM messages "
                 "WHERE conversation_id = ? AND parent_id IS NULL "
-                "  AND json_extract(workflow_state, '$.macros.template') IS NOT NULL",
-                (cid,),
+                "  AND json_extract(workflow_state, '$.macros.template') IS NOT NULL "
+                "  AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user')",
+                (cid, cid),
             )
         )
         for row in greetings:
@@ -173,7 +166,6 @@ async def reroll_unfrozen_greetings(cid: str) -> bool:
             )
         if greetings:
             await db.commit()
-        return bool(greetings)
 
 
 async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | None:

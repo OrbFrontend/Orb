@@ -41,13 +41,16 @@ async def update_director_state(
     progressive_fields: dict | None = None,
     macro_choices: dict | None = None,
 ):
-    """Update the conversation's director state. ``keywords`` and
-    ``macro_choices`` are left untouched when ``None``."""
-    sets = ["active_moods = ?", "progressive_fields = ?"]
-    vals: list = [json.dumps(active_moods), json.dumps(progressive_fields or {})]
+    """Update the conversation's director state. Optional fields (``keywords``,
+    ``progressive_fields``, ``macro_choices``) are left untouched when ``None``."""
+    sets = ["active_moods = ?"]
+    vals: list = [json.dumps(active_moods)]
     if keywords is not None:
         sets.append("keywords = ?")
         vals.append(json.dumps(keywords))
+    if progressive_fields is not None:
+        sets.append("progressive_fields = ?")
+        vals.append(json.dumps(progressive_fields))
     if macro_choices is not None:
         sets.append("macro_choices = ?")
         vals.append(json.dumps(macro_choices))

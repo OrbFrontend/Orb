@@ -1,8 +1,9 @@
 """Migration 0043: add macro_choices to director_state.
 
 Per-conversation {{random}} picks for mood/interactive fragment text — a JSON
-map of "surface:fragment_id:occurrence" → chosen option, so a fragment's
-random macros resolve once per conversation and stay fixed.
+map of "surface:fragment_id:macro_text:ordinal" → chosen option (see
+``core.macros.resolve_stored_random``), so a fragment's random macros resolve
+once per conversation and stay fixed.
 """
 
 from __future__ import annotations

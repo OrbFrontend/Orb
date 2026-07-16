@@ -83,7 +83,7 @@ The editor's prompt **extends** the writer's prompt: the writer's trailing user 
 
 Character card, persona, scenario, example dialogue, post-history instructions, and user description are concatenated into a single system message once per turn. The same string is sent to all three passes. No pass adds, edits, or reorders anything.
 
-Inline macros in these fields are resolved during that per-turn build, so they must be byte-stable across turns: `{{random}}` is — it resolves through a per-conversation seed (`Macros.seed`, the conversation id), always yielding the same pick — but `{{roll}}` re-rolls every turn and will silently change the system-prompt bytes; avoid `{{roll}}` in card prefix fields.
+Inline macros in these fields are resolved during that per-turn build, so they must be byte-stable across turns: `{{random}}` is — it resolves through a per-conversation seed (`Macros.seed`: the conversation id, or the carried `conversations.macro_seed` on checkpoint/compress copies so picks match the copied history), always yielding the same pick — but `{{roll}}` re-rolls every turn and will silently change the system-prompt bytes; avoid `{{roll}}` in card prefix fields.
 
 ### Invariant 2 — One history list, shared by every pass
 

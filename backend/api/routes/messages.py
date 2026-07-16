@@ -32,10 +32,10 @@ from ...pipeline import (
 )
 from ...pipeline.predicates import resolve_persona_id
 from ..deps import (
-    _active_aborts,
     _conversation_stream_lock,
     _pipeline_sse_response,
     require_conversation,
+    stream_idle_lock,
 )
 from ..schemas import (
     AutocompleteInput,
@@ -51,11 +51,15 @@ router = APIRouter()
 @router.get("/api/conversations/{cid}/messages")
 async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     # Greetings with inline macros re-roll freely on every fetch until the
-    # first user message freezes them. Skipped while a stream is in flight so
-    # the fetch can't disagree with the prefix the running turn was built from.
-    if cid not in _active_aborts:
-        await reroll_unfrozen_greetings(cid)
-    return await get_messages_with_branch_info(cid)
+    # first user message freezes them. The try-lock (never queued) makes the
+    # re-roll mutually exclusive with a whole pipeline stream — skipped when
+    # one is running — so a fetch can never commit a re-roll between the
+    # stream's history read and its freeze, and the frozen bytes are always
+    # the ones the model saw.
+    async with stream_idle_lock(cid) as idle:
+        if idle:
+            await reroll_unfrozen_greetings(cid)
+        return await get_messages_with_branch_info(cid)
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/edit")

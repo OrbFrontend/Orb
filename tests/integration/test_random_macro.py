@@ -194,7 +194,7 @@ async def test_mood_fragment_random_fixed_per_conversation(client, db, llm_mock)
     pick = next(w for w in ("crimson", "azure") if w in first_block)
 
     state = await dbmod.get_director_state(cid)
-    assert state["macro_choices"] == {"mood:vivid:0": pick}
+    assert state["macro_choices"] == {"mood:vivid:{{random::crimson::azure}}:0": pick}
 
     # Second turn re-reads the committed map: byte-identical injection.
     llm_mock.enqueue_director(_direct_scene({"moods": ["vivid"]}))
@@ -203,7 +203,7 @@ async def test_mood_fragment_random_fixed_per_conversation(client, db, llm_mock)
     assert second_block == first_block
 
     state = await dbmod.get_director_state(cid)
-    assert state["macro_choices"] == {"mood:vivid:0": pick}
+    assert state["macro_choices"] == {"mood:vivid:{{random::crimson::azure}}:0": pick}
 
 
 async def test_interactive_fragment_value_random_fixed(client, db, llm_mock):
@@ -226,9 +226,10 @@ async def test_interactive_fragment_value_random_fixed(client, db, llm_mock):
 
     assert "{{random" not in block
     state = await dbmod.get_director_state(cid)
-    assert set(state["macro_choices"]) == {"interactive:style:0"}
-    assert state["macro_choices"]["interactive:style:0"] in {"loud", "quiet"}
-    assert f"make it {state['macro_choices']['interactive:style:0']}" in block
+    key = "interactive:style:{{random::loud::quiet}}:0"
+    assert set(state["macro_choices"]) == {key}
+    assert state["macro_choices"][key] in {"loud", "quiet"}
+    assert f"make it {state['macro_choices'][key]}" in block
 
 
 async def test_checkpoint_copies_macro_choices(client, db, llm_mock):
@@ -246,3 +247,14 @@ async def test_checkpoint_copies_macro_choices(client, db, llm_mock):
 
     copied = await dbmod.get_director_state(new_cid)
     assert copied["macro_choices"] == source["macro_choices"]
+
+    # Seeded {{random}} (persona/scenario fields) must not re-roll under the
+    # copy's new id: the copy pins the source's seed, transitively (a
+    # checkpoint of a checkpoint keeps the original seed).
+    copy = await dbmod.get_conversation(new_cid)
+    assert copy is not None and copy["macro_seed"] == cid
+
+    resp = await client.post(f"/api/conversations/{new_cid}/checkpoint", json={"title": "cp2"})
+    assert resp.status_code == 200
+    grandchild = await dbmod.get_conversation(resp.json()["id"])
+    assert grandchild is not None and grandchild["macro_seed"] == cid

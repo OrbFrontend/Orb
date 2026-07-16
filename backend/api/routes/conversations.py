@@ -13,7 +13,6 @@ from ...core import (
     estimate_tokens,
     has_inline_macros,
     resolve_inline,
-    resolve_stored_random,
     scrub_log,
 )
 from ...database import (
@@ -55,7 +54,7 @@ from ...database.models import ConversationRow
 from ...features import lorebook
 from ...features.summarization import ConversationSummarizer
 from ...inference import AbortToken, client_from_settings, prompt_builder
-from ...pipeline import agent_enabled, persona_macros, resolve_card_and_persona
+from ...pipeline import agent_enabled, conversation_macro_seed, persona_macros, resolve_card_and_persona
 from ..deps import (
     _active_aborts,
     _CleanupStreamingResponse,
@@ -194,7 +193,7 @@ async def api_summarize_conversation(
     # lock overrides the global active persona) so a summary stays consistent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-    macros, user_description = persona_macros(settings, char_name, active_persona, seed=cid)
+    macros, user_description = persona_macros(settings, char_name, active_persona, seed=conversation_macro_seed(conv))
 
     abort_token = AbortToken()
     client = client_from_settings(settings, abort_token=abort_token)
@@ -392,7 +391,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # character lock overrides the global active persona) so the size
     # breakdown matches the prompt that is actually sent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
-    macros, user_desc = persona_macros(settings, conv["character_name"], active_persona, seed=cid)
+    macros, user_desc = persona_macros(settings, conv["character_name"], active_persona, seed=conversation_macro_seed(conv))
 
     # Resolve character context
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
@@ -414,14 +413,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     # real turn would inject, without recording new picks.
     active_moods = director.get("active_moods", []) if director else []
     est_choices = dict(director.get("macro_choices", {}) if director else {})
-    est_mood_frags = []
-    for f in mood_frags:
-        if f["id"] in active_moods:
-            prompt_text, negative_prompt = resolve_stored_random(
-                [f.get("prompt_text", ""), f.get("negative_prompt", "")], est_choices, f"mood:{f['id']}"
-            )
-            f = {**f, "prompt_text": prompt_text, "negative_prompt": negative_prompt}
-        est_mood_frags.append(f)
+    est_mood_frags = prompt_builder.resolve_mood_fragment_randoms(mood_frags, active_moods, est_choices)
     inj_block = prompt_builder.compute_style_injection_block(
         active_moods,
         active_moods,

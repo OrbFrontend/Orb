@@ -30,6 +30,7 @@ from ....inference import (
     parse_tool_calls,
     reasoning_cfg,
     render_direction_notes_block,
+    resolve_mood_fragment_randoms,
 )
 from ...predicates import direction_note_to_director, direction_note_to_writer
 from . import progressive
@@ -448,22 +449,11 @@ async def director_stage(
     # {{random}} in fragment text resolves against the per-conversation choice
     # map (state.macro_choices, persisted with director state): the first turn
     # rolls and records, later turns reuse the stored pick, so a fragment stays
-    # fixed for the conversation even though its source row is global. Only
-    # fragments that can render this turn are resolved, keeping the map free of
-    # picks for moods that were never activated.
-    inj_mood_fragments = mood_fragments
+    # fixed for the conversation even though its source row is global.
+    inj_mood_fragments: Sequence[Mapping[str, Any]] = mood_fragments
     if direct_scene_enabled:
         renderable = set(state.active_moods) | set(director["active_moods"])
-        inj_mood_fragments = []
-        for f in mood_fragments:
-            if f["id"] in renderable:
-                prompt_text, negative_prompt = resolve_stored_random(
-                    [f.get("prompt_text", ""), f.get("negative_prompt", "")],
-                    state.macro_choices,
-                    f"mood:{f['id']}",
-                )
-                f = {**f, "prompt_text": prompt_text, "negative_prompt": negative_prompt}
-            inj_mood_fragments.append(f)
+        inj_mood_fragments = resolve_mood_fragment_randoms(mood_fragments, renderable, state.macro_choices)
         # Interactive values the director authored this turn; resolving before
         # progressive.select keeps the persisted progressive state consistent
         # with the injected text.

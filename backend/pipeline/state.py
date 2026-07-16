@@ -134,7 +134,7 @@ class TurnState:
     # Per-conversation {{random}} picks for fragment text: seeded from the
     # committed director state, extended by the director stage when a fragment
     # with a fresh macro renders, persisted back with the rest of the state.
-    macro_choices: dict = field(default_factory=dict)
+    macro_choices: dict[str, str] = field(default_factory=dict)
 
     # --- director outputs ---
     agent_raw: str = ""

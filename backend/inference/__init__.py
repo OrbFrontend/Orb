@@ -31,6 +31,7 @@ from .prompt_builder import (
     compute_style_injection_block,
     format_message_with_attachments,
     render_direction_notes_block,
+    resolve_mood_fragment_randoms,
 )
 from .retry import RetryPolicy
 from .text_completion import has_image_parts
@@ -82,6 +83,7 @@ __all__ = [
     "compute_style_injection_block",
     "format_message_with_attachments",
     "render_direction_notes_block",
+    "resolve_mood_fragment_randoms",
     # tool_registry
     "BUILTIN_TOOL_NAMES",
     "GIVE_FEEDBACK_CHOICE",

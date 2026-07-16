@@ -115,22 +115,39 @@ def test_unseeded_macros_still_resolve():
 def test_stored_random_records_and_reuses():
     choices: dict[str, str] = {}
     (first,) = resolve_stored_random(["{{random::crimson::azure}}"], choices, "mood:m1")
-    assert choices == {"mood:m1:0": first}
+    assert choices == {"mood:m1:{{random::crimson::azure}}:0": first}
     (again,) = resolve_stored_random(["{{random::crimson::azure}}"], dict(choices), "mood:m1")
     assert again == first
 
 
-def test_stored_random_shared_counter_across_texts():
+def test_stored_random_keys_by_macro_text_and_ordinal():
+    # Distinct macros key independently; a repeat of the same macro gets its
+    # own ordinal; keys span all texts of the call.
     choices: dict[str, str] = {}
-    resolve_stored_random(["{{random::a::b}} {{random::c::d}}", "{{random::e::f}}"], choices, "mood:m2")
-    assert set(choices) == {"mood:m2:0", "mood:m2:1", "mood:m2:2"}
+    resolve_stored_random(["{{random::a::b}} {{random::c::d}}", "{{random::a::b}}"], choices, "mood:m2")
+    assert set(choices) == {
+        "mood:m2:{{random::a::b}}:0",
+        "mood:m2:{{random::c::d}}:0",
+        "mood:m2:{{random::a::b}}:1",
+    }
 
 
-def test_stored_random_rerolls_when_choice_no_longer_an_option():
-    choices = {"mood:m3:0": "removed"}
+def test_stored_random_pick_survives_inserted_macro():
+    # Text-keyed (not position-keyed): a new macro inserted before an existing
+    # one cannot shift or steal its stored pick.
+    choices: dict[str, str] = {}
+    (before,) = resolve_stored_random(["{{random::kept::other}}"], choices, "mood:m2b")
+    (after,) = resolve_stored_random(["{{random::new::stuff}} then {{random::kept::other}}"], choices, "mood:m2b")
+    assert after.endswith(f"then {before}")
+
+
+def test_stored_random_edited_options_reroll_fresh():
+    # The key embeds the macro text, so editing the options orphans the old
+    # pick and the edited macro rolls fresh from its own options.
+    choices = {"mood:m3:{{random::removed::other}}:0": "removed"}
     (out,) = resolve_stored_random(["{{random::kept::other}}"], choices, "mood:m3")
     assert out in {"kept", "other"}
-    assert choices["mood:m3:0"] == out
+    assert choices["mood:m3:{{random::kept::other}}:0"] == out
 
 
 def test_stored_random_leaves_roll_and_plain_text_alone():
@@ -138,10 +155,3 @@ def test_stored_random_leaves_roll_and_plain_text_alone():
     out = resolve_stored_random(["plain {{roll::2d6}}", "", None], choices, "x")  # type: ignore[list-item]
     assert out == ["plain {{roll::2d6}}", "", ""]
     assert choices == {}
-
-
-def test_stored_random_reuses_even_with_fresh_option_order():
-    # Membership, not position, decides reuse: reordering options keeps the pick.
-    choices = {"interactive:f1:0": "beta"}
-    (out,) = resolve_stored_random(["{{random::beta::alpha}}"], choices, "interactive:f1")
-    assert out == "beta"

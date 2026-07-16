@@ -75,6 +75,29 @@ async def _conversation_stream_lock(cid: str):
         yield
 
 
+@asynccontextmanager
+async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
+    """Try-acquire the conversation stream lock without ever queuing.
+
+    Yields ``True`` holding the lock when no pipeline stream is running on
+    *cid*, ``False`` without it when one is. locked()/acquire() are atomic
+    across coroutines (no await between — see the note in ``_sse_stream``), so
+    the check cannot lose the lock to a stream and then block behind it. Lets
+    read paths do stream-consistent side writes (greeting re-rolls) that must
+    never wait out a running stream and must never interleave with its
+    prompt-building reads.
+    """
+    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
+    if lock.locked():
+        yield False
+        return
+    await lock.acquire()
+    try:
+        yield True
+    finally:
+        lock.release()
+
+
 # Per-conversation abort token for the active LLM generation. Set when streaming
 # starts; cleared when it ends or is aborted. One token covers every client in
 # the turn (writer + optional agent), so /stop signals them all at once.
