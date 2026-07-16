@@ -29,6 +29,7 @@ User-initiated regeneration and context controls.
 
 | Feature | Summary |
 |---|---|
+| [Macros](macros.md) | Placeholders for names, dice rolls, and random picks in any text |
 | [Super-regenerate](super-regenerate.md) | Ask for a different take instead of a samey regen |
 | [Magic Rewrite](magic-rewrite.md) | Rewrite a message in a user-defined direction |
 | [Compress History](compress-history.md) | Summarize chat context into a new conversation |

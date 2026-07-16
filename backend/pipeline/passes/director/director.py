@@ -15,7 +15,7 @@ from ....core import (
     ChatMessage,
     build_multimodal_content,
     extract_hyperparams,
-    resolve_stored_random,
+    resolve_inline,
 )
 from ....inference import (
     PRE_WRITER_TOOLS,
@@ -330,16 +330,19 @@ async def director_pass(
     }
 
 
-def _resolve_random_in_value(value: Any, choices: dict, key_prefix: str) -> Any:
-    """Resolve {{random}} in a director-authored field value against the choice map.
+def _resolve_random_in_value(value: Any) -> Any:
+    """Resolve inline macros in a director-authored field value, fresh rolls.
 
-    String values and all-string lists (array fields) are resolved; anything
-    else passes through untouched.
+    The director authored the value this turn, so a {{random}}/{{roll}} it
+    emits re-rolls on every emission — unlike fragment source text, whose
+    picks are pinned in the per-conversation choice map. String values and
+    all-string lists (array fields) are resolved; anything else passes
+    through untouched.
     """
     if isinstance(value, str):
-        return resolve_stored_random([value], choices, key_prefix)[0]
+        return resolve_inline(value)
     if isinstance(value, list) and all(isinstance(v, str) for v in value):
-        return resolve_stored_random(value, choices, key_prefix)
+        return [resolve_inline(v) for v in value]
     return value
 
 
@@ -454,13 +457,10 @@ async def director_stage(
     if direct_scene_enabled:
         renderable = set(state.active_moods) | set(director["active_moods"])
         inj_mood_fragments = resolve_mood_fragment_randoms(mood_fragments, renderable, state.macro_choices)
-        # Interactive values the director authored this turn; resolving before
-        # progressive.select keeps the persisted progressive state consistent
-        # with the injected text.
-        state.extra_fields = {
-            fid: _resolve_random_in_value(val, state.macro_choices, f"interactive:{fid}")
-            for fid, val in state.extra_fields.items()
-        }
+        # Interactive values the director authored this turn roll fresh (per
+        # emission, not per conversation); resolving before progressive.select
+        # keeps the persisted progressive state consistent with the injected text.
+        state.extra_fields = {fid: _resolve_random_in_value(val) for fid, val in state.extra_fields.items()}
         state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
 
     state.inj_block = macros.resolve_message(

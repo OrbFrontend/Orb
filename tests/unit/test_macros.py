@@ -109,6 +109,24 @@ def test_unseeded_macros_still_resolve():
     assert m.resolve_message("{{random::l::r}}") in {"l", "r"}
 
 
+def test_seeded_roll_is_deterministic():
+    # A {{roll}} in per-turn-rebuilt text (persona: "a monster with {{roll::3d8}}
+    # limbs") must resolve to the same bytes every turn of the conversation.
+    m = Macros("Alice", "Bot", seed="conv-3")
+    text = "the beast has {{roll::3d8}} limbs and {{roll::3d8}} eyes"
+    first = m.resolve_message(text)
+    assert first == m.resolve_message(text)
+    assert "{{roll" not in first
+    # Different seed = an independent conversation rolls its own dice.
+    counts = {Macros("A", "B", seed=f"conv-{i}").resolve_message("{{roll::10d100}}") for i in range(20)}
+    assert len(counts) > 1
+
+
+def test_unseeded_roll_rolls_fresh():
+    # 20 draws of 10d100 all landing on the same total would mean the RNG froze.
+    assert len({resolve_inline("{{roll::10d100}}") for _ in range(20)}) > 1
+
+
 # ── resolve_stored_random (per-conversation choice map) ──────────────────────
 
 
@@ -155,3 +173,39 @@ def test_stored_random_leaves_roll_and_plain_text_alone():
     out = resolve_stored_random(["plain {{roll::2d6}}", "", None], choices, "x")  # type: ignore[list-item]
     assert out == ["plain {{roll::2d6}}", "", ""]
     assert choices == {}
+
+
+# ── backtick literals (macros in `…` spans never resolve) ────────────────────
+
+
+def test_backticked_macros_stay_literal_everywhere():
+    text = "say `{{random::a::b}}` or `{{roll::2d6}}` to `{{user}}` and `{{char}}`"
+    assert resolve_inline(text) == text
+    assert resolve_message(text, "Alice", "Bot") == text
+    choices: dict[str, str] = {}
+    assert resolve_stored_random([text], choices, "mood:m") == [text]
+    assert choices == {}
+
+
+def test_backticked_literal_next_to_live_macro():
+    out = resolve_message("use `{{random::a::b}}`, e.g. {{random::a}} for {{user}}", "Alice", "Bot")
+    assert out == "use `{{random::a::b}}`, e.g. a for Alice"
+
+
+def test_backtick_literal_is_idempotent_across_passes():
+    text = "keep `{{random::x::y}}` and {{random::only}}"
+    once = resolve_message(text, "A", "B")
+    assert once == "keep `{{random::x::y}}` and only"
+    assert resolve_message(once, "A", "B") == once
+    assert resolve_inline(once) == once
+
+
+def test_has_inline_macros_ignores_backticked():
+    assert not has_inline_macros("hi `{{random::a::b}}`")
+    assert has_inline_macros("`{{random::a::b}}` and {{roll::1d6}}")
+
+
+def test_unpaired_or_multiline_backticks_do_not_escape():
+    # A lone backtick opens no span; spans don't cross newlines.
+    assert resolve_inline("` {{random::a}}") == "` a"
+    assert resolve_inline("`no close\n{{random::a}}`") == "`no close\na`"

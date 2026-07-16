@@ -50,6 +50,19 @@ Each interactive fragment has:
 - **Feedback** — points the other way: instead of steering the Writer, it produces a short out-of-character note shown to **you** after the reply. See [Feedback Fragments](feedback-fragments.md).
 - **Direction note** — instead of shaping one reply, it records a lasting note that stays on the branch and keeps steering later turns. See [Direction Notes](direction-notes.md).
 
+### Randomizing with `{{random}}`
+
+Fragment text supports the inline [macros](macros.md). They resolve at different moments depending on where they live:
+
+- **In a mood fragment's prompt text** — `{{random::crimson::azure}}` rolls **once per conversation** and the pick sticks, so a randomized style stays coherent across turns.
+- **In a Director tool-call value** — if the Director itself writes `{{random::...}}` into a fragment value, it re-rolls **every turn it's emitted**.
+
+To get the second behavior, tell the Director about the macro in the fragment's description — wrapped in backticks, e.g.:
+
+> Pick the weather. To leave it to chance, output `{{random::clear::drizzle::storm}}` verbatim.
+
+Macros inside single-backtick spans are **never resolved** (anywhere — descriptions, prompt text, messages), so the example survives to the Director's prompt as literal syntax it can copy. The un-backticked macro the Director emits then rolls fresh in the Scene Direction block each turn.
+
 ### Ordering
 
 Drag the handle on any fragment row to reorder. Order matters twice: the Director fills fragments **top-down**, so an earlier fragment's answer informs the later ones (a one-way train of thought), and the Scene Direction block presents them to the Writer in the same order.

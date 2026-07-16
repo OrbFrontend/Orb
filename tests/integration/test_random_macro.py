@@ -3,9 +3,10 @@
 The design under test: message rows resolve inline macros once at the persist
 boundary (user send, assistant persist, plain edit), greetings re-roll from a
 stashed raw template on every fetch until the first user message freezes them,
-and mood/interactive fragment text resolves against the per-conversation
+mood fragment text resolves against the per-conversation
 ``director_state.macro_choices`` map so a pick is made once and reused every
-later turn (and carried by checkpoint).
+later turn (and carried by checkpoint), and director-authored interactive
+values roll fresh on every emission.
 """
 
 from __future__ import annotations
@@ -206,7 +207,7 @@ async def test_mood_fragment_random_fixed_per_conversation(client, db, llm_mock)
     assert state["macro_choices"] == {"mood:vivid:{{random::crimson::azure}}:0": pick}
 
 
-async def test_interactive_fragment_value_random_fixed(client, db, llm_mock):
+async def test_interactive_fragment_value_random_rolls_fresh(client, db, llm_mock):
     cid = "conv-rm-interactive"
     await _setup_directed_conversation(client, cid)
     await client.post(
@@ -220,16 +221,17 @@ async def test_interactive_fragment_value_random_fixed(client, db, llm_mock):
         },
     )
 
-    llm_mock.enqueue_director(_direct_scene({"moods": [], "style": "make it {{random::loud::quiet}}"}))
-    llm_mock.enqueue_writer("ok")
-    block = _injection_block(await _drain(handle_turn(cid, "hello")))
+    # Director-authored values roll fresh per emission: resolved in the block,
+    # no pick pinned in macro_choices (unlike fragment source text above).
+    for turn_msg in ("hello", "again"):
+        llm_mock.enqueue_director(_direct_scene({"moods": [], "style": "make it {{random::loud::quiet}}"}))
+        llm_mock.enqueue_writer("ok")
+        block = _injection_block(await _drain(handle_turn(cid, turn_msg)))
+        assert "{{random" not in block
+        assert any(f"make it {w}" in block for w in ("loud", "quiet"))
 
-    assert "{{random" not in block
     state = await dbmod.get_director_state(cid)
-    key = "interactive:style:{{random::loud::quiet}}:0"
-    assert set(state["macro_choices"]) == {key}
-    assert state["macro_choices"][key] in {"loud", "quiet"}
-    assert f"make it {state['macro_choices'][key]}" in block
+    assert state["macro_choices"] == {}
 
 
 async def test_checkpoint_copies_macro_choices(client, db, llm_mock):

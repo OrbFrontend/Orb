@@ -13,8 +13,7 @@ Public API:
         ({{user}}/{{char}} + inline macros like {{roll}} and {{random}}).
         Use for: the latest user message, persona, scenario, and other
         prompt text that should have all macros resolved. A non-empty
-        *seed* makes {{random}} deterministic (see below); {{roll}} always
-        rolls fresh.
+        *seed* makes {{random}} and {{roll}} deterministic (see below).
 
     resolve_prompt(text, user_name, char_name) — Substitution only
         ({{user}}/{{char}}, no inline macros).
@@ -35,10 +34,18 @@ Public API:
         stored pick so the fragment stays fixed for the conversation.
 
 Inline macros:
-    {{roll::NdM}}                 — sum of N M-sided dice, fresh every call.
+    {{roll::NdM}}                 — sum of N M-sided dice.
     {{random::opt1::opt2::...}}   — one option, ``::``-separated. Options
-        cannot contain ``::`` or ``}}`` (grammar, not enforced). With a
-        seed (or a stored choice) the pick is stable; unseeded it re-rolls.
+        cannot contain ``::`` or ``}}`` (grammar, not enforced).
+    Both re-roll on every unseeded resolution; with a seed (or a stored
+    choice) the result is stable — so a roll or pick in per-turn-rebuilt
+    prompt text (persona, scenario) stays fixed for the conversation.
+
+Literal escape: any macro inside a single-backtick span (`{{random::a::b}}`)
+    is left untouched by every resolver, {{user}}/{{char}} included. The
+    backticks stay in the text, so literalness survives repeated resolution
+    passes — used to show macro syntax to a model (e.g. instructing the
+    Director to emit a macro) without it firing en route.
 
     Macros.resolve_message(text)      — instance method, full resolution
     Macros.resolve_prompt(text)       — instance method, substitution only
@@ -59,15 +66,42 @@ from typing import Any, Mapping, MutableMapping, NamedTuple, Sequence
 # ---------------------------------------------------------------------------
 
 
+_LITERAL_RE = re.compile(r"`[^`\n]*`")
+
+
+def _outside_literals(text: str, fn) -> str:
+    """Apply *fn* to *text* with single-backtick spans masked out (kept literal).
+
+    Spans are swapped for control-char placeholders, *fn* runs on the rest as
+    one string (so occurrence counting spans the whole text), then the spans
+    are restored verbatim — backticks included, which is what makes literal
+    macros survive repeated resolution passes.
+    """
+    if "`" not in text:
+        return fn(text)
+    spans: list[str] = []
+
+    def _stash(m: re.Match) -> str:
+        spans.append(m.group(0))
+        return f"\x00{len(spans) - 1}\x01"
+
+    masked = _LITERAL_RE.sub(_stash, text)
+    return re.sub(r"\x00(\d+)\x01", lambda m: spans[int(m.group(1))], fn(masked))
+
+
 def _sub(text: str, user_name: str, char_name: str) -> str:
-    """Replace {{user}} and {{char}} placeholders (case-insensitive)."""
+    """Replace {{user}} and {{char}} placeholders (case-insensitive); backticked spans stay literal."""
     if not text or not isinstance(text, str):
         return text or ""
-    if user_name:
-        text = re.sub(r"\{\{user\}\}", user_name, text, flags=re.IGNORECASE)
-    if char_name:
-        text = re.sub(r"\{\{char\}\}", char_name, text, flags=re.IGNORECASE)
-    return text
+
+    def _fire(t: str) -> str:
+        if user_name:
+            t = re.sub(r"\{\{user\}\}", user_name, t, flags=re.IGNORECASE)
+        if char_name:
+            t = re.sub(r"\{\{char\}\}", char_name, t, flags=re.IGNORECASE)
+        return t
+
+    return _outside_literals(text, _fire)
 
 
 _ROLL_RE = re.compile(r"\{\{roll::(\d+)d(\d+)\}\}", re.IGNORECASE)
@@ -77,35 +111,35 @@ _RANDOM_RE = re.compile(r"\{\{random::(.*?)\}\}", re.IGNORECASE | re.DOTALL)
 def _resolve_inline(text: str, seed: str = "") -> str:
     """Resolve inline macros: {{roll::2d6}} and {{random::a::b}}.
 
-    {{roll}} always rolls fresh. {{random}} rolls fresh when *seed* is empty;
-    with a seed the pick is a pure function of (seed, macro text, occurrence),
-    so identical text resolves identically — used to keep {{random}} in
-    per-turn-rebuilt prompt fields (persona, scenario) byte-stable per
-    conversation instead of re-rolling and busting the shared KV prefix.
+    Both roll fresh when *seed* is empty; with a seed the result is a pure
+    function of (seed, macro text, occurrence), so identical text resolves
+    identically — used to keep inline macros in per-turn-rebuilt prompt
+    fields (persona, scenario) byte-stable per conversation instead of
+    re-rolling and busting the shared KV prefix.
     """
     if not text or not isinstance(text, str):
         return text or ""
-
-    def _roll(m: re.Match) -> str:
-        count, sides = int(m.group(1)), int(m.group(2))
-        return str(sum(random.randint(1, sides) for _ in range(count)))
-
-    text = _ROLL_RE.sub(_roll, text)
 
     # Ordinal counts prior occurrences of the *same* macro text, so a seeded
     # pick survives unrelated edits around it and repeats of the same macro
     # still roll independently.
     seen: dict[str, int] = {}
 
+    def _seeded_rng(m: re.Match) -> random.Random:
+        ordinal = seen.get(m.group(0), 0)
+        seen[m.group(0)] = ordinal + 1
+        return random.Random(f"{seed}|{m.group(0)}|{ordinal}")
+
+    def _roll(m: re.Match) -> str:
+        count, sides = int(m.group(1)), int(m.group(2))
+        rng = _seeded_rng(m) if seed else random
+        return str(sum(rng.randint(1, sides) for _ in range(count)))
+
     def _rand(m: re.Match) -> str:
         options = m.group(1).split("::")
-        if seed:
-            ordinal = seen.get(m.group(0), 0)
-            seen[m.group(0)] = ordinal + 1
-            return random.Random(f"{seed}|{m.group(0)}|{ordinal}").choice(options)
-        return random.choice(options)
+        return (_seeded_rng(m) if seed else random).choice(options)
 
-    return _RANDOM_RE.sub(_rand, text)
+    return _outside_literals(text, lambda t: _RANDOM_RE.sub(_rand, _ROLL_RE.sub(_roll, t)))
 
 
 def _apply_content(content: str | list | None, fn) -> str | list | None:
@@ -127,7 +161,7 @@ def resolve_message(text: str, user_name: str, char_name: str, seed: str = "") -
 
     Use this for the latest user message, persona text, scenario, and other
     turn-specific content where all macros should be resolved. *seed* makes
-    {{random}} deterministic (see :func:`_resolve_inline`).
+    {{random}} and {{roll}} deterministic (see :func:`_resolve_inline`).
     """
     return _resolve_inline(_sub(text, user_name, char_name), seed=seed)
 
@@ -144,9 +178,10 @@ def resolve_inline(text: str) -> str:
 
 
 def has_inline_macros(text: str) -> bool:
-    """True when *text* contains an inline macro ({{roll}} or {{random}})."""
+    """True when *text* contains an inline macro ({{roll}} or {{random}}), backticked literals excluded."""
     if not text or not isinstance(text, str):
         return False
+    text = _LITERAL_RE.sub("", text)
     return bool(_ROLL_RE.search(text) or _RANDOM_RE.search(text))
 
 
@@ -187,7 +222,7 @@ def resolve_stored_random(
         if not text or not isinstance(text, str):
             resolved.append(text or "")
         else:
-            resolved.append(_RANDOM_RE.sub(_pick, text))
+            resolved.append(_outside_literals(text, lambda t: _RANDOM_RE.sub(_pick, t)))
     return resolved
 
 
@@ -208,10 +243,11 @@ def resolve_prompt(text: str, user_name: str, char_name: str) -> str:
 class Macros(NamedTuple):
     """Resolve {{user}}/{{char}} and inline macros for a conversation turn.
 
-    *seed* (normally the conversation id) makes {{random}} deterministic in
-    :meth:`resolve_message`, so per-turn-rebuilt prompt fields (persona,
-    scenario) resolve to the same bytes every turn of a conversation instead
-    of re-rolling and busting the shared KV prefix. Empty seed = fresh rolls.
+    *seed* (normally the conversation id) makes {{random}} and {{roll}}
+    deterministic in :meth:`resolve_message`, so per-turn-rebuilt prompt
+    fields (persona, scenario) resolve to the same bytes every turn of a
+    conversation instead of re-rolling and busting the shared KV prefix.
+    Empty seed = fresh rolls.
     """
 
     user: str
