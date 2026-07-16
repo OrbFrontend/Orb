@@ -19,6 +19,11 @@ export const S = {
   // ── Fragments · owner: library_fragments.js
   moodFragments: [],
   interactiveFragments: [],
+  // Ephemeral fragments from the active character's card (extensions.orb.fragments).
+  // Written by chat_conversations.js on select/deselect; never persisted to the
+  // global fragment tables. Read via the *FragmentsView selectors below.
+  cardMoodFragments: [],
+  cardInteractiveFragments: [],
 
   // ── Personas · owner: settings_personas.js
   personas: [],
@@ -188,6 +193,19 @@ export {
 // guards and go through this single selector instead.
 export function charactersView() {
   return S.allCharacters.length ? S.allCharacters : S.characters;
+}
+
+// Global fragments plus the active character's card-embedded ones — the merged
+// view consumers (inspector label lookups) should read instead of S.moodFragments
+// / S.interactiveFragments directly.
+export function moodFragmentsView() {
+  return S.cardMoodFragments.length ? S.moodFragments.concat(S.cardMoodFragments) : S.moodFragments;
+}
+
+export function interactiveFragmentsView() {
+  return S.cardInteractiveFragments.length
+    ? S.interactiveFragments.concat(S.cardInteractiveFragments)
+    : S.interactiveFragments;
 }
 
 // ── Pub/sub bus

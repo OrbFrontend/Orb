@@ -325,6 +325,10 @@ class CharacterCardCreate(BaseModel):
     avatar_mime: Optional[str] = None
     world_id: Optional[str] = None
     character_book: Optional[dict] = None
+    # V2 card extensions dict, stored verbatim (third-party keys round-trip
+    # through export). Orb's card-embedded fragments live at orb.fragments;
+    # card_embedded_fragments() validates that subtree on consumption.
+    extensions: Optional[dict] = None
 
 
 class CharacterCardUpdate(BaseModel):
@@ -354,6 +358,7 @@ class CharacterCardUpdate(BaseModel):
     avatar_b64: Optional[str] = None
     avatar_mime: Optional[str] = None
     world_id: Optional[str] = None
+    extensions: Optional[dict] = None
     # Persona lock for this character card; an explicit null clears it (handled
     # via model_fields_set in api_update_character since the route drops Nones).
     persona_lock_id: Optional[int] = None

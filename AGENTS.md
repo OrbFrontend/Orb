@@ -81,7 +81,7 @@ features/<name>/
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
 | `conversations` | Chat sessions; `active_leaf_id` selects branch leaf; `macro_seed` pins {{random}} on checkpoint/compress copies |
 | `messages` | Message tree (`parent_id`); `role`, `content`, `progressive_fields`, `workflow_state` |
-| `character_cards` | V2-spec characters; `avatar_b64`, `world_id`, `persona_lock_id` |
+| `character_cards` | V2-spec characters; `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (V2 extensions JSON; card-embedded fragments at `orb.fragments`, merged ephemerally in `_load_pipeline_context`) |
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
 | `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields, macro_choices) |

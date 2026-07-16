@@ -101,19 +101,24 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         return None
 
     director: dict[str, Any] = dict(await db.get_director_state(conversation_id))
+    card, active_persona = await resolve_card_and_persona(conv, settings)
+    # Card-embedded fragments merge into the global lists for this turn only
+    # (the context is rebuilt per turn); on id collision the global wins.
+    card_moods, card_interactive = db.card_embedded_fragments(card)
     mood_fragments = await db.get_mood_fragments()
     mood_fragments = [f for f in mood_fragments if f.get("enabled", True)]
+    mood_fragments += [f for f in card_moods if f["id"] not in {g["id"] for g in mood_fragments}]
     # Prune active moods that reference disabled fragments.
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
     interactive_fragments = await db.get_interactive_fragments()
     interactive_fragments = [df for df in interactive_fragments if df.get("enabled", True)]
+    interactive_fragments += [f for f in card_interactive if f["id"] not in {g["id"] for g in interactive_fragments}]
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     client = client_from_settings(settings, abort_token=abort_token)
 
-    card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
 
     agent_same = settings.get("agent_same_as_writer", True)

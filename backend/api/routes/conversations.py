@@ -18,6 +18,7 @@ from ...core import (
 from ...database import (
     add_conversation_log,
     add_message,
+    card_embedded_fragments,
     create_conversation,
     create_direction_notes,
     delete_conversation,
@@ -388,14 +389,18 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
     settings = await get_settings()
     messages = await get_messages(cid)
     director = await get_director_state(cid) or {}
-    director_frags = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
-    mood_frags = [f for f in await get_mood_fragments() if f.get("enabled", True)]
-    lorebook_entries = await get_active_lorebook_entries()
 
     # Resolve the same effective persona generation would use (conversation/
     # character lock overrides the global active persona) so the size
     # breakdown matches the prompt that is actually sent.
     card, active_persona = await resolve_card_and_persona(conv, settings)
+    # Same card-fragment merge as _load_pipeline_context (globals win on id collision).
+    card_moods, card_interactive = card_embedded_fragments(card)
+    director_frags = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
+    director_frags += [f for f in card_interactive if f["id"] not in {g["id"] for g in director_frags}]
+    mood_frags = [f for f in await get_mood_fragments() if f.get("enabled", True)]
+    mood_frags += [f for f in card_moods if f["id"] not in {g["id"] for g in mood_frags}]
+    lorebook_entries = await get_active_lorebook_entries()
     macros, user_desc = persona_macros(settings, conv["character_name"], active_persona, seed=conversation_macro_seed(conv))
 
     # Resolve character context

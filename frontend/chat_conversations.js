@@ -10,6 +10,9 @@ import { stopConversation } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
 import { refreshCharacters, renderCharacters } from "./library.js";
+// Imported from library_fragments.js directly (like settings.js does): going
+// through library.js would widen the library.js → chat.js import cycle.
+import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
 import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
@@ -37,10 +40,26 @@ export async function loadConversations() {
   S.conversations = await api.get("/conversations");
 }
 
+// Stash (or clear, with null) the active character's card-embedded fragments
+// for the sidepanel/inspector. Mirrors the backend merge rule: enabled only,
+// and a card fragment whose id collides with a global one is skipped.
+export function stashCardFragments(card) {
+  const frags = card?.extensions?.orb?.fragments;
+  const keep = (list, globals) =>
+    (Array.isArray(list) ? list : []).filter(
+      (f) => f && f.id && f.enabled !== false && !globals.some((g) => g.id === f.id),
+    );
+  S.cardMoodFragments = keep(frags?.mood, S.moodFragments);
+  S.cardInteractiveFragments = keep(frags?.interactive, S.interactiveFragments);
+  renderMoodFragments();
+  renderInteractiveFragments();
+}
+
 export function resetChatUI() {
   stopAllAudio();
   S.activeCharId = null;
   S.activeConvId = null;
+  stashCardFragments(null);
   S.messages = [];
   S.lastDirectorData = null;
   S.directorState = null;
@@ -171,10 +190,16 @@ export async function selectConversation(id) {
     await deactivateWorld(oldWorldId);
   }
 
-  // Fetch messages and director state in parallel — neither depends on the other.
-  const [msgs, directorState] = await Promise.all([api.get(convUrl(id, "messages")), api.get(convUrl(id, "director"))]);
+  // Fetch messages, director state, and the full card (for its embedded
+  // fragments — the list projection omits extensions) in parallel.
+  const [msgs, directorState, card] = await Promise.all([
+    api.get(convUrl(id, "messages")),
+    api.get(convUrl(id, "director")),
+    conv?.character_card_id ? api.get(`/characters/${conv.character_card_id}`).catch(() => null) : null,
+  ]);
   setMessages(msgs);
   S.directorState = directorState;
+  stashCardFragments(card);
   // Render only the trailing window first; older messages backfill on scroll-up
   // and during idle time, so switch latency no longer scales with history length.
   resetRenderWindow();

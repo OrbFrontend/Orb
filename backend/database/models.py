@@ -470,7 +470,8 @@ class CharacterCardRow(TypedDict, total=False):
     large library's payload small; ``get_character_card`` returns the full row
     (and includes ``avatar_b64`` only when ``include_avatar``).
     ``tags`` and ``alternate_greetings`` are the JSON-*decoded* lists;
-    ``has_avatar`` is a derived bool, not a column.
+    ``extensions`` is the JSON-*decoded* V2 card extensions dict (present only
+    on ``get_character_card``); ``has_avatar`` is a derived bool, not a column.
     """
 
     id: str
@@ -495,6 +496,7 @@ class CharacterCardRow(TypedDict, total=False):
     updated_at: str
     workflow_state: str | None
     persona_lock_id: int | None
+    extensions: dict
     has_avatar: bool
     has_expressions: bool
 
