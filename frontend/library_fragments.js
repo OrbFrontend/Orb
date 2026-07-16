@@ -60,9 +60,9 @@ function _moodFragFormHtml(d, isEdit) {
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
         <input id="frag-label" value="${esc(d.label)}" placeholder="Terse"></div>
     </div>
-    <div class="field"><label>Description</label>
+    <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(tells the Director when to activate — sent in its tool schema)</span></label>
       <input id="frag-desc" value="${esc(d.description)}" placeholder="Short, clipped sentences. Minimal description."></div>
-    <div class="field"><label>Prompt Text</label>
+    <div class="field"><label>Prompt Text <span style="font-size:10px;color:var(--text-muted)">(injected into the writer context when this mood is active)</span></label>
       <textarea id="frag-text" rows="4" placeholder="Write tersely. Short sentences. No flowery language.">${esc(d.prompt_text)}</textarea></div>
     <div class="field">
       <label>Negative Prompt <span style="font-size:10px;color:var(--text-muted)">(injected if this fragment is removed next turn)</span></label>
