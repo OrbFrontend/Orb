@@ -19,7 +19,7 @@ import logging
 import os
 import re
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, cast
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence, cast
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -299,7 +299,7 @@ def _normalise_lorebook_entry(item: dict) -> dict:
         enabled = not item["disable"]
     else:
         enabled = bool(item.get("enabled", True))
-    priority = int(item.get("insertion_order") or item.get("order") or 100)
+    priority = int(item.get("priority") or item.get("insertion_order") or item.get("order") or 100)
     case_sensitive = item.get("caseSensitive") or item.get("case_sensitive")
     constant = bool(item.get("constant", False))
     return {
@@ -310,6 +310,33 @@ def _normalise_lorebook_entry(item: dict) -> dict:
         "priority": priority,
         "case_insensitive": not bool(case_sensitive),
         "constant": constant,
+    }
+
+
+def lorebook_to_book(world_name: str, entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Serialise lorebook entry rows as a Tavern V2 ``character_book`` dict.
+
+    Export counterpart of :func:`_normalise_lorebook_entry` — keep the two
+    field mappings in sync.
+    """
+    return {
+        "name": world_name,
+        "extensions": {},
+        "entries": [
+            {
+                "keys": e["keywords"],
+                "content": e["content"],
+                "extensions": {},
+                "enabled": bool(e["enabled"]),
+                "insertion_order": e["sort_order"],
+                "case_sensitive": not bool(e["case_insensitive"]),
+                "constant": bool(e.get("constant", False)),
+                "name": e["name"],
+                "priority": e["priority"],
+                "id": e["id"],
+            }
+            for e in entries
+        ],
     }
 
 

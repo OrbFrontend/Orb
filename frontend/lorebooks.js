@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { charactersView } from "./state.js";
-import { $, esc, toast } from "./utils.js";
+import { $, downloadBlob, esc, toast } from "./utils.js";
 
 // ── Module state
 let _worlds = [];
@@ -429,7 +429,10 @@ function renderLorebookDrawer() {
         </div>
         <div class="lb-entry-list-footer">
           <button class="btn btn-sm btn-block" onclick="lbAddEntry()">+ New Entry</button>
-<button class="btn btn-sm btn-block" style="color:var(--red);margin-top:4px" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <button class="btn btn-sm lb-export-btn" style="flex:1;justify-content:center" title="Export lorebook as JSON">⬇ Export JSON</button>
+            <button class="btn btn-sm" style="flex:1;justify-content:center;color:var(--red)" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
+          </div>
         </div>
       </div>
       <div class="lb-editor" id="lb-editor" data-has-selection="${!!_selectedEntryId}">
@@ -439,6 +442,10 @@ function renderLorebookDrawer() {
 
   const scrollEl = drawer.querySelector(".lb-entries-scroll");
   if (scrollEl) scrollEl.scrollTop = prevScrollTop;
+
+  // Bound in JS rather than inline on*= — the frontend layer check ratchets those.
+  const exportBtn = drawer.querySelector(".lb-export-btn");
+  if (exportBtn) exportBtn.onclick = lbExportJson;
 
   if (_selectedEntryId) _keywordChips.render();
 }
@@ -714,6 +721,13 @@ export async function lbAddEntry() {
   } catch (_e) {
     toast("Failed to create entry", true);
   }
+}
+
+// ── Export the focused lorebook as a standalone JSON file
+function lbExportJson() {
+  const world = _worlds.find((w) => w.id === _focusWorldId);
+  if (!world) return;
+  downloadBlob(`${world.name}.json`, `/api/worlds/${world.id}/export`);
 }
 
 // ── Import lorebook from JSON file (always creates a new world)

@@ -135,7 +135,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Messages:** `/send` (SSE), `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
 - **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`
 - **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`
-- **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import`
+- **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone V2 `character_book` JSON)
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`

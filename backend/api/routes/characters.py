@@ -40,7 +40,7 @@ from ...features.cards import parsing as tavern_cards
 from ...inference.local_ml import (
     GO_EMOTIONS,  # dep-free tuple; importing triggers no llama import
 )
-from ..deps import _normalise_lorebook_entry
+from ..deps import _normalise_lorebook_entry, lorebook_to_book
 from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest
 
 logger = logging.getLogger(__name__)
@@ -227,25 +227,7 @@ async def api_export_character(card_id: str):
     if world_id and not export_card.get("character_book"):
         world = await get_world(world_id)
         entries = await get_lorebook_entries(world_id)
-        export_card["character_book"] = {
-            "name": world["name"] if world else "",
-            "extensions": {},
-            "entries": [
-                {
-                    "keys": e["keywords"],
-                    "content": e["content"],
-                    "extensions": {},
-                    "enabled": bool(e["enabled"]),
-                    "insertion_order": e["sort_order"],
-                    "case_sensitive": not bool(e["case_insensitive"]),
-                    "constant": bool(e.get("constant", False)),
-                    "name": e["name"],
-                    "priority": e["priority"],
-                    "id": e["id"],
-                }
-                for e in entries
-            ],
-        }
+        export_card["character_book"] = lorebook_to_book(world["name"] if world else "", entries)
 
     png_bytes = tavern_cards.to_png(export_card, avatar_bytes)
 
