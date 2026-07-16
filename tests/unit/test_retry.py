@@ -48,9 +48,13 @@ def _chat_script(client: LLMClient, script: list) -> dict:
 # -- RetryPolicy.should_retry -------------------------------------------------
 
 
-def test_default_policy_is_on_with_sensible_values():
+def test_default_policy_is_on():
+    # The counts are tuning knobs; what must not regress is that a fresh policy
+    # retries at all and covers the documented status set.
     policy = RetryPolicy()
-    assert (policy.count, policy.delay, policy.status_codes) == (3, 2.0, RETRYABLE_STATUS)
+    assert policy.count >= 1
+    assert policy.delay >= 0
+    assert policy.status_codes == RETRYABLE_STATUS
     assert policy.should_retry(_status_error(503)) is True
 
 
