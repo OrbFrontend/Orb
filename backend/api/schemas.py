@@ -54,9 +54,6 @@ class SettingsUpdate(BaseModel):
     direction_notes_inject: Optional[Literal["off", "director", "writer", "both"]] = None
     inspector_open_states: Optional[dict] = None
     workflows_globally_enabled: Optional[bool] = None
-    retry_enabled: Optional[bool] = None
-    retry_count: Optional[int] = None
-    retry_delay_seconds: Optional[float] = None
 
 
 class DirectionNoteUpdate(BaseModel):

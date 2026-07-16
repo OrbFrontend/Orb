@@ -106,7 +106,9 @@ class _FakeStreamResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise httpx.HTTPStatusError(f"HTTP {self.status_code}", request=None, response=None)
+            # response=self so the retry policy can read .status_code off the error,
+            # as it can from a real httpx response.
+            raise httpx.HTTPStatusError(f"HTTP {self.status_code}", request=None, response=self)
 
 
 class _FakeAsyncClient:

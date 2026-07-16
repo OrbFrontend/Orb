@@ -7,10 +7,10 @@ and the later the pass fails the more is thrown away. :class:`RetryPolicy` lets
 :meth:`LLMClient.complete` re-issue such a request a bounded number of times with
 a fixed delay.
 
-This is transport config, injected like ``timeout``/``completion_mode``; the
-inference layer never reads settings itself (that would couple it to the database
-layer), so callers build a policy from a settings mapping via
-:meth:`RetryPolicy.from_settings` and pass it to the client constructor.
+Always on with the defaults below -- retrying a blip is never worse than dropping
+the turn, and users have no way to judge the trade-off. Each retry is logged at
+WARNING so the console shows what happened. Injected like ``timeout``, so tests
+can pass ``count=0`` for a single-attempt client.
 
 Retrying is only safe before the first streamed event -- once content has been
 emitted, re-issuing would double it. That guard lives in
@@ -21,7 +21,6 @@ is retryable and *how long* to wait.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
 
 import httpx
 
@@ -52,34 +51,16 @@ class RetryPolicy:
     """When and how to retry a completion that failed with a transient error.
 
     ``count`` is the number of *retries* after the initial attempt, so at most
-    ``1 + count`` requests and ``count`` waits of ``delay`` seconds. The default
-    instance is disabled: constructing an :class:`LLMClient` without a policy
-    behaves exactly as before -- one attempt, error propagates.
+    ``1 + count`` requests and ``count`` waits of ``delay`` seconds. ``count=0``
+    disables retrying.
     """
 
-    enabled: bool = False
-    count: int = 10
+    count: int = 4
     delay: float = 5.0
     status_codes: frozenset[int] = RETRYABLE_STATUS
 
-    @classmethod
-    def from_settings(cls, settings: Mapping[str, Any]) -> "RetryPolicy":
-        """Build a policy from a settings row.
-
-        Missing or malformed values degrade to a safe disabled/no-op shape rather
-        than raising on the gameplay path (an old DB predating the columns, a
-        null slipping through).
-        """
-        return cls(
-            enabled=bool(settings.get("retry_enabled", 0)),
-            count=max(0, int(settings.get("retry_count", 10) or 0)),
-            delay=max(0.0, float(settings.get("retry_delay_seconds", 5) or 0)),
-        )
-
     def should_retry(self, exc: BaseException) -> bool:
         """True if *exc* is a transient failure worth retrying under this policy."""
-        if not self.enabled:
-            return False
         if isinstance(exc, httpx.HTTPStatusError):
             return exc.response.status_code in self.status_codes
         return isinstance(exc, RETRYABLE_TRANSPORT_ERRORS)
