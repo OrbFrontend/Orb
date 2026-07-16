@@ -1,4 +1,4 @@
-"""Migration 0044: inline-macro columns for {{random}} stability.
+"""Migration 0045: inline-macro columns for {{random}} stability.
 
 ``director_state.macro_choices`` — per-conversation {{random}} picks for
 mood/interactive fragment text: a JSON map of
