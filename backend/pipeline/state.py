@@ -92,6 +92,7 @@ _RESULT_FIELDS = (
     "direction_notes",
     "staged_attachments",
     "staged_message_state",
+    "macro_choices",
 )
 
 
@@ -130,6 +131,10 @@ class TurnState:
     user_message: str = ""
     effective_msg: str = ""
     active_moods: list[str] = field(default_factory=list)
+    # Per-conversation {{random}} picks for fragment text: seeded from the
+    # committed director state, extended by the director stage when a fragment
+    # with a fresh macro renders, persisted back with the rest of the state.
+    macro_choices: dict[str, str] = field(default_factory=dict)
 
     # --- director outputs ---
     agent_raw: str = ""

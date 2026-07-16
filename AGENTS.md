@@ -79,12 +79,12 @@ features/<name>/
 | `settings` | Global singleton (id=1): endpoint refs, enabled_tools (JSON), feature flags, workflow_config |
 | `endpoints` | LLM API endpoints; `completion_mode` = `chat`\|`text` |
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
-| `conversations` | Chat sessions; `active_leaf_id` selects branch leaf |
+| `conversations` | Chat sessions; `active_leaf_id` selects branch leaf; `macro_seed` pins {{random}} on checkpoint/compress copies |
 | `messages` | Message tree (`parent_id`); `role`, `content`, `progressive_fields`, `workflow_state` |
 | `character_cards` | V2-spec characters; `avatar_b64`, `world_id`, `persona_lock_id` |
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
-| `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields) |
+| `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields, macro_choices) |
 | `interactive_fragments` | Dynamic Director parameters; `field_type` = string/array/progressive/feedback/direction_note |
 | `mood_fragments` | Named mood presets with prompt/negative_prompt |
 | `phrase_bank` | Banned phrase variants for editor audit |

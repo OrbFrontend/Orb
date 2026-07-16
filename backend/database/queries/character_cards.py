@@ -7,6 +7,7 @@ from typing import Any, Mapping, cast
 
 import aiosqlite
 
+from ...core import has_inline_macros, resolve_inline
 from ..connection import _build_set_clause, get_db
 from ..models import CharacterCardRow
 
@@ -110,7 +111,10 @@ async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[s
     """Insert alternate greetings as sibling root messages (turn_index=0, parent_id=NULL).
 
     These become branch siblings of the primary greeting and are navigable via
-    switch_to_branch. Returns the number of greetings inserted.
+    switch_to_branch. Content is stored macro-resolved; greetings with inline
+    macros keep their raw template in the per-message "macros" slot so they can
+    re-roll until the conversation's first user message (see
+    :func:`reroll_unfrozen_greetings`). Returns the number of greetings inserted.
     """
     if not alternate_greetings:
         return 0
@@ -120,15 +124,48 @@ async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[s
         for greeting in alternate_greetings:
             if greeting and greeting.strip():
                 count += 1
+                raw = greeting.strip()
+                workflow_state = json.dumps({"macros": {"template": raw}}) if has_inline_macros(raw) else None
                 await db.execute(
                     "INSERT INTO messages "
-                    "(conversation_id, role, content, turn_index, parent_id, created_at) "
-                    "VALUES (?, ?, ?, 0, NULL, ?)",
-                    (cid, "assistant", greeting.strip(), now),
+                    "(conversation_id, role, content, turn_index, parent_id, created_at, workflow_state) "
+                    "VALUES (?, ?, ?, 0, NULL, ?, ?)",
+                    (cid, "assistant", resolve_inline(raw), now, workflow_state),
                 )
         if count:
             await db.commit()
         return count
+
+
+async def reroll_unfrozen_greetings(cid: str) -> None:
+    """Re-roll inline macros in the conversation's root greetings while unfrozen.
+
+    A greeting row stores macro-resolved text in ``content`` and its raw
+    template in the "macros" per-message slot. Until the conversation has a
+    user message, every fetch may re-resolve freely; once one exists the
+    NOT EXISTS guard matches nothing and the last-displayed resolution stays
+    fixed forever (display, DB, and the first turn's prompt all read the same
+    bytes). Rows without a stashed template (no macros, or copies made by
+    checkpoint — which drops workflow_state) are left untouched.
+    """
+    async with get_db() as db:
+        greetings = list(
+            await db.execute_fetchall(
+                "SELECT id, json_extract(workflow_state, '$.macros.template') AS template "
+                "FROM messages "
+                "WHERE conversation_id = ? AND parent_id IS NULL "
+                "  AND json_extract(workflow_state, '$.macros.template') IS NOT NULL "
+                "  AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user')",
+                (cid, cid),
+            )
+        )
+        for row in greetings:
+            await db.execute(
+                "UPDATE messages SET content = ? WHERE id = ?",
+                (resolve_inline(row["template"]), row["id"]),
+            )
+        if greetings:
+            await db.commit()
 
 
 async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | None:

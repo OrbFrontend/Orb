@@ -19,7 +19,7 @@ python -m ruff check --select E,W,F,B --ignore E203,E501 --line-length 128 backe
 
 echo ""
 echo "Running Pylance type check on backend..."
-python -m pyright backend/ "$@"
+PYRIGHT_PYTHON_FORCE_VERSION=latest python -m pyright backend/ "$@"
 
 echo ""
 echo "Running frontend layer + plugin-boundary check..."

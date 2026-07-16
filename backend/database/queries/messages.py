@@ -415,6 +415,10 @@ async def set_workflow_message_state(message_id: int, workflow_id: str, payload:
     payload=None removes the slot. Empty dict stores {}. No-op if message
     missing (UPDATE matches zero rows).
 
+    The slot id "macros" is reserved: it carries a greeting's raw inline-macro
+    template (``{"template": ...}``) for ``reroll_unfrozen_greetings``, not a
+    registered workflow's state. Don't register a workflow under that id.
+
     Read-modify-write callers must hold
     ``backend.core.locks.workflow_state_lock(conversation_id, workflow_id)`` (the
     message's owning conversation) across the read-then-write the payload was

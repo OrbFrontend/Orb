@@ -5,9 +5,9 @@ injections, and tool-call request messages for the pipeline passes.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Collection, Mapping, MutableMapping, Sequence
 
-from ..core import ChatMessage, ContentPart, Macros
+from ..core import ChatMessage, ContentPart, Macros, resolve_stored_random
 from .tool_registry import TOOLS
 
 
@@ -464,6 +464,30 @@ def build_patch_target_prompt(span: str, why: str) -> str:
 
 
 # ── Style injection block
+
+
+def resolve_mood_fragment_randoms(
+    mood_fragments: Sequence[Mapping[str, Any]],
+    renderable_ids: Collection[str],
+    choices: MutableMapping[str, str],
+) -> list[Mapping[str, Any]]:
+    """Resolve {{random}} in the renderable mood fragments' prompt fields.
+
+    Picks come from / are recorded into *choices*, the per-conversation map
+    (``director_state.macro_choices`` — see :func:`core.macros.resolve_stored_random`),
+    so a fragment's macros roll once per conversation and stay fixed. Fragments
+    not in *renderable_ids* pass through untouched, keeping the map free of
+    picks for moods that were never activated.
+    """
+    resolved: list[Mapping[str, Any]] = []
+    for f in mood_fragments:
+        if f["id"] in renderable_ids:
+            prompt_text, negative_prompt = resolve_stored_random(
+                [f.get("prompt_text", ""), f.get("negative_prompt", "")], choices, f"mood:{f['id']}"
+            )
+            f = {**f, "prompt_text": prompt_text, "negative_prompt": negative_prompt}
+        resolved.append(f)
+    return resolved
 
 
 def compute_style_injection_block(

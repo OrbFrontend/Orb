@@ -82,6 +82,7 @@ nav:
           - Anti-repetition: features/anti-repetition.md
           - Length Guard: features/length-guard.md
       - Writing Tools:
+          - Macros: features/macros.md
           - Super-regenerate: features/super-regenerate.md
           - Magic Rewrite: features/magic-rewrite.md
           - Compress History: features/compress-history.md

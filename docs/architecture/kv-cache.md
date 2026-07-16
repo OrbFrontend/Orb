@@ -83,6 +83,8 @@ The editor's prompt **extends** the writer's prompt: the writer's trailing user 
 
 Character card, persona, scenario, example dialogue, post-history instructions, and user description are concatenated into a single system message once per turn. The same string is sent to all three passes. No pass adds, edits, or reorders anything.
 
+Inline macros in these fields are resolved during that per-turn build, so they must be byte-stable across turns: `{{random}}` is — it resolves through a per-conversation seed (`Macros.seed`: the conversation id, or the carried `conversations.macro_seed` on checkpoint/compress copies so picks match the copied history), always yielding the same pick — but `{{roll}}` re-rolls every turn and will silently change the system-prompt bytes; avoid `{{roll}}` in card prefix fields.
+
 ### Invariant 2 — One history list, shared by every pass
 
 The chat history is built once per turn. Each pass receives the same list. Attachments (images) are encoded with the same bytes on every reference.
@@ -177,6 +179,8 @@ Turn N+1 director:     [system, m1, m2, ..., m_k, user_N, asst_N, director_panca
 ```
 
 The bottom `[system, m1, ..., m_k]` is byte-identical. The cached portion of turn N's writer call carries over to turn N+1's director call. That's why long sessions don't get linearly slower per turn — most of the prompt is already in the server's KV cache.
+
+Message content upholds this because inline macros (`{{roll}}`/`{{random}}`) fire once at the persist boundary — the row already holds the final text, so `user_N` replayed as history in turn N+1 is byte-identical to the trailing pancake that carried it in turn N.
 
 ---
 

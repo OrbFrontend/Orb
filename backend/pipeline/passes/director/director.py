@@ -11,7 +11,12 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Optional, Sequence
 
-from ....core import ChatMessage, build_multimodal_content, extract_hyperparams
+from ....core import (
+    ChatMessage,
+    build_multimodal_content,
+    extract_hyperparams,
+    resolve_inline,
+)
 from ....inference import (
     PRE_WRITER_TOOLS,
     TOOLS,
@@ -25,6 +30,7 @@ from ....inference import (
     parse_tool_calls,
     reasoning_cfg,
     render_direction_notes_block,
+    resolve_mood_fragment_randoms,
 )
 from ...predicates import direction_note_to_director, direction_note_to_writer
 from . import progressive
@@ -324,6 +330,22 @@ async def director_pass(
     }
 
 
+def _resolve_random_in_value(value: Any) -> Any:
+    """Resolve inline macros in a director-authored field value, fresh rolls.
+
+    The director authored the value this turn, so a {{random}}/{{roll}} it
+    emits re-rolls on every emission — unlike fragment source text, whose
+    picks are pinned in the per-conversation choice map. String values and
+    all-string lists (array fields) are resolved; anything else passes
+    through untouched.
+    """
+    if isinstance(value, str):
+        return resolve_inline(value)
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return [resolve_inline(v) for v in value]
+    return value
+
+
 async def director_stage(
     cfg: "_PipelineConfig",
     state: "TurnState",
@@ -426,11 +448,26 @@ async def director_stage(
 
     # Style injection
     direct_scene_enabled = cfg.agent_on and bool(cfg.enabled_tools.get("direct_scene", False))
+
+    # {{random}} in fragment text resolves against the per-conversation choice
+    # map (state.macro_choices, persisted with director state): the first turn
+    # rolls and records, later turns reuse the stored pick, so a fragment stays
+    # fixed for the conversation even though its source row is global.
+    inj_mood_fragments: Sequence[Mapping[str, Any]] = mood_fragments
+    if direct_scene_enabled:
+        renderable = set(state.active_moods) | set(director["active_moods"])
+        inj_mood_fragments = resolve_mood_fragment_randoms(mood_fragments, renderable, state.macro_choices)
+        # Interactive values the director authored this turn roll fresh (per
+        # emission, not per conversation); resolving before progressive.select
+        # keeps the persisted progressive state consistent with the injected text.
+        state.extra_fields = {fid: _resolve_random_in_value(val) for fid, val in state.extra_fields.items()}
+        state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
+
     state.inj_block = macros.resolve_message(
         compute_style_injection_block(
             state.active_moods,
             director["active_moods"],
-            mood_fragments,
+            inj_mood_fragments,
             writer_fragments,
             direct_scene_enabled,
             state.extra_fields,
