@@ -70,8 +70,7 @@ function updateTokenCount() {
 
 // ── Undo history. One chronological timeline for typing AND generation, since
 // native contenteditable undo can't survive renderEditor rebuilds and never sees
-// streamed tokens. ponytail: O(doc) snapshots {content, spans}, cap 100;
-// switch to diffs if docs get huge.
+// streamed tokens.
 let docHistory = [];
 let docHistoryIndex = -1;
 let docHistoryTimer = null;

@@ -757,7 +757,6 @@ async def _run_edit_loop(
                     found.extend(ev["patches"])
                     prefill_debug.append(ev["debug"])
                     if ev["patches"]:
-                        # ponytail: re-applies all found patches per call; n ≤ MAX_PREFILL_TARGETS
                         preview, _ = apply_patches(current_draft, found)
                         yield {"type": "draft_update", "draft": preview}
                 debug_parts.append(f"Iteration {iteration + 1} prefill calls:\n" + "\n".join(prefill_debug))

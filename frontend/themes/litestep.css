@@ -55,6 +55,8 @@
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
 
+*, *::before, *::after { border-radius: 0 !important; }
+
 /* ── The desktop: flat slate blue with a faint vertical fade,
    exactly like the stock wallpaper-less LiteStep desktop. */
 body {
@@ -195,14 +197,12 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   background: #b8b4ac !important;
   border: 1px solid !important;
   border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
-  border-radius: 0 !important;
   box-shadow: none !important;
 }
 /* Knob: square, beveled with shadows only — a border would
    inflate it past the 2px track inset. */
 .tog-slider:before {
   background: #d4d0c8 !important;
-  border-radius: 0 !important;
   box-shadow: inset 1px 1px 0 #f4f2ee, inset -1px -1px 0 #606060 !important;
 }
 .tog input:checked + .tog-slider {

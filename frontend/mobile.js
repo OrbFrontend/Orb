@@ -298,7 +298,6 @@ function bindViewportListener(handler) {
 // Mobile keyboards shrink the visual viewport but leave 100vh at full height, so
 // the footer buttons get stranded under the keyboard. Mirror the visible height
 // into --app-height (the shell keys off it) so the app shrinks to fit instead.
-// ponytail: assumes the viewport top stays at 0 (bottom-docked keyboard).
 function trackVisualViewport() {
   const vv = window.visualViewport;
   if (!vv) return;

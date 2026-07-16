@@ -150,7 +150,7 @@ function acceptGhost() {
   inp.focus();
   inp.setSelectionRange(inp.value.length, inp.value.length);
   if (!document.execCommand("insertText", false, _ghostText)) {
-    inp.value += _ghostText; // ponytail: fallback if execCommand unsupported
+    inp.value += _ghostText;
   }
   _ghostText = "";
   _renderGhost();

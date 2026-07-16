@@ -299,8 +299,6 @@ export function installPlainTextGuards(pageEl) {
     const node = range.startContainer;
     const end = range.startOffset;
     const start = end - data.length;
-    // ponytail: only the common case — the commit is a plain trailing run in one
-    // text node. Anything fancier (multi-node, autocorrect replacement) bails.
     if (node.nodeType !== Node.TEXT_NODE || start < 0 || node.data.slice(start, end) !== data) return;
     range.setStart(node, start);
     range.deleteContents(); // drop the tinted copy; range collapses to `start`
