@@ -101,9 +101,6 @@ class _SettingsBase(TypedDict):
     direction_notes_record: int
     direction_notes_inject: str
     workflows_globally_enabled: int
-    retry_enabled: int
-    retry_count: int
-    retry_delay_seconds: float
 
 
 class SettingsRow(_SettingsBase, total=False):
@@ -145,6 +142,17 @@ class SettingsRow(_SettingsBase, total=False):
     # shares the writer endpoint.
     proxy: str
     agent_proxy: str
+    # Per-model reasoning effort, surfaced by the same overlay (default '');
+    # empty means no effort param is sent and the provider default governs.
+    # 'custom' sends {reasoning_effort_param: reasoning_effort_value} instead
+    # of the standard param. The agent_* variants fall back to the writer's
+    # values when the agent shares the writer endpoint.
+    reasoning_effort: str
+    reasoning_effort_param: str
+    reasoning_effort_value: str
+    agent_reasoning_effort: str
+    agent_reasoning_effort_param: str
+    agent_reasoning_effort_value: str
     # Agent-endpoint cascade overlays (present only when it resolves).
     agent_endpoint_url: str
     agent_api_key: str
@@ -310,6 +318,9 @@ class ModelConfigRow(TypedDict):
     repetition_penalty: float
     max_tokens: int
     role: Literal["writer", "agent"]
+    reasoning_effort: str
+    reasoning_effort_param: str
+    reasoning_effort_value: str
 
 
 class WorldRow(TypedDict):

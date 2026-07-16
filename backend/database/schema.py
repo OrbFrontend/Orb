@@ -46,9 +46,6 @@ CREATE TABLE IF NOT EXISTS settings (
     workflows_globally_enabled INTEGER NOT NULL DEFAULT 1,
     workflow_enabled TEXT NOT NULL DEFAULT '{}',
     local_ml_enabled TEXT NOT NULL DEFAULT '{}',
-    retry_enabled INTEGER NOT NULL DEFAULT 0,
-    retry_count INTEGER NOT NULL DEFAULT 10,
-    retry_delay_seconds REAL NOT NULL DEFAULT 5,
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
     attachment_access_counter INTEGER NOT NULL DEFAULT 0,
     generated_chars INTEGER DEFAULT NULL
@@ -241,7 +238,10 @@ CREATE TABLE IF NOT EXISTS model_configs (
     top_p REAL NOT NULL DEFAULT 0.95,
     repetition_penalty REAL NOT NULL DEFAULT 1.0,
     max_tokens INTEGER NOT NULL DEFAULT 4096,
-    role TEXT NOT NULL DEFAULT 'writer' CHECK (role IN ('writer', 'agent'))
+    role TEXT NOT NULL DEFAULT 'writer' CHECK (role IN ('writer', 'agent')),
+    reasoning_effort TEXT NOT NULL DEFAULT '',
+    reasoning_effort_param TEXT NOT NULL DEFAULT '',
+    reasoning_effort_value TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS worlds (

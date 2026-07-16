@@ -48,14 +48,18 @@ def _chat_script(client: LLMClient, script: list) -> dict:
 # -- RetryPolicy.should_retry -------------------------------------------------
 
 
-def test_should_retry_disabled_never_retries():
-    policy = RetryPolicy(enabled=False)
-    assert policy.should_retry(_status_error(503)) is False
-    assert policy.should_retry(httpx.ConnectError("x")) is False
+def test_default_policy_is_on():
+    # The counts are tuning knobs; what must not regress is that a fresh policy
+    # retries at all and covers the documented status set.
+    policy = RetryPolicy()
+    assert policy.count >= 1
+    assert policy.delay >= 0
+    assert policy.status_codes == RETRYABLE_STATUS
+    assert policy.should_retry(_status_error(503)) is True
 
 
 def test_should_retry_status_codes():
-    policy = RetryPolicy(enabled=True)
+    policy = RetryPolicy()
     for code in (408, 429, 500, 502, 503, 504, 529):
         assert policy.should_retry(_status_error(code)) is True, code
     for code in (400, 401, 403, 404, 409, 422):
@@ -63,7 +67,7 @@ def test_should_retry_status_codes():
 
 
 def test_should_retry_transport_errors():
-    policy = RetryPolicy(enabled=True)
+    policy = RetryPolicy()
     assert policy.should_retry(httpx.ConnectError("x")) is True
     assert policy.should_retry(httpx.ConnectTimeout("x")) is True
     assert policy.should_retry(httpx.ReadError("x")) is True
@@ -76,36 +80,11 @@ def test_should_retry_transport_errors():
     assert policy.should_retry(ValueError("x")) is False
 
 
-# -- RetryPolicy.from_settings ------------------------------------------------
-
-
-def test_from_settings_reads_values():
-    policy = RetryPolicy.from_settings({"retry_enabled": 1, "retry_count": 3, "retry_delay_seconds": 2.5})
-    assert policy.enabled is True
-    assert policy.count == 3
-    assert policy.delay == 2.5
-    assert policy.status_codes == RETRYABLE_STATUS
-
-
-def test_from_settings_defaults_when_keys_absent():
-    policy = RetryPolicy.from_settings({})
-    assert policy.enabled is False
-    assert policy.count == 10
-    assert policy.delay == 5.0
-
-
-def test_from_settings_degrades_on_bad_values():
-    # None / negative must clamp to a safe shape rather than raise on the hot path.
-    policy = RetryPolicy.from_settings({"retry_enabled": 0, "retry_count": None, "retry_delay_seconds": -4})
-    assert policy.count == 0
-    assert policy.delay == 0.0
-
-
 # -- LLMClient retry loop -----------------------------------------------------
 
 
 async def test_retries_then_succeeds():
-    client = LLMClient("http://x/v1", retry=RetryPolicy(enabled=True, count=5, delay=0))
+    client = LLMClient("http://x/v1", retry=RetryPolicy(count=5, delay=0))
     done = {"type": "done", "message": {"content": "ok"}, "usage": None}
     calls = _chat_script(client, [_status_error(503), _status_error(503), [{"type": "content", "delta": "ok"}, done]])
     events = await _drain(client.complete([], "m"))
@@ -113,8 +92,17 @@ async def test_retries_then_succeeds():
     assert events[-1] == done
 
 
-async def test_disabled_policy_raises_on_first_error():
-    client = LLMClient("http://x/v1")  # default policy: disabled
+async def test_default_client_retries_then_gives_up():
+    # No policy passed: retry is always on, so a persistent 503 costs 1 + count attempts.
+    client = LLMClient("http://x/v1", retry=RetryPolicy(delay=0))
+    calls = _chat_script(client, [_status_error(503)])
+    with pytest.raises(httpx.HTTPStatusError):
+        await _drain(client.complete([], "m"))
+    assert calls["n"] == 1 + RetryPolicy().count
+
+
+async def test_count_zero_raises_on_first_error():
+    client = LLMClient("http://x/v1", retry=RetryPolicy(count=0))
     calls = _chat_script(client, [_status_error(503)])
     with pytest.raises(httpx.HTTPStatusError):
         await _drain(client.complete([], "m"))
@@ -122,7 +110,7 @@ async def test_disabled_policy_raises_on_first_error():
 
 
 async def test_no_retry_after_event_streamed():
-    client = LLMClient("http://x/v1", retry=RetryPolicy(enabled=True, count=5, delay=0))
+    client = LLMClient("http://x/v1", retry=RetryPolicy(count=5, delay=0))
 
     async def fake_chat(*_a, **_k):
         # A delta reaches the caller, THEN the stream fails: retrying would double it.
@@ -138,7 +126,7 @@ async def test_no_retry_after_event_streamed():
 
 
 async def test_exhausts_retries_then_raises():
-    client = LLMClient("http://x/v1", retry=RetryPolicy(enabled=True, count=2, delay=0))
+    client = LLMClient("http://x/v1", retry=RetryPolicy(count=2, delay=0))
     calls = _chat_script(client, [_status_error(503)])  # always fails
     with pytest.raises(httpx.HTTPStatusError):
         await _drain(client.complete([], "m"))
@@ -146,7 +134,7 @@ async def test_exhausts_retries_then_raises():
 
 
 async def test_non_retryable_status_not_retried():
-    client = LLMClient("http://x/v1", retry=RetryPolicy(enabled=True, count=5, delay=0))
+    client = LLMClient("http://x/v1", retry=RetryPolicy(count=5, delay=0))
     calls = _chat_script(client, [_status_error(400)])
     with pytest.raises(httpx.HTTPStatusError):
         await _drain(client.complete([], "m"))
@@ -154,7 +142,7 @@ async def test_non_retryable_status_not_retried():
 
 
 async def test_transport_error_is_retried():
-    client = LLMClient("http://x/v1", retry=RetryPolicy(enabled=True, count=3, delay=0))
+    client = LLMClient("http://x/v1", retry=RetryPolicy(count=3, delay=0))
     done = {"type": "done", "message": {"content": "ok"}, "usage": None}
     calls = _chat_script(client, [httpx.ConnectError("refused"), [done]])
     events = await _drain(client.complete([], "m"))
@@ -165,7 +153,7 @@ async def test_transport_error_is_retried():
 async def test_aborted_client_does_not_retry():
     token = AbortToken()
     token.abort()
-    client = LLMClient("http://x/v1", abort_token=token, retry=RetryPolicy(enabled=True, count=5, delay=0))
+    client = LLMClient("http://x/v1", abort_token=token, retry=RetryPolicy(count=5, delay=0))
     calls = _chat_script(client, [_status_error(503)])
     with pytest.raises(httpx.HTTPStatusError):
         await _drain(client.complete([], "m"))
@@ -173,7 +161,7 @@ async def test_aborted_client_does_not_retry():
 
 
 async def test_abort_during_delay_stops_retry():
-    client = LLMClient("http://x/v1", retry=RetryPolicy(enabled=True, count=5, delay=1))
+    client = LLMClient("http://x/v1", retry=RetryPolicy(count=5, delay=1))
     calls = _chat_script(client, [_status_error(503)])  # always fails
 
     async def aborted_wait(_delay):
@@ -186,7 +174,7 @@ async def test_abort_during_delay_stops_retry():
 
 
 async def test_complete_raw_is_retried():
-    client = LLMClient("http://x/v1", completion_mode="text", retry=RetryPolicy(enabled=True, count=3, delay=0))
+    client = LLMClient("http://x/v1", completion_mode="text", retry=RetryPolicy(count=3, delay=0))
     calls = {"n": 0}
 
     async def fake_stream(_url, _body):

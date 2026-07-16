@@ -17,7 +17,19 @@ const MODEL_HYPERPARAM_KEYS = [
   "min_p",
   "top_k",
   "repetition_penalty",
+  "reasoning_effort",
+  "reasoning_effort_param",
+  "reasoning_effort_value",
 ];
+
+// Standard OpenAI reasoning_effort levels: the union across current models
+// (minimal since GPT-5, none since GPT-5.1, xhigh since GPT-5.1-codex-max).
+const STANDARD_REASONING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"];
+
+// Additive UX hints only: extra provider-specific levels offered in the
+// dropdown when the endpoint URL (and optional model substring) match. Never
+// gates what can be sent -- "Other..." covers providers this list doesn't know.
+const REASONING_LEVEL_HINTS = [{ url: "nano-gpt.com", model: "glm", levels: ["max"] }];
 
 const SETTING_FIELDS = [
   { k: "endpoint_url", l: "Endpoint URL", t: "text" },
@@ -41,6 +53,7 @@ const SETTING_FIELDS = [
   { k: "min_p", l: "Min P", t: "number", s: "0.01", mn: "0", mx: "1" },
   { k: "top_k", l: "Top K", t: "number", s: "1", mn: "0", mx: "200" },
   { k: "repetition_penalty", l: "Rep. Penalty", t: "number", s: "0.05", mn: "1", mx: "2" },
+  { k: "reasoning_effort", l: "Reasoning Effort", t: "reasoning_effort" },
 ];
 
 const AGENT_MODEL_HYPERPARAM_KEYS = [
@@ -48,6 +61,9 @@ const AGENT_MODEL_HYPERPARAM_KEYS = [
   "agent_temperature",
   "agent_top_p",
   "agent_repetition_penalty",
+  "agent_reasoning_effort",
+  "agent_reasoning_effort_param",
+  "agent_reasoning_effort_value",
 ];
 
 const AGENT_SETTING_FIELDS = [
@@ -68,6 +84,7 @@ const AGENT_SETTING_FIELDS = [
   { k: "agent_temperature", l: "Agent Temperature", t: "number", s: "0.05", mn: "0", mx: "2" },
   { k: "agent_top_p", l: "Agent Top P", t: "number", s: "0.05", mn: "0", mx: "1" },
   { k: "agent_repetition_penalty", l: "Agent Rep. Penalty", t: "number", s: "0.05", mn: "1", mx: "2" },
+  { k: "agent_reasoning_effort", l: "Agent Reasoning Effort", t: "reasoning_effort" },
 ];
 
 // Descriptor objects that parameterise all writer vs. agent differences.
@@ -170,6 +187,25 @@ export function renderEndpoints() {
                 <select data-key="${f.k}" onchange="${saveFn}(this)">${opts}</select>
               </div>`;
     }
+    if (f.t === "reasoning_effort") {
+      // Options and change handlers are wired by updateReasoningEffortFields
+      // (standard levels + per-provider hints); the chosen value survives
+      // rebuilds via data-desired.
+      const p = isAgent ? "agent_" : "";
+      const paramV = S.settings[`${p}reasoning_effort_param`] ?? "";
+      const valueV = S.settings[`${p}reasoning_effort_value`] ?? "";
+      return `<div class="field"><label>${f.l}</label>
+                <select data-key="${f.k}" data-desired="${esc(v)}"></select>
+              </div>
+              <div data-reasoning-custom="${p}" style="display:none">
+                <div class="field"><label>Reasoning Param Name</label>
+                  <input type="text" value="${esc(paramV)}" data-key="${p}reasoning_effort_param" placeholder="reasoning_effort">
+                </div>
+                <div class="field"><label>Reasoning Param Value</label>
+                  <input type="text" value="${esc(valueV)}" data-key="${p}reasoning_effort_value" placeholder="high, 4096, or {&quot;effort&quot;:&quot;high&quot;}">
+                </div>
+              </div>`;
+    }
     const attrs = f.s ? `step="${f.s}" min="${f.mn}" max="${f.mx}"` : "";
     const ph = f.ph ? ` placeholder="${esc(f.ph)}"` : "";
     return `<div class="field"><label>${f.l}</label>
@@ -200,8 +236,58 @@ export function renderEndpoints() {
     </div>
   `;
   initComboboxes();
+  updateReasoningEffortFields();
   updateAgentModelWarning();
   updateEndpointsLabel();
+}
+
+function _reasoningLevelExtras(prefix) {
+  const url = (document.querySelector(`[data-key="${prefix}endpoint_url"]`)?.value || "").toLowerCase();
+  const model = (document.querySelector(`[data-key="${prefix}model_name"]`)?.value || "").toLowerCase();
+  const extras = [];
+  for (const h of REASONING_LEVEL_HINTS) {
+    if (!url.includes(h.url)) continue;
+    if (h.model && !model.includes(h.model)) continue;
+    for (const lvl of h.levels) {
+      if (!extras.includes(lvl) && !STANDARD_REASONING_LEVELS.includes(lvl)) extras.push(lvl);
+    }
+  }
+  return extras;
+}
+
+// Rebuild both reasoning-effort dropdowns (standard levels + provider hints for
+// the current endpoint/model), show/hide their custom param/value fields, and
+// (re)wire change handlers -- programmatic, not inline, per the layer-check
+// ratchet on inline on*= handlers. The authoritative value rides data-desired
+// so an option list rebuild -- or a value the current hint set doesn't offer --
+// never silently drops it.
+function updateReasoningEffortFields() {
+  for (const prefix of ["", "agent_"]) {
+    const sel = document.querySelector(`[data-key="${prefix}reasoning_effort"]`);
+    if (!sel) continue;
+    const save = prefix ? saveAgentSetting : saveSetting;
+    const desired = sel.dataset.desired ?? sel.value ?? "";
+    const levels = [...STANDARD_REASONING_LEVELS, ..._reasoningLevelExtras(prefix)];
+    if (desired && desired !== "custom" && !levels.includes(desired)) levels.push(desired);
+    sel.innerHTML = [
+      `<option value="">Provider default</option>`,
+      ...levels.map((l) => `<option value="${esc(l)}"${desired === l ? " selected" : ""}>${esc(l)}</option>`),
+      `<option value="custom"${desired === "custom" ? " selected" : ""}>Other...</option>`,
+    ].join("");
+    sel.value = desired;
+    sel.onchange = () => {
+      sel.dataset.desired = sel.value;
+      save(sel);
+      updateReasoningEffortFields();
+    };
+    const wrap = document.querySelector(`[data-reasoning-custom="${prefix}"]`);
+    if (wrap) {
+      wrap.style.display = desired === "custom" ? "" : "none";
+      for (const input of wrap.querySelectorAll("input[data-key]")) {
+        input.onchange = () => save(input);
+      }
+    }
+  }
 }
 
 // Show the current model name on the Endpoints section header, falling back to
@@ -547,6 +633,14 @@ function _fillConfigFields(ctx, config) {
     const configKey = p ? k.replace(p, "") : k;
     if (el && config[configKey] !== undefined) el.value = config[configKey];
   });
+  // The generic loop can't set a select to an option it doesn't offer yet
+  // (provider-hint level from another endpoint); route the value through
+  // data-desired and rebuild the dropdowns.
+  const reSel = document.querySelector(`[data-key="${p}reasoning_effort"]`);
+  if (reSel) {
+    reSel.dataset.desired = config.reasoning_effort ?? "";
+    updateReasoningEffortFields();
+  }
 }
 
 function _fillEndpointFields(ctx) {
@@ -620,6 +714,9 @@ async function _syncModelConfigRecord(ctx, modelName, hyperparams) {
       top_p: get("top_p", 0.95),
       repetition_penalty: get("repetition_penalty", 1.0),
       max_tokens: get("max_tokens", 4096),
+      reasoning_effort: get("reasoning_effort", ""),
+      reasoning_effort_param: get("reasoning_effort_param", ""),
+      reasoning_effort_value: get("reasoning_effort_value", ""),
     });
     S[ctx.configsKey].push(mc);
     S[ctx.configIdKey] = mc.id;
