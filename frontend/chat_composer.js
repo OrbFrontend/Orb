@@ -145,7 +145,13 @@ function clearGhost() {
 
 function acceptGhost() {
   const inp = $("chat-input");
-  inp.value += _ghostText;
+  // insertText (not `inp.value +=`) so the browser keeps this in the native
+  // undo stack — a direct .value assignment wipes it and breaks Ctrl+Z.
+  inp.focus();
+  inp.setSelectionRange(inp.value.length, inp.value.length);
+  if (!document.execCommand("insertText", false, _ghostText)) {
+    inp.value += _ghostText; // ponytail: fallback if execCommand unsupported
+  }
   _ghostText = "";
   _renderGhost();
   onComposerInput(); // resize + schedule the next suggestion

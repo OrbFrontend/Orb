@@ -690,7 +690,9 @@ async def test_chat_transport_drops_grammar():
         )
     )
     assert "grammar" not in captured["params"]
-    assert "json_schema" not in captured["params"]
+    # json_schema is deliberately passed through: the chat transport consumes
+    # it for structured forced calls and discards it otherwise.
+    assert captured["params"]["json_schema"] == {"type": "object"}
 
 
 async def test_complete_text_apply_template_error_falls_back_to_chat():

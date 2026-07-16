@@ -63,6 +63,37 @@ def reasoning_cfg(on: bool) -> dict:
     )
 
 
+def strictify_schema(schema: dict) -> dict:
+    """Copy *schema* into OpenAI strict-mode shape, recursively.
+
+    Strict structured output requires every object to list all properties in
+    ``required`` and set ``additionalProperties: false``. Originally-optional
+    properties are made nullable so "may omit" survives as "may be null" --
+    the passes' unpackers already discard empty/null argument values.
+    """
+    node = dict(schema)
+    props = node.get("properties")
+    if isinstance(props, dict):
+        required = set(node.get("required") or [])
+        out_props: dict = {}
+        for key, prop in props.items():
+            sub = strictify_schema(prop) if isinstance(prop, dict) else prop
+            if key not in required and isinstance(sub, dict) and "type" in sub:
+                t = sub["type"]
+                if isinstance(t, list):
+                    t = t if "null" in t else [*t, "null"]
+                elif t != "null":
+                    t = [t, "null"]
+                sub = {**sub, "type": t}
+            out_props[key] = sub
+        node["properties"] = out_props
+        node["required"] = list(props.keys())
+        node["additionalProperties"] = False
+    if isinstance(node.get("items"), dict):
+        node["items"] = strictify_schema(node["items"])
+    return node
+
+
 def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
     """Normalize an OpenAI-compat ``choice.logprobs`` block to Orb's prob shape.
 
@@ -169,12 +200,12 @@ class LLMClient:
         if self.completion_mode == "text" and not text_completion.has_image_parts(messages):
             transport = self._complete_text
         else:
-            # Chat transport: prefill (no render step), raw GBNF grammar, and the
-            # per-call json_schema narrowing are text-mode concepts; drop them so
-            # such calls degrade cleanly here.
+            # Chat transport: prefill (no render step) and raw GBNF grammar are
+            # text-mode concepts; drop them so such calls degrade cleanly here.
+            # json_schema is NOT dropped: _complete_chat consumes it for
+            # structured forced calls (and discards it otherwise).
             params.pop("prefill", None)
             params.pop("grammar", None)
-            params.pop("json_schema", None)
             # n_probs is a llama.cpp /completion field; a text→chat fallback (e.g. a
             # call carrying image parts) must not leak it into the OpenAI-compat body.
             params.pop("n_probs", None)
@@ -245,6 +276,30 @@ class LLMClient:
         **params,
     ) -> AsyncIterator[dict]:
         """The OpenAI-compatible ``/chat/completions`` transport (default)."""
+        # Structured forced calls: on providers whose profile opts in, a
+        # forced-function tool_choice is rewritten as a strict
+        # ``response_format`` structured-output request -- the chat analogue of
+        # text mode's forced grammar (see _complete_text). The provider then
+        # grammar-constrains the content to the tool's argument schema, which
+        # guarantees byte-exact argument keys where free-decoded tool calls do
+        # not (e.g. GLM-5.2 snake-cases hyphenated keys). ``tools`` stays in
+        # the body so the server-rendered prompt -- and with it the KV cache --
+        # is unchanged; only ``tool_choice`` is replaced. The caller-supplied
+        # ``json_schema`` (per-fragment director steps) narrows the schema
+        # exactly as it narrows the text-mode grammar.
+        schema_override = params.pop("json_schema", None)
+        forced_name: str | None = None
+        if isinstance(tool_choice, dict) and endpoint_profiles.supports_structured_tool_calls(self.base_url, model):
+            name = (tool_choice.get("function") or {}).get("name")
+            schema = schema_override or text_completion.forced_schema(tools, tool_choice)
+            if name and schema:
+                forced_name = name
+                params["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {"name": name, "strict": True, "schema": strictify_schema(schema)},
+                }
+                tool_choice = None
+
         body = {
             "model": model,
             "messages": messages,
@@ -329,11 +384,16 @@ class LLMClient:
                                 reasoning_parts.append(rc)
                                 yield {"type": "reasoning", "delta": rc}
 
-                            # Content delta
+                            # Content delta. A structured forced call buffers
+                            # instead of yielding: the content is the tool's
+                            # arguments JSON, and chat mode never surfaces
+                            # argument streams as content (they arrive as
+                            # tool_calls deltas, which the pipeline hides).
                             c = delta.get("content")
                             if c:
                                 content_parts.append(c)
-                                yield {"type": "content", "delta": c}
+                                if forced_name is None:
+                                    yield {"type": "content", "delta": c}
 
                             # Per-token alternatives (Document mode steering) —
                             # present only when the caller passed logprobs and the
@@ -371,7 +431,12 @@ class LLMClient:
         # Assemble the final message dict (mirrors the non-streaming message format)
         message: dict = {}
         content = "".join(content_parts)
-        if content:
+        if forced_name is not None and not tool_calls_acc:
+            # Structured forced call: the constrained content IS the arguments
+            # JSON; re-synthesize the tool-call shape the pipeline expects. A
+            # provider that answered with real tool_calls anyway wins below.
+            message = text_completion.forced_tool_message(forced_name, content)
+        elif content:
             message["content"] = content
         reasoning = "".join(reasoning_parts)
         if reasoning:

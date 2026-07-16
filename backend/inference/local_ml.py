@@ -111,7 +111,7 @@ def resolve_path(feature: str) -> str:
     """Where feature's GGUF lives: env override → data/models → repo root (back-compat)."""
     if feature == "autocomplete":
         env = os.environ.get("ORB_AUTOCOMPLETE_MODEL")
-        if env:
+        if env and os.path.exists(env):  # stale override must not hide a downloaded model
             return env
     spec = MODELS[feature]
     in_data = os.path.join(model_dir(), spec.filename)

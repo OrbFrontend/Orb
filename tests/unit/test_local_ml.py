@@ -8,9 +8,11 @@ import os
 from backend.inference import local_ml
 
 
-def test_resolve_path_env_override_wins(monkeypatch):
-    monkeypatch.setenv("ORB_AUTOCOMPLETE_MODEL", "/tmp/custom.gguf")
-    assert local_ml.resolve_path("autocomplete") == "/tmp/custom.gguf"
+def test_resolve_path_env_override_wins(monkeypatch, tmp_path):
+    custom = tmp_path / "custom.gguf"
+    custom.write_bytes(b"")  # override only wins if the file exists (no stale hiding a real model)
+    monkeypatch.setenv("ORB_AUTOCOMPLETE_MODEL", str(custom))
+    assert local_ml.resolve_path("autocomplete") == str(custom)
 
 
 def test_present_reflects_disk(monkeypatch):

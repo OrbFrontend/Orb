@@ -55,6 +55,13 @@ class ModelProfile:
     # "auto". True means the caller's value passes through unchanged.
     allow_forced_tool_choice: bool = True
 
+    # If True, the chat transport rewrites forced-function tool calls as
+    # strict ``response_format`` structured-output requests (the chat analogue
+    # of text mode's forced grammar), guaranteeing byte-exact argument keys.
+    # Opt-in per provider: only set after verifying the endpoint honors
+    # ``response_format: {"type": "json_schema", "strict": true}``.
+    structured_tool_calls: bool = False
+
     # Bespoke transforms applied after typed knobs, in order. Each callable
     # mutates body in place and may return a log line (or None for silent).
     custom: tuple[Transform, ...] = field(default_factory=tuple)
@@ -164,7 +171,23 @@ PROFILES: dict[str, dict[Optional[str], ModelProfile]] = {
             allow_forced_tool_choice=False,  # forced -> "auto"
         ),
     },
+    # NanoGPT proxies to per-model providers whose tool-argument decoding is
+    # unconstrained (observed: GLM-5.2 TEE mangles hyphenated argument keys
+    # under a forced call), but its documented response_format json_schema
+    # strict mode is honored -- so forced calls go out as structured output.
+    "nano-gpt.com": {
+        None: ModelProfile(
+            allow_extra=None,  # lenient passthrough; drop nothing
+            structured_tool_calls=True,
+        ),
+    },
 }
+
+
+def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
+    """True when the (endpoint, model) profile opts into structured forced calls."""
+    profile = profile_for(endpoint_url, model)
+    return profile is not None and profile.structured_tool_calls
 
 
 def profile_for(endpoint_url: str, model: str = "") -> Optional[ModelProfile]:
