@@ -337,28 +337,19 @@
 /* Fragment whose backing agent feature (e.g. Editor Feedback) is disabled. */
 .fragment-item.frag-feature-disabled .frag-label,
 .fragment-item.frag-feature-disabled .frag-type-badge,
-.fragment-item-card.frag-feature-disabled .frag-label,
-.fragment-item-card.frag-feature-disabled .frag-type-badge {
+.frag-card-list .frag-feature-disabled {
   opacity: 0.4;
 }
 
-/* Read-only item for the active character's card-embedded fragments: the
-   .fragment-item look minus hover/pointer, and deliberately NOT the
-   .fragment-item class so the drag/reorder machinery never matches it. */
-.fragment-item-card {
+/* Read-only inline list of the active character's card-embedded fragments:
+   deliberately NOT .fragment-item so the drag/reorder machinery never matches it. */
+.frag-card-list {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-radius: var(--radius);
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 2px 10px;
   font-size: 12px;
-  margin-bottom: 2px;
-  position: relative;
-}
-.fragment-item-card .frag-label {
-  flex: 1;
   font-weight: 500;
-  padding-right: 8px;
 }
 
 /* Divider between global fragments and the character's card-embedded ones. */

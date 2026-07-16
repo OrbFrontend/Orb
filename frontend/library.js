@@ -292,8 +292,8 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       <div class="tab active" onclick="switchTab(this,'${prefix}-tp')">Persona</div>
       <div class="tab" onclick="switchTab(this,'${prefix}-ts')">Scenario</div>
       <div class="tab" onclick="switchTab(this,'${prefix}-tm')">Messages</div>
-      ${isEdit ? `<div class="tab" id="${prefix}-tab-frag">Fragments</div>` : ""}
       ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-ta')">Advanced</div>` : ""}
+      ${isEdit ? `<div class="tab" id="${prefix}-tab-frag">Fragments</div>` : ""}
     </div>
     <div id="${prefix}-tp" class="tab-content active">
       <div class="field"><label>Description</label><textarea id="${prefix}-desc" rows="5">${esc(d.description || "")}</textarea></div>
@@ -315,17 +315,14 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
       isEdit
         ? `
     <div id="${prefix}-tf" class="tab-content">
-      <div class="field">
-        <label>Character Fragments</label>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">
-          Travel with the card (and its exported PNG). While this character is active they merge
-          into the Interactive and Mood fragment lists; global fragments win on ID collision.
-        </div>
-        <div id="ce-card-frag-list"></div>
-        <div style="margin-top:6px">
-          <button class="btn btn-sm" id="ce-card-frag-add-interactive">+ Interactive</button>
-          <button class="btn btn-sm" id="ce-card-frag-add-mood">+ Mood</button>
-        </div>
+      <div class="card-frag-hint">
+        These fragments travel with the card (and its exported PNG). Merged into the Interactive and Mood fragment lists; 
+        global fragments win on ID collision.
+      </div>
+      <div id="ce-card-frag-list"></div>
+      <div class="card-frag-actions">
+        <button class="btn btn-sm" id="ce-card-frag-add-interactive">+ Interactive</button>
+        <button class="btn btn-sm" id="ce-card-frag-add-mood">+ Mood</button>
       </div>
     </div>
     <div id="${prefix}-ta" class="tab-content">

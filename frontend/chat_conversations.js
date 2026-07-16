@@ -47,7 +47,7 @@ export function stashCardFragments(card) {
   const frags = card?.extensions?.orb?.fragments;
   const keep = (list, globals) =>
     (Array.isArray(list) ? list : []).filter(
-      (f) => f && f.id && f.enabled !== false && !globals.some((g) => g.id === f.id),
+      (f) => f?.id && f.enabled !== false && !globals.some((g) => g.id === f.id),
     );
   S.cardMoodFragments = keep(frags?.mood, S.moodFragments);
   S.cardInteractiveFragments = keep(frags?.interactive, S.interactiveFragments);

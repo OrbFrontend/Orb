@@ -204,7 +204,7 @@ export function renderInteractiveFragments() {
     })
     .join("");
 
-  // Card items use .fragment-item-card (not .fragment-item), so the drag/reorder
+  // Card items live in .frag-card-list (not .fragment-item), so the drag/reorder
   // machinery below never sees them.
   el.innerHTML = html + cardHtml;
   setupDragAndDrop(el);
@@ -503,15 +503,8 @@ function _interactiveTypeBadge(f) {
 function _cardMoodSidepanelHtml() {
   const frags = S.cardMoodFragments || [];
   if (!frags.length) return "";
-  const items = frags
-    .map(
-      (f) => `
-    <div class="fragment-item-card" title="${esc(f.description || "")}">
-      <div style="flex:1; min-width:0;"><span class="frag-label">${esc(f.label)}</span></div>
-    </div>`,
-    )
-    .join("");
-  return `<div class="frag-divider">From character</div>${items}`;
+  const items = frags.map((f) => `<span title="${esc(f.description || "")}">${esc(f.label)}</span>`).join("");
+  return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
 }
 
 function _cardInteractiveSidepanelHtml() {
@@ -527,13 +520,10 @@ function _cardInteractiveSidepanelHtml() {
         : directionNoteDisabled
           ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
           : esc(f.description || "");
-      return `
-    <div class="fragment-item-card${featureDisabled ? " frag-feature-disabled" : ""}" title="${itemTitle}">
-      <div style="flex:1; min-width:0;"><span class="frag-label">${esc(f.label)}</span>${_interactiveTypeBadge(f)}</div>
-    </div>`;
+      return `<span${featureDisabled ? ' class="frag-feature-disabled"' : ""} title="${itemTitle}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
     })
     .join("");
-  return `<div class="frag-divider">From character</div>${items}`;
+  return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
 }
 
 // Pending copy of the card being edited; null when no character modal is open.
@@ -554,9 +544,10 @@ export function renderCardFragmentsTab() {
   const el = document.getElementById("ce-card-frag-list");
   if (!el || !_cardFragPending) return;
   const row = (type, f) => `
-    <div class="fragment-item" data-type="${type}" data-id="${esc(f.id)}" title="${esc(f.description || "")}">
+    <div class="fragment-item" data-type="${type}" data-id="${esc(f.id)}">
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f)}
+        ${f.description ? `<div class="frag-desc">${esc(f.description)}</div>` : ""}
       </div>
       <div class="frag-toggle-wrapper" data-action="toggle">
         <label class="frag-toggle">
@@ -571,7 +562,7 @@ export function renderCardFragmentsTab() {
     moods || interactive
       ? `${interactive ? `<div class="frag-divider">Interactive</div>${interactive}` : ""}
          ${moods ? `<div class="frag-divider">Mood</div>${moods}` : ""}`
-      : '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No fragments on this character</div>';
+      : '<div class="card-frag-empty">No fragments on this character yet</div>';
   if (!el.dataset.wired) {
     el.dataset.wired = "1";
     el.addEventListener("click", (e) => {

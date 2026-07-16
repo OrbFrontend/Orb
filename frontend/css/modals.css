@@ -214,6 +214,57 @@
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
+/* Character modal · Fragments tab: roomier card-style rows than the sidebar list */
+.card-frag-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+#ce-card-frag-list .frag-divider {
+  border-top: none;
+  margin: 14px 0 6px;
+  padding: 0 2px;
+}
+#ce-card-frag-list .frag-divider:first-child { margin-top: 0; }
+
+#ce-card-frag-list .fragment-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+#ce-card-frag-list .fragment-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+#ce-card-frag-list .frag-desc {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-frag-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 16px 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.card-frag-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* Character avatar (large, in modals) */
 .char-avatar-lg {
   width: 80px;
