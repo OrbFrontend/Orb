@@ -482,6 +482,18 @@ export function validateSetting(key, value) {
       if (!numCheck.valid) return numCheck;
       return numberRange(numCheck.parsed, 0, 300, "Retry delay");
     }
+    case "reasoning_effort_param": {
+      if (typeof value === "string") {
+        return maxLength(value, 128, "Reasoning param name");
+      }
+      return { valid: true };
+    }
+    case "reasoning_effort_value": {
+      if (typeof value === "string") {
+        return maxLength(value, 4096, "Reasoning param value");
+      }
+      return { valid: true };
+    }
     default:
       return { valid: true };
   }

@@ -124,6 +124,9 @@ class ModelConfigCreate(BaseModel):
     repetition_penalty: float = 1.0
     max_tokens: int = 4096
     role: str = "writer"
+    reasoning_effort: str = ""
+    reasoning_effort_param: str = ""
+    reasoning_effort_value: str = ""
 
 
 class ModelConfigUpdate(BaseModel):
@@ -137,6 +140,9 @@ class ModelConfigUpdate(BaseModel):
     top_p: Optional[float] = None
     repetition_penalty: Optional[float] = None
     max_tokens: Optional[int] = None
+    reasoning_effort: Optional[str] = None
+    reasoning_effort_param: Optional[str] = None
+    reasoning_effort_value: Optional[str] = None
 
 
 class MoodFragmentCreate(BaseModel):

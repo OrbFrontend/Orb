@@ -239,7 +239,10 @@ CREATE TABLE IF NOT EXISTS model_configs (
     top_p REAL NOT NULL DEFAULT 0.95,
     repetition_penalty REAL NOT NULL DEFAULT 1.0,
     max_tokens INTEGER NOT NULL DEFAULT 4096,
-    role TEXT NOT NULL DEFAULT 'writer' CHECK (role IN ('writer', 'agent'))
+    role TEXT NOT NULL DEFAULT 'writer' CHECK (role IN ('writer', 'agent')),
+    reasoning_effort TEXT NOT NULL DEFAULT '',
+    reasoning_effort_param TEXT NOT NULL DEFAULT '',
+    reasoning_effort_value TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS worlds (

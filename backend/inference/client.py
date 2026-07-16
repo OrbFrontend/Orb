@@ -47,10 +47,15 @@ def reasoning_cfg(on: bool) -> dict:
     reads a boolean ``thinking``. Each template reads only the name it knows and
     ignores the other, so sending both is safe and makes the toggle actually take
     on all of them (a template that silently ignores the flag would keep thinking).
+
+    The on-dict deliberately carries no effort level: how hard to think is the
+    per-model ``reasoning_effort`` setting, injected by the client in
+    :func:`apply_reasoning_effort` -- absent there too, the provider default
+    governs.
     """
     return (
         {
-            "reasoning": {"effort": "low", "enabled": True},
+            "reasoning": {"enabled": True},
             "chat_template_kwargs": {"enable_thinking": True, "thinking": True},
             "thinking": {"type": "enabled"},
         }
@@ -61,6 +66,35 @@ def reasoning_cfg(on: bool) -> dict:
             "thinking": {"type": "disabled"},
         }
     )
+
+
+def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str = "") -> None:
+    """Inject the per-model reasoning-effort setting into an outbound chat body.
+
+    Applies only when the call itself has reasoning enabled (the
+    ``reasoning_cfg(True)`` shape); reasoning-off calls and callers that sent no
+    reasoning params are left untouched. A standard level lands as the OpenAI
+    ``reasoning_effort`` param plus the OpenRouter-style ``reasoning.effort``
+    mirror; the ``custom`` sentinel sends exactly ``{param: value}`` instead,
+    with *value* JSON-decoded when it parses (numbers, objects) and sent as a
+    raw string otherwise. Runs before the endpoint profile, so providers that
+    reject these params get them stripped there (e.g. DeepSeek's allowlist).
+    """
+    if not effort:
+        return
+    reasoning = body.get("reasoning")
+    if not (isinstance(reasoning, dict) and reasoning.get("enabled")):
+        return
+    if effort == "custom":
+        if not param:
+            return
+        try:
+            body[param] = json.loads(value)
+        except json.JSONDecodeError:
+            body[param] = value
+        return
+    body["reasoning_effort"] = effort
+    body["reasoning"] = {**reasoning, "effort": effort}
 
 
 def strictify_schema(schema: dict) -> dict:
@@ -133,10 +167,18 @@ class LLMClient:
         completion_mode: str = "chat",
         retry: RetryPolicy | None = None,
         proxy: str | None = None,
+        reasoning_effort: str = "",
+        reasoning_effort_param: str = "",
+        reasoning_effort_value: str = "",
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        # Per-model reasoning effort (see apply_reasoning_effort): '' = provider
+        # default, a level name, or 'custom' + the param/value pair to send.
+        self.reasoning_effort = reasoning_effort
+        self.reasoning_effort_param = reasoning_effort_param
+        self.reasoning_effort_value = reasoning_effort_value
         # "chat" = OpenAI-compatible /chat/completions; "text" = llama.cpp's
         # native /apply-template + /completion transport (byte-level prompt
         # control). See text_completion.py and _complete_text.
@@ -312,6 +354,8 @@ class LLMClient:
             body["tool_choice"] = tool_choice
         # Requests usage in the terminal SSE chunk; servers that don't support it silently ignore this field.
         body.setdefault("stream_options", {"include_usage": True})
+
+        apply_reasoning_effort(body, self.reasoning_effort, self.reasoning_effort_param, self.reasoning_effort_value)
 
         # Provider-specific body translation (profiles + session-learned
         # workarounds) lives entirely in endpoint_profiles; the client just
@@ -766,6 +810,9 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
         completion_mode=settings.get("completion_mode", "chat"),
         retry=RetryPolicy.from_settings(settings),
         proxy=settings.get("proxy"),
+        reasoning_effort=settings.get("reasoning_effort", ""),
+        reasoning_effort_param=settings.get("reasoning_effort_param", ""),
+        reasoning_effort_value=settings.get("reasoning_effort_value", ""),
     )
 
 
@@ -782,6 +829,9 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
         completion_mode=settings.get("agent_completion_mode", "chat"),
         retry=RetryPolicy.from_settings(settings),
         proxy=settings.get("agent_proxy", settings.get("proxy")),
+        reasoning_effort=settings.get("agent_reasoning_effort", settings.get("reasoning_effort", "")),
+        reasoning_effort_param=settings.get("agent_reasoning_effort_param", settings.get("reasoning_effort_param", "")),
+        reasoning_effort_value=settings.get("agent_reasoning_effort_value", settings.get("reasoning_effort_value", "")),
     )
 
 

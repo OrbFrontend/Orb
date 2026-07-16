@@ -162,6 +162,66 @@ async def test_cannot_create_model_config_for_nonexistent_endpoint(client, db):
     assert resp.status_code in (404, 400)
 
 
+async def test_model_config_reasoning_effort_round_trip(client, db):
+    """reasoning_effort trio persists through create and update."""
+    endpoint_resp = await client.post(
+        "/api/endpoints",
+        json={"url": "https://api.reasoning.com", "api_key": "key"},
+    )
+    endpoint_id = endpoint_resp.json()["id"]
+
+    resp = await client.post(
+        f"/api/endpoints/{endpoint_id}/models",
+        json={
+            "model_name": "thinking-model",
+            "reasoning_effort": "custom",
+            "reasoning_effort_param": "thinking_budget",
+            "reasoning_effort_value": "4096",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["reasoning_effort"] == "custom"
+    assert data["reasoning_effort_param"] == "thinking_budget"
+    assert data["reasoning_effort_value"] == "4096"
+
+    update_resp = await client.put(f"/api/models/{data['id']}", json={"reasoning_effort": "xhigh"})
+    assert update_resp.status_code == 200
+    assert update_resp.json()["reasoning_effort"] == "xhigh"
+
+    async with db.execute(
+        "SELECT reasoning_effort, reasoning_effort_param FROM model_configs WHERE id = ?",
+        (data["id"],),
+    ) as cur:
+        row = await cur.fetchone()
+    assert row["reasoning_effort"] == "xhigh"
+    assert row["reasoning_effort_param"] == "thinking_budget"
+
+
+async def test_settings_overlay_reasoning_effort(client, db):
+    """The active model config's reasoning_effort reaches get_settings, and the
+    agent inherits it when sharing the writer endpoint."""
+    endpoint_resp = await client.post(
+        "/api/endpoints",
+        json={"url": "https://api.overlay.com", "api_key": "key"},
+    )
+    endpoint_id = endpoint_resp.json()["id"]
+    model_resp = await client.post(
+        f"/api/endpoints/{endpoint_id}/models",
+        json={"model_name": "overlay-model", "reasoning_effort": "high"},
+    )
+    config_id = model_resp.json()["id"]
+
+    await client.put("/api/settings", json={"active_endpoint_id": endpoint_id, "agent_same_as_writer": True})
+    await client.put(f"/api/endpoints/{endpoint_id}", json={"active_model_config_id": config_id})
+
+    resp = await client.get("/api/settings")
+    assert resp.status_code == 200
+    settings = resp.json()
+    assert settings["reasoning_effort"] == "high"
+    assert settings["agent_reasoning_effort"] == "high"
+
+
 async def test_endpoint_crud_workflow(client, db):
     """Test complete CRUD workflow for endpoints"""
     # 1. Create endpoint
