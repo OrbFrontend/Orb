@@ -219,8 +219,12 @@ class DocumentContinuer:
                 gen = self.client.complete(
                     self.build_chat_messages(prompt), model, **self.params, **probs_chat, **reasoning_cfg(False)
                 )
-        # Yield content + token_probs chunks (drop reasoning). The route frames
-        # content as `event: token` and token_probs as `event: probs`.
+        # Yield content + token_probs chunks (drop reasoning), then surface the
+        # final chunk's finish_reason so the route can tell EOS ("stop") from a
+        # token-budget cutoff ("length") — the Output Auditor trims the dangling
+        # half-sentence on cutoffs. The route is this generator's only consumer.
         async for chunk in gen:
             if chunk["type"] in ("content", "token_probs"):
                 yield chunk
+            elif chunk["type"] == "done":
+                yield {"type": "done", "finish_reason": (chunk.get("message") or {}).get("finish_reason", "")}

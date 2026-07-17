@@ -17,13 +17,21 @@ from ...database import (
     delete_document,
     get_document,
     get_documents,
+    get_phrase_bank,
     get_settings,
     update_document,
 )
-from ...features.documents import DocumentContinuer
+from ...features.documents import DocumentContinuer, audit_document, patch_document
 from ...inference import AbortToken, client_from_settings
 from ..deps import _active_aborts, _CleanupStreamingResponse, _sse_stream
-from ..schemas import DocumentCreate, DocumentGenerateRequest, DocumentUpdate
+from ..schemas import (
+    DocumentAuditRequest,
+    DocumentAuditResponse,
+    DocumentCreate,
+    DocumentGenerateRequest,
+    DocumentPatchResponse,
+    DocumentUpdate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +88,7 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
 
     async def _gen():
         try:
+            finish = ""
             async for chunk in continuer.stream(
                 data.prompt,
                 settings.get("model_name", ""),
@@ -89,12 +98,18 @@ async def api_generate_document(did: str, data: DocumentGenerateRequest, request
                 if chunk["type"] == "content":
                     # Byte-identical wire: plain string, \n-escaped by _sse_stream.
                     yield {"event": "token", "data": chunk["delta"]}
-                else:  # token_probs — dict data auto-JSON-serialized by _sse_stream
+                elif chunk["type"] == "token_probs":
+                    # dict data auto-JSON-serialized by _sse_stream
                     yield {
                         "event": "probs",
                         "data": {"token": chunk["token"], "prob": chunk["prob"], "top": chunk["top"]},
                     }
-            yield {"event": "done", "data": ""}
+                else:  # done — carries the transport's finish_reason
+                    finish = chunk.get("finish_reason") or ""
+            # Like `probs`, the done payload is a JSON dict the client must not
+            # unescapeSSE. "length" marks a token-budget cutoff (Output Auditor
+            # trims the dangling half-sentence before scanning).
+            yield {"event": "done", "data": {"finish": finish}}
         except Exception as e:
             logger.error("Document generate error: %s", e)
             yield {"event": "error", "data": "Generation failed; see server logs"}
@@ -113,3 +128,52 @@ async def api_stop_document(did: str):
         token.abort()
         logger.info("Stop requested for document %s — abort signalled", scrub_log(did))
     return {"ok": True}
+
+
+@router.post("/api/documents/{did}/audit")
+async def api_audit_document(did: str, data: DocumentAuditRequest) -> DocumentAuditResponse:
+    """Run the Output Auditor's prose scanners on a generated run (no LLM).
+
+    Stateless like /generate: the client sends the run ("draft") and the
+    preceding document text ("context"); nothing is persisted. 404s an unknown
+    ``did`` first, same guard as generate.
+    """
+    if not await get_document(did):
+        raise HTTPException(status_code=404, detail="Document not found")
+    settings = await get_settings()
+    phrase_bank = await get_phrase_bank()
+    result = await audit_document(
+        data.draft,
+        data.context,
+        phrase_bank,
+        settings.get("document_audit_toggles"),
+        assisted=data.assisted,
+        truncated=data.truncated,
+    )
+    return DocumentAuditResponse(**result)
+
+
+@router.post("/api/documents/{did}/patch")
+async def api_patch_document(did: str, data: DocumentAuditRequest) -> DocumentPatchResponse:
+    """Fix the run's audit findings with one forced editor_apply_patch call.
+
+    Plain JSON (no SSE — patch output is short). The writer endpoint serves
+    the call, consistent with doc mode hiding all Agent config.
+    """
+    if not await get_document(did):
+        raise HTTPException(status_code=404, detail="Document not found")
+    settings = await get_settings()
+    phrase_bank = await get_phrase_bank()
+    client = client_from_settings(settings)
+    result = await patch_document(
+        client,
+        settings.get("model_name", ""),
+        data.draft,
+        data.context,
+        phrase_bank,
+        settings.get("document_audit_toggles"),
+        settings,
+        assisted=data.assisted,
+        truncated=data.truncated,
+    )
+    return DocumentPatchResponse(**result)

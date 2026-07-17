@@ -697,10 +697,16 @@ class LLMClient:
         reasoning_parts: list[str] = []
         forced_buf: list[str] = []
         usage: dict | None = None
+        finish_reason: str | None = None
         async for data in self._stream_completion(f"{server_root}/completion", body):
             stop = bool(data.get("stop"))
             if stop:
                 usage = text_completion.synthesize_usage(data)
+                # llama.cpp flags a token-budget cutoff as stopped_limit (older
+                # builds) / stop_type == "limit" (newer). Mirrors the chat
+                # transport's finish_reason so consumers (doc-mode cut-off
+                # detection) see one contract across transports.
+                finish_reason = "length" if (data.get("stopped_limit") or data.get("stop_type") == "limit") else "stop"
             delta = data.get("content") or ""
             if delta:
                 if forced_name is not None:
@@ -736,6 +742,8 @@ class LLMClient:
             reasoning = "".join(reasoning_parts)
             if reasoning:
                 message["reasoning_content"] = reasoning
+        if finish_reason:
+            message["finish_reason"] = finish_reason
 
         logger.info(
             "LLM complete (text): assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
@@ -774,10 +782,13 @@ class LLMClient:
 
         content_parts: list[str] = []
         usage: dict | None = None
+        finish_reason: str | None = None
         async for data in self._stream_completion(f"{self._server_root()}/completion", body):
             stop = bool(data.get("stop"))
             if stop:
                 usage = text_completion.synthesize_usage(data)
+                # Same cutoff detection as _complete_text — see the note there.
+                finish_reason = "length" if (data.get("stopped_limit") or data.get("stop_type") == "limit") else "stop"
             delta = data.get("content") or ""
             if delta:
                 content_parts.append(delta)
@@ -789,7 +800,9 @@ class LLMClient:
             if stop:
                 break
 
-        message = {"content": "".join(content_parts)}
+        message: dict = {"content": "".join(content_parts)}
+        if finish_reason:
+            message["finish_reason"] = finish_reason
         yield {"type": "done", "message": message, "usage": usage}
 
 

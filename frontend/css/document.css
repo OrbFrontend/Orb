@@ -4,7 +4,6 @@
 /* ── Mode toggle (no router; class on #app). ─────────────────────────────── */
 #document-main { display: none; }
 #app.document-mode #main,
-#app.document-mode #tools-panel,
 #app.document-mode #inspector,
 #app.document-mode #direction-notes-panel { display: none !important; }
 #app.document-mode #document-main {
@@ -21,6 +20,44 @@
 /* Endpoints stays visible in doc mode, but its system-prompt fields and Agent
    block are chat-only concerns — hide them there. */
 #app.document-mode .ep-chat-only { display: none; }
+
+/* ── Doc-mode Workflow panel. The shared #tools-panel slot stays alive in doc
+   mode but swaps its content: the chat tabs/panes hide and the doc-tailored
+   Output Auditor pane (#tools-pane-doc, owned by document_audit.js) shows —
+   the inverse in chat mode. The panel title stays "Workflows". */
+#tools-pane-doc { display: none; }
+#app.document-mode #tools-panel .tab-row,
+#app.document-mode #tools-pane-main,
+#app.document-mode #tools-pane-secondary { display: none; }
+#app.document-mode #tools-pane-doc { display: block; }
+
+/* Audit results inside the doc pane. Cards reuse the shared .tool-card look. */
+.doc-audit-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 8px 2px 4px;
+}
+.doc-audit-status.busy { color: var(--accent); }
+.doc-audit-section { margin: 8px 0; }
+.doc-audit-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+.doc-audit-item {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--border);
+  margin-bottom: 3px;
+  overflow-wrap: anywhere;
+}
+.doc-audit-item b { color: var(--text-primary); }
+.doc-audit-snippet { display: block; padding-left: 8px; }
+.doc-audit-actions { display: flex; gap: 6px; margin-top: 8px; }
+.doc-audit-hint { font-size: 10px; color: var(--text-muted); margin-top: 4px; font-style: italic; }
+.doc-audit-phrasebank { margin: 12px 0; }
 
 #mode-switch-btn {
   background: none;

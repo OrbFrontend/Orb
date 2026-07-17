@@ -286,7 +286,9 @@ const TOOL_DEFS = [
 ];
 
 // Individual scanners the Output Auditor can run; keys match backend AUDIT_TYPES.
-const AUDIT_TYPE_DEFS = [
+// Exported so the doc-mode pane (document_audit.js) reuses the same labels and
+// tooltips, filtered to its four doc-applicable keys.
+export const AUDIT_TYPE_DEFS = [
   { key: "banned_phrases", label: "Banned phrases", title: "Flag phrases from the Phrase Bank." },
   {
     key: "repetitive_openers",

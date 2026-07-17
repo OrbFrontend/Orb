@@ -43,6 +43,11 @@ class SettingsUpdate(BaseModel):
     active_endpoint_id: Optional[int] = None
     show_editor_diff: Optional[bool] = None
     editor_audit_toggles: Optional[dict] = None
+    # Document-mode Output Auditor (doc-owned columns; deliberately not shared
+    # with editor_audit_toggles so a doc-mode save can't perturb chat scanners).
+    document_audit_enabled: Optional[bool] = None
+    document_audit_autopatch: Optional[bool] = None
+    document_audit_toggles: Optional[dict] = None
     hide_streaming_until_baked: Optional[bool] = None
     prevent_prompt_overrides: Optional[bool] = None
     agent_same_as_writer: Optional[bool] = None
@@ -289,6 +294,46 @@ class DocumentGenerateRequest(BaseModel):
     # default: logprobs cost generation speed on llama.cpp, and providers that
     # can't supply them degrade to no-popup. Emits `event: probs` SSE frames.
     token_probs: bool = False
+
+
+class DocumentAuditRequest(BaseModel):
+    # The generated run to audit/patch. `context` is the document text that
+    # preceded the run (client-windowed; the server applies its own cap).
+    draft: str
+    context: str = ""
+    # Same flag as DocumentGenerateRequest — drives the context-scrubbing
+    # heuristic (assisted note macros vs raw template markers).
+    assisted: bool = False
+    # True when the run ended early (Stop, or finish == "length"); the server
+    # trims the dangling partial sentence before auditing/patching.
+    truncated: bool = False
+
+
+class AuditReportPayload(BaseModel):
+    # Serialized AuditReport (analysis.report_to_dict): one `sections` entry per
+    # scanner with findings, keyed by its AUDIT_TYPES name.
+    total_issues: int
+    is_clean: bool
+    sections: dict[str, Any]
+
+
+class DocumentAuditResponse(BaseModel):
+    report: AuditReportPayload
+    # "no_complete_sentence" when a truncated draft had nothing auditable left
+    # after trimming (the /patch route also uses "clean": nothing to fix).
+    skipped: Optional[str] = None
+    # True when a truncated tail fragment was excluded from the scan.
+    tail_excluded: bool = False
+
+
+class DocumentPatchResponse(BaseModel):
+    # Full replacement text for the run (patched core + any truncated tail
+    # fragment reattached verbatim). Unchanged text when nothing applied.
+    patched_draft: str
+    patch_count: int
+    errors: list[str] = []
+    report_after: AuditReportPayload
+    skipped: Optional[str] = None
 
 
 class CharacterCardCreate(BaseModel):

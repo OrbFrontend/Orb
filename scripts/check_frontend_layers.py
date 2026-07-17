@@ -70,6 +70,7 @@ LAYERS = {
     "chat_conversations.js": 5,
     "chat_composer.js": 5,
     "document.js": 5,
+    "document_audit.js": 5,
     "library.js": 5,
     "library_browser.js": 5,
     "library_fragments.js": 5,

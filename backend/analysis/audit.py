@@ -346,3 +346,82 @@ def format_report(report: AuditReport) -> str:
 
     sections.append("\n*** END OF REPORT ***")
     return "\n\n".join(sections)
+
+
+def report_to_dict(report: AuditReport) -> dict:
+    """JSON-shape *report* for API consumers — :func:`format_report`'s structural
+    twin for machine consumption.
+
+    Same grouping and snippet selection as the text report: one section per
+    scanner keyed by its AUDIT_TYPES name, present only when it has findings,
+    plus the ``total_issues`` / ``is_clean`` rollups. Snippets are
+    marker-stripped exactly like the text report so both surfaces show the
+    same strings.
+    """
+    sections: dict[str, list[dict]] = {}
+
+    cr = report.cliche_result
+    if cr.flagged_count > 0:
+        sections["banned_phrases"] = [
+            {"phrase": _strip_markers(hit.phrase), "sentence": _strip_markers(fs.sentence)}
+            for fs in cr.flagged_sentences
+            for hit in fs.cliches
+        ]
+
+    mr = report.monotony_result
+    if mr.flagged_openers:
+        sections["repetitive_openers"] = [
+            {
+                "opener": _strip_markers(fo.opener),
+                "count": fo.max_run,
+                "sentences": [_strip_markers(s) for s in fo.sentences[:4]],
+            }
+            for fo in mr.flagged_openers
+        ]
+
+    tr = report.template_result
+    if tr.flagged_templates:
+        sections["repetitive_templates"] = [
+            {
+                "template": _strip_markers(ft.template),
+                "count": ft.count,
+                "sentences": [_strip_markers(s) for s in ft.sentences[:4]],
+            }
+            for ft in tr.flagged_templates
+        ]
+
+    if report.not_but_result:
+        sections["contrastive_negation"] = [
+            {
+                "sentence": _strip_markers(nb.get("sentence", "")),
+                "parallel": bool(nb.get("is_parallel", False)),
+            }
+            for nb in report.not_but_result
+        ]
+
+    if report.phrase_result and report.phrase_result.flagged_phrases:
+        sections["phrase_repetition"] = [
+            {
+                "phrase": _strip_markers(fp.phrase),
+                "count": fp.count,
+                "sentence": _strip_markers(fp.example_sentences[-1]) if fp.example_sentences else "",
+            }
+            for fp in report.phrase_result.flagged_phrases
+        ]
+
+    sr = report.structural_repetition_result
+    if sr is not None and sr.is_repetitive:
+        sections["structural_repetition"] = [
+            {
+                "message_count": len(sr.messages),
+                "skeleton": [_strip_markers(part) for part in (sr.shared_skeleton or [])],
+            }
+        ]
+
+    if report.echo_result and report.echo_result.flagged_echoes:
+        sections["anti_echo"] = [
+            {"echo": _strip_markers(fe.echo), "matched": _strip_markers(fe.matched_phrase)}
+            for fe in report.echo_result.flagged_echoes
+        ]
+
+    return {"total_issues": report.total_issues, "is_clean": report.is_clean, "sections": sections}

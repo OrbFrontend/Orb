@@ -149,6 +149,8 @@
         <span id="doc-token-count">~0 tokens</span>
         <span id="doc-save-state" class="doc-save-state"></span>
       </div>
+      <!-- Wired via addEventListener in document_audit.js (no new inline handlers). -->
+      <button class="btn btn-sm" id="doc-workflow-btn" title="Output Auditor &amp; Phrase Bank">✨ Workflow</button>
     </div>
     <details id="doc-help">
       <summary id="doc-help-summary">How to prompt</summary>
@@ -217,6 +219,8 @@ Write a haiku about the sea.&lt;|im_end|&gt;
       </div>
     </div>
     <div id="tools-pane-secondary" class="hidden"><div id="tools-list-secondary"></div></div>
+    <!-- Doc-mode pane: shown/hidden by mode CSS (document.css), rendered by document_audit.js. -->
+    <div id="tools-pane-doc"></div>
   </div></div>
   <div id="inspector"><div class="inspector-inner">
     <div class="inspector-title">Inspector</div>
