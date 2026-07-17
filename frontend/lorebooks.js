@@ -96,10 +96,10 @@ function _worldItemHtml(w) {
       <span class="world-name">${esc(w.name)}</span>
     </div>
     <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
-      <label class="frag-toggle" for="${toggleId}">
+      <label class="tog" for="${toggleId}">
         <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
                onchange="toggleWorldEnabled('${w.id}', this.checked)">
-        <span class="frag-toggle-slider"></span>
+        <span class="tog-slider"></span>
       </label>
     </div>
   </div>`;
@@ -390,10 +390,10 @@ function renderLorebookDrawer() {
         ${dirtyDot}
         <span class="lb-entry-name">${esc(e.name || e.keywords?.[0] || "")}</span>
         <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
-          <label class="frag-toggle" for="${toggleId}">
+          <label class="tog" for="${toggleId}">
             <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
                    onchange="lbToggleEntry(${e.id}, this.checked)">
-            <span class="frag-toggle-slider"></span>
+            <span class="tog-slider"></span>
           </label>
         </div>
       </div>`;

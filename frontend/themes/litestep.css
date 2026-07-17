@@ -245,6 +245,13 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   color: #ffffff !important;
 }
 
+/* Phrase-bank kind chip: full amber washes out at 10px on the beige
+   chip — use the dim amber, and no synthetic bold (Fixedsys). */
+.phrase-group-count {
+  color: #a86018 !important;
+  font-weight: normal !important;
+}
+
 /* ── Injection & reasoning blocks: base paints them desktop-blue with
    slate text (invisible here) — restyle as sunken white readouts. */
 .injection-box,
