@@ -37,10 +37,10 @@ export function renderMoodFragments() {
         <span class="frag-label">${esc(f.label)}</span>
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
-        <label class="frag-toggle" for="${toggleId}">
+        <label class="tog" for="${toggleId}">
           <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
                  onchange="toggleMoodFragmentEnabled('${f.id}', this.checked)">
-          <span class="frag-toggle-slider"></span>
+          <span class="tog-slider"></span>
         </label>
       </div>
     </div>`;
@@ -194,10 +194,10 @@ export function renderInteractiveFragments() {
         <span class="frag-label">${esc(f.label)}</span>${userBadge}
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
-        <label class="frag-toggle" for="${toggleId}">
+        <label class="tog" for="${toggleId}">
           <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
                  onchange="toggleInteractiveFragmentEnabled('${f.id}', this.checked)">
-          <span class="frag-toggle-slider"></span>
+          <span class="tog-slider"></span>
         </label>
       </div>
     </div>`;
@@ -550,9 +550,9 @@ export function renderCardFragmentsTab() {
         ${f.description ? `<div class="frag-desc">${esc(f.description)}</div>` : ""}
       </div>
       <div class="frag-toggle-wrapper" data-action="toggle">
-        <label class="frag-toggle">
+        <label class="tog">
           <input type="checkbox" ${f.enabled === false ? "" : "checked"}>
-          <span class="frag-toggle-slider"></span>
+          <span class="tog-slider"></span>
         </label>
       </div>
     </div>`;
