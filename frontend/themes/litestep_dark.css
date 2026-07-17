@@ -246,6 +246,9 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   color: #ffffff !important;
 }
 
+/* Phrase-bank kind chip: no synthetic bold (Fixedsys). */
+.phrase-group-count { font-weight: normal !important; }
+
 /* ── Injection & reasoning blocks: base paints them desktop-blue with
    slate text (invisible here) — restyle as sunken dark readouts. */
 .injection-box,

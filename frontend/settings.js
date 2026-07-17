@@ -697,9 +697,7 @@ export async function showPhraseBankModal() {
       const body = isRegex
         ? `<code class="phrase-regex-pattern">${esc(g.pattern)}</code>`
         : g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join("");
-      const count = isRegex
-        ? `<span class="phrase-kind-badge">regex</span>`
-        : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
+      const count = isRegex ? "regex" : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
       return `
     <div class="phrase-group-item" onclick="editPhraseGroup(${g.id})" data-id="${g.id}">
       <div class="phrase-group-variants">${body}</div>

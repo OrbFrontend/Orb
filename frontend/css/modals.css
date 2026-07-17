@@ -519,10 +519,17 @@
   white-space: nowrap;
 }
 
+/* Kind/count chip ("regex" / "3 variants"). Sits on the row like the
+   .phrase-variant chips — --bg-deep is a page background in some themes
+   (Litestep's desktop slate) and swallows muted text there. */
 .phrase-group-count {
   font-size: 10px;
-  color: var(--text-muted);
-  background: var(--bg-deep);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   padding: 2px 6px;
   border-radius: 10px;
   margin-left: 8px;
@@ -717,12 +724,5 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
-}
-
-.phrase-kind-badge {
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
-  color: var(--accent);
 }
 
