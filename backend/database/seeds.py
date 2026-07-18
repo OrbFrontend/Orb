@@ -211,6 +211,17 @@ DEFAULT_SETTINGS = {
         "structural_repetition": True,
         "anti_echo": True,
     },
+    # Document-mode Output Auditor: doc-owned columns, deliberately separate from
+    # the chat editor's so a doc-mode save can never perturb chat scanner state.
+    # The toggle map carries only the doc-applicable scanner subset (DOC_AUDIT_TYPES).
+    "document_audit_enabled": 1,
+    "document_audit_autopatch": 0,
+    "document_audit_toggles": {
+        "banned_phrases": True,
+        "repetitive_openers": True,
+        "repetitive_templates": True,
+        "contrastive_negation": True,
+    },
     "hide_streaming_until_baked": 0,
     "prevent_prompt_overrides": 0,
     "agent_same_as_writer": True,

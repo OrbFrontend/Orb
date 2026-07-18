@@ -229,6 +229,12 @@ class LLMClient:
         :meth:`_complete_text` (llama.cpp native), except calls carrying image
         parts, which fall back to chat (no text-mode multimodal path yet).
 
+        ``tools_in_prompt=False`` (param) declares that the conversation's
+        prompt must not carry the tool schemas: text mode already never renders
+        them; chat mode then forces via ``response_format`` and omits ``tools``
+        from the body. For a forced call this is decoding-only on both
+        transports — prompt bytes and KV cache untouched.
+
         Yields:
             ``{"type": "reasoning", "delta": str}`` — zero or more reasoning chunks
             ``{"type": "content",   "delta": str}`` — zero or more content chunks
@@ -315,20 +321,30 @@ class LLMClient:
         **params,
     ) -> AsyncIterator[dict]:
         """The OpenAI-compatible ``/chat/completions`` transport (default)."""
-        # Structured forced calls: on providers whose profile opts in, a
-        # forced-function tool_choice is rewritten as a strict
-        # ``response_format`` structured-output request -- the chat analogue of
-        # text mode's forced grammar (see _complete_text). The provider then
-        # grammar-constrains the content to the tool's argument schema, which
-        # guarantees byte-exact argument keys where free-decoded tool calls do
-        # not (e.g. GLM-5.2 snake-cases hyphenated keys). ``tools`` stays in
-        # the body so the server-rendered prompt -- and with it the KV cache --
-        # is unchanged; only ``tool_choice`` is replaced. The caller-supplied
-        # ``json_schema`` (per-fragment director steps) narrows the schema
-        # exactly as it narrows the text-mode grammar.
+        # Structured forced calls: a forced-function tool_choice is rewritten as
+        # a strict ``response_format`` structured-output request -- the chat
+        # analogue of text mode's forced grammar (see _complete_text). The
+        # provider then grammar-constrains the content to the tool's argument
+        # schema, which guarantees byte-exact argument keys where free-decoded
+        # tool calls do not (e.g. GLM-5.2 snake-cases hyphenated keys). Two
+        # triggers:
+        #   * profile opt-in -- ``tools`` stays in the body so the
+        #     server-rendered prompt (and with it the KV cache) is unchanged;
+        #     only ``tool_choice`` is replaced.
+        #   * ``tools_in_prompt=False`` -- the caller's conversation has no
+        #     tools in its cached prefix (doc-mode auditor), so the schema must
+        #     not touch the prompt at all: ``tools`` is dropped from the body
+        #     and the forced call rides response_format alone. (Non-forced
+        #     tool_choice with the flag drops both -- a choice about absent
+        #     tools is meaningless.)
+        # The caller-supplied ``json_schema`` (per-fragment director steps)
+        # narrows the schema exactly as it narrows the text-mode grammar.
+        tools_in_prompt = params.pop("tools_in_prompt", True)
         schema_override = params.pop("json_schema", None)
         forced_name: str | None = None
-        if isinstance(tool_choice, dict) and endpoint_profiles.supports_structured_tool_calls(self.base_url, model):
+        if isinstance(tool_choice, dict) and (
+            not tools_in_prompt or endpoint_profiles.supports_structured_tool_calls(self.base_url, model)
+        ):
             name = (tool_choice.get("function") or {}).get("name")
             schema = schema_override or text_completion.forced_schema(tools, tool_choice)
             if name and schema:
@@ -338,6 +354,9 @@ class LLMClient:
                     "json_schema": {"name": name, "strict": True, "schema": strictify_schema(schema)},
                 }
                 tool_choice = None
+        if not tools_in_prompt:
+            tools = None
+            tool_choice = None
 
         body = {
             "model": model,
@@ -614,6 +633,25 @@ class LLMClient:
                     except json.JSONDecodeError:
                         continue
 
+    async def render_prompt(
+        self, messages: Sequence[Mapping[str, Any]], *, prefill: str | None = None, reasoning: bool = False
+    ) -> str:
+        """Render *messages* to the exact prompt string ``_complete_text`` sends.
+
+        Text-transport only. Replicates the transport's render step byte-for-byte
+        (trailing open assistant turn for *prefill*; ``enable_thinking`` kwargs
+        only when there is no prefill) so a caller can re-derive a past
+        generation's prompt and byte-extend it via :meth:`complete_raw` — the
+        doc-mode auditor's KV-parity hook. Template quirks (e.g. Qwen injecting
+        ``<think></think>`` into the generation prompt) are reproduced for free
+        because it is the same render, not a reconstruction.
+        """
+        render_msgs: list[Mapping[str, Any]] = list(messages)
+        if prefill:
+            render_msgs = [*render_msgs, {"role": "assistant", "content": prefill}]
+        ctk = None if prefill else {"enable_thinking": reasoning, "thinking": reasoning}
+        return await self._apply_template(self._server_root(), render_msgs, ctk)
+
     async def _complete_text(
         self,
         messages: Sequence[Mapping[str, Any]],
@@ -631,27 +669,26 @@ class LLMClient:
         prefill = params.pop("prefill", None)
         grammar = params.pop("grammar", None)
         schema_override = params.pop("json_schema", None)
-        render_msgs: list[Mapping[str, Any]] = list(messages)
-        if prefill:
-            # F9: a trailing assistant message renders as an open model turn ending
-            # exactly at *prefill* (the follow-up editor feature's hook).
-            render_msgs = [*render_msgs, {"role": "assistant", "content": prefill}]
-
+        # No-op here (tools are never rendered into the text-mode prompt), but
+        # forwarded to the chat fallback below so the flag's contract survives.
+        tools_in_prompt = params.pop("tools_in_prompt", True)
         server_root = self._server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
-        # Let the chat template own reasoning on/off via ``enable_thinking`` rather
-        # than hand-appending disable bytes: templates disagree on where the think
-        # tag lives (Qwen3 pre-opens ``<think>`` in the generation prompt and closes
-        # it for enable_thinking=false; Gemma 4 leaves the open tag to the model's
-        # output). Hand-appending double-opened Qwen's tag and leaked its CoT as
-        # content. Skip for prefill: the trailing assistant turn, not the generation
-        # prompt, governs thinking there.
-        ctk = None if prefill else {"enable_thinking": reasoning_on, "thinking": reasoning_on}
+        # render_prompt appends *prefill* as a trailing open assistant turn (F9)
+        # and lets the chat template own reasoning on/off via ``enable_thinking``
+        # rather than hand-appending disable bytes: templates disagree on where
+        # the think tag lives (Qwen3 pre-opens ``<think>`` in the generation
+        # prompt and closes it for enable_thinking=false; Gemma 4 leaves the open
+        # tag to the model's output). Hand-appending double-opened Qwen's tag and
+        # leaked its CoT as content. The kwargs are skipped for prefill: the
+        # trailing assistant turn, not the generation prompt, governs thinking.
         try:
-            prompt = await self._apply_template(server_root, render_msgs, ctk)
+            prompt = await self.render_prompt(messages, prefill=prefill, reasoning=reasoning_on)
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
-            async for event in self._complete_chat(messages, model, tools, tool_choice, **params):
+            async for event in self._complete_chat(
+                messages, model, tools, tool_choice, tools_in_prompt=tools_in_prompt, **params
+            ):
                 yield event
             return
 
@@ -697,10 +734,16 @@ class LLMClient:
         reasoning_parts: list[str] = []
         forced_buf: list[str] = []
         usage: dict | None = None
+        finish_reason: str | None = None
         async for data in self._stream_completion(f"{server_root}/completion", body):
             stop = bool(data.get("stop"))
             if stop:
                 usage = text_completion.synthesize_usage(data)
+                # llama.cpp flags a token-budget cutoff as stopped_limit (older
+                # builds) / stop_type == "limit" (newer). Mirrors the chat
+                # transport's finish_reason so consumers (doc-mode cut-off
+                # detection) see one contract across transports.
+                finish_reason = "length" if (data.get("stopped_limit") or data.get("stop_type") == "limit") else "stop"
             delta = data.get("content") or ""
             if delta:
                 if forced_name is not None:
@@ -736,6 +779,8 @@ class LLMClient:
             reasoning = "".join(reasoning_parts)
             if reasoning:
                 message["reasoning_content"] = reasoning
+        if finish_reason:
+            message["finish_reason"] = finish_reason
 
         logger.info(
             "LLM complete (text): assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
@@ -757,6 +802,10 @@ class LLMClient:
         with synthesized usage). ``cache_prompt: true`` gives KV reuse across
         successive continuations of the same document for free.
 
+        ``grammar``/``json_schema`` params constrain decoding (grammar wins,
+        mirroring ``_complete_text``) — prompt bytes and KV cache untouched, so
+        a forced-JSON call can still byte-extend a cached prefix.
+
         *model* is accepted for signature symmetry with ``complete()`` (the
         native ``/completion`` endpoint serves whatever model the server loaded,
         so it is not sent in the body).
@@ -766,18 +815,32 @@ class LLMClient:
 
     async def _complete_raw(self, prompt: str, **params) -> AsyncIterator[dict]:
         """Raw ``/completion`` stream backing :meth:`complete_raw` (one attempt)."""
+        grammar = params.pop("grammar", None)
+        schema = params.pop("json_schema", None)
         body = text_completion.build_completion_params(params)
         body["prompt"] = prompt
         body["stream"] = True
+        if grammar is not None:
+            body["grammar"] = grammar
+        elif schema is not None:
+            body["json_schema"] = schema
 
-        logger.info("LLM complete_raw (text): prompt_len=%d, n_predict=%s", len(prompt), body.get("n_predict"))
+        logger.info(
+            "LLM complete_raw (text): prompt_len=%d, n_predict=%s, constrained=%s",
+            len(prompt),
+            body.get("n_predict"),
+            bool(grammar or schema),
+        )
 
         content_parts: list[str] = []
         usage: dict | None = None
+        finish_reason: str | None = None
         async for data in self._stream_completion(f"{self._server_root()}/completion", body):
             stop = bool(data.get("stop"))
             if stop:
                 usage = text_completion.synthesize_usage(data)
+                # Same cutoff detection as _complete_text — see the note there.
+                finish_reason = "length" if (data.get("stopped_limit") or data.get("stop_type") == "limit") else "stop"
             delta = data.get("content") or ""
             if delta:
                 content_parts.append(delta)
@@ -789,7 +852,9 @@ class LLMClient:
             if stop:
                 break
 
-        message = {"content": "".join(content_parts)}
+        message: dict = {"content": "".join(content_parts)}
+        if finish_reason:
+            message["finish_reason"] = finish_reason
         yield {"type": "done", "message": message, "usage": usage}
 
 

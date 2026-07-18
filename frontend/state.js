@@ -122,6 +122,11 @@ export const S = {
   docStreaming: false,
   docAbortController: null,
   docDirty: false, // unsaved editor edits pending a flush
+  // Output Auditor results for the latest generated run · owner: document_audit.js
+  // Session-only (like the probs run store): {docId, runStart, draft, truncated,
+  // assisted, status, report, skipped, tailExcluded, patchedCount, errors} | null.
+  docAuditResults: null,
+  docAuditBusy: false, // an /audit or /patch call is in flight
 
   // ── Multi-tab presence · owner: tabLock.js
   hasMultipleTabs: false, // true if multiple tabs of the app are open

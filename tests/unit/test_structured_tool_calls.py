@@ -185,6 +185,36 @@ async def test_unknown_endpoint_keeps_forced_tool_choice():
     assert "json_schema" not in body  # consumed by the transport, never sent raw
 
 
+async def test_tools_in_prompt_false_forces_structured_without_tools():
+    # No profile (localhost llama.cpp) — the flag alone triggers the rewrite,
+    # and the tools blob is dropped: the caller's conversation has no schemas
+    # in its cached prefix, so none may enter the server-rendered prompt.
+    client = LLMClient("http://localhost:5000/v1")
+    body, events = await _run(
+        client, _content_lines(ARGS_JSON), tools=[DIRECT_SCENE], tool_choice=FORCED, tools_in_prompt=False
+    )
+    assert "tools" not in body
+    assert "tool_choice" not in body
+    assert "tools_in_prompt" not in body  # transport flag, never wire bytes
+    rf = body["response_format"]
+    assert rf["json_schema"]["name"] == "direct_scene"
+    assert rf["json_schema"]["strict"] is True
+    # Content buffers as arguments and re-synthesizes as a tool call.
+    assert not [e for e in events if e["type"] == "content"]
+    calls = parse_tool_calls(events[-1]["message"])
+    assert calls == [{"name": "direct_scene", "arguments": {"history-summary": "so far", "moods": ["eerie"]}}]
+
+
+async def test_tools_in_prompt_false_non_forced_drops_tools_and_choice():
+    client = LLMClient("http://localhost:5000/v1")
+    body, events = await _run(
+        client, _content_lines("plain prose"), tools=[DIRECT_SCENE], tool_choice="auto", tools_in_prompt=False
+    )
+    assert "tools" not in body and "tool_choice" not in body
+    assert "response_format" not in body
+    assert [e for e in events if e["type"] == "content"]  # prose streams normally
+
+
 async def test_auto_choice_not_rewritten():
     client = LLMClient("https://nano-gpt.com/api/v1")
     body, events = await _run(client, _content_lines("plain prose"), tools=[DIRECT_SCENE], tool_choice="auto")

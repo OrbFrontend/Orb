@@ -29,6 +29,10 @@ async def get_settings() -> SettingsRow:
             or '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,'
             '"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true}'
         )
+        s["document_audit_toggles"] = json.loads(
+            s.get("document_audit_toggles")
+            or '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true}'
+        )
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
         s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         # Overlay endpoint_url, api_key, model_name, and hyperparameters from the
@@ -254,6 +258,9 @@ async def update_settings(data: dict) -> SettingsRow:
             "active_endpoint_id",
             "show_editor_diff",
             "editor_audit_toggles",
+            "document_audit_enabled",
+            "document_audit_autopatch",
+            "document_audit_toggles",
             "hide_streaming_until_baked",
             "prevent_prompt_overrides",
             "agent_same_as_writer",
@@ -269,7 +276,13 @@ async def update_settings(data: dict) -> SettingsRow:
         sets, vals = _build_set_clause(
             allowed,
             data,
-            json_fields={"enabled_tools", "reasoning_enabled_passes", "inspector_open_states", "editor_audit_toggles"},
+            json_fields={
+                "enabled_tools",
+                "reasoning_enabled_passes",
+                "inspector_open_states",
+                "editor_audit_toggles",
+                "document_audit_toggles",
+            },
         )
         if sets:
             await db.execute(

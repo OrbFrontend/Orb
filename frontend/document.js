@@ -3,6 +3,7 @@
 // all DOM↔string work so the invariant-heavy core stays separable/testable.
 
 import { api } from "./api.js";
+import { initDocAudit, onGenerationEnd, renderDocAuditPane } from "./document_audit.js";
 import {
   caretAfter,
   computeCaretOffset,
@@ -25,6 +26,8 @@ import {
   syncContent,
 } from "./document_probs.js";
 import { confirmDelete, showConfirmModal } from "./modal.js";
+import { isUtilityPanelOpen } from "./panels.js";
+import { renderToolsPanel } from "./settings.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { S } from "./state.js";
 import { $, esc, escAttr, formatRelativeDate, toast } from "./utils.js";
@@ -156,6 +159,13 @@ function setDocumentMode(on) {
   if (btn) {
     btn.textContent = on ? "📄" : "💬";
     btn.title = on ? "Switch to Chat mode" : "Switch to Document mode";
+  }
+  // The shared #tools-panel slot swaps content by mode (CSS hides the inactive
+  // pane); if it's open across the switch, re-render the pane that just became
+  // visible so it reflects current state.
+  if (isUtilityPanelOpen("tools-panel")) {
+    if (on) renderDocAuditPane();
+    else renderToolsPanel();
   }
 }
 
@@ -505,6 +515,15 @@ function scrollAnchorIntoView() {
   if (scroll && docAutoscroll) scroll.scrollTop = scroll.scrollHeight;
 }
 
+// Generation-end facts for the Output Auditor: where the run began, whether the
+// user stopped it / the server hit the token budget, and whether the stream
+// errored. Module-level because docGenerate's finally calls finalizeGeneration
+// with no arguments.
+let genRunStart = 0;
+let stopRequested = false;
+let genFinish = ""; // finish_reason from the SSE done event ("stop" | "length" | "")
+let genErrored = false;
+
 export async function docGenerate() {
   if (!S.activeDocId || S.docStreaming) return;
   const page = $("doc-page");
@@ -517,6 +536,10 @@ export async function docGenerate() {
   const { content, spans } = serializeEditor(page);
   const prompt = content.slice(0, caret);
   beginRun(S.activeDocId, caret); // token records (if any) collect against this run
+  genRunStart = caret; // run start for the post-generation audit
+  stopRequested = false;
+  genFinish = "";
+  genErrored = false;
 
   // Re-render with an empty streaming anchor at the caret (splits a straddling span).
   const anchor = renderEditor(page, content, spans, caret);
@@ -556,14 +579,25 @@ export async function docGenerate() {
           /* malformed probs frame → skip, never break the text stream */
         }
       } else if (event === "error") {
+        genErrored = true;
         toast(unescapeSSE(data) || "Generation error", true);
         break;
       } else if (event === "done") {
+        // JSON dict like the probs channel (never unescapeSSE); older servers
+        // sent an empty string, which parses as "no finish info".
+        try {
+          genFinish = JSON.parse(data).finish || "";
+        } catch {
+          genFinish = "";
+        }
         break;
       }
     }
   } catch (e) {
-    if (e.name !== "AbortError") toast(`Generation failed: ${e.message}`, true);
+    if (e.name !== "AbortError") {
+      genErrored = true;
+      toast(`Generation failed: ${e.message}`, true);
+    }
   } finally {
     finalizeGeneration();
   }
@@ -606,12 +640,65 @@ function finalizeGeneration() {
   flushSave(); // immediate save at stream end
   updateTokenCount();
   docCheckpoint(); // post-generation snapshot (no-op if nothing streamed)
+  // Output Auditor trigger: only for a committed, error-free run. Stop and a
+  // token-budget cutoff both mark the run truncated so the server trims the
+  // dangling half-sentence before scanning.
+  if (committedText != null && !genErrored && S.activeDocId) {
+    onGenerationEnd({
+      docId: S.activeDocId,
+      runStart: genRunStart,
+      draft: committedText,
+      truncated: stopRequested || genFinish === "length",
+      assisted: docAssisted,
+    });
+  }
 }
 
 export function docStop() {
   if (!S.docStreaming) return;
+  stopRequested = true; // the run will be truncated mid-sentence
   S.docAbortController?.abort();
   fetch(`/api/documents/${S.activeDocId}/stop`, { method: "POST" }).catch(() => {});
+}
+
+// Splice the Output Auditor's patched text over the generated run — the editor
+// half of the patch flow (document_audit.js owns the panel + API). Revalidates
+// that the run still tiles the document, then rewrites it as one undo step:
+// the run range stays a single generated span, later spans shift by the length
+// delta, and stale probs runs self-invalidate via the syncContent remap.
+// Returns whether the splice applied.
+function applyPatchedRun(runStart, oldText, newText) {
+  const page = $("doc-page");
+  if (!page || !S.activeDocId || S.docStreaming) return false;
+  const { content, spans } = serializeEditor(page);
+  if (content.slice(runStart, runStart + oldText.length) !== oldText) return false;
+  docCheckpoint(); // pre-patch state — Ctrl+Z reverts the whole patch in one step
+
+  const oldEnd = runStart + oldText.length;
+  const delta = newText.length - oldText.length;
+  const newContent = content.slice(0, runStart) + newText + content.slice(oldEnd);
+  const newSpans = [];
+  for (const s of spans) {
+    if (s.end <= runStart) newSpans.push({ start: s.start, end: s.end });
+    else if (s.start >= oldEnd) newSpans.push({ start: s.start + delta, end: s.end + delta });
+    else {
+      // Overlaps the run range: keep the parts outside it; the run itself is
+      // re-added as one span below.
+      if (s.start < runStart) newSpans.push({ start: s.start, end: runStart });
+      if (s.end > oldEnd) newSpans.push({ start: runStart + newText.length, end: s.end + delta });
+    }
+  }
+  newSpans.push({ start: runStart, end: runStart + newText.length });
+  newSpans.sort((a, b) => a.start - b.start);
+
+  renderEditor(page, newContent, newSpans);
+  syncContent(S.activeDocId, newContent); // remap token-runs; the edited run's records drop
+  setCaretOffset(page, runStart + newText.length);
+  S.docDirty = true;
+  setSaveState("Unsaved…");
+  updateTokenCount();
+  flushSave();
+  return true;
 }
 
 // Swap a generated token for one of its alternatives (mikupad-style), then
@@ -699,6 +786,12 @@ export function initDocumentMode() {
     getDocId: () => S.activeDocId,
     isStreaming: () => S.docStreaming,
     requestSwap: docSwapToken,
+  });
+  // Output Auditor panel: same injection pattern — document_audit.js owns the
+  // pane + API calls, all editor-DOM mutation stays here.
+  initDocAudit({
+    getContent: () => serializeEditor($("doc-page")).content,
+    applyPatchedRun,
   });
   page.addEventListener("input", onEditorInput);
   // Context-menu Undo/Redo must hit our history, never the orphaned native stack.

@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import json
 
-from backend.features.documents import DOC_ASSIST_CONTINUE, DOC_ASSIST_INSTRUCTION
+from backend.features.documents import (
+    DOC_ASSIST_CONTINUE,
+    DOC_ASSIST_INSTRUCTION,
+    DOC_CHAT_INSTRUCTION,
+)
+from backend.features.documents.continuation import build_generation_messages
 
 
 def _parse_sse(text: str) -> list[dict]:
@@ -249,3 +254,194 @@ async def test_generate_no_probs_frames_when_flag_unset(client, llm_mock):
     events = _parse_sse(r.text)
     assert not any(e["event"] == "probs" for e in events)
     assert "n_probs" not in llm_mock.raw_calls[-1]["params"]
+
+
+async def test_generate_done_event_carries_finish_json(client, llm_mock):
+    # The done frame is a JSON dict {"finish": ...} (like the probs channel);
+    # the mock's done message carries no finish_reason → empty string.
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    llm_mock.enqueue_writer("some text")
+    r = await client.post("/api/documents/" + did + "/generate", json={"prompt": "x"})
+    done = _parse_sse(r.text)[-1]
+    assert done["event"] == "done"
+    assert json.loads(done["data"]) == {"finish": ""}
+
+
+# ── Output Auditor: /audit + /patch ───────────────────────────────────────────
+
+_BANNED = "shivers down her spine"
+
+
+async def _seed_phrase(client, phrase: str = _BANNED) -> None:
+    r = await client.post("/api/phrase-bank", json={"variants": [phrase], "kind": "literal"})
+    assert r.status_code == 200
+
+
+async def test_audit_and_patch_404_unknown_document(client):
+    body = {"draft": "Some text."}
+    assert (await client.post("/api/documents/nope/audit", json=body)).status_code == 404
+    assert (await client.post("/api/documents/nope/patch", json=body)).status_code == 404
+
+
+async def test_audit_clean_draft(client):
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    r = await client.post(f"/api/documents/{did}/audit", json={"draft": "A perfectly ordinary sentence."})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["report"]["is_clean"] is True
+    assert body["report"]["total_issues"] == 0
+    assert body["skipped"] is None
+    assert body["tail_excluded"] is False
+
+
+async def test_audit_flags_seeded_phrase(client):
+    await _seed_phrase(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    r = await client.post(
+        f"/api/documents/{did}/audit",
+        json={"draft": f"She felt {_BANNED} again.", "context": "Earlier prose."},
+    )
+    body = r.json()
+    assert body["report"]["total_issues"] >= 1
+    hits = body["report"]["sections"]["banned_phrases"]
+    assert any(_BANNED in h["phrase"] for h in hits)
+
+
+async def test_audit_truncated_excludes_tail(client):
+    # The banned phrase lives in the dangling half-sentence of a stopped run —
+    # trimmed before scanning, so the report is clean and the tail flagged as excluded.
+    await _seed_phrase(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    r = await client.post(
+        f"/api/documents/{did}/audit",
+        json={"draft": f"A clean opening sentence. She felt {_BANNED}", "truncated": True},
+    )
+    body = r.json()
+    assert body["tail_excluded"] is True
+    assert body["report"]["is_clean"] is True
+
+
+async def test_audit_respects_doc_toggles(client):
+    await _seed_phrase(client)
+    await client.put("/api/settings", json={"document_audit_toggles": {"banned_phrases": False}})
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    r = await client.post(f"/api/documents/{did}/audit", json={"draft": f"She felt {_BANNED} again."})
+    assert r.json()["report"]["is_clean"] is True
+
+
+async def test_audit_settings_roundtrip(client):
+    # New doc-owned columns persist and decode; the chat editor's map is untouched.
+    before = (await client.get("/api/settings")).json()
+    assert before["document_audit_enabled"] == 1
+    assert before["document_audit_autopatch"] == 0
+    assert before["document_audit_toggles"]["banned_phrases"] is True
+
+    r = await client.put(
+        "/api/settings",
+        json={"document_audit_autopatch": True, "document_audit_toggles": {"banned_phrases": False}},
+    )
+    after = r.json()
+    assert after["document_audit_autopatch"] == 1
+    assert after["document_audit_toggles"] == {"banned_phrases": False}
+    assert after["editor_audit_toggles"] == before["editor_audit_toggles"]
+
+
+def _enqueue_patch_call(llm_mock, patches: list[dict]) -> None:
+    # The /patch route forces editor_apply_patch, which the mock's tool_choice
+    # dispatch routes to the editor queue.
+    llm_mock.enqueue_editor(
+        {
+            "tool_calls": [
+                {
+                    "id": "1",
+                    "type": "function",
+                    "function": {"name": "editor_apply_patch", "arguments": json.dumps({"patches": patches})},
+                }
+            ]
+        }
+    )
+
+
+async def test_patch_applies_patches(client, llm_mock):
+    await _seed_phrase(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    flagged = f"She felt {_BANNED} at once."
+    _enqueue_patch_call(llm_mock, [{"search": flagged, "replace": "A chill traced her back."}])
+
+    r = await client.post(f"/api/documents/{did}/patch", json={"draft": flagged, "context": "Earlier prose."})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["patched_draft"] == "A chill traced her back."
+    assert body["patch_count"] == 1
+    assert body["errors"] == []
+    assert body["report_after"]["is_clean"] is True
+
+    # The forced call rode the writer client with the draft as the assistant turn.
+    cap = llm_mock.captured[-1]
+    assert cap["pass"] == "editor"
+    assert {"role": "assistant", "content": flagged} in cap["messages"]
+    # KV parity: the patch conversation replays the generation shape verbatim
+    # (chat fallback framing + full context as the user turn) and keeps the
+    # tool schema out of the rendered prompt.
+    assert cap["messages"][0] == {"role": "system", "content": DOC_CHAT_INSTRUCTION}
+    assert cap["messages"][1] == {"role": "user", "content": "Earlier prose."}
+    assert cap["params"]["tools_in_prompt"] is False
+
+
+async def test_patch_surfaces_apply_errors(client, llm_mock):
+    await _seed_phrase(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    draft = f"She felt {_BANNED} at once."
+    _enqueue_patch_call(llm_mock, [{"search": "not present in the draft", "replace": "x"}])
+
+    body = (await client.post(f"/api/documents/{did}/patch", json={"draft": draft})).json()
+    assert body["patched_draft"] == draft
+    assert body["patch_count"] == 0
+    assert len(body["errors"]) == 1
+    assert body["report_after"]["total_issues"] >= 1
+
+
+async def test_patch_clean_draft_skips_llm(client, llm_mock):
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    body = (await client.post(f"/api/documents/{did}/patch", json={"draft": "Nothing to fix here."})).json()
+    assert body["skipped"] == "clean"
+    assert body["patched_draft"] == "Nothing to fix here."
+    assert llm_mock.calls == [] and llm_mock.raw_calls == []  # no LLM call when clean
+
+
+async def test_patch_text_mode_raw_extends_prompt_with_json_schema(client, llm_mock):
+    await _seed_phrase(client)
+    await _activate_text_endpoint(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    flagged = f"She felt {_BANNED} at once."
+    ctx = "Earlier prose precedes the run. "
+    llm_mock.enqueue_raw(json.dumps({"patches": [{"search": flagged, "replace": "A chill traced her back."}]}))
+
+    body = (await client.post(f"/api/documents/{did}/patch", json={"draft": flagged, "context": ctx})).json()
+    assert body["patched_draft"] == "A chill traced her back."
+    assert body["patch_count"] == 1
+
+    # Raw transport: the patch prompt byte-extends document + draft; the
+    # forced JSON shape rides json_schema (decoding-only, prompt untouched).
+    assert llm_mock.calls == []
+    raw = llm_mock.raw_calls[-1]
+    assert raw["prompt"].startswith(ctx + flagged)
+    assert raw["params"]["json_schema"]["properties"]["patches"]
+
+
+async def test_patch_text_mode_assisted_rerenders_generation(client, llm_mock):
+    await _seed_phrase(client)
+    await _activate_text_endpoint(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    flagged = f"She felt {_BANNED} at once."
+    ctx = "### USER: keep going\nThe last prose line"
+    llm_mock.enqueue_raw(json.dumps({"patches": []}))
+
+    body = (await client.post(f"/api/documents/{did}/patch", json={"draft": flagged, "context": ctx, "assisted": True})).json()
+    assert body["skipped"] is None
+
+    # The patch re-runs the EXACT generation render (same parsed messages +
+    # open prefill) and byte-extends it with the draft core.
+    gen_messages, prefill = build_generation_messages(ctx, assisted=True, completion_mode="text")
+    assert llm_mock.render_calls == [{"messages": gen_messages, "prefill": prefill, "reasoning": False}]
+    assert llm_mock.raw_calls[-1]["prompt"].startswith(f"<render:{len(gen_messages)}:{prefill}>{flagged}")
