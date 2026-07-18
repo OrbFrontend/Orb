@@ -1,252 +1,302 @@
 /* ═══════════════════════════════════════════════════════════
-   Ocean Depths — a descent. Cold filtered
-   light up top gives way to crushing pressure-dark below. The
-   surfaces are matte and austere (no Aqua gloss, no gel, no
-   bubble-shine); the only "wet" cues are restrained bioluminescent
-   glows on the accent and the title, the way a lure glows in
-   black water. The serif prose keeps it readerly and calm.
+   Ocean Depths — the rift. Not a descent into murk: you hang
+   suspended in open water before a drowned monolith bleeding
+   green light down its face. God rays rake through luminous
+   teal above; coral burns warm at the edges; schools of fish
+   flare orange against the cold. Light is the subject here —
+   the water exists to carry it.
 
-   Two ideas drive it:
-   1. Flat over glossy — dark translucent fills, hairline cyan
-      borders, no inset white highlights or multi-stop gradients.
-   2. Depth-on-scroll — the conversation literally sinks: the chat
-      column darkens the further down you scroll (see #chat-messages).
+   Three ideas drive it:
+
+   1. A two-temperature grammar. Everything COLD CYAN is matter:
+      water, glass, chrome, borders, labels. Everything GREEN is
+      energy: the accent, actions, focus, the caret, the "on"
+      state — all of it reads as light escaping the rift.
+      Everything WARM (coral red, fish-orange) is life: danger
+      buttons and the spoken word. Three temperatures, three
+      meanings; nothing has to be labeled.
+
+   2. Luminous, not murky. Water is bright where light passes
+      through it. The body column stays mid-teal, a green core
+      glows behind the conversation, and hand-placed diagonal
+      god-ray gradients rake down from the surface. All static,
+      painted once.
+
+   3. Approach-the-source scroll. background-attachment:local
+      pins a gradient to the chat log's full scrollable height:
+      the top of the history is clear open water, and scrolling
+      toward the newest messages sinks you toward the rift — the
+      log takes on a green luminescence as you near the bottom,
+      where the conversation is still alive.
 
    Performance: live backdrop-filter is limited to the few large
    fixed elements (side panels, input dock, modal layer). Messages
    and anything that repeats use flat fills — never per-item blur.
+   The only animation is one small glow pulse on the send button,
+   disabled under prefers-reduced-motion.
    ═══════════════════════════════════════════════════════════ */
 :root {
-  --bg-deep:#020810;--bg-primary:#05101e;--bg-surface:#08182e;--bg-elevated:#0d203c;
-  --bg-hover:#122848;--border:#1a3050;--border-light:#224060;
-  --text-primary:#b8d8ee;--text-secondary:#5888a8;--text-muted:#305870;
-  --accent:#3aaad8;--accent-dim:#1e6fa0;--accent-glow:rgba(58,170,216,0.14);
-  --red:#c45d88;
+  --bg-deep:#031720;--bg-primary:#052430;--bg-surface:#07303f;--bg-elevated:#0a3f52;
+  --bg-hover:#0e4d63;--border:#12475a;--border-light:#1a5f75;
+  --text-primary:#d8f2f4;--text-secondary:#6fa8b8;--text-muted:#3f7385;
+  /* The accent is the rift itself: bioluminescent green. */
+  --accent:#3ddc84;--accent-dim:#1e9e58;
+  --accent-glow:rgba(61,220,132,0.16);--accent-muted:rgba(61,220,132,0.15);
+  /* Coral red — the reef, not an alarm. */
+  --red:#f4574d;
   --font-prose:'Lora','Palatino Linotype',Palatino,Georgia,serif;--font-ui:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
   --font-mono:'SF Mono','Menlo','Consolas',monospace;--radius:6px;
   --font-prose-size:16px;
   --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
 }
 
-/* ── The water column: cold light raking down from the surface,
-   sinking through pressure-blue to near-black. Static, fixed,
-   painted once — no runtime cost. */
+/* ── The water column. Layered back-to-front:
+     · a teal column that darkens with depth (but never to black —
+       this is lit water, not the abyss),
+     · the rift: a green radial core centered behind the chat,
+       with a tighter hot center,
+     · three hand-placed god rays raking down at slightly
+       different angles — irregular on purpose; a repeating
+       gradient reads as wallpaper, three uneven beams read as
+       light,
+     · the surface bloom overhead.
+   Static, fixed, painted once — no runtime cost. */
 body {
   background:
-    radial-gradient(120% 75% at 50% -16%, rgba(95,185,225,0.16) 0%, rgba(95,185,225,0.04) 30%, rgba(95,185,225,0) 56%),
-    radial-gradient(70% 55% at 86% 4%, rgba(58,170,216,0.07) 0%, rgba(58,170,216,0) 52%),
-    linear-gradient(180deg, #06182b 0%, #04101f 34%, #030b16 66%, #01060e 100%)
+    radial-gradient(130% 60% at 50% -12%, rgba(140,230,245,0.20) 0%, rgba(140,230,245,0.05) 34%, rgba(140,230,245,0) 58%),
+    linear-gradient(112deg, transparent 20%, rgba(150,235,250,0.05) 26%, transparent 31%),
+    linear-gradient(105deg, transparent 43%, rgba(150,235,250,0.045) 49%, transparent 54%),
+    linear-gradient(118deg, transparent 62%, rgba(120,230,245,0.05) 68%, transparent 73%),
+    radial-gradient(12% 38% at 50% 54%, rgba(130,250,170,0.13) 0%, rgba(130,250,170,0) 100%),
+    radial-gradient(42% 60% at 50% 56%, rgba(60,220,130,0.11) 0%, rgba(45,190,150,0.05) 48%, rgba(45,190,150,0) 72%),
+    linear-gradient(180deg, #0a3a4a 0%, #07303f 32%, #05242f 64%, #031720 100%)
     !important;
   background-attachment: fixed !important;
 }
 
-/* ── THE DESCENT. background-attachment:local anchors this gradient
-   to the scroll container's full scrollable height (not the
-   viewport), so it darkens with depth: shallow and clear at the
-   top of the log, abyssal-dark by the time you scroll to the
-   newest messages. A transparent overlay, so it layers over the
-   body column above. */
+/* ── APPROACH THE SOURCE. background-attachment:local anchors
+   this gradient to the scroll container's full scrollable height
+   (not the viewport): the oldest messages sit in clear dark water
+   at the top, and the log grows a green luminescence as you
+   scroll down toward the newest — the conversation's live edge
+   is the lit edge. A transparent overlay over the body column. */
 #chat-messages {
   background:
     linear-gradient(180deg,
-      rgba(2,8,16,0) 0%,
-      rgba(2,8,16,0.30) 40%,
-      rgba(1,5,11,0.62) 78%,
-      rgba(0,3,8,0.82) 100%) !important;
+      rgba(3,23,32,0) 0%,
+      rgba(3,23,32,0.28) 42%,
+      rgba(16,96,72,0.10) 78%,
+      rgba(61,220,132,0.14) 100%) !important;
   background-attachment: local !important;
   background-repeat: no-repeat !important;
 }
 
 /* ── Deep-water glass: frosted, translucent, blurred side panels.
-   Three fixed elements only. Matte — no bright top highlight. */
+   Three fixed elements only. Cyan hairlines — chrome is water. */
 #sidebar, #inspector, #tools-panel {
-  background: rgba(7,21,38,0.5) !important;
-  backdrop-filter: blur(14px) saturate(135%) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(135%) !important;
-  border-color: rgba(58,170,216,0.14) !important;
+  background: rgba(6,32,42,0.55) !important;
+  backdrop-filter: blur(14px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(140%) !important;
+  border-color: rgba(67,214,228,0.16) !important;
 }
-#sidebar { border-right: 1px solid rgba(58,170,216,0.14) !important; }
-#inspector.open, #tools-panel.open { border-left: 1px solid rgba(58,170,216,0.14) !important; }
+#sidebar { border-right: 1px solid rgba(67,214,228,0.16) !important; }
+#inspector.open, #tools-panel.open { border-left: 1px solid rgba(67,214,228,0.16) !important; }
 
-/* Headers: flat, just a hairline divider. No top-light gradient —
-   that lit-glass sheen was the last Aero tell in the title bar. */
+/* Headers: flat, hairline divider only. */
 .sidebar-header, #chat-header {
   background: transparent !important;
-  border-bottom: 1px solid rgba(58,170,216,0.12) !important;
+  border-bottom: 1px solid rgba(67,214,228,0.14) !important;
 }
 
-/* The app title — a calm cyan, no halo. */
+/* The app title is the lure — the one point of green light in
+   the chrome, glowing softly in the dark glass. */
 .sidebar-header h1 {
-  color: #5cb8e0 !important;
-  text-shadow: none !important;
+  color: #6ff5a4 !important;
+  text-shadow: 0 0 10px rgba(61,220,132,0.35) !important;
 }
-.sidebar-section-header:hover { color: #6fd6f5 !important; }
+.sidebar-section-header:hover { color: #56e8ec !important; }
 
-/* ── Buttons: flat matte tiles, hairline cyan edge. No gel, no
-   gradient, no shine. They brighten and pick up a cyan rim on
-   hover — that's it. */
+/* ── Buttons: cold teal glass tiles with a cyan hairline. They
+   brighten and pick up a cyan rim on hover. Ordinary controls
+   stay cold — only actions earn the green. */
 .btn {
-  background: rgba(18,40,64,0.55) !important;
-  border: 1px solid rgba(58,170,216,0.2) !important;
-  color: #b8d8ee !important;
+  background: rgba(14,58,72,0.6) !important;
+  border: 1px solid rgba(67,214,228,0.24) !important;
+  color: #d8f2f4 !important;
   box-shadow: none !important;
   transition: background .15s ease, border-color .15s ease, color .15s ease !important;
 }
 .btn:hover {
-  background: rgba(26,54,84,0.7) !important;
-  border-color: rgba(58,170,216,0.5) !important;
+  background: rgba(20,76,94,0.75) !important;
+  border-color: rgba(67,214,228,0.55) !important;
 }
-.btn:active { background: rgba(13,30,50,0.7) !important; }
+.btn:active { background: rgba(10,46,58,0.75) !important; }
 
-/* Primary/accent: a flat cyan fill, calm at rest — it brightens
-   and picks up only a faint glow on hover (no gel, no resting halo). */
+/* Primary/accent: rift-light made solid. Deep-green face, bright
+   green edge, dark text (green is luminous — dark type carries
+   contrast the way a silhouette does against the glow). */
 .btn-accent, .btn-active, #send-btn {
-  background: rgba(30,111,160,0.85) !important;
-  border: 1px solid var(--accent-dim) !important;
-  color: #eafaff !important;
+  background: linear-gradient(180deg, #2ec96a 0%, #189a4e 100%) !important;
+  border: 1px solid #35d67c !important;
+  color: #032414 !important;
   text-shadow: none !important;
-  box-shadow: none !important;
+  box-shadow: 0 0 10px rgba(61,220,132,0.22) !important;
 }
 .btn-accent:hover, .btn-active:hover, #send-btn:hover {
-  background: rgba(42,138,192,0.92) !important;
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 8px rgba(58,170,216,0.2) !important;
+  background: linear-gradient(180deg, #3adc78 0%, #1fae5b 100%) !important;
+  border-color: #57eb96 !important;
+  box-shadow: 0 0 16px rgba(61,220,132,0.4) !important;
 }
 
-/* Danger + chat Stop: flat deep coral. */
+/* The send button breathes — a slow bioluminescent pulse, like a
+   lure in black water. filter (not box-shadow) so the keyframes
+   don't fight the !important shadows above; one small composited
+   element, and gone entirely under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  #send-btn { animation: od-lure 4.5s ease-in-out infinite; }
+  @keyframes od-lure {
+    50% { filter: brightness(1.15) drop-shadow(0 0 7px rgba(61,220,132,0.5)); }
+  }
+}
+
+/* Danger + chat Stop: living coral — warm against all the cold. */
 .btn-danger, #stop-btn {
-  background: rgba(150,62,90,0.85) !important;
-  border: 1px solid var(--red) !important;
-  color: #fde6ee !important;
+  background: linear-gradient(180deg, #e8604f 0%, #c8413c 100%) !important;
+  border: 1px solid #f4776a !important;
+  color: #fff0ec !important;
   box-shadow: none !important;
 }
 .btn-danger:hover, #stop-btn:hover {
-  background: rgba(180,78,110,0.92) !important;
-  box-shadow: 0 0 12px rgba(196,93,136,0.3) !important;
+  background: linear-gradient(180deg, #f26e5c 0%, #d64c45 100%) !important;
+  box-shadow: 0 0 14px rgba(244,87,77,0.35) !important;
 }
 
-/* Composer burger tile — matches the flat buttons. */
+/* Composer burger tile — matches the cold glass buttons. */
 #burger-btn {
-  background: rgba(18,40,64,0.55) !important;
-  border: 1px solid rgba(58,170,216,0.2) !important;
-  color: #5fb0d8 !important;
+  background: rgba(14,58,72,0.6) !important;
+  border: 1px solid rgba(67,214,228,0.24) !important;
+  color: #56c8dc !important;
   box-shadow: none !important;
 }
 #burger-btn:hover {
-  background: rgba(26,54,84,0.7) !important;
-  border-color: rgba(58,170,216,0.5) !important;
-  color: #8fe0ff !important;
+  background: rgba(20,76,94,0.75) !important;
+  border-color: rgba(67,214,228,0.55) !important;
+  color: #8ff0fa !important;
 }
 
-/* ── Composer dock: frosted shelf, matte. */
+/* ── Composer dock: frosted shelf at the bottom of the water. */
 #chat-input-area {
-  background: rgba(5,15,28,0.58) !important;
-  backdrop-filter: blur(12px) saturate(135%) !important;
-  -webkit-backdrop-filter: blur(12px) saturate(135%) !important;
-  border-top: 1px solid rgba(58,170,216,0.14) !important;
+  background: rgba(5,26,35,0.6) !important;
+  backdrop-filter: blur(12px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(140%) !important;
+  border-top: 1px solid rgba(67,214,228,0.16) !important;
 }
 
-/* ── Toggle: flat recessed track, matte knob; floods cyan (with a
-   restrained glow) when on. No glossy gradients. */
+/* ── Toggle: recessed cold track; floods with rift-green when on. */
 .tog-slider {
-  background: rgba(8,20,36,0.9) !important;
-  border: 1px solid rgba(58,170,216,0.22) !important;
+  background: rgba(6,28,38,0.9) !important;
+  border: 1px solid rgba(67,214,228,0.26) !important;
   box-shadow: none !important;
 }
 .tog-slider:before {
-  background: #6a8ca6 !important;
+  background: #5f8fa0 !important;
   box-shadow: none !important;
 }
 .tog input:checked + .tog-slider {
   background: var(--accent-dim) !important;
   border-color: var(--accent) !important;
-  box-shadow: 0 0 5px rgba(58,170,216,0.3) !important;
+  box-shadow: 0 0 7px rgba(61,220,132,0.4) !important;
 }
-.tog input:checked + .tog-slider:before { background: #d8f2fb !important; }
+.tog input:checked + .tog-slider:before { background: #d9fbe8 !important; }
 
-/* ── Messages: flat dark water panels, hairline border, no shadow,
-   no shine. Not bubbles — quiet slabs that the depth gradient
-   above darkens as the log descends. */
+/* ── Messages: panes of dark water, flat fills (no per-item blur).
+   The assistant speaks from the cold; the user's messages carry a
+   trace of the rift — a green-tinted pane, because the person at
+   the keyboard is the thing radiating intent into this place. */
 .message .msg-body {
-  background: rgba(10,24,42,0.5) !important;
-  border: 1px solid rgba(58,170,216,0.12) !important;
+  background: rgba(7,36,48,0.55) !important;
+  border: 1px solid rgba(67,214,228,0.14) !important;
   box-shadow: none !important;
 }
 .message.user .msg-body {
-  background: rgba(30,111,160,0.16) !important;
-  border-color: rgba(58,170,216,0.26) !important;
+  background: rgba(35,160,95,0.13) !important;
+  border-color: rgba(61,220,132,0.30) !important;
 }
 .message .msg-body pre,
 .message .msg-body code.inline-code {
-  background: rgba(2,8,16,0.5) !important;
-  border-color: rgba(58,170,216,0.16) !important;
+  background: rgba(2,16,22,0.6) !important;
+  border-color: rgba(67,214,228,0.18) !important;
 }
 
-/* ── Modals: a frosted deep-glass sheet on a dark scrim. The drop
-   shadow reads as depth, not gloss — kept; the inset highlight is
-   gone. */
+/* ── Modals: a sheet of deep glass over a darkened water scrim.
+   The shadow carries a faint green underglow — rift light leaking
+   around the pane. */
 .modal-overlay {
-  background: rgba(1,5,11,0.66) !important;
+  background: rgba(2,12,17,0.66) !important;
   backdrop-filter: blur(5px) saturate(120%) !important;
   -webkit-backdrop-filter: blur(5px) saturate(120%) !important;
 }
 .modal, .modal-crop {
-  background: rgba(8,21,38,0.92) !important;
-  backdrop-filter: blur(18px) saturate(135%) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(135%) !important;
-  border: 1px solid rgba(58,170,216,0.18) !important;
-  box-shadow: 0 18px 50px rgba(0,0,0,0.65) !important;
+  background: rgba(6,30,40,0.93) !important;
+  backdrop-filter: blur(18px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(140%) !important;
+  border: 1px solid rgba(67,214,228,0.2) !important;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.6), 0 0 34px rgba(61,220,132,0.08) !important;
 }
 
-/* ── Toast: flat dark lozenge, faint cyan edge. */
+/* ── Toast: dark glass lozenge, cyan edge. */
 .toast {
-  background: rgba(8,21,38,0.92) !important;
-  backdrop-filter: blur(10px) saturate(135%) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(135%) !important;
-  border: 1px solid rgba(58,170,216,0.18) !important;
-  color: #b8d8ee !important;
+  background: rgba(6,30,40,0.93) !important;
+  backdrop-filter: blur(10px) saturate(140%) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(140%) !important;
+  border: 1px solid rgba(67,214,228,0.2) !important;
+  color: #d8f2f4 !important;
   box-shadow: 0 8px 24px rgba(0,0,0,0.55) !important;
 }
 
-/* ── Slim, flat cyan scrollbars — restrained, not water-drop. */
+/* ── Scrollbar: the sounding line. Cyan at the top of the thumb
+   fading to green at the bottom — the same cold→source gradient
+   the whole theme runs on, compressed into 9px. */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(58,170,216,0.32); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(58,170,216,0.55); }
-* { scrollbar-width: thin; scrollbar-color: rgba(58,170,216,0.38) transparent; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(67,214,228,0.4), rgba(61,220,132,0.45));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(67,214,228,0.65), rgba(61,220,132,0.7));
+}
+* { scrollbar-width: thin; scrollbar-color: rgba(52,210,170,0.45) transparent; }
 
-::selection { background: rgba(58,170,216,0.32); color: #eafaff; }
+::selection { background: rgba(61,220,132,0.30); color: #eafff2; }
 
-/* Text floating on the gradient gets a faint cyan halo for
-   legibility — a hint of bioluminescence, nothing glossy. */
-.msg-role { color: #5fb0d8 !important; text-shadow: 0 0 5px rgba(58,170,216,0.22) !important; }
-.swipe-counter, .swipe-nav { color: #6a9ec0 !important; }
-.swipe-nav:hover { color: var(--accent) !important; }
-.msg-toolbar { color: #5888a8 !important; }
+/* Labels floating on open water get a faint cyan halo. */
+.msg-role { color: #56c8dc !important; text-shadow: 0 0 6px rgba(67,214,228,0.25) !important; }
+.swipe-counter, .swipe-nav { color: #66a8bc !important; }
+.swipe-nav:hover { color: #56e8ec !important; }
+.msg-toolbar { color: #6fa8b8 !important; }
 
-/* ── Three prose voices, three registers. Distinctness comes from
-   HUE, not brightness — three shades of blue always read as one.
-   So dialogue breaks off the blue and goes green — the green of
-   coral and kelp — leaning grassy (not teal) so it reads as a
-   distinct hue rather than folding back into the cyan. The
-   interface stays cyan; only the spoken word is green.
-     • Narration — cool clean pale, the base you read straight through.
-     • Dialogue  — luminous sea-green with a faint phosphorescent
-                   glow, like a bioluminescent reef; the eye lands
-                   on spoken lines first.
-     • Thought   — italic emphasis sits cool and dim, a step back
-                   from narration, like something half-said. */
-.message .msg-body { color: #d2dbe2 !important; }
+/* ── Three prose voices, three temperatures — the same grammar
+   as the chrome, applied to the writing itself:
+     • Narration — pale aqua, clear water; the register you read
+       straight through.
+     • Dialogue  — fish-flare orange with a warm phosphorescent
+       halo. In the picture the only warm-blooded color is the
+       schools of fish cutting across the cold; here the only
+       warm text is the spoken word. The eye lands on it first.
+     • Thought   — italic, cool and dim, a half-step behind
+       narration; something said underwater. */
+.message .msg-body { color: #d6ecef !important; }
 .message .msg-body .quoted {
-  color: #82d29a !important;
-  text-shadow: 0 0 7px rgba(130,210,154,0.24) !important;
+  color: #ffab7e !important;
+  text-shadow: 0 0 8px rgba(255,138,95,0.25) !important;
 }
 .message .msg-body em {
-  color: #6f93b0 !important;
+  color: #7fa9b8 !important;
   font-style: italic !important;
 }
-/* TTS "now speaking" highlight — a brighter flare of the same green. */
-.message .msg-body .quoted.speaking { color: #b8edc8 !important; }
+/* TTS "now speaking" highlight — the flare brightens. */
+.message .msg-body .quoted.speaking { color: #ffd2b0 !important; }
 
 textarea { appearance: none; -webkit-appearance: none; }
 textarea::-webkit-resizer { background: transparent; }
