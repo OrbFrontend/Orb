@@ -59,7 +59,7 @@ textarea::-webkit-resizer { background: transparent; }
   padding: 1 !important;
 }
 
-/* Thought (tilted) text: dim teal, distinct from the warm prose/dialogue */
+/* Narration/thought text: dimmed like code comments, stays in the warm palette */
 .message .msg-body em {
-  color: #5fa890 !important;
+  color: var(--text-muted) !important;
 }
