@@ -290,17 +290,14 @@ function charFormTabs(prefix, d, isEdit, worlds = []) {
   return `
     <div class="tabs">
       <div class="tab active" onclick="switchTab(this,'${prefix}-tp')">Persona</div>
-      <div class="tab" onclick="switchTab(this,'${prefix}-ts')">Scenario</div>
       <div class="tab" onclick="switchTab(this,'${prefix}-tm')">Messages</div>
       ${isEdit ? `<div class="tab" onclick="switchTab(this,'${prefix}-ta')">Advanced</div>` : ""}
       ${isEdit ? `<div class="tab" id="${prefix}-tab-frag">Fragments</div>` : ""}
     </div>
     <div id="${prefix}-tp" class="tab-content active">
-      <div class="field"><label>Description</label><textarea id="${prefix}-desc" rows="5">${esc(d.description || "")}</textarea></div>
-      <div class="field"><label>Personality</label><textarea id="${prefix}-personality" rows="4">${esc(d.personality || "")}</textarea></div>
-    </div>
-    <div id="${prefix}-ts" class="tab-content">
-      <div class="field"><label>Scenario</label><textarea id="${prefix}-scenario" rows="7">${esc(d.scenario || "")}</textarea></div>
+      <div class="field"><label>Description</label><textarea id="${prefix}-desc" rows="8">${esc(d.description || "")}</textarea></div>
+      <div class="field"><label>Personality</label><textarea id="${prefix}-personality" rows="3">${esc(d.personality || "")}</textarea></div>
+      <div class="field"><label>Scenario</label><textarea id="${prefix}-scenario" rows="3">${esc(d.scenario || "")}</textarea></div>
     </div>
     <div id="${prefix}-tm" class="tab-content">
       <div class="field"><label>First Message</label><textarea id="${prefix}-first-mes" rows="5">${esc(d.first_mes || "")}</textarea></div>

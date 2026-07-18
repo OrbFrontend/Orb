@@ -354,13 +354,23 @@
 
 /* Divider between global fragments and the character's card-embedded ones. */
 .frag-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
-  border-top: 1px solid var(--border);
-  margin: 8px 0 4px;
-  padding: 4px 10px 0;
+  margin: 10px 0 4px;
+  padding: 0 10px;
+}
+/* Rules on both sides center the label within the line. */
+.frag-divider::before,
+.frag-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
 .frag-drag-handle {

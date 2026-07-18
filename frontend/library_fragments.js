@@ -20,9 +20,11 @@ export async function loadMoodFragments() {
 
 export function renderMoodFragments() {
   const cardHtml = _cardMoodSidepanelHtml();
+  // Add button sits with the global list, above the "From character" divider.
+  const addBtn = `<button class="btn btn-block btn-sm" onclick="showMoodFragmentModal()" style="margin-top:6px">+ Add Mood Fragment</button>`;
   if ((!S.moodFragments || S.moodFragments.length === 0) && !cardHtml) {
     $("frag-list").innerHTML =
-      '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No mood fragments</div>';
+      `<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No mood fragments</div>${addBtn}`;
     return;
   }
 
@@ -47,7 +49,7 @@ export function renderMoodFragments() {
     })
     .join("");
 
-  $("frag-list").innerHTML = html + cardHtml;
+  $("frag-list").innerHTML = html + addBtn + cardHtml;
 }
 
 // Shared field markup for the global modal and the card-scoped sub-modal (same
@@ -154,8 +156,10 @@ export function renderInteractiveFragments() {
   const el = document.getElementById("interactive-frag-list");
   if (!el) return;
   const cardHtml = _cardInteractiveSidepanelHtml();
+  // Add button sits with the global list, above the "From character" divider.
+  const addBtn = `<button class="btn btn-block btn-sm" onclick="showInteractiveFragmentModal()" style="margin-top:6px">+ Add Interactive Fragment</button>`;
   if ((!S.interactiveFragments || S.interactiveFragments.length === 0) && !cardHtml) {
-    el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No interactive fragments</div>';
+    el.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:4px 0;">No interactive fragments</div>${addBtn}`;
     return;
   }
 
@@ -206,7 +210,7 @@ export function renderInteractiveFragments() {
 
   // Card items live in .frag-card-list (not .fragment-item), so the drag/reorder
   // machinery below never sees them.
-  el.innerHTML = html + cardHtml;
+  el.innerHTML = html + addBtn + cardHtml;
   setupDragAndDrop(el);
 }
 

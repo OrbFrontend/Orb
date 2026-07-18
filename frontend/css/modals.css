@@ -223,10 +223,12 @@
 }
 
 #ce-card-frag-list .frag-divider {
-  border-top: none;
   margin: 14px 0 6px;
   padding: 0 2px;
 }
+/* Card-editor dividers stay plain text — no rules. */
+#ce-card-frag-list .frag-divider::before,
+#ce-card-frag-list .frag-divider::after { display: none; }
 #ce-card-frag-list .frag-divider:first-child { margin-top: 0; }
 
 #ce-card-frag-list .fragment-item {
