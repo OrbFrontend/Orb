@@ -21,10 +21,6 @@ import { $, esc, escAttr, toast } from "./utils.js";
 const DOC_AUDIT_KEYS = ["banned_phrases", "repetitive_openers", "repetitive_templates", "contrastive_negation"];
 const DOC_AUDIT_DEFS = AUDIT_TYPE_DEFS.filter((d) => DOC_AUDIT_KEYS.includes(d.key));
 
-// How much preceding document text rides along as audit context. Generous on
-// purpose — the server scrubs scaffold lines and owns the semantic cap.
-const CONTEXT_WINDOW = 12000;
-
 let _ctx = null; // { getContent, applyPatchedRun } injected by document.js
 
 // Wire the header button once (from initDocumentMode). *ctx* = { getContent,
@@ -213,8 +209,11 @@ function runIsCurrent(r) {
   return content.slice(r.runStart, r.runStart + r.draft.length) === r.draft;
 }
 
-function sliceContext(r) {
-  return _ctx.getContent().slice(Math.max(0, r.runStart - CONTEXT_WINDOW), r.runStart);
+// The FULL document text before the run — the exact generation prompt. The
+// patch call byte-extends it to reuse the server's KV cache, so no client-side
+// windowing here; the server owns the (cheap, CPU-side) scanner cap.
+function fullContext(r) {
+  return _ctx.getContent().slice(0, r.runStart);
 }
 
 // Called by document.js after finalizeGeneration commits a run. Skips are the
@@ -245,7 +244,7 @@ async function postAudit(run, { autopatch = false } = {}) {
   try {
     const res = await api.post(`/documents/${run.docId}/audit`, {
       draft: run.draft,
-      context: sliceContext(run),
+      context: fullContext(run),
       assisted: run.assisted,
       truncated: run.truncated,
     });
@@ -298,7 +297,7 @@ export async function runPatch() {
   try {
     const res = await api.post(`/documents/${r.docId}/patch`, {
       draft: r.draft,
-      context: sliceContext(r),
+      context: fullContext(r),
       assisted: r.assisted,
       truncated: r.truncated,
     });

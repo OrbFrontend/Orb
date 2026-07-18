@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import json
 
-from backend.features.documents import DOC_ASSIST_CONTINUE, DOC_ASSIST_INSTRUCTION
+from backend.features.documents import (
+    DOC_ASSIST_CONTINUE,
+    DOC_ASSIST_INSTRUCTION,
+    DOC_CHAT_INSTRUCTION,
+)
+from backend.features.documents.continuation import build_generation_messages
 
 
 def _parse_sse(text: str) -> list[dict]:
@@ -375,6 +380,12 @@ async def test_patch_applies_patches(client, llm_mock):
     cap = llm_mock.captured[-1]
     assert cap["pass"] == "editor"
     assert {"role": "assistant", "content": flagged} in cap["messages"]
+    # KV parity: the patch conversation replays the generation shape verbatim
+    # (chat fallback framing + full context as the user turn) and keeps the
+    # tool schema out of the rendered prompt.
+    assert cap["messages"][0] == {"role": "system", "content": DOC_CHAT_INSTRUCTION}
+    assert cap["messages"][1] == {"role": "user", "content": "Earlier prose."}
+    assert cap["params"]["tools_in_prompt"] is False
 
 
 async def test_patch_surfaces_apply_errors(client, llm_mock):
@@ -395,4 +406,42 @@ async def test_patch_clean_draft_skips_llm(client, llm_mock):
     body = (await client.post(f"/api/documents/{did}/patch", json={"draft": "Nothing to fix here."})).json()
     assert body["skipped"] == "clean"
     assert body["patched_draft"] == "Nothing to fix here."
-    assert llm_mock.calls == []  # no LLM call when the audit is already clean
+    assert llm_mock.calls == [] and llm_mock.raw_calls == []  # no LLM call when clean
+
+
+async def test_patch_text_mode_raw_extends_prompt_with_json_schema(client, llm_mock):
+    await _seed_phrase(client)
+    await _activate_text_endpoint(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    flagged = f"She felt {_BANNED} at once."
+    ctx = "Earlier prose precedes the run. "
+    llm_mock.enqueue_raw(json.dumps({"patches": [{"search": flagged, "replace": "A chill traced her back."}]}))
+
+    body = (await client.post(f"/api/documents/{did}/patch", json={"draft": flagged, "context": ctx})).json()
+    assert body["patched_draft"] == "A chill traced her back."
+    assert body["patch_count"] == 1
+
+    # Raw transport: the patch prompt byte-extends document + draft; the
+    # forced JSON shape rides json_schema (decoding-only, prompt untouched).
+    assert llm_mock.calls == []
+    raw = llm_mock.raw_calls[-1]
+    assert raw["prompt"].startswith(ctx + flagged)
+    assert raw["params"]["json_schema"]["properties"]["patches"]
+
+
+async def test_patch_text_mode_assisted_rerenders_generation(client, llm_mock):
+    await _seed_phrase(client)
+    await _activate_text_endpoint(client)
+    did = (await client.post("/api/documents", json={})).json()["id"]
+    flagged = f"She felt {_BANNED} at once."
+    ctx = "### USER: keep going\nThe last prose line"
+    llm_mock.enqueue_raw(json.dumps({"patches": []}))
+
+    body = (await client.post(f"/api/documents/{did}/patch", json={"draft": flagged, "context": ctx, "assisted": True})).json()
+    assert body["skipped"] is None
+
+    # The patch re-runs the EXACT generation render (same parsed messages +
+    # open prefill) and byte-extends it with the draft core.
+    gen_messages, prefill = build_generation_messages(ctx, assisted=True, completion_mode="text")
+    assert llm_mock.render_calls == [{"messages": gen_messages, "prefill": prefill, "reasoning": False}]
+    assert llm_mock.raw_calls[-1]["prompt"].startswith(f"<render:{len(gen_messages)}:{prefill}>{flagged}")

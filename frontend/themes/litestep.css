@@ -39,10 +39,10 @@
   --text-muted:#6e7a88;
 
   /* LiteStep amber dots */
-  --accent:#e0821e;
-  --accent-dim:#a86018;
-  --accent-glow:rgba(224,130,30,0.2);
-  --accent-muted:rgba(224,130,30,0.15);
+  --accent:#c46418;
+  --accent-dim:#8c480c;
+  --accent-glow:rgba(196,100,24,0.2);
+  --accent-muted:rgba(196,100,24,0.15);
 
   --red:#c03020;
 
@@ -110,19 +110,19 @@ body {
 
 /* Primary buttons: same chrome, amber face — the litestep dots. */
 .btn-accent, .btn-active, #send-btn {
-  background: linear-gradient(180deg, #f0a044 0%, #e0821e 100%) !important;
+  background: linear-gradient(180deg, #d88a34 0%, #c46418 100%) !important;
   border: 1px solid !important;
-  border-color: #f8c888 #8a5210 #8a5210 #f8c888 !important;
+  border-color: #e0b470 #683008 #683008 #e0b470 !important;
   color: #2a1804 !important;
   font-weight: normal;
   text-shadow: none !important;
   box-shadow: 1px 1px 0 #404040 !important;
 }
 .btn-accent:hover, .btn-active:hover, #send-btn:hover {
-  background: linear-gradient(180deg, #f4ac54 0%, #ea8e2a 100%) !important;
+  background: linear-gradient(180deg, #e09844 0%, #d07024 100%) !important;
 }
 .btn-accent:active, .btn-active:active, #send-btn:active {
-  border-color: #8a5210 #f8c888 #f8c888 #8a5210 !important;
+  border-color: #683008 #e0b470 #e0b470 #683008 !important;
 }
 
 /* Danger: the "Cancel at your peril" red. */
@@ -206,8 +206,8 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   box-shadow: inset 1px 1px 0 #f4f2ee, inset -1px -1px 0 #606060 !important;
 }
 .tog input:checked + .tog-slider {
-  background: #e0821e !important;
-  border-color: #8a5210 #f8c888 #f8c888 #8a5210 !important;
+  background: #c46418 !important;
+  border-color: #683008 #e0b470 #e0b470 #683008 !important;
   box-shadow: none !important;
 }
 .tog input:checked + .tog-slider:before { background: #f4f2ee !important; }
@@ -248,7 +248,7 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
 /* Phrase-bank kind chip: full amber washes out at 10px on the beige
    chip — use the dim amber, and no synthetic bold (Fixedsys). */
 .phrase-group-count {
-  color: #a86018 !important;
+  color: #8c480c !important;
   font-weight: normal !important;
 }
 

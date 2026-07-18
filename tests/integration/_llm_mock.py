@@ -133,6 +133,8 @@ class FakeLLMClient:
         # {"content": str, "probs": list} so a test can attach per-token probs.
         self._raw_queue: list[dict] = []
         self.raw_calls: list[dict] = []
+        # render_prompt captures (doc-mode text+assisted patch re-render).
+        self.render_calls: list[dict] = []
         self.completion_mode = "chat"
         self._gates: dict[str, list[PassGate]] = {
             "director": [],
@@ -317,6 +319,15 @@ class FakeLLMClient:
                 "tool_calls": payload.get("tool_calls", []),
             },
         }
+
+    async def render_prompt(self, messages, *, prefill=None, reasoning=False) -> str:
+        """Deterministic /apply-template stand-in (doc-mode text+assisted patch).
+
+        Captures the render inputs and returns a marker string so tests can
+        assert the raw patch prompt byte-extends the re-run generation render.
+        """
+        self.render_calls.append({"messages": copy.deepcopy(messages), "prefill": prefill, "reasoning": reasoning})
+        return f"<render:{len(list(messages))}:{prefill or ''}>"
 
     async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[dict]:
         """Raw text-completion stand-in (document text mode). Captures the

@@ -159,18 +159,45 @@ def parse_doc_macros(text: str) -> tuple[list[ChatMessage], str | None]:
     return messages, prefill
 
 
+def uses_raw_transport(completion_mode: str, assisted: bool) -> bool:
+    """True when generation rides the raw ``/completion`` transport (text mode,
+    non-assisted): the document goes verbatim, no chat template. The single
+    definition of the raw-vs-messages split — shared by :meth:`DocumentContinuer.stream`
+    and the Output Auditor's patch call (``audit.py``)."""
+    return completion_mode == "text" and not assisted
+
+
+def build_generation_messages(prompt: str, *, assisted: bool, completion_mode: str) -> tuple[list[ChatMessage], str | None]:
+    """The generation-call message list for the three message-based shapes
+    (everything except text+raw — see :func:`uses_raw_transport`).
+
+    Returns ``(messages, prefill)``; ``prefill`` is non-None only for
+    text+assisted, where ``/apply-template`` renders it as an open assistant
+    turn. On the chat transport a prefill is instead closed as an assistant
+    turn plus a re-anchor user turn (``/chat/completions`` cannot leave a
+    trailing assistant turn open; quality is model-dependent — text mode is the
+    recommended assisted path).
+
+    The Output Auditor's patch call extends these EXACT lists, so the patch
+    prompt byte-extends the generation prompt and the server's KV prefix
+    survives — keep both paths building from here (docs/architecture/kv-cache.md).
+    """
+    if assisted:
+        messages, prefill = parse_doc_macros(prompt)
+        if completion_mode == "text":
+            return messages, prefill
+        if prefill:
+            messages = [*messages, _msg("assistant", prefill), _msg("user", DOC_ASSIST_CONTINUE)]
+        return messages, None
+    return [_msg("system", DOC_CHAT_INSTRUCTION), _msg("user", prompt)], None
+
+
 class DocumentContinuer:
     def __init__(self, client: LLMClient, settings: Mapping[str, Any]):
         self.client = client
         # guard an unset max_tokens: a raw /completion with n_predict=-1 runs away.
         self.settings = settings
         self.params = extract_hyperparams(settings, defaults={"max_tokens": 512})
-
-    def build_chat_messages(self, prompt: str) -> list[ChatMessage]:
-        return [
-            {"role": "system", "content": DOC_CHAT_INSTRUCTION},
-            {"role": "user", "content": prompt},
-        ]
 
     async def stream(
         self, prompt: str, model: str, assisted: bool = False, token_probs: bool = False
@@ -184,6 +211,9 @@ class DocumentContinuer:
         #   chat  + assisted  -> parsed multi-turn; prefill closed + re-anchor turn
         #                        (chat transport drops the open prefill)
         #
+        # The message shapes come from build_generation_messages so the Output
+        # Auditor's patch call can byte-extend the exact same prompt.
+        #
         # Reasoning is always off in assisted mode: a no-op on the text/prefill
         # path (client drops chat_template_kwargs there) but load-bearing for the
         # chat fallback and the trailing-note generation prompt.
@@ -191,34 +221,21 @@ class DocumentContinuer:
         # token_probs adds the per-transport alternatives request (mikupad-style
         # token swapping): n_probs on the llama.cpp branches, logprobs/top_logprobs
         # on the OpenAI-compat branches. Unset → no extra fields, unchanged bodies.
+        mode = self.client.completion_mode
         probs_text = {"n_probs": _N_PROBS_TEXT} if token_probs else {}
         probs_chat = {"logprobs": True, "top_logprobs": _TOP_LOGPROBS_CHAT} if token_probs else {}
-        if self.client.completion_mode == "text":
-            if assisted:
-                messages, prefill = parse_doc_macros(prompt)
+        if uses_raw_transport(mode, assisted):
+            gen = self.client.complete_raw(prompt, model, **self.params, **probs_text)
+        else:
+            messages, prefill = build_generation_messages(prompt, assisted=assisted, completion_mode=mode)
+            if mode == "text":
                 gen = self.client.complete(
                     messages, model, prefill=prefill, **self.params, **probs_text, **reasoning_cfg(False)
                 )
             else:
-                gen = self.client.complete_raw(prompt, model, **self.params, **probs_text)
-        else:
-            if assisted:
-                messages, prefill = parse_doc_macros(prompt)
-                if prefill:
-                    # Close the prefill and re-anchor: /chat/completions cannot leave
-                    # a trailing assistant turn open, so respond-style is the only
-                    # reliable framing here (quality is model-dependent — text mode
-                    # is the recommended assisted path).
-                    messages = [
-                        *messages,
-                        _msg("assistant", prefill),
-                        _msg("user", DOC_ASSIST_CONTINUE),
-                    ]
+                # prefill is always None here; never sent — a chat body has no
+                # prefill concept.
                 gen = self.client.complete(messages, model, **self.params, **probs_chat, **reasoning_cfg(False))
-            else:
-                gen = self.client.complete(
-                    self.build_chat_messages(prompt), model, **self.params, **probs_chat, **reasoning_cfg(False)
-                )
         # Yield content + token_probs chunks (drop reasoning), then surface the
         # final chunk's finish_reason so the route can tell EOS ("stop") from a
         # token-budget cutoff ("length") — the Output Auditor trims the dangling

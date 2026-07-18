@@ -36,6 +36,18 @@ The monkey woke. He▮
 
 (Cursor at `▮`.) Click **How to prompt** in the editor for this same cheat sheet in context. Generation stops when the model ends its turn — often just a sentence or two — hit Generate again to keep going.
 
+## Output Auditor
+
+After each run the Output Auditor scans the new text with the chat editor's prose scanners (banned phrases, repetitive openers/templates, contrastive negation) and can fix findings with one forced search/replace-JSON patch call — automatically when **Auto-patch** is on.
+
+The patch call is KV-cache-friendly by construction: it **byte-extends the generation prompt** instead of building a fresh conversation, so llama.cpp reuses the document's warm prefix for the patch and the next Generate stays warm too (`cache_prompt` prefix matching). Per shape:
+
+- **Text + Raw** — patch prompt = the document verbatim + the run + the audit report appended as a raw continuation, JSON output forced by `json_schema` (decoding-only).
+- **Text + Assisted** — the client re-runs the *exact* `/apply-template` render the generation used (same parsed turns, same open prefill, same thinking kwargs) and extends that string the same way. Re-rendering rather than replaying the draft as a closed turn matters: templates like Qwen's inject `<think></think>` into the open generation prompt that a closed history turn wouldn't reproduce.
+- **Chat** (both) — the generation messages are replayed verbatim, the run is appended as the model's own turn, and the report as a trailing user turn; the patch schema stays out of the prompt (`tools_in_prompt=False` → forced via `response_format`). On templates that inject thinking bytes into the generation prompt (Qwen), reuse is bounded to the replayed context turns — text mode is the recommended path.
+
+The frontend sends the **full** document text before the run as `context` (it *is* the generation prompt); truncating it would break prefix matching at character zero. The scanners themselves still see a server-side cap.
+
 ## Undo/redo
 
 Ctrl/⌘+Z and Ctrl/⌘+Shift+Z (or +Y) undo/redo both your own typing and anything the model generated, on one shared timeline — backing out a bad generation and backing out a typo work exactly the same way.

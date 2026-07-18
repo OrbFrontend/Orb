@@ -99,6 +99,54 @@ async def test_complete_raw_body_omits_n_probs_when_absent():
     assert "post_sampling_probs" not in captured["body"]
 
 
+async def test_complete_raw_body_carries_json_schema_when_passed():
+    # Doc-mode patch path: json_schema constrains decoding only — the prompt is
+    # still the verbatim string, so the KV prefix survives.
+    client = _client()
+    captured: dict = {}
+
+    async def fake_stream(url, body):
+        captured["body"] = body
+        yield {"content": "{}", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    schema = {"type": "object", "properties": {"patches": {"type": "array"}}}
+    await _drain(client.complete_raw("doc + draft + audit", "m", json_schema=schema))
+    assert captured["body"]["json_schema"] == schema
+    assert captured["body"]["prompt"] == "doc + draft + audit"
+    assert "grammar" not in captured["body"]
+
+
+async def test_complete_raw_grammar_wins_over_json_schema():
+    client = _client()
+    captured: dict = {}
+
+    async def fake_stream(url, body):
+        captured["body"] = body
+        yield {"content": "x", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    await _drain(client.complete_raw("p", "m", grammar='root ::= "x"', json_schema={"type": "object"}))
+    assert captured["body"]["grammar"] == 'root ::= "x"'
+    assert "json_schema" not in captured["body"]
+
+
+async def test_complete_raw_body_omits_schema_keys_when_absent():
+    client = _client()
+    captured: dict = {}
+
+    async def fake_stream(url, body):
+        captured["body"] = body
+        yield {"content": "x", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+
+    await _drain(client.complete_raw("p", "m"))
+    assert "json_schema" not in captured["body"] and "grammar" not in captured["body"]
+
+
 async def test_complete_raw_interleaves_token_probs_chunks():
     client = _client()
 

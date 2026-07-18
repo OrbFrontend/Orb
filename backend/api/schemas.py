@@ -297,8 +297,9 @@ class DocumentGenerateRequest(BaseModel):
 
 
 class DocumentAuditRequest(BaseModel):
-    # The generated run to audit/patch. `context` is the document text that
-    # preceded the run (client-windowed; the server applies its own cap).
+    # The generated run to audit/patch. `context` is the FULL document text that
+    # preceded the run — i.e. the generation prompt. /patch byte-extends it so
+    # the server's KV prefix survives; the scanners get a server-side cap.
     draft: str
     context: str = ""
     # Same flag as DocumentGenerateRequest — drives the context-scrubbing

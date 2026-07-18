@@ -2,8 +2,9 @@
 (features/documents/audit.py) and the report_to_dict serializer.
 
 Covers the trim/clean/toggle pure helpers, the audit orchestrator's
-draft-scoping + truncation semantics, and the one-shot patch flow against a
-stub client (forced editor_apply_patch call, tail reattachment, patch-error
+draft-scoping + truncation semantics, the KV-friendly patch-prompt builders
+(patch byte-extends the generation prompt), and the per-shape patch dispatch
+against a stub client (forced JSON call, tail reattachment, patch-error
 surfacing).
 """
 
@@ -15,12 +16,20 @@ from backend.analysis import AuditReport, report_to_dict, run_audit
 from backend.features.documents.audit import (
     DOC_AUDIT_TYPES,
     audit_document,
+    build_fix_instruction,
     build_patch_messages,
+    build_patch_prompt_raw,
     clean_context,
     doc_audit_toggles,
     patch_document,
     trim_incomplete_tail,
 )
+from backend.features.documents.continuation import (
+    DOC_ASSIST_CONTINUE,
+    DOC_CHAT_INSTRUCTION,
+    build_generation_messages,
+)
+from backend.inference import TOOLS
 
 _BANNED = "shivers down her spine"
 _BANK = [[_BANNED]]  # one literal phrase group, detector-facing shape
@@ -182,11 +191,27 @@ async def test_audit_scanner_toggle_off():
 
 
 class _StubPatchClient:
-    """Stub LLMClient: records the forced call, returns canned patches."""
+    """Stub LLMClient: records the forced call, returns canned patches.
 
-    def __init__(self, patches: list[dict]):
+    ``completion_mode`` steers patch_document's dispatch like the real client.
+    complete() answers with a tool_calls message (the shape both real chat
+    forcing paths re-synthesize); complete_raw() answers with bare JSON content
+    (the grammar-forced ``/completion`` shape), or literal ``raw_content`` when
+    given. render_prompt() returns a deterministic fake render so tests can
+    assert the raw patch prompt byte-extends it.
+    """
+
+    def __init__(self, patches: list[dict], completion_mode: str = "chat", raw_content: str | None = None):
+        self.completion_mode = completion_mode
         self.calls: list[dict] = []
+        self.raw_calls: list[dict] = []
+        self.render_calls: list[dict] = []
         self._patches = patches
+        self._raw_content = raw_content
+
+    async def render_prompt(self, messages, *, prefill=None, reasoning=False):
+        self.render_calls.append({"messages": messages, "prefill": prefill, "reasoning": reasoning})
+        return f"<render:{len(messages)}:{prefill or ''}>"
 
     async def complete(self, messages, model, tools=None, tool_choice=None, **params):
         self.calls.append({"messages": messages, "model": model, "tools": tools, "tool_choice": tool_choice, "params": params})
@@ -206,6 +231,11 @@ class _StubPatchClient:
             },
         }
 
+    async def complete_raw(self, prompt, model, **params):
+        self.raw_calls.append({"prompt": prompt, "model": model, "params": params})
+        content = self._raw_content if self._raw_content is not None else json.dumps({"patches": self._patches})
+        yield {"type": "done", "message": {"content": content}}
+
 
 async def test_patch_applies_and_reattaches_tail():
     flagged = f"She felt {_BANNED} at once."
@@ -224,6 +254,9 @@ async def test_patch_applies_and_reattaches_tail():
     call = client.calls[0]
     assert call["tool_choice"] == {"type": "function", "function": {"name": "editor_apply_patch"}}
     assert call["tools"][0]["function"]["name"] == "editor_apply_patch"
+    # KV parity: the schema must never land in the chat prompt (the generation
+    # call sent no tools), so the patch forces via response_format instead.
+    assert call["params"]["tools_in_prompt"] is False
     assert {"role": "assistant", "content": f"{flagged} "} in call["messages"]
     # Chat-editor parity: reasoning off on the patch call.
     assert call["params"]["reasoning"] == {"effort": "none", "enabled": False}
@@ -245,7 +278,7 @@ async def test_patch_clean_draft_skips_llm():
     res = await patch_document(client, "m", "Nothing to fix here.", "", _BANK, None, _SETTINGS, assisted=False, truncated=False)
     assert res["skipped"] == "clean"
     assert res["patched_draft"] == "Nothing to fix here."
-    assert client.calls == []  # no LLM call when the audit is already clean
+    assert client.calls == [] and client.raw_calls == []  # no LLM call when clean
 
 
 async def test_patch_all_partial_skips_llm():
@@ -256,10 +289,87 @@ async def test_patch_all_partial_skips_llm():
     assert client.calls == []
 
 
-def test_build_patch_messages_shape():
-    msgs = build_patch_messages("The draft core.", "earlier text", "*** REPORT ***")
-    roles = [m["role"] for m in msgs]
-    assert roles == ["system", "user", "assistant", "user"]
-    assert msgs[2]["content"] == "The draft core."
-    assert "earlier text" in msgs[1]["content"]
-    assert "*** REPORT ***" in msgs[3]["content"]
+async def test_patch_text_raw_byte_extends_document_with_json_schema():
+    flagged = f"She felt {_BANNED} at once."
+    ctx = "Earlier prose precedes the run. "
+    client = _StubPatchClient([{"search": flagged, "replace": "Cold ran through her."}], completion_mode="text")
+
+    res = await patch_document(client, "m", flagged, ctx, _BANK, None, _SETTINGS, assisted=False, truncated=False)
+    assert res["patched_draft"] == "Cold ran through her."
+    assert client.calls == [] and client.render_calls == []  # raw transport, no re-render
+    raw = client.raw_calls[0]
+    # Byte-extension of the generation prompt: document verbatim + draft, no joiner.
+    assert raw["prompt"].startswith(ctx + flagged)
+    # Forcing is decoding-only: the tool's parameter schema rides json_schema.
+    assert raw["params"]["json_schema"] == TOOLS["editor_apply_patch"]["schema"]["function"]["parameters"]
+
+
+async def test_patch_text_assisted_extends_rendered_generation_prompt():
+    flagged = f"She felt {_BANNED} at once."
+    ctx = "### USER: keep going\nThe last prose line"
+    client = _StubPatchClient([{"search": flagged, "replace": "Quiet."}], completion_mode="text")
+
+    res = await patch_document(client, "m", flagged, ctx, _BANK, None, _SETTINGS, assisted=True, truncated=False)
+    assert res["patch_count"] == 1
+    assert client.calls == []
+    # The render re-runs the EXACT generation shape (same messages, same prefill,
+    # reasoning off) so template quirks reproduce byte-for-byte.
+    gen_messages, prefill = build_generation_messages(ctx, assisted=True, completion_mode="text")
+    assert client.render_calls == [{"messages": gen_messages, "prefill": prefill, "reasoning": False}]
+    # …and the raw patch prompt byte-extends that render with the draft core.
+    assert client.raw_calls[0]["prompt"].startswith(f"<render:{len(gen_messages)}:{prefill}>{flagged}")
+
+
+async def test_patch_chat_assisted_replays_prefill_close_turns():
+    flagged = f"She felt {_BANNED} at once."
+    ctx = "### USER: keep going\nThe last prose line"
+    client = _StubPatchClient([{"search": flagged, "replace": "Calm."}])
+
+    await patch_document(client, "m", flagged, ctx, _BANK, None, _SETTINGS, assisted=True, truncated=False)
+    msgs = client.calls[0]["messages"]
+    gen_messages, _ = build_generation_messages(ctx, assisted=True, completion_mode="chat")
+    # Generation replayed verbatim (incl. the closed prefill + re-anchor turn),
+    # then draft + fix as a pure suffix.
+    assert msgs[: len(gen_messages)] == gen_messages
+    assert {"role": "assistant", "content": "The last prose line"} in msgs
+    assert {"role": "user", "content": DOC_ASSIST_CONTINUE} in msgs
+    assert msgs[len(gen_messages)] == {"role": "assistant", "content": flagged}
+
+
+async def test_patch_raw_garbage_content_yields_no_patches():
+    flagged = f"She felt {_BANNED} at once."
+    client = _StubPatchClient([], completion_mode="text", raw_content="not json at all {")
+
+    res = await patch_document(client, "m", flagged, "", _BANK, None, _SETTINGS, assisted=False, truncated=False)
+    assert res["patched_draft"] == flagged
+    assert res["patch_count"] == 0
+    assert res["errors"] == []
+
+
+# ── patch-prompt builders ────────────────────────────────────────────────────
+
+
+def test_patch_messages_chat_raw_extends_generation():
+    gen, prefill = build_generation_messages("earlier text", assisted=False, completion_mode="chat")
+    msgs = build_patch_messages("earlier text", "The draft core.", "*** REPORT ***", assisted=False)
+    assert prefill is None
+    assert msgs[: len(gen)] == gen  # byte parity: generation replayed verbatim
+    assert msgs[0]["content"] == DOC_CHAT_INSTRUCTION
+    assert msgs[len(gen) :] == [
+        {"role": "assistant", "content": "The draft core."},
+        {"role": "user", "content": build_fix_instruction("*** REPORT ***")},
+    ]
+
+
+def test_patch_prompt_raw_is_byte_extension():
+    p = build_patch_prompt_raw("base bytes ", "The draft core.", "*** REPORT ***")
+    assert p.startswith("base bytes The draft core.")
+    assert "*** REPORT ***" in p
+
+
+def test_fix_instruction_describes_json_shape_without_tool_name():
+    fix = build_fix_instruction("*** REPORT ***")
+    assert fix.startswith("*** REPORT ***")
+    assert '"patches"' in fix and '"search"' in fix
+    # No tool-call phrasing: neither transport shows the model a tool schema.
+    assert "editor_apply_patch" not in fix
