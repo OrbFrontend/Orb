@@ -30,6 +30,7 @@ let _ctx = null; // { getContent, applyPatchedRun } injected by document.js
 export function initDocAudit(ctx) {
   _ctx = ctx;
   $("doc-workflow-btn")?.addEventListener("click", toggleDocWorkflowPanel);
+  $("doc-workflow-mobile-btn")?.addEventListener("click", toggleDocWorkflowPanel);
 }
 
 function docAuditEnabled() {

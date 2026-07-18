@@ -11,6 +11,7 @@ const IDS = Object.freeze({
   burgerMenu: "burger-dropdown",
   mobileActionsToggle: "mobile-chat-actions-toggle",
   mobileActionsMenu: "mobile-chat-actions-menu",
+  docWorkflowMobileToggle: "doc-workflow-mobile-btn",
   mobileSidebarToggle: "mobile-sidebar-toggle",
   sidebar: "sidebar",
   toolsPanel: "tools-panel",
@@ -34,6 +35,10 @@ const MOBILE_SIDE_PANELS = Object.freeze([
   {
     elementId: IDS.toolsPanel,
     toggleId: IDS.toolsPanelToggle,
+    // Doc mode opens the same #tools-panel from its own ⋯ button; without this
+    // the outside-click handler would treat the opening tap as "outside" and
+    // close the panel the instant it opened.
+    altToggleId: IDS.docWorkflowMobileToggle,
     appStateClass: APP_STATE.toolsOpen,
   },
   {
@@ -239,7 +244,13 @@ function handleDocumentClick(event) {
   let closedUtilityPanel = false;
   for (const panel of MOBILE_SIDE_PANELS) {
     if (!isElementOpen(panel.elementId)) continue;
-    if (matcher.hasId(panel.elementId) || matcher.hasId(panel.toggleId) || clickedMobileActionsMenu) continue;
+    if (
+      matcher.hasId(panel.elementId) ||
+      matcher.hasId(panel.toggleId) ||
+      (panel.altToggleId && matcher.hasId(panel.altToggleId)) ||
+      clickedMobileActionsMenu
+    )
+      continue;
 
     setElementOpen(panel.elementId, false);
     closedUtilityPanel = true;

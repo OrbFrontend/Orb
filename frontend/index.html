@@ -149,8 +149,10 @@
         <span id="doc-token-count">~0 tokens</span>
         <span id="doc-save-state" class="doc-save-state"></span>
       </div>
-      <!-- Wired via addEventListener in document_audit.js (no new inline handlers). -->
+      <!-- Wired via addEventListener in document_audit.js (no new inline handlers).
+           Desktop shows the labelled pill; < 900px swaps to the ⋯ icon (document.css). -->
       <button class="btn btn-sm" id="doc-workflow-btn" title="Output Auditor &amp; Phrase Bank">✨ Workflow</button>
+      <button id="doc-workflow-mobile-btn" title="Output Auditor &amp; Phrase Bank" aria-label="Workflow">⋯</button>
     </div>
     <details id="doc-help">
       <summary id="doc-help-summary">How to prompt</summary>
