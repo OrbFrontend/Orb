@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 _CHUB_PAGE_SIZE = 24
 _CHUB_AVATARS_BASE = "https://avatars.charhub.io/avatars"
 _CHUB_RANDOM_MAX_PAGE = 40
+# The detail API 403s a bare "Mozilla/5.0"; a full browser UA passes.
+_CHUB_SITE_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"),
+}
 
 SOURCES: dict[str, dict] = {}
 
@@ -187,6 +191,28 @@ async def _randomize_characterhub(q: str) -> dict:
     return data
 
 
+async def _chub_expression_pack(full_path: str) -> dict | None:
+    """Best-effort fetch of a CharacterHub card's expression pack.
+
+    The pack (``{compressed, expressions}``) lives only in the detail API — the
+    CDN card PNG carries ``expressions: null`` — so we fetch it separately and
+    let the caller merge it into the card's extensions. Never raises: expressions
+    are a nice-to-have and must not block importing the card.
+    """
+    url = f"https://api.chub.ai/api/characters/{full_path}?full=true"
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=_CHUB_SITE_HEADERS) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            node = resp.json().get("node") or {}
+        ext = (node.get("definition") or {}).get("extensions") or {}
+        pack = (ext.get("chub") or {}).get("expressions")
+        return pack if isinstance(pack, dict) else None
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("Failed to fetch CharacterHub expression pack for %s: %s", full_path, e)
+        return None
+
+
 async def _download_characterhub_card(full_path: str):
     """Download the PNG character card from CharacterHub's CDN and parse it
     through the same tavern_cards pipeline as file import.
@@ -210,7 +236,14 @@ async def _download_characterhub_card(full_path: str):
         logger.exception("Failed to download CharacterHub card PNG")
         raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
 
-    return _parse_png_card(content, "CharacterHub")
+    card_dict, avatar_b64, avatar_mime, card_id = _parse_png_card(content, "CharacterHub")
+    # The embedded card's expression pack is null; the detail API has it. Merge
+    # it into extensions so the shared create-time auto-import can pick it up.
+    pack = await _chub_expression_pack(full_path)
+    if pack:
+        ext = card_dict.setdefault("extensions", {})
+        ext.setdefault("chub", {})["expressions"] = pack
+    return card_dict, avatar_b64, avatar_mime, card_id
 
 
 register_source(

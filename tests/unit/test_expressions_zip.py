@@ -1,4 +1,5 @@
-"""_extract_expressions: label/ext filtering + zip-bomb guards."""
+"""extract_expressions_zip: label/ext filtering + zip-bomb guards;
+_expression_pack: pulling a card's embedded chub expression pack."""
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ import zipfile
 
 import pytest
 
-from backend.api.routes.characters import _extract_expressions
+from backend.features.cards.expressions import _expression_pack, extract_expressions_zip
 
 
 def _zip(files: dict[str, bytes]) -> bytes:
@@ -20,7 +21,7 @@ def _zip(files: dict[str, bytes]) -> bytes:
 
 
 def test_filters_to_known_labels_and_flattens_paths():
-    out = _extract_expressions(
+    out = extract_expressions_zip(
         _zip(
             {
                 "Ashley Leyley/joy.png": b"joybytes",  # nested → basename
@@ -36,9 +37,18 @@ def test_filters_to_known_labels_and_flattens_paths():
 
 def test_rejects_too_many_entries():
     with pytest.raises(ValueError, match="too many entries"):
-        _extract_expressions(_zip({f"joy{i}.png": b"x" for i in range(201)}))
+        extract_expressions_zip(_zip({f"joy{i}.png": b"x" for i in range(201)}))
 
 
 def test_rejects_oversized_entry():
     with pytest.raises(ValueError, match="exceeds 5 MB"):
-        _extract_expressions(_zip({"joy.png": b"x" * (5 * 1024 * 1024 + 1)}))
+        extract_expressions_zip(_zip({"joy.png": b"x" * (5 * 1024 * 1024 + 1)}))
+
+
+def test_expression_pack_selection():
+    pack = {"compressed": "https://x/e.zip", "expressions": {"joy": "https://x/joy.png"}}
+    assert _expression_pack({"extensions": {"chub": {"expressions": pack}}}) == pack
+    # chub carries a null pack on the CDN card PNG; manual cards carry nothing.
+    assert _expression_pack({"extensions": {"chub": {"expressions": None}}}) is None
+    assert _expression_pack({"extensions": {}}) is None
+    assert _expression_pack({}) is None

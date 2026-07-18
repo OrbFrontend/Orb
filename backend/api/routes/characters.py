@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import io
 import logging
 import os
 import tempfile
@@ -36,10 +35,8 @@ from ...database import (
     update_character_card,
 )
 from ...features.cards import downloader as card_downloader
+from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
-from ...inference.local_ml import (
-    GO_EMOTIONS,  # dep-free tuple; importing triggers no llama import
-)
 from ..deps import _normalise_lorebook_entry, lorebook_to_book
 from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest
 
@@ -75,9 +72,18 @@ async def api_create_character(data: CharacterCardCreate):
             card_data["world_id"] = world["id"]
 
     try:
-        return await create_character_card(card_data)
+        created = await create_character_card(card_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # Auto-import an embedded expression pack (chub extension) so cards imported
+    # from the internet — or from a PNG that carries one — arrive with their
+    # sprites, no manual zip upload. Best-effort: a no-op for cards without a pack.
+    imgs = await card_expressions.fetch_embedded_expressions(card_data)
+    if imgs:
+        await set_character_expressions(card_data["id"], imgs)
+
+    return created
 
 
 @router.post("/api/characters/import")
@@ -241,36 +247,6 @@ async def api_export_character(card_id: str):
 
 # ── Character expressions (SillyTavern-style expression packs) ────────────────
 
-_EXPR_EXT_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp", "gif": "image/gif"}
-_EXPR_GO_EMOTIONS = frozenset(GO_EMOTIONS)
-
-
-def _extract_expressions(zip_bytes: bytes) -> dict[str, tuple[str, str]]:
-    """Parse a zip of expression images → {label: (data_b64, mime)}.
-
-    Flattens paths (basename), keeps files whose lowercase stem is a go-emotions
-    label and whose extension is a known image type. Zip-bomb guards (trust
-    boundary): reject > 200 entries or any declared entry > 5 MB before reading.
-    """
-    out: dict[str, tuple[str, str]] = {}
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        infos = zf.infolist()
-        if len(infos) > 200:
-            raise ValueError("Zip has too many entries (max 200)")
-        for info in infos:
-            if info.is_dir():
-                continue
-            if info.file_size > 5 * 1024 * 1024:
-                raise ValueError(f"Entry {info.filename!r} exceeds 5 MB")
-            name = os.path.basename(info.filename)
-            stem, _, ext = name.rpartition(".")
-            label = stem.lower()
-            mime = _EXPR_EXT_MIME.get(ext.lower())
-            if not mime or label not in _EXPR_GO_EMOTIONS:
-                continue
-            out[label] = (base64.b64encode(zf.read(info)).decode("ascii"), mime)
-    return out
-
 
 @router.post("/api/characters/{card_id}/expressions")
 async def api_upload_expressions(card_id: str, file: Annotated[UploadFile, File(...)]):
@@ -281,7 +257,7 @@ async def api_upload_expressions(card_id: str, file: Annotated[UploadFile, File(
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Upload exceeds 50 MB")
     try:
-        images = _extract_expressions(content)
+        images = card_expressions.extract_expressions_zip(content)
     except (zipfile.BadZipFile, ValueError) as e:
         raise HTTPException(status_code=400, detail=f"Bad zip: {e}") from e
     if not images:
