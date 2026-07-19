@@ -9,6 +9,7 @@ from fastapi import APIRouter
 
 from ...core import estimate_tokens
 from ...database import DB_PATH, get_generated_chars, get_global_stats
+from ...inference.local_ml import model_dir
 
 router = APIRouter()
 
@@ -22,8 +23,14 @@ async def api_global_stats():
     generated_chars = await get_generated_chars()
     avg_latency = s["avg_latency_ms"]
     # On-disk footprint: the main db plus its WAL/shared-memory sidecars, which
-    # hold not-yet-checkpointed pages and can be a sizable share of the total.
+    # hold not-yet-checkpointed pages and can be a sizable share of the total,
+    # plus any downloaded local-ML weights (data/models/*.gguf).
     storage_bytes = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
+    models_dir = model_dir()
+    for name in os.listdir(models_dir):
+        p = os.path.join(models_dir, name)
+        if os.path.isfile(p):
+            storage_bytes += os.path.getsize(p)
     # The hero slot shows one of several "story beat" themes, chosen uniformly
     # among those with data (50/50 today, extensible by appending more themes).
     themes = []
