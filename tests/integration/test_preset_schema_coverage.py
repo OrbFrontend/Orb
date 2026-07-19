@@ -630,6 +630,15 @@ async def test_build_preset_rejects_rows_in_excluded_table(client, db_path):
     seed = sqlite3.connect(path)
     try:
         seed.execute("PRAGMA foreign_keys=OFF")  # message_attachments.message_id NOT NULL; we only need a row to exist
+        # Fresh installs no longer carry this legacy table (schema.py dropped it
+        # when first-boot migration stamping landed); recreate it as an upgraded
+        # pre-0020 DB would still have it.
+        seed.execute(
+            "CREATE TABLE IF NOT EXISTS message_attachments ("
+            " id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER NOT NULL,"
+            " mime_type TEXT NOT NULL, data_b64 TEXT NOT NULL, filename TEXT, size INTEGER,"
+            " created_at TEXT NOT NULL)"
+        )
         seed.execute(
             "INSERT INTO message_attachments (message_id, mime_type, data_b64, created_at) "
             "VALUES (1, 'image/png', 'AAA', '2024-01-01')"
