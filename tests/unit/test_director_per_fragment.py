@@ -223,3 +223,31 @@ class TestPerFragmentLoop:
         assert len(base.calls) == 1
         assert result.extra_fields == {"user_intent": "x", "keywords": ["k"]}
         assert result.active_moods == ["tense"]
+
+
+class TestDirectSceneRequiredStripped:
+    """Per-fragment mode drops `required` from the shared direct_scene blob so the
+    advertised schema doesn't contradict the "Fill ONLY X, leave others empty" step
+    prompt on endpoints that can't grammar-narrow the call."""
+
+    _REQUIRED_FRAGS = [
+        {"id": "problem", "field_type": "string", "description": "the problem", "sort_order": 1, "required": True},
+        {"id": "next_event", "field_type": "string", "description": "what happens", "sort_order": 2, "required": True},
+    ]
+
+    def _blob(self, per_fragment: int) -> dict:
+        from backend.pipeline.config import _build_writer_tools_blob
+
+        return _build_writer_tools_blob(
+            {"director_individual_fragments": per_fragment},
+            self._REQUIRED_FRAGS,
+            {},
+        )
+
+    def test_required_dropped_when_per_fragment_on(self):
+        blob = self._blob(1)
+        assert blob["direct_scene"]["function"]["parameters"]["required"] == []
+
+    def test_required_kept_when_per_fragment_off(self):
+        blob = self._blob(0)
+        assert set(blob["direct_scene"]["function"]["parameters"]["required"]) == {"problem", "next_event"}

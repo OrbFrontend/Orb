@@ -146,7 +146,14 @@ def _build_writer_tools_blob(
     Called by ``_prepare_turn``.
     """
     writer_fragments, feedback_fragments, direction_note_fragments = _split_interactive_fragments(interactive_fragments)
-    overrides: dict = {"direct_scene": build_direct_scene_override(writer_fragments)}
+    direct_scene = build_direct_scene_override(writer_fragments)
+    # Per-fragment mode fills one field per call, so requiredness on the shared blob
+    # is meaningless -- and a non-empty `required` contradicts the "Fill ONLY X, leave
+    # others empty" step prompt, which confuses the reasoning pass on endpoints that
+    # can't grammar-narrow the call (no structured-tool-calls profile). Drop it.
+    if bool(settings.get("director_individual_fragments", 0)):
+        direct_scene["function"]["parameters"]["required"] = []
+    overrides: dict = {"direct_scene": direct_scene}
     if agentic_lorebook:
         enabled_tools["select_lorebook"] = True
     if _feedback_active(settings, feedback_fragments, agent_on=agent_enabled(settings)):
