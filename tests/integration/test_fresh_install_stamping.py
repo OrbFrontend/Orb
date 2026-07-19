@@ -11,8 +11,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 import backend.database.connection as db_connection
 from backend.database import init_db
 from backend.database.migrations import MIGRATIONS, run_pending, stamp_all
