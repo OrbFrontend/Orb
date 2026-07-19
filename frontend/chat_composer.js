@@ -99,7 +99,18 @@ function _resizeChatInput() {
   _resizeScheduled = false;
   const el = $("chat-input");
   el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, 150)}px`;
+  // Grow to fit the ghost suggestion too — it's an inset:0 overlay, so its
+  // scrollHeight reflects draft+ghost content the textarea alone doesn't know about.
+  const ghost = $("chat-ghost");
+  const ghostH = _ghostText && ghost ? ghost.scrollHeight : 0;
+  el.style.height = `${Math.min(Math.max(el.scrollHeight, ghostH), 150)}px`;
+}
+
+function _scheduleResize() {
+  if (!_resizeScheduled) {
+    _resizeScheduled = true;
+    requestAnimationFrame(_resizeChatInput);
+  }
 }
 
 // ── Inline autocomplete (ghost text)
@@ -123,13 +134,17 @@ function _renderGhost() {
     chip.hidden = !_ghostText;
   }
   g.textContent = "";
-  if (!_ghostText) return;
+  if (!_ghostText) {
+    _scheduleResize(); // suggestion gone — shrink back to the draft's own height
+    return;
+  }
   g.appendChild(document.createTextNode(inp.value)); // transparent prefix pushes the suggestion to the caret
   const s = document.createElement("span");
   s.className = "ghost-suggestion";
   s.textContent = _ghostText;
   g.appendChild(s);
   g.scrollTop = inp.scrollTop;
+  _scheduleResize(); // grow the box to fit a multi-line suggestion
 }
 
 function clearGhost() {
@@ -196,10 +211,7 @@ async function _requestGhost() {
 }
 
 function onComposerInput() {
-  if (!_resizeScheduled) {
-    _resizeScheduled = true;
-    requestAnimationFrame(_resizeChatInput);
-  }
+  _scheduleResize();
   clearGhost();
   scheduleGhost();
 }
