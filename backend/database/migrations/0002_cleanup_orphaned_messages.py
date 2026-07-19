@@ -33,13 +33,16 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute("DELETE FROM conversation_logs WHERE conversation_id = ?", (cid,))
         print(f"[migrations] 0002: cleaned up orphaned rows for conversation {cid}")
 
-    # 2. Delete orphaned message_attachments (message_id not in messages)
-    conn.execute(
+    # 2. Delete orphaned message_attachments (message_id not in messages).
+    # Guarded: schema.py no longer creates this table (fresh installs are
+    # stamped past the migration chain); only pre-0020 DBs still have it.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='message_attachments'").fetchone():
+        conn.execute(
+            """
+            DELETE FROM message_attachments
+            WHERE message_id NOT IN (SELECT id FROM messages)
         """
-        DELETE FROM message_attachments
-        WHERE message_id NOT IN (SELECT id FROM messages)
-    """
-    )
+        )
     deleted = conn.total_changes
     if deleted:
         print(f"[migrations] 0002: deleted {deleted} orphaned message attachments")

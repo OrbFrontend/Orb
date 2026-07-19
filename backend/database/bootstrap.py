@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from .connection import get_db
 from .schema import CREATE_TABLES_SQL
@@ -27,6 +28,7 @@ async def init_db():
         row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM settings"))
         if row[0]["c"] == 0:
             await _seed_settings(db)
+            await _seed_default_persona(db)
 
         ep_row = list(await db.execute_fetchall("SELECT COUNT(*) as c FROM endpoints"))
         if ep_row[0]["c"] == 0:
@@ -120,6 +122,16 @@ async def _seed_settings(db) -> None:
             json.dumps(DEFAULT_ENABLED_TOOLS),
         ),
     )
+
+
+async def _seed_default_persona(db) -> None:
+    """Create the default persona and link it as active (was migration 0003)."""
+    now = datetime.now(timezone.utc).isoformat()
+    cur = await db.execute(
+        "INSERT INTO user_personas (name, description, avatar_color, created_at, updated_at) VALUES ('User', '', '#3b82f6', ?, ?)",
+        (now, now),
+    )
+    await db.execute("UPDATE settings SET active_persona_id = ? WHERE id = 1", (cur.lastrowid,))
 
 
 async def _seed_endpoint_from(db, s: dict) -> None:

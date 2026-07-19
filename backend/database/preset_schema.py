@@ -64,7 +64,8 @@ DOMAIN_ROOTS: dict[str, str] = {
 # new table: give it a domain, or exclude it here. Current entries:
 #   * orb_preset_meta      -- the preset's own descriptor row
 #   * schema_migrations    -- migration bookkeeping (stamped separately)
-#   * message_attachments  -- empty post-0020; retained only as a fresh-install artefact
+#   * message_attachments  -- legacy, empty post-0020; gone from schema.py but still
+#     present (empty) in DBs upgraded under older builds whose init_db recreated it
 EXCLUDED_TABLES: frozenset[str] = frozenset({"orb_preset_meta", "schema_migrations", "message_attachments"})
 
 # Touch when: a migration adds a column holding a key, the user's identity, or their

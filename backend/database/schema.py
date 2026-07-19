@@ -179,21 +179,6 @@ CREATE TABLE IF NOT EXISTS user_personas (
     updated_at TEXT NOT NULL
 );
 
--- Required on fresh install by migration 0002, which deletes orphan rows
--- from this table before any migration could create it. Migration
--- 0020_workflows copies surviving rows into user_attachments and
--- drops this table at the end of the chain. No rows persist in a
--- fully-migrated database.
-CREATE TABLE IF NOT EXISTS message_attachments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    mime_type TEXT NOT NULL,
-    data_b64 TEXT NOT NULL,
-    filename TEXT,
-    size INTEGER,
-    created_at TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS user_attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,

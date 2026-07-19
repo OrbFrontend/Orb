@@ -24,7 +24,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from ..database import DB_PATH, init_db
-from ..database.migrations import run_pending
+from ..database.migrations import run_pending, stamp_all
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from .deps import FRONTEND_DIR
 from .routes import ROUTERS
@@ -34,8 +34,15 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # A fresh install gets the latest schema + seeds straight from init_db, so
+    # the migration chain has nothing to do — stamp it instead of running ~50
+    # guarded no-op migrations on first boot. Checked before init_db, which
+    # creates the file. (Zero-size covers a file touched but never written.)
+    fresh = not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0
     await init_db()
-    if run_pending(DB_PATH):
+    if fresh:
+        stamp_all(DB_PATH)
+    elif run_pending(DB_PATH):
         # A rebuild-style migration (0027's drop/rename, 0028's DROP COLUMN /
         # DROP TABLE) leaves the old table's pages on the freelist, and the live
         # DB runs auto_vacuum=NONE, so nothing returns them: the file stays
