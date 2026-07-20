@@ -207,6 +207,7 @@ export async function savePersona(personaId) {
     // Same path as clicking the row: sets the default and re-pins the open
     // chat when it was pinned to someone else.
     if (setActive) await activatePersona(newId);
+    updateUserBtn();
     showUserModal();
     toast("Persona saved");
   } catch (e) {
