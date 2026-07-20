@@ -187,7 +187,10 @@ class LorebookTurn:
     ``block`` and ``catalog`` are the Director-facing context and are
     mutually exclusive by mode (kept separate because they inject at different
     positions in the Director prompt). ``writer_block`` derives the final block
-    shown to the writer.
+    shown to the writer. Constant entries are not part of any trailing block —
+    they ride the cached system prefix (``context._build_prefix_from_ctx``);
+    ``entries`` still carries the full pool so the catalog/selection layer sees
+    everything.
 
     The selection/rendering it delegates to lives in the pure ``lorebook`` layer
     (``backend/features/lorebook/activation.py``); this bundle is the pipeline-turn view
@@ -205,12 +208,13 @@ class LorebookTurn:
         return AGENTIC_LOREBOOK_SCAN_DEPTH if self.agentic else LOREBOOK_SCAN_DEPTH
 
     def writer_block(self, director_selected: Sequence[str], macros: Macros | None = None) -> str:
-        """The lorebook block injected into the writer prompt.
+        """The trailing lorebook block injected into the writer prompt.
 
         In substring mode this equals the Director-facing ``block`` already
         computed up front (same entries/messages/depth), so it is reused rather
-        than recomputed. In agentic mode it is the union of constants, the
-        current-turn keyword scan, and the Director's *director_selected* picks.
+        than recomputed. In agentic mode it is the union of the current-turn
+        keyword scan and the Director's *director_selected* picks. Constant
+        entries never appear here — they ride the cached system prefix.
         """
         if not self.agentic:
             return self.block

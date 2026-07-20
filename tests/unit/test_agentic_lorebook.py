@@ -14,6 +14,7 @@ from backend.features.lorebook import (
     agentic_lorebook_active,
     build_lorebook_catalog,
     compute_agentic_lorebook_block,
+    compute_constant_lorebook_block,
     compute_lorebook_block,
     compute_lorebook_injection_block,
     render_lorebook_block,
@@ -28,6 +29,7 @@ from backend.inference import (
 )
 from backend.pipeline import LorebookTurn
 from backend.pipeline.passes.director import lorebook_select_step
+from backend.pipeline.passes.writer import build_writer_content
 
 
 def _entry(
@@ -89,11 +91,10 @@ class TestSelectLorebookTool:
 
 
 class TestComputeAgenticLorebookBlock:
-    def test_constants_always_included(self):
+    def test_constants_excluded_from_trailing(self):
+        # Constants ride the system prefix, never the trailing block.
         entries = [_entry("Const", constant=True), _entry("Other")]
-        block = compute_agentic_lorebook_block(entries, [])
-        assert "Const: Const content" in block
-        assert "Other" not in block
+        assert compute_agentic_lorebook_block(entries, []) == ""
 
     def test_name_match(self):
         entries = [_entry("Dragon"), _entry("Castle")]
@@ -115,14 +116,15 @@ class TestComputeAgenticLorebookBlock:
         block = compute_agentic_lorebook_block(entries, ["Dup"])
         assert "Dup: A" in block and "Dup: B" in block
 
-    def test_constant_and_selected_not_duplicated(self):
-        block = compute_agentic_lorebook_block([_entry("Both", constant=True)], ["Both"])
-        assert block.count("Both: Both content") == 1
+    def test_director_pick_naming_constant_stays_excluded(self):
+        # A pick that names a constant entry must not duplicate it into the
+        # trailing block — the entry already rides the system prefix.
+        assert compute_agentic_lorebook_block([_entry("Both", constant=True)], ["Both"]) == ""
 
     def test_empty_entries(self):
         assert compute_agentic_lorebook_block([], ["x"]) == ""
 
-    def test_no_selection_no_constants_is_empty(self):
+    def test_no_selection_is_empty(self):
         assert compute_agentic_lorebook_block([_entry("A")], []) == ""
 
     def test_priority_sort_desc(self):
@@ -228,12 +230,12 @@ class TestBuildLorebookCatalog:
 
 
 class TestKeywordScanParity:
-    def test_constant_always_included(self):
-        msgs = [{"role": "user", "content": "hello"}]
+    def test_constant_excluded_keyword_still_matches(self):
+        msgs = [{"role": "user", "content": "I draw my sword"}]
         entries = [_entry("Const", constant=True), _entry("Var", keywords=["sword"])]
         block = compute_lorebook_injection_block(msgs, entries)
-        assert "Const: Const content" in block
-        assert "Var" not in block
+        assert "Const" not in block
+        assert "Var: Var content" in block
 
     def test_keyword_match(self):
         msgs = [{"role": "user", "content": "I draw my sword"}]
@@ -294,6 +296,61 @@ class TestRenderMacros:
         assert "NAME: BODY" in block
 
 
+# ── compute_constant_lorebook_block: the system-prefix section ───────────────
+
+
+class TestComputeConstantLorebookBlock:
+    def test_starts_with_section_header(self):
+        block = compute_constant_lorebook_block([_entry("Const", constant=True)])
+        assert block.startswith("## Lorebook")
+
+    def test_only_constants_included(self):
+        entries = [_entry("Const", constant=True), _entry("Var", keywords=["v"])]
+        block = compute_constant_lorebook_block(entries)
+        assert "Const: Const content" in block
+        assert "Var" not in block
+
+    def test_empty_when_no_constants(self):
+        assert compute_constant_lorebook_block([_entry("Var", keywords=["v"])]) == ""
+        assert compute_constant_lorebook_block([]) == ""
+
+    def test_byte_stable_under_input_permutation(self):
+        # The prefix section must render byte-identically across turns
+        # regardless of input order (KV cache).
+        a = {**_entry("Raiden", constant=True), "id": 1, "sort_order": 0}
+        b = {**_entry("Inazuma", constant=True), "id": 2, "sort_order": 0}
+        c = {**_entry("Yae", constant=True), "id": 3, "sort_order": 0}
+        assert compute_constant_lorebook_block([a, b, c]) == compute_constant_lorebook_block([b, c, a])
+
+    def test_macros_resolved(self):
+        class _Upper:
+            def resolve_message(self, text):
+                return text.upper()
+
+        block = compute_constant_lorebook_block([_entry("name", content="body", constant=True)], _Upper())
+        assert "NAME: BODY" in block
+
+
+# ── constants-only pool: trailing block stays empty ──────────────────────────
+
+
+class TestConstantsOnlyTrailing:
+    _entries = [_entry("Const", constant=True)]
+
+    def test_wrappers_return_empty(self):
+        msgs = [{"role": "user", "content": "hello"}]
+        assert compute_lorebook_injection_block(msgs, self._entries) == ""
+        assert compute_agentic_lorebook_block(self._entries, ["Const"], None, msgs) == ""
+
+    def test_writer_block_empty_and_no_separator(self):
+        lt = LorebookTurn(entries=self._entries, messages=[], agentic=True)
+        block = lt.writer_block(["Const"])
+        assert block == ""
+        # An empty block must not leave a stray ___ separator in the writer content.
+        content = build_writer_content(block, "", {}, "hi", None, None)
+        assert content == "___\n\nhi\n\n"
+
+
 # ── select_active_entries: the unified three-source core ─────────────────────
 
 
@@ -320,10 +377,9 @@ class TestSelectActiveEntries:
         selected = select_active_entries(entries, [], scan_depth=2, director_selected=["dragon"])
         assert selected == [entries[0]]
 
-    def test_constant_always_selected(self):
+    def test_constants_never_selected(self):
         entries = [_entry("Const", constant=True), _entry("Other", keywords=["nope"])]
-        selected = select_active_entries(entries, [], scan_depth=6)
-        assert selected == [entries[0]]
+        assert select_active_entries(entries, [], scan_depth=6) == []
 
 
 # ── LorebookTurn ──────────────────────────────────────────────────────────────

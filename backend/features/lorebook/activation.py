@@ -2,15 +2,16 @@
 activation.py — Lorebook activation: one pipeline, three sources.
 
 A lorebook entry activates from any of three sources:
-  * ``constant`` — always injected.
+  * ``constant`` — always active; rides the cached system-prompt prefix
+    (:func:`compute_constant_lorebook_block`), never the trailing block.
   * keyword scan — a keyword appears (substring) within the last ``scan_depth`` messages.
   * director pick — the agentic Director named the entry.
 
-Substring mode uses {constant, keyword@6}; agentic mode adds the director-pick
-source and scans shallower ({constant, keyword@2, director-pick}) since the
-Director already saw the history. Both modes funnel through
-:func:`select_active_entries` → :func:`render_lorebook_block`, so the two named
-entry points below (:func:`compute_lorebook_injection_block`,
+The trailing block carries only the per-turn sources: substring mode uses
+{keyword@6}; agentic mode adds the director-pick source and scans shallower
+({keyword@2, director-pick}) since the Director already saw the history. Both
+modes funnel through :func:`select_active_entries` → :func:`render_lorebook_block`,
+so the two named entry points below (:func:`compute_lorebook_injection_block`,
 :func:`compute_agentic_lorebook_block`) are thin wrappers over one core.
 """
 
@@ -98,8 +99,9 @@ def select_keyword_entries(
 ) -> list[Mapping[str, Any]]:
     """Select lorebook entries by keyword/substring scan.
 
-    Constant entries are always selected. Others are selected when any keyword
-    appears (substring match) in the ``scan_depth`` most recent messages.
+    A pure keyword source: entries are selected when any keyword appears
+    (substring match) in the ``scan_depth`` most recent messages. Constant
+    entries are not this source's concern — they ride the system prefix.
     Returns matched entries in input order.
     """
     scan_parts = [m.get("content") or "" for m in messages[-scan_depth:] if m.get("content")]
@@ -107,10 +109,6 @@ def select_keyword_entries(
     matched: list[Mapping[str, Any]] = []
 
     for entry in entries:
-        if entry.get("constant"):
-            matched.append(entry)
-            continue
-
         keywords = entry.get("keywords", [])
         if not keywords or not scan_text:
             continue
@@ -138,19 +136,23 @@ def select_active_entries(
     scan_depth: int,
     director_selected: Sequence[str] = (),
 ) -> list[Mapping[str, Any]]:
-    """Select the active lorebook entries from all three activation sources.
+    """Select the active lorebook entries for the trailing block.
 
-    An entry is active when it is ``constant``, OR a keyword matched within the
-    ``scan_depth`` most recent messages, OR its ``name`` is in *director_selected*
-    (case-insensitive, trimmed). Returns entries in input order — the union
-    underlying both the substring (``director_selected=()``) and agentic paths.
+    An entry is active when a keyword matched within the ``scan_depth`` most
+    recent messages, OR its ``name`` is in *director_selected* (case-insensitive,
+    trimmed). Constant entries are excluded up front — they ride the cached
+    system prefix, and filtering here (rather than per caller) also keeps a
+    director pick that names a constant entry from duplicating it into the
+    trailing block. Returns entries in input order — the union underlying both
+    the substring (``director_selected=()``) and agentic paths.
     """
+    entries = [e for e in entries if not e.get("constant")]
     director_named = {(n or "").strip().casefold() for n in director_selected}
     keyword_hit = {id(e) for e in select_keyword_entries(messages or [], entries, scan_depth)}
 
     def is_active(entry: Mapping[str, Any]) -> bool:
         name = (entry.get("name", "") or "").strip().casefold()
-        return bool(entry.get("constant")) or id(entry) in keyword_hit or name in director_named
+        return id(entry) in keyword_hit or name in director_named
 
     return [e for e in entries if is_active(e)]
 
@@ -161,8 +163,10 @@ def select_active_entries(
 def render_lorebook_block(
     entries: Sequence[Mapping[str, Any]],
     macros: Macros | None = None,
+    *,
+    header: str = "**Lorebook**",
 ) -> str:
-    """Render already-selected lorebook entries into the ``**Lorebook**`` block.
+    """Render already-selected lorebook entries into a *header*-titled block.
 
     The single rendering point for every activation path. Entries are sorted by
     priority DESC, then sort_order ASC, id ASC (the canonical lorebook order, so
@@ -175,7 +179,7 @@ def render_lorebook_block(
     matched = sorted(entries, key=lambda e: (-e.get("priority", 100), e.get("sort_order", 0), e.get("id", 0)))
 
     resolve = macros.resolve_message if macros else (lambda t: t)
-    parts = ["**Lorebook**"]
+    parts = [header]
     for entry in matched:
         name = resolve(entry.get("name", ""))
         content = resolve(entry.get("content", ""))
@@ -214,11 +218,12 @@ def compute_lorebook_injection_block(
     entries: Sequence[Mapping[str, Any]],
     macros: Macros | None = None,
 ) -> str:
-    """Substring path: build the lorebook block by keyword scanning.
+    """Substring path: build the trailing lorebook block by keyword scanning.
 
-    Constant entries are always included; others when a keyword matches within
-    the 6 most recent messages. Sorted by priority DESC. Returns ``""`` when
-    nothing matches.
+    Entries are included when a keyword matches within the 6 most recent
+    messages. Constant entries are excluded — they ride the cached system
+    prefix (:func:`compute_constant_lorebook_block`). Sorted by priority DESC.
+    Returns ``""`` when nothing matches.
     """
     return compute_lorebook_block(entries, messages, scan_depth=LOREBOOK_SCAN_DEPTH, macros=macros)
 
@@ -229,12 +234,14 @@ def compute_agentic_lorebook_block(
     macros: Macros | None = None,
     messages: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
-    """Agentic path: build the lorebook block from the Director's selection.
+    """Agentic path: build the trailing lorebook block from the Director's selection.
 
-    Includes ``constant`` entries (always) + entries whose ``name`` matches
-    *selected_names* (case-insensitive, trimmed) + entries triggered by a keyword
-    scan over the current turn (``AGENTIC_LOREBOOK_SCAN_DEPTH``), so keywords the
-    Director overlooks still activate their entries. Returns ``""`` when nothing matches.
+    Includes entries whose ``name`` matches *selected_names* (case-insensitive,
+    trimmed) + entries triggered by a keyword scan over the current turn
+    (``AGENTIC_LOREBOOK_SCAN_DEPTH``), so keywords the Director overlooks still
+    activate their entries. Constant entries are excluded — they ride the cached
+    system prefix (:func:`compute_constant_lorebook_block`). Returns ``""`` when
+    nothing matches.
     """
     return compute_lorebook_block(
         entries,
@@ -243,3 +250,20 @@ def compute_agentic_lorebook_block(
         director_selected=selected_names or (),
         macros=macros,
     )
+
+
+def compute_constant_lorebook_block(
+    entries: Sequence[Mapping[str, Any]],
+    macros: Macros | None = None,
+) -> str:
+    """Prefix path: render the ``constant`` entries as a system-prompt section.
+
+    Constant entries are byte-identical every turn, so they live in the cached
+    system-prompt prefix (``## Lorebook``, matching the prefix's ``##`` section
+    register) instead of the per-turn trailing block. The canonical sort in
+    :func:`render_lorebook_block` keeps the bytes stable across turns (KV cache);
+    like other prefix fields, entry text should avoid ``{{roll}}`` — it re-rolls
+    per resolution and would silently change prefix bytes. Returns ``""`` when
+    there are no constant entries.
+    """
+    return render_lorebook_block([e for e in entries if e.get("constant")], macros, header="## Lorebook")
