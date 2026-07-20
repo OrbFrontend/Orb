@@ -1,72 +1,83 @@
 # Card-Embedded Fragments
 
-You can ship mood and interactive fragments **inside a character card** so the character arrives with its own curated direction toolkit. Ships to friends, uploads to a hub, re-imports — and the fragments come with it.
+You can bake **mood** and **interactive** fragments straight into a character card, so the character arrives with its own set of direction tools. Share the card with a friend, upload it to a hub, or re-import it later — the fragments travel inside the card file (and inside its exported PNG).
 
-## Why embed fragments in a card?
+These are Orb's [Scene Direction](director.md) fragments: the moods and fill-in-the-blank fields the Director uses to steer a scene. Normally they live in *your* personal library and apply to every conversation. Card fragments let a character's **creator** pre-load fragments tuned for that one character — a curated direction preset that ships with the card.
 
-Orb's [Scene Direction](director.md) fragments (moods and interactive blanks the Director fills) normally live in your global library. They're *your* tools, shared across all conversations. A character card that ships its own fragments means the creator can pre-tune how the Director steers that specific character:
+## Why put fragments in a card?
 
-- A horror character ships a `dread` mood with atmospheric prompt text, plus a `sanity` progressive that creeps down as the story unwinds.
-- A courtly-drama character ships a `scandal` interactive listing active rumours, a `reputation` progressive, and a `court_gossip` feedback note.
-- A quest-giver NPC ships a `quest_phase` string the Director updates as milestones pass.
+Because it lets the creator decide how the Director should tell stories with that specific character. For example:
 
-Card fragments are **author-curated direction presets** — the character arrives with a Director that knows what kind of story to tell with it.
+- A horror character ships a `dread` mood with atmospheric prompt text, plus a `sanity` progressive that creeps downward as the story unwinds.
+- A courtly-drama character ships a `scandal` interactive that lists the active rumours, a `reputation` progressive, and a `court_gossip` feedback note.
+- A quest-giver NPC ships a `quest_phase` field the Director updates as milestones pass.
 
-## How merging works
+## The one rule: your fragments always win
 
-When a conversation is active with a character that has card-embedded fragments, Orb merges them with your global fragments **each turn** before the Director runs:
+Every turn, just before the Director runs, Orb combines two sets of fragments:
 
-1. Your global fragments are loaded first — moods and interactive, only the enabled ones.
-2. Card fragments are appended — but only if their **ID** doesn't already exist in your global list.
-3. Any card fragment whose ID matches a global ID is silently dropped.
+- **Your global fragments** — the ones in your library (only the enabled ones).
+- **The character's card fragments** — the ones baked into the card.
 
-The rule: **your globals always win.** A card can suggest a mood or interactive, but it can never replace or override one you've already configured.
+If a card fragment has the same **ID** as one of your global fragments, the card's version is thrown away and yours is kept. A card can *offer* a mood or interactive fragment, but it can never replace or override one you set up yourself.
 
-This merge is computed fresh every turn. If you change your global fragments mid-conversation — disable one, add one, rename one — the merge updates on the next reply. The character's card-embedded fragments stay constant (they're baked into the PNG), but which ones survive the merge changes with your configuration.
+This merge runs fresh on every turn. If you enable, disable, or add a global fragment mid-conversation, the next reply re-runs it. The card's own fragments never change (they're baked into the card), but which of them survive the merge depends on your current global setup.
 
-## Authoring card-embedded fragments
+## Authoring card fragments
 
 Open a character's edit modal and switch to the **Fragments** tab.
 
 ![The Fragments tab in the character edit modal](../assets/screenshots/char-fragments-edit-modal.png)
 
-It mirrors the global fragment editor, but edits here only modify the card's copy — they never touch your global library.
+This tab looks and works like the global fragment editor, but everything you do here changes **only this card's copy** — your global library is never touched. Add an interactive or mood fragment with the buttons at the bottom, click a fragment to edit it (delete it from its edit window), or flip its switch to enable/disable it. Nothing is written to the card until you save the character.
 
-If you delete a card fragment and save, the fragment is gone from the card. If you add a card fragment whose ID collides with a global, it'll be hidden at runtime (the global wins); the editor shows both the global and the card version side by side so you can see the conflict.
+Card fragments follow the same validation rules as global ones: the ID must match `[a-z0-9][a-z0-9_-]{0,63}` (1–64 characters — lowercase letters, digits, `_`, and `-`), and labels and descriptions have length limits.
 
-Card fragments are validated with the same rules as globals: the ID must match `[a-z0-9][a-z0-9_-]{0,63}` (up to 64 chars, lowercase letters/digits/underscores/dashes), labels have length limits, `field_type` must be one of the five recognized types, and `direction_note_timing` must be `pre_writer` or `post_turn`.
+You **can't** give a card fragment the same ID as one of your current global fragments — the editor rejects it with an error. (Since your globals always win, such a fragment would never run anyway.)
 
-## What the character sees (and doesn't)
+## Where card fragments show up
 
-Card-embedded fragments go straight into the Director's `direct_scene` tool alongside your globals, so the Director fills them exactly the same way. The Writer sees the resulting values in its Scene Direction block. Everyone downstream — Writer, Editor, feedback step — treats them identically to global fragments.
+While you're chatting with a character that has card fragments, they behave exactly like global fragments everywhere downstream:
 
-They never appear in your global fragment sidebars (unless you manually add a matching entry). They're per-character luggage that travels with the card file.
+- They become parameters on the Director's `direct_scene` tool, so the Director fills them the same way.
+- The Writer sees the filled-in values in its Scene Direction block.
+- The Editor and feedback step treat them identically too.
+
+They also appear in the Mood and Interactive fragment lists in the chat sidepanel, grouped under a read-only **From character** heading below your own fragments. You can see them there but not edit, reorder, or toggle them — that's done in the character's Fragments tab. They are **not** copied into your global library, so they never show up for other characters.
 
 ## Sharing and importing
 
-Card fragments are stored in the character card's V2 `extensions` dict at the key `orb.fragments`. When you export the card as a PNG, the fragments travel inside it. When you (or someone else) imports the card, the fragments arrive embedded in the `extensions` column.
+Card fragments are stored in the character card's V2 `extensions` data, under the key `orb.fragments`. When you export the card as a PNG, they travel inside the image. When someone imports that card, the fragments come with it and are ready the moment they start a conversation with the character — no setup needed.
 
-If you import a card that someone else authored with fragments, those fragments become available the moment you start a conversation with that character — no setup needed. If a fragment's ID collides with one of yours, yours wins (per the merge rule above), so importing can never silently replace your configuration.
+And because your own global fragments always win on an ID clash (see [the one rule](#the-one-rule-your-fragments-always-win)), importing a stranger's card can never quietly replace a fragment you've configured.
 
-## Trust and validation
+## When card fragments don't run
 
-Card PNGs come from third parties, so card-embedded fragments are parsed inside a **trust boundary** — every field is type-checked and range-limited before it reaches the Director:
+Card fragments only run when a character that has them is the active character in a conversation. So they don't run when:
 
-| Guard | Limit |
+- You're in document mode, or any mode with no assigned character.
+- The card has no `extensions`, or nothing under `orb.fragments`.
+
+Which **user persona** is active — pinned or global — makes no difference. A persona describes *you*, the user; card fragments always come from the character card in the conversation.
+
+## Safety limits
+
+Cards can come from anyone, so Orb treats a card's fragments as untrusted and checks every field before it reaches the Director. A malformed or malicious card simply loads fewer (or no) fragments — it never crashes Orb.
+
+| Check | What happens |
 |---|---|
-| Mood fragments per card | 50 |
-| Interactive fragments per card | 50 |
-| Total embedded fragments (either type) | 50 per type |
-| `field_type` must be one of | `string`, `array`, `progressive`, `feedback`, `direction_note` |
-| `direction_note_timing` must be | `pre_writer` or `post_turn` |
-| Enabled fragments only | `enabled: false` entries are skipped |
-| Duplicate IDs (within the card) | first wins |
+| At most **50** mood and **50** interactive fragments per card | Anything beyond 50 of each type is ignored |
+| Missing or invalid ID, or an empty label | That fragment is dropped |
+| `enabled: false` | That fragment is skipped |
+| Duplicate IDs within the same card | The first one wins; the rest are dropped |
+| Unknown `field_type` | Falls back to `string` |
+| Unknown `direction_note_timing` | Falls back to `post_turn` |
 
-A malicious or broken card simply won't load its extras — Orb never crashes on a bad fragment blob.
+A valid `field_type` is one of `string`, `array`, `progressive`, `feedback`, or `direction_note`; a valid `direction_note_timing` is `pre_writer` or `post_turn`.
 
 ## Fragment format reference
 
-When you hand-author a card's JSON (e.g. in a card-creation tool), place fragments under `extensions.orb.fragments` inside the card's `data` object:
+If you hand-author a card's JSON (for example, in a card-creation tool), place fragments under `extensions.orb.fragments` inside the card's `data` object:
 
 ```json
 {
@@ -95,8 +106,8 @@ When you hand-author a card's JSON (e.g. in a card-creation tool), place fragmen
               "field_type": "string",
               "injection_label": "Suspicion",
               "required": false,
-              "sort_order": 1,
-              "direction_note_timing": "post_turn"
+              "direction_note_timing": "post_turn",
+              "enabled": true
             }
           ]
         }
@@ -106,15 +117,7 @@ When you hand-author a card's JSON (e.g. in a card-creation tool), place fragmen
 }
 ```
 
-If you don't need one of the two lists, omit it — an empty or missing `mood` or `interactive` key is fine. If both are missing or `fragments` itself is missing, the card loads normally without any fragments.
+You can omit either list if you don't need it — a missing or empty `mood` or `interactive` key is fine. If both are missing (or `fragments` itself is missing), the card just loads normally with no fragments.
 
-!!! tip "Sort order"
-    Card-embedded interactive fragments get an automatic sort-order offset of 10,000, so they always appear at the bottom of the Director's `direct_scene` parameters and the Writer's Scene Direction block, after your global fragments. You don't need to think about ordering relative to globals — Orb handles it.
-
-## When card fragments don't run
-
-Card fragments are only active when the character is **in context** for a conversation. They use the same pipeline as global fragments. This means:
-
-- They don't fire for document-mode writing or any mode without an assigned character.
-- They don't fire if the character card has been **persona-pinned** — when a persona overrides the card, only the card fragments of the character that is actually in context apply. (The persona's card fragments, if any, would apply instead.)
-- They don't fire if the card's `extensions` key is missing, `null`, or has no `orb.fragments`.
+!!! tip "Ordering"
+    You don't set a sort order for card fragments. Orb automatically places them **after** all your global fragments — in the order they appear in the card's list — both in the Director's `direct_scene` parameters and the Writer's Scene Direction block. Any `sort_order` you put in the JSON is ignored.
