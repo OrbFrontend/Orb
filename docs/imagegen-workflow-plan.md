@@ -2,15 +2,18 @@
 
 ## Decision
 
-Orb will ship image generation as an `image_gen` secondary workflow with three deliberately unequal execution modes:
+Orb will ship image generation as an `image_gen` secondary workflow, **generated on demand only**, with two deliberately unequal execution modes:
 
 | Mode | Generation | Model discovery | Orb model installation | Intended user |
 |---|---|---|---|---|
 | `managed_local` | Orb-managed, headless ComfyUI sidecar | Yes | Yes, from Orb's curated catalog | Default local experience |
 | `external_comfy` | User-supplied ComfyUI HTTP endpoint | Yes | No | Advanced users with an existing engine |
-| `openai_images` | Configured cloud Images API | Provider-dependent | Not applicable | Users preferring a hosted API |
 
-The managed sidecar is the only mode allowed to promise one-click setup, curated model downloads, or automatic model selection. External ComfyUI is generation-only unless a future authenticated Orb companion service is installed on the remote host. Cloud styles are prompt additions; Orb does not pretend to install or switch provider-owned models.
+The managed sidecar is the only mode allowed to promise one-click setup, curated model downloads, or automatic model selection. External ComfyUI is generation-only unless a future authenticated Orb companion service is installed on the remote host.
+
+**No hosted-provider adapter.** A cloud Images API is a poor fit for this product: character-driven scene generation runs headlong into provider moderation for a large share of Orb's actual use, so the adapter would fail in exactly the cases users want it. It also adds a credential surface, a per-provider response contract, and a second "your prompt left this machine" story to a feature that is otherwise entirely local. If demand appears later, the adapter boundary below is where it attaches.
+
+**Every image is produced by an explicit user action.** There is no automatic per-turn generation. A blocking post-pipeline hook would make assistant persistence wait tens of seconds on a render while workflow locks are held, and the per-message Visualize action produces the same image with none of that cost. Automatic generation becomes reconsiderable only once the framework supports post-persistence work with a message-id handoff; until then it is not worth the latency it imposes on every turn.
 
 This asymmetry is intentional and represented as capabilities rather than hidden behind a falsely uniform adapter:
 
@@ -28,13 +31,13 @@ The documented core ComfyUI server routes can submit workflows, inspect history,
 
 ## Non-negotiable product behavior
 
-- The normal generation UI is a style dropdown and a Generate button. Initial stable style ids are `realistic`, `anime`, `pixel_art`, `scenery`, and `line_art`; catalog updates may add styles but never silently repurpose an existing id.
+- The normal generation UI is a style dropdown and a Generate button. Initial stable style ids are `realistic` and `anime`; catalog updates may add styles but never silently repurpose an existing id.
+- Generation happens only when the user asks for it, per message. No image is produced as a side effect of a turn completing.
 - The user explicitly opts into every runtime or model download. No multi-gigabyte download starts because a conversation was opened or a generation button was pressed.
 - In managed-local mode, selecting a style selects its entire curated recipe. The normal UI never exposes checkpoints, VAEs, graph nodes, samplers, CFG, steps, or LoRAs.
 - If the selected local recipe is not installed, the UI reports the exact download size and source links and offers one Download action. Generation stays disabled until every artifact verifies successfully.
-- In cloud and external modes, style prompt text is applied, but the configured provider/remote model remains in control.
-- `auto_generate` exists but defaults to `false`. It never auto-installs a runtime or model.
-- The LLM only describes the visual scene through one fixed standalone forced call. It never chooses the backend, model, workflow, sampler, dimensions, or style.
+- In external mode, style prompt text is applied, but the configured remote model remains in control.
+- The LLM only describes the visual scene through standalone forced calls. It never chooses the backend, model, workflow, sampler, dimensions, or style.
 
 ## Facts that constrain the implementation
 
@@ -50,12 +53,11 @@ The documented core ComfyUI server routes can submit workflows, inspect history,
 
 - Managed local ComfyUI install/start/stop/health/log lifecycle.
 - Curated, opt-in model-bundle download/remove/repair with progress, cancellation, resume, disk checks, and SHA-256 verification.
-- Five simple styles: realistic, anime, pixel art, scenery, and line art.
+- Two styles: realistic and anime. Each is a full curatorial commitment — reviewed bundle, exact hashes, hardware guidance, passing shipped workflow, fixed-seed quality review — so the count is set by how many of those Orb can actually stand behind at release, not by how many sound good in a dropdown. Further styles are additive catalog versions.
 - First-party ComfyUI nodes only; shipped API-format workflows only.
 - Text-to-image, one image per request.
-- Per-message Visualize action and optional blocking post-pipeline generation.
+- Per-message Visualize action. On demand only.
 - External ComfyUI generation against a user-configured checkpoint.
-- One explicit cloud adapter for an OpenAI-style Images endpoint; provider-specific adapters can be added later rather than assuming all “compatible” APIs behave identically.
 - Existing `workflow_attachments` storage, sibling reroll/regenerate behavior, and default `image/*` renderer.
 
 ### Not v1
@@ -65,13 +67,42 @@ The documented core ComfyUI server routes can submit workflows, inspect history,
 - Forge/A1111 adapters. They add another lifecycle/model-selection contract without improving the managed default.
 - Live remote catalog updates. The catalog ships with Orb releases; signed catalog updates can be designed later.
 - img2img, inpainting, ControlNet, IPAdapter/FaceID, character LoRAs, expression-pack generation, batches, or live previews. These reappear as the building blocks of the planned v2 character-identity feature; v1 ships none of them but reserves its extension points (see "Forward compatibility: character identity consistency (v2)").
+- Automatic per-turn generation. Deferred until the framework can run work after assistant persistence rather than inside the turn.
+- A hosted-provider (cloud Images API) adapter.
+- Additional styles beyond realistic and anime — pixel art, scenery, line art and the rest are catalog additions, each gated on its own bundle review.
 - Automatic runtime/model updates. Upgrades are explicit and compatibility-checked.
 - Universal hardware support. Only runtime variants exercised by the release matrix are offered.
 - Byte-identical replay across GPU, driver, PyTorch, ComfyUI, model, or workflow changes.
 
 ## Forward compatibility: character identity consistency (v2)
 
-v1 deliberately ships no character-identity mechanism: a generic prompt (“blue eyes, brown hair, red lips”) yields a different face every generation, so the user feels like they are talking to a new character each turn. A v2 **character identity** feature will address this without per-user asset wrangling: a canonical **reference portrait** is generated once from the character's appearance (locked seed, portrait framing), stored as character state, and used to condition every subsequent generation. The default identity mechanism is **IPAdapter-plus-face** (CLIP-vision, style-agnostic so it works on both anime and realistic recipes), with **InstantID** (InsightFace) as a realistic-only upgrade and a trained **character LoRA** as the opt-in gold standard. An optional face-region detailer inpaint applies the identity at high fidelity. Because Orb is a non-commercial, local-only, open-source tool, InsightFace's non-commercial model license and curated non-first-party nodes are acceptable here.
+v1 deliberately ships no character-identity mechanism: a generic prompt (“blue eyes, brown hair, red lips”) yields a different face every generation, so the user feels like they are talking to a new character each turn. A v2 **character identity** feature will address this without per-user asset wrangling: a canonical **reference portrait** is generated once from the character's appearance (locked seed, portrait framing), stored as character state, and used to condition every subsequent generation. The default identity mechanism is **IPAdapter-plus-face** (CLIP-vision, style-agnostic so it works on both anime and realistic recipes), with **InstantID** (InsightFace) as a realistic-only upgrade and a trained **character LoRA** as the opt-in gold standard. Because Orb is a non-commercial, local-only, open-source tool, InsightFace's non-commercial model license and curated non-first-party nodes are acceptable here.
+
+### The face-region detailer is load-bearing, not cosmetic
+
+Identity conditioning applied only at the base pass is weak for the framing this feature actually produces. At recipe resolutions a mid-shot or wider composition gives the face a few hundred pixels at most, and both IPAdapter and InstantID have correspondingly little to bind to; the identity washes out precisely in the shots where a conversation partner is usually depicted. The fix is to re-diffuse the face region at full resolution **and attach the identity conditioning to that pass**, which is what makes a face-region detailer a prerequisite for identity rather than a quality nicety.
+
+Three distinct jobs are involved and must not be conflated in the catalog or the node allowlist:
+
+| Stage | Component | Role |
+|---|---|---|
+| Locate | a bbox detector provider plus a face detection model | Finds the face in the **generated** image. Contributes nothing to identity. |
+| Re-render | a face-detailer node (crop → upscale → partial denoise → masked composite) | Produces a full-resolution face region. Improves fidelity; does **not** by itself make the face the same face, and its extra sampling pass adds its own variance. |
+| Identify | IPAdapter-plus-face / InstantID / character LoRA | Supplies *whose* face, conditioned on the stored reference portrait. |
+
+Only the third stage carries identity. The first two exist so the third operates at a resolution where it is effective.
+
+InstantID additionally needs InsightFace to embed the face from the **reference portrait** and to supply keypoints for its ControlNet. That is a different model at a different stage from the generated-image bbox detector, and the two are not interchangeable — the InstantID path needs both.
+
+Consequences for v1's reserved extension points, all of which the existing forward-compatibility decisions already cover:
+
+- Detector and identity weights are new model-store kinds and new reviewed catalog bundles. A face bbox model is on the order of tens of megabytes, negligible beside a checkpoint, so the download cost of the locate stage is not a design constraint.
+- Detector, detailer, and identity nodes are curated non-first-party nodes, delivered as pinned node bundles through the same download/verify/atomic-install primitive as model bundles, and admitted by extending the reviewed node allowlist.
+- The graph becomes multi-stage (base → detect → identity-inpaint → composite), which the slot map already supports because it patches arbitrary declared nodes.
+
+**Licensing must be resolved before any of this is advertised.** The common face-detection models are YOLO-architecture and the dominant implementation is AGPL-3.0; the widely used detailer node packs are GPL-3.0. Both run inside the sidecar process rather than Orb's, which affects the analysis but does not settle it, and neither belongs in a recommended bundle before review completes. A non-AGPL face-mesh detector is the fallback if that review goes badly. This is an explicit input to the existing licensing release blocker.
+
+**v1 consequence, stated up front rather than discovered in the release matrix:** because v1 ships first-party nodes only, it has no detailer stage, so managed-local faces at non-portrait framing will be visibly softer than what a user gets from a hand-built ComfyUI graph. This is an accepted v1 limitation, not a bug to triage.
 
 None of this is implemented in v1. v1's only obligation is to not foreclose it. These are the explicit compatibility decisions that keep v2 additive rather than a rewrite:
 
@@ -96,8 +127,8 @@ The engine subpackage remains independently importable and has no dependency on 
 backend/workflows/image_gen/
   __init__.py                 # Workflow declaration only; no registration side effects
   config.py                   # strict config/profile normalization
-  composer.py                 # forced-call schema and prompt assembly
-  hooks.py                    # post/on-demand/regenerate/reroll integration
+  composer.py                 # forced-call schemas and prompt assembly
+  hooks.py                    # on-demand/regenerate/reroll integration
   engine/
     __init__.py               # narrow public facade for hooks, API routes, and lifespan
     contracts.py              # StyleSpec, RecipeSpec, BundleSpec, request/result/capabilities
@@ -113,16 +144,12 @@ backend/workflows/image_gen/
       base.py
       managed_comfy.py
       external_comfy.py
-      openai_images.py
     resources/
       catalog.v1.json         # styles, recipes, bundles, exact artifacts
       runtimes.v1.json        # tested runtime variants and pinned sources/hashes
       workflows/
         realistic.v1.json
         anime.v1.json
-        pixel_art.v1.json
-        scenery.v1.json
-        line_art.v1.json
 
 backend/api/routes/image_gen.py        # thin HTTP facade over the workflow engine
 frontend/workflows/image_gen/
@@ -155,6 +182,18 @@ imagegen/
     comfyui.log
 ```
 
+### Generated images grow the conversation database
+
+`workflow_attachments.data_b64` is a `TEXT` column: attachment bytes live base64-encoded inside the main SQLite database, not on disk. Base64 adds a third again on top of the encoded image, and reroll and regenerate retain siblings rather than replacing them, so a single message can hold several. A 1024×1024 illustration PNG lands around 1.5 MB, so roughly 2 MB per stored image; a 1536×1152 one is about double that. A few hundred images is therefore a multi-hundred-megabyte conversation database, and it is the same file every conversation read touches.
+
+v1 accepts this rather than building a blob store, because the existing attachment storage, sibling tree, and default `image/*` renderer are the entire reason no schema migration is needed. Three things keep it from becoming pathological:
+
+- Recipe default dimensions are chosen with stored size as a real constraint, not only for output quality.
+- The response-size cap that already guards the fetched bytes doubles as the per-row bound.
+- Growth is surfaced in the tools panel next to model disk usage, so it is visible before it is a problem.
+
+Moving attachment bytes to disk under the imagegen data root, with the row carrying a reference, is the upgrade path. It is a framework-wide change affecting TTS equally, so it belongs to whichever feature first measures real pain — not to this one speculatively.
+
 Installed state is derived from the catalog plus verified files on disk, not stored as a second truth in SQLite. In-memory job records are disposable; after restart the status endpoint reconstructs installed/missing/corrupt state and reusable `.part` downloads remain resumable.
 
 The sidecar receives a generated `extra_model_paths.yaml` pointing to the Orb-owned `models/` tree. Runtime upgrades replace only `runtime/<version>` and cannot delete models. Bundle removal deletes only catalog-owned artifacts no other installed bundle references; unknown/manual files are never pruned.
@@ -176,43 +215,18 @@ The catalog is parsed into strict immutable records at import. Duplicate ids, un
 }
 ```
 
-Each style supplies its own prompt fragments, e.g.:
-
-```json
-{
-  "id": "scenery",
-  "label": "Scenery",
-  "description": "Wide environment and landscape art",
-  "managed_recipe_id": "scenery-v1",
-  "prompt": "expansive scenery, detailed environment, atmospheric lighting, wide establishing shot",
-  "negative_prompt": "close-up portrait, cropped subject"
-}
-```
-
-```json
-{
-  "id": "line_art",
-  "label": "Line art",
-  "description": "Clean monochrome ink line art",
-  "managed_recipe_id": "line_art-v1",
-  "prompt": "clean black and white line art, bold ink linework, monochrome, flat, no shading",
-  "negative_prompt": "color, painterly shading, grayscale gradient, photorealistic"
-}
-```
-
-The five initial ids are stable UI concepts, not model names:
+The two initial ids are stable UI concepts, not model names:
 
 - `realistic`: photographic or cinematic realism.
 - `anime`: drawn anime/manga character illustration.
-- `pixel_art`: deliberately pixelated game-art rendering with recipe-appropriate dimensions and scaling.
-- `scenery`: environment/landscape rendering that centers the setting over any single subject.
-- `line_art`: monochrome ink line drawing with clean outlines and minimal or no shading.
 
-`scenery` and `line_art` are full styles: each carries its own positive/negative prompt and, in `managed_local`, its own recipe, graph, and params. A recipe may reuse an already-installed curated bundle via a shared `bundle_id` where the curator judges an existing checkpoint suitable, avoiding a second multi-gigabyte download; the shared-artifact removal rule already keeps such bundles safe. Whether a new style reuses a bundle or ships its own remains a curatorial decision, never inferred from a model name.
+These two are shipped because they cover the overwhelming majority of character-conversation imagery and because two is the number of bundles that can realistically clear full curatorial review — exact revision, hashes, resource requirements, shipped workflow, and fixed-seed output review — for a first release. Adding a style is not a dropdown entry; it is another bundle carrying all of that.
+
+Later styles (pixel art, scenery, line art, and anything else) arrive as additive catalog versions with new ids, which the versioning rule already supports without touching stored attachments. A new recipe may reuse an already-installed curated bundle via a shared `bundle_id` where the curator judges an existing checkpoint suitable, avoiding a second multi-gigabyte download; the shared-artifact removal rule already keeps such bundles safe. Whether a new style reuses a bundle or ships its own remains a curatorial decision, never inferred from a model name.
 
 For `managed_local`, the style chooses the recipe and therefore the model bundle, graph, prompt mode, resolution, sampler, scheduler, steps, CFG, and style-specific positive/negative fragments. This is the deep decision layer the normal UI hides.
 
-For `external_comfy` and `openai_images`, only `prompt` and `negative_prompt` participate. External mode uses the one checkpoint and shipped compatible graph selected in Advanced settings; cloud mode uses the configured provider model. Orb must not claim those backends reproduce the curated local look.
+For `external_comfy`, only `prompt` and `negative_prompt` participate: the mode uses the one checkpoint and shipped compatible graph selected in Advanced settings. Orb must not claim that backend reproduces the curated local look.
 
 ### `RecipeSpec`
 
@@ -290,7 +304,7 @@ Do not use `shell=True`, install into Orb's interpreter, run arbitrary catalog c
 
 ### Supervision
 
-Managed-local v1 has a single-Orb-process deployment contract. On the first managed runtime or bundle mutation, Orb takes an exclusive OS file lock at `runtime.lock` and retains it for the process lifetime. If another Orb process already owns the same imagegen data root, this process reports managed local as unavailable instead of starting a second sidecar or mutating shared files. External and cloud generation remain available. Inside the owner process, the supervisor is guarded by one async lifecycle lock:
+Managed-local v1 has a single-Orb-process deployment contract. On the first managed runtime or bundle mutation, Orb takes an exclusive OS file lock at `runtime.lock` and retains it for the process lifetime. If another Orb process already owns the same imagegen data root, this process reports managed local as unavailable instead of starting a second sidecar or mutating shared files. External generation remains available. Inside the owner process, the supervisor is guarded by one async lifecycle lock:
 
 1. Resolve the installed active runtime.
 2. Choose an unused loopback port from a bounded range and retry if startup loses a port race.
@@ -390,7 +404,7 @@ class ImageResult:
 
 **Seed handling across the framework boundary.** `ImageRequest.seed` is the resolved diffusion seed actually submitted to the backend — a bounded integer in `[0, 2**64)`, ComfyUI's KSampler seed range. The framework, however, hands the reroll/rehydrate hooks a seed from `_generated_seed()` = `secrets.token_hex(16)`, i.e. a 32-char / 128-bit hex *string* (secondary-workflow.md §8.2). The hook folds that string into an int deterministically (`int(seed_hex, 16) % (2**64)`) before building the `ImageRequest`, and applies the same fold to a freshly generated random seed on the initial generate, so rerolled and fresh seeds occupy one integer space.
 
-The initial generate (post-pipeline, on-demand) MUST write the diffusion seed it used into the attachment's dedicated `seed` column, as text. Rehydrate reads `att["seed"]` and re-folds it; without this write the row is silently unrehydratable. The seed lives only in that column — it is never duplicated into `generation_metadata`.
+The initial generate MUST write the diffusion seed it used into the attachment's dedicated `seed` column, as text. Rehydrate reads `att["seed"]` and re-folds it; without this write the row is silently unrehydratable. The seed lives only in that column — it is never duplicated into `generation_metadata`.
 
 ### Managed ComfyUI
 
@@ -398,6 +412,7 @@ The initial generate (post-pipeline, on-demand) MUST write the diffusion seed it
 - Load the immutable recipe graph, deep-copy it, and patch only declared slots.
 - Submit `POST /prompt` with a random `client_id`, poll `GET /history/{prompt_id}`, then fetch only the declared output through `GET /view`.
 - Treat prompt validation errors, `node_errors`, missing declared output, MIME mismatch, oversized response, and timeout as failures.
+- Funnel every render failure — unreachable host, connect error, HTTP status, execution error reported in history, malformed body, missing or empty output, timeout — into a single client exception type. Callers degrade identically on all of them, so distinguishing them at the call site buys nothing and multiplies the paths each caller must handle.
 - Validate the returned bytes by signature and cap response size before persistence.
 - The initial implementation may poll once per second. WebSocket progress and previews are deferred.
 
@@ -410,13 +425,6 @@ The initial generate (post-pipeline, on-demand) MUST write the diffusion seed it
 - Poll by `prompt_id`; on timeout stop polling without issuing the global `/interrupt`.
 - An external server with incompatible/missing first-party nodes or graph inputs fails connection validation with an actionable message.
 
-### Cloud Images API
-
-- Keep provider base URL, API key, and model in advanced workflow config.
-- Append the selected `StyleSpec.prompt` to the composed positive prompt and, only when supported by that adapter, its negative prompt.
-- Implement the exact documented request/response contract for the selected provider. The first adapter may target the OpenAI Images shape, but “OpenAI-compatible” is not treated as a guarantee that sizes, response encoding, seed, negative prompt, or model discovery behave identically.
-- Reroll is a fresh provider generation when seed control is unavailable. Rehydrate is best effort, never described as deterministic.
-
 ## Workflow config and profile
 
 No schema migration is required. Global settings live in `settings.workflow_config.image_gen`; machine/runtime/model installation state stays on disk.
@@ -425,33 +433,30 @@ No schema migration is required. Global settings live in `settings.workflow_conf
 {
   "source": "managed_local",
   "default_style": "realistic",
-  "auto_generate": false,
+  "scene_analysis": false,
   "timeout_seconds": 180,
   "external_comfy": {
     "api_url": "http://127.0.0.1:8188",
     "api_key": "",
     "checkpoint": "",
     "workflow": "external_core_v1"
-  },
-  "openai_images": {
-    "api_url": "https://api.openai.com",
-    "api_key": "",
-    "model": ""
   }
 }
 ```
 
-Every hook calls `normalize_config` because workflow `config_schema` is UI metadata, not enforcement. Validation includes the source/style enums, bounded strings, HTTP(S) URLs, timeout range, and source-specific required fields. The normalizer drops unknown keys and returns a new canonical dict.
+Every hook calls `normalize_config` because workflow `config_schema` is UI metadata, not enforcement. Validation includes the source/style enums, bounded strings, HTTP(S) URLs, timeout range, and source-specific required fields. The normalizer drops unknown keys, coerces numerics that round-tripped through JSON as strings, and returns a new canonical dict merged over the defaults, so a partial or empty persisted slot still resolves every key and downstream code reads typed values without rechecking.
+
+**Overridable defaults are stored empty and shown as placeholders.** Any field with a shipped default — prompt fragments in particular — persists as an empty string and renders as ghost text sourced from the manifest's `config_schema` default, with the backend substituting the baked value whenever the field is empty. Editing is then an explicit override, and a curated default can change between releases without migrating stored config or silently overwriting a user's edit.
 
 Secrets remain only in live workflow config and are read at call time. They never enter attachment metadata, job snapshots, logs, subprocess argv, or catalog files.
 
-**Preset export needs a new nested-JSON scrubber; the existing secret protections do not reach this case.** Orb's preset secret machinery is column-granular and column-*name*-driven: `_scrub_configs` blanks whole columns listed in `SECRET_COLUMNS` (`backend/features/presets/engine.py`), and the `SENSITIVE_*` tripwire that forces coverage suffix-matches column *names* (`backend/database/preset_schema.py`). Both API keys live nested inside the `settings.workflow_config` JSON column, whose name matches no secret suffix — so the tripwire never flags them and no existing scrubber touches them. Therefore:
+**Preset export needs a new nested-JSON scrubber; the existing secret protections do not reach this case.** Orb's preset secret machinery is column-granular and column-*name*-driven: `_scrub_configs` blanks whole columns listed in `SECRET_COLUMNS` (`backend/features/presets/engine.py`), and the `SENSITIVE_*` tripwire that forces coverage suffix-matches column *names* (`backend/database/preset_schema.py`). The external endpoint's API key lives nested inside the `settings.workflow_config` JSON column, whose name matches no secret suffix — so the tripwire never flags it and no existing scrubber touches it. Therefore:
 
-- Add a JSON-path scrub of `workflow_config.image_gen.external_comfy.api_key` and `.openai_images.api_key` to the configs export path (`_scrub_configs`), keyed off the workflow-config shape rather than a column name.
+- Add a JSON-path scrub of `workflow_config.image_gen.external_comfy.api_key` to the configs export path (`_scrub_configs`), keyed off the workflow-config shape rather than a column name.
 - The `SECRET_COLUMNS` coverage test (`tests/integration/test_preset_schema_coverage.py`) is no backstop here; correctness rests entirely on dedicated canary tests.
 - Precedent confirms the blind spot: TTS already stores `api_key` inside `character_cards.workflow_state` (`backend/workflows/tts/synth.py`), uncovered by the same mechanism. Do not assume the framework scrubs workflow JSON secrets — it does not.
 
-Tests seed unique canaries into both keys and assert they disappear when `configs` is omitted and when `strip_keys=true`, and that a deliberate `strip_keys=false` export retains them.
+Dropping the hosted-provider adapter removes one of two keys, not the requirement: a single nested secret is exactly as invisible to the existing machinery as two. Tests seed a unique canary into the key and assert it disappears when `configs` is omitted and when `strip_keys=true`, and that a deliberate `strip_keys=false` export retains it.
 
 Per-character `workflow_character_state` is deliberately small:
 
@@ -470,6 +475,17 @@ Style is not character state. `reference_image` and `face_seed` are reserved for
 
 Declare one standalone `ToolSpec`; it remains outside the Director/Writer/Editor tool union and therefore does not change their shared tool-schema prefix.
 
+**Two composition modes, selected by config.** A free-text `scene` field invites the model to fill unestablished details from genre convention — inventing an outfit or a pose the transcript never established, which reads as the character changing clothes between turns. Two mitigations exist and they trade cost against rigor, so `scene_analysis` (default `false`) picks between them:
+
+- **Off — one forced call.** `compose_image_prompt` alone, relying on instruction discipline: use only what the history directly evidences, take the most recent explicit statement for every attribute, and fall back to the character's default rather than guess when the text establishes nothing. One inference per image.
+- **On — an analysis call first.** `analyze_scene` returns a *structured* scene — characters present, each one's outfit as a **delta from their default** (articles added or substituted, default articles now absent), spatial anchors, positions relative to anchors and to each other, poses, and actions — which is rendered to compact text and appended as the final message of the composition call, so the scene conclusions sit where attention is strongest. The components are enforced by the schema instead of by prompt wording. Two inferences per image.
+
+The outfit delta is the reason the second mode exists: it is the only representation that distinguishes "the transcript established a change" from "the model would like there to be a change", and it is what keeps a character visually stable across turns.
+
+Default off. The extra call doubles composition latency on a path that already blocks, and instruction discipline is sufficient for the common single-character case. Turn it on for multi-character scenes and long conversations where drift compounds.
+
+Both `ToolSpec`s are declared unconditionally — registry membership is fixed at `finalize_registry()` and cannot follow a runtime config value. The toggle selects which path executes, not what is registered. Failures degrade one rung at a time: analysis failure falls through to single-call composition, composition failure falls back to a bounded plain-text excerpt of the anchor assistant reply, and only an empty excerpt fails the generation.
+
 ```python
 COMPOSE_TOOL_SCHEMA = {"type": "function", "function": {
     "name": "compose_image_prompt",
@@ -487,7 +503,11 @@ COMPOSE_TOOL_SCHEMA = {"type": "function", "function": {
 }}
 ```
 
-The forced call uses the writer lane exposed by the hook contexts. POST_PIPELINE passes the existing prefix and cache tracker but does not promise byte-identical Writer prefix reuse because the standalone tool and tail differ. On-demand/regenerate build a short standalone transcript ending at the anchor assistant message.
+The forced calls use the writer lane exposed by the hook contexts, always off-turn: there is no in-turn caller, so no prefix or cache tracker is inherited and no Writer-prefix-reuse promise is made or needed.
+
+**Off-turn paths need the full prefix, not a bare transcript.** On-demand and regenerate run with no turn in flight, so they have no pipeline prefix to reuse. Since generation is on-demand only, *every* composition path is off-turn — there is no in-turn variant to fall back on. A plain role/content list of history omits the system prompt and character framing, and a composer that cannot see who the character is describes a generic person. These paths must rebuild the prefix a pipeline pass would receive: effective system prompt, character persona and scenario, example messages, macros, resolved persona description, and history up to the anchor message only. Pre-pipeline system blocks have no off-turn analogue and are omitted; KV reuse is forgone and the cold prompt is paid, which is acceptable precisely because the user asked for this image and is already waiting on a render.
+
+Reconstructing that prefix requires character-context and persona resolution that currently live in `database` and `pipeline`, neither of which a workflow may import. Add one `build_offturn_prefix` helper to `workflows/toolkit.py` rather than copying those two resolvers into the workflow. TTS faces the same boundary, so the helper has two consumers on arrival, which is the bar this plan already sets for promoting shared code; copies flagged as keep-in-sync are the failure mode this avoids.
 
 Composition is deterministic after the forced call:
 
@@ -495,27 +515,28 @@ Composition is deterministic after the forced call:
 managed positive = recipe/style positive + character appearance + scene
 managed negative = recipe/style negative + character negative + avoid
 
-external/cloud positive = character appearance + scene + selected style prompt
-external/cloud negative = character negative + avoid + selected style negative
+external positive = character appearance + scene + selected style prompt
+external negative = character negative + avoid + selected style negative
 ```
 
 Segments are whitespace-normalized, individually length-bounded, and joined without attempting semantic de-duplication. The style is always supplied by the trusted catalog, never by the LLM. If the forced call fails, use a bounded plain-text excerpt of the anchor assistant reply as `scene`; if both are empty, fail without spending inference resources.
 
 ## Hooks and artifact behavior
 
-Declare `image_gen_workflow` with `produces_artifacts=True` and bind POST_PIPELINE, ON_DEMAND, REGENERATE, and REROLL_GEN in `backend/workflows/__init__.py` before `finalize_registry()`.
+Declare `image_gen_workflow` with `produces_artifacts=True` and bind ON_DEMAND, REGENERATE, and REROLL_GEN in `backend/workflows/__init__.py` before `finalize_registry()`. **No POST_PIPELINE binding**: nothing in this workflow runs inside a turn, so it cannot delay assistant persistence, cannot hold pipeline locks, and cannot fail a turn. This is the largest single simplification in the design, and several consequences follow from it — every composition path is off-turn, so there is exactly one prefix-construction path rather than an in-turn one and an off-turn one that must produce comparable results; there is no turn-cancellation propagation to handle; and no KV-cache or Writer-prefix-reuse question arises.
 
 ### On demand
 
-`POST .../workflows/image_gen/trigger` action `generate` accepts `{message_id, style_id}`. Validate that `message_id` is an integer but not a boolean and that `style_id` is a live catalog id. Compose from the message, resolve the selected style/source, generate, and insert one workflow attachment.
+`POST .../workflows/image_gen/trigger` action `generate` accepts `{message_id, style_id}`. Validate that `message_id` is an integer but not a boolean, that the target message exists in this conversation and is an assistant message, and that `style_id` is a live catalog id. Compose from the message, resolve the selected style/source, generate, and insert one workflow attachment.
+
+**Progress streams from the hook return; no new SSE contract is added.** The generic trigger route relays a hook's `StreamingResponse` verbatim, so the action returns one and frames its own phase and reasoning events the way the orchestrator frames the in-turn pipeline's. Install jobs poll (long-running, must survive restart); generation streams (short, in-request). Two rules make the stream safe to consume:
+
+- The body is guarded in full. An uncaught exception inside a streaming response aborts the chunked transfer without its terminating chunk, leaving the client's reader waiting on a stream that never closes; degrading to a null result keeps the UI unblocked.
+- The stream ends on an explicit terminal event carrying the new attachment id, or null when generation produced nothing. Clients finish on that event rather than on stream close, which can stall.
+
+**The stream body runs outside the trigger route's locks.** `api_trigger_workflow` holds the conversation and character-state locks only for the duration of the hook *call*; returning a `StreamingResponse` returns immediately and its body is consumed after the route function exits, so every lock is released before the first byte is produced. Anything depending on that serialization — reading conversation state, character state, or config, and validating the target message — must complete before the response object is constructed, and its results captured into the generator. Generation and attachment insertion then run unlocked, which is safe here only because this path appends a new attachment rather than read-modify-writing workflow state. A future action that does read-modify-write cannot use the streaming return without its own lock. Pin this with a test: two concurrent triggers on one message must not interleave into a corrupt sibling tree.
 
 The only other ON_DEMAND actions are `get_profile` and `set_profile`, because they need the active conversation's character context. Global readiness, connection tests, model discovery, and runtime/model mutation use the dedicated `/api/workflows/image_gen/...` routes and never take the conversation lock held by the workflow trigger.
-
-### Post pipeline
-
-When `auto_generate=false`, do nothing. When enabled, use `default_style`; never install missing dependencies. Yield phase events for prompt composition and generation. Ordinary failure logs a sanitized warning and ends the workflow phase without aborting or replacing the assistant response; cancellation propagates.
-
-This remains a blocking post-pipeline hook: assistant persistence and `done` wait for generation while workflow locks are held. The default is off, the UI labels the latency tradeoff, and `timeout_seconds` bounds it. True post-persistence jobs require a framework message-id handoff and remain deferred.
 
 ### Regenerate, reroll, and rehydrate
 
@@ -523,17 +544,20 @@ This remains a blocking post-pipeline hook: assistant persistence and `done` wai
 - Reroll uses stored resolved prompt/recipe/model metadata with a fresh seed — the route-supplied `_generated_seed()` hex string, folded to a 64-bit int (see "Seed handling").
 - Rehydrate uses the stored metadata and the stored `seed` column value, re-folded to the same int, when the backend supports seeding.
 - Managed replay requires the recorded recipe and exact bundle artifacts. If they are unavailable, fail with a sanitized actionable error; never silently switch to a newer recommended model.
-- Cloud/external replay is best effort. A seed and recipe are evidence of the request, not a guarantee of identical bytes.
+- External replay is best effort. A seed and recipe are evidence of the request, not a guarantee of identical bytes — the remote server's model, nodes, and versions are outside Orb's control and may have changed.
 
 Store in `generation_metadata`:
 
 ```text
 source, style_id, catalog_version, recipe_id, workflow_sha256,
 bundle_id, artifact_sha256s, runtime_version, backend_model,
-prompt, negative_prompt, width, height, steps, cfg, sampler, scheduler
+composer_mode, prompt, negative_prompt, width, height, steps, cfg,
+sampler, scheduler
 ```
 
-Only fields applicable to the resolved backend are populated. Never store API keys, managed/external URLs containing credentials, local paths, or raw provider responses. `consumption_metadata` contains the display-safe style label, prompt, negative prompt, and source.
+`composer_mode` records which composition path produced the prompt. Replay never re-composes — reroll and rehydrate render the stored prompt — so this is diagnostic only, and it is what makes "why did this one get the outfit wrong" answerable after the config has since been toggled.
+
+Only fields applicable to the resolved backend are populated. Never store API keys, managed/external URLs containing credentials, local paths, or raw backend responses. `consumption_metadata` contains the display-safe style label, prompt, negative prompt, and source.
 
 ## Frontend
 
@@ -541,9 +565,11 @@ All files under `frontend/workflows/image_gen/` import only `/static/workflow_ap
 
 ### Normal flow
 
-The assistant-message Visualize button opens a minimal modal:
+The Visualize button is registered as a workflow message button, shown only on assistant messages (the image depicts the reply) and only while that message has no `image_gen` attachment yet. It is disabled when other tabs are open, matching the existing edit/regenerate controls: a single writer prevents two tabs racing duplicate artifact roots onto one message.
 
-1. Style dropdown (`Realistic`, `Anime`, `Pixel art`, `Scenery`, `Line art`).
+It opens a minimal modal:
+
+1. Style dropdown (`Realistic`, `Anime`).
 2. One primary action: Generate.
 
 In managed-local mode, if setup is incomplete, the same modal replaces Generate with exactly one relevant action:
@@ -559,12 +585,12 @@ After a job starts, show determinate byte progress when total size is known, Can
 
 The normal card shows source, default style, readiness, disk usage, and a Settings button. Advanced settings contain:
 
-- source selector (`Managed local`, `External ComfyUI`, `Cloud Images API`);
-- auto-generate toggle and timeout;
+- source selector (`Managed local`, `External ComfyUI`);
+- render timeout;
+- scene-analysis toggle, labelled with its cost ("more accurate outfits and positions in multi-character scenes; one extra model call per image");
 - installed bundles with size/source/remove actions;
 - managed runtime status/start/stop/repair/remove and sanitized log tail;
 - external URL/key/checkpoint and connection test;
-- cloud URL/key/model and connection test;
 - per-character appearance/negative prompts.
 
 Raw sampler/CFG/steps/dimensions and model overrides are not exposed for managed recipes. Catalog curation happens in version-controlled resources and tests, not through end-user settings.
@@ -595,23 +621,26 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 - Comfy queue/history/declared-output/view sequence, malformed/error payloads, timeout, output size/signature, and managed versus external interrupt behavior.
 - Config/profile normalization and nested-secret exclusion.
 - Character-state normalization preserves the reserved `reference_image`/`face_seed` keys and their defaults (v2 identity forward-compat guard).
-- Style resolution proves managed style selects its recipe/bundle/params while external/cloud styles change prompt only.
+- Style resolution proves managed style selects its recipe/bundle/params while external styles change prompt only.
 - Composer schema/choice parity, segment order/bounds, style isolation, and anchor-text fallback.
-- Seed fold from the framework hex string to a bounded 64-bit int is deterministic; the initial generate persists the `seed` column and rehydrate re-folds the stored value.
+- `scene_analysis` off runs one forced call and on runs two; the analysis result renders to text as the composition call's final message; a failed analysis degrades to single-call composition rather than failing the generation; both tools stay registered under either setting.
+- Scene rendering tolerates a partial or malformed analysis result — every section is independently droppable — so a model that omits a field still yields usable text.
+- Seed fold from the framework hex string to a bounded 64-bit int is deterministic; the initial generate persists the `seed` column and rehydrate re-folds the stored value. The generate-side reduction and the rehydrate-side decode share one pinned modulus — a mismatch silently produces a different image rather than erroring, so the round-trip is asserted directly.
+- Registering standalone workflow tools widens the global registry, so the tool-registry baselines assert `BUILTIN_TOOL_NAMES == frozenset(TOOLS) - STANDALONE_TOOLS` and that the built-ins are disjoint from the standalone set — the property that actually holds built-ins in the pipeline union — rather than equality against all registered tools and an empty standalone set.
 - Installer builds pinned `comfy-cli` argv (never shell text) and verifies the pinned `comfy-cli` version before invoking it.
 
 ### Integration
 
 - Base Orb boots and all non-image features work without ComfyUI, PyTorch, model files, or optional installer dependencies.
 - Runtime/model install routes return jobs without holding request connections; restart reconstructs verified status.
-- No install starts from boot, status, conversation open, Visualize, or auto-generate.
+- No install starts from boot, status, conversation open, or Visualize.
 - Managed generation refuses missing/corrupt prerequisites before invoking ComfyUI.
-- Auto-off yields nothing; auto-on phases and attachment persistence work; failures do not lose the assistant response; cancellation propagates.
-- On-demand guards, profile round-trip, regenerate sibling shape, reroll seed change, and rehydrate request replay.
+- Completing a turn produces no image and no image-generation inference of any kind: the workflow has no POST_PIPELINE subscription and a full pipeline run leaves the attachment table untouched. This is the guard on the on-demand-only contract, so it is asserted directly rather than inferred from the absence of a binding.
+- On-demand guards, streamed progress with its terminal event, profile round-trip, regenerate sibling shape, reroll seed change, and rehydrate request replay.
+- The streamed generate action validates its target and reads conversation/character state before returning the response object; two concurrent triggers on one message do not interleave into a corrupt sibling tree.
 - Exact stored recipe remains required after catalog recommendation changes.
 - External discovery/generation never calls install, userdata-write, Manager, or interrupt endpoints.
-- Cloud adapter receives the selected style prompt and never receives a local recipe/model path.
-- Preset canaries prove the bespoke JSON-path scrubber removes both nested API keys when configs are omitted or `strip_keys=true`, and retains them under a deliberate `strip_keys=false` export (the `SECRET_COLUMNS` coverage test does not reach this path).
+- Preset canaries prove the bespoke JSON-path scrubber removes the nested external API key when configs are omitted or `strip_keys=true`, and retains it under a deliberate `strip_keys=false` export (the `SECRET_COLUMNS` coverage test does not reach this path).
 - App lifespan terminates only the sidecar process it started.
 
 ### Frontend
@@ -627,7 +656,7 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 
 For every runtime variant advertised by `runtimes.v1.json`:
 
-1. Test clean install, cancellation, resume, repair, start, generation for all five styles, stop, restart, explicit runtime upgrade/removal, and bundle removal.
+1. Test clean install, cancellation, resume, repair, start, generation for both styles, stop, restart, explicit runtime upgrade/removal, and bundle removal.
 2. Record runtime/model download size, disk peak, startup time, first-generation latency, steady latency, and peak RAM/VRAM.
 3. Verify no service listens beyond loopback and no Manager/custom-node route is enabled.
 4. Review output quality with fixed prompts/seeds before marking a bundle recommended.
@@ -637,19 +666,23 @@ An untested platform/accelerator combination is reported as unsupported; it is n
 
 ## Implementation sequence
 
-1. **Contracts and release inputs**: add catalog/runtime schemas, strict loader, five style ids, placeholder test bundles, graph-slot validator, path policy, and catalog tests. Production catalog entries remain unavailable until real artifact metadata and review are complete.
-2. **Jobs and downloads**: implement background job registry, status/cancel API, disk preflight, secure resumable downloader, verified atomic installs, repair/remove, and tests.
-3. **Managed runtime**: implement platform variant resolver, isolated `comfy-cli`-driven installer (pinned version + argv), generated extra-model paths, supervisor, lifespan shutdown, fake-process tests, then certify the first real runtime variant.
-4. **Comfy generation core**: implement documented Comfy client, strict graph patching, managed/external adapters, output validation, metadata, and fake-server tests.
-5. **Workflow integration**: implement config/profile/composer/hooks, register the workflow, add nested preset-secret scrubbing, and complete integration tests. At this point managed generation works through existing default image artifacts.
-6. **Simple frontend**: implement style/generate modal, readiness-driven setup/download flow, tools panel, attachment caption, progress polling, and escaping/state tests.
-7. **Cloud adapter**: implement one exact provider contract, prompt-only style injection, credential handling, and provider-shaped tests. Do not generalize until a second provider demonstrates the actual common surface.
-8. **External ComfyUI**: add advanced endpoint/model discovery and generation-only flow, with capability/UI tests proving install is unavailable.
+Ordered so a working feature exists as early as possible. External ComfyUI needs none of the catalog, download, or runtime machinery, so it comes first and makes every later phase testable against something real — and it settles what prompt composition actually needs *before* two model bundles are committed to curatorial review, which is the expensive thing to change later.
+
+1. **Contracts and generation core**: add the engine skeleton, request/result/capabilities contracts, the documented Comfy client with its single error funnel, strict graph patching against a declared slot map, output signature/size validation, and fake-server tests.
+2. **Workflow integration**: implement config normalization, character profile, the composer (single-call path first), and the on-demand/regenerate/reroll hooks. Add the `build_offturn_prefix` toolkit helper, register the workflow, widen the two tool-registry baseline assertions that standalone registration breaks, add nested preset-secret scrubbing, and complete integration tests.
+3. **External ComfyUI**: endpoint/model discovery, generation against a user-selected checkpoint, connection validation with actionable failures, and capability tests proving install is unavailable. **Ships a usable feature.** Everything after this improves it rather than enabling it.
+4. **Frontend**: Visualize message button, style/generate modal, streamed progress with its terminal event, tools panel, and escaping/state tests.
+5. **Scene analysis**: add the second forced call behind `scene_analysis`, its rendering to text, and the degrade-to-single-call path. Deliberately after real images exist, so the toggle's value can be judged against actual output.
+6. **Contracts and release inputs for managed local**: catalog/runtime schemas, strict loader, two style ids, placeholder test bundles, graph-slot validator, path policy, and catalog tests. Production catalog entries remain unavailable until real artifact metadata and review are complete.
+7. **Jobs and downloads**: background job registry, status/cancel API, disk preflight, secure resumable downloader, verified atomic installs, repair/remove, and tests.
+8. **Managed runtime**: platform variant resolver, isolated `comfy-cli`-driven installer (pinned version + argv), generated extra-model paths, supervisor, lifespan shutdown, fake-process tests, then certify the first real runtime variant. The readiness-driven setup/download UI lands with it.
 9. **Release hardening**: certify runtime variants and curated bundles, update `AGENTS.md` and `docs/architecture/secondary-workflow.md`, run `./scripts/lint.sh` and `./scripts/tests.sh all`, then execute the manual release matrix.
+
+Phases 6–8 carry nearly all the risk and all the release blockers. Keeping them behind a shipped external-mode feature means managed local can slip without the feature slipping.
 
 ## Release blockers
 
-The feature is not ready to advertise as fool-proof managed local generation until all are true:
+These gate the *managed local* mode only. External-ComfyUI mode ships when its own phase is complete and is not held behind them. The feature is not ready to advertise as fool-proof managed local generation until all are true:
 
 - At least one runtime variant has a pinned, reproducible, clean-machine install and full manual matrix result.
 - Each visible managed style points to a real reviewed bundle with immutable sources, exact byte sizes, SHA-256 hashes, hardware guidance, and a passing shipped workflow.
