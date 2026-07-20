@@ -47,6 +47,111 @@ The documented core ComfyUI server routes can submit workflows, inspect history,
 - There is no official universal ComfyUI Docker image, so a container is not the default sidecar mechanism. The managed installer is platform-manifest driven and must show “unsupported” when no tested runtime variant matches.
 - “Best model for a style” is a curatorial decision that changes over time. Code consumes a versioned catalog; it must never hard-code marketing claims or infer quality from a filename. A bundle becomes recommended only after its exact revision, hashes, resource requirements, workflow, and output quality have been reviewed.
 
+## Feasibility probe (2026-07-20)
+
+Measured against a live loopback ComfyUI install using a saved `orb-test` project. Every claim below was executed, not read from docs.
+
+**Probe environment.** ComfyUI 0.22.0, frontend 1.44.19, Python 3.12.3, PyTorch 2.6.0+cu124, RTX 3090 (24 GB), launched `main.py --listen 127.0.0.1 --port 8188 --enable-manager`. 20 custom-node packs installed; `/object_info` reports **1953 node types**. This is a realistic "advanced user's existing engine", i.e. exactly the `external_comfy` target.
+
+### The HTTP contract works as specified
+
+`POST /prompt {prompt, client_id}` → `200 {prompt_id, number, node_errors}`; poll `GET /history/{prompt_id}` until `status.completed`; fetch the declared output node's image via `GET /view?filename=&subfolder=&type=output`. Returned bytes carried a correct `image/png` `Content-Type` and PNG signature. The plan's queue/history/view/discovery sequence needs no change.
+
+`GET /models` returns 47 folder kinds; `GET /models/{folder}` returns filenames. **Folder names are not guessable:** `/models/clip` was empty while the project's `CLIPLoader` loads from `text_encoders`. External model discovery must enumerate the folder the selected graph's loader actually reads, never a hard-coded `clip`/`checkpoints` assumption.
+
+### Saved projects are UI format; there is no server-side conversion
+
+`orb-test.json` is a **UI graph** (`nodes`/`links`/`groups`/`extra`), not the API format `/prompt` accepts. UI→API conversion lives in the frontend JavaScript and is exposed by **no server route**. Consequences:
+
+- Orb cannot ingest a user's saved ComfyUI project. Shipped API-format graphs, as already planned, are the only workable input — this is now a verified constraint rather than a preference.
+- **Every ComfyUI-generated PNG embeds the API-format graph in a `prompt` tEXt chunk** (plus the UI graph in `workflow`). This is the practical authoring route: generate once in the UI, read the API graph straight out of the output PNG. Hand-converting `widgets_values` positionally against `/object_info` also works but is fragile and unnecessary. Verified by replaying an extracted graph and reproducing its source image **pixel-for-pixel**.
+- The real project contained a **dead node** (`CLIPSetLastLayer`, fed by the checkpoint's CLIP, output consumed by nothing — the text encoders read from a separate `CLIPLoader`). Hand-authored graphs carry cruft; catalog validation should reject or prune unreachable nodes rather than assume clean input.
+
+The converted graph ran unmodified, so the conversion is mechanical — just not automatable against a live server.
+
+### Validation is structured, pre-execution, and leaks paths
+
+All malformed graphs were rejected with **HTTP 400 before any GPU work**, carrying a usable taxonomy in `error.type`:
+
+| Sent | `error.type` |
+|---|---|
+| Nonexistent checkpoint filename | `prompt_outputs_failed_validation` + node error `value_not_in_list` |
+| `steps: 99999` | `value_bigger_than_max` (max 10000) |
+| Unknown sampler enum | `value_not_in_list` |
+| Link to a missing node id | `exception_during_inner_validation` |
+| Unknown `class_type` | `missing_node_type` |
+| Graph with no output node | `prompt_no_outputs` |
+
+This is a cheap, exact preflight — a catalog graph can be validated against a specific server before spending a render.
+
+**`exception_during_inner_validation` embeds a Python traceback containing absolute server paths** (`<comfyui-install-dir>/execution.py` and similar). The security rule against returning local paths is therefore load-bearing on this exact path: `node_errors` must never be relayed to the frontend verbatim. Extract `type` and `input_name`; drop `traceback`, `exception_message`, and `input_config`.
+
+### Generated PNGs carry the full prompt as metadata — strip it
+
+The same `prompt`/`workflow` tEXt chunks that make authoring easy are a **privacy leak in the stored artifact**. If Orb persists ComfyUI's PNG bytes verbatim into `workflow_attachments`, every stored image embeds the complete prompt, negative prompt, model filenames, and graph. A user who exports or shares an image ships their character's full prompt text with it — including anything NSFW — with no indication that it is there.
+
+Orb must re-encode or strip metadata before persisting. This composes well with the size finding above: the re-encode that drops the chunks is the same pass that converts to WebP.
+
+### The composer's output format is a real design risk
+
+The measured quality gap in this probe was caused entirely by prompt *form*, not by the graph. Substituting a 13-tag generic prompt for the project's 45-tag one, on an identical graph and comparable seed, produced visibly washed-out, low-contrast, mushy output; the original prompt on the same pipeline produced crisp, high-contrast, coherent results.
+
+This matters because `compose_image_prompt` currently asks the LLM for a *"concise concrete visual description"* — natural-language prose. Local checkpoints are tag-trained and respond to **comma-separated tags**, with quality scaling on tag density and on explicit quality tags (`best quality`, `very aesthetic`, `high contrast`, score tags). Feeding them prose reproduces exactly the mediocre output measured here, and no amount of recipe-side catalog curation compensates for it.
+
+**The composer therefore emits tags, always.** Prose only works on cloud models, and the plan already rules out a hosted-provider adapter — so prose has no consumer in Orb and no format switch is needed. `compose_image_prompt` asks for comma-separated tags, the recipe supplies its quality-tag prefix, and the segment joiner is already comma-based. If a hosted adapter ever appears, it arrives with its own composer concern; adding a `prompt_format` enum now would be a config value with exactly one reachable branch.
+
+The tool description below is written accordingly. `analyze_scene` renders to tags for the same reason.
+
+### Reproducibility, and the cache trap it hides
+
+Re-submitting the identical graph with identical seeds produced a **byte-identical PNG** (same SHA-256). Good for the replay contract — but the second run completed in **2.0 s**, was fully cache-hit, wrote **no new file**, and returned the **same `filename` as the first run**. So:
+
+- Output filenames are not per-submission identities; Orb must key on `prompt_id`, never on filename.
+- A reroll that fails to actually change the seed **silently returns the previous image in ~2 s** instead of erroring. The seed-fold round-trip test in the test plan is guarding a real, silent failure mode — worth asserting that a reroll's bytes differ from its parent's.
+
+### Latency is ~55 s per image, not "tens of seconds"
+
+Same 3090, the project's two-stage graph (960×1536, 8 steps → 4× UltraSharp upscale → downscale 1472×2304 → 10 steps at 0.3 denoise):
+
+- cold (loaders uncached): **50.1 s**
+- warm, fresh seed: **55.1 s**
+
+Model loading is not the cost; sampling is. A simpler single-stage recipe will be faster, but this is the order of magnitude a quality recipe lands at on good consumer hardware. **This decisively confirms the no-`POST_PIPELINE` decision** — a blocking per-turn hook would add ~a minute to every turn while holding workflow locks.
+
+### Stored size is ~3× the plan's estimate at this resolution
+
+The 1472×2304 output was **4,690,975 bytes** of PNG → **6,254,636 bytes base64**. The plan estimates ~2 MB per stored row at 1024×1024; at a quality recipe's real resolution it is over 6 MB. A hundred images is then a ~600 MB conversation database, on the file every conversation read touches.
+
+Recipe dimensions are therefore not merely "chosen with stored size as a constraint" — they are the dominant term. Two mitigations are worth deciding before the catalog is fixed: cap recipe output resolution nearer 1024², and consider storing WebP/JPEG rather than PNG for the attachment (the render stays PNG; only the stored copy is re-encoded). Neither needs new infrastructure.
+
+### Interrupt is indistinguishable from failure
+
+`POST /interrupt` returned `200` with an **empty body**, and the running job landed in history as `status_str: "error"`, `completed: false`, `outputs: {}` — identical in shape to a genuine execution failure. The single-error-funnel decision is validated, but the corollary is that **Orb must remember locally that it issued the interrupt**; the server will not tell it apart from a crash.
+
+### Two external-mode facts the plan should absorb
+
+- **`GET /queue` returns the full prompt graph of running and pending jobs to any client**, including all prompt text. On a shared external server, character appearance and scene descriptions are readable by anyone who can reach it. This belongs in the external-mode privacy warning, alongside "your prompt left this machine".
+- **Outputs accumulate on the server's disk** (33 files in `output/` here) and there is no cleanup route. External mode permanently leaves generated images on the remote host. Worth stating in the UI; not something Orb can fix.
+
+`GET /view` **is** correctly path-contained — `../../main.py`, its URL-encoded form, and a `subfolder=../..` traversal returned 400/400/403. No sanitization needed on Orb's side there.
+
+### Node allowlist: validate the graph, not the server
+
+With 1953 node types available from 20 installed packs, an external server is a strict **superset** of what any Orb graph needs. Allowlist validation must therefore be "this graph references only allowlisted nodes", never "this server offers only allowlisted nodes" — the latter fails against every real installation.
+
+Incidentally, this install already carries `comfyui-impact-pack`, `comfyui-impact-subpack`, and `comfyui_controlnet_aux` — precisely the detector/detailer stack the v2 identity section describes. Advanced users' servers will commonly already have it, which strengthens the case for v2 identity being additive rather than a rewrite.
+
+### Net assessment
+
+Nothing in the probe invalidates the design. Six items change, the last being the only one that touches a contract the plan wants frozen:
+
+1. Sanitize `node_errors` — it leaks absolute paths today.
+2. Re-examine recipe resolution and stored-image encoding; 6 MB/row is the real number.
+3. Strip PNG metadata before persisting — ComfyUI embeds the full prompt and graph in every output.
+4. Track interrupt state locally; the server reports it as an error.
+5. Document that external mode exposes prompts via `/queue` and leaves files on the remote disk.
+6. **The composer emits comma-separated tags, not prose.** Tag density was the single largest observed quality factor. No format switch — prose only suits cloud models and the plan ships no hosted adapter.
+
 ## Scope
 
 ### v1
@@ -184,7 +289,7 @@ imagegen/
 
 ### Generated images grow the conversation database
 
-`workflow_attachments.data_b64` is a `TEXT` column: attachment bytes live base64-encoded inside the main SQLite database, not on disk. Base64 adds a third again on top of the encoded image, and reroll and regenerate retain siblings rather than replacing them, so a single message can hold several. A 1024×1024 illustration PNG lands around 1.5 MB, so roughly 2 MB per stored image; a 1536×1152 one is about double that. A few hundred images is therefore a multi-hundred-megabyte conversation database, and it is the same file every conversation read touches.
+`workflow_attachments.data_b64` is a `TEXT` column: attachment bytes live base64-encoded inside the main SQLite database, not on disk. Base64 adds a third again on top of the encoded image, and reroll and regenerate retain siblings rather than replacing them, so a single message can hold several. A 1024×1024 illustration PNG lands around 1.5 MB, so roughly 2 MB per stored image; a 1536×1152 one is about double that. A few hundred images is therefore a multi-hundred-megabyte conversation database, and it is the same file every conversation read touches. **Measured: a 1472×2304 PNG from a real recipe was 4.7 MB → 6.25 MB base64, roughly 3× the estimate above (see "Feasibility probe").**
 
 v1 accepts this rather than building a blob store, because the existing attachment storage, sibling tree, and default `image/*` renderer are the entire reason no schema migration is needed. Three things keep it from becoming pathological:
 
@@ -489,15 +594,23 @@ Both `ToolSpec`s are declared unconditionally — registry membership is fixed a
 ```python
 COMPOSE_TOOL_SCHEMA = {"type": "function", "function": {
     "name": "compose_image_prompt",
-    "description": "Describe the current visible moment without choosing an art style.",
+    "description": "Tag the current visible moment without choosing an art style.",
     "parameters": {"type": "object", "properties": {
         "scene": {
             "type": "string",
-            "description": "Concise concrete visual description: subjects, setting, lighting, pose, expression, clothing, and framing. No art-style or quality terms."
+            "description": (
+                "Comma-separated visual tags, not sentences. Cover subjects and count, "
+                "setting, lighting, pose, expression, clothing, and framing. "
+                "Prefer many short specific tags over few broad ones. "
+                "No art-style or quality terms. "
+                "Example: 1girl, solo, long white hair, twin braids, blue jacket, "
+                "open clothes, sitting, windowsill, night, city lights, upper body, "
+                "looking away, melancholic"
+            )
         },
         "avoid": {
             "type": ["string", "null"],
-            "description": "Optional visible elements that must not appear."
+            "description": "Optional comma-separated tags for visible elements that must not appear."
         }
     }, "required": ["scene", "avoid"], "additionalProperties": false}
 }}
@@ -519,7 +632,7 @@ external positive = character appearance + scene + selected style prompt
 external negative = character negative + avoid + selected style negative
 ```
 
-Segments are whitespace-normalized, individually length-bounded, and joined without attempting semantic de-duplication. The style is always supplied by the trusted catalog, never by the LLM. If the forced call fails, use a bounded plain-text excerpt of the anchor assistant reply as `scene`; if both are empty, fail without spending inference resources.
+Segments are whitespace-normalized, individually length-bounded, and joined without attempting semantic de-duplication. The style is always supplied by the trusted catalog, never by the LLM. If the forced call fails, use a bounded plain-text excerpt of the anchor assistant reply as `scene`; if both are empty, fail without spending inference resources. That excerpt is prose fed to a tag model, so it renders worse than a composed prompt — accepted, because the alternative on this path is no image at all, and it is not worth a sentence-to-tag converter to improve a fallback.
 
 ## Hooks and artifact behavior
 
