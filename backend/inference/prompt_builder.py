@@ -67,6 +67,7 @@ def build_prefix(
     macros: Macros | None = None,
     user_description: str = "",
     *,
+    constant_lorebook_block: str = "",
     extra_system_blocks: list[str] | None = None,
 ) -> list[ChatMessage]:
     resolve = macros.resolve_message if macros else (lambda t: t)
@@ -86,6 +87,10 @@ def build_prefix(
         parts.append(f"\n\n## Character: {macros.char}")
     if resolved["persona"]:
         parts.append(f"\n{resolved['persona']}")
+    # Opaque, pre-rendered (header + macros already resolved by the caller) —
+    # not passed through resolve, to avoid double macro expansion.
+    if constant_lorebook_block:
+        parts.append(f"\n\n{constant_lorebook_block}")
     if resolved["scenario"]:
         parts.append(f"\n\n## Scenario\n{resolved['scenario']}")
     if resolved["mes_example"]:

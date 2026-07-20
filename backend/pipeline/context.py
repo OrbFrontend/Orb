@@ -37,6 +37,7 @@ from ..database.models import (
 from ..features.lorebook import (
     agentic_lorebook_active,
     build_lorebook_catalog,
+    compute_constant_lorebook_block,
     compute_lorebook_injection_block,
 )
 from ..inference import (
@@ -197,7 +198,9 @@ def _build_prefix_from_ctx(
 
     *system_prompt* overrides ``ctx.system_prompt`` when given — used for the
     agent prefix in dual-model mode. *extra_system_blocks* are additional system
-    sections contributed by pre-pipeline workflow hooks.
+    sections contributed by pre-pipeline workflow hooks. Constant lorebook
+    entries are rendered here into the system body (they are byte-identical
+    every turn, so they belong in the cached prefix, not the trailing block).
     """
     conv = ctx.conv
     macros, user_description = persona_macros(
@@ -213,6 +216,7 @@ def _build_prefix_from_ctx(
         history,
         macros,
         user_description,
+        constant_lorebook_block=compute_constant_lorebook_block(ctx.lorebook_entries, macros),
         extra_system_blocks=extra_system_blocks,
     )
 
