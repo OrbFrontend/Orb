@@ -36,7 +36,7 @@ The documented core ComfyUI server routes can submit workflows, inspect history,
 - The user explicitly opts into every runtime or model download. No multi-gigabyte download starts because a conversation was opened or a generation button was pressed.
 - In managed-local mode, selecting a style selects its entire curated recipe. The normal UI never exposes checkpoints, VAEs, graph nodes, samplers, CFG, steps, or LoRAs.
 - If the selected local recipe is not installed, the UI reports the exact download size and source links and offers one Download action. Generation stays disabled until every artifact verifies successfully.
-- In external mode, style prompt text is applied, but the configured remote model remains in control.
+- In external mode, style prompt text is applied around the composed scene, but the configured remote graph and model remain in control. External styles are user-authored, seeded from the catalog pair (see "Catalog: styles decide differently by backend").
 - The LLM only describes the visual scene through standalone forced calls. It never chooses the backend, model, workflow, sampler, dimensions, or style.
 
 ## Facts that constrain the implementation
@@ -59,15 +59,15 @@ Measured against a live loopback ComfyUI install using a saved `orb-test` projec
 
 `POST /prompt {prompt, client_id}` → `200 {prompt_id, number, node_errors}`; poll `GET /history/{prompt_id}` until `status.completed`; fetch the declared output node's image via `GET /view?filename=&subfolder=&type=output`. Returned bytes carried a correct `image/png` `Content-Type` and PNG signature. The plan's queue/history/view/discovery sequence needs no change.
 
-`GET /models` returns 47 folder kinds; `GET /models/{folder}` returns filenames. **Folder names are not guessable:** `/models/clip` was empty while the project's `CLIPLoader` loads from `text_encoders`. External model discovery must enumerate the folder the selected graph's loader actually reads, never a hard-coded `clip`/`checkpoints` assumption.
+`GET /models` returns 47 folder kinds; `GET /models/{folder}` returns filenames. **Folder names are not guessable:** `/models/clip` was empty while the project's `CLIPLoader` loads from `text_encoders`. External model discovery must enumerate the folder the selected graph's loader actually reads, never a hard-coded `clip`/`checkpoints` assumption. User-imported graphs sidestep discovery entirely: their loader inputs already name files present on that server.
 
 ### Saved projects are UI format; there is no server-side conversion
 
-`orb-test.json` is a **UI graph** (`nodes`/`links`/`groups`/`extra`), not the API format `/prompt` accepts. UI→API conversion lives in the frontend JavaScript and is exposed by **no server route**. Consequences:
+`orb-test.json` is a **UI graph** (`nodes`/`links`/`groups`/`extra`), not the API format `/prompt` accepts. UI→API conversion lives in the frontend JavaScript and is exposed by **no server route** — corroborated upstream by an open ComfyUI feature request for exactly that route and a third-party custom node that exists solely to fill the gap. Consequences:
 
-- Orb cannot ingest a user's saved ComfyUI project. Shipped API-format graphs, as already planned, are the only workable input — this is now a verified constraint rather than a preference.
-- **Every ComfyUI-generated PNG embeds the API-format graph in a `prompt` tEXt chunk** (plus the UI graph in `workflow`). This is the practical authoring route: generate once in the UI, read the API graph straight out of the output PNG. Hand-converting `widgets_values` positionally against `/object_info` also works but is fragile and unnecessary. Verified by replaying an extracted graph and reproducing its source image **pixel-for-pixel**.
-- The real project contained a **dead node** (`CLIPSetLastLayer`, fed by the checkpoint's CLIP, output consumed by nothing — the text encoders read from a separate `CLIPLoader`). Hand-authored graphs carry cruft; catalog validation should reject or prune unreachable nodes rather than assume clean input.
+- Orb never converts a saved project itself — but the user can: ComfyUI's dev-mode **Workflow → Export (API)** emits exactly the format `/prompt` accepts. *(Correction 2026-07-21: this bullet originally concluded "Orb cannot ingest a user's saved ComfyUI project", which overstated the measured fact — the missing conversion is server-side only.)* "API-format only" constrains the file Orb accepts, not the origin of the workflow: managed mode ships its own graphs, and external mode may accept a user's exported graph (see "External ComfyUI").
+- **By default, a PNG saved by the first-party `SaveImage` node embeds the API-format graph in a `prompt` tEXt chunk** (plus the UI graph in `workflow`). This is the practical authoring route: generate once in the UI, read the API graph straight out of the output PNG. Hand-converting `widgets_values` positionally against `/object_info` also works but is fragile and unnecessary. Verified by replaying an extracted graph and reproducing its source image **pixel-for-pixel**. Not guaranteed, though: the server's disable-metadata option and common metadata-stripping save nodes remove these chunks, so any PNG-import path needs a graceful "no workflow metadata in this image" failure rather than an assumption.
+- The real project contained a **dead node** (`CLIPSetLastLayer`, fed by the checkpoint's CLIP, output consumed by nothing — the text encoders read from a separate `CLIPLoader`). Hand-authored graphs carry cruft. Catalog validation of shipped graphs should reject or prune unreachable nodes; user-imported graphs are instead accepted as the server accepts them — this one executed, dead node and all.
 
 The converted graph ran unmodified, so the conversion is mechanical — just not automatable against a live server.
 
@@ -92,7 +92,7 @@ This is a cheap, exact preflight — a catalog graph can be validated against a 
 
 The same `prompt`/`workflow` tEXt chunks that make authoring easy are a **privacy leak in the stored artifact**. If Orb persists ComfyUI's PNG bytes verbatim into `workflow_attachments`, every stored image embeds the complete prompt, negative prompt, model filenames, and graph. A user who exports or shares an image ships their character's full prompt text with it — including anything NSFW — with no indication that it is there.
 
-Orb must re-encode or strip metadata before persisting. This composes well with the size finding above: the re-encode that drops the chunks is the same pass that converts to WebP.
+Orb must re-encode or strip metadata before persisting. This composes well with the size finding above: the re-encode that drops the chunks is the same pass that converts to WebP. (The managed sidecar could also launch with metadata saving disabled, but external servers are outside Orb's control, so the persistence-side strip is the rule that covers both.)
 
 ### The composer's output format is a real design risk
 
@@ -100,7 +100,7 @@ The measured quality gap in this probe was caused entirely by prompt *form*, not
 
 This matters because `compose_image_prompt` currently asks the LLM for a *"concise concrete visual description"* — natural-language prose. Local checkpoints are tag-trained and respond to **comma-separated tags**, with quality scaling on tag density and on explicit quality tags (`best quality`, `very aesthetic`, `high contrast`, score tags). Feeding them prose reproduces exactly the mediocre output measured here, and no amount of recipe-side catalog curation compensates for it.
 
-**The composer therefore emits tags, always.** Prose only works on cloud models, and the plan already rules out a hosted-provider adapter — so prose has no consumer in Orb and no format switch is needed. `compose_image_prompt` asks for comma-separated tags, the recipe supplies its quality-tag prefix, and the segment joiner is already comma-based. If a hosted adapter ever appears, it arrives with its own composer concern; adding a `prompt_format` enum now would be a config value with exactly one reachable branch.
+**The composer therefore emits tags, always.** The curated bundles are tag-trained, and tags are the only format any v1 path emits. One consumer for prose does exist in principle: a user-imported external graph may target a prose-trained model (Flux, SD3), for which tag salad is noise. That is still not worth a global `prompt_format` enum in v1 — the curated path would never take the second branch — but it fixes where the switch lands if it is ever needed: a per-style field on the user's external style entries, not a config value on the composer. `compose_image_prompt` asks for comma-separated tags, the recipe supplies its quality-tag prefix, and the segment joiner is already comma-based.
 
 The tool description below is written accordingly. `analyze_scene` renders to tags for the same reason.
 
@@ -141,6 +141,8 @@ Recipe dimensions are therefore not merely "chosen with stored size as a constra
 
 With 1953 node types available from 20 installed packs, an external server is a strict **superset** of what any Orb graph needs. Allowlist validation must therefore be "this graph references only allowlisted nodes", never "this server offers only allowlisted nodes" — the latter fails against every real installation.
 
+The allowlist itself governs **shipped graphs only** — it is an artifact of curatorial review. A user-imported external graph legitimately references whatever custom nodes its author installed; its validation is structural, against that server's `/object_info` (every `class_type` present, combo values legal, mapped slots typed correctly, one output node), never against Orb's allowlist.
+
 ### Net assessment
 
 Nothing in the probe invalidates the design. Six items change, the last being the only one that touches a contract the plan wants frozen:
@@ -150,7 +152,7 @@ Nothing in the probe invalidates the design. Six items change, the last being th
 3. Strip PNG metadata before persisting — ComfyUI embeds the full prompt and graph in every output.
 4. Track interrupt state locally; the server reports it as an error.
 5. Document that external mode exposes prompts via `/queue` and leaves files on the remote disk.
-6. **The composer emits comma-separated tags, not prose.** Tag density was the single largest observed quality factor. No format switch — prose only suits cloud models and the plan ships no hosted adapter.
+6. **The composer emits comma-separated tags, not prose.** Tag density was the single largest observed quality factor. No format switch in v1 — the curated bundles are tag-trained; if a user-imported external graph ever targets a prose-trained model, format becomes a field on that user style entry, not a composer branch.
 
 ## Scope
 
@@ -159,15 +161,16 @@ Nothing in the probe invalidates the design. Six items change, the last being th
 - Managed local ComfyUI install/start/stop/health/log lifecycle.
 - Curated, opt-in model-bundle download/remove/repair with progress, cancellation, resume, disk checks, and SHA-256 verification.
 - Two styles: realistic and anime. Each is a full curatorial commitment — reviewed bundle, exact hashes, hardware guidance, passing shipped workflow, fixed-seed quality review — so the count is set by how many of those Orb can actually stand behind at release, not by how many sound good in a dropdown. Further styles ship in later releases as new ids.
-- First-party ComfyUI nodes only; shipped API-format workflows only.
+- Managed local: first-party ComfyUI nodes only; shipped API-format workflows only.
 - Text-to-image, one image per request.
 - Per-message Visualize action. On demand only.
-- External ComfyUI generation against a user-configured checkpoint.
+- External ComfyUI generation against a user-configured checkpoint on a shipped graph, or against a user-imported API-format graph with a user-authored slot map.
+- User-editable external styles, seeded from the catalog's two fragment pairs.
 - Existing `workflow_attachments` storage, sibling reroll/regenerate behavior, and default `image/*` renderer.
 
 ### Not v1
 
-- ComfyUI-Manager, arbitrary custom nodes, arbitrary workflow upload, arbitrary model URLs, or a model marketplace.
+- ComfyUI-Manager, arbitrary model URLs, or a model marketplace; in managed mode, also arbitrary custom nodes and arbitrary workflow upload. (External mode accepts user-imported API-format graphs — the custom nodes they reference live on the user's own server, not in anything Orb installs.)
 - Remote model installation. A future remote-management option requires an authenticated companion daemon with an allowlisted catalog and filesystem sandbox; it is not implemented through undocumented Manager routes.
 - Forge/A1111 adapters. They add another lifecycle/model-selection contract without improving the managed default.
 - Live remote catalog updates. The catalog ships with Orb releases; signed catalog updates can be designed later.
@@ -293,7 +296,7 @@ Later styles (pixel art, scenery, line art, and anything else) arrive as new ids
 
 For `managed_local`, the style chooses the recipe and therefore the model bundle, graph, prompt mode, resolution, sampler, scheduler, steps, CFG, and style-specific positive/negative fragments. This is the deep decision layer the normal UI hides.
 
-For `external_comfy`, only `prompt` and `negative_prompt` participate: the mode uses the one checkpoint and shipped compatible graph selected in Advanced settings. Orb must not claim that backend reproduces the curated local look.
+For `external_comfy`, catalog styles participate only as seeds: the external dropdown is a **user-editable style list** of `{label, prompt, negative_prompt}` entries stored in workflow config, initialized from the catalog's two fragment pairs. The catalog fragments are tuned for the curated bundles — against an arbitrary external checkpoint (Pony's score tags, Illustrious's quality tags, a prose-trained model) they are a starting point the user is expected to edit, and Orb must not claim that backend reproduces the curated local look. The invariant is unchanged either way: style text comes from trusted non-LLM configuration — curator-authored in managed mode, user-authored in external mode — never from the model.
 
 ### `RecipeSpec`
 
@@ -483,7 +486,7 @@ GET    /api/workflows/image_gen/external/models
 
 `GET /runtime/devices` returns the selectable devices with their opaque ids, display names, and memory, enumerated in the ordering the sidecar will actually use. It is a read-only probe of the installed runtime environment: it starts no sidecar, does no GPU work, and returns an empty list rather than an error on hosts with nothing to choose between.
 
-`POST /connections/test` validates either the saved source configuration or bounded unsaved overrides from the Advanced form without persisting them. `GET /external/models` uses the saved external-Comfy configuration and returns only sanitized model filenames from documented discovery routes; it never installs or uploads anything.
+`POST /connections/test` validates either the saved source configuration or bounded unsaved overrides from the Advanced form without persisting them. Graph validation is structural, against the server's `/object_info`; it queues no render, because `/prompt` has no dry-run mode — a submission that validates executes. `GET /external/models` uses the saved external-Comfy configuration and returns only sanitized model filenames from documented discovery routes; it never installs or uploads anything.
 
 The existing generic framework routes remain authoritative for the workflow manifest, enablement, and global config, while generation/profile actions remain conversation-scoped:
 
@@ -538,10 +541,26 @@ The initial generate MUST write the diffusion seed it used into the attachment's
 
 - Test `/system_stats`, `/object_info`, and `/models/{folder}`.
 - Advertise `can_install_curated_models=false` unconditionally.
-- Use one shipped core-node graph selected in Advanced settings and one checkpoint filename selected from the server's discovered list.
-- Apply the chosen style's prompt fragments only. Do not silently substitute a catalog checkpoint, upload a model, write remote userdata, or invoke Manager routes.
+- Execute one shipped core-node graph with a checkpoint filename selected from the server's discovered list, or one user-imported API-format graph that carries its own loaders (below).
+- Apply the selected style's prompt fragments only. Do not silently substitute a catalog checkpoint, upload a model, write remote userdata, or invoke Manager routes.
 - Poll by `prompt_id`; on timeout stop polling without issuing the global `/interrupt`.
-- An external server with incompatible/missing first-party nodes or graph inputs fails connection validation with an actionable message.
+- A server missing node types or inputs the selected graph references fails connection validation with an actionable message naming what is missing.
+
+#### User-imported graphs
+
+External mode may run a graph the user authored, because every reason to refuse one is a managed-mode reason — one-click promises, curated recipes, the reviewed node allowlist, Orb standing behind output quality — and none of them applies to a user executing their own workflow on their own server under external mode's already-disclosed privacy posture. The graph crosses no boundary Orb defends; what Orb must still own is *knowing which inputs to patch*, and that is solved the way recipes solve it: an explicit slot map, here authored by the user.
+
+Three import routes, one resulting config entry:
+
+1. Paste or upload a dev-mode **Export (API)** file.
+2. Drop a PNG rendered by that server; the frontend reads the API graph from the `prompt` tEXt chunk client-side, and fails with a clear "no workflow metadata in this image" message when the chunk is absent (disable-metadata servers, stripping save nodes, images from elsewhere).
+3. Keep using a shipped graph — the default, and the only option until something is imported.
+
+The slot map comes from a picker, never inference: Orb lists candidate nodes — `text` inputs for positive/negative, `seed`/`noise_seed` inputs for the seed slot, output-capable nodes for the image to fetch — typed from the server's `/object_info`, and the user assigns each role. The picker steers toward a `SaveImage`-class output; `PreviewImage` outputs are `temp`-type and ephemeral on the server, which still fetches correctly (Orb persists the bytes) but is the fragile choice.
+
+**Validation is structural and render-free.** `/prompt` has no dry-run: a submission that passes validation is queued and executed, so "preflight by submitting" would spend a full render on every save. Saving an imported graph instead checks it against `/object_info` — every `class_type` exists on that server, combo values (the checkpoint name above all) appear in the offered lists, mapped slots exist with the right input types, an output node is present — and the server's own pre-GPU 400 taxonomy remains the backstop at first generation. A "Test render" action may exist, labelled as producing a real image; nothing renders implicitly.
+
+User graphs are configuration, not trusted resources: size- and count-bounded at normalization, stored only inside `external_comfy` config, excluded from preset export (see "Workflow config and profile"), never written under the imagegen data root, and never selectable by managed mode.
 
 ## Workflow config and profile
 
@@ -561,7 +580,12 @@ No schema migration is required. Global settings live in `settings.workflow_conf
     "api_url": "http://127.0.0.1:8188",
     "api_key": "",
     "checkpoint": "",
-    "workflow": "external_core"
+    "workflow": "external_core",
+    "styles": [
+      { "id": "realistic", "label": "Realistic", "prompt": "", "negative_prompt": "" },
+      { "id": "anime", "label": "Anime", "prompt": "", "negative_prompt": "" }
+    ],
+    "user_graphs": []
   }
 }
 ```
@@ -570,17 +594,19 @@ Every hook calls `normalize_config` because workflow `config_schema` is UI metad
 
 `managed_local.device_id` is an opaque device identifier echoed back from enumeration, not an index and not a path; empty means "the runtime's own default device", which is the correct behavior on single-GPU and unified-memory hosts. The normalizer bounds and character-checks it but does not resolve it — a stored device that no longer exists is a *start-time* failure with an actionable message, not a config-load failure that would make the whole workflow unconfigurable.
 
+`external_comfy.workflow` resolves to a shipped graph id or the id of a `user_graphs` entry. `styles` is the user-editable list the Visualize dropdown shows in external mode; the two seeded entries persist empty prompt strings and render the catalog fragments as ghost text per the rule below, so a fragment improved in a later release reaches users who never edited it, while a user-added entry carries its own text. `user_graphs` entries — `{id, label, graph, slots}` — are individually size-bounded and count-bounded at normalization; a graph is kilobytes of JSON, trivially small next to one generated image. `default_style` must resolve in the active source's style list and falls back to the first entry when a source switch leaves it dangling.
+
 **Overridable defaults are stored empty and shown as placeholders.** Any field with a shipped default — prompt fragments in particular — persists as an empty string and renders as ghost text sourced from the manifest's `config_schema` default, with the backend substituting the baked value whenever the field is empty. Editing is then an explicit override, and a curated default can change between releases without migrating stored config or silently overwriting a user's edit.
 
 Secrets remain only in live workflow config and are read at call time. They never enter attachment metadata, job snapshots, logs, subprocess argv, or catalog files.
 
 **Preset export needs a new nested-JSON scrubber; the existing secret protections do not reach this case.** Orb's preset secret machinery is column-granular and column-*name*-driven: `_scrub_configs` blanks whole columns listed in `SECRET_COLUMNS` (`backend/features/presets/engine.py`), and the `SENSITIVE_*` tripwire that forces coverage suffix-matches column *names* (`backend/database/preset_schema.py`). The external endpoint's API key lives nested inside the `settings.workflow_config` JSON column, whose name matches no secret suffix — so the tripwire never flags it and no existing scrubber touches it. Therefore:
 
-- Add a JSON-path scrub of `workflow_config.image_gen.external_comfy.api_key` to the configs export path (`_scrub_configs`), keyed off the workflow-config shape rather than a column name.
+- Add a JSON-path scrub to the configs export path (`_scrub_configs`), keyed off the workflow-config shape rather than a column name: blank `workflow_config.image_gen.external_comfy.api_key`, and drop `external_comfy.user_graphs` wholesale — an imported graph's node inputs are arbitrary and unauditable (a custom node may take a token or URL as an input), and the graphs are machine-specific besides. User styles are bounded text authored in Orb's UI and export normally.
 - The `SECRET_COLUMNS` coverage test (`tests/integration/test_preset_schema_coverage.py`) is no backstop here; correctness rests entirely on dedicated canary tests.
 - Precedent confirms the blind spot: TTS already stores `api_key` inside `character_cards.workflow_state` (`backend/workflows/tts/synth.py`), uncovered by the same mechanism. Do not assume the framework scrubs workflow JSON secrets — it does not.
 
-Dropping the hosted-provider adapter removes one of two keys, not the requirement: a single nested secret is exactly as invisible to the existing machinery as two. Tests seed a unique canary into the key and assert it disappears when `configs` is omitted and when `strip_keys=true`, and that a deliberate `strip_keys=false` export retains it.
+Dropping the hosted-provider adapter removes one of two keys, not the requirement: a single nested secret is exactly as invisible to the existing machinery as two. Tests seed a unique canary into the key and another into a `user_graphs` node input, assert both disappear when `configs` is omitted and when `strip_keys=true`, and that a deliberate `strip_keys=false` export retains the key.
 
 Per-character `workflow_character_state` is deliberately small:
 
@@ -649,7 +675,7 @@ external positive = character appearance + scene + selected style prompt
 external negative = character negative + avoid + selected style negative
 ```
 
-Segments are whitespace-normalized, individually length-bounded, and joined without attempting semantic de-duplication. The style is always supplied by the trusted catalog, never by the LLM. If the forced call fails, use a bounded plain-text excerpt of the anchor assistant reply as `scene`; if both are empty, fail without spending inference resources. That excerpt is prose fed to a tag model, so it renders worse than a composed prompt — accepted, because the alternative on this path is no image at all, and it is not worth a sentence-to-tag converter to improve a fallback.
+Segments are whitespace-normalized, individually length-bounded, and joined without attempting semantic de-duplication. The style is always supplied by trusted non-LLM configuration — the catalog in managed mode, the user's own style entries in external mode — never by the LLM. If the forced call fails, use a bounded plain-text excerpt of the anchor assistant reply as `scene`; if both are empty, fail without spending inference resources. That excerpt is prose fed to a tag model, so it renders worse than a composed prompt — accepted, because the alternative on this path is no image at all, and it is not worth a sentence-to-tag converter to improve a fallback.
 
 ## Hooks and artifact behavior
 
@@ -657,7 +683,7 @@ Declare `image_gen_workflow` with `produces_artifacts=True` and bind ON_DEMAND, 
 
 ### On demand
 
-`POST .../workflows/image_gen/trigger` action `generate` accepts `{message_id, style_id}`. Validate that `message_id` is an integer but not a boolean, that the target message exists in this conversation and is an assistant message, and that `style_id` is a live catalog id. Compose from the message, resolve the selected style/source, generate, and insert one workflow attachment.
+`POST .../workflows/image_gen/trigger` action `generate` accepts `{message_id, style_id}`. Validate that `message_id` is an integer but not a boolean, that the target message exists in this conversation and is an assistant message, and that `style_id` resolves for the active source — a live catalog id in managed mode, an entry in the user's external style list in external mode. Compose from the message, resolve the selected style/source, generate, and insert one workflow attachment.
 
 **Progress streams from the hook return; no new SSE contract is added.** The generic trigger route relays a hook's `StreamingResponse` verbatim, so the action returns one and frames its own phase and reasoning events the way the orchestrator frames the in-turn pipeline's. Install jobs poll (long-running, must survive restart); generation streams (short, in-request). Two rules make the stream safe to consume:
 
@@ -679,13 +705,13 @@ The only other ON_DEMAND actions are `get_profile` and `set_profile`, because th
 Store in `generation_metadata`:
 
 ```text
-source, style_id, recipe_id,
+source, style_id, recipe_id, workflow_id,
 bundle_id, runtime_version, backend_model,
 composer_mode, prompt, negative_prompt, width, height, steps, cfg,
 sampler, scheduler
 ```
 
-`composer_mode` records which composition path produced the prompt. Replay never re-composes — reroll and rehydrate render the stored prompt — so this is diagnostic only, and it is what makes "why did this one get the outfit wrong" answerable after the config has since been toggled.
+`workflow_id` records which graph rendered it — recipe-implied in managed mode, a shipped or user-imported graph id in external mode. `composer_mode` records which composition path produced the prompt. Replay never re-composes — reroll and rehydrate render the stored prompt — so this is diagnostic only, and it is what makes "why did this one get the outfit wrong" answerable after the config has since been toggled.
 
 The render parameters are the identity of what actually rendered; the ids beside them are labels. That is why no catalog version is stored and why recipe and bundle ids carry no version suffix: a stored image is matched by what it was rendered with, so the catalog is free to change under a stable name without anything to migrate and without anyone remembering to bump a field. These values are recorded because the row is written anyway; the comparison is free because the recipe is already loaded.
 
@@ -703,7 +729,7 @@ The Visualize button is registered as a workflow message button, shown only on a
 
 It opens a minimal modal:
 
-1. Style dropdown (`Realistic`, `Anime`).
+1. Style dropdown — the catalog styles (`Realistic`, `Anime`) in managed mode; the user's own style entries in external mode.
 2. One primary action: Generate.
 
 In managed-local mode, if setup is incomplete, the same modal replaces Generate with exactly one relevant action:
@@ -725,7 +751,7 @@ The normal card shows source, default style, readiness, disk usage, and a Settin
 - installed bundles with size/source/remove actions;
 - managed runtime status/start/stop/repair/remove and sanitized log tail;
 - GPU selector, shown only when enumeration returns more than one device, labelled by device name and warning that changing it restarts the sidecar; plus the idle-VRAM-release toggle, labelled with what it costs ("frees the card for other apps between images; adds model load time to the next one");
-- external URL/key/checkpoint and connection test;
+- external URL/key/checkpoint and connection test; graph import (API-format file, or PNG with embedded workflow, parsed client-side) with the slot picker; the external style list editor;
 - per-character appearance/negative prompts.
 
 Raw sampler/CFG/steps/dimensions and model overrides are not exposed for managed recipes. Catalog curation happens in version-controlled resources and tests, not through end-user settings.
@@ -736,7 +762,7 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 
 - The managed server listens only on loopback and is not reverse-proxied through Orb.
 - No ComfyUI-Manager and no community custom nodes in v1.
-- No frontend-supplied download URL, filename, destination, command, graph, or node id.
+- No frontend-supplied input reaches Orb's filesystem, subprocess argv, or download machinery: no URL, filename, destination, or command, ever; no graph or node id in managed mode. External user graphs and slot maps are the one exception, and a narrow one — user configuration, size-bounded and structurally validated, executed only on the user's own remote server, stored only in workflow config, never used by managed mode.
 - Catalog files are trusted release inputs but are still schema/path/hash validated.
 - Subprocesses use explicit argv, dedicated cwd, deadlines, and captured bounded logs. The environment is **constructed from an allowlist**, not filtered: inherited accelerator variables are dropped so Orb's device selection cannot be overridden from outside, and only the variant's own selector is added back.
 - HTTP downloads reject local/private targets and unsafe redirects; model files are verified before ComfyUI can see them.
@@ -761,7 +787,8 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 - Runtime promotion renames staging into place, and a crash between the two renames leaves `previous/` recoverable on the next start.
 - Comfy queue/history/declared-output/view sequence, malformed/error payloads, timeout, output size/signature, and managed versus external interrupt behavior.
 - Config/profile normalization and nested-secret exclusion.
-- Style resolution proves managed style selects its recipe/bundle/params while external styles change prompt only.
+- Style resolution proves managed style selects its recipe/bundle/params while external styles change prompt only; `style_id` validation resolves against the active source's list.
+- User-graph import: slot patching reuses the recipe slot mechanism; structural validation against an `/object_info` fixture catches a missing `class_type`, an out-of-list combo value, a mistyped slot input, and a missing output node — all without a `/prompt` submission; oversized or over-count imports fail normalization.
 - Composer schema/choice parity, segment order/bounds, style isolation, and anchor-text fallback.
 - `scene_analysis` off runs one forced call and on runs two; the analysis result renders to text as the composition call's final message; a failed analysis degrades to single-call composition rather than failing the generation; both tools stay registered under either setting.
 - Scene rendering tolerates a partial or malformed analysis result — every section is independently droppable — so a model that omits a field still yields usable text.
@@ -779,8 +806,8 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 - On-demand guards, streamed progress with its terminal event, profile round-trip, regenerate sibling shape, reroll seed change, and rehydrate request replay.
 - The streamed generate action validates its target and reads conversation/character state before returning the response object; two concurrent triggers on one message do not interleave into a corrupt sibling tree.
 - A recipe edited in place under a stable id is detected on replay by comparing stored render parameters against the resolved recipe, and disclosed rather than silently substituted or hard-failed; an image whose bundle was removed still rerolls after the user accepts the current recipe. Editing only a graph's internals, with every recipe parameter unchanged, is deliberately not detected — it is not worth a hash to catch.
-- External discovery/generation never calls install, userdata-write, Manager, or interrupt endpoints.
-- Preset canaries prove the bespoke JSON-path scrubber removes the nested external API key when configs are omitted or `strip_keys=true`, and retains it under a deliberate `strip_keys=false` export (the `SECRET_COLUMNS` coverage test does not reach this path).
+- External discovery/generation never calls install, userdata-write, Manager, or interrupt endpoints; connection tests and graph saves submit nothing to `/prompt`.
+- Preset canaries prove the bespoke JSON-path scrubber removes the nested external API key and the `user_graphs` list (canary seeded into a graph node input) when configs are omitted or `strip_keys=true`, and retains the key under a deliberate `strip_keys=false` export (the `SECRET_COLUMNS` coverage test does not reach this path).
 - App lifespan terminates only the sidecar process it started.
 
 ### Frontend
@@ -790,6 +817,7 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 - Styles are catalog-driven but preserve stable labels/order.
 - No advanced engine fields leak into managed normal flow.
 - Prompt/style/error/log payloads containing HTML, quotes, and handler-shaped strings are escaped.
+- The slot picker offers only role-compatible nodes; importing a metadata-stripped PNG shows the "no workflow metadata" message rather than failing silently.
 - Existing default image renderer and regenerate/reroll controls remain intact.
 
 ### Manual release matrix
@@ -812,7 +840,7 @@ Ordered so a working feature exists as early as possible. External ComfyUI needs
 
 1. **Contracts and generation core**: add the engine skeleton, request/result/capabilities contracts, the documented Comfy client with its single error funnel, strict graph patching against a declared slot map, output signature/size validation, and fake-server tests.
 2. **Workflow integration**: implement config normalization, character profile, the composer (single-call path first), and the on-demand/regenerate/reroll hooks. Add the `build_offturn_prefix` toolkit helper, register the workflow, widen the two tool-registry baseline assertions that standalone registration breaks, add nested preset-secret scrubbing, and complete integration tests.
-3. **External ComfyUI**: endpoint/model discovery, generation against a user-selected checkpoint, connection validation with actionable failures, and capability tests proving install is unavailable. **Ships a usable feature.** Everything after this improves it rather than enabling it.
+3. **External ComfyUI**: endpoint/model discovery, generation against a user-selected checkpoint, connection validation with actionable failures, and capability tests proving install is unavailable. Then the user-graph path: API-format import (file and PNG metadata), the `/object_info`-backed slot picker, render-free structural validation, and the user style list. **Ships a usable feature.** Everything after this improves it rather than enabling it.
 4. **Frontend**: Visualize message button, style/generate modal, streamed progress with its terminal event, tools panel, and escaping/state tests.
 5. **Scene analysis**: add the second forced call behind `scene_analysis`, its rendering to text, and the degrade-to-single-call path. Deliberately after real images exist, so the toggle's value can be judged against actual output.
 6. **Contracts and release inputs for managed local**: catalog/runtime schemas, strict loader, two style ids, placeholder test bundles, graph-slot validator, path policy, and catalog tests. Production catalog entries remain unavailable until real artifact metadata and review are complete.
