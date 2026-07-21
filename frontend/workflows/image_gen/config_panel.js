@@ -20,7 +20,6 @@ import {
 import { isLoopbackUrl } from "./policy.js";
 
 const WORKFLOW_ID = "image_gen";
-const STYLE_FIELDS = ["prompt", "negative_prompt", "checkpoint", "workflow"];
 let cfg;
 let pendingGraph = null;
 // The styles and imported graphs being edited. A working copy rather than cfg
@@ -132,14 +131,6 @@ export async function refreshCardReadiness() {
   }
 }
 
-function overrideCount(values) {
-  return STYLE_FIELDS.filter((f) => (values[f] || "").trim()).length;
-}
-
-function stateLabel(count) {
-  return count ? `${count} override${count > 1 ? "s" : ""}` : "Inherits defaults";
-}
-
 // An empty field inherits the shipped fragment for that style id, so the
 // placeholder shows the text it will actually use. A style the catalog does not
 // seed -- anything the user added -- inherits nothing, and says so.
@@ -147,17 +138,15 @@ function placeholder(styleId, field) {
   return styleDefaults.get(styleId)?.[field] || "No style tags";
 }
 
-// One collapsed row per style: the summary carries the name plus how far the
-// style departs from the defaults, so a long list stays scannable without
-// opening anything.
+// One collapsed row per style: the summary carries just the name, so a long
+// list stays scannable without opening anything. Empty fields explain their
+// inherited default via the placeholder, so no summary badge is needed.
 function styleRows(expandId = "") {
   return draft.styles
     .map((s, i) => {
-      const count = overrideCount(s);
       return `<details class="ig-style" data-style-index="${i}"${s.id === expandId ? " open" : ""}>
         <summary>
           <span class="ig-style-name">${esc(s.label || s.id)}</span>
-          <span class="ig-style-state" data-ig-state="${count ? "custom" : "inherit"}">${stateLabel(count)}</span>
         </summary>
         <div class="ig-style-body">
           <label>Name<input data-ig-field="label" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(s.label || "")}"></label>
@@ -219,18 +208,12 @@ function removeStyle(index) {
 }
 
 // Recomputes the summary badge from the row's live field values.
+// Keep the collapsed summary's name in sync as the label field is edited.
 function refreshStyleState(el) {
   const row = el.closest("[data-style-index]");
-  const badge = row?.querySelector("[data-ig-state]");
-  if (!badge) return;
-  const name = row.querySelector('[data-ig-field="label"]')?.value.trim();
-  const nameEl = row.querySelector(".ig-style-name");
+  const name = row?.querySelector('[data-ig-field="label"]')?.value.trim();
+  const nameEl = row?.querySelector(".ig-style-name");
   if (nameEl && name) nameEl.textContent = name;
-  const count = [...row.querySelectorAll("[data-ig-field]")].filter(
-    (f) => STYLE_FIELDS.includes(f.dataset.igField) && f.value.trim(),
-  ).length;
-  badge.textContent = stateLabel(count);
-  badge.dataset.igState = count ? "custom" : "inherit";
 }
 
 function workflowOptions(selected) {
@@ -427,7 +410,7 @@ async function importGraphFile(input) {
     </div>`;
   } catch (e) {
     pendingGraph = null;
-    picker.textContent = e.message || "Could not import this workflow.";
+    picker.innerHTML = `<div class="image-gen-note">${esc(e.message || "Could not import this workflow.")}</div>`;
   }
 }
 
@@ -454,7 +437,8 @@ function addPendingGraph() {
   // entry too — the modal is not re-rendered on import.
   renderStyles();
   const picker = document.getElementById("ig-graph-picker");
-  if (picker) picker.textContent = `Added ${label}. Test the connection, then save settings.`;
+  if (picker)
+    picker.innerHTML = `<div class="image-gen-note">Added ${esc(label)}. Test the connection, then save settings.</div>`;
   pendingGraph = null;
 }
 

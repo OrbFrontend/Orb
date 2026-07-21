@@ -41,8 +41,6 @@
 .ig-style[open]>summary{border-bottom:1px solid var(--border)}
 .ig-style>summary:hover,.ig-advanced>summary:hover{color:var(--text-primary)}
 .ig-style-name{flex:1;min-width:0;font-weight:500;color:var(--text-primary)}
-.ig-style-state{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted)}
-.ig-style-state[data-ig-state="custom"]{color:var(--accent)}
 .ig-style-body{display:grid;gap:10px;padding:10px}
 .ig-style-body>.ig-danger{justify-self:start}
 .ig-danger{color:var(--danger,var(--accent))}
@@ -60,8 +58,22 @@
 
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
 
+/* ---- attachment layout ----
+   Image on the left with its reroll/regen controls overlaid on the corner, render
+   details on the right. The default widget lays regen/reroll out as flat siblings
+   of the image in a centre-aligned flex row, which leaves them floating between
+   the image and the details text; the renderer regroups them so they read as one
+   toolbar belonging to the image. */
+.image-gen-attachment{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px}
+.image-gen-media{position:relative;flex:0 0 auto;line-height:0}
+.image-gen-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;padding:3px;border-radius:calc(var(--radius) + 2px);background:rgba(0,0,0,.5);backdrop-filter:blur(3px);opacity:.6;transition:opacity .15s}
+.image-gen-media:hover .image-gen-actions,.image-gen-actions:focus-within{opacity:1}
+/* Ghost buttons over the translucent pill instead of the framework's boxed look. */
+.image-gen-actions .workflow-regen-button,.image-gen-actions .workflow-reroll-button{border:none;background:transparent;color:#fff}
+.image-gen-actions .workflow-regen-button:hover:not(:disabled),.image-gen-actions .workflow-reroll-button:hover:not(:disabled){background:rgba(255,255,255,.2);color:#fff;border-color:transparent}
+
 /* ---- attachment render details ---- */
-.image-gen-details{margin-top:8px;font-size:.88em}
+.image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
 .image-gen-details dl{display:grid;grid-template-columns:max-content 1fr;gap:5px 10px}
 .image-gen-details dt{color:var(--text-muted)}
 .image-gen-details dd{margin:0;overflow-wrap:anywhere}

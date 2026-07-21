@@ -97,5 +97,15 @@ async function generate(msgId, button) {
 }
 
 export function attachmentRenderer(ctx) {
-  return attachmentDetailsHtml(ctx.att, ctx.defaultHtml, { esc, escAttr });
+  const { att, buttons, defaultHtml } = ctx;
+  // defaultHtml is the image plus the framework's regen/reroll strip concatenated;
+  // the two button strings are documented substrings of it, so stripping them
+  // leaves the bare image, which we re-place with the controls as an overlay
+  // toolbar on the image corner instead of floating between image and details.
+  const media = defaultHtml.replace(buttons.regen, "").replace(buttons.reroll, "");
+  const actions =
+    buttons.reroll || buttons.regen ? `<div class="image-gen-actions">${buttons.reroll}${buttons.regen}</div>` : "";
+  // Empty defaultHtml -> attachmentDetailsHtml returns just the <details> block.
+  const details = attachmentDetailsHtml(att, "", { esc, escAttr });
+  return `<div class="image-gen-attachment"><div class="image-gen-media">${media}${actions}</div>${details}</div>`;
 }
