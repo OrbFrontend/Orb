@@ -305,6 +305,8 @@ async function openSettings(expandStyleId = "") {
         <label>API key<input id="ig-key" type="password" value="${escAttr(ext.api_key || "")}"></label>
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
       </div>
+      <label class="ig-toggle"><input id="ig-scene-analysis" type="checkbox"${cfg.scene_analysis === true ? " checked" : ""}> Analyze complex scenes</label>
+      <div class="image-gen-note">More accurate outfits and positions in multi-character scenes; one extra model call per image.</div>
       <div class="image-gen-row"><button class="btn btn-sm" data-wf-action="image_gen:test">Test connection</button><span id="ig-test-result" class="image-gen-note"></span></div>
     </section>
     <section class="ig-section">
@@ -337,8 +339,7 @@ function readConfig() {
     source: "external_comfy",
     // Chosen in the tools-panel card now, not here; carry the live value through.
     default_style: cfg.default_style || draft.styles[0]?.id || "realistic",
-    // No control for this yet; carry the saved value rather than resetting it.
-    scene_analysis: cfg.scene_analysis === true,
+    scene_analysis: document.getElementById("ig-scene-analysis")?.checked === true,
     timeout_seconds: Number(document.getElementById("ig-timeout")?.value) || 180,
     external_comfy: {
       ...(cfg.external_comfy || {}),

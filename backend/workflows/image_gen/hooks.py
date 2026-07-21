@@ -188,6 +188,8 @@ async def _generate_fresh(
         prefix=prefix,
         settings=ctx.settings,
         anchor_text=str(message.get("content") or ""),
+        scene_analysis=bool(config.get("scene_analysis")),
+        appearance=str(profile.get("appearance_prompt") or ""),
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()
