@@ -11,9 +11,7 @@ Orb will ship image generation as an `image_gen` secondary workflow, **generated
 
 The managed sidecar is the only mode allowed to promise one-click setup, curated model downloads, or automatic model selection. External ComfyUI is generation-only unless a future authenticated Orb companion service is installed on the remote host.
 
-**No hosted-provider adapter.** A cloud Images API is a poor fit for this product: character-driven scene generation runs headlong into provider moderation for a large share of Orb's actual use, so the adapter would fail in exactly the cases users want it. It also adds a credential surface, a per-provider response contract, and a second "your prompt left this machine" story to a feature that is otherwise entirely local. If demand appears later, the adapter boundary below is where it attaches.
-
-**Every image is produced by an explicit user action.** There is no automatic per-turn generation. A blocking post-pipeline hook would make assistant persistence wait tens of seconds on a render while workflow locks are held, and the per-message Visualize action produces the same image with none of that cost. Automatic generation becomes reconsiderable only once the framework supports post-persistence work with a message-id handoff; until then it is not worth the latency it imposes on every turn.
+**Every image is produced by an explicit user action.** A blocking post-pipeline hook would make assistant persistence wait tens of seconds on a render while workflow locks are held, and the per-message Visualize action produces the same image with none of that cost. Automatic generation becomes reconsiderable only once the framework supports post-persistence work with a message-id handoff; until then it is not worth the latency it imposes on every turn.
 
 This asymmetry is intentional and represented as capabilities rather than hidden behind a falsely uniform adapter:
 
@@ -88,12 +86,6 @@ This is a cheap, exact preflight — a catalog graph can be validated against a 
 
 **`exception_during_inner_validation` embeds a Python traceback containing absolute server paths** (`<comfyui-install-dir>/execution.py` and similar). The security rule against returning local paths is therefore load-bearing on this exact path: `node_errors` must never be relayed to the frontend verbatim. Extract `type` and `input_name`; drop `traceback`, `exception_message`, and `input_config`.
 
-### Generated PNGs carry the full prompt as metadata — strip it
-
-The same `prompt`/`workflow` tEXt chunks that make authoring easy are a **privacy leak in the stored artifact**. If Orb persists ComfyUI's PNG bytes verbatim into `workflow_attachments`, every stored image embeds the complete prompt, negative prompt, model filenames, and graph. A user who exports or shares an image ships their character's full prompt text with it — including anything NSFW — with no indication that it is there.
-
-Orb must re-encode or strip metadata before persisting. This composes well with the size finding above: the re-encode that drops the chunks is the same pass that converts to WebP. (The managed sidecar could also launch with metadata saving disabled, but external servers are outside Orb's control, so the persistence-side strip is the rule that covers both.)
-
 ### The composer's output format is a real design risk
 
 The measured quality gap in this probe was caused entirely by prompt *form*, not by the graph. Substituting a 13-tag generic prompt for the project's 45-tag one, on an identical graph and comparable seed, produced visibly washed-out, low-contrast, mushy output; the original prompt on the same pipeline produced crisp, high-contrast, coherent results.
@@ -145,14 +137,13 @@ The allowlist itself governs **shipped graphs only** — it is an artifact of cu
 
 ### Net assessment
 
-Nothing in the probe invalidates the design. Six items change, the last being the only one that touches a contract the plan wants frozen:
+Nothing in the probe invalidates the design. Five items change, the last being the only one that touches a contract the plan wants frozen:
 
 1. Sanitize `node_errors` — it leaks absolute paths today.
 2. Re-examine recipe resolution and stored-image encoding; 6 MB/row is the real number.
-3. Strip PNG metadata before persisting — ComfyUI embeds the full prompt and graph in every output.
-4. Track interrupt state locally; the server reports it as an error.
-5. Document that external mode exposes prompts via `/queue` and leaves files on the remote disk.
-6. **The composer emits comma-separated tags, not prose.** Tag density was the single largest observed quality factor. No format switch in v1 — the curated bundles are tag-trained; if a user-imported external graph ever targets a prose-trained model, format becomes a field on that user style entry, not a composer branch.
+3. Track interrupt state locally; the server reports it as an error.
+4. Document that external mode exposes prompts via `/queue` and leaves files on the remote disk.
+5. **The composer emits comma-separated tags, not prose.** Tag density was the single largest observed quality factor. No format switch in v1 — the curated bundles are tag-trained; if a user-imported external graph ever targets a prose-trained model, format becomes a field on that user style entry, not a composer branch.
 
 ## Scope
 
@@ -172,16 +163,12 @@ Nothing in the probe invalidates the design. Six items change, the last being th
 
 - ComfyUI-Manager, arbitrary model URLs, or a model marketplace; in managed mode, also arbitrary custom nodes and arbitrary workflow upload. (External mode accepts user-imported API-format graphs — the custom nodes they reference live on the user's own server, not in anything Orb installs.)
 - Remote model installation. A future remote-management option requires an authenticated companion daemon with an allowlisted catalog and filesystem sandbox; it is not implemented through undocumented Manager routes.
-- Forge/A1111 adapters. They add another lifecycle/model-selection contract without improving the managed default.
 - Live remote catalog updates. The catalog ships with Orb releases; signed catalog updates can be designed later.
-- img2img, inpainting, ControlNet, IPAdapter/FaceID, character LoRAs, expression-pack generation, batches, or live previews.
-- Any face/character identity consistency mechanism. A generic appearance prompt yields a different face every generation; that is an accepted limitation of this feature, not a staged milestone. Nothing here is designed against a future identity feature.
-- Automatic per-turn generation. Deferred until the framework can run work after assistant persistence rather than inside the turn.
-- A hosted-provider (cloud Images API) adapter.
+- img2img, inpainting, ControlNet, character LoRAs, batches, or live previews.
 - Additional styles beyond realistic and anime — pixel art, scenery, line art and the rest are catalog additions, each gated on its own bundle review.
 - Automatic runtime/model updates. Upgrades are explicit and compatibility-checked.
 - Universal hardware support. Only runtime variants exercised by the release matrix are offered; AMD (ROCm and DirectML), Intel Macs, and CPU-only managed generation are out for v1.
-- Multi-GPU beyond pinning one device: no sharding a model across cards, no concurrent renders on different devices, no automatic device selection, and no scheduling around another application's VRAM use.
+- Multi-GPU beyond pinning one device (see "Device selection on multi-GPU hosts").
 - Byte-identical replay across GPU, driver, PyTorch, ComfyUI, model, or workflow changes.
 
 ## Architectural placement
@@ -198,7 +185,7 @@ backend/workflows/image_gen/
   hooks.py                    # on-demand/regenerate/reroll integration
   engine/
     __init__.py               # narrow public facade for hooks, API routes, and lifespan
-    contracts.py              # StyleSpec, RecipeSpec, BundleSpec, request/result/capabilities
+    contracts.py              # StyleSpec, RecipeSpec, BundleSpec, request/result/oncapabilities
     catalog.py                # load + validate immutable shipped catalog
     paths.py                  # data-root resolution and path-containment checks
     jobs.py                   # bounded background install jobs and progress snapshots
@@ -401,7 +388,7 @@ Trade-off, taken deliberately: this adds `comfy-cli` and its transitive dependen
 
 The installer performs preflight before mutation: supported variant, `comfy-cli` present at the pinned version (or installed into the isolated environment first), Python/runtime prerequisites, writable data root, free disk, and absence of another install job. It installs into `runtime/staging`, verifies the result, starts it once, checks `/system_stats` plus a catalog smoke workflow, then promotes it by the two renames described in "Data roots and ownership". A failed install leaves `active/` untouched and retains a bounded diagnostic log.
 
-Do not use `shell=True`, install into Orb's interpreter, run arbitrary catalog commands, or modify a user-owned ComfyUI installation. Every `comfy-cli` invocation uses explicit pinned argv; it is an implementation helper, not a remote-management API or public contract.
+Every `comfy-cli` invocation uses explicit pinned argv, never shell text, and never touches a user-owned ComfyUI installation; it is an implementation helper, not a remote-management API or public contract.
 
 ### Supervision
 
@@ -606,7 +593,7 @@ Secrets remain only in live workflow config and are read at call time. They neve
 - The `SECRET_COLUMNS` coverage test (`tests/integration/test_preset_schema_coverage.py`) is no backstop here; correctness rests entirely on dedicated canary tests.
 - Precedent confirms the blind spot: TTS already stores `api_key` inside `character_cards.workflow_state` (`backend/workflows/tts/synth.py`), uncovered by the same mechanism. Do not assume the framework scrubs workflow JSON secrets — it does not.
 
-Dropping the hosted-provider adapter removes one of two keys, not the requirement: a single nested secret is exactly as invisible to the existing machinery as two. Tests seed a unique canary into the key and another into a `user_graphs` node input, assert both disappear when `configs` is omitted and when `strip_keys=true`, and that a deliberate `strip_keys=false` export retains the key.
+Tests seed a unique canary into the key and another into a `user_graphs` node input, assert both disappear when `configs` is omitted and when `strip_keys=true`, and that a deliberate `strip_keys=false` export retains the key.
 
 Per-character `workflow_character_state` is deliberately small:
 
@@ -617,7 +604,7 @@ Per-character `workflow_character_state` is deliberately small:
 }
 ```
 
-Style is not character state. Character-specific LoRAs and reference images are not part of this feature.
+Style is not character state.
 
 ## Prompt composition
 
