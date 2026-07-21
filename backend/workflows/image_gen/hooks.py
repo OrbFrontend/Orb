@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import secrets
@@ -19,10 +20,11 @@ from ..toolkit import (
 )
 from .composer import assemble_prompts, compose_scene
 from .config import WORKFLOW_ID, normalize_config, normalize_profile, resolve_style
-from .engine import ImageGenerationError, ImageRequest, resolve_and_generate
+from .engine import ImageGenerationError, ImageRequest, ProgressCallback, resolve_and_generate
 
 logger = logging.getLogger(__name__)
 SEED_MODULUS = 2**64
+PHASE_CHANNEL = f"workflow:{WORKFLOW_ID}"
 
 
 def fold_seed(seed: str | int) -> int:
@@ -43,6 +45,22 @@ def _fresh_seed() -> int:
 
 def _frame(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
+
+
+def _phase(label: str) -> str:
+    return _frame("phase_status", {"channel": PHASE_CHANNEL, "label": label})
+
+
+def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
+    """Render an adapter progress event as a user-facing phase label."""
+    if stage == "rendering":
+        return "Rendering in ComfyUI..."
+    if stage == "queued":
+        ahead = detail.get("ahead")
+        if isinstance(ahead, int) and not isinstance(ahead, bool) and ahead > 0:
+            return f"Queued behind {ahead} render{'s' if ahead > 1 else ''}..."
+        return "Queued on ComfyUI..."
+    return None
 
 
 def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> list[dict]:
@@ -115,6 +133,7 @@ async def _generate_fresh(
     profile: Mapping[str, Any],
     style_id: str,
     prefix: Sequence[dict] | None = None,
+    progress: ProgressCallback | None = None,
 ):
     if prefix is None:
         history = _history_through(ctx.history, int(message["id"]))
@@ -136,6 +155,7 @@ async def _generate_fresh(
             style_id=style_id,
             timeout_seconds=config["timeout_seconds"],
         ),
+        progress=progress,
     )
     md = _metadata(
         config=config,
@@ -195,30 +215,40 @@ async def _generate_response(ctx, body):
 
     async def stream():
         attachment_id = None
-        try:
-            yield _frame(
-                "phase_status",
-                {
-                    "channel": f"workflow:{WORKFLOW_ID}",
-                    "label": "Composing image prompt...",
-                },
-            )
-            attachment = await _generate_fresh(
+        labels: asyncio.Queue = asyncio.Queue()
+
+        def on_progress(stage: str, detail: Mapping[str, Any]) -> None:
+            label = _progress_label(stage, detail)
+            if label:
+                labels.put_nowait(label)
+
+        # The render runs as a task so its progress can reach the wire while it
+        # is still in flight. Awaiting it inline would hold every label behind a
+        # call that takes the better part of a minute, which is what left the
+        # UI showing "Composing..." for the whole render and "Rendering..." for
+        # the DB insert that followed it.
+        task = asyncio.create_task(
+            _generate_fresh(
                 ctx=ctx,
                 message=message,
                 config=config,
                 profile=profile,
                 style_id=style_id,
                 prefix=prefix,
+                progress=on_progress,
             )
-            yield _frame(
-                "phase_status",
-                {
-                    "channel": f"workflow:{WORKFLOW_ID}",
-                    "label": "Rendering in ComfyUI...",
-                },
-            )
-            attachment_id, rejected = await insert_workflow_attachment(mid, attachment)
+        )
+        try:
+            yield _phase("Composing image prompt...")
+            while not task.done():
+                try:
+                    label = await asyncio.wait_for(labels.get(), 0.5)
+                except asyncio.TimeoutError:
+                    continue
+                yield _phase(label)
+            while not labels.empty():
+                yield _phase(labels.get_nowait())
+            attachment_id, rejected = await insert_workflow_attachment(mid, await task)
             if attachment_id is None:
                 reason = (rejected or {}).get("reason") or "attachment rejected"
                 yield _frame("image_gen_error", {"message": reason})
@@ -229,7 +259,10 @@ async def _generate_response(ctx, body):
             logger.exception("image generation failed for message %s", mid)
             yield _frame("image_gen_error", {"message": "Image generation failed"})
         finally:
-            yield _frame("phase_status", {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"})
+            # A client that disconnects mid-render closes this generator; without
+            # the cancel the render task would outlive the request.
+            task.cancel()
+            yield _frame("phase_status", {"channel": PHASE_CHANNEL, "state": "done"})
             yield _frame("image_gen_done", {"attachment_id": attachment_id})
 
     return StreamingResponse(stream(), media_type="text/event-stream")

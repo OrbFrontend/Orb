@@ -16,6 +16,14 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ProgressCallback = Callable[[str, Mapping[str, Any]], Optional[Awaitable[None]]]
 
 
+async def _emit(progress: "ProgressCallback | None", stage: str, detail: Mapping[str, Any]) -> None:
+    if not progress:
+        return
+    maybe = progress(stage, detail)
+    if maybe is not None:
+        await maybe
+
+
 def _validation_message(payload: Any) -> str:
     if not isinstance(payload, Mapping):
         return "ComfyUI rejected the workflow"
@@ -106,6 +114,35 @@ class ComfyClient:
             raise ImageGenerationError("ComfyUI returned a malformed model list")
         return sorted(x for x in result if isinstance(x, str) and len(x) <= 512)
 
+    async def queue_ahead(self, number: Any, *, timeout: float = 10.0) -> int | None:
+        """How many renders sit ahead of queue entry `number`, or None if unknown.
+
+        A shared server may hold this job behind other clients' renders, and
+        "queued behind 2" is the difference between *broken* and *waiting*.
+        Position is informational, so every failure mode — an unreachable
+        server, a malformed body, an older build without /queue — reports None
+        and lets the render proceed rather than raising.
+        """
+        if not isinstance(number, int) or isinstance(number, bool):
+            return None
+        try:
+            payload = await self._json("GET", "/queue", timeout=timeout)
+        except ImageGenerationError:
+            return None
+        if not isinstance(payload, Mapping):
+            return None
+        ahead = 0
+        for key in ("queue_running", "queue_pending"):
+            entries = payload.get(key)
+            for entry in entries if isinstance(entries, list) else []:
+                # Entries are [number, prompt_id, prompt, extra_data, outputs].
+                if not isinstance(entry, (list, tuple)) or not entry:
+                    continue
+                position = entry[0]
+                if isinstance(position, int) and not isinstance(position, bool) and position < number:
+                    ahead += 1
+        return ahead
+
     async def generate(
         self,
         graph: dict,
@@ -124,10 +161,12 @@ class ComfyClient:
             raise ImageGenerationError("ComfyUI did not return a prompt id")
         prompt_id = submitted["prompt_id"]
         number = submitted.get("number")
-        if progress:
-            maybe = progress("queued", {"number": number})
-            if maybe is not None:
-                await maybe
+        queue_timeout = min(10.0, timeout_seconds)
+        ahead = await self.queue_ahead(number, timeout=queue_timeout)
+        # An unknown position (None) reads as "not waiting on anyone": the render
+        # is under way as far as the caller can tell, which is the honest label.
+        waiting = bool(ahead)
+        await _emit(progress, "queued" if waiting else "rendering", {"number": number, "ahead": ahead})
 
         deadline = time.monotonic() + timeout_seconds
         record: Mapping[str, Any] | None = None
@@ -141,6 +180,15 @@ class ComfyClient:
                     break
                 if isinstance(status, Mapping) and status.get("status_str") == "error":
                     raise ImageGenerationError("ComfyUI could not complete the image")
+            # Re-poll the queue only while something is still ahead; once this
+            # job reaches the front the extra request per second stops.
+            if waiting:
+                previous, ahead = ahead, await self.queue_ahead(number, timeout=queue_timeout)
+                waiting = bool(ahead)
+                if not waiting:
+                    await _emit(progress, "rendering", {"number": number, "ahead": ahead})
+                elif ahead != previous:
+                    await _emit(progress, "queued", {"number": number, "ahead": ahead})
             await asyncio.sleep(1.0)
         if record is None:
             raise ImageGenerationError("Image generation timed out")

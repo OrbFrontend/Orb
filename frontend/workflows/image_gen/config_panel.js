@@ -218,7 +218,8 @@ function readConfig() {
     source: "external_comfy",
     default_style:
       document.getElementById("ig-default-style")?.value || cfg.default_style || styles[0]?.id || "realistic",
-    scene_analysis: false,
+    // No control for this yet; carry the saved value rather than resetting it.
+    scene_analysis: cfg.scene_analysis === true,
     timeout_seconds: Number(document.getElementById("ig-timeout")?.value) || 180,
     external_comfy: {
       ...(cfg.external_comfy || {}),

@@ -14,6 +14,7 @@ import {
   streamPost,
   toast,
 } from "/static/workflow_api.js";
+import { attachmentDetailsHtml, messageButtonHtml } from "./render.js";
 
 const WORKFLOW_ID = "image_gen";
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg>`;
@@ -28,15 +29,8 @@ export function initWidget(sharedConfig) {
   registerAction(WORKFLOW_ID, "close", () => closeModal());
 }
 
-function hasAttachment(msg) {
-  return (msg.workflow_attachments || []).some((a) => a.workflow_id === WORKFLOW_ID);
-}
-
 export function createButtonRenderer(msg) {
-  if (!msg?.id || msg.role !== "assistant" || hasAttachment(msg)) return "";
-  if (!canMutate())
-    return `<button class="image-gen-create" disabled title="Close other tabs to generate an image">${ICON}</button>`;
-  return `<button class="image-gen-create" title="Visualize reply" data-wf-action="image_gen:open" data-msg-id="${msg.id}">${ICON}</button>`;
+  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr });
 }
 
 async function openGenerate(msgId) {
@@ -143,13 +137,5 @@ async function generate(msgId, button) {
 }
 
 export function attachmentRenderer(ctx) {
-  const cm = ctx.att?.consumption_metadata || {};
-  const seed = ctx.att?.seed || "";
-  return `${ctx.defaultHtml}<details class="image-gen-details"><summary>Render details</summary>
-    <dl><dt>Style</dt><dd>${esc(cm.style_label || cm.style_id || "")}</dd>
-      <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>
-      <dt>Seed</dt><dd><code>${esc(seed)}</code></dd>
-      <dt>Prompt</dt><dd>${esc(cm.prompt || "")}</dd>
-      <dt>Negative</dt><dd>${esc(cm.negative_prompt || "")}</dd></dl>
-  </details>`;
+  return attachmentDetailsHtml(ctx.att, ctx.defaultHtml, { esc });
 }

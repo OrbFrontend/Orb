@@ -100,3 +100,64 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert attachment["mime_type"] == "image/png"
     assert attachment["seed"]
     assert json.loads(attachment["generation_metadata"])["backend_model"] == "anime.safetensors"
+
+
+async def _stream_generate(client, monkeypatch, render, conv_id):
+    """Drive one generate stream against a stubbed composer and renderer."""
+    await create_conversation(conv_id, "Phases", "Iris", "A quiet room")
+    mid, _ = await add_message(conv_id, "assistant", "She turns toward the door.", 0)
+    await set_workflow_config(
+        "image_gen",
+        {
+            "source": "external_comfy",
+            "default_style": "anime",
+            "external_comfy": {"api_url": "http://127.0.0.1:8188", "checkpoint": "a.safetensors"},
+        },
+    )
+
+    async def fake_compose(**kwargs):
+        return "1girl, standing", "", "single_call"
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
+    response = await client.post(
+        f"/api/conversations/{conv_id}/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": mid},
+    )
+    assert response.status_code == 200
+    return response.text
+
+
+def _image() -> ImageResult:
+    return ImageResult(
+        image_bytes=b"\x89PNG\r\n\x1a\nimage",
+        mime="image/png",
+        backend_info={"source": "external_comfy", "workflow_id": "external_core"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_relays_queue_position_while_the_render_runs(client, monkeypatch):
+    async def render(config, request, *, progress=None, **kwargs):
+        assert progress is not None, "the hook must pass a progress callback to the adapter"
+        progress("queued", {"number": 7, "ahead": 2})
+        progress("rendering", {"number": 7, "ahead": 0})
+        return _image()
+
+    body = await _stream_generate(client, monkeypatch, render, "ig-queued")
+    labels = re.findall(r'"label":"([^"]+)"', body)
+    assert labels == ["Composing image prompt...", "Queued behind 2 renders...", "Rendering in ComfyUI..."]
+    # Every phase label precedes the terminal frame rather than trailing the work.
+    assert body.index("Rendering in ComfyUI") < body.index("image_gen_done")
+
+
+@pytest.mark.asyncio
+async def test_render_phase_is_reported_by_the_adapter_not_assumed(client, monkeypatch):
+    async def render(config, request, *, progress=None, **kwargs):
+        return _image()
+
+    body = await _stream_generate(client, monkeypatch, render, "ig-silent")
+    # A silent adapter yields no render phase; the label is never synthesized
+    # after the fact, which is what made it arrive a full render too late.
+    assert re.findall(r'"label":"([^"]+)"', body) == ["Composing image prompt..."]
+    assert "event: image_gen_done" in body
