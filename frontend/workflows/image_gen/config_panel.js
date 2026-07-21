@@ -518,8 +518,8 @@ async function populateProfile() {
     }
     el.classList.remove("image-gen-note");
     el.innerHTML = `<div class="ig-profile-fields">
-        <label>Appearance tags<textarea id="ig-appearance">${esc(res.profile.appearance_prompt || "")}</textarea></label>
-        <label>Negative tags<textarea id="ig-profile-negative">${esc(res.profile.negative_prompt || "")}</textarea></label>
+        <label>Appearance tags<textarea id="ig-appearance" placeholder="Booru tags. For a canon character the model knows, just its tag (e.g. hatsune miku). Leave blank for OCs.">${esc(res.profile.appearance_prompt || "")}</textarea></label>
+        <label>Negative tags<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, hat). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
       </div>
       <button class="btn btn-sm" data-wf-action="image_gen:profileSave">Save appearance</button>`;
   } catch {
