@@ -21,7 +21,7 @@ COMPOSE_TOOL_SCHEMA = {
                     "type": "string",
                     "description": (
                         "Comma-separated booru-style tags, not sentences. Each tag is 1-3 words with no clauses; aim for "
-                        "roughly 10-20 tags total. Never write proper or character names -- describe each person by visible "
+                        "roughly 10-20 tags total. Describe each person by visible "
                         "attributes (hair, build, clothing) instead. Cover subject count, setting, lighting, pose, "
                         "expression, and clothing. Omit incidental background objects. No art-style or quality terms."
                     ),
@@ -66,9 +66,9 @@ async def compose_scene(
         {
             "role": "user",
             "content": (
-                "[OOC: Call compose_image_prompt for the visible moment in the assistant reply above. Use only details "
+                "[OOC: Call compose_image_prompt for the visible moment in the assistant reply above like a StableDiffusion prompt. Use only details "
                 "directly established by the conversation, prefer the most recent explicit detail, and do not invent an "
-                "outfit, pose, or object when the text does not establish it.]"
+                "outfit, pose, or object when the text does not establish it. Be spatially accurate.]"
             ),
         }
     ]
