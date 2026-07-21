@@ -45,6 +45,8 @@ The documented core ComfyUI server routes can submit workflows, inspect history,
 - ComfyUI officially supports model directories outside its installation through `extra_model_paths.yaml`. The managed sidecar will read Orb's model store this way; Orb will not copy weights into the runtime tree. See [extra model paths](https://docs.comfy.org/development/core-concepts/models#adding-extra-model-paths).
 - ComfyUI needs an isolated environment because its dependencies may conflict with the host application. GPU/PyTorch installation differs by platform and accelerator. See [manual installation](https://docs.comfy.org/installation/manual_install) and [system requirements](https://docs.comfy.org/installation/system_requirements).
 - There is no official universal ComfyUI Docker image, so a container is not the default sidecar mechanism. The managed installer is platform-manifest driven and must show “unsupported” when no tested runtime variant matches.
+- **Orb already ships for Windows, macOS, and Linux** (`run_windows.bat`, `run_unix.sh`) and declares Python 3.9+. The sidecar is therefore not a Linux/CUDA feature with ports; it must state a supported set on all three, and Orb's own interpreter floor is *below* what current ComfyUI/PyTorch want. Verified on the author's own machine: system `python3` is 3.9.6, while the probe host ran 3.12.3.
+- **Nothing in `backend/` currently spawns a subprocess, takes an OS file lock, or branches on platform** — no `subprocess`, `fcntl`, `msvcrt`, `platform`, `sys.platform`, or `os.name` import exists anywhere in it. Every supervision and locking behavior this plan assumes is greenfield, with no in-repo precedent to copy and no existing cross-platform test surface to inherit.
 - “Best model for a style” is a curatorial decision that changes over time. Code consumes a validated catalog; it must never hard-code marketing claims or infer quality from a filename. A bundle becomes recommended only after its exact revision, hashes, resource requirements, workflow, and output quality have been reviewed.
 
 ## Feasibility probe (2026-07-20)
@@ -175,7 +177,8 @@ Nothing in the probe invalidates the design. Six items change, the last being th
 - A hosted-provider (cloud Images API) adapter.
 - Additional styles beyond realistic and anime — pixel art, scenery, line art and the rest are catalog additions, each gated on its own bundle review.
 - Automatic runtime/model updates. Upgrades are explicit and compatibility-checked.
-- Universal hardware support. Only runtime variants exercised by the release matrix are offered.
+- Universal hardware support. Only runtime variants exercised by the release matrix are offered; AMD (ROCm and DirectML), Intel Macs, and CPU-only managed generation are out for v1.
+- Multi-GPU beyond pinning one device: no sharding a model across cards, no concurrent renders on different devices, no automatic device selection, and no scheduling around another application's VRAM use.
 - Byte-identical replay across GPU, driver, PyTorch, ComfyUI, model, or workflow changes.
 
 ## Architectural placement
@@ -351,6 +354,32 @@ An upgraded bundle overwrites the artifact filename it replaces. Old attachments
 
 ## Managed runtime
 
+### Host platform support
+
+Everything in this subsection is *reasoned*, not probe-measured — the probe ran on one Linux/CUDA host. These are the constraints the release matrix has to settle, stated now because several of them change the design rather than only the test list.
+
+**Decision: managed local advertises a supported set per `(os, arch, accelerator)` and says "unsupported" everywhere else, including on the developer's own Mac if it does not clear review.** No variant is inferred to work from a neighbour.
+
+| Host | Managed local | Why |
+|---|---|---|
+| Linux + NVIDIA | Target variant | The probe platform; the only one with measured latency. |
+| Windows + NVIDIA | Target variant | Orb ships `run_windows.bat`; this is likely the largest real user population. |
+| macOS, Apple Silicon | Candidate, gated on latency review | MPS works, but a quality recipe that costs ~55 s on a 3090 lands in minutes here. If the number is bad enough, shipping it is a worse experience than reporting unsupported. |
+| Linux/Windows + AMD | Deferred | ROCm needs host kernel modules and group membership Orb cannot install; DirectML on Windows is a separate, slower ComfyUI path. |
+| macOS, Intel | Unsupported | No usable accelerator path; CPU-only sampling is not a product. |
+| Any CPU-only host | Unsupported for managed local | Offered as external mode only. Minutes-per-image is not something to put a Generate button on. |
+
+Four platform hazards are load-bearing on decisions the plan has already made:
+
+- **The sidecar's Python is not Orb's Python.** `python -m venv` inherits the parent interpreter, so on a stock macOS host that produces the 3.9 environment noted above, which current PyTorch/ComfyUI will not run on. The runtime resolver must *discover* a host interpreter inside the variant's required Python range — the `py -3.x` launcher on Windows, versioned `python3.x` on POSIX — and fail preflight with "no compatible Python found, install 3.x" rather than building a doomed environment. This is a distinct unsupported reason from "no runtime variant for your GPU" and reads differently to the user, because it is the one they can fix.
+- **Windows cannot rename a directory with open handles in it.** The promotion step in "Data roots and ownership" (`active/`→`previous/`, `staging/`→`active/`) is POSIX reasoning. On Windows a running sidecar, Defender scanning a freshly written 6 GB `safetensors`, or the search indexer all hold handles and turn the rename into a sharing violation. Promotion therefore stops the sidecar and waits for exit first, then retries the renames with bounded backoff. The "crash between the two renames" recovery path is not a rare corner there; it is a path that will actually be taken, which is an argument for keeping it rather than a reason to add version-keyed trees.
+- **Windows `terminate()` kills one process, not a tree, and there is no graceful SIGTERM.** The supervision contract says "terminate only the child it started", which is *stricter* on Windows, not looser: any grandchild the entrypoint spawns survives and keeps the GPU and the port. Launch the child in its own process group assigned to a Job Object with kill-on-close, so the OS tears down exactly that tree and nothing else. The graceful-then-kill deadline degenerates to a kill on Windows; that is acceptable for a stateless renderer but should be stated rather than discovered.
+- **`runtime.lock` needs two implementations.** POSIX `fcntl.flock` is advisory; Windows `msvcrt.locking` is mandatory and errors differently. Both release on process exit, which is the property the design depends on, so the contract survives — but this is the first OS file lock in the codebase and needs its own cross-platform test rather than a Linux-only one.
+
+Two smaller ones worth the manifest carrying: Windows `MAX_PATH` truncation, which a torch install nested under a long data root reaches for real (prefer a short root, and verify long-path support in preflight rather than failing mid-install); and macOS unified memory, which makes `minimum_vram_mb` meaningless — the requirement check reads total unified RAM against a different threshold there, so `BundleSpec.requirements` needs a per-memory-model comparison rather than one integer compared everywhere.
+
+Headless is otherwise not the problem it sounds like: ComfyUI is an HTTP server, v1 ships no custom nodes, and `--disable-auto-launch` covers the browser. The matrix should still start the sidecar once on a display-less host to confirm no transitive dependency wants a GUI library.
+
 ### Installation
 
 **Decision: a version-pinned `comfy-cli` is the primary managed installer, not a hand-maintained per-platform PyTorch matrix.** The dominant cost and risk of managed local is cross-platform runtime install: accelerator-specific PyTorch wheels, Python compatibility, and ComfyUI's own dependency set all differ per `(os, architecture, accelerator)`. Re-deriving that logic per variant — pinned torch index URLs, per-platform argv — duplicates exactly what [`comfy-cli`](https://github.com/Comfy-Org/comfy-cli) (Comfy-Org, pip-installable) already does and maintains. v1 therefore drives installation through a version-pinned `comfy-cli` invoked with explicit non-interactive argv, and `runtimes.json` shrinks to *pinning and verification* rather than *install logic*.
@@ -361,8 +390,10 @@ Trade-off, taken deliberately: this adds `comfy-cli` and its transitive dependen
 
 - pinned `comfy-cli` version plus the exact non-interactive argv used to install;
 - pinned ComfyUI release/commit `comfy-cli` must resolve to (and archive SHA-256 for any variant that pins an archive instead of a VCS ref);
-- required Python range;
+- required Python range, plus the discovery order for finding a host interpreter inside it (Orb's own interpreter is a candidate, never an assumption — see "Host platform support");
 - accelerator selector handed to `comfy-cli` (cpu / cuda / rocm / mps …), with a pinned PyTorch source only where a variant must override `comfy-cli`'s default;
+- the variant's **device-selection mechanism** — which environment variable or launch flag pins a single GPU, and `none` for single-device accelerators like MPS — so exactly one mechanism is ever applied (see "Device selection on multi-GPU hosts");
+- platform hazard flags the preflight must check before mutating anything: long-path support and process-tree termination on Windows, memory model (dedicated VRAM versus unified) for the bundle requirement check;
 - expected health/version information for post-install verification;
 
 The installer performs preflight before mutation: supported variant, `comfy-cli` present at the pinned version (or installed into the isolated environment first), Python/runtime prerequisites, writable data root, free disk, and absence of another install job. It installs into `runtime/staging`, verifies the result, starts it once, checks `/system_stats` plus a catalog smoke workflow, then promotes it by the two renames described in "Data roots and ownership". A failed install leaves `active/` untouched and retains a bounded diagnostic log.
@@ -383,6 +414,23 @@ Managed-local v1 has a single-Orb-process deployment contract. On the first mana
 Orb never proxies the ComfyUI UI to the LAN and never starts a sidecar on normal boot. The first managed generation may lazily start an already-installed runtime; installation always requires its own explicit user action. Sidecar startup failure degrades only image generation and cannot fail Orb startup.
 
 The managed adapter serializes executions so timeout cancellation may safely call ComfyUI's process-wide `/interrupt`. The external adapter does not call `/interrupt` on timeout because a remote server may be shared with other clients.
+
+### Device selection on multi-GPU hosts
+
+**Decision: the managed sidecar is pinned to exactly one user-chosen device, selected by stable identifier, applied at launch.** Multi-GPU is not an exotic case for this product — Orb's own inference is remote or CPU-only (`backend/inference/local_ml.py` is llama-cpp on CPU; there is no GPU code in the backend at all), so the typical multi-GPU user is running a local LLM server on one card and wants image generation on the *other*. Defaulting to device 0 silently puts a 6 GB checkpoint on top of their LLM and OOMs the thing they care about more.
+
+Four details decide whether the picker actually picks the right card:
+
+- **Store an identifier, not an index.** Indices are reassigned when a card is added, removed, or re-enumerated by a driver update, and a config that says `1` then silently renders on a different GPU is worse than one that fails. Persist the device UUID (`CUDA_VISIBLE_DEVICES` accepts `GPU-…` UUIDs directly), display the human name, resolve to whatever the runtime needs at launch, and if the stored device is gone report it and refuse to start rather than falling back to device 0.
+- **Enumerate in the ordering the sidecar will use.** `nvidia-smi` orders by PCI bus id; PyTorch defaults `CUDA_DEVICE_ORDER` to `FASTEST_FIRST`. Enumerating with one and indexing with the other mismatches on exactly the heterogeneous multi-GPU hosts this feature is for. Either pin `CUDA_DEVICE_ORDER=PCI_BUS_ID` in the sidecar environment and enumerate with it set, or enumerate by running the runtime environment's own interpreter — the sidecar's Python, not Orb's, which never imports torch.
+- **Enumeration cannot come from a pinned sidecar.** Once the process is restricted to one device, `/system_stats` reports only that one, so the device list has to be produced outside the running sidecar. A one-shot `python -c` in the installed runtime environment is the clean source; it needs no ComfyUI start and no GPU work.
+- **Apply exactly one mechanism.** Setting `CUDA_VISIBLE_DEVICES` *and* passing ComfyUI's `--cuda-device` double-applies: the flag then indexes into an already-masked single-device view and selects nothing valid. Pick one per accelerator in `runtimes.json` (the variant carries its own selector — CUDA, ROCm's HIP equivalent, or none at all for MPS, which has no device concept) and assert in tests that the other is absent from the launch environment.
+
+This sharpens the "sanitized environment" rule in Security boundaries into an allowlist rather than a filter: the launch environment is constructed, and an ambient `CUDA_VISIBLE_DEVICES` inherited from the user's shell or service manager is **stripped**, not merged. Otherwise the user picks a card in Orb's UI and their shell quietly overrides it — a bug with no visible symptom except the wrong GPU heating up.
+
+Consequences elsewhere: the device is a managed-runtime setting, so changing it requires a sidecar restart and is refused while a generation is in flight; `BundleSpec.minimum_vram_mb` is checked against the *selected* device rather than the largest one present; and `GET /status` reports the selected device alongside the enumerated list so the tools panel can show "rendering on GPU 1 — RTX 3090" without the frontend ever handling an index it could misinterpret.
+
+Sharding one model across several GPUs, running concurrent renders on different devices, and automatic device selection are all out of scope — one device, chosen once, is the whole feature. Co-tenancy with a local LLM on the *same* card is worth one accommodation rather than a mechanism: ComfyUI keeps weights resident between renders, so the tools panel should expose an explicit "release VRAM when idle" setting that unloads after a generation, and the variant may set a VRAM reservation flag. Both are single knobs; neither implies a scheduler.
 
 ## Download and install jobs
 
@@ -417,6 +465,7 @@ GET    /api/workflows/image_gen/status
 GET    /api/workflows/image_gen/styles
 POST   /api/workflows/image_gen/runtime/install             -> 202 job
 POST   /api/workflows/image_gen/runtime/repair              -> 202 job
+GET    /api/workflows/image_gen/runtime/devices               # enumerated selectable devices
 POST   /api/workflows/image_gen/runtime/start
 POST   /api/workflows/image_gen/runtime/stop
 DELETE /api/workflows/image_gen/runtime                     -> 202 job; runtime only, models retained
@@ -430,7 +479,9 @@ POST   /api/workflows/image_gen/connections/test
 GET    /api/workflows/image_gen/external/models
 ```
 
-`GET /status` returns runtime support/install/run/health state, detected device summary, backend capabilities, installed/corrupt/missing bundle status, active jobs, and only sanitized diagnostics. It never returns local absolute paths, environment values, API keys, or complete process command lines.
+`GET /status` returns runtime support/install/run/health state, detected device summary, backend capabilities, installed/corrupt/missing bundle status, active jobs, and only sanitized diagnostics. It never returns local absolute paths, environment values, API keys, or complete process command lines. When a variant is unsupported it also returns *which* reason applies, because "no compatible Python interpreter" and "no tested runtime for this GPU" lead the user to different actions and only one of them is fixable.
+
+`GET /runtime/devices` returns the selectable devices with their opaque ids, display names, and memory, enumerated in the ordering the sidecar will actually use. It is a read-only probe of the installed runtime environment: it starts no sidecar, does no GPU work, and returns an empty list rather than an error on hosts with nothing to choose between.
 
 `POST /connections/test` validates either the saved source configuration or bounded unsaved overrides from the Advanced form without persisting them. `GET /external/models` uses the saved external-Comfy configuration and returns only sanitized model filenames from documented discovery routes; it never installs or uploads anything.
 
@@ -502,6 +553,10 @@ No schema migration is required. Global settings live in `settings.workflow_conf
   "default_style": "realistic",
   "scene_analysis": false,
   "timeout_seconds": 180,
+  "managed_local": {
+    "device_id": "",
+    "release_vram_when_idle": false
+  },
   "external_comfy": {
     "api_url": "http://127.0.0.1:8188",
     "api_key": "",
@@ -512,6 +567,8 @@ No schema migration is required. Global settings live in `settings.workflow_conf
 ```
 
 Every hook calls `normalize_config` because workflow `config_schema` is UI metadata, not enforcement. Validation includes the source/style enums, bounded strings, HTTP(S) URLs, timeout range, and source-specific required fields. The normalizer drops unknown keys, coerces numerics that round-tripped through JSON as strings, and returns a new canonical dict merged over the defaults, so a partial or empty persisted slot still resolves every key and downstream code reads typed values without rechecking.
+
+`managed_local.device_id` is an opaque device identifier echoed back from enumeration, not an index and not a path; empty means "the runtime's own default device", which is the correct behavior on single-GPU and unified-memory hosts. The normalizer bounds and character-checks it but does not resolve it — a stored device that no longer exists is a *start-time* failure with an actionable message, not a config-load failure that would make the whole workflow unconfigurable.
 
 **Overridable defaults are stored empty and shown as placeholders.** Any field with a shipped default — prompt fragments in particular — persists as an empty string and renders as ghost text sourced from the manifest's `config_schema` default, with the backend substituting the baked value whenever the field is empty. Editing is then an explicit override, and a curated default can change between releases without migrating stored config or silently overwriting a user's edit.
 
@@ -667,6 +724,7 @@ The normal card shows source, default style, readiness, disk usage, and a Settin
 - scene-analysis toggle, labelled with its cost ("more accurate outfits and positions in multi-character scenes; one extra model call per image");
 - installed bundles with size/source/remove actions;
 - managed runtime status/start/stop/repair/remove and sanitized log tail;
+- GPU selector, shown only when enumeration returns more than one device, labelled by device name and warning that changing it restarts the sidecar; plus the idle-VRAM-release toggle, labelled with what it costs ("frees the card for other apps between images; adds model load time to the next one");
 - external URL/key/checkpoint and connection test;
 - per-character appearance/negative prompts.
 
@@ -680,7 +738,7 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 - No ComfyUI-Manager and no community custom nodes in v1.
 - No frontend-supplied download URL, filename, destination, command, graph, or node id.
 - Catalog files are trusted release inputs but are still schema/path/hash validated.
-- Subprocesses use explicit argv, sanitized environment, dedicated cwd, deadlines, and captured bounded logs.
+- Subprocesses use explicit argv, dedicated cwd, deadlines, and captured bounded logs. The environment is **constructed from an allowlist**, not filtered: inherited accelerator variables are dropped so Orb's device selection cannot be overridden from outside, and only the variant's own selector is added back.
 - HTTP downloads reject local/private targets and unsafe redirects; model files are verified before ComfyUI can see them.
 - External endpoints are explicit advanced user configuration. External API keys are sent only to that configured origin and redacted from logs.
 - Generated images have signature/MIME and byte-size checks before being stored.
@@ -691,7 +749,12 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 ### Unit
 
 - Catalog schema, referential integrity, unique ids, URL policy, exact sizes and artifact hashes, path containment, node allowlist, and graph slots.
-- Runtime variant selection and unsupported hardware behavior.
+- Runtime variant selection and unsupported hardware behavior, including each distinct unsupported *reason* — no variant for the accelerator, and no host interpreter in the variant's Python range — resolving to its own actionable message rather than one generic failure.
+- Host-interpreter discovery prefers a version inside the variant's range over Orb's own interpreter when they differ, and reports rather than builds an out-of-range environment.
+- Device selection: an opaque stored id resolves to the right device under an enumeration order that is not PCI order; exactly one selection mechanism reaches the launch environment and the other is absent; an ambient `CUDA_VISIBLE_DEVICES` in the parent environment is stripped, not merged; a stored device that no longer exists fails startup with a named message instead of silently falling back to device 0.
+- Bundle VRAM requirements are checked against the selected device rather than the largest present, and against unified memory with its own threshold on a unified-memory host.
+- Platform-conditional supervision against a fake child: the process-tree teardown path is exercised on the Windows branch, the graceful-deadline path on the POSIX branch, and `runtime.lock` acquisition/release is asserted on both lock implementations rather than only the POSIX one.
+- Promotion retries the directory renames under a simulated open-handle failure and surfaces a clear error after the bounded backoff, rather than leaving the tree half-promoted.
 - Download resume/restart semantics, progress math, cancellation, oversize, hash mismatch, unsafe redirect, disk-space failure, and atomic install.
 - Bundle shared-artifact removal and protection of unknown/manual files.
 - Supervisor argv/env, loopback binding, health deadline, crash state, port retry, log redaction, and shutdown escalation against a fake child.
@@ -734,10 +797,12 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 For every runtime variant advertised by `runtimes.json`:
 
 1. Test clean install, cancellation, resume, repair, start, generation for both styles, stop, restart, explicit runtime upgrade/removal, and bundle removal.
-2. Record runtime/model download size, disk peak, startup time, first-generation latency, steady latency, and peak RAM/VRAM.
+2. Record runtime/model download size, disk peak, startup time, first-generation latency, steady latency, and peak RAM/VRAM. A variant whose steady latency is far off the ~55 s reference is a product decision, not just a slow row — decide whether it ships or reports unsupported before it reaches users.
 3. Verify no service listens beyond loopback and no Manager/custom-node route is enabled.
-4. Review output quality with fixed prompts/seeds before marking a bundle recommended.
-5. Complete source/notices review for ComfyUI, runtime dependencies, and every distributed/recommended model artifact.
+4. On every variant, confirm the sidecar starts on a display-less host, and that stopping Orb leaves no surviving ComfyUI process holding the port or the GPU — checked by process listing, not by Orb's own status.
+5. On any multi-GPU host, pin the sidecar to the non-default device and confirm from outside Orb that the load lands on that card; repeat after a reboot to confirm the stored identifier still resolves.
+6. Review output quality with fixed prompts/seeds before marking a bundle recommended.
+7. Complete source/notices review for ComfyUI, runtime dependencies, and every distributed/recommended model artifact.
 
 An untested platform/accelerator combination is reported as unsupported; it is never inferred to work from a nearby variant.
 
@@ -752,7 +817,7 @@ Ordered so a working feature exists as early as possible. External ComfyUI needs
 5. **Scene analysis**: add the second forced call behind `scene_analysis`, its rendering to text, and the degrade-to-single-call path. Deliberately after real images exist, so the toggle's value can be judged against actual output.
 6. **Contracts and release inputs for managed local**: catalog/runtime schemas, strict loader, two style ids, placeholder test bundles, graph-slot validator, path policy, and catalog tests. Production catalog entries remain unavailable until real artifact metadata and review are complete.
 7. **Jobs and downloads**: background job registry, status/cancel API, disk preflight, secure resumable downloader, verified atomic installs, repair/remove, and tests.
-8. **Managed runtime**: platform variant resolver, isolated `comfy-cli`-driven installer (pinned version + argv), generated extra-model paths, supervisor, lifespan shutdown, fake-process tests, then certify the first real runtime variant. The readiness-driven setup/download UI lands with it.
+8. **Managed runtime**: platform variant resolver, host-interpreter discovery, isolated `comfy-cli`-driven installer (pinned version + argv), generated extra-model paths, supervisor with its platform-conditional lock and process-tree teardown, device enumeration and pinning, lifespan shutdown, fake-process tests, then certify the first real runtime variant. The readiness-driven setup/download UI and the GPU selector land with it.
 9. **Release hardening**: certify runtime variants and curated bundles, update `AGENTS.md` and `docs/architecture/secondary-workflow.md`, run `./scripts/lint.sh` and `./scripts/tests.sh all`, then execute the manual release matrix.
 
 Phases 6–8 carry nearly all the risk and all the release blockers. Keeping them behind a shipped external-mode feature means managed local can slip without the feature slipping.
@@ -761,7 +826,9 @@ Phases 6–8 carry nearly all the risk and all the release blockers. Keeping the
 
 These gate the *managed local* mode only. External-ComfyUI mode ships when its own phase is complete and is not held behind them. The feature is not ready to advertise as fool-proof managed local generation until all are true:
 
-- At least one runtime variant has a pinned, reproducible, clean-machine install and full manual matrix result.
+- At least one runtime variant has a pinned, reproducible, clean-machine install and full manual matrix result — on a machine whose default `python3` is *outside* the variant's required range, since that is the ordinary case and the one that exercises interpreter discovery.
+- Every OS Orb already ships for either has a certified variant or reports a specific, actionable unsupported reason. Silence on a platform Orb runs on is a release blocker; "unsupported" is a shippable answer, an unexplained missing button is not.
+- On a multi-GPU host, the selected device is honored, survives restart, and never silently falls back to another card.
 - Each visible managed style points to a real reviewed bundle with immutable sources, exact byte sizes, artifact SHA-256 hashes, hardware guidance, and a passing shipped workflow.
 - Runtime and model downloads are cancellable, resumable, verified, and recover safely across process restart.
 - Managed ComfyUI is loopback-only, uses no Manager/custom nodes, and cannot mutate paths outside its data root.
