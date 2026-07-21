@@ -31,7 +31,7 @@ The documented core ComfyUI server routes can submit workflows, inspect history,
 
 ## Non-negotiable product behavior
 
-- The normal generation UI is a style dropdown and a Generate button. Initial stable style ids are `realistic` and `anime`; catalog updates may add styles but never silently repurpose an existing id.
+- The normal generation UI is a style dropdown and a Generate button. Initial stable style ids are `realistic` and `anime`. A style id is a durable UI concept — `anime` always means drawn anime illustration — but the curated recipe behind it may improve between releases; what a stored image actually used is recorded on the attachment, never inferred from the id.
 - Generation happens only when the user asks for it, per message. No image is produced as a side effect of a turn completing.
 - The user explicitly opts into every runtime or model download. No multi-gigabyte download starts because a conversation was opened or a generation button was pressed.
 - In managed-local mode, selecting a style selects its entire curated recipe. The normal UI never exposes checkpoints, VAEs, graph nodes, samplers, CFG, steps, or LoRAs.
@@ -45,7 +45,7 @@ The documented core ComfyUI server routes can submit workflows, inspect history,
 - ComfyUI officially supports model directories outside its installation through `extra_model_paths.yaml`. The managed sidecar will read Orb's model store this way; Orb will not copy weights into the runtime tree. See [extra model paths](https://docs.comfy.org/development/core-concepts/models#adding-extra-model-paths).
 - ComfyUI needs an isolated environment because its dependencies may conflict with the host application. GPU/PyTorch installation differs by platform and accelerator. See [manual installation](https://docs.comfy.org/installation/manual_install) and [system requirements](https://docs.comfy.org/installation/system_requirements).
 - There is no official universal ComfyUI Docker image, so a container is not the default sidecar mechanism. The managed installer is platform-manifest driven and must show “unsupported” when no tested runtime variant matches.
-- “Best model for a style” is a curatorial decision that changes over time. Code consumes a versioned catalog; it must never hard-code marketing claims or infer quality from a filename. A bundle becomes recommended only after its exact revision, hashes, resource requirements, workflow, and output quality have been reviewed.
+- “Best model for a style” is a curatorial decision that changes over time. Code consumes a validated catalog; it must never hard-code marketing claims or infer quality from a filename. A bundle becomes recommended only after its exact revision, hashes, resource requirements, workflow, and output quality have been reviewed.
 
 ## Feasibility probe (2026-07-20)
 
@@ -156,7 +156,7 @@ Nothing in the probe invalidates the design. Six items change, the last being th
 
 - Managed local ComfyUI install/start/stop/health/log lifecycle.
 - Curated, opt-in model-bundle download/remove/repair with progress, cancellation, resume, disk checks, and SHA-256 verification.
-- Two styles: realistic and anime. Each is a full curatorial commitment — reviewed bundle, exact hashes, hardware guidance, passing shipped workflow, fixed-seed quality review — so the count is set by how many of those Orb can actually stand behind at release, not by how many sound good in a dropdown. Further styles are additive catalog versions.
+- Two styles: realistic and anime. Each is a full curatorial commitment — reviewed bundle, exact hashes, hardware guidance, passing shipped workflow, fixed-seed quality review — so the count is set by how many of those Orb can actually stand behind at release, not by how many sound good in a dropdown. Further styles ship in later releases as new ids.
 - First-party ComfyUI nodes only; shipped API-format workflows only.
 - Text-to-image, one image per request.
 - Per-message Visualize action. On demand only.
@@ -206,11 +206,11 @@ backend/workflows/image_gen/
       managed_comfy.py
       external_comfy.py
     resources/
-      catalog.v1.json         # styles, recipes, bundles, exact artifacts
-      runtimes.v1.json        # tested runtime variants and pinned sources/hashes
+      catalog.json            # styles, recipes, bundles, exact artifacts
+      runtimes.json           # tested runtime variants and pinned sources/hashes
       workflows/
-        realistic.v1.json
-        anime.v1.json
+        realistic.json
+        anime.json
 
 backend/api/routes/image_gen.py        # thin HTTP facade over the workflow engine
 frontend/workflows/image_gen/
@@ -230,8 +230,9 @@ This deliberately follows `backend/workflows/tts/engine/` rather than placing a 
 imagegen/
   runtime.lock                # exclusive managed-local owner; OS releases it on process exit
   runtime/
-    <runtime-version>/        # isolated ComfyUI source/archive + Python environment
-    active.json               # selected healthy runtime version; atomic replacement
+    active/                   # isolated ComfyUI source/archive + Python environment in use
+    staging/                  # in-progress install; promoted only after it verifies
+    previous/                 # last known-good runtime, retained for rollback
   models/
     checkpoints/
     vae/
@@ -257,7 +258,9 @@ Moving attachment bytes to disk under the imagegen data root, with the row carry
 
 Installed state is derived from the catalog plus verified files on disk, not stored as a second truth in SQLite. In-memory job records are disposable; after restart the status endpoint reconstructs installed/missing/corrupt state and reusable `.part` downloads remain resumable.
 
-The sidecar receives a generated `extra_model_paths.yaml` pointing to the Orb-owned `models/` tree. Runtime upgrades replace only `runtime/<version>` and cannot delete models. Bundle removal deletes only catalog-owned artifacts no other installed bundle references; unknown/manual files are never pruned.
+The sidecar receives a generated `extra_model_paths.yaml` pointing to the Orb-owned `models/` tree. Runtime upgrades replace only the `runtime/` subtree and cannot delete models.
+
+There is no version-keyed runtime tree and no pointer file. An install builds `staging/`, verifies it, then promotes it by renaming `active/`→`previous/` and `staging/`→`active/`; at most one previous runtime is retained. If a crash lands between those two renames, startup finds no `active/` alongside a `previous/` and promotes `previous/`. Exactly one runtime is ever selectable, so the machinery that would let several coexist has no consumer. Bundle removal deletes only catalog-owned artifacts no other installed bundle references; unknown/manual files are never pruned.
 
 ## Catalog: styles decide differently by backend
 
@@ -270,7 +273,7 @@ The catalog is parsed into strict immutable records at import. Duplicate ids, un
   "id": "anime",
   "label": "Anime",
   "description": "Clean anime illustration",
-  "managed_recipe_id": "anime-v1",
+  "managed_recipe_id": "anime",
   "prompt": "anime illustration, clean line art",
   "negative_prompt": "photorealistic"
 }
@@ -283,7 +286,7 @@ The two initial ids are stable UI concepts, not model names:
 
 These two are shipped because they cover the overwhelming majority of character-conversation imagery and because two is the number of bundles that can realistically clear full curatorial review — exact revision, hashes, resource requirements, shipped workflow, and fixed-seed output review — for a first release. Adding a style is not a dropdown entry; it is another bundle carrying all of that.
 
-Later styles (pixel art, scenery, line art, and anything else) arrive as additive catalog versions with new ids, which the versioning rule already supports without touching stored attachments. A new recipe may reuse an already-installed curated bundle via a shared `bundle_id` where the curator judges an existing checkpoint suitable, avoiding a second multi-gigabyte download; the shared-artifact removal rule already keeps such bundles safe. Whether a new style reuses a bundle or ships its own remains a curatorial decision, never inferred from a model name.
+Later styles (pixel art, scenery, line art, and anything else) arrive as new ids in a later release's catalog, needing no migration because stored attachments record what they rendered with rather than a catalog version. A new recipe may reuse an already-installed curated bundle via a shared `bundle_id` where the curator judges an existing checkpoint suitable, avoiding a second multi-gigabyte download; the shared-artifact removal rule already keeps such bundles safe. Whether a new style reuses a bundle or ships its own remains a curatorial decision, never inferred from a model name.
 
 For `managed_local`, the style chooses the recipe and therefore the model bundle, graph, prompt mode, resolution, sampler, scheduler, steps, CFG, and style-specific positive/negative fragments. This is the deep decision layer the normal UI hides.
 
@@ -293,10 +296,9 @@ For `external_comfy`, only `prompt` and `negative_prompt` participate: the mode 
 
 ```json
 {
-  "id": "anime-v1",
-  "bundle_id": "curated-anime-v1",
-  "workflow": "workflows/anime.v1.json",
-  "workflow_sha256": "<64 lowercase hex characters>",
+  "id": "anime",
+  "bundle_id": "curated-anime",
+  "workflow": "workflows/anime.json",
   "slots": {
     "positive": ["6", "text"],
     "negative": ["7", "text"],
@@ -314,14 +316,14 @@ For `external_comfy`, only `prompt` and `negative_prompt` participate: the mode 
 }
 ```
 
-Slot maps use exact node ids and input names in a shipped API-format graph. There is no heuristic “first KSampler” fallback. Catalog validation loads each graph, checks all declared nodes/inputs, permits only nodes in the reviewed node allowlist, and confirms one declared output node. Runtime compatibility is tied to the pinned ComfyUI version.
+Slot maps use exact node ids and input names in a shipped API-format graph. There is no heuristic “first KSampler” fallback. Catalog validation loads each graph, checks all declared nodes/inputs, permits only nodes in the reviewed node allowlist, and confirms one declared output node. A shipped graph carries no hash: it lives in the same repo commit as the catalog that names it, and the slot validation above already fails loudly on an edit that breaks the contract — which is the failure worth catching, and the one a hash would only report as an opaque mismatch. Runtime compatibility is tied to the pinned ComfyUI version.
 
 ### `BundleSpec`
 
 ```json
 {
-  "id": "curated-anime-v1",
-  "label": "Curated Anime v1",
+  "id": "curated-anime",
+  "label": "Curated Anime",
   "requirements": {
     "download_bytes": 0,
     "disk_bytes": 0,
@@ -333,7 +335,7 @@ Slot maps use exact node ids and input names in a shipped API-format graph. Ther
       "sha256": "<64 lowercase hex characters>",
       "bytes": 0,
       "kind": "checkpoints",
-      "filename": "orb-curated-anime-v1.safetensors"
+      "filename": "orb-curated-anime.safetensors"
     }
   ]
 }
@@ -341,17 +343,21 @@ Slot maps use exact node ids and input names in a shipped API-format graph. Ther
 
 The example deliberately contains no claimed “best” model. Before release, the curator replaces it with exact reviewed artifacts and nonzero resource metadata. Only HTTPS, immutable/revision-pinned URLs and `safetensors` model artifacts are accepted automatically. Gated models, click-through licenses, credentials embedded in URLs, mutable “latest” URLs, and formats capable of loading pickled code are manual-install-only and cannot be marked one-click recommended.
 
-Catalog updates must preserve old recipe and bundle ids while stored attachments reference them. A replacement gets a new id/version. Removing an obsolete entry requires a migration policy for replay metadata, not an in-place semantic change.
+`sha256` is the only hash a curator ever writes, and it is written once per model: `sha256sum` the file when it is first reviewed, paste it in, never touch it again. It guards a multi-gigabyte resumable download from a third-party host, where a bad Range resume splices mismatched bytes into a file that then fails inside ComfyUI as an unreadable stack trace rather than as a clear download error. Editing a recipe never touches it. Nothing else in this design asks anyone to hash anything — shipped graph files are covered by shipping in the same repo commit as the catalog that names them, and replay identity is carried by the render parameters below.
+
+**Ids are stable names, not versions.** `anime` and `curated-anime` keep their meaning across releases; what they point at may improve. A curator who swaps in a better checkpoint or retunes a recipe edits the entry in place and ships it with the next Orb release — no `-v2` id, no parallel catalog version, no migration script. Stored attachments are unaffected because replay compares the render parameters recorded on the attachment against the current recipe (see "Regenerate, reroll, and rehydrate"), which needs no bump discipline: a curator who changes `steps` has already changed the thing the comparison reads. Only a genuine fork — two styles that must coexist in the dropdown — gets a new id, and that is a new style rather than a version of an old one.
+
+An upgraded bundle overwrites the artifact filename it replaces. Old attachments therefore lose their original weights, which is the same outcome as the user deleting the bundle to reclaim disk — already the expected case, already handled by disclosure. Keeping both copies would mean holding two six-gigabyte checkpoints so an old image can reroll byte-identically, which is not a trade this plan makes.
 
 ## Managed runtime
 
 ### Installation
 
-**Decision: a version-pinned `comfy-cli` is the primary managed installer, not a hand-maintained per-platform PyTorch matrix.** The dominant cost and risk of managed local is cross-platform runtime install: accelerator-specific PyTorch wheels, Python compatibility, and ComfyUI's own dependency set all differ per `(os, architecture, accelerator)`. Re-deriving that logic per variant — pinned torch index URLs, per-platform argv — duplicates exactly what [`comfy-cli`](https://github.com/Comfy-Org/comfy-cli) (Comfy-Org, pip-installable) already does and maintains. v1 therefore drives installation through a version-pinned `comfy-cli` invoked with explicit non-interactive argv, and `runtimes.v1.json` shrinks to *pinning and verification* rather than *install logic*.
+**Decision: a version-pinned `comfy-cli` is the primary managed installer, not a hand-maintained per-platform PyTorch matrix.** The dominant cost and risk of managed local is cross-platform runtime install: accelerator-specific PyTorch wheels, Python compatibility, and ComfyUI's own dependency set all differ per `(os, architecture, accelerator)`. Re-deriving that logic per variant — pinned torch index URLs, per-platform argv — duplicates exactly what [`comfy-cli`](https://github.com/Comfy-Org/comfy-cli) (Comfy-Org, pip-installable) already does and maintains. v1 therefore drives installation through a version-pinned `comfy-cli` invoked with explicit non-interactive argv, and `runtimes.json` shrinks to *pinning and verification* rather than *install logic*.
 
 Trade-off, taken deliberately: this adds `comfy-cli` and its transitive dependencies as a supply-chain surface. It is installed into the sidecar's isolated environment, never Orb's interpreter, and its version is pinned and verified before use. This is accepted because the alternative — Orb owning platform torch-install logic — is a larger, less-tested surface the ComfyUI project does not expect downstreams to reimplement. Installation goes through `comfy-cli`; process supervision does not — the supervisor launches the installed ComfyUI entrypoint with explicit argv directly (not `comfy-cli launch`) so Orb owns the real child PID for the "terminate only the child it started" contract (see Supervision). `comfy-cli`'s remote/registry features are unused.
 
-`runtimes.v1.json` contains one entry per tested `(os, architecture, accelerator)` variant with:
+`runtimes.json` contains one entry per tested `(os, architecture, accelerator)` variant with:
 
 - pinned `comfy-cli` version plus the exact non-interactive argv used to install;
 - pinned ComfyUI release/commit `comfy-cli` must resolve to (and archive SHA-256 for any variant that pins an archive instead of a VCS ref);
@@ -359,7 +365,7 @@ Trade-off, taken deliberately: this adds `comfy-cli` and its transitive dependen
 - accelerator selector handed to `comfy-cli` (cpu / cuda / rocm / mps …), with a pinned PyTorch source only where a variant must override `comfy-cli`'s default;
 - expected health/version information for post-install verification;
 
-The installer performs preflight before mutation: supported variant, `comfy-cli` present at the pinned version (or installed into the isolated environment first), Python/runtime prerequisites, writable data root, free disk, and absence of another install job. It installs into a temporary version directory, verifies the result, starts it once, checks `/system_stats` plus a catalog smoke workflow, then atomically writes `active.json`. A failed install leaves the prior active runtime untouched and retains a bounded diagnostic log.
+The installer performs preflight before mutation: supported variant, `comfy-cli` present at the pinned version (or installed into the isolated environment first), Python/runtime prerequisites, writable data root, free disk, and absence of another install job. It installs into `runtime/staging`, verifies the result, starts it once, checks `/system_stats` plus a catalog smoke workflow, then promotes it by the two renames described in "Data roots and ownership". A failed install leaves `active/` untouched and retains a bounded diagnostic log.
 
 Do not use `shell=True`, install into Orb's interpreter, run arbitrary catalog commands, or modify a user-owned ComfyUI installation. Every `comfy-cli` invocation uses explicit pinned argv; it is an implementation helper, not a remote-management API or public contract.
 
@@ -500,7 +506,7 @@ No schema migration is required. Global settings live in `settings.workflow_conf
     "api_url": "http://127.0.0.1:8188",
     "api_key": "",
     "checkpoint": "",
-    "workflow": "external_core_v1"
+    "workflow": "external_core"
   }
 }
 ```
@@ -610,19 +616,23 @@ The only other ON_DEMAND actions are `get_profile` and `set_profile`, because th
 - Regenerate recomposes the scene from the anchor message under the currently selected style and source, creating a sibling artifact.
 - Reroll uses stored resolved prompt/recipe/model metadata with a fresh seed — the route-supplied `_generated_seed()` hex string, folded to a 64-bit int (see "Seed handling").
 - Rehydrate uses the stored metadata and the stored `seed` column value, re-folded to the same int, when the backend supports seeding.
-- Managed replay requires the recorded recipe and exact bundle artifacts. If they are unavailable, fail with a sanitized actionable error; never silently switch to a newer recommended model.
+- Managed replay compares the stored render parameters — `backend_model`, `steps`, `cfg`, `sampler`, `scheduler`, `width`, `height` — against what the named recipe resolves to now. On a match it replays directly. On a mismatch, or when the bundle is not installed at all, it does not fail: it names what differs in the user's own terms ("this image used 28 steps and `orb-curated-anime.safetensors`; the current recipe uses 30 steps") and offers to render with the current recipe. Substituting *silently* remains forbidden; refusing outright is not the alternative. Failing closed would defend a guarantee this plan explicitly declines to make (see Not v1: byte-identical replay) at the cost of breaking the common case, where the user deleted a multi-gigabyte bundle the UI invited them to delete.
 - External replay is best effort. A seed and recipe are evidence of the request, not a guarantee of identical bytes — the remote server's model, nodes, and versions are outside Orb's control and may have changed.
 
 Store in `generation_metadata`:
 
 ```text
-source, style_id, catalog_version, recipe_id, workflow_sha256,
-bundle_id, artifact_sha256s, runtime_version, backend_model,
+source, style_id, recipe_id,
+bundle_id, runtime_version, backend_model,
 composer_mode, prompt, negative_prompt, width, height, steps, cfg,
 sampler, scheduler
 ```
 
 `composer_mode` records which composition path produced the prompt. Replay never re-composes — reroll and rehydrate render the stored prompt — so this is diagnostic only, and it is what makes "why did this one get the outfit wrong" answerable after the config has since been toggled.
+
+The render parameters are the identity of what actually rendered; the ids beside them are labels. That is why no catalog version is stored and why recipe and bundle ids carry no version suffix: a stored image is matched by what it was rendered with, so the catalog is free to change under a stable name without anything to migrate and without anyone remembering to bump a field. These values are recorded because the row is written anyway; the comparison is free because the recipe is already loaded.
+
+Versions here are worth recording and not worth enforcing. Recording costs a few strings on a row that is already several megabytes. Enforcement mostly fires when the user did something reasonable — and every enforcement mechanism considered for it (version suffixes, a catalog version, a graph hash) put its cost on whoever edits the catalog, on every edit, forever.
 
 Only fields applicable to the resolved backend are populated. Never store API keys, managed/external URLs containing credentials, local paths, or raw backend responses. `consumption_metadata` contains the display-safe style label, prompt, negative prompt, and source.
 
@@ -680,11 +690,12 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 
 ### Unit
 
-- Catalog schema, referential integrity, stable ids, URL policy, exact sizes/hashes, path containment, node allowlist, graph slots, and workflow hash.
+- Catalog schema, referential integrity, unique ids, URL policy, exact sizes and artifact hashes, path containment, node allowlist, and graph slots.
 - Runtime variant selection and unsupported hardware behavior.
 - Download resume/restart semantics, progress math, cancellation, oversize, hash mismatch, unsafe redirect, disk-space failure, and atomic install.
 - Bundle shared-artifact removal and protection of unknown/manual files.
 - Supervisor argv/env, loopback binding, health deadline, crash state, port retry, log redaction, and shutdown escalation against a fake child.
+- Runtime promotion renames staging into place, and a crash between the two renames leaves `previous/` recoverable on the next start.
 - Comfy queue/history/declared-output/view sequence, malformed/error payloads, timeout, output size/signature, and managed versus external interrupt behavior.
 - Config/profile normalization and nested-secret exclusion.
 - Style resolution proves managed style selects its recipe/bundle/params while external styles change prompt only.
@@ -704,7 +715,7 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 - Completing a turn produces no image and no image-generation inference of any kind: the workflow has no POST_PIPELINE subscription and a full pipeline run leaves the attachment table untouched. This is the guard on the on-demand-only contract, so it is asserted directly rather than inferred from the absence of a binding.
 - On-demand guards, streamed progress with its terminal event, profile round-trip, regenerate sibling shape, reroll seed change, and rehydrate request replay.
 - The streamed generate action validates its target and reads conversation/character state before returning the response object; two concurrent triggers on one message do not interleave into a corrupt sibling tree.
-- Exact stored recipe remains required after catalog recommendation changes.
+- A recipe edited in place under a stable id is detected on replay by comparing stored render parameters against the resolved recipe, and disclosed rather than silently substituted or hard-failed; an image whose bundle was removed still rerolls after the user accepts the current recipe. Editing only a graph's internals, with every recipe parameter unchanged, is deliberately not detected — it is not worth a hash to catch.
 - External discovery/generation never calls install, userdata-write, Manager, or interrupt endpoints.
 - Preset canaries prove the bespoke JSON-path scrubber removes the nested external API key when configs are omitted or `strip_keys=true`, and retains it under a deliberate `strip_keys=false` export (the `SECRET_COLUMNS` coverage test does not reach this path).
 - App lifespan terminates only the sidecar process it started.
@@ -720,7 +731,7 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 
 ### Manual release matrix
 
-For every runtime variant advertised by `runtimes.v1.json`:
+For every runtime variant advertised by `runtimes.json`:
 
 1. Test clean install, cancellation, resume, repair, start, generation for both styles, stop, restart, explicit runtime upgrade/removal, and bundle removal.
 2. Record runtime/model download size, disk peak, startup time, first-generation latency, steady latency, and peak RAM/VRAM.
@@ -751,7 +762,7 @@ Phases 6–8 carry nearly all the risk and all the release blockers. Keeping the
 These gate the *managed local* mode only. External-ComfyUI mode ships when its own phase is complete and is not held behind them. The feature is not ready to advertise as fool-proof managed local generation until all are true:
 
 - At least one runtime variant has a pinned, reproducible, clean-machine install and full manual matrix result.
-- Each visible managed style points to a real reviewed bundle with immutable sources, exact byte sizes, SHA-256 hashes, hardware guidance, and a passing shipped workflow.
+- Each visible managed style points to a real reviewed bundle with immutable sources, exact byte sizes, artifact SHA-256 hashes, hardware guidance, and a passing shipped workflow.
 - Runtime and model downloads are cancellable, resumable, verified, and recover safely across process restart.
 - Managed ComfyUI is loopback-only, uses no Manager/custom nodes, and cannot mutate paths outside its data root.
 - GPL/runtime/model licensing review is complete for the actual distribution method and catalog artifacts.
