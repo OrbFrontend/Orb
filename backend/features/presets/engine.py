@@ -569,31 +569,6 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     for (table, col), blank in ps.SECRET_COLUMNS.items():
         if schema.tables[table].kind == "singleton":
             conn.execute(f"UPDATE {table} SET {col} = ?", (blank,))
-    _scrub_image_gen_workflow_config(conn)
-
-
-def _scrub_image_gen_workflow_config(conn: sqlite3.Connection) -> None:
-    """Remove nested image-generation secrets and machine-specific graphs.
-
-    ``workflow_config`` is a JSON column, so the column-name-driven secret
-    policy cannot see the API key or arbitrary custom-node inputs inside it.
-    """
-    row = conn.execute("SELECT workflow_config FROM settings WHERE id = 1").fetchone()
-    if not row or not row[0]:
-        return
-    try:
-        payload = json.loads(row[0])
-    except (TypeError, ValueError):
-        return
-    if not isinstance(payload, dict):
-        return
-    image_gen = payload.get("image_gen")
-    external = image_gen.get("external_comfy") if isinstance(image_gen, dict) else None
-    if not isinstance(external, dict):
-        return
-    external["api_key"] = ""
-    external["user_graphs"] = []
-    conn.execute("UPDATE settings SET workflow_config = ? WHERE id = 1", (json.dumps(payload),))
 
 
 def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
@@ -655,7 +630,6 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
         if "configs" in selected and strip_keys:
             for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col == "api_key"):
                 c.execute(f"UPDATE {table} SET {col} = ''")
-            _scrub_image_gen_workflow_config(c)
             keys_stripped = True
         _stamp_migrations(c)
         _write_meta(c, sorted(selected), label, kind, keys_stripped)
