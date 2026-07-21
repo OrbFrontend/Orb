@@ -49,6 +49,10 @@ from .format_consistency import format_consistency_workflow
 from .format_consistency.hooks import (
     post_pipeline as _fc_post_pipeline,
 )
+from .image_gen import image_gen_workflow
+from .image_gen.hooks import on_demand as _image_gen_on_demand
+from .image_gen.hooks import regenerate as _image_gen_regenerate
+from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
 from .registry import (
     Subscription,
     ToolNameCollision,
@@ -135,6 +139,11 @@ subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
 # from the normalized text rather than the raw draft.
 register_workflow(format_consistency_workflow)
 subscribe(format_consistency_workflow.id, HookType.POST_PIPELINE, _fc_post_pipeline, priority=-10)
+
+register_workflow(image_gen_workflow)
+subscribe(image_gen_workflow.id, HookType.ON_DEMAND, _image_gen_on_demand)
+subscribe(image_gen_workflow.id, HookType.REGENERATE, _image_gen_regenerate)
+subscribe(image_gen_workflow.id, HookType.REROLL_GEN, _image_gen_reroll_gen)
 
 
 finalize_registry()

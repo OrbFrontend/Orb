@@ -37,7 +37,7 @@ Dependency order (top to bottom — each layer may only import layers below it):
 | `database/` | aiosqlite foundation: schema, migrations, queries, models (TypedDicts) |
 | `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`) |
 | `analysis/` | Pure prose-quality detection: `audit.py` + detectors; shared by editor + workflows |
-| `workflows/` | Plugin registry + shipped workflows (TTS, format_consistency) |
+| `workflows/` | Plugin registry + shipped workflows (TTS, image generation, format_consistency) |
 | `pipeline/` | Director→Writer→Editor turn engine (`entrypoints`, `orchestrator`, `context`, `config`, `persistence`, `passes/`) |
 | `features/` | Self-contained slices: `cards`, `lorebook`, `summarization`, `presets`, `documents` |
 | `api/` | HTTP layer: FastAPI app factory, routes, Pydantic schemas |
@@ -140,6 +140,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone V2 `character_book` JSON)
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments
+- **Image generation:** external-ComfyUI status/styles/connection/model discovery under `/api/workflows/image_gen`; generation uses the conversation-scoped workflow trigger
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`
 - **Direction notes:** CRUD under `/api/conversations/{cid}/direction-notes`
 - **Other:** `GET /api/stats`, `GET /api/themes`, `POST /api/reset`

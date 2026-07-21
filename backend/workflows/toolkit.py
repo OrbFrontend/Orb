@@ -20,6 +20,8 @@ through one chokepoint.
 
 from __future__ import annotations
 
+from typing import Any
+
 from ..analysis import (
     FormatDriftReport,
     format_report,
@@ -41,7 +43,9 @@ from ..database import (
     get_messages,
     get_mood_fragments,
     get_phrase_bank,
+    get_user_persona,
     get_user_personas,
+    resolve_char_context,
 )
 from ..inference import (
     STANDALONE_TOOLS,
@@ -87,6 +91,7 @@ __all__ = [
     "get_mood_fragments",
     "get_phrase_bank",
     "get_user_personas",
+    "get_user_persona",
     "get_workflow_character_state",
     "get_workflow_config",
     "get_workflow_message_state",
@@ -97,6 +102,7 @@ __all__ = [
     "parse_tool_calls",
     "reasoning_cfg",
     "run_audit",
+    "build_offturn_prefix",
     "set_workflow_character_state",
     "set_workflow_config",
     "set_workflow_message_state",
@@ -105,3 +111,45 @@ __all__ = [
     "workflow_config_lock",
     "workflow_state_lock",
 ]
+
+
+async def build_offturn_prefix(
+    conversation_id: str,
+    history,
+    settings,
+) -> list[Any]:
+    """Rebuild the character/persona prefix for a standalone off-turn call.
+
+    Workflow code cannot import ``pipeline.context`` without violating the
+    one-way layer rule. This helper keeps the shared resolution at the workflow
+    toolkit boundary and uses the same lower-layer primitives as the pipeline.
+    Pre-pipeline workflow blocks are intentionally absent because no turn is in
+    flight.
+    """
+    conv = await get_conversation(conversation_id)
+    if conv is None:
+        return []
+    card_id = conv.get("character_card_id")
+    card = await get_character_card(card_id) if card_id else None
+    system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
+    persona_id = (
+        conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
+    )
+    persona = await get_user_persona(persona_id) if persona_id else None
+    macros = Macros.from_settings(
+        settings,
+        conv.get("character_name", ""),
+        persona,
+        seed=conv.get("macro_seed") or conv.get("id", ""),
+    )
+    user_description = persona.get("description", "") if persona else settings.get("user_description", "")
+    return build_prefix(
+        system_prompt,
+        char_persona,
+        conv.get("character_scenario", ""),
+        mes_example,
+        "" if settings.get("prevent_prompt_overrides") else conv.get("post_history_instructions", ""),
+        history,
+        macros,
+        user_description,
+    )

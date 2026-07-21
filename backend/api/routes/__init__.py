@@ -13,6 +13,7 @@ from . import (
     documents,
     endpoints,
     fragments,
+    image_gen,
     local_ml,
     messages,
     misc,
@@ -41,6 +42,7 @@ ROUTERS = [
     presets.router,
     messages.router,
     workflows.router,
+    image_gen.router,
     local_ml.router,
     documents.router,
 ]
