@@ -85,7 +85,10 @@ Authors construct one of these and never touch `subscriptions` -- that field is 
   config_schema: Optional[dict]             # default None
   produces_artifacts: bool                  # default False
   subscriptions: list[Subscription]         # default-factory []; framework-owned
+  config_normalizer: Optional[Callable]     # default None; see below
 ```
+
+`config_schema` is manifest metadata for the settings form and enforces nothing. `config_normalizer` is the enforcement: a `(raw) -> dict` callable owning the workflow's strict normalization of its config slot, applied by both config routes (sec. 12.2). Declare it whenever a hook already normalizes on read -- otherwise the API persists and echoes a shape that read path silently repairs or drops, and the settings panel goes on showing entries the workflow ignores. Shipped example: `backend/workflows/image_gen/config.py:normalize_config`, which bounds user-authored graphs and style entries.
 
 Live example: shipped TTS builds its `Workflow(...)` instance at `backend/workflows/tts/__init__.py`.
 
@@ -475,11 +478,11 @@ Handler `api_list_workflows`. No locks. Response: JSON list of `{id, display_nam
 
 #### PUT `/api/workflows/{wid}/config`
 
-Handler `api_set_workflow_config`. Body model `WorkflowConfigUpdate`: `{"config": dict}`, REQUIRED -- missing key is FastAPI 422 before handler. Lock: `workflow_config_lock()`. DB: `set_workflow_config(wid, data.config)` then `get_workflow_config(wid)`. Response: `{"config": <effective>}` (post-write read; empty dict slot falls back to `config_defaults`). 404 if unregistered.
+Handler `api_set_workflow_config`. Body model `WorkflowConfigUpdate`: `{"config": dict}`, REQUIRED -- missing key is FastAPI 422 before handler. The workflow's `config_normalizer` (sec. 3.1), when declared, is applied to the body before the write and to the effective value before the response. Lock: `workflow_config_lock()`. DB: `set_workflow_config(wid, <normalized>)` then `get_workflow_config(wid)`. Response: `{"config": <effective>}` (post-write read; empty dict slot falls back to `config_defaults`). 404 if unregistered.
 
 #### GET `/api/workflows/{wid}/config`
 
-Handler `api_get_workflow_config`. No locks. DB: `get_workflow_config(wid)`. Response `{"config": <effective>}`. 404 if unregistered.
+Handler `api_get_workflow_config`. No locks. DB: `get_workflow_config(wid)`, then the workflow's `config_normalizer` when declared -- both directions normalize, so a panel edits and re-reads the exact shape the hooks will use. Response `{"config": <effective>}`. 404 if unregistered.
 
 #### POST `/api/workflows/{wid}/enabled`
 
@@ -1205,9 +1208,9 @@ To ship a new workflow:
 
 ### 17.3 Config form
 
-1. Workflow's `config_schema` (a JSON Schema dict) ships in the manifest.
+1. Workflow's `config_schema` (a JSON Schema dict) ships in the manifest. It describes the form; it does not enforce anything.
 2. Form populates from `GET /api/workflows/<id>/config` (effective values).
-3. Save via `PUT /api/workflows/<id>/config` with `{config: {...}}` (full replacement; `{}` resets to defaults).
+3. Save via `PUT /api/workflows/<id>/config` with `{config: {...}}` (full replacement; `{}` resets to defaults). The response is the normalized config when the workflow declares a `config_normalizer` -- adopt it rather than the value you sent, or the panel will keep showing settings the backend clamped or dropped.
 4. Backend reads via `get_workflow_config(wid)` (default-fallback aware).
 
 ### 17.4 Per-character data

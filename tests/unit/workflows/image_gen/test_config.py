@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from backend.workflows.image_gen.config import normalize_config, resolve_style
+from backend.workflows.image_gen.config import (
+    MAX_USER_GRAPHS,
+    normalize_config,
+    resolve_style,
+)
 from backend.workflows.image_gen.hooks import fold_seed
 
 
@@ -26,3 +30,70 @@ def test_seed_fold_round_trips_decimal_and_framework_hex():
     assert fold_seed("18446744073709551615") == 2**64 - 1
     assert fold_seed("ffffffffffffffffffffffffffffffff") == 2**64 - 1
     assert fold_seed("18446744073709551615") == fold_seed(fold_seed("18446744073709551615"))
+
+
+def _graph(node_count: int = 1) -> dict:
+    return {str(i): {"class_type": "CLIPTextEncode", "inputs": {"text": "x" * 64}} for i in range(node_count)} | {
+        "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
+        "o": {"class_type": "SaveImage", "inputs": {"images": ["0", 0]}},
+    }
+
+
+def _user_graph(gid: str = "user_a", *, node_count: int = 1, slots: dict | None = None) -> dict:
+    return {
+        "id": gid,
+        "label": gid,
+        "graph": _graph(node_count),
+        "slots": slots
+        if slots is not None
+        else {"positive": ["0", "text"], "negative": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "images"]},
+    }
+
+
+def test_user_graphs_are_bounded_by_size_and_count():
+    """Oversized or over-count imports are dropped, not stored and half-honoured."""
+    oversized = normalize_config({"external_comfy": {"user_graphs": [_user_graph(node_count=6_000)]}})
+    assert oversized["external_comfy"]["user_graphs"] == []
+
+    many = normalize_config({"external_comfy": {"user_graphs": [_user_graph(f"user_{i}") for i in range(MAX_USER_GRAPHS + 5)]}})
+    assert len(many["external_comfy"]["user_graphs"]) == MAX_USER_GRAPHS
+
+
+def test_a_user_graph_needs_positive_seed_and_output_but_not_negative():
+    without_negative = _user_graph(slots={"positive": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "images"]})
+    cfg = normalize_config({"external_comfy": {"user_graphs": [without_negative]}})
+    assert [g["id"] for g in cfg["external_comfy"]["user_graphs"]] == ["user_a"]
+    assert "negative" not in cfg["external_comfy"]["user_graphs"][0]["slots"]
+
+    without_seed = _user_graph(slots={"positive": ["0", "text"], "output": ["o", "images"]})
+    assert normalize_config({"external_comfy": {"user_graphs": [without_seed]}})["external_comfy"]["user_graphs"] == []
+
+
+def test_a_global_workflow_naming_no_stored_graph_falls_back_to_the_shipped_one():
+    cfg = normalize_config({"external_comfy": {"workflow": "user_gone"}})
+    assert cfg["external_comfy"]["workflow"] == "external_core"
+
+
+def test_style_pins_override_the_global_selection_and_empty_pins_fall_through():
+    cfg = normalize_config(
+        {
+            "external_comfy": {
+                "checkpoint": "global.safetensors",
+                "workflow": "external_core",
+                "user_graphs": [_user_graph("user_a")],
+                "styles": [
+                    {"id": "pinned", "label": "Pinned", "checkpoint": "pinned.safetensors", "workflow": "user_a"},
+                    {"id": "plain", "label": "Plain"},
+                ],
+            }
+        }
+    )
+    pinned = resolve_style(cfg, "pinned")
+    assert (pinned["checkpoint"], pinned["workflow"]) == ("pinned.safetensors", "user_a")
+    plain = resolve_style(cfg, "plain")
+    assert (plain["checkpoint"], plain["workflow"]) == ("global.safetensors", "external_core")
+
+
+def test_default_style_falls_back_when_it_no_longer_resolves():
+    cfg = normalize_config({"default_style": "deleted", "external_comfy": {"styles": [{"id": "only", "label": "Only"}]}})
+    assert cfg["default_style"] == "only"

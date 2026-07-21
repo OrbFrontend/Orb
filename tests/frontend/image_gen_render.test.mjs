@@ -84,3 +84,29 @@ test("a missing attachment renders empty fields rather than throwing", () => {
   assert.ok(html.includes("Render details"));
   assert.ok(!html.includes("undefined"));
 });
+
+test("the style label links back to its entry in the style editor", () => {
+  // Generate → judge → edit the style → regenerate is the loop this feature
+  // lives in; without the link every lap costs a hunt through settings.
+  const html = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime", style_label: "Anime" } }, "", MARKERS);
+  assert.match(html, /data-wf-action="image_gen:editStyle"/);
+  assert.match(html, /data-style-id="“anime”"/);
+  assert.ok(html.includes("«Anime»"));
+});
+
+test("a style id that no longer resolves renders as plain text, not a dead link", () => {
+  const html = attachmentDetailsHtml({ consumption_metadata: { style_label: "Anime" } }, "", MARKERS);
+  assert.ok(!html.includes("image_gen:editStyle"));
+  assert.ok(html.includes("«Anime»"));
+});
+
+test("replay disclosure notes are shown and escaped", () => {
+  const html = attachmentDetailsHtml(
+    { consumption_metadata: { notes: [HOSTILE, "second note"] } },
+    "",
+    MARKERS,
+  );
+  assert.equal(html.split("<dt>Note</dt>").length - 1, 2);
+  assert.ok(html.includes(`«${HOSTILE}»`));
+  assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").includes("<script>"));
+});

@@ -15,6 +15,24 @@ from .contracts import ImageGenerationError, ImageResult
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ProgressCallback = Callable[[str, Mapping[str, Any]], Optional[Awaitable[None]]]
 
+# `/object_info` is the one enormous response in this contract -- a real install
+# with custom-node packs reports ~2000 node types, tens of megabytes. Readiness
+# probes run on every Visualize modal open, so an uncached fetch would put that
+# transfer in front of a button click. Node sets change only when the server
+# restarts with different packs installed, so a short TTL is safe; an explicit
+# Test connection asks for a fresh copy.
+_OBJECT_INFO_TTL = 60.0
+_OBJECT_INFO_MAX_ENTRIES = 8
+_object_info_cache: dict[str, tuple[float, dict]] = {}
+
+
+def invalidate_object_info(api_url: str | None = None) -> None:
+    """Drop cached node information, for one server or all of them."""
+    if api_url is None:
+        _object_info_cache.clear()
+    else:
+        _object_info_cache.pop(api_url.rstrip("/"), None)
+
 
 async def _emit(progress: "ProgressCallback | None", stage: str, detail: Mapping[str, Any]) -> None:
     if not progress:
@@ -102,10 +120,23 @@ class ComfyClient:
             raise ImageGenerationError("ComfyUI returned malformed system information")
         return result
 
-    async def object_info(self) -> dict:
+    async def object_info(self, *, allow_cached: bool = False) -> dict:
+        """The server's node catalogue. Cached for `_OBJECT_INFO_TTL` seconds.
+
+        A fresh fetch always refreshes the cache, so `allow_cached=False` is
+        both "give me the current truth" and "make the next probe cheap".
+        """
+        now = time.monotonic()
+        if allow_cached:
+            cached = _object_info_cache.get(self.api_url)
+            if cached and cached[0] > now:
+                return cached[1]
         result = await self._json("GET", "/object_info", timeout=30.0)
         if not isinstance(result, dict):
             raise ImageGenerationError("ComfyUI returned malformed node information")
+        if len(_object_info_cache) >= _OBJECT_INFO_MAX_ENTRIES:
+            _object_info_cache.clear()
+        _object_info_cache[self.api_url] = (now + _OBJECT_INFO_TTL, result)
         return result
 
     async def models(self, folder: str = "checkpoints") -> list[str]:

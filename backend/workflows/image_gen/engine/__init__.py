@@ -1,14 +1,20 @@
 """Narrow public facade for external image generation."""
 
-from .adapters.external_comfy import CAPABILITIES, list_models, validate_connection
-from .comfy_client import ProgressCallback
+from .adapters.external_comfy import (
+    CAPABILITIES,
+    list_models,
+    node_roles,
+    validate_connection,
+)
+from .comfy_client import ProgressCallback, invalidate_object_info
 from .contracts import (
     ImageBackendCapabilities,
     ImageGenerationError,
     ImageRequest,
     ImageResult,
 )
-from .render import resolve_and_generate
+from .graph import has_graph
+from .render import RenderTarget, resolve_and_generate, resolve_render_target
 
 __all__ = [
     "CAPABILITIES",
@@ -17,7 +23,12 @@ __all__ = [
     "ImageRequest",
     "ImageResult",
     "ProgressCallback",
+    "RenderTarget",
+    "has_graph",
+    "invalidate_object_info",
     "list_models",
+    "node_roles",
     "resolve_and_generate",
+    "resolve_render_target",
     "validate_connection",
 ]

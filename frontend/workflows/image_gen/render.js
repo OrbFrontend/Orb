@@ -26,13 +26,23 @@ export function messageButtonHtml(msg, { mutable, icon, escAttr }) {
   return `<button class="image-gen-create" title="Visualize reply" data-wf-action="image_gen:open" data-msg-id="${escAttr(msg.id)}">${icon}</button>`;
 }
 
-export function attachmentDetailsHtml(att, defaultHtml, { esc }) {
+export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr }) {
   const cm = att?.consumption_metadata || {};
+  // The style label opens that entry in the style editor: judging an image and
+  // then tuning the style that produced it is the loop this feature lives in,
+  // and without the link it costs a hunt through settings every time.
+  const styleText = esc(cm.style_label || cm.style_id || "");
+  const style = cm.style_id
+    ? `<button type="button" class="image-gen-style-link" data-wf-action="image_gen:editStyle" data-style-id="${escAttr(cm.style_id)}">${styleText}</button>`
+    : styleText;
+  // Populated only when a replay could not be honoured exactly (a deleted user
+  // graph, say) — the disclosure belongs where the odd-looking image is.
+  const notes = (Array.isArray(cm.notes) ? cm.notes : []).map((note) => `<dt>Note</dt><dd>${esc(note)}</dd>`).join("");
   return `${defaultHtml}<details class="image-gen-details"><summary>Render details</summary>
-    <dl><dt>Style</dt><dd>${esc(cm.style_label || cm.style_id || "")}</dd>
+    <dl><dt>Style</dt><dd>${style}</dd>
       <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>
       <dt>Seed</dt><dd><code>${esc(att?.seed || "")}</code></dd>
       <dt>Prompt</dt><dd>${esc(cm.prompt || "")}</dd>
-      <dt>Negative</dt><dd>${esc(cm.negative_prompt || "")}</dd></dl>
+      <dt>Negative</dt><dd>${esc(cm.negative_prompt || "")}</dd>${notes}</dl>
   </details>`;
 }

@@ -10,7 +10,11 @@ from backend.database import (
     create_character_card,
     create_conversation,
     get_workflow_attachment_by_id,
+    get_workflow_attachments_for_message,
+    set_active_leaf,
 )
+from backend.inference import LLMClient, _KVCacheTracker
+from backend.pipeline.workflow_bridge import _run_post_pipeline
 from backend.workflows import (
     HookType,
     get_workflow,
@@ -49,6 +53,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     await create_character_card({"id": "ig-char", "name": "Iris"})
     await create_conversation("ig-conv", "Images", "Iris", "A moonlit room", character_card_id="ig-char")
     mid, _ = await add_message("ig-conv", "assistant", "Iris sits beside the rain-streaked window.", 0)
+    await set_active_leaf("ig-conv", mid)
     await set_workflow_config(
         "image_gen",
         {
@@ -106,6 +111,7 @@ async def _stream_generate(client, monkeypatch, render, conv_id):
     """Drive one generate stream against a stubbed composer and renderer."""
     await create_conversation(conv_id, "Phases", "Iris", "A quiet room")
     mid, _ = await add_message(conv_id, "assistant", "She turns toward the door.", 0)
+    await set_active_leaf(conv_id, mid)
     await set_workflow_config(
         "image_gen",
         {
@@ -161,3 +167,100 @@ async def test_render_phase_is_reported_by_the_adapter_not_assumed(client, monke
     # after the fact, which is what made it arrive a full render too late.
     assert re.findall(r'"label":"([^"]+)"', body) == ["Composing image prompt..."]
     assert "event: image_gen_done" in body
+
+
+@pytest.mark.asyncio
+async def test_config_round_trips_through_the_workflow_normalizer(client):
+    """`config_schema` is UI metadata and enforces nothing, so the write path has
+    to normalize. Otherwise the panel keeps listing a workflow the render path
+    silently drops on read -- a setting that appears to have taken effect."""
+    oversized = {
+        "id": "user_big",
+        "label": "Too big",
+        "graph": {str(i): {"class_type": "CLIPTextEncode", "inputs": {"text": "x" * 200}} for i in range(4_000)},
+        "slots": {"positive": ["0", "text"], "seed": ["0", "text"], "output": ["0", "text"]},
+    }
+    response = await client.put(
+        "/api/workflows/image_gen/config",
+        json={
+            "config": {
+                "timeout_seconds": "99999",
+                "default_style": "does-not-exist",
+                "external_comfy": {
+                    "api_url": "http://user:secret@comfy.test:8188/",
+                    "user_graphs": [oversized],
+                    "unknown_key": "dropped",
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    stored = response.json()["config"]
+    assert stored["timeout_seconds"] == 900.0
+    assert stored["default_style"] == "realistic"
+    assert stored["external_comfy"]["api_url"] == "http://127.0.0.1:8188"
+    assert stored["external_comfy"]["user_graphs"] == []
+    assert "unknown_key" not in stored["external_comfy"]
+    # And the read path agrees, so reopening settings shows what will be used.
+    assert (await client.get("/api/workflows/image_gen/config")).json()["config"] == stored
+
+
+@pytest.mark.asyncio
+async def test_status_reports_why_it_is_not_ready(client):
+    await set_workflow_config("image_gen", {"external_comfy": {"checkpoint": ""}})
+    status = (await client.get("/api/workflows/image_gen/status")).json()
+    assert status["ready"] is False
+    assert status["reason"] == "no_checkpoint"
+
+    await set_workflow_config("image_gen", {"external_comfy": {"checkpoint": "anime.safetensors"}})
+    status = (await client.get("/api/workflows/image_gen/status")).json()
+    assert status["ready"] is True
+    assert status["style_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_node_types_route_requires_a_class_type_list(client):
+    response = await client.post("/api/workflows/image_gen/external/node-types", json={"class_types": "KSampler"})
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_completing_a_turn_produces_no_image_and_no_image_inference(client, monkeypatch):
+    """The on-demand-only contract, asserted directly rather than inferred from
+    the absence of a POST_PIPELINE binding -- a future binding added by accident
+    is exactly what this is here to catch."""
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("image generation ran inside a turn")
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", forbidden)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", forbidden)
+
+    await create_conversation("ig-turn", "Turn", "Iris", "A quiet room")
+    mid, _ = await add_message("ig-turn", "assistant", "She turns toward the door.", 0)
+    await set_active_leaf("ig-turn", mid)
+
+    events = [
+        event
+        async for event in _run_post_pipeline(
+            draft="She turns toward the door.",
+            conversation_id="ig-turn",
+            character_id=None,
+            card=None,
+            history=[],
+            effective_msg="draw her",
+            director_output={},
+            settings={"model_name": "test", "enabled_tools": {}, "reasoning_enabled_passes": {}},
+            prefix=[{"role": "system", "content": "You are an assistant."}],
+            enabled_tools={},
+            turn_scratch={},
+            client=LLMClient("http://localhost:9999"),
+            kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
+        )
+    ]
+
+    result = events[-1]
+    assert not [att for att in result.staged_attachments if att.get("workflow_id") == "image_gen"]
+    assert await get_workflow_attachments_for_message(mid) == []

@@ -16,7 +16,7 @@ exception that adds behavior: it falls back to the workflow's
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from ..database import (
     get_workflow_character_state as _db_get_workflow_character_state,
@@ -60,6 +60,13 @@ class Workflow:
     blocks artifact-hook bindings on workflows that disclaim the contract,
     and ``finalize_registry`` blocks the process from starting when one
     side is declared without the other.
+
+    ``config_normalizer`` is the workflow's own strict normalization of its
+    global config slot, applied by the config GET/PUT routes. ``config_schema``
+    is UI metadata and enforces nothing, so without this the API would persist
+    and echo back a shape the workflow's own hooks then silently repair or drop
+    on read -- leaving a settings panel showing entries the backend ignores.
+    Optional: a workflow with no normalizer keeps the raw round-trip.
     """
 
     id: str
@@ -69,6 +76,7 @@ class Workflow:
     config_schema: Optional[dict] = None
     produces_artifacts: bool = False
     subscriptions: list["Subscription"] = field(default_factory=list)
+    config_normalizer: Optional[Callable[[Any], dict]] = None
 
 
 @dataclass(frozen=True)

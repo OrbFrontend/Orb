@@ -171,9 +171,7 @@ async def test_unavailable_queue_endpoint_does_not_fail_the_render():
 async def test_malformed_queue_entries_are_ignored():
     client = ComfyClient(
         "http://comfy.test",
-        transport=httpx.MockTransport(
-            _server([{"queue_running": "nope", "queue_pending": [[], ["x"], [True], [1, "real"]]}])
-        ),
+        transport=httpx.MockTransport(_server([{"queue_running": "nope", "queue_pending": [[], ["x"], [True], [1, "real"]]}])),
     )
     assert await client.queue_ahead(5) == 1
     assert await client.queue_ahead("5") is None

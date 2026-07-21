@@ -104,7 +104,9 @@ def _user_graph(raw: Any) -> dict | None:
         parsed = _slot(slots_raw.get(name))
         if parsed is not None:
             slots[name] = parsed
-    if not all(name in slots for name in ("positive", "negative", "seed", "output")):
+    # `negative` stays optional: a one-encoder prose graph has nothing to map it
+    # to, and inventing a slot for it would patch text into an unrelated input.
+    if not all(name in slots for name in ("positive", "seed", "output")):
         return None
     return {
         "id": gid,

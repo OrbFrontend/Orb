@@ -6,12 +6,13 @@
 .image-gen-modal label,.image-gen-settings label{display:grid;gap:5px}
 .image-gen-settings input,.image-gen-settings select,.image-gen-settings textarea,.image-gen-modal select{width:100%}
 .image-gen-settings textarea{min-height:54px;resize:vertical}
-.image-gen-warning{padding:10px;border:1px solid var(--border);border-radius:8px;color:var(--text-muted);font-size:.9em}
 .image-gen-row{display:flex;align-items:center;gap:10px}
 .image-gen-note{color:var(--text-muted);font-size:.85em;margin:0;line-height:1.45}
 
 /* ---- tools-panel card ---- */
 .image-gen-card-status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:11px;margin:.4em 0}
+.image-gen-card-status:empty{display:none}
+.image-gen-card-status[data-ig-ready="no"]{color:var(--accent)}
 .image-gen-card-btn{margin-top:6px}
 
 /* ---- settings modal sections ----
@@ -38,6 +39,13 @@
 .ig-style-state{font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted)}
 .ig-style-state[data-ig-state="custom"]{color:var(--accent)}
 .ig-style-body{display:grid;gap:10px;padding:10px}
+.ig-style-body>.ig-danger{justify-self:start}
+.ig-danger{color:var(--danger,var(--accent))}
+
+/* ---- imported workflow list ---- */
+.ig-graph-list{display:grid;gap:6px}
+.ig-graph-row{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.ig-graph-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 
 /* ---- advanced: workflow import ---- */
 .ig-advanced{border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary)}
@@ -52,3 +60,7 @@
 .image-gen-details dl{display:grid;grid-template-columns:max-content 1fr;gap:5px 10px}
 .image-gen-details dt{color:var(--text-muted)}
 .image-gen-details dd{margin:0;overflow-wrap:anywhere}
+/* The style name opens its entry in the style editor: judge the image, then tune
+   the style that made it, without hunting through settings. */
+.image-gen-style-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-align:left}
+.image-gen-style-link:hover{text-decoration:underline}

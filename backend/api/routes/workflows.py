@@ -94,18 +94,32 @@ async def api_list_workflows():
     ]
 
 
+def _normalized(workflow_id: str, config: Any) -> Any:
+    """Apply the workflow's own config normalizer, when it declares one.
+
+    Both directions go through here so the panel edits, and then re-reads, the
+    exact shape the workflow's hooks will use -- a value the normalizer clamps
+    or an entry it drops must not survive in the UI as a setting that appears to
+    have taken effect.
+    """
+    workflow = get_workflow(workflow_id)
+    normalizer = getattr(workflow, "config_normalizer", None) if workflow else None
+    return normalizer(config) if normalizer else config
+
+
 @router.put("/api/workflows/{workflow_id}/config")
 async def api_set_workflow_config(workflow_id: str, data: WorkflowConfigUpdate):
     """Persist a workflow's global config slot as a full replacement."""
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    config = _normalized(workflow_id, data.config)
     # Serialize the replacement with workflow code that updates the same slot via
     # a locked read-modify-write; a lock-free write here could be lost mid-RMW.
     async with workflow_config_lock():
-        await set_workflow_config(workflow_id, data.config)
+        await set_workflow_config(workflow_id, config)
         effective = await get_workflow_config(workflow_id)
     logger.info("workflow %r config updated (%d keys)", scrub_log(workflow_id), len(data.config))
-    return {"config": effective}
+    return {"config": _normalized(workflow_id, effective)}
 
 
 @router.get("/api/workflows/{workflow_id}/config")
@@ -113,7 +127,7 @@ async def api_get_workflow_config(workflow_id: str):
     """Return a workflow's effective config: persisted slot, else its defaults."""
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
-    return {"config": await get_workflow_config(workflow_id)}
+    return {"config": _normalized(workflow_id, await get_workflow_config(workflow_id))}
 
 
 @router.post("/api/workflows/{workflow_id}/enabled")

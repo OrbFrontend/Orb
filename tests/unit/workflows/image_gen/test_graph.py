@@ -5,9 +5,37 @@ import pytest
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
 from backend.workflows.image_gen.engine.graph import (
     CORE_SLOTS,
+    describe_render_params,
     load_core_graph,
     patch_graph,
+    validate_graph_structure,
 )
+
+# A minimal /object_info shaped like the real one: `input.required` maps an input
+# name to [type, options], where a list type is a combo of legal values.
+OBJECT_INFO = {
+    "CLIPTextEncode": {"input": {"required": {"text": ["STRING", {"multiline": True}], "clip": ["CLIP"]}}},
+    "KSampler": {
+        "input": {
+            "required": {
+                "seed": ["INT", {}],
+                "steps": ["INT", {}],
+                "sampler_name": [["euler", "dpmpp_2m"], {}],
+            }
+        }
+    },
+    "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["model.safetensors"], {}]}}},
+    "EmptyLatentImage": {"input": {"required": {"width": ["INT", {}], "height": ["INT", {}]}}},
+    "VAEDecode": {"input": {"required": {}}},
+    "SaveImage": {"input": {"required": {"images": ["IMAGE"]}}, "output_node": True},
+}
+
+
+def _core():
+    """The shipped graph with a checkpoint filled in, as a real submission has."""
+    graph = load_core_graph()
+    graph["4"]["inputs"]["ckpt_name"] = "model.safetensors"
+    return graph, dict(CORE_SLOTS)
 
 
 def test_core_graph_patches_only_declared_slots():
@@ -38,3 +66,90 @@ def test_core_graph_requires_checkpoint():
             seed=1,
             checkpoint="",
         )
+
+
+def test_a_graph_without_a_negative_slot_still_patches():
+    """A prose-trained graph has one text encoder and no negative conditioning."""
+    graph, slots = _core()
+    del graph["7"]
+    slots.pop("negative")
+    patched, output = patch_graph(
+        graph,
+        slots,
+        prompt="a quiet room",
+        negative_prompt="ignored",
+        seed=7,
+        checkpoint="model.safetensors",
+    )
+    assert output == "9"
+    assert patched["6"]["inputs"]["text"] == "a quiet room"
+    assert "7" not in patched
+
+
+# ── structural validation against a server's /object_info ────────────────────
+# All render-free: `/prompt` has no dry-run, so a submission that validates
+# executes, and preflighting by submitting would spend a full render per save.
+
+
+def test_a_valid_graph_passes_structural_validation():
+    graph, slots = _core()
+    validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+def test_validation_names_a_node_type_this_server_lacks():
+    graph, slots = _core()
+    graph["6"]["class_type"] = "SomeCustomTextEncode"
+    with pytest.raises(ImageGenerationError, match="SomeCustomTextEncode"):
+        validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+def test_validation_catches_a_combo_value_the_server_does_not_offer():
+    graph, slots = _core()
+    graph["4"]["inputs"]["ckpt_name"] = "deleted.safetensors"
+    with pytest.raises(ImageGenerationError, match="no longer available"):
+        validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+def test_validation_catches_a_slot_pointing_at_a_missing_input():
+    graph, slots = _core()
+    slots["positive"] = ["6", "prompt_text"]
+    with pytest.raises(ImageGenerationError, match="positive slot"):
+        validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+def test_validation_requires_an_output_node():
+    graph, slots = _core()
+    slots["output"] = ["8", "images"]  # VAEDecode: real node, but saves nothing
+    with pytest.raises(ImageGenerationError, match="does not save or preview"):
+        validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+def test_validation_requires_the_output_slot_to_name_a_present_node():
+    graph, slots = _core()
+    slots["output"] = ["999", "images"]
+    with pytest.raises(ImageGenerationError, match="no configured output node"):
+        validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+def test_render_params_are_read_back_off_the_graph_that_executes():
+    graph, slots = _core()
+    params = describe_render_params(graph, slots)
+    assert params == {
+        "width": 1024,
+        "height": 1024,
+        "steps": 24,
+        "cfg": 6.0,
+        "sampler": "euler",
+        "scheduler": "normal",
+    }
+
+
+def test_render_params_report_none_for_linked_or_absent_inputs():
+    """A wired input has no value until execution, so it is not an identity."""
+    graph, slots = _core()
+    graph["3"]["inputs"]["steps"] = ["10", 0]
+    del graph["5"]
+    params = describe_render_params(graph, slots)
+    assert params["steps"] is None
+    assert params["width"] is None
+    assert params["sampler"] == "euler"

@@ -5,7 +5,10 @@ import pytest
 
 from backend.workflows.image_gen.config import normalize_config
 from backend.workflows.image_gen.engine.adapters import external_comfy
-from backend.workflows.image_gen.engine.comfy_client import ComfyClient
+from backend.workflows.image_gen.engine.comfy_client import (
+    ComfyClient,
+    invalidate_object_info,
+)
 
 OBJECT_INFO = {
     "KSampler": {"input": {"required": {}}},
@@ -92,3 +95,58 @@ async def test_connection_stays_valid_when_model_discovery_fails(monkeypatch):
 
     assert result["ok"] is True
     assert result["models"] == []
+
+
+@pytest.mark.asyncio
+async def test_node_roles_type_slots_from_object_info_and_skip_unknown_classes(monkeypatch):
+    """The picker's typing crosses the wire as a verdict, not as /object_info.
+
+    A real install reports ~2000 node types, tens of megabytes; handing that to a
+    browser to populate four dropdowns is what this route exists to avoid.
+    """
+    info = {
+        "CLIPTextEncode": {"input": {"required": {"text": ["STRING", {}], "clip": ["CLIP"]}}},
+        "KSampler": {"input": {"required": {"seed": ["INT", {}], "steps": ["INT", {}]}}},
+        "SaveImage": {"input": {"required": {"images": ["IMAGE"]}}, "output_node": True},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/object_info"
+        return httpx.Response(200, json=info)
+
+    _install_client(monkeypatch, handler)
+    invalidate_object_info()
+    roles = await external_comfy.node_roles(normalize_config({}), ["CLIPTextEncode", "KSampler", "SaveImage", "Nope"])
+
+    assert roles["CLIPTextEncode"]["text_inputs"] == ["text"]
+    # `steps` is an INT too; only seed-named ones are seed candidates.
+    assert roles["KSampler"]["seed_inputs"] == ["seed"]
+    assert roles["SaveImage"]["output_node"] is True
+    assert "Nope" not in roles
+
+
+@pytest.mark.asyncio
+async def test_object_info_is_cached_for_probes_and_refetched_on_an_explicit_test(monkeypatch):
+    calls = {"object_info": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/object_info":
+            calls["object_info"] += 1
+            return httpx.Response(200, json=OBJECT_INFO)
+        if request.url.path == "/system_stats":
+            return httpx.Response(200, json={"system": {}, "devices": []})
+        if request.url.path == "/models/checkpoints":
+            return httpx.Response(200, json=["anime.safetensors"])
+        return httpx.Response(404)
+
+    _install_client(monkeypatch, handler)
+    invalidate_object_info()
+    config = normalize_config({"external_comfy": {"checkpoint": "anime.safetensors"}})
+
+    await external_comfy.validate_connection(config, allow_cached=True)
+    await external_comfy.validate_connection(config, allow_cached=True)
+    assert calls["object_info"] == 1, "the readiness probe must not refetch the node catalogue every modal open"
+
+    # Pressing Test connection means "look again".
+    await external_comfy.validate_connection(config, allow_cached=False)
+    assert calls["object_info"] == 2

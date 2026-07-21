@@ -20,11 +20,15 @@ from ..toolkit import (
 )
 from .composer import assemble_prompts, compose_scene
 from .config import WORKFLOW_ID, normalize_config, normalize_profile, resolve_style
-from .engine import ImageGenerationError, ImageRequest, ProgressCallback, resolve_and_generate
+from .engine import (
+    ImageGenerationError,
+    ImageRequest,
+    ProgressCallback,
+    resolve_and_generate,
+)
 
 logger = logging.getLogger(__name__)
 SEED_MODULUS = 2**64
-PHASE_CHANNEL = f"workflow:{WORKFLOW_ID}"
 
 
 def fold_seed(seed: str | int) -> int:
@@ -48,7 +52,38 @@ def _frame(event: str, data: Any) -> str:
 
 
 def _phase(label: str) -> str:
-    return _frame("phase_status", {"channel": PHASE_CHANNEL, "label": label})
+    # No `channel`: this stream has exactly one consumer, the Visualize modal,
+    # and it keys the phase pill per message id. A channel written here could
+    # only disagree with the one the client already owns.
+    return _frame("phase_status", {"label": label})
+
+
+def _terminal(attachment_id: int | None, error: str | None) -> list[str]:
+    """The frames every generate stream ends on, success or failure.
+
+    Clients finish on `image_gen_done` rather than on stream close, so this
+    sequence is the contract: at most one error, then the phase reset, then the
+    terminal event carrying the new attachment id or null.
+    """
+    frames = [_frame("image_gen_error", {"message": error})] if error else []
+    frames.append(_frame("phase_status", {"state": "done"}))
+    frames.append(_frame("image_gen_done", {"attachment_id": attachment_id}))
+    return frames
+
+
+def _failed_stream(message: str) -> StreamingResponse:
+    """A guard rejection, delivered over the same wire as a render failure.
+
+    Returning a bare `{"error": ...}` dict here would leave the client parsing a
+    JSON body as SSE: it finds no frames, sees no terminal event, and silently
+    re-enables its button with nothing shown to the user.
+    """
+
+    async def stream():
+        for frame in _terminal(None, message):
+            yield frame
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
@@ -64,12 +99,19 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
 
 
 def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> list[dict]:
+    """History up to and including the anchor message.
+
+    Raises when the anchor is not on this history. `get_message_by_id` proves
+    conversation membership but not branch membership, so a message on an
+    inactive branch would otherwise fall through to "the whole active path" --
+    composing the image from replies that came *after* the one being visualized.
+    """
     result: list[dict] = []
     for msg in history:
         result.append(dict(msg))
         if msg.get("id") == message_id:
-            break
-    return result
+            return result
+    raise ValueError("that message is not on this conversation's active branch")
 
 
 def _metadata(
@@ -93,23 +135,26 @@ def _metadata(
         "composer_mode": composer_mode,
         "prompt": prompt,
         "negative_prompt": negative_prompt,
-        "width": None,
-        "height": None,
-        "steps": None,
-        "cfg": None,
-        "sampler": None,
-        "scheduler": None,
+        # Read back off the graph that executed, so replay can compare what an
+        # image was actually rendered with rather than what its ids imply.
+        **{key: info.get(key) for key in ("width", "height", "steps", "cfg", "sampler", "scheduler")},
     }
 
 
-def _consumption(style: Mapping[str, Any], prompt: str, negative_prompt: str) -> dict:
-    return {
+def _consumption(style: Mapping[str, Any], prompt: str, negative_prompt: str, result=None) -> dict:
+    notes = list(getattr(result, "backend_info", {}).get("notes") or []) if result is not None else []
+    payload = {
         "source": "External ComfyUI",
         "style_id": style["id"],
         "style_label": style["label"],
         "prompt": prompt,
         "negative_prompt": negative_prompt,
     }
+    # Disclosure lives in the display-safe half: a replay that could not be
+    # honoured exactly says so on the attachment the user is looking at.
+    if notes:
+        payload["notes"] = notes
+    return payload
 
 
 def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
@@ -165,7 +210,7 @@ async def _generate_fresh(
         negative_prompt=negative,
         composer_mode=composer_mode,
     )
-    return _attachment(seed, result, md, _consumption(style, prompt, negative))
+    return _attachment(seed, result, md, _consumption(style, prompt, negative, result))
 
 
 async def on_demand(ctx, body):
@@ -194,27 +239,28 @@ async def on_demand(ctx, body):
 async def _generate_response(ctx, body):
     mid = body.get("message_id")
     if not isinstance(mid, int) or isinstance(mid, bool):
-        return {"error": "message_id (int) required"}
+        return _failed_stream("message_id (int) required")
     message = await get_message_by_id(mid)
     if message is None or message.get("conversation_id") != ctx.conversation_id:
-        return {"error": "message not found in this conversation"}
+        return _failed_stream("That message is no longer part of this conversation")
     if message.get("role") != "assistant":
-        return {"error": "images can only be generated for assistant messages"}
+        return _failed_stream("Images can only be generated for assistant messages")
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     style_id = body.get("style_id") or config["default_style"]
-    try:
-        resolve_style(config, style_id)
-    except ValueError as exc:
-        return {"error": str(exc)}
     profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
     # The response body runs after the generic trigger route releases its
     # workflow locks. Rebuild every DB-backed prefix component now and capture
     # the immutable result into the generator; rendering itself stays unlocked.
-    history = _history_through(ctx.history, mid)
+    try:
+        resolve_style(config, style_id)
+        history = _history_through(ctx.history, mid)
+    except ValueError as exc:
+        return _failed_stream(str(exc))
     prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings)
 
     async def stream():
-        attachment_id = None
+        attachment_id: int | None = None
+        error: str | None = None
         labels: asyncio.Queue = asyncio.Queue()
 
         def on_progress(stage: str, detail: Mapping[str, Any]) -> None:
@@ -250,20 +296,23 @@ async def _generate_response(ctx, body):
                 yield _phase(labels.get_nowait())
             attachment_id, rejected = await insert_workflow_attachment(mid, await task)
             if attachment_id is None:
-                reason = (rejected or {}).get("reason") or "attachment rejected"
-                yield _frame("image_gen_error", {"message": reason})
+                error = (rejected or {}).get("reason") or "attachment rejected"
         except (ImageGenerationError, ValueError) as exc:
             logger.warning("image generation failed for message %s: %s", mid, exc)
-            yield _frame("image_gen_error", {"message": str(exc)})
+            error = str(exc)
         except Exception:
             logger.exception("image generation failed for message %s", mid)
-            yield _frame("image_gen_error", {"message": "Image generation failed"})
+            error = "Image generation failed"
         finally:
-            # A client that disconnects mid-render closes this generator; without
-            # the cancel the render task would outlive the request.
+            # Teardown only -- never a yield. A client that disconnects mid-render
+            # closes this generator, which throws GeneratorExit at the suspended
+            # yield above; yielding from `finally` under that raises "async
+            # generator ignored GeneratorExit" and the terminal frames have no
+            # reader left anyway. Cancelling here is what keeps the render task
+            # from outliving the request.
             task.cancel()
-            yield _frame("phase_status", {"channel": PHASE_CHANNEL, "state": "done"})
-            yield _frame("image_gen_done", {"attachment_id": attachment_id})
+        for frame in _terminal(attachment_id, error):
+            yield frame
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -317,6 +366,9 @@ async def reroll_gen(ctx, params, seed):
     assert isinstance(prompt, str)
     assert isinstance(style_id, str)
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
+    # Resolve the style first: it is the one step that can reject, and spending a
+    # full render before discovering the style was deleted wastes a minute.
+    style = resolve_style(config, style_id)
     resolved_seed = fold_seed(seed)
     result = await resolve_and_generate(
         config,
@@ -327,6 +379,10 @@ async def reroll_gen(ctx, params, seed):
             style_id=style_id,
             timeout_seconds=config["timeout_seconds"],
         ),
+        # Reroll and rehydrate reproduce a stored image's parameters. Routing
+        # them through the style would re-render an old attachment on whatever
+        # checkpoint that style points at today -- for rehydrate, silently
+        # overwriting the row with different bytes than it is meant to restore.
+        replay=params,
     )
-    style = resolve_style(config, style_id)
-    return result.image_bytes, _consumption(style, prompt, negative)
+    return result.image_bytes, _consumption(style, prompt, negative, result)

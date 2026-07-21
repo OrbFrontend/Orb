@@ -4,7 +4,7 @@ import {
   registerWorkflowMessageButton,
   registerWorkflowToolsPanelCard,
 } from "/static/workflow_api.js";
-import { configPanelRenderer, initConfigPanel } from "./config_panel.js";
+import { configPanelRenderer, initConfigPanel, refreshCardReadiness } from "./config_panel.js";
 import { attachmentRenderer, createButtonRenderer, initWidget } from "./widget.js";
 
 const WORKFLOW_ID = "image_gen";
@@ -49,4 +49,6 @@ initConfigPanel(config);
 registerWorkflowMessageButton(WORKFLOW_ID, createButtonRenderer);
 registerAttachmentRenderer(WORKFLOW_ID, attachmentRenderer);
 registerWorkflowToolsPanelCard(WORKFLOW_ID, configPanelRenderer);
-loadConfig();
+// Readiness is cached into the card renderer, so prime it once at load rather
+// than leaving the first tools-panel open to paint an empty line and fill in.
+loadConfig().then(refreshCardReadiness);

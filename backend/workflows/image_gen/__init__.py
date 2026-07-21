@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ..registry import Workflow
 from .composer import COMPOSE_TOOL
-from .config import CONFIG_DEFAULTS
+from .config import CONFIG_DEFAULTS, normalize_config
 
 _CONFIG_SCHEMA = {
     "type": "object",
@@ -33,4 +33,8 @@ image_gen_workflow = Workflow(
     tools=[COMPOSE_TOOL],
     config_schema=_CONFIG_SCHEMA,
     config_defaults=CONFIG_DEFAULTS,
+    # The config carries user-authored graphs and style entries that
+    # `normalize_config` bounds and drops; without this the settings panel would
+    # keep listing a workflow the render path silently ignores.
+    config_normalizer=normalize_config,
 )

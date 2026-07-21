@@ -1,4 +1,23 @@
+// DOM-free parsing and slot-candidate derivation for user-imported ComfyUI
+// graphs. Kept free of the plugin facade so it loads under `node --test`.
+//
+// Node typing comes from the server's /object_info via the compact
+// `external/node-types` route and is passed in as `nodeTypes`; this module owns
+// only the shape rules. When typing is unavailable (server unreachable, unknown
+// class) it falls back to the conventional input names, which is a degraded
+// picker rather than a broken one.
+
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+
+// Mirrors MAX_GRAPH_BYTES in backend/workflows/image_gen/config.py. Checked here
+// too so an oversized graph is refused at the file picker, where the user can
+// still see which file they chose, instead of being silently dropped by
+// normalization after save.
+export const MAX_GRAPH_BYTES = 512_000;
+
+const FALLBACK_TEXT_INPUTS = ["text"];
+const FALLBACK_SEED_INPUTS = ["seed", "noise_seed"];
+const FALLBACK_OUTPUT_CLASSES = ["SaveImage", "PreviewImage"];
 
 function parseGraphJson(text) {
   let value;
@@ -15,6 +34,9 @@ function parseGraphJson(text) {
   const nodes = Object.entries(value);
   if (!nodes.length || nodes.some(([, node]) => !node || typeof node.class_type !== "string" || !node.inputs)) {
     throw new Error("The file is not a ComfyUI API workflow.");
+  }
+  if (JSON.stringify(value).length > MAX_GRAPH_BYTES) {
+    throw new Error("This workflow is too large to store in Orb's settings.");
   }
   return value;
 }
@@ -48,27 +70,59 @@ export function graphFromPng(buffer) {
   throw new Error("This PNG has no embedded API workflow metadata.");
 }
 
+export function classTypes(graph) {
+  return [
+    ...new Set(
+      Object.values(graph || {})
+        .map((node) => node?.class_type)
+        .filter((c) => typeof c === "string"),
+    ),
+  ];
+}
+
 function label(nodeId, node) {
   const title = node?._meta?.title;
   return `${typeof title === "string" && title ? title : node.class_type} (#${nodeId})`;
 }
 
-export function slotCandidates(graph) {
+// A ComfyUI link is encoded as [nodeId, slot], so an array-valued input is wired
+// from another node and has no widget to patch — never a slot candidate.
+function isWidget(value) {
+  return !Array.isArray(value);
+}
+
+export function slotCandidates(graph, nodeTypes = {}) {
   const text = [];
   const seed = [];
   const output = [];
   for (const [nodeId, node] of Object.entries(graph || {})) {
     const inputs = node?.inputs || {};
+    const typing = nodeTypes[node.class_type];
+    const textInputs = typing ? typing.text_inputs || [] : FALLBACK_TEXT_INPUTS;
+    const seedInputs = typing ? typing.seed_inputs || [] : FALLBACK_SEED_INPUTS;
+    const isOutput = typing ? !!typing.output_node : FALLBACK_OUTPUT_CLASSES.includes(node.class_type);
     for (const name of Object.keys(inputs)) {
+      if (!isWidget(inputs[name])) continue;
       const item = { value: `${nodeId}\0${name}`, nodeId, input: name, label: `${label(nodeId, node)} — ${name}` };
-      if (name === "text") text.push(item);
-      if (name === "seed" || name === "noise_seed") seed.push(item);
+      if (textInputs.includes(name)) text.push(item);
+      if (seedInputs.includes(name)) seed.push(item);
     }
-    if (node.class_type === "SaveImage" || node.class_type === "PreviewImage") {
+    if (isOutput) {
       output.push({ value: `${nodeId}\0images`, nodeId, input: "images", label: label(nodeId, node) });
     }
   }
   return { text, seed, output };
+}
+
+// The three roles a graph cannot render without. `negative` is deliberately
+// absent: a one-encoder prose graph has no negative conditioning, and the
+// backend slot map treats it as optional for the same reason.
+export function missingRoles({ text, seed, output }) {
+  const missing = [];
+  if (!text.length) missing.push("a prompt input");
+  if (!seed.length) missing.push("a seed input");
+  if (!output.length) missing.push("an image output node");
+  return missing;
 }
 
 export function splitCandidate(value) {

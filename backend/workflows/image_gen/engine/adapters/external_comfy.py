@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from ..comfy_client import ComfyClient, ProgressCallback
 from ..contracts import (
@@ -11,7 +11,12 @@ from ..contracts import (
     ImageRequest,
     ImageResult,
 )
-from ..graph import patch_graph, resolve_graph, validate_graph_structure
+from ..graph import (
+    describe_render_params,
+    patch_graph,
+    resolve_graph,
+    validate_graph_structure,
+)
 
 CAPABILITIES: ImageBackendCapabilities = {
     "can_generate": True,
@@ -26,10 +31,16 @@ def _client(config: Mapping[str, Any]) -> ComfyClient:
     return ComfyClient(ext["api_url"], ext["api_key"])
 
 
-async def validate_connection(config: Mapping[str, Any]) -> dict:
+async def validate_connection(config: Mapping[str, Any], *, allow_cached: bool = False) -> dict:
+    """Prove this configuration can render, without submitting anything.
+
+    `allow_cached` lets the Visualize modal's readiness probe reuse a recent
+    node catalogue; an explicit Test connection leaves it False so the user sees
+    the server as it is right now.
+    """
     client = _client(config)
     stats = await client.system_stats()
-    info = await client.object_info()
+    info = await client.object_info(allow_cached=allow_cached)
     checked: set[str] = set()
     selections = [(config["external_comfy"]["workflow"], config["external_comfy"]["checkpoint"])]
     selections.extend(
@@ -105,12 +116,60 @@ async def list_models(config: Mapping[str, Any]) -> list[str]:
     return await _client(config).models("checkpoints")
 
 
+def _typed_inputs(info: Mapping[str, Any], wanted: str) -> list[str]:
+    """Input names on one node class whose declared type is `wanted`.
+
+    `/object_info` declares an input as `[type, options]`, where `type` is a
+    string for scalars and a list for combos. Only scalars are role candidates:
+    a combo is a fixed menu, and a linked slot has no widget to patch.
+    """
+    spec = info.get("input")
+    if not isinstance(spec, Mapping):
+        return []
+    declared: dict[str, Any] = {}
+    for group in ("required", "optional"):
+        values = spec.get(group)
+        if isinstance(values, Mapping):
+            declared.update(values)
+    names = []
+    for name, value in declared.items():
+        kind = value[0] if isinstance(value, (list, tuple)) and value else None
+        if kind == wanted:
+            names.append(name)
+    return names
+
+
+async def node_roles(config: Mapping[str, Any], class_types: Sequence[str]) -> dict:
+    """Which inputs of the named node classes can carry which slot role.
+
+    The graph importer needs `/object_info` typing to build its slot picker, but
+    that payload is tens of megabytes -- far too large to hand a browser just to
+    populate four dropdowns. So the typing rule lives here, next to the
+    validation that uses the same catalogue, and only the verdict crosses the
+    wire. Unknown classes are simply absent from the result; the picker degrades
+    to its name-based fallback for those.
+    """
+    info = await _client(config).object_info(allow_cached=True)
+    roles: dict[str, dict] = {}
+    for class_type in dict.fromkeys(class_types):
+        entry = info.get(class_type)
+        if not isinstance(entry, Mapping):
+            continue
+        roles[class_type] = {
+            "output_node": bool(entry.get("output_node")),
+            "text_inputs": _typed_inputs(entry, "STRING"),
+            "seed_inputs": [name for name in _typed_inputs(entry, "INT") if "seed" in name.lower()],
+        }
+    return roles
+
+
 async def generate(
     config: Mapping[str, Any],
     request: ImageRequest,
     *,
     checkpoint: str,
     graph_id: str,
+    notes: tuple[str, ...] = (),
     progress: ProgressCallback | None = None,
 ) -> ImageResult:
     graph, slots, shipped = resolve_graph(config, graph_id)
@@ -133,8 +192,10 @@ async def generate(
         mime=result.mime,
         backend_info={
             **result.backend_info,
+            **describe_render_params(patched, slots),
             "source": "external_comfy",
             "workflow_id": graph_id,
             "backend_model": checkpoint if shipped else None,
+            "notes": list(notes),
         },
     )
