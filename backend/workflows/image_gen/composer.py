@@ -9,6 +9,24 @@ from ..contracts import ToolSpec
 from ..toolkit import forced_tool_call
 from .config import resolve_style
 
+# The full scene format rides the OOC tail messages, not this schema: text mode
+# never renders tool schemas into the prompt (the forced call is grammar-only),
+# so any instruction living in a description is invisible there. The tail sits
+# after the shared conversation prefix, so carrying it per-call costs no KV reuse.
+_SCENE_FORMAT = (
+    "Write the scene as booru tags and short natural-language clauses mixed freely, comma-separated. Start with the "
+    "count anchor (1girl, 1boy, 2girls, 1boy 1girl, ...). Then give EACH character their own clause -- who they are, "
+    "hair, eyes, build, clothing, pose, action, and their own expression -- keeping every attribute inside that "
+    "character's clause so it does not bleed onto the others (e.g. 'a slim woman with long red hair and red eyes in a "
+    "silk dress, holding a book, teary-eyed'); keep each comma-separated chunk self-contained so meaning does not "
+    "leak across boundaries. For a first-person point-of-view scene, add the pov tag and do not draw the camera "
+    "character (hands at most), leaving only the others as subjects -- the camera character is NEVER counted in the "
+    "count anchor: you facing one girl is '1girl, solo, pov', never '1boy 1girl'; add looking at viewer when someone "
+    "faces the camera. Add the interaction between them, then shared setting, lighting, and framing last. When the "
+    "main subjects or objects of interest are visible (body parts, scenery, etc.), describe them. Use as many clauses "
+    "as the moment needs; do not compress to single-word tags. No art-style or quality terms."
+)
+
 COMPOSE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -19,19 +37,7 @@ COMPOSE_TOOL_SCHEMA = {
             "properties": {
                 "scene": {
                     "type": "string",
-                    "description": (
-                        "An image prompt written the way this model is prompted: booru tags and short natural-language "
-                        "clauses mixed freely, comma-separated. Start with the count anchor (1girl, 1boy, 2girls, "
-                        "1boy 1girl, ...). Then give EACH character their own clause -- who they are, hair, eyes, build, "
-                        "clothing, pose, action, and their own expression -- keeping every attribute inside that "
-                        "character's clause so it does not bleed onto the others (e.g. 'a slim woman with long red hair "
-                        "and red eyes in a silk dress, holding a book, teary-eyed'); keep each comma-separated chunk "
-                        "self-contained so meaning does not leak across boundaries. For a first-person point-of-view "
-                        "scene, add the pov tag and do not draw the camera character (hands at most), leaving only the "
-                        "others as subjects; add looking at viewer when someone faces the camera. Add the interaction "
-                        "between them, then shared setting, lighting, and framing last. Use as many clauses as the moment "
-                        "needs; do not compress to single-word tags. No art-style or quality terms."
-                    ),
+                    "description": "The image prompt: booru tags and short clauses, comma-separated, per the format given in the request.",
                 },
                 "avoid": {
                     "type": ["string", "null"],
@@ -75,6 +81,11 @@ ANALYZE_TOOL_SCHEMA = {
                         "type": "object",
                         "properties": {
                             "name": {"type": "string", "description": "Short label for this character."},
+                            "sex": {
+                                "type": "string",
+                                "enum": ["girl", "boy", "other"],
+                                "description": "Count category for this character (drives the 1girl/1boy count tags).",
+                            },
                             "appearance": {
                                 "type": "string",
                                 "description": (
@@ -97,7 +108,16 @@ ANALYZE_TOOL_SCHEMA = {
                             "pose": {"type": ["string", "null"], "description": "Current pose."},
                             "action": {"type": ["string", "null"], "description": "What they are doing in this moment."},
                         },
-                        "required": ["name", "appearance", "outfit_added", "outfit_removed", "position", "pose", "action"],
+                        "required": [
+                            "name",
+                            "sex",
+                            "appearance",
+                            "outfit_added",
+                            "outfit_removed",
+                            "position",
+                            "pose",
+                            "action",
+                        ],
                         "additionalProperties": False,
                     },
                 },
@@ -127,25 +147,29 @@ ANALYZE_TOOL = ToolSpec(
     standalone=True,
 )
 
-# Format (count anchor, per-character binding, comma isolation, POV) lives once, in
-# the compose schema description both paths already see. These carry only the task:
-# where the facts come from. Single-call extracts and infers POV itself; the
-# analysis path is handed both, so it only formats.
+# Each OOC carries the format guide plus where the facts come from. Single-call
+# extracts and infers POV itself; the analysis path is handed both, so it only
+# formats. The guide is repeated per-call rather than living in the schema or
+# the prefix: tails are the one place every transport shows the model and the
+# one place that never perturbs the shared prefix KV.
 _COMPOSE_OOC = (
-    "[OOC: Call compose_image_prompt for the visible moment in the assistant reply above, following the tool's format. "
-    "Use only details established by the conversation, and prefer the most recent explicit detail. Decide the point of view "
-    "from the narration voice -- narration through a character's eyes (usually the user, 'you') is first-person.]"
+    "[OOC: Call compose_image_prompt for the visible moment in the assistant reply above. " + _SCENE_FORMAT + " "
+    "Use only details established by the conversation, and prefer the most recent explicit detail. Decide the point of "
+    "view from the narration voice -- narration through a character's eyes (usually the user, 'you') is first-person. "
+    "Use simple and concise language.]"
 )
 
 _COMPOSE_FORMAT = (
-    "[OOC: Call compose_image_prompt depicting exactly the structured scene below and nothing beyond it, following the "
-    "tool's format and the scene's viewpoint line.]"
+    "[OOC: Call compose_image_prompt depicting exactly the structured scene below and nothing beyond it, following "
+    "the scene's viewpoint line. " + _SCENE_FORMAT + "]"
 )
 
 _ANALYZE_OOC = (
     "[OOC: Call analyze_scene for the visible moment in the assistant reply above. Use ONLY what the history directly "
     "establishes; for every attribute take the most recent explicit statement, and where nothing changed leave it at the "
-    "character's default. Report each present character's outfit as a delta from their default. Do not infer outfits, poses, "
+    "character's default. Report each present character's sex (girl/boy/other) and their outfit as a delta from their "
+    "default (outfit_added / outfit_removed). Leave appearance empty for the main character, whose default look is "
+    "supplied separately; for anyone else give their visible fixed traits (hair, eyes, build). Do not infer outfits, poses, "
     "or positions from genre convention. Decide the viewpoint from the narration voice, and in first_person leave the camera "
     "character out of the character list; list only characters actually visible in frame.]"
 )
@@ -176,6 +200,44 @@ async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens)
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
             args = event["args"]
     return args
+
+
+_COUNT_TOKEN = r"(?:\d+\+?\s*(?:girls?|boys?|others?)|multiple\s+(?:girls|boys|others)|solo|pov)"
+_COUNT_CHUNK_RE = re.compile(rf"{_COUNT_TOKEN}(?:\s+{_COUNT_TOKEN})*", re.IGNORECASE)
+# CLIP has no negation: a "no longer wearing X" chunk copied through to the
+# image prompt draws X. Removed articles are enforced via the negative instead.
+_NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b.*", re.IGNORECASE)
+
+
+def _strip_chunks(text: str, pattern: re.Pattern) -> str:
+    return ", ".join(c for c in (c.strip() for c in text.split(",")) if c and not pattern.fullmatch(c))
+
+
+def _count_anchor(characters: Any) -> str | None:
+    """Booru count tags from the analyzed cast, e.g. '1boy, 1girl' or '1girl, solo'.
+
+    The analyze schema already excludes the camera character in first_person, so
+    counting this list is what guarantees POV scenes never leak the extra '1boy'.
+    Returns None when any entry is malformed or missing a sex -- caller skips
+    pinning rather than guess.
+    """
+    counts = dict.fromkeys(("girl", "boy", "other"), 0)
+    for ch in characters if isinstance(characters, list) else [None]:
+        sex = _bounded(ch.get("sex")).lower() if isinstance(ch, Mapping) else ""
+        if sex not in counts:
+            return None
+        counts[sex] += 1
+    parts = [f"{n}{sex}" + ("s" if n > 1 else "") for sex, n in counts.items() if n]
+    if sum(counts.values()) == 1:
+        parts.append("solo")
+    return ", ".join(parts)
+
+
+def _pin_anchor(scene: str, anchor: str, pov: bool) -> str:
+    """Deterministically own the count block: drop whatever counts the composer wrote."""
+    lead = ([anchor] if anchor else []) + (["pov"] if pov else [])
+    kept = _strip_chunks(_strip_chunks(scene, _COUNT_CHUNK_RE), _NEGATION_CHUNK_RE)
+    return ", ".join(lead + [kept] if kept else lead) or scene
 
 
 def _render_scene(scene: Any) -> str:
@@ -223,7 +285,20 @@ async def compose_scene(
     anchor_text: str,
     scene_analysis: bool = False,
     appearance: str = "",
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, bool]:
+    """Compose the scene text for one message.
+
+    Returns ``(scene, avoid, mode, include_appearance)`` --
+    *include_appearance* is False when the analyzed cast shows the main
+    character off-frame, so the caller must not prepend their profile
+    appearance (it would summon them back into the image).
+
+    Both LLM calls ride *prefix* unchanged -- the same byte-identical
+    conversation prefix the chat turns send -- so the server's cached KV is
+    reused, not evicted, across analyze -> compose -> the next chat turn.
+    Everything per-call rides the tail messages after it.
+    """
+    analysis: dict = {}
     analysis_block = ""
     if scene_analysis:
         instr = _ANALYZE_OOC
@@ -260,13 +335,30 @@ async def compose_scene(
     scene = _bounded(args.get("scene")) or _bounded(anchor_text, 1_200)
     if not scene:
         raise ValueError("message has no visual text to compose")
+    avoid = _bounded(args.get("avoid"))
+    include_appearance = True
+    if analysis_block:
+        characters = [ch for ch in analysis.get("characters") or [] if isinstance(ch, Mapping)]
+        anchor = _count_anchor(analysis.get("characters"))
+        if anchor is not None:
+            scene = _pin_anchor(scene, anchor, _bounded(analysis.get("viewpoint")) == "first_person")
+        # Empty `appearance` marks the main character (the analyze contract), so a
+        # cast without one means the main character is off-frame.
+        include_appearance = any(not _bounded(ch.get("appearance")) for ch in characters)
+        # Removed outfit articles are enforced from the negative side; the
+        # positive prompt can't say "not X" in a way CLIP respects.
+        # ponytail: whole-image negative -- a removed dress lying visibly in
+        # frame will fight it; scope per-character if that ever matters.
+        avoid = _join([args.get("avoid"), *(ch.get("outfit_removed") for ch in characters)])
     if not args.get("scene"):
         mode = "fallback_excerpt"
     elif analysis_block:
         mode = "scene_analysis"
+    elif scene_analysis:
+        mode = "analysis_failed"
     else:
         mode = "single_call"
-    return scene, _bounded(args.get("avoid")), mode
+    return scene, avoid, mode, include_appearance
 
 
 def assemble_prompts(
@@ -277,6 +369,9 @@ def assemble_prompts(
     avoid: str,
 ) -> tuple[str, str, dict]:
     style = resolve_style(config, style_id)
-    positive = _join((profile.get("appearance_prompt"), scene, style.get("prompt")))
+    # Counts and pov belong to the scene's anchor; a profile that opens with
+    # "1girl," would duplicate or fight it from in front of the anchor.
+    appearance = _strip_chunks(_bounded(profile.get("appearance_prompt")), _COUNT_CHUNK_RE)
+    positive = _join((appearance, scene, style.get("prompt")))
     negative = _join((profile.get("negative_prompt"), avoid, style.get("negative_prompt")))
     return positive, negative, style

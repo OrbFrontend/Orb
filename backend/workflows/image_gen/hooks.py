@@ -183,7 +183,7 @@ async def _generate_fresh(
     if prefix is None:
         history = _history_through(ctx.history, int(message["id"]))
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings)
-    scene, avoid, composer_mode = await compose_scene(
+    scene, avoid, composer_mode, include_appearance = await compose_scene(
         client=ctx.client,
         prefix=prefix,
         settings=ctx.settings,
@@ -191,6 +191,8 @@ async def _generate_fresh(
         scene_analysis=bool(config.get("scene_analysis")),
         appearance=str(profile.get("appearance_prompt") or ""),
     )
+    if not include_appearance:
+        profile = {**profile, "appearance_prompt": ""}
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()
     result = await resolve_and_generate(

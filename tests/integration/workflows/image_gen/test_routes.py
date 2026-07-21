@@ -69,7 +69,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     await set_workflow_character_state("ig-char", "image_gen", {"appearance_prompt": "long silver hair"})
 
     async def fake_compose(**kwargs):
-        return "1girl, sitting, window, rain, night", "day", "single_call"
+        return "1girl, sitting, window, rain, night", "day", "single_call", True
 
     captured = {}
 
@@ -122,7 +122,7 @@ async def _stream_generate(client, monkeypatch, render, conv_id):
     )
 
     async def fake_compose(**kwargs):
-        return "1girl, standing", "", "single_call"
+        return "1girl, standing", "", "single_call", True
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
