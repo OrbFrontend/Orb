@@ -69,6 +69,16 @@ def test_a_user_graph_needs_positive_seed_and_output_but_not_negative():
     assert normalize_config({"external_comfy": {"user_graphs": [without_seed]}})["external_comfy"]["user_graphs"] == []
 
 
+def test_a_user_graph_keeps_an_optional_checkpoint_slot():
+    # The model-override slot must survive normalization, or the user's Orb model
+    # selection would be silently dropped on save and never reach the graph.
+    with_model = _user_graph(
+        slots={"positive": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "images"], "checkpoint": ["m", "unet_name"]}
+    )
+    cfg = normalize_config({"external_comfy": {"user_graphs": [with_model]}})
+    assert cfg["external_comfy"]["user_graphs"][0]["slots"]["checkpoint"] == ["m", "unet_name"]
+
+
 def test_a_global_workflow_naming_no_stored_graph_falls_back_to_the_shipped_one():
     cfg = normalize_config({"external_comfy": {"workflow": "user_gone"}})
     assert cfg["external_comfy"]["workflow"] == "external_core"

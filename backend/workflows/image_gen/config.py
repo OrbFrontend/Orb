@@ -100,12 +100,13 @@ def _user_graph(raw: Any) -> dict | None:
     if len(json.dumps(graph, separators=(",", ":"), ensure_ascii=False).encode("utf-8")) > MAX_GRAPH_BYTES:
         return None
     slots: dict[str, list[str]] = {}
-    for name in ("positive", "negative", "seed", "output"):
+    for name in ("positive", "negative", "seed", "output", "checkpoint"):
         parsed = _slot(slots_raw.get(name))
         if parsed is not None:
             slots[name] = parsed
-    # `negative` stays optional: a one-encoder prose graph has nothing to map it
-    # to, and inventing a slot for it would patch text into an unrelated input.
+    # `negative` and `checkpoint` stay optional: a one-encoder prose graph has
+    # nothing to map negative to, and a self-contained graph keeps its own model
+    # rather than mapping a checkpoint slot for Orb's selection to override.
     if not all(name in slots for name in ("positive", "seed", "output")):
         return None
     return {

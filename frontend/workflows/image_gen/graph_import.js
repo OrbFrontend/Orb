@@ -18,6 +18,12 @@ export const MAX_GRAPH_BYTES = 512_000;
 const FALLBACK_TEXT_INPUTS = ["text"];
 const FALLBACK_SEED_INPUTS = ["seed", "noise_seed"];
 const FALLBACK_OUTPUT_CLASSES = ["SaveImage", "PreviewImage"];
+// Widget inputs that name the diffusion model a loader reads. Offered as a
+// "Model" slot so an imported graph's model can be overridden by the checkpoint
+// the user picked in Orb, instead of staying pinned to a filename from whatever
+// machine exported the PNG. ponytail: name heuristic covering the standard
+// loaders; add a name here if a loader uses a different widget.
+const MODEL_INPUTS = ["ckpt_name", "unet_name"];
 
 function parseGraphJson(text) {
   let value;
@@ -95,6 +101,7 @@ export function slotCandidates(graph, nodeTypes = {}) {
   const text = [];
   const seed = [];
   const output = [];
+  const checkpoint = [];
   for (const [nodeId, node] of Object.entries(graph || {})) {
     const inputs = node?.inputs || {};
     const typing = nodeTypes[node.class_type];
@@ -103,15 +110,16 @@ export function slotCandidates(graph, nodeTypes = {}) {
     const isOutput = typing ? !!typing.output_node : FALLBACK_OUTPUT_CLASSES.includes(node.class_type);
     for (const name of Object.keys(inputs)) {
       if (!isWidget(inputs[name])) continue;
-      const item = { value: `${nodeId}\0${name}`, nodeId, input: name, label: `${label(nodeId, node)} — ${name}` };
+      const item = { value: `${nodeId}\u001f${name}`, nodeId, input: name, label: `${label(nodeId, node)} — ${name}` };
       if (textInputs.includes(name)) text.push(item);
       if (seedInputs.includes(name)) seed.push(item);
+      if (MODEL_INPUTS.includes(name)) checkpoint.push(item);
     }
     if (isOutput) {
-      output.push({ value: `${nodeId}\0images`, nodeId, input: "images", label: label(nodeId, node) });
+      output.push({ value: `${nodeId}\u001fimages`, nodeId, input: "images", label: label(nodeId, node) });
     }
   }
-  return { text, seed, output };
+  return { text, seed, output, checkpoint };
 }
 
 // The three roles a graph cannot render without. `negative` is deliberately
@@ -125,7 +133,11 @@ export function missingRoles({ text, seed, output }) {
   return missing;
 }
 
+// Separator is U+001F, not NUL: these values land in an <option value> via
+// innerHTML, and the HTML tokenizer rewrites U+0000 in an attribute to U+FFFD.
+// A NUL separator never survived the round-trip, so split() found nothing and
+// addPendingGraph() silently dropped every slot.
 export function splitCandidate(value) {
-  const [nodeId, input] = String(value || "").split("\0");
+  const [nodeId, input] = String(value || "").split("\u001f");
   return nodeId && input ? [nodeId, input] : null;
 }

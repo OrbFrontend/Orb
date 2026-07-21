@@ -13,10 +13,33 @@ from backend.workflows.image_gen.engine.comfy_client import (
 OBJECT_INFO = {
     "KSampler": {"input": {"required": {}}},
     "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["anime.safetensors"]]}}},
+    "UNETLoader": {"input": {"required": {"unet_name": [["real.safetensors"]], "weight_dtype": [["default"], {}]}}},
     "EmptyLatentImage": {"input": {"required": {}}},
     "CLIPTextEncode": {"input": {"required": {}}},
     "VAEDecode": {"input": {"required": {}}},
     "SaveImage": {"input": {"required": {}}, "output_node": True},
+}
+
+# An imported graph that loads its diffusion model via UNETLoader and pins a
+# filename from the machine that exported the PNG ("gone.safetensors"). The
+# `checkpoint` slot marks the input Orb's model selection overrides.
+UNET_USER_GRAPH = {
+    "id": "user_unet",
+    "label": "Unet",
+    "graph": {
+        "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "gone.safetensors", "weight_dtype": "default"}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "3": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "4": {"class_type": "KSampler", "inputs": {"seed": 0}},
+        "5": {"class_type": "SaveImage", "inputs": {"images": ["4", 0]}},
+    },
+    "slots": {
+        "positive": ["2", "text"],
+        "negative": ["3", "text"],
+        "seed": ["4", "seed"],
+        "output": ["5", "images"],
+        "checkpoint": ["1", "unet_name"],
+    },
 }
 
 USER_GRAPH = {
@@ -95,6 +118,40 @@ async def test_connection_stays_valid_when_model_discovery_fails(monkeypatch):
 
     assert result["ok"] is True
     assert result["models"] == []
+
+
+@pytest.mark.asyncio
+async def test_user_graph_model_override_is_validated_not_the_imported_pin(monkeypatch):
+    # The graph pins "gone.safetensors" from another machine; the user's checkpoint
+    # overrides it, so validation must check the model that will actually run.
+    _install_client(monkeypatch, _handler(httpx.Response(200, json=["real.safetensors"])))
+    config = normalize_config(
+        {
+            "external_comfy": {
+                "workflow": "user_unet",
+                "checkpoint": "real.safetensors",
+                "user_graphs": [UNET_USER_GRAPH],
+            }
+        }
+    )
+
+    result = await external_comfy.validate_connection(config)
+
+    assert result["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_user_graph_without_override_surfaces_the_missing_model(monkeypatch):
+    # No checkpoint slot: the graph keeps its own (missing) model, and Test
+    # connection reports it rather than letting it fail cryptically at render.
+    from backend.workflows.image_gen.engine.contracts import ImageGenerationError
+
+    _install_client(monkeypatch, _handler(httpx.Response(200, json=["real.safetensors"])))
+    graph = {**UNET_USER_GRAPH, "slots": {k: v for k, v in UNET_USER_GRAPH["slots"].items() if k != "checkpoint"}}
+    config = normalize_config({"external_comfy": {"workflow": "user_unet", "user_graphs": [graph]}})
+
+    with pytest.raises(ImageGenerationError, match="no longer available"):
+        await external_comfy.validate_connection(config)
 
 
 @pytest.mark.asyncio

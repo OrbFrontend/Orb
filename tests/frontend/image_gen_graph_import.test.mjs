@@ -108,3 +108,29 @@ test("metadata-stripped PNG gets a clear error", () => {
   const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
   assert.throws(() => graphFromPng(bytes.buffer), /no embedded API workflow metadata/);
 });
+
+test("candidate values survive HTML-attribute parsing", () => {
+  // The picker writes each value into an <option value> via innerHTML, and the
+  // HTML tokenizer rewrites U+0000 in an attribute to U+FFFD. The original NUL
+  // separator was mangled on that round-trip, so splitCandidate returned null and
+  // the Confirm button silently did nothing. Simulate the rewrite here.
+  const value = slotCandidates(GRAPH, NODE_TYPES).seed[0].value;
+  assert.ok(!value.includes("\u0000"), "separator must not be NUL");
+  const afterHtmlParse = value.replaceAll("\u0000", "\uFFFD");
+  assert.deepEqual(splitCandidate(afterHtmlParse), ["2", "seed"]);
+});
+
+test("model-loader inputs are offered as model-override candidates", () => {
+  // ckpt_name / unet_name become the "Model" slot, so the user's Orb checkpoint
+  // overrides the filename an imported PNG pinned on another machine.
+  const g = {
+    1: { class_type: "UNETLoader", inputs: { unet_name: "foo.safetensors", weight_dtype: "default" }, _meta: { title: "Load Diffusion Model" } },
+    2: { class_type: "CLIPTextEncode", inputs: { text: "" } },
+    3: { class_type: "KSampler", inputs: { seed: 1 } },
+    4: { class_type: "SaveImage", inputs: { images: ["3", 0] } },
+  };
+  const c = slotCandidates(g, {});
+  assert.deepEqual(splitCandidate(c.checkpoint[0].value), ["1", "unet_name"]);
+  // weight_dtype is a widget too, but not a model input.
+  assert.equal(c.checkpoint.length, 1);
+});

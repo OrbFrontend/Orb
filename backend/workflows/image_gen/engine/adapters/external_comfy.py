@@ -69,6 +69,11 @@ async def validate_connection(config: Mapping[str, Any], *, allow_cached: bool =
                 raise ValueError("Select a checkpoint before generating")
             if checkpoint not in await available_checkpoints():
                 raise ValueError(f"checkpoint {checkpoint!r} is not present on the server")
+        # Apply the model override before validating so Test connection checks the
+        # model that will actually run, not the filename the graph was imported
+        # with -- an imported PNG pins a model from whatever machine exported it,
+        # and a user-graph checkpoint slot points at the input that override targets.
+        if "checkpoint" in slots:
             graph, _ = patch_graph(
                 graph,
                 slots,

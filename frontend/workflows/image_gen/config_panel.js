@@ -392,6 +392,11 @@ async function importGraphFile(input) {
     if (missing.length) throw new Error(`This workflow has no ${missing.join(", no ")}.`);
     pendingGraph = { graph, label: file.name.replace(/\.(json|png)$/i, ""), candidates };
     const negative = candidates.text.length > 1 ? 1 : -1;
+    // Default to overriding the model when the graph has a loader: an imported
+    // PNG pins a filename from another machine, so the checkpoint the user picks
+    // in Orb should win. "None" keeps the graph's own model for the rare case a
+    // workflow is self-contained.
+    const model = candidates.checkpoint.length ? 0 : -1;
     picker.innerHTML = `<div class="image-gen-graph-picker">
       <label>Name<input id="ig-graph-label" value="${escAttr(pendingGraph.label)}"></label>
       <div class="ig-grid">
@@ -399,6 +404,7 @@ async function importGraphFile(input) {
         <label>Negative prompt<select id="ig-slot-negative">${candidateOptions(candidates.text, negative, "None — this workflow has no negative prompt")}</select></label>
         <label>Seed<select id="ig-slot-seed">${candidateOptions(candidates.seed)}</select></label>
         <label>Image output<select id="ig-slot-output">${candidateOptions(candidates.output)}</select></label>
+        <label>Model<select id="ig-slot-model">${candidateOptions(candidates.checkpoint, model, "None — keep the workflow's own model")}</select></label>
       </div>
       <button class="btn btn-sm" data-wf-action="image_gen:graphAdd">Confirm slots and add workflow</button>
     </div>`;
@@ -414,12 +420,16 @@ function addPendingGraph() {
   const negative = splitCandidate(document.getElementById("ig-slot-negative")?.value);
   const seed = splitCandidate(document.getElementById("ig-slot-seed")?.value);
   const output = splitCandidate(document.getElementById("ig-slot-output")?.value);
+  const model = splitCandidate(document.getElementById("ig-slot-model")?.value);
   if (!positive || !seed || !output) return;
   captureStyles();
   const id = `user_${Date.now().toString(36)}`;
   const label = document.getElementById("ig-graph-label")?.value.trim() || pendingGraph.label;
   const slots = { positive, seed, output };
   if (negative) slots.negative = negative;
+  // The model slot is patched from the style's checkpoint at render time, so the
+  // user's Orb selection overrides the model baked into the imported graph.
+  if (model) slots.checkpoint = model;
   draft.graphs.push({ id, label, graph: pendingGraph.graph, slots });
   const global = document.getElementById("ig-workflow");
   if (global) {
