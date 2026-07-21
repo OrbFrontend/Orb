@@ -139,8 +139,6 @@ Recipe dimensions are therefore not merely "chosen with stored size as a constra
 
 With 1953 node types available from 20 installed packs, an external server is a strict **superset** of what any Orb graph needs. Allowlist validation must therefore be "this graph references only allowlisted nodes", never "this server offers only allowlisted nodes" — the latter fails against every real installation.
 
-Incidentally, this install already carries `comfyui-impact-pack`, `comfyui-impact-subpack`, and `comfyui_controlnet_aux` — precisely the detector/detailer stack the v2 identity section describes. Advanced users' servers will commonly already have it, which strengthens the case for v2 identity being additive rather than a rewrite.
-
 ### Net assessment
 
 Nothing in the probe invalidates the design. Six items change, the last being the only one that touches a contract the plan wants frozen:
@@ -171,56 +169,14 @@ Nothing in the probe invalidates the design. Six items change, the last being th
 - Remote model installation. A future remote-management option requires an authenticated companion daemon with an allowlisted catalog and filesystem sandbox; it is not implemented through undocumented Manager routes.
 - Forge/A1111 adapters. They add another lifecycle/model-selection contract without improving the managed default.
 - Live remote catalog updates. The catalog ships with Orb releases; signed catalog updates can be designed later.
-- img2img, inpainting, ControlNet, IPAdapter/FaceID, character LoRAs, expression-pack generation, batches, or live previews. These reappear as the building blocks of the planned v2 character-identity feature; v1 ships none of them but reserves its extension points (see "Forward compatibility: character identity consistency (v2)").
+- img2img, inpainting, ControlNet, IPAdapter/FaceID, character LoRAs, expression-pack generation, batches, or live previews.
+- Any face/character identity consistency mechanism. A generic appearance prompt yields a different face every generation; that is an accepted limitation of this feature, not a staged milestone. Nothing here is designed against a future identity feature.
 - Automatic per-turn generation. Deferred until the framework can run work after assistant persistence rather than inside the turn.
 - A hosted-provider (cloud Images API) adapter.
 - Additional styles beyond realistic and anime — pixel art, scenery, line art and the rest are catalog additions, each gated on its own bundle review.
 - Automatic runtime/model updates. Upgrades are explicit and compatibility-checked.
 - Universal hardware support. Only runtime variants exercised by the release matrix are offered.
 - Byte-identical replay across GPU, driver, PyTorch, ComfyUI, model, or workflow changes.
-
-## Forward compatibility: character identity consistency (v2)
-
-v1 deliberately ships no character-identity mechanism: a generic prompt (“blue eyes, brown hair, red lips”) yields a different face every generation, so the user feels like they are talking to a new character each turn. A v2 **character identity** feature will address this without per-user asset wrangling: a canonical **reference portrait** is generated once from the character's appearance (locked seed, portrait framing), stored as character state, and used to condition every subsequent generation. The default identity mechanism is **IPAdapter-plus-face** (CLIP-vision, style-agnostic so it works on both anime and realistic recipes), with **InstantID** (InsightFace) as a realistic-only upgrade and a trained **character LoRA** as the opt-in gold standard. Because Orb is a non-commercial, local-only, open-source tool, InsightFace's non-commercial model license and curated non-first-party nodes are acceptable here.
-
-### The face-region detailer is load-bearing, not cosmetic
-
-Identity conditioning applied only at the base pass is weak for the framing this feature actually produces. At recipe resolutions a mid-shot or wider composition gives the face a few hundred pixels at most, and both IPAdapter and InstantID have correspondingly little to bind to; the identity washes out precisely in the shots where a conversation partner is usually depicted. The fix is to re-diffuse the face region at full resolution **and attach the identity conditioning to that pass**, which is what makes a face-region detailer a prerequisite for identity rather than a quality nicety.
-
-Three distinct jobs are involved and must not be conflated in the catalog or the node allowlist:
-
-| Stage | Component | Role |
-|---|---|---|
-| Locate | a bbox detector provider plus a face detection model | Finds the face in the **generated** image. Contributes nothing to identity. |
-| Re-render | a face-detailer node (crop → upscale → partial denoise → masked composite) | Produces a full-resolution face region. Improves fidelity; does **not** by itself make the face the same face, and its extra sampling pass adds its own variance. |
-| Identify | IPAdapter-plus-face / InstantID / character LoRA | Supplies *whose* face, conditioned on the stored reference portrait. |
-
-Only the third stage carries identity. The first two exist so the third operates at a resolution where it is effective.
-
-InstantID additionally needs InsightFace to embed the face from the **reference portrait** and to supply keypoints for its ControlNet. That is a different model at a different stage from the generated-image bbox detector, and the two are not interchangeable — the InstantID path needs both.
-
-Consequences for v1's reserved extension points, all of which the existing forward-compatibility decisions already cover:
-
-- Detector and identity weights are new model-store kinds and new reviewed catalog bundles. A face bbox model is on the order of tens of megabytes, negligible beside a checkpoint, so the download cost of the locate stage is not a design constraint.
-- Detector, detailer, and identity nodes are curated non-first-party nodes, delivered as pinned node bundles through the same download/verify/atomic-install primitive as model bundles, and admitted by extending the reviewed node allowlist.
-- The graph becomes multi-stage (base → detect → identity-inpaint → composite), which the slot map already supports because it patches arbitrary declared nodes.
-
-**Licensing must be resolved before any of this is advertised.** The common face-detection models are YOLO-architecture and the dominant implementation is AGPL-3.0; the widely used detailer node packs are GPL-3.0. Both run inside the sidecar process rather than Orb's, which affects the analysis but does not settle it, and neither belongs in a recommended bundle before review completes. A non-AGPL face-mesh detector is the fallback if that review goes badly. This is an explicit input to the existing licensing release blocker.
-
-**v1 consequence, stated up front rather than discovered in the release matrix:** because v1 ships first-party nodes only, it has no detailer stage, so managed-local faces at non-portrait framing will be visibly softer than what a user gets from a hand-built ComfyUI graph. This is an accepted v1 limitation, not a bug to triage.
-
-None of this is implemented in v1. v1's only obligation is to not foreclose it. These are the explicit compatibility decisions that keep v2 additive rather than a rewrite:
-
-- **Additive catalog only.** Identity recipes and bundles are new ids/versions; the five stable style ids and their v1 recipes are never repurposed, so stored v1 attachments keep resolving. Identity simply exercises the existing catalog-versioning rule.
-- **Model-store kinds are a data-driven, extensible set.** `BundleSpec.kind` maps to a model-store subdirectory. v2 adds `ipadapter/`, `clip_vision/`, and (for InstantID) `controlnet/`/`instantid/` by extending the validated kind set and the store layout. v1 rejects unknown kinds on purpose; new kinds arrive only with new reviewed catalog versions.
-- **The graph node allowlist is a reviewed data set, not a first-party assumption.** Graph validation admits nodes from a reviewed allowlist; v2 extends it with vetted identity nodes (IPAdapter, an anime/real face detector, InstantID). Nothing below the allowlist hard-codes “first-party only.”
-- **Curated custom nodes reuse existing machinery.** v2 delivers a pinned, hash-verified, reviewed node set as **node bundles** through the same download/verify/atomic-install primitive and job registry as model bundles (pinned git commit plus pinned pip requirements installed into the isolated environment; no ComfyUI-Manager). v1's runtime installer and supervisor must not assume an empty `custom_nodes` directory.
-- **Recipes may be multi-stage.** The slot map patches arbitrary declared nodes, so a base → detect → identity-inpaint → composite graph needs no contract change — only new allowlisted node types.
-- **Character state reserves identity keys.** `workflow_character_state` carries `reference_image` and `face_seed` now, `null` and unused in v1. The character-state normalizer preserves them across round-trips, and a v1 test pins this so the reservation cannot silently rot.
-- **Replay metadata is open and tolerant.** Identity fields (`identity_method`, `reference_image_ref`, identity-artifact SHA-256s) are additive to `generation_metadata`. v1 replay ignores fields it does not know, and v2 replay of a v1 row tolerates their absence.
-- **The forced-call scene schema is unchanged.** v2 adds a non-text reference-image conditioning path around the composer, not a new field in `compose_image_prompt`, so the LLM contract stays stable.
-
-Still explicitly not v1: reference-portrait generation, any identity conditioning, custom nodes actually shipped, LoRA training, and the identity model bundles themselves.
 
 ## Architectural placement
 
@@ -358,7 +314,7 @@ For `external_comfy`, only `prompt` and `negative_prompt` participate: the mode 
 }
 ```
 
-Slot maps use exact node ids and input names in a shipped API-format graph. There is no heuristic “first KSampler” fallback. Catalog validation loads each graph, checks all declared nodes/inputs, permits only nodes in the reviewed node allowlist (first-party in v1; a data-driven set the v2 identity feature extends with vetted nodes, never a hard-coded first-party assumption), and confirms one declared output node. Runtime compatibility is tied to the pinned ComfyUI version.
+Slot maps use exact node ids and input names in a shipped API-format graph. There is no heuristic “first KSampler” fallback. Catalog validation loads each graph, checks all declared nodes/inputs, permits only nodes in the reviewed node allowlist, and confirms one declared output node. Runtime compatibility is tied to the pinned ComfyUI version.
 
 ### `BundleSpec`
 
@@ -568,13 +524,11 @@ Per-character `workflow_character_state` is deliberately small:
 ```json
 {
   "appearance_prompt": "",
-  "negative_prompt": "",
-  "reference_image": null,
-  "face_seed": null
+  "negative_prompt": ""
 }
 ```
 
-Style is not character state. `reference_image` and `face_seed` are reserved for the v2 character-identity feature (see "Forward compatibility: character identity consistency (v2)"): they are `null` and unused in v1, but the normalizer preserves them so a future write survives a v1 round-trip. Character-specific LoRAs and reference-portrait generation are deferred.
+Style is not character state. Character-specific LoRAs and reference images are not part of this feature.
 
 ## Prompt composition
 
@@ -733,7 +687,6 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 - Supervisor argv/env, loopback binding, health deadline, crash state, port retry, log redaction, and shutdown escalation against a fake child.
 - Comfy queue/history/declared-output/view sequence, malformed/error payloads, timeout, output size/signature, and managed versus external interrupt behavior.
 - Config/profile normalization and nested-secret exclusion.
-- Character-state normalization preserves the reserved `reference_image`/`face_seed` keys and their defaults (v2 identity forward-compat guard).
 - Style resolution proves managed style selects its recipe/bundle/params while external styles change prompt only.
 - Composer schema/choice parity, segment order/bounds, style isolation, and anchor-text fallback.
 - `scene_analysis` off runs one forced call and on runs two; the analysis result renders to text as the composition call's final message; a failed analysis degrades to single-call composition rather than failing the generation; both tools stay registered under either setting.
