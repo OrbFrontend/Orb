@@ -35,6 +35,7 @@ from ..core import (
     workflow_state_lock,
 )
 from ..database import (
+    get_active_lorebook_entries,
     get_character_card,
     get_conversation,
     get_director_state,
@@ -52,6 +53,7 @@ from ..inference import (
     TOOLS,
     LLMClient,
     build_prefix,
+    compute_constant_lorebook_block,
     enabled_schemas,
     format_message_with_attachments,
     parse_tool_calls,
@@ -123,8 +125,15 @@ async def build_offturn_prefix(
     Workflow code cannot import ``pipeline.context`` without violating the
     one-way layer rule. This helper keeps the shared resolution at the workflow
     toolkit boundary and uses the same lower-layer primitives as the pipeline.
-    Pre-pipeline workflow blocks are intentionally absent because no turn is in
-    flight.
+
+    The output must stay **byte-identical** to the pipeline's own prefix
+    (``pipeline.context._build_prefix_from_ctx``) for the same conversation
+    state: off-turn LLM calls ride the llama.cpp server's cached KV for the
+    whole conversation prefix, and a single diverging byte evicts it — both for
+    this call and again for the next chat turn. That parity is pinned by
+    ``tests/integration/workflows/test_offturn_prefix_parity.py``; any field
+    added to one builder must be added to both. Pre-pipeline workflow system
+    blocks are the one accepted gap: no PRE_PIPELINE hook currently emits any.
     """
     conv = await get_conversation(conversation_id)
     if conv is None:
@@ -152,4 +161,5 @@ async def build_offturn_prefix(
         history,
         macros,
         user_description,
+        constant_lorebook_block=compute_constant_lorebook_block(await get_active_lorebook_entries(), macros),
     )

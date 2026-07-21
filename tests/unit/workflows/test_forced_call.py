@@ -291,6 +291,23 @@ class TestToolsAssembly:
         )
         assert client.complete_kwargs["tool_choice"] == TOOLS[_TOOL_NAME]["choice"]
 
+    async def test_tools_in_prompt_forwarded(self):
+        """Default True; False reaches the client so chat mode keeps the tool
+        schema out of the server-rendered prompt (KV cache)."""
+        for flag in (True, False):
+            client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
+            await _collect(
+                forced_tool_call(
+                    client=client,
+                    prefix=[],
+                    tail_messages=[],
+                    tool_name=_TOOL_NAME,
+                    settings=_SETTINGS,
+                    tools_in_prompt=flag,
+                )
+            )
+            assert client.complete_kwargs["tools_in_prompt"] is flag
+
 
 class TestGracefulDegradation:
     async def test_tool_call_missing_yields_empty_args(self):

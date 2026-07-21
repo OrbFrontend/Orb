@@ -196,6 +196,12 @@ async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens)
         reasoning_on=True,
         temperature=0.2,
         max_tokens=max_tokens,
+        # Never let the forced tool's schema into the prompt: chat mode would
+        # otherwise render a different single-tool array per call (analyze vs
+        # compose vs the chat turns' union), evicting the conversation's KV
+        # three times per image. Forcing rides grammar/response_format instead;
+        # prompt bytes stay those of the shared prefix + tail.
+        tools_in_prompt=False,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
             args = event["args"]

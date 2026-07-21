@@ -59,6 +59,7 @@ async def forced_tool_call(
     reasoning_on: bool = True,
     temperature: float = 0.25,
     max_tokens: int = 8192,
+    tools_in_prompt: bool = True,
 ) -> AsyncIterator[dict]:
     """Force one tool call and yield its parsed arguments.
 
@@ -81,6 +82,12 @@ async def forced_tool_call(
 
     ``kv_tracker=None`` skips the per-call ``record(...)`` + ``record_usage(...)``
     steps silently (the on-demand path does not participate in turn caching).
+
+    ``tools_in_prompt=False`` forwards the client flag of the same name: the
+    prompt must not carry the tool schemas (text mode never renders them; chat
+    mode then forces via ``response_format`` and omits ``tools`` from the body).
+    Use it for off-turn calls that ride a cached conversation prefix, so the
+    forced tool's schema cannot perturb the server-rendered prompt bytes.
     """
     schema = TOOLS[tool_name]["schema"]
     if enabled_tools is None:
@@ -113,6 +120,7 @@ async def forced_tool_call(
             tool_choice=TOOLS[tool_name]["choice"],
             temperature=temperature,
             max_tokens=max_tokens,
+            tools_in_prompt=tools_in_prompt,
             **reasoning_params,
         ):
             etype = event.get("type")

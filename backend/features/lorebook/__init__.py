@@ -1,23 +1,21 @@
-"""Lorebook feature slice — pure world-info activation, selection, and rendering.
+"""Lorebook feature slice — facade over ``inference.lorebook``.
 
-A ``features/`` slice: pure domain logic that depends only **downward** on
-``core`` (for ``Macros``) — no ``inference``, ``database``, or peer slice. Its
-selection/rendering is consumed by the director stage
-(``pipeline.passes.director``, via the ``LorebookTurn`` bundle) and the
-context-size route (``api.routes.conversations``) — both layers *above* the
-slice, so the one-way rule holds. The constant-entry prefix section
-(:func:`compute_constant_lorebook_block`) is consumed by the prefix assembly in
-``pipeline.context`` and the context-size route.
+The activation/selection/rendering logic lives in ``backend/inference/lorebook.py``:
+the constant-entry prefix section (:func:`compute_constant_lorebook_block`) is
+part of prompt assembly, and the workflow toolkit's off-turn prefix builder
+(``workflows/toolkit.py``) must render it byte-identically to the pipeline's —
+``workflows`` sits below ``features``, so the logic sits at the ``inference``
+layer both consumers may import. This facade keeps the established import path
+for the layers above (``pipeline.context``, ``pipeline.state``,
+``api.routes.conversations``).
 
 The per-turn threading bundle ``LorebookTurn`` is **not** here — it is a pipeline
 concern and lives with the other per-turn contracts in ``pipeline/state.py``.
-
-The facade re-exports the activation functions and the scan-depth constants.
 """
 
 from __future__ import annotations
 
-from .activation import (
+from ...inference.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
     LOREBOOK_SCAN_DEPTH,
     agentic_lorebook_active,

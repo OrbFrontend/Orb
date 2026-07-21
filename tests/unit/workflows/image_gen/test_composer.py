@@ -150,6 +150,42 @@ async def test_empty_analysis_reports_analysis_failed(monkeypatch):
     assert include_appearance  # no cast knowledge -> keep the old behavior
 
 
+async def test_both_calls_ride_the_prefix_unchanged_with_tools_out_of_prompt(monkeypatch):
+    """KV-cache contract: analyze and compose send the byte-identical shared
+    prefix (per-call instructions ride only the tail), and neither lets its
+    tool schema into the prompt (`tools_in_prompt=False`), so the server's
+    cached conversation KV survives analyze -> compose -> the next chat turn."""
+    calls: list[dict] = []
+
+    def recording(results):
+        inner = _fake_forced(results)
+
+        def fake(**kwargs):
+            calls.append(kwargs)
+            return inner(tool_name=kwargs["tool_name"])
+
+        return fake
+
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        recording(
+            {
+                "analyze_scene": {"characters": [{"name": "a", "sex": "girl", "action": "waving"}]},
+                "compose_image_prompt": {"scene": "1girl, waving", "avoid": None},
+            }
+        ),
+    )
+    prefix = [{"role": "system", "content": "sys"}, {"role": "assistant", "content": "she waves"}]
+    await compose_scene(client=None, prefix=prefix, settings={"model_name": "m"}, anchor_text="x", scene_analysis=True)
+    assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
+    for call in calls:
+        assert call["prefix"] is prefix
+        assert call["tools_in_prompt"] is False
+        for msg in call["tail_messages"]:
+            assert msg["role"] == "user"
+
+
 async def test_failed_compose_falls_back_to_anchor_excerpt(monkeypatch):
     monkeypatch.setattr(composer, "forced_tool_call", _fake_forced({}))
     scene, _, mode, _ = await compose_scene(

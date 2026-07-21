@@ -193,7 +193,7 @@ class LorebookTurn:
     everything.
 
     The selection/rendering it delegates to lives in the pure ``lorebook`` layer
-    (``backend/features/lorebook/activation.py``); this bundle is the pipeline-turn view
+    (``backend/inference/lorebook.py``); this bundle is the pipeline-turn view
     that threads those inputs from ``_prepare_turn`` to ``director_stage``.
     """
 
