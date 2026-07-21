@@ -19,11 +19,14 @@ export function hasAttachment(msg) {
 // Returns "" when the message can't take an image at all: only assistant
 // messages are visualizable, and one that already carries an image_gen
 // attachment offers regenerate/reroll on the attachment instead.
+//
+// The click generates straight away with the style selected in the tools-panel
+// card — no modal. Clicking again while a render is in flight cancels it.
 export function messageButtonHtml(msg, { mutable, icon, escAttr }) {
   if (!msg?.id || msg.role !== "assistant" || hasAttachment(msg)) return "";
   if (!mutable)
     return `<button class="image-gen-create" disabled title="Close other tabs to generate an image">${icon}</button>`;
-  return `<button class="image-gen-create" title="Visualize reply" data-wf-action="image_gen:open" data-msg-id="${escAttr(msg.id)}">${icon}</button>`;
+  return `<button class="image-gen-create" title="Visualize reply" data-wf-action="image_gen:generate" data-msg-id="${escAttr(msg.id)}">${icon}</button>`;
 }
 
 export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr }) {

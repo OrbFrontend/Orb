@@ -1,10 +1,8 @@
 /* Never set a min-width here: the modal shell is 600px with 24px padding, so
    anything above ~552px scrolls the modal sideways. Widths are fluid instead. */
-.image-gen-modal,.image-gen-settings{display:grid}
-.image-gen-modal{gap:12px}
-.image-gen-settings{gap:18px}
-.image-gen-modal label,.image-gen-settings label{display:grid;gap:5px}
-.image-gen-settings input,.image-gen-settings select,.image-gen-settings textarea,.image-gen-modal select{width:100%}
+.image-gen-settings{display:grid;gap:18px}
+.image-gen-settings label{display:grid;gap:5px}
+.image-gen-settings input,.image-gen-settings select,.image-gen-settings textarea{width:100%}
 .image-gen-settings textarea{min-height:54px;resize:vertical}
 .image-gen-row{display:flex;align-items:center;gap:10px}
 .image-gen-note{color:var(--text-muted);font-size:.85em;margin:0;line-height:1.45}
@@ -13,7 +11,14 @@
 .image-gen-card-status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:11px;margin:.4em 0}
 .image-gen-card-status:empty{display:none}
 .image-gen-card-status[data-ig-ready="no"]{color:var(--accent)}
+.image-gen-card-style{display:grid;gap:4px;margin:.5em 0;font-size:11px;color:var(--text-muted)}
+.image-gen-card-style select{width:100%}
 .image-gen-card-btn{margin-top:6px}
+
+/* The Visualize button pulses while its render is in flight; clicking it again
+   cancels. */
+.image-gen-generating{opacity:.6;animation:image-gen-pulse 1.2s ease-in-out infinite}
+@keyframes image-gen-pulse{50%{opacity:1}}
 
 /* ---- settings modal sections ----
    Grid children default to min-width:auto, which lets a long option label or an

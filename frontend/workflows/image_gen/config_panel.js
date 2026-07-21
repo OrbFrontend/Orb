@@ -38,6 +38,7 @@ let checkpointNames = [];
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "settings", () => openSettings());
+  registerAction(WORKFLOW_ID, "pickStyle", (el) => selectDefaultStyle(el.value));
   registerAction(WORKFLOW_ID, "editStyle", (el) => openSettings(el.dataset.styleId));
   registerAction(WORKFLOW_ID, "settingsClose", () => closeModal());
   registerAction(WORKFLOW_ID, "test", () => testConnection());
@@ -54,15 +55,58 @@ export function initConfigPanel(sharedConfig) {
 // Last readiness answer, so the card renders synchronously from a known value
 // instead of painting empty and filling in later.
 let cardReadiness = { text: "", ready: true };
+// Style list for the card picker, cached the same way. The Visualize button
+// reads its choice from cfg.default_style, so the picker is where a style is
+// chosen once instead of in a modal on every generate.
+let cardStyles = [];
 
-// Tools-panel card: what this will do, whether it can do it right now, and one
-// button that opens the whole form in a modal.
+function cardStyleOptions() {
+  const selected = cfg?.default_style || "";
+  return cardStyles
+    .map(
+      (s) => `<option value="${escAttr(s.id)}"${s.id === selected ? " selected" : ""}>${esc(s.label || s.id)}</option>`,
+    )
+    .join("");
+}
+
+// Tools-panel card: what this will do, whether it can do it right now, the style
+// the Visualize button will use, and one button that opens the whole form.
 export function configPanelRenderer() {
   const endpoint = cfg?.external_comfy?.api_url || "http://127.0.0.1:8188";
+  const stylePicker = cardStyles.length
+    ? `<label class="image-gen-card-style">Style<select id="ig-card-style" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select></label>`
+    : "";
   return `<div class="tool-card-desc">Generate images on demand with external ComfyUI.</div>
     <div class="image-gen-card-status" title="${escAttr(endpoint)}">${esc(endpoint)}</div>
     <div class="image-gen-card-status" id="ig-card-readiness" data-ig-ready="${cardReadiness.ready ? "yes" : "no"}">${esc(cardReadiness.text)}</div>
+    ${stylePicker}
     <button class="btn btn-sm image-gen-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
+}
+
+// The card picker is the only place a default style is chosen, so its choice
+// persists — otherwise every reload reopens on the shipped default, which is the
+// hassle the picker exists to remove. The full config round-trips like a Save.
+async function selectDefaultStyle(styleId) {
+  cfg.default_style = styleId;
+  try {
+    const res = await api.put(`/workflows/${WORKFLOW_ID}/config`, { config: { ...cfg, default_style: styleId } });
+    if (res?.config) Object.assign(cfg, res.config);
+  } catch {
+    toast("Could not save default style", "error");
+  }
+}
+
+// Styles feed the card picker. Fetched once at load (and after a save), then the
+// picker is patched in place so an open tools panel need not be re-rendered.
+export async function refreshCardStyles() {
+  try {
+    const res = await api.get(`/workflows/${WORKFLOW_ID}/styles`);
+    cardStyles = Array.isArray(res?.styles) ? res.styles : [];
+  } catch {
+    cardStyles = [];
+  }
+  const sel = document.getElementById("ig-card-style");
+  if (sel && cardStyles.length) sel.innerHTML = cardStyleOptions();
 }
 
 // Readiness is a configuration question, not a network one -- `/status` answers
@@ -152,8 +196,6 @@ function captureStyles() {
 function renderStyles(expandId = "") {
   const host = document.querySelector(".ig-styles");
   if (host) host.innerHTML = styleRows(expandId);
-  const picker = document.getElementById("ig-default-style");
-  if (picker) picker.innerHTML = styleOptions(picker.value);
 }
 
 function addStyle() {
@@ -256,14 +298,6 @@ async function loadCheckpoints() {
   }
 }
 
-function styleOptions(selected) {
-  return draft.styles
-    .map(
-      (s) => `<option value="${escAttr(s.id)}"${s.id === selected ? " selected" : ""}>${esc(s.label || s.id)}</option>`,
-    )
-    .join("");
-}
-
 // Fills the placeholder cache. Failure is non-fatal: rows fall back to the
 // generic "Use the shipped default" hint.
 async function loadStyleDefaults() {
@@ -301,7 +335,6 @@ async function openSettings(expandStyleId = "") {
       <div class="ig-grid">
         <label>Checkpoint<input id="ig-checkpoint" list="${CHECKPOINT_LIST_ID}" value="${escAttr(ext.checkpoint || "")}" placeholder="checkpoint.safetensors"></label>
         <label>Workflow<select id="ig-workflow">${workflowOptions(ext.workflow || "external_core")}</select></label>
-        <label>Style picked by default<select id="ig-default-style">${styleOptions(cfg.default_style || "")}</select></label>
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
       </div>
     </section>
@@ -333,8 +366,8 @@ function readConfig() {
   captureStyles();
   return {
     source: "external_comfy",
-    default_style:
-      document.getElementById("ig-default-style")?.value || cfg.default_style || draft.styles[0]?.id || "realistic",
+    // Chosen in the tools-panel card now, not here; carry the live value through.
+    default_style: cfg.default_style || draft.styles[0]?.id || "realistic",
     // No control for this yet; carry the saved value rather than resetting it.
     scene_analysis: cfg.scene_analysis === true,
     timeout_seconds: Number(document.getElementById("ig-timeout")?.value) || 180,
@@ -491,6 +524,7 @@ async function saveSettings() {
     );
     closeModal();
     refreshCardReadiness();
+    refreshCardStyles();
   } catch {
     toast("Could not save image generation settings", "error");
   }

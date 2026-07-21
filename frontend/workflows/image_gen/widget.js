@@ -1,8 +1,6 @@
 import {
-  api,
   canMutate,
   clearWorkflowPhase,
-  closeModal,
   convUrl,
   esc,
   escAttr,
@@ -10,7 +8,6 @@ import {
   refreshConversationMessages,
   registerAction,
   setWorkflowPhase,
-  showModal,
   sseEvents,
   streamPost,
   toast,
@@ -22,105 +19,36 @@ const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 let cfg;
 
 // One render per message, tab-wide. The Visualize button hides itself once the
-// message carries an image, but that check reads local state: closing the modal
-// mid-render leaves the button live, and a second click would append a second
-// independent attachment root to the same message. Keyed by message id so
-// distinct messages still render in parallel.
+// message carries an image, but that check reads local state: a second click
+// mid-render would append a second independent attachment root to the same
+// message. Keyed by message id so distinct messages still render in parallel.
 const inFlight = new Map(); // msgId -> AbortController
 
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
-  registerAction(WORKFLOW_ID, "open", (el) => openGenerate(Number(el.dataset.msgId)));
   registerAction(WORKFLOW_ID, "generate", (el) => generate(Number(el.dataset.msgId), el));
-  registerAction(WORKFLOW_ID, "retry", (el) => probeReadiness(Number(el.dataset.msgId)));
-  registerAction(WORKFLOW_ID, "close", (el) => dismiss(Number(el.dataset.msgId)));
 }
 
 export function createButtonRenderer(msg) {
   return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr });
 }
 
-// Cancel means cancel: aborting the fetch closes the SSE stream, which closes
-// the hook's generator and cancels the render task server-side. Without this the
-// modal's Cancel button only hid a render that kept running.
-function dismiss(msgId) {
-  inFlight.get(msgId)?.abort();
-  closeModal();
-}
-
-async function openGenerate(msgId) {
-  if (inFlight.has(msgId)) {
-    toast("An image is already being generated for this message");
-    return;
-  }
-  let styles = [];
-  try {
-    const res = await api.get(`/workflows/${WORKFLOW_ID}/styles`);
-    styles = Array.isArray(res?.styles) ? res.styles : [];
-  } catch {
-    toast("Could not load image styles", "error");
-    return;
-  }
-  const options = styles
-    .map(
-      (s) =>
-        `<option value="${escAttr(s.id)}"${s.id === cfg.default_style ? " selected" : ""}>${esc(s.label)}</option>`,
-    )
-    .join("");
-  showModal(`<h2>Visualize reply</h2>
-    <div class="image-gen-modal">
-      <label>Style<select id="image-gen-style">${options}</select></label>
-      <div id="image-gen-ready" class="image-gen-note">Checking ComfyUI...</div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn" data-wf-action="image_gen:close" data-msg-id="${msgId}">Cancel</button>
-      <span id="image-gen-recovery"></span>
-      <button id="image-gen-submit" class="btn btn-accent" data-wf-action="image_gen:generate" data-msg-id="${msgId}" disabled>Generate</button>
-    </div>`);
-  await probeReadiness(msgId);
-}
-
-async function probeReadiness(msgId) {
-  const status = document.getElementById("image-gen-ready");
-  const recovery = document.getElementById("image-gen-recovery");
-  const submit = document.getElementById("image-gen-submit");
-  if (!status || !recovery || !submit) return;
-  status.textContent = "Checking ComfyUI...";
-  recovery.innerHTML = "";
-  submit.disabled = true;
-  try {
-    // Sends no config, so the backend probes the *saved* one and may answer from
-    // its cached node catalogue — the modal must not pay for a multi-megabyte
-    // /object_info fetch on every open.
-    await api.post(`/workflows/${WORKFLOW_ID}/connections/test`, {});
-    status.textContent = "ComfyUI is ready.";
-    submit.disabled = false;
-  } catch (e) {
-    status.textContent = readinessMessage(e);
-    recovery.innerHTML = `<button class="btn" data-wf-action="image_gen:settings">Open settings</button>
-      <button class="btn" data-wf-action="image_gen:retry" data-msg-id="${msgId}">Retry</button>`;
-  }
-}
-
-// `api` rejects with the raw response body. The route sends `{"detail": "..."}`
-// naming the exact unmet prerequisite (an unreachable host, a checkpoint the
-// server no longer has), which is the whole point of showing it.
-function readinessMessage(error) {
-  try {
-    const detail = JSON.parse(error?.message)?.detail;
-    if (typeof detail === "string" && detail) return detail;
-  } catch {
-    // Not JSON — fall through to the bounded generic message.
-  }
-  return `Can't reach ComfyUI at ${cfg.external_comfy?.api_url || "the configured server"}.`;
-}
-
 async function generate(msgId, button) {
-  if (!getActiveConvId() || !canMutate() || inFlight.has(msgId)) return;
-  const styleId = document.getElementById("image-gen-style")?.value || cfg.default_style;
+  // Click again while a render is in flight = cancel. Aborting the fetch closes
+  // the SSE stream, which closes the hook's generator and cancels the render
+  // server-side, not just the local view.
+  if (inFlight.has(msgId)) {
+    inFlight.get(msgId).abort();
+    return;
+  }
+  if (!getActiveConvId() || !canMutate()) return;
+  // Style comes from the tools-panel card's picker, which writes cfg.default_style
+  // on change; the panel need not be open for this to hold the last choice.
+  const styleId = cfg.default_style || "realistic";
   const controller = new AbortController();
   inFlight.set(msgId, controller);
-  button.disabled = true;
+  button.classList.add("image-gen-generating");
+  button.title = "Cancel image generation";
   const channel = `workflow:image_gen:generate:${msgId}`;
   try {
     setWorkflowPhase(channel, "Composing image prompt...");
@@ -152,21 +80,19 @@ async function generate(msgId, button) {
     // there is what left the button re-enabling with nothing shown.
     if (!terminated && !failure) failure = "Image generation did not complete";
     if (failure) toast(failure, "error");
-    if (attachmentId) {
-      closeModal();
-      await refreshConversationMessages(msgId);
-    } else {
-      button.disabled = false;
-    }
+    // On success the message re-renders without its Visualize button; on failure
+    // the button stays and the finally block restores it to its idle state.
+    if (attachmentId) await refreshConversationMessages(msgId);
   } catch (e) {
     if (e?.name !== "AbortError") {
       console.error("image generation failed", e);
       toast("Image generation failed", "error");
     }
-    button.disabled = false;
   } finally {
     inFlight.delete(msgId);
     clearWorkflowPhase(channel);
+    button.classList.remove("image-gen-generating");
+    button.title = "Visualize reply";
   }
 }
 

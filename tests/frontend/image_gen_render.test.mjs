@@ -20,7 +20,7 @@ const assistant = (over = {}) => ({ id: 42, role: "assistant", ...over });
 
 test("renders a Visualize button for a mutable assistant message", () => {
   const html = messageButtonHtml(assistant(), { mutable: true, icon: ICON, ...MARKERS });
-  assert.match(html, /data-wf-action="image_gen:open"/);
+  assert.match(html, /data-wf-action="image_gen:generate"/);
   assert.match(html, /data-msg-id="“42”"/); // the id goes through escAttr
   assert.ok(html.includes(ICON));
   assert.ok(!html.includes("disabled"));
@@ -49,7 +49,7 @@ test("no button for user messages, id-less messages, or an existing image", () =
 test("another workflow's attachment does not suppress the button", () => {
   const msg = assistant({ workflow_attachments: [{ workflow_id: "tts" }] });
   assert.equal(hasAttachment(msg), false);
-  assert.match(messageButtonHtml(msg, { mutable: true, icon: ICON, ...MARKERS }), /image_gen:open/);
+  assert.match(messageButtonHtml(msg, { mutable: true, icon: ICON, ...MARKERS }), /image_gen:generate/);
 });
 
 test("render details route every metadata field through esc", () => {
