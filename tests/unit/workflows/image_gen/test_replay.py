@@ -21,9 +21,7 @@ SLOTS = {"positive": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "imag
 
 def _config(**external) -> dict:
     base = {
-        "checkpoint": "current.safetensors",
-        "workflow": "external_core",
-        "styles": [{"id": "anime", "label": "Anime"}],
+        "styles": [{"id": "anime", "label": "Anime", "checkpoint": "current.safetensors"}],
     }
     base.update(external)
     return normalize_config({"default_style": "anime", "external_comfy": base})

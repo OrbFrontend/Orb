@@ -79,17 +79,10 @@ def test_a_user_graph_keeps_an_optional_checkpoint_slot():
     assert cfg["external_comfy"]["user_graphs"][0]["slots"]["checkpoint"] == ["m", "unet_name"]
 
 
-def test_a_global_workflow_naming_no_stored_graph_falls_back_to_the_shipped_one():
-    cfg = normalize_config({"external_comfy": {"workflow": "user_gone"}})
-    assert cfg["external_comfy"]["workflow"] == "external_core"
-
-
-def test_style_pins_override_the_global_selection_and_empty_pins_fall_through():
+def test_each_style_carries_its_own_checkpoint_and_workflow():
     cfg = normalize_config(
         {
             "external_comfy": {
-                "checkpoint": "global.safetensors",
-                "workflow": "external_core",
                 "user_graphs": [_user_graph("user_a")],
                 "styles": [
                     {"id": "pinned", "label": "Pinned", "checkpoint": "pinned.safetensors", "workflow": "user_a"},
@@ -100,8 +93,10 @@ def test_style_pins_override_the_global_selection_and_empty_pins_fall_through():
     )
     pinned = resolve_style(cfg, "pinned")
     assert (pinned["checkpoint"], pinned["workflow"]) == ("pinned.safetensors", "user_a")
+    # No global default to inherit: an empty checkpoint stays empty, an empty
+    # workflow resolves to the shipped core graph.
     plain = resolve_style(cfg, "plain")
-    assert (plain["checkpoint"], plain["workflow"]) == ("global.safetensors", "external_core")
+    assert (plain["checkpoint"], plain["workflow"]) == ("", "external_core")
 
 
 def test_default_style_falls_back_when_it_no_longer_resolves():

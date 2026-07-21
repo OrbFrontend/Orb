@@ -38,9 +38,8 @@ def _configuration_readiness(config: dict) -> dict:
     unresolved = sorted(
         {style["workflow"] for style in external["styles"] if style["workflow"] and not has_graph(config, style["workflow"])}
     )
-    needs_checkpoint = not external["checkpoint"] and any(
-        not style["checkpoint"] and (style["workflow"] or external["workflow"]) == "external_core"
-        for style in external["styles"]
+    needs_checkpoint = any(
+        not style["checkpoint"] and (style["workflow"] or "external_core") == "external_core" for style in external["styles"]
     )
     if unresolved:
         return {"ready": False, "reason": "unknown_workflow", "detail": f"Unknown workflow: {', '.join(unresolved)}"}
@@ -60,7 +59,7 @@ async def api_image_gen_status():
     return {
         "source": "external_comfy",
         "capabilities": dict(CAPABILITIES),
-        "configured": bool(external["checkpoint"]) or external["workflow"] != "external_core",
+        "configured": any(s["checkpoint"] or s["workflow"] not in ("", "external_core") for s in external["styles"]),
         "api_url": external["api_url"],
         "default_style": config["default_style"],
         "style_count": len(external["styles"]),

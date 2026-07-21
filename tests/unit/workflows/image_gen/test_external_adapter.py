@@ -92,14 +92,7 @@ async def test_connection_test_returns_discovered_checkpoints(monkeypatch):
         monkeypatch,
         _handler(httpx.Response(200, json=["z.safetensors", "anime.safetensors"])),
     )
-    config = normalize_config(
-        {
-            "external_comfy": {
-                "checkpoint": "anime.safetensors",
-                "workflow": "external_core",
-            }
-        }
-    )
+    config = normalize_config({"external_comfy": {"styles": [{"id": "s", "label": "S", "checkpoint": "anime.safetensors"}]}})
 
     result = await external_comfy.validate_connection(config)
 
@@ -112,7 +105,9 @@ async def test_connection_stays_valid_when_model_discovery_fails(monkeypatch):
     # A user graph carries its own loaders, so nothing about this connection
     # depends on the model list the settings dropdown would like to show.
     _install_client(monkeypatch, _handler(httpx.Response(403)))
-    config = normalize_config({"external_comfy": {"workflow": "user_1", "user_graphs": [USER_GRAPH]}})
+    config = normalize_config(
+        {"external_comfy": {"user_graphs": [USER_GRAPH], "styles": [{"id": "s", "label": "S", "workflow": "user_1"}]}}
+    )
 
     result = await external_comfy.validate_connection(config)
 
@@ -128,9 +123,8 @@ async def test_user_graph_model_override_is_validated_not_the_imported_pin(monke
     config = normalize_config(
         {
             "external_comfy": {
-                "workflow": "user_unet",
-                "checkpoint": "real.safetensors",
                 "user_graphs": [UNET_USER_GRAPH],
+                "styles": [{"id": "s", "label": "S", "workflow": "user_unet", "checkpoint": "real.safetensors"}],
             }
         }
     )
@@ -148,7 +142,9 @@ async def test_user_graph_without_override_surfaces_the_missing_model(monkeypatc
 
     _install_client(monkeypatch, _handler(httpx.Response(200, json=["real.safetensors"])))
     graph = {**UNET_USER_GRAPH, "slots": {k: v for k, v in UNET_USER_GRAPH["slots"].items() if k != "checkpoint"}}
-    config = normalize_config({"external_comfy": {"workflow": "user_unet", "user_graphs": [graph]}})
+    config = normalize_config(
+        {"external_comfy": {"user_graphs": [graph], "styles": [{"id": "s", "label": "S", "workflow": "user_unet"}]}}
+    )
 
     with pytest.raises(ImageGenerationError, match="no longer available"):
         await external_comfy.validate_connection(config)
@@ -198,7 +194,7 @@ async def test_object_info_is_cached_for_probes_and_refetched_on_an_explicit_tes
 
     _install_client(monkeypatch, handler)
     invalidate_object_info()
-    config = normalize_config({"external_comfy": {"checkpoint": "anime.safetensors"}})
+    config = normalize_config({"external_comfy": {"styles": [{"id": "s", "label": "S", "checkpoint": "anime.safetensors"}]}})
 
     await external_comfy.validate_connection(config, allow_cached=True)
     await external_comfy.validate_connection(config, allow_cached=True)

@@ -164,8 +164,8 @@ function styleRows(expandId = "") {
           <label>Positive style tags<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="${escAttr(placeholder(s.id, "prompt"))}">${esc(s.prompt || "")}</textarea></label>
           <label>Negative style tags<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="${escAttr(placeholder(s.id, "negative_prompt"))}">${esc(s.negative_prompt || "")}</textarea></label>
           <div class="ig-grid">
-            <label>Checkpoint<input data-ig-field="checkpoint" list="${CHECKPOINT_LIST_ID}" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(s.checkpoint || "")}" placeholder="Default checkpoint"></label>
-            <label>Workflow<select data-ig-field="workflow" data-wf-action="image_gen:styleChange" data-wf-on="change">${workflowOptions(s.workflow || "", true)}</select></label>
+            <label>Checkpoint<input data-ig-field="checkpoint" list="${CHECKPOINT_LIST_ID}" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(s.checkpoint || "")}" placeholder="checkpoint.safetensors"></label>
+            <label>Workflow<select data-ig-field="workflow" data-wf-action="image_gen:styleChange" data-wf-on="change">${workflowOptions(s.workflow || "external_core")}</select></label>
           </div>
           <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${i}">Remove style</button>
         </div>
@@ -233,12 +233,10 @@ function refreshStyleState(el) {
   badge.dataset.igState = count ? "custom" : "inherit";
 }
 
-function workflowOptions(selected, includeGlobal = false) {
-  const options = [];
-  if (includeGlobal) options.push(`<option value=""${selected ? "" : " selected"}>Default workflow</option>`);
-  options.push(
+function workflowOptions(selected) {
+  const options = [
     `<option value="external_core"${selected === "external_core" ? " selected" : ""}>Orb core workflow</option>`,
-  );
+  ];
   for (const graph of draft.graphs) {
     options.push(
       `<option value="${escAttr(graph.id)}"${selected === graph.id ? " selected" : ""}>${esc(graph.label || graph.id)}</option>`,
@@ -265,9 +263,6 @@ function removeGraph(graphId) {
   // Pins naming the removed graph are cleared here rather than left to fail at
   // generation: the user just deleted it, so falling back is what they meant.
   draft.styles = draft.styles.map((s) => (s.workflow === graphId ? { ...s, workflow: "" } : s));
-  const global = document.getElementById("ig-workflow");
-  const globalValue = global?.value === graphId ? "external_core" : global?.value || "external_core";
-  if (global) global.innerHTML = workflowOptions(globalValue);
   const host = document.getElementById("ig-graph-list");
   if (host) host.innerHTML = graphRows();
   renderStyles();
@@ -279,8 +274,7 @@ function checkpointOptions() {
   return checkpointNames.map((name) => `<option value="${escAttr(name)}"></option>`).join("");
 }
 
-// The list is shared by the Defaults field and every style pin, so one refresh
-// updates all of them.
+// The list is shared by every style pin, so one refresh updates all of them.
 function applyCheckpoints(names) {
   checkpointNames = Array.isArray(names) ? names.filter((n) => typeof n === "string") : [];
   const list = document.getElementById(CHECKPOINT_LIST_ID);
@@ -326,17 +320,9 @@ async function openSettings(expandStyleId = "") {
       <div class="ig-grid">
         <label>ComfyUI URL<input id="ig-url" value="${escAttr(ext.api_url || "http://127.0.0.1:8188")}"></label>
         <label>API key<input id="ig-key" type="password" value="${escAttr(ext.api_key || "")}"></label>
-      </div>
-      <div class="image-gen-row"><button class="btn btn-sm" data-wf-action="image_gen:test">Test connection</button><span id="ig-test-result" class="image-gen-note"></span></div>
-    </section>
-    <section class="ig-section">
-      <div class="ig-heading">Defaults</div>
-      <div class="image-gen-note">Every style starts from these. A style only needs its own value where it should differ.</div>
-      <div class="ig-grid">
-        <label>Checkpoint<input id="ig-checkpoint" list="${CHECKPOINT_LIST_ID}" value="${escAttr(ext.checkpoint || "")}" placeholder="checkpoint.safetensors"></label>
-        <label>Workflow<select id="ig-workflow">${workflowOptions(ext.workflow || "external_core")}</select></label>
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
       </div>
+      <div class="image-gen-row"><button class="btn btn-sm" data-wf-action="image_gen:test">Test connection</button><span id="ig-test-result" class="image-gen-note"></span></div>
     </section>
     <section class="ig-section">
       <div class="ig-heading">Styles</div>
@@ -375,8 +361,6 @@ function readConfig() {
       ...(cfg.external_comfy || {}),
       api_url: document.getElementById("ig-url")?.value || "",
       api_key: document.getElementById("ig-key")?.value || "",
-      checkpoint: document.getElementById("ig-checkpoint")?.value || "",
-      workflow: document.getElementById("ig-workflow")?.value || "external_core",
       styles: draft.styles,
       user_graphs: draft.graphs,
     },
@@ -464,10 +448,6 @@ function addPendingGraph() {
   // user's Orb selection overrides the model baked into the imported graph.
   if (model) slots.checkpoint = model;
   draft.graphs.push({ id, label, graph: pendingGraph.graph, slots });
-  const global = document.getElementById("ig-workflow");
-  if (global) {
-    global.innerHTML = workflowOptions(id);
-  }
   const list = document.getElementById("ig-graph-list");
   if (list) list.innerHTML = graphRows();
   // Per-style pins are rendered from the same graph list, so they need the new

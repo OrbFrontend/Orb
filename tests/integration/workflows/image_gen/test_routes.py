@@ -208,12 +208,15 @@ async def test_config_round_trips_through_the_workflow_normalizer(client):
 
 @pytest.mark.asyncio
 async def test_status_reports_why_it_is_not_ready(client):
-    await set_workflow_config("image_gen", {"external_comfy": {"checkpoint": ""}})
+    styles = [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]
+    await set_workflow_config("image_gen", {"external_comfy": {"styles": styles}})
     status = (await client.get("/api/workflows/image_gen/status")).json()
     assert status["ready"] is False
     assert status["reason"] == "no_checkpoint"
 
-    await set_workflow_config("image_gen", {"external_comfy": {"checkpoint": "anime.safetensors"}})
+    for s in styles:
+        s["checkpoint"] = "anime.safetensors"
+    await set_workflow_config("image_gen", {"external_comfy": {"styles": styles}})
     status = (await client.get("/api/workflows/image_gen/status")).json()
     assert status["ready"] is True
     assert status["style_count"] == 2

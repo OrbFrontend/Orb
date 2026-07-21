@@ -35,8 +35,6 @@ CONFIG_DEFAULTS = {
     "external_comfy": {
         "api_url": "http://127.0.0.1:8188",
         "api_key": "",
-        "checkpoint": "",
-        "workflow": "external_core",
         "styles": [
             {
                 "id": s["id"],
@@ -151,10 +149,6 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         if len(graphs) >= MAX_USER_GRAPHS:
             break
 
-    workflow = _text(external_raw.get("workflow"), 64, "external_core")
-    if workflow != "external_core" and workflow not in graph_seen:
-        workflow = "external_core"
-    checkpoint = _text(external_raw.get("checkpoint"), 512)
     default_style = _text(raw.get("default_style"), 64, styles[0]["id"])
     if default_style not in {s["id"] for s in styles}:
         default_style = styles[0]["id"]
@@ -171,8 +165,6 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         "external_comfy": {
             "api_url": url,
             "api_key": _text(external_raw.get("api_key"), 2_048),
-            "checkpoint": checkpoint,
-            "workflow": workflow,
             "styles": styles,
             "user_graphs": graphs,
         },
@@ -193,8 +185,8 @@ def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:
         **style,
         "prompt": style["prompt"] or defaults.get("prompt", ""),
         "negative_prompt": style["negative_prompt"] or defaults.get("negative_prompt", ""),
-        "checkpoint": style["checkpoint"] or external["checkpoint"],
-        "workflow": style["workflow"] or external["workflow"],
+        "checkpoint": style["checkpoint"],
+        "workflow": style["workflow"] or "external_core",
     }
 
 

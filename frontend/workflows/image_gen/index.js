@@ -16,8 +16,6 @@ const config = {
   external_comfy: {
     api_url: "http://127.0.0.1:8188",
     api_key: "",
-    checkpoint: "",
-    workflow: "external_core",
     styles: [],
     user_graphs: [],
   },

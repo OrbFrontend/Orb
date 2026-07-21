@@ -42,14 +42,7 @@ async def validate_connection(config: Mapping[str, Any], *, allow_cached: bool =
     stats = await client.system_stats()
     info = await client.object_info(allow_cached=allow_cached)
     checked: set[str] = set()
-    selections = [(config["external_comfy"]["workflow"], config["external_comfy"]["checkpoint"])]
-    selections.extend(
-        (
-            s["workflow"] or config["external_comfy"]["workflow"],
-            s["checkpoint"] or config["external_comfy"]["checkpoint"],
-        )
-        for s in config["external_comfy"]["styles"]
-    )
+    selections = [(s["workflow"] or "external_core", s["checkpoint"]) for s in config["external_comfy"]["styles"]]
     models: list[str] | None = None
 
     async def available_checkpoints() -> list[str]:
