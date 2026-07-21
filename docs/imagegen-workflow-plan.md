@@ -296,7 +296,7 @@ Later styles (pixel art, scenery, line art, and anything else) arrive as new ids
 
 For `managed_local`, the style chooses the recipe and therefore the model bundle, graph, prompt mode, resolution, sampler, scheduler, steps, CFG, and style-specific positive/negative fragments. This is the deep decision layer the normal UI hides.
 
-For `external_comfy`, catalog styles participate only as seeds: the external dropdown is a **user-editable style list** of `{label, prompt, negative_prompt}` entries stored in workflow config, initialized from the catalog's two fragment pairs. The catalog fragments are tuned for the curated bundles — against an arbitrary external checkpoint (Pony's score tags, Illustrious's quality tags, a prose-trained model) they are a starting point the user is expected to edit, and Orb must not claim that backend reproduces the curated local look. The invariant is unchanged either way: style text comes from trusted non-LLM configuration — curator-authored in managed mode, user-authored in external mode — never from the model.
+For `external_comfy`, catalog styles participate only as seeds: the external dropdown is a **user-editable style list** of `{label, prompt, negative_prompt, checkpoint, workflow}` entries stored in workflow config, initialized from the catalog's two fragment pairs. The `checkpoint` and `workflow` fields are optional pins — empty means the global selection — that give the external dropdown the same mental model as the managed one, **the style decides what renders**: real external users run one model per aesthetic, and without pins every aesthetic switch is a settings round-trip. A user who runs a single checkpoint never touches the fields. A checkpoint pin is consulted only when the resolved graph is a shipped one exposing a checkpoint slot; a user-imported graph carries its own loaders and ignores it. The catalog fragments are tuned for the curated bundles — against an arbitrary external checkpoint (Pony's score tags, Illustrious's quality tags, a prose-trained model) they are a starting point the user is expected to edit, and Orb must not claim that backend reproduces the curated local look. The invariant is unchanged either way: style text comes from trusted non-LLM configuration — curator-authored in managed mode, user-authored in external mode — never from the model.
 
 ### `RecipeSpec`
 
@@ -486,7 +486,7 @@ GET    /api/workflows/image_gen/external/models
 
 `GET /runtime/devices` returns the selectable devices with their opaque ids, display names, and memory, enumerated in the ordering the sidecar will actually use. It is a read-only probe of the installed runtime environment: it starts no sidecar, does no GPU work, and returns an empty list rather than an error on hosts with nothing to choose between.
 
-`POST /connections/test` validates either the saved source configuration or bounded unsaved overrides from the Advanced form without persisting them. Graph validation is structural, against the server's `/object_info`; it queues no render, because `/prompt` has no dry-run mode — a submission that validates executes. `GET /external/models` uses the saved external-Comfy configuration and returns only sanitized model filenames from documented discovery routes; it never installs or uploads anything.
+`POST /connections/test` validates either the saved source configuration or bounded unsaved overrides from the Advanced form without persisting them. Validation covers the global checkpoint/graph selection and every style entry's pins, so a stale pin is caught and named here rather than discovered at generation time; the same call backs the Visualize modal's cached readiness probe. Graph validation is structural, against the server's `/object_info`; it queues no render, because `/prompt` has no dry-run mode — a submission that validates executes. `GET /external/models` uses the saved external-Comfy configuration and returns only sanitized model filenames from documented discovery routes; it never installs or uploads anything.
 
 The existing generic framework routes remain authoritative for the workflow manifest, enablement, and global config, while generation/profile actions remain conversation-scoped:
 
@@ -533,7 +533,7 @@ The initial generate MUST write the diffusion seed it used into the attachment's
 - Load the immutable recipe graph, deep-copy it, and patch only declared slots.
 - Submit `POST /prompt` with a random `client_id`, poll `GET /history/{prompt_id}`, then fetch only the declared output through `GET /view`.
 - Treat prompt validation errors, `node_errors`, missing declared output, MIME mismatch, oversized response, and timeout as failures.
-- Funnel every render failure — unreachable host, connect error, HTTP status, execution error reported in history, malformed body, missing or empty output, timeout — into a single client exception type. Callers degrade identically on all of them, so distinguishing them at the call site buys nothing and multiplies the paths each caller must handle.
+- Funnel every render failure — unreachable host, connect error, HTTP status, execution error reported in history, malformed body, missing or empty output, timeout — into a single client exception type. Callers degrade identically on all of them, so distinguishing them at the call site buys nothing and multiplies the paths each caller must handle. The funnel collapses *handling*, not wording: the exception's user-facing message is assembled from the sanitized validation fields when present (`error.type` plus `input_name` — exactly what the sanitization rule already keeps), so a `value_not_in_list` on `ckpt_name` reaches the user as "this checkpoint is no longer on the server" rather than a generic failure. Server drift is the recurring external failure mode, and the taxonomy that names it is already paid for.
 - Validate the returned bytes by signature and cap response size before persistence.
 - The initial implementation may poll once per second. WebSocket progress and previews are deferred.
 
@@ -542,8 +542,8 @@ The initial generate MUST write the diffusion seed it used into the attachment's
 - Test `/system_stats`, `/object_info`, and `/models/{folder}`.
 - Advertise `can_install_curated_models=false` unconditionally.
 - Execute one shipped core-node graph with a checkpoint filename selected from the server's discovered list, or one user-imported API-format graph that carries its own loaders (below).
-- Apply the selected style's prompt fragments only. Do not silently substitute a catalog checkpoint, upload a model, write remote userdata, or invoke Manager routes.
-- Poll by `prompt_id`; on timeout stop polling without issuing the global `/interrupt`.
+- Apply the selected style's prompt fragments, and its checkpoint/graph pins when set — pins override the global `checkpoint`/`workflow` for that generation, empty pins fall through (see "Catalog: styles decide differently by backend"). Beyond that, do not silently substitute a catalog checkpoint, upload a model, write remote userdata, or invoke Manager routes.
+- Poll by `prompt_id`; on timeout stop polling without issuing the global `/interrupt`. While waiting, report queue position from the submission's returned queue number and the pending queue — a shared server may hold the job behind other clients' renders, and "queued behind 2" is the difference between *broken* and *waiting*. The managed adapter never needs this phase; it serializes its own executions.
 - A server missing node types or inputs the selected graph references fails connection validation with an actionable message naming what is missing.
 
 #### User-imported graphs
@@ -552,13 +552,13 @@ External mode may run a graph the user authored, because every reason to refuse 
 
 Three import routes, one resulting config entry:
 
-1. Paste or upload a dev-mode **Export (API)** file.
-2. Drop a PNG rendered by that server; the frontend reads the API graph from the `prompt` tEXt chunk client-side, and fails with a clear "no workflow metadata in this image" message when the chunk is absent (disable-metadata servers, stripping save nodes, images from elsewhere).
+1. Drop a PNG rendered by that server — the route the UI leads with, because it matches the user's real intent (*make more images like this one*). The frontend reads the API graph from the `prompt` tEXt chunk client-side, and fails with a clear "no workflow metadata in this image" message when the chunk is absent (disable-metadata servers, stripping save nodes, images from elsewhere).
+2. Paste or upload a dev-mode **Export (API)** file.
 3. Keep using a shipped graph — the default, and the only option until something is imported.
 
-The slot map comes from a picker, never inference: Orb lists candidate nodes — `text` inputs for positive/negative, `seed`/`noise_seed` inputs for the seed slot, output-capable nodes for the image to fetch — typed from the server's `/object_info`, and the user assigns each role. The picker steers toward a `SaveImage`-class output; `PreviewImage` outputs are `temp`-type and ephemeral on the server, which still fetches correctly (Orb persists the bytes) but is the fragile choice.
+The slot map comes from a picker, never inference: Orb lists candidate nodes — `text` inputs for positive/negative, `seed`/`noise_seed` inputs for the seed slot, output-capable nodes for the image to fetch — typed from the server's `/object_info`, and the user assigns each role. The picker steers toward a `SaveImage`-class output; `PreviewImage` outputs are `temp`-type and ephemeral on the server, which still fetches correctly (Orb persists the bytes) but is the fragile choice. Candidates are labelled by the graph's own `_meta.title`, falling back to class type and node id — "Positive Prompt (CLIPTextEncode #6)", never a bare "6". When a role has exactly one plausible candidate the picker preselects it, and every role still requires explicit confirmation before save: preselection is a default inside the picker, so the invariant holds — the map is user-confirmed, never silently inferred.
 
-**Validation is structural and render-free.** `/prompt` has no dry-run: a submission that passes validation is queued and executed, so "preflight by submitting" would spend a full render on every save. Saving an imported graph instead checks it against `/object_info` — every `class_type` exists on that server, combo values (the checkpoint name above all) appear in the offered lists, mapped slots exist with the right input types, an output node is present — and the server's own pre-GPU 400 taxonomy remains the backstop at first generation. A "Test render" action may exist, labelled as producing a real image; nothing renders implicitly.
+**Validation is structural and render-free.** `/prompt` has no dry-run: a submission that passes validation is queued and executed, so "preflight by submitting" would spend a full render on every save. Saving an imported graph instead checks it against `/object_info` — every `class_type` exists on that server, combo values (the checkpoint name above all) appear in the offered lists, mapped slots exist with the right input types, an output node is present — and the server's own pre-GPU 400 taxonomy remains the backstop at first generation. A "Test render" action may exist, labelled as producing a real image, its result shown inline in settings so the graph and seeded style fragments are judged before they reach a conversation; nothing renders implicitly.
 
 User graphs are configuration, not trusted resources: size- and count-bounded at normalization, stored only inside `external_comfy` config, excluded from preset export (see "Workflow config and profile"), never written under the imagegen data root, and never selectable by managed mode.
 
@@ -582,8 +582,8 @@ No schema migration is required. Global settings live in `settings.workflow_conf
     "checkpoint": "",
     "workflow": "external_core",
     "styles": [
-      { "id": "realistic", "label": "Realistic", "prompt": "", "negative_prompt": "" },
-      { "id": "anime", "label": "Anime", "prompt": "", "negative_prompt": "" }
+      { "id": "realistic", "label": "Realistic", "prompt": "", "negative_prompt": "", "checkpoint": "", "workflow": "" },
+      { "id": "anime", "label": "Anime", "prompt": "", "negative_prompt": "", "checkpoint": "", "workflow": "" }
     ],
     "user_graphs": []
   }
@@ -594,7 +594,7 @@ Every hook calls `normalize_config` because workflow `config_schema` is UI metad
 
 `managed_local.device_id` is an opaque device identifier echoed back from enumeration, not an index and not a path; empty means "the runtime's own default device", which is the correct behavior on single-GPU and unified-memory hosts. The normalizer bounds and character-checks it but does not resolve it — a stored device that no longer exists is a *start-time* failure with an actionable message, not a config-load failure that would make the whole workflow unconfigurable.
 
-`external_comfy.workflow` resolves to a shipped graph id or the id of a `user_graphs` entry. `styles` is the user-editable list the Visualize dropdown shows in external mode; the two seeded entries persist empty prompt strings and render the catalog fragments as ghost text per the rule below, so a fragment improved in a later release reaches users who never edited it, while a user-added entry carries its own text. `user_graphs` entries — `{id, label, graph, slots}` — are individually size-bounded and count-bounded at normalization; a graph is kilobytes of JSON, trivially small next to one generated image. `default_style` must resolve in the active source's style list and falls back to the first entry when a source switch leaves it dangling.
+`external_comfy.workflow` resolves to a shipped graph id or the id of a `user_graphs` entry. `styles` is the user-editable list the Visualize dropdown shows in external mode; the two seeded entries persist empty prompt strings and render the catalog fragments as ghost text per the rule below, so a fragment improved in a later release reaches users who never edited it, while a user-added entry carries its own text. Style entries may also pin `checkpoint` and `workflow`; empty means the global selection, so the pins follow the same explicit-override philosophy as the ghost-text rule. They are bounded strings resolved at use, like `managed_local.device_id`: a pin that no longer resolves on the server is a generate-time readiness state with a named message, not a config-load failure. `user_graphs` entries — `{id, label, graph, slots}` — are individually size-bounded and count-bounded at normalization; a graph is kilobytes of JSON, trivially small next to one generated image. `default_style` must resolve in the active source's style list and falls back to the first entry when a source switch leaves it dangling.
 
 **Overridable defaults are stored empty and shown as placeholders.** Any field with a shipped default — prompt fragments in particular — persists as an empty string and renders as ghost text sourced from the manifest's `config_schema` default, with the backend substituting the baked value whenever the field is empty. Editing is then an explicit override, and a curated default can change between releases without migrating stored config or silently overwriting a user's edit.
 
@@ -685,7 +685,7 @@ Declare `image_gen_workflow` with `produces_artifacts=True` and bind ON_DEMAND, 
 
 `POST .../workflows/image_gen/trigger` action `generate` accepts `{message_id, style_id}`. Validate that `message_id` is an integer but not a boolean, that the target message exists in this conversation and is an assistant message, and that `style_id` resolves for the active source — a live catalog id in managed mode, an entry in the user's external style list in external mode. Compose from the message, resolve the selected style/source, generate, and insert one workflow attachment.
 
-**Progress streams from the hook return; no new SSE contract is added.** The generic trigger route relays a hook's `StreamingResponse` verbatim, so the action returns one and frames its own phase and reasoning events the way the orchestrator frames the in-turn pipeline's. Install jobs poll (long-running, must survive restart); generation streams (short, in-request). Two rules make the stream safe to consume:
+**Progress streams from the hook return; no new SSE contract is added.** The generic trigger route relays a hook's `StreamingResponse` verbatim, so the action returns one and frames its own phase and reasoning events the way the orchestrator frames the in-turn pipeline's. External generations frame an explicit queued phase carrying position (see "External ComfyUI"). Install jobs poll (long-running, must survive restart); generation streams (short, in-request). Two rules make the stream safe to consume:
 
 - The body is guarded in full. An uncaught exception inside a streaming response aborts the chunked transfer without its terminating chunk, leaving the client's reader waiting on a stream that never closes; degrading to a null result keeps the UI unblocked.
 - The stream ends on an explicit terminal event carrying the new attachment id, or null when generation produced nothing. Clients finish on that event rather than on stream close, which can stall.
@@ -739,6 +739,11 @@ In managed-local mode, if setup is incomplete, the same modal replaces Generate 
 - `Repair installation` when files are corrupt;
 - a clear unsupported-device message when no runtime variant matches.
 
+External mode receives the same one-relevant-action treatment; the rule is source-independent — the modal never shows a Generate that cannot succeed:
+
+- an unreachable server replaces Generate with `Can't reach ComfyUI at <host:port>` plus Open settings and Retry, decided by a briefly cached readiness probe when the modal opens (a reuse of `POST /connections/test`, not a new route);
+- a global or style-pinned checkpoint or graph that no longer resolves on the server is named, with Open settings as the action.
+
 After a job starts, show determinate byte progress when total size is known, Cancel, and a retryable failure message. Poll job status and restore Generate only after status re-verifies readiness. Do not show raw logs, paths, graph/model controls, or a misleading Generate button while prerequisites are missing.
 
 ### Tools panel / advanced settings
@@ -751,12 +756,16 @@ The normal card shows source, default style, readiness, disk usage, and a Settin
 - installed bundles with size/source/remove actions;
 - managed runtime status/start/stop/repair/remove and sanitized log tail;
 - GPU selector, shown only when enumeration returns more than one device, labelled by device name and warning that changing it restarts the sidecar; plus the idle-VRAM-release toggle, labelled with what it costs ("frees the card for other apps between images; adds model load time to the next one");
-- external URL/key/checkpoint and connection test; graph import (API-format file, or PNG with embedded workflow, parsed client-side) with the slot picker; the external style list editor;
+- external connection setup, staged rather than a flat form: URL and key with Test connection as the only enabled action, then a server card on success (ComfyUI version, GPU name and VRAM from `/system_stats`) and the checkpoint dropdown populated from discovery — the user never types a model filename;
+- graph import (API-format file, or PNG with embedded workflow, parsed client-side) with the slot picker; the imported entry shows its source image as a thumbnail when it came from a PNG;
+- the external style list editor, including each entry's optional checkpoint/graph pins;
 - per-character appearance/negative prompts.
+
+The external privacy disclosure — prompts leave this machine, are readable by other clients via `/queue`, and generated files remain on the server's disk — is shown once, at save time, and only when the URL is non-loopback. The default `127.0.0.1` setup gets no banner: a warning that appears on every configuration is a warning users learn to ignore, and on loopback none of its claims describe a boundary being crossed.
 
 Raw sampler/CFG/steps/dimensions and model overrides are not exposed for managed recipes. Catalog curation happens in version-controlled resources and tests, not through end-user settings.
 
-The attachment renderer extends `ctx.defaultHtml` so the framework keeps image display and sibling controls. Every prompt/style/provider string passes through `esc()` or `escAttr()` before interpolation.
+The attachment renderer extends `ctx.defaultHtml` so the framework keeps image display and sibling controls. Its detail view surfaces the display-safe `consumption_metadata` plus the seed from the attachment's dedicated column — external users are exactly the audience that copies a seed back into their own ComfyUI tab — and in external mode the style label links to that entry in the style editor, closing the generate → judge → edit → regenerate loop the feature actually lives in. Every prompt/style/provider string passes through `esc()` or `escAttr()` before interpolation.
 
 ## Security boundaries
 
@@ -785,9 +794,9 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 - Bundle shared-artifact removal and protection of unknown/manual files.
 - Supervisor argv/env, loopback binding, health deadline, crash state, port retry, log redaction, and shutdown escalation against a fake child.
 - Runtime promotion renames staging into place, and a crash between the two renames leaves `previous/` recoverable on the next start.
-- Comfy queue/history/declared-output/view sequence, malformed/error payloads, timeout, output size/signature, and managed versus external interrupt behavior.
+- Comfy queue/history/declared-output/view sequence, malformed/error payloads, timeout, output size/signature, and managed versus external interrupt behavior. Funnel messages are assembled from sanitized `error.type`/`input_name` — a `ckpt_name` `value_not_in_list` names the missing checkpoint — while traceback and exception fields never reach the message.
 - Config/profile normalization and nested-secret exclusion.
-- Style resolution proves managed style selects its recipe/bundle/params while external styles change prompt only; `style_id` validation resolves against the active source's list.
+- Style resolution proves managed style selects its recipe/bundle/params while external styles change prompt plus optional checkpoint/graph pins — empty pins fall through to the global selection, and a checkpoint pin is ignored when the resolved graph is user-imported and carries its own loaders; `style_id` validation resolves against the active source's list.
 - User-graph import: slot patching reuses the recipe slot mechanism; structural validation against an `/object_info` fixture catches a missing `class_type`, an out-of-list combo value, a mistyped slot input, and a missing output node — all without a `/prompt` submission; oversized or over-count imports fail normalization.
 - Composer schema/choice parity, segment order/bounds, style isolation, and anchor-text fallback.
 - `scene_analysis` off runs one forced call and on runs two; the analysis result renders to text as the composition call's final message; a failed analysis degrades to single-call composition rather than failing the generation; both tools stay registered under either setting.
@@ -812,12 +821,13 @@ The attachment renderer extends `ctx.defaultHtml` so the framework keeps image d
 
 ### Frontend
 
-- The normal modal has only style plus the correct primary action for every readiness state.
+- The normal modal has only style plus the correct primary action for every readiness state, in both sources — the external unreachable-server and stale-pin states offer Open settings/Retry, never a Generate that cannot succeed.
 - Runtime/bundle progress, cancellation, failure, repair, and unsupported states remain usable after rerender.
 - Styles are catalog-driven but preserve stable labels/order.
 - No advanced engine fields leak into managed normal flow.
 - Prompt/style/error/log payloads containing HTML, quotes, and handler-shaped strings are escaped.
-- The slot picker offers only role-compatible nodes; importing a metadata-stripped PNG shows the "no workflow metadata" message rather than failing silently.
+- The slot picker offers only role-compatible nodes, labelled via `_meta.title` with class-type fallback, and preselected candidates still require confirmation; importing a metadata-stripped PNG shows the "no workflow metadata" message rather than failing silently.
+- The external privacy notice appears once at save time for non-loopback URLs and never for loopback; the attachment detail shows the seed and the style label with its external edit link.
 - Existing default image renderer and regenerate/reroll controls remain intact.
 
 ### Manual release matrix
@@ -840,8 +850,8 @@ Ordered so a working feature exists as early as possible. External ComfyUI needs
 
 1. **Contracts and generation core**: add the engine skeleton, request/result/capabilities contracts, the documented Comfy client with its single error funnel, strict graph patching against a declared slot map, output signature/size validation, and fake-server tests.
 2. **Workflow integration**: implement config normalization, character profile, the composer (single-call path first), and the on-demand/regenerate/reroll hooks. Add the `build_offturn_prefix` toolkit helper, register the workflow, widen the two tool-registry baseline assertions that standalone registration breaks, add nested preset-secret scrubbing, and complete integration tests.
-3. **External ComfyUI**: endpoint/model discovery, generation against a user-selected checkpoint, connection validation with actionable failures, and capability tests proving install is unavailable. Then the user-graph path: API-format import (file and PNG metadata), the `/object_info`-backed slot picker, render-free structural validation, and the user style list. **Ships a usable feature.** Everything after this improves it rather than enabling it.
-4. **Frontend**: Visualize message button, style/generate modal, streamed progress with its terminal event, tools panel, and escaping/state tests.
+3. **External ComfyUI**: endpoint/model discovery, generation against a user-selected checkpoint, connection validation with actionable failures, and capability tests proving install is unavailable. Then the user-graph path: API-format import (file and PNG metadata), the `/object_info`-backed slot picker, render-free structural validation, and the user style list with its checkpoint/graph pins. **Ships a usable feature.** Everything after this improves it rather than enabling it.
+4. **Frontend**: Visualize message button, style/generate modal with both sources' readiness states, streamed progress with its terminal event and external queue position, the staged external connection flow, tools panel, and escaping/state tests.
 5. **Scene analysis**: add the second forced call behind `scene_analysis`, its rendering to text, and the degrade-to-single-call path. Deliberately after real images exist, so the toggle's value can be judged against actual output.
 6. **Contracts and release inputs for managed local**: catalog/runtime schemas, strict loader, two style ids, placeholder test bundles, graph-slot validator, path policy, and catalog tests. Production catalog entries remain unavailable until real artifact metadata and review are complete.
 7. **Jobs and downloads**: background job registry, status/cancel API, disk preflight, secure resumable downloader, verified atomic installs, repair/remove, and tests.
