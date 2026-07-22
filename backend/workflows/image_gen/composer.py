@@ -43,14 +43,14 @@ _SCENE_FORMAT = (
     "Count the persons. Then choose the format for the rest of the prompt. "
     "For one person, write booru tags with short natural-language clauses between them. Separate all items with "
     "commas. Give the hair, eyes, build, clothing, pose, action, and expression. Then give the setting, the "
-    "lighting, and the framing. Do not use names. "
+    "lighting, and the framing. May have as many items as needed. Do not use names. "
     "For more than one person, write short prose sentences. Use each character's name. Name the character in each "
     "sentence about that character. The name binds the attributes to the right character. Describe each character's "
     "hair, eyes, build, clothing, pose, action, and expression. Describe the interaction between the characters. "
     "Then describe the setting, the lighting, and the framing. "
     "Describe only the things that you can see. Do not write what a character is not wearing or not doing. "
-    "Do not add art-style words or quality words. May have as many items as needed. "
-    "In avoid, put each thing that is not visible. Example: put 'looking at viewer' if the character looks away."
+    "Do not add art-style words or quality words. "
+    "In `avoid`, put each thing that is not visible. Example: put 'looking at viewer' if the character looks away."
 )
 
 # Formatting-only guides for the analysis path. No count, viewpoint, or avoid
@@ -61,11 +61,11 @@ _SCENE_FORMAT_STRUCTURED_TAGS = (
     "Write the image prompt as booru tags with short natural-language clauses between them. Separate all items "
     "with commas. "
     "Give the character's traits, clothing, pose, action, and expression. Then give the setting, the lighting, "
-    "and the framing. "
+    "and the framing. May have as many items as needed. "
     "Do not write what the character is not wearing or not doing. Write only positive items. "
     "Do not add count words such as 1girl or 1boy. The system already adds the count words. "
     "Do not add art-style words or quality words. Do not use names. "
-    "Leave avoid empty. The system already adds the items to avoid."
+    "Leave `avoid` empty. The system already adds the items to avoid."
 )
 
 _SCENE_FORMAT_STRUCTURED_PROSE = (
@@ -78,7 +78,7 @@ _SCENE_FORMAT_STRUCTURED_PROSE = (
     "Do not write what a character is not wearing or not doing. Write only positive statements. "
     "Do not add count words such as 1girl or 1boy. The system already adds the count words. "
     "Do not add art-style words or quality words. "
-    "Leave avoid empty. The system already adds the items to avoid."
+    "Leave `avoid` empty. The system already adds the items to avoid."
 )
 
 COMPOSE_TOOL_SCHEMA = {
@@ -91,7 +91,7 @@ COMPOSE_TOOL_SCHEMA = {
             "properties": {
                 "scene": {
                     "type": "string",
-                    "description": "The image prompt: count tags followed by prose sentences describing the scene, per the format given in the request; can be as long as the moment needs.",
+                    "description": "The image prompt: count tags followed by prose sentences describing the scene, per the format given in the request; can be as long and detailed as the moment needs.",
                 },
                 "avoid": {
                     "type": ["string", "null"],
