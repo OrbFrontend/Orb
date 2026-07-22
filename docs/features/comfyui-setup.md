@@ -78,7 +78,7 @@ Make sure ComfyUI starts up without any problems.
 ComfyUI needs at least one checkpoint (image model) to render anything.
 
 1. Go to https://civitai.com/models/2458426/anima?modelVersionId=2945208
-2. Download the checkpoint (anima-base-v1.0.safetensors) as a `.safetensors` file and place it in `ComfyUI/models/checkpoints/`.
+2. Download the Anima checkpoint (anima-base-v1.0.safetensors) as a `.safetensors` file and place it in `ComfyUI/models/checkpoints/`.
 3. Download the text encoder (qwen_3_06b_base.safetensors) and put it in `ComfyUI/models/text_encoders/`.
 4. Download the VAE (qwen_image_vae.safetensors) and put it in `ComfyUI/models/vae/`.
 5. Restart ComfyUI, or refresh the UI.
@@ -94,9 +94,17 @@ Simply download and put real-dream-v2-anima-bf16.safetensors in `ComfyUI/models/
 2. Click Run and wait, your GPU will work, then an image will show up.
 3. Export/Save the output image as a PNG file. This file contains the whole workflow config which we'll import into Orb later.
 
+Or you can also just import the above default PNG workflows straight into Orb, no need to even touch ComfyUI.
+
 For the realistic model, do [RealDream_Default.png](../assets/RealDream_Default.png)
 
-Or you can also just import the above default PNG workflows straight into Orb, no need to even touch ComfyUI.
+### A great anime model in case you find base Anima lacking:
+
+https://civitai.com/models/934764/miaomiao-harem?modelVersionId=3125933
+
+Workflow: [MiaoMiaoHarem_Default.png](../assets/MiaoMiaoHarem_Default.png)
+
+Download https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors and put it in `ComfyUI/models/upscale_models/`
 
 ## Make ComfyUI reachable from Orb
 
