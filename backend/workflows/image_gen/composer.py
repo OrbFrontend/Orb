@@ -175,6 +175,30 @@ _ANALYZE_OOC = (
 )
 
 
+def _reasoning_on(settings: Mapping[str, Any]) -> bool:
+    """Reasoning mode for the off-turn analyze/compose calls, inherited from the editor.
+
+    On a provider that keeps separate KV caches for thinking-on and thinking-off
+    (the reasoning fork in docs/architecture/kv-cache.md §9), this off-turn call
+    reuses the cached conversation prefix only if it lands in the same lane as a
+    pipeline pass. We inherit the *editor's* mode rather than the director's:
+
+    - The editor shares the writer's thinking-off lane, which every turn is warmed
+      LAST and is the ONLY lane that has already seen this turn's user message and
+      the assistant reply the image is composed from (the writer streamed the draft
+      into it). The director's lane stops at the history before this turn, never
+      touching the anchor reply. So tracking the editor reuses at least as much of
+      the prefix as tracking the director, and strictly more whenever the writer's
+      trailing injection is small.
+    - It self-heals: if the user turns the director off, this call still tracks the
+      writer/editor lane instead of forking a thinking-on lane nothing else warms.
+
+    Absent/malformed config degrades to off (the writer/editor default), never raising.
+    """
+    passes = settings.get("reasoning_enabled_passes")
+    return bool(passes.get("editor", False)) if isinstance(passes, Mapping) else False
+
+
 def _bounded(value: Any, limit: int = 2_000) -> str:
     if not isinstance(value, str):
         return ""
@@ -195,7 +219,7 @@ def _join(parts: Sequence[Any]) -> str:
 _OFFER_TOOLS = ("analyze_scene", "compose_image_prompt")
 
 
-async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens) -> dict:
+async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens, reasoning_on) -> dict:
     args: dict = {}
     async for event in forced_tool_call(
         client=client,
@@ -203,7 +227,9 @@ async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens)
         tail_messages=tail,
         tool_name=tool_name,
         settings=settings,
-        reasoning_on=True,
+        # Inherit the editor's reasoning mode so both off-turn calls ride the
+        # writer/editor KV lane on a reasoning-forking provider (see _reasoning_on).
+        reasoning_on=reasoning_on,
         temperature=0.2,
         max_tokens=max_tokens,
         # Ship the real tools and force via tool_choice (the pipeline pattern),
@@ -314,6 +340,10 @@ async def compose_scene(
     reused, not evicted, across analyze -> compose -> the next chat turn.
     Everything per-call rides the tail messages after it.
     """
+    # One reasoning mode for both forced calls, so analyze and compose stay
+    # mode-identical and reuse each other's cached prefix on the same lane.
+    reasoning_on = _reasoning_on(settings)
+
     analysis: dict = {}
     analysis_block = ""
     if scene_analysis:
@@ -327,6 +357,7 @@ async def compose_scene(
             tool_name="analyze_scene",
             settings=settings,
             max_tokens=2_048,
+            reasoning_on=reasoning_on,
         )
         analysis_block = _render_scene(analysis)
 
@@ -346,6 +377,7 @@ async def compose_scene(
         tool_name="compose_image_prompt",
         settings=settings,
         max_tokens=1_024,
+        reasoning_on=reasoning_on,
     )
 
     scene = _bounded(args.get("scene")) or _bounded(anchor_text, 1_200)

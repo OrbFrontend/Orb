@@ -189,6 +189,68 @@ async def test_both_calls_ride_the_prefix_unchanged_with_shared_tool_blob(monkey
             assert msg["role"] == "user"
 
 
+def _record_forced_calls(monkeypatch) -> list[dict]:
+    """Capture every ``forced_tool_call`` kwargs the composer issues."""
+    calls: list[dict] = []
+    inner = _fake_forced(
+        {
+            "analyze_scene": {"characters": [{"name": "a", "sex": "girl", "action": "waving"}]},
+            "compose_image_prompt": {"scene": "1girl, waving", "avoid": None},
+        }
+    )
+
+    def fake(**kwargs):
+        calls.append(kwargs)
+        return inner(tool_name=kwargs["tool_name"])
+
+    monkeypatch.setattr(composer, "forced_tool_call", fake)
+    return calls
+
+
+async def test_reasoning_mode_inherits_editor_and_ignores_director(monkeypatch):
+    """Both off-turn calls track the editor's reasoning lane, per _reasoning_on.
+
+    The image-gen call rides the writer/editor thinking-off lane so it reuses the
+    turn's cached conversation prefix on a reasoning-forking provider (kv-cache §9).
+    It must follow the editor flag specifically, not the director's -- the default
+    ships director-on / editor-off, and tracking the director would fork a lane the
+    anchor reply was never warmed in.
+    """
+    # editor on -> both calls reason, regardless of the director flag.
+    calls = _record_forced_calls(monkeypatch)
+    await compose_scene(
+        client=None,
+        prefix=[],
+        settings={"model_name": "m", "reasoning_enabled_passes": {"director": False, "editor": True}},
+        anchor_text="x",
+        scene_analysis=True,
+    )
+    assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
+    assert all(c["reasoning_on"] is True for c in calls)
+
+    # director on, editor off -> both calls stay off (never inherit the director).
+    calls = _record_forced_calls(monkeypatch)
+    await compose_scene(
+        client=None,
+        prefix=[],
+        settings={"model_name": "m", "reasoning_enabled_passes": {"director": True, "editor": False}},
+        anchor_text="x",
+        scene_analysis=True,
+    )
+    assert all(c["reasoning_on"] is False for c in calls)
+
+
+async def test_reasoning_mode_defaults_off_when_config_absent_or_malformed(monkeypatch):
+    """Missing/malformed reasoning config degrades to off (the writer/editor default)."""
+    for passes in (None, "junk", {}):
+        settings = {"model_name": "m"}
+        if passes is not None:
+            settings["reasoning_enabled_passes"] = passes
+        calls = _record_forced_calls(monkeypatch)
+        await compose_scene(client=None, prefix=[], settings=settings, anchor_text="x", scene_analysis=True)
+        assert all(c["reasoning_on"] is False for c in calls), passes
+
+
 async def test_failed_compose_falls_back_to_anchor_excerpt(monkeypatch):
     monkeypatch.setattr(composer, "forced_tool_call", _fake_forced({}))
     scene, _, mode, _ = await compose_scene(
