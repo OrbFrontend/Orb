@@ -311,11 +311,15 @@ async function openSettings(expandStyleId = "") {
       <div class="ig-grid">
         <label>ComfyUI URL<input id="ig-url" value="${escAttr(ext.api_url || "http://127.0.0.1:8188")}"></label>
         <label>API key<input id="ig-key" type="password" value="${escAttr(ext.api_key || "")}"></label>
+      </div>
+      <div class="image-gen-row"><button class="btn btn-sm" data-wf-action="image_gen:test">Test connection</button><span id="ig-test-result" class="image-gen-note"></span></div>
+    </section>
+    <section class="ig-section">
+      <div class="ig-heading">Generation</div>
+      <div class="ig-grid">
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
       </div>
-      <label class="ig-toggle"><input id="ig-scene-analysis" type="checkbox"${cfg.scene_analysis === true ? " checked" : ""}> Analyze complex scenes</label>
-      <div class="image-gen-note">More accurate outfits and positions in multi-character scenes; one extra model call per image.</div>
-      <div class="image-gen-row"><button class="btn btn-sm" data-wf-action="image_gen:test">Test connection</button><span id="ig-test-result" class="image-gen-note"></span></div>
+      <label class="ig-toggle"><input id="ig-scene-analysis" type="checkbox"${cfg.scene_analysis === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Analyze complex scenes</span><span class="image-gen-note">More accurate outfits and positions in multi-character scenes; one extra model call per image.</span></span></label>
     </section>
     <section class="ig-section">
       <div class="ig-heading">Styles</div>

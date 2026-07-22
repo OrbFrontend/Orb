@@ -1,15 +1,13 @@
 /* Never set a min-width here: the modal shell is 600px with 24px padding, so
    anything above ~552px scrolls the modal sideways. Widths are fluid instead. */
-.image-gen-settings{display:grid;gap:18px}
+.image-gen-settings{display:grid;gap:14px}
 .image-gen-settings label{display:grid;gap:5px}
 .image-gen-settings input,.image-gen-settings select,.image-gen-settings textarea{width:100%}
 .image-gen-settings textarea{min-height:54px;resize:vertical}
 .image-gen-row{display:flex;align-items:center;gap:10px}
-/* Overrides the label{display:grid} + input{width:100%} rules above so a
-   checkbox sits inline with its text at its natural size, not stacked and
-   stretched to the full column. */
-.image-gen-settings label.ig-toggle{display:flex;align-items:center;gap:8px;cursor:pointer}
-.image-gen-settings label.ig-toggle input{width:auto}
+.image-gen-settings label.ig-toggle{display:flex;align-items:flex-start;gap:8px;cursor:pointer}
+.image-gen-settings label.ig-toggle input{width:auto;flex:none;margin-top:2px}
+.ig-toggle-body{display:grid;gap:3px}
 .image-gen-note{color:var(--text-muted);font-size:.85em;margin:0;line-height:1.45}
 
 /* ---- tools-panel card ---- */
