@@ -1,6 +1,6 @@
 /* Never set a min-width here: the modal shell is 600px with 24px padding, so
    anything above ~552px scrolls the modal sideways. Widths are fluid instead. */
-.image-gen-settings{display:grid;gap:14px}
+.image-gen-settings{display:grid;gap:20px}
 .image-gen-settings label{display:grid;gap:5px}
 .image-gen-settings input,.image-gen-settings select,.image-gen-settings textarea{width:100%}
 .image-gen-settings textarea{min-height:54px;resize:vertical}
