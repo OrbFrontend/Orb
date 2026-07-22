@@ -1,8 +1,8 @@
 """Pipeline and HTTP hooks binding the TTS engine to the workflow framework.
 
 Orchestration only: each function reads its context, calls the pure helpers in
-``synth``, and shapes the result for the framework. Four hooks plus an
-on-demand action router:
+``synth``, and shapes the result for the framework. Five hooks, two of them
+action routers:
 
 - ``post_pipeline`` -- per-turn auto-generation, gated solely on an enabled
   per-character voice profile.
@@ -11,8 +11,12 @@ on-demand action router:
   next regenerate.
 - ``reroll_gen`` -- re-synthesize from the attachment's stored parameters;
   also backs rehydrate.
-- ``on_demand`` -- a single trigger endpoint dispatched on ``body['action']``
-  for the per-message create affordance and the config panel's reads/writes.
+- ``on_demand`` -- the conversation-scoped trigger dispatched on
+  ``body['action']``: the per-message create affordance and the active
+  character's voice-profile read/write.
+- ``query`` -- the conversation-less config/discovery surface dispatched on
+  ``body['action']``: backend list, voice/model enumeration, and voice
+  preview, none of which need a conversation in scope.
 """
 
 from __future__ import annotations
@@ -139,14 +143,6 @@ async def on_demand(ctx, body):
         return await _get_profile(ctx)
     if action == "set_profile":
         return await _set_profile(ctx, body)
-    if action == "list_backends":
-        return {"backends": list_backends()}
-    if action == "list_voices":
-        return await _list_voices(body)
-    if action == "list_models":
-        return await _list_models(body)
-    if action == "preview":
-        return await _preview(body)
     return {"error": f"unknown action: {action!r}"}
 
 
@@ -192,6 +188,27 @@ async def _set_profile(ctx, body) -> dict:
     profile = normalize_profile(raw)
     await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, profile)
     return {"ok": True, "profile": profile}
+
+
+# --- QUERY: conversation-less backend / voice discovery -----------------------
+# These back the config panel's Backend / Voice / Model selectors and the
+# Preview button. They answer from the static backend registry or by probing the
+# TTS backend named in the form's unsaved profile, with no conversation in scope,
+# and report their own failures in-band -- the caller degrades (empty list,
+# status text) rather than treating a probe failure as an HTTP error.
+
+
+async def query(ctx, body):
+    action = body.get("action") if isinstance(body, dict) else None
+    if action == "list_backends":
+        return {"backends": list_backends()}
+    if action == "list_voices":
+        return await _list_voices(body)
+    if action == "list_models":
+        return await _list_models(body)
+    if action == "preview":
+        return await _preview(body)
+    return {"error": f"unknown action: {action!r}"}
 
 
 async def _list_voices(body) -> dict:

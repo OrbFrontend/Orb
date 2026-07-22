@@ -86,6 +86,9 @@ from .tts.hooks import (
     post_pipeline as _tts_post_pipeline,
 )
 from .tts.hooks import (
+    query as _tts_query,
+)
+from .tts.hooks import (
     regenerate as _tts_regenerate,
 )
 from .tts.hooks import (
@@ -134,6 +137,7 @@ __all__ = [
 register_workflow(tts_workflow)
 subscribe(tts_workflow.id, HookType.POST_PIPELINE, _tts_post_pipeline)
 subscribe(tts_workflow.id, HookType.ON_DEMAND, _tts_on_demand)
+subscribe(tts_workflow.id, HookType.QUERY, _tts_query)
 subscribe(tts_workflow.id, HookType.REGENERATE, _tts_regenerate)
 subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
 

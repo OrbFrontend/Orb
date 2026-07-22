@@ -240,7 +240,9 @@ async def test_query_route_rejects_unknown_workflow_and_unknown_action(client):
     # Unregistered workflow: 404 at the route, before any hook.
     assert (await client.post("/api/workflows/nope/query", json={"action": "status"})).status_code == 404
     # A registered workflow with no QUERY binding is indistinguishable: 404.
-    assert (await client.post("/api/workflows/tts/query", json={"action": "status"})).status_code == 404
+    # (format_consistency binds only POST_PIPELINE; tts and image_gen both have
+    # QUERY now, so neither is a no-binding case any longer.)
+    assert (await client.post("/api/workflows/format_consistency/query", json={"action": "status"})).status_code == 404
     # A registered QUERY handler that does not recognize the action answers
     # in-band rather than raising, so the route stays 200.
     unknown = await client.post("/api/workflows/image_gen/query", json={"action": "does_not_exist"})
