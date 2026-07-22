@@ -49,4 +49,5 @@ Content, data management, and platform features.
 | [Homepage Stats](homepage-stats.md) | Usage dashboard on the home screen |
 | [Mobile Compatibility](mobile.md) | UI built for mobile devices |
 | [Integrated TTS](tts.md) | Text-to-speech with multiple provider backends |
+| [Image Generation](image-generation.md) | Make images from assistant replies with an external ComfyUI server |
 | [Text Completion Mode](text-completion.md) | Faster, more reliable llama.cpp native transport |
