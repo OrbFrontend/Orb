@@ -569,8 +569,8 @@ No schema migration is required. Global settings live in `settings.workflow_conf
     "checkpoint": "",
     "workflow": "external_core",
     "styles": [
-      { "id": "realistic", "label": "Realistic", "prompt": "", "negative_prompt": "", "checkpoint": "", "workflow": "" },
-      { "id": "anime", "label": "Anime", "prompt": "", "negative_prompt": "", "checkpoint": "", "workflow": "" }
+      { "id": "realistic", "label": "Realistic", "prompt": "photorealistic, cinematic lighting, detailed skin, high contrast", "negative_prompt": "anime, illustration, painting, low detail", "checkpoint": "", "workflow": "" },
+      { "id": "anime", "label": "Anime", "prompt": "anime illustration, clean line art, very aesthetic, high contrast", "negative_prompt": "photorealistic, 3d render, muddy colors", "checkpoint": "", "workflow": "" }
     ],
     "user_graphs": []
   }
@@ -581,9 +581,9 @@ Every hook calls `normalize_config` because workflow `config_schema` is UI metad
 
 `managed_local.device_id` is an opaque device identifier echoed back from enumeration, not an index and not a path; empty means "the runtime's own default device", which is the correct behavior on single-GPU and unified-memory hosts. The normalizer bounds and character-checks it but does not resolve it — a stored device that no longer exists is a *start-time* failure with an actionable message, not a config-load failure that would make the whole workflow unconfigurable.
 
-`external_comfy.workflow` resolves to a shipped graph id or the id of a `user_graphs` entry. `styles` is the user-editable list the Visualize dropdown shows in external mode; the two seeded entries persist empty prompt strings and render the catalog fragments as ghost text per the rule below, so a fragment improved in a later release reaches users who never edited it, while a user-added entry carries its own text. Style entries may also pin `checkpoint` and `workflow`; empty means the global selection, so the pins follow the same explicit-override philosophy as the ghost-text rule. They are bounded strings resolved at use, like `managed_local.device_id`: a pin that no longer resolves on the server is a generate-time readiness state with a named message, not a config-load failure. `user_graphs` entries — `{id, label, graph, slots}` — are individually size-bounded and count-bounded at normalization; a graph is kilobytes of JSON, trivially small next to one generated image. `default_style` must resolve in the active source's style list and falls back to the first entry when a source switch leaves it dangling.
+`external_comfy.workflow` resolves to a shipped graph id or the id of a `user_graphs` entry. `styles` is the user-editable list the Visualize dropdown shows in external mode; the two initial entries are seeded with catalog prompt fragments directly in their normal `prompt` and `negative_prompt` fields. They have the same runtime semantics as user-added styles: editing or clearing a field changes exactly what generation uses, with no id-based fallback. Style entries may also pin `checkpoint` and `workflow`; empty means the global selection. They are bounded strings resolved at use, like `managed_local.device_id`: a pin that no longer resolves on the server is a generate-time readiness state with a named message, not a config-load failure. `user_graphs` entries — `{id, label, graph, slots}` — are individually size-bounded and count-bounded at normalization; a graph is kilobytes of JSON, trivially small next to one generated image. `default_style` must resolve in the active source's style list and falls back to the first entry when a source switch leaves it dangling.
 
-**Overridable defaults are stored empty and shown as placeholders.** Any field with a shipped default — prompt fragments in particular — persists as an empty string and renders as ghost text sourced from the manifest's `config_schema` default, with the backend substituting the baked value whenever the field is empty. Editing is then an explicit override, and a curated default can change between releases without migrating stored config or silently overwriting a user's edit.
+**Seed values are ordinary values.** Shipped styles differ from newly added styles only in the initial values placed in their fields. Runtime resolution does not inspect a style id to supply hidden prompt fragments.
 
 Secrets remain only in live workflow config and are read at call time. They never enter attachment metadata, job snapshots, logs, subprocess argv, or catalog files.
 

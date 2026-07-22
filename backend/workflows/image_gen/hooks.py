@@ -18,7 +18,6 @@ from ..toolkit import (
 )
 from .composer import assemble_prompts, compose_scene
 from .config import (
-    STYLE_DEFAULTS,
     WORKFLOW_ID,
     normalize_config,
     normalize_profile,
@@ -338,18 +337,10 @@ async def _status(body) -> dict:
 
 async def _styles(body) -> dict:
     config = await _config_from_query(body)
-    defaults = {s["id"]: s for s in STYLE_DEFAULTS}
     return {
         "source": "external_comfy",
         "default_style": config["default_style"],
-        "styles": [
-            {
-                **style,
-                "prompt_default": defaults.get(style["id"], {}).get("prompt", ""),
-                "negative_prompt_default": defaults.get(style["id"], {}).get("negative_prompt", ""),
-            }
-            for style in config["external_comfy"]["styles"]
-        ],
+        "styles": config["external_comfy"]["styles"],
     }
 
 

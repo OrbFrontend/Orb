@@ -27,9 +27,6 @@ let pendingGraph = null;
 // itself: adding a graph and then closing without saving must not leave the
 // widget's shared config carrying an entry the server never stored.
 let draft = { styles: [], graphs: [] };
-// Shipped per-style prompt defaults, used as placeholders so an empty field
-// shows what it actually inherits. Fetched once, then reused on every open.
-const styleDefaults = new Map();
 // Checkpoint filenames discovered on the configured server. A non-empty probe
 // renders real selects; an empty/failed probe leaves plain text inputs.
 let checkpointNames = [];
@@ -140,20 +137,11 @@ export async function refreshCardReadiness() {
   }
 }
 
-// An empty field inherits the shipped fragment for that style id, so the
-// placeholder shows the text it will actually use. A style the catalog does not
-// seed -- anything the user added -- inherits nothing, and says so.
-function placeholder(styleId, field) {
-  return styleDefaults.get(styleId)?.[field] || "No style tags";
-}
-
 // One collapsed row per style: the summary carries just the name, so a long
-// list stays scannable without opening anything. Empty fields explain their
-// inherited default via the placeholder, so no summary badge is needed.
+// list stays scannable without opening anything.
 function checkpointField(value) {
   const state = modelPickerState(checkpointNames, value);
-  const attrs =
-    'data-ig-field="checkpoint" data-wf-action="image_gen:styleChange" data-wf-on="change"';
+  const attrs = 'data-ig-field="checkpoint" data-wf-action="image_gen:styleChange" data-wf-on="change"';
   if (state.kind === "input") {
     return `<input ${attrs} value="${escAttr(state.current)}" placeholder="checkpoint.safetensors">`;
   }
@@ -164,14 +152,11 @@ function checkpointField(value) {
   } else if (!state.models.includes(state.current)) {
     // Keep a configured checkpoint visible if it disappeared from the server;
     // choosing another detected model replaces it normally.
-    options.push(
-      `<option value="${escAttr(state.current)}" selected>${esc(state.current)} (not detected)</option>`,
-    );
+    options.push(`<option value="${escAttr(state.current)}" selected>${esc(state.current)} (not detected)</option>`);
   }
   options.push(
     ...state.models.map(
-      (name) =>
-        `<option value="${escAttr(name)}"${name === state.current ? " selected" : ""}>${esc(name)}</option>`,
+      (name) => `<option value="${escAttr(name)}"${name === state.current ? " selected" : ""}>${esc(name)}</option>`,
     ),
   );
   return `<select ${attrs}>${options.join("")}</select>`;
@@ -187,8 +172,8 @@ function styleRows(expandIds = "") {
         </summary>
         <div class="ig-style-body">
           <label>Name<input data-ig-field="label" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(s.label || "")}"></label>
-          <label>Positive style tags<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="${escAttr(placeholder(s.id, "prompt"))}">${esc(s.prompt || "")}</textarea></label>
-          <label>Negative style tags<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="${escAttr(placeholder(s.id, "negative_prompt"))}">${esc(s.negative_prompt || "")}</textarea></label>
+          <label>Positive style tags<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No style tags">${esc(s.prompt || "")}</textarea></label>
+          <label>Negative style tags<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No style tags">${esc(s.negative_prompt || "")}</textarea></label>
           <div class="ig-grid">
             <label>Checkpoint${checkpointField(s.checkpoint || "")}</label>
             <label>Workflow<select data-ig-field="workflow" data-wf-action="image_gen:styleChange" data-wf-on="change">${workflowOptions(s.workflow || "external_core")}</select></label>
@@ -311,21 +296,7 @@ async function loadCheckpoints() {
   }
 }
 
-// Fills the placeholder cache. Failure is non-fatal: rows fall back to the
-// generic "Use the shipped default" hint.
-async function loadStyleDefaults() {
-  if (styleDefaults.size) return;
-  try {
-    const res = await query("styles");
-    for (const s of res?.styles || []) {
-      styleDefaults.set(s.id, { prompt: s.prompt_default || "", negative_prompt: s.negative_prompt_default || "" });
-    }
-  } catch {
-    // Placeholders stay generic.
-  }
-}
-
-async function openSettings(expandStyleId = "") {
+function openSettings(expandStyleId = "") {
   const ext = cfg.external_comfy || {};
   pendingGraph = null;
   // Start honest: discovery for a previous modal/server must not make this one
@@ -336,7 +307,6 @@ async function openSettings(expandStyleId = "") {
     styles: (Array.isArray(ext.styles) ? ext.styles : []).map((s) => ({ ...s })),
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
   };
-  await loadStyleDefaults();
   showModal(`<h2>Image Generation</h2><div class="image-gen-settings">
     <section class="ig-section">
       <div class="ig-heading">Connection</div>

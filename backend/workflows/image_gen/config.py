@@ -12,21 +12,6 @@ MAX_STYLES = 32
 MAX_USER_GRAPHS = 16
 MAX_GRAPH_BYTES = 512_000
 
-STYLE_DEFAULTS = (
-    {
-        "id": "realistic",
-        "label": "Realistic",
-        "prompt": "photorealistic, cinematic lighting, detailed skin, high contrast",
-        "negative_prompt": "anime, illustration, painting, low detail",
-    },
-    {
-        "id": "anime",
-        "label": "Anime",
-        "prompt": "anime illustration, clean line art, very aesthetic, high contrast",
-        "negative_prompt": "photorealistic, 3d render, muddy colors",
-    },
-)
-
 CONFIG_DEFAULTS = {
     "source": "external_comfy",
     "default_style": "realistic",
@@ -37,14 +22,21 @@ CONFIG_DEFAULTS = {
         "api_key": "",
         "styles": [
             {
-                "id": s["id"],
-                "label": s["label"],
-                "prompt": "",
-                "negative_prompt": "",
+                "id": "realistic",
+                "label": "Realistic",
+                "prompt": "photorealistic, cinematic lighting, detailed skin, high contrast",
+                "negative_prompt": "anime, illustration, painting, low detail",
                 "checkpoint": "",
                 "workflow": "",
-            }
-            for s in STYLE_DEFAULTS
+            },
+            {
+                "id": "anime",
+                "label": "Anime",
+                "prompt": "anime illustration, clean line art, very aesthetic, high contrast",
+                "negative_prompt": "photorealistic, 3d render, muddy colors",
+                "checkpoint": "",
+                "workflow": "",
+            },
         ],
         "user_graphs": [],
     },
@@ -171,21 +163,13 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     }
 
 
-def style_defaults_by_id() -> dict[str, dict]:
-    return {s["id"]: dict(s) for s in STYLE_DEFAULTS}
-
-
 def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:
     external = config["external_comfy"]
     style = next((s for s in external["styles"] if s["id"] == style_id), None)
     if style is None:
         raise ValueError(f"unknown image style {style_id!r}")
-    defaults = style_defaults_by_id().get(style_id, {})
     return {
         **style,
-        "prompt": style["prompt"] or defaults.get("prompt", ""),
-        "negative_prompt": style["negative_prompt"] or defaults.get("negative_prompt", ""),
-        "checkpoint": style["checkpoint"],
         "workflow": style["workflow"] or "external_core",
     }
 

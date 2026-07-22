@@ -11,8 +11,19 @@ from backend.workflows.image_gen.hooks import fold_seed
 def test_config_normalizes_external_source_and_seeded_styles():
     cfg = normalize_config({})
     assert cfg["source"] == "external_comfy"
-    assert [s["id"] for s in cfg["external_comfy"]["styles"]] == ["realistic", "anime"]
-    assert resolve_style(cfg, "anime")["prompt"].startswith("anime illustration")
+    styles = cfg["external_comfy"]["styles"]
+    assert [s["id"] for s in styles] == ["realistic", "anime"]
+    assert styles[0]["prompt"].startswith("photorealistic")
+    assert styles[1]["prompt"].startswith("anime illustration")
+
+
+def test_a_style_id_does_not_change_empty_prompt_fields():
+    cfg = normalize_config(
+        {"external_comfy": {"styles": [{"id": "anime", "label": "Anything", "prompt": "", "negative_prompt": ""}]}}
+    )
+    style = resolve_style(cfg, "anime")
+    assert style["prompt"] == ""
+    assert style["negative_prompt"] == ""
 
 
 def test_config_rejects_credentials_in_url_and_bounds_timeout():

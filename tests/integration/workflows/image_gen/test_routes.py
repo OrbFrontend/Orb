@@ -40,6 +40,11 @@ async def test_manifest_and_status_expose_external_only_stage(client):
         "managed_runtime": False,
     }
 
+    styles = (await client.post("/api/workflows/image_gen/query", json={"action": "styles"})).json()["styles"]
+    assert styles[0]["prompt"].startswith("photorealistic")
+    assert styles[1]["prompt"].startswith("anime illustration")
+    assert "prompt_default" not in styles[0]
+
 
 def test_image_generation_is_on_demand_only():
     workflow = get_workflow("image_gen")

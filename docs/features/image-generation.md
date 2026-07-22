@@ -115,8 +115,8 @@ Orb ships **Realistic** and **Anime** styles out of the box. A style contains th
 | **Checkpoint** | Selects the model file on the ComfyUI server. |
 | **Workflow** | Selects the ComfyUI workflow for this style. |
 
-Empty tag fields in the **Realistic** and **Anime** styles use the shown default
-tags. A new custom style does not have default tags.
+The **Realistic** and **Anime** rows are seeded with starting tags that you can
+edit or clear like those of any other style. Empty tag fields add no style tags.
 
 To add a style, do these steps:
 

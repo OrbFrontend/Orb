@@ -257,7 +257,16 @@ async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
 def test_assemble_strips_profile_counts():
     config = {
         "external_comfy": {
-            "styles": [{"id": "anime", "label": "Anime", "prompt": "", "negative_prompt": "", "checkpoint": "", "workflow": ""}]
+            "styles": [
+                {
+                    "id": "anime",
+                    "label": "Anime",
+                    "prompt": "anime illustration, clean line art, very aesthetic, high contrast",
+                    "negative_prompt": "photorealistic, 3d render, muddy colors",
+                    "checkpoint": "",
+                    "workflow": "",
+                }
+            ]
         }
     }
     positive, _, _ = composer.assemble_prompts(
