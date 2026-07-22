@@ -57,7 +57,11 @@ from ...workflows.attachment_cache import (
     validate_workflow_attachment_shape,
 )
 from ...workflows.enablement import effective_workflow_enabled
-from ..deps import _workflow_event_stream_response, locked_attachment_group, require_conversation
+from ..deps import (
+    _workflow_event_stream_response,
+    locked_attachment_group,
+    require_conversation,
+)
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
 
 logger = logging.getLogger(__name__)

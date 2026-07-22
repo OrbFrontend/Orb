@@ -24,7 +24,12 @@ from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Sequen
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from ..database import get_conversation, get_lorebook_entry, get_workflow_attachment_by_id, get_world
+from ..database import (
+    get_conversation,
+    get_lorebook_entry,
+    get_workflow_attachment_by_id,
+    get_world,
+)
 from ..database.models import ConversationRow
 from ..inference import AbortToken
 from ..workflows import WorkflowEventStream, public_event_error
