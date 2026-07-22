@@ -201,7 +201,6 @@ async def _generate_fresh(
         client=ctx.client,
         prefix=prefix,
         settings=ctx.settings,
-        anchor_text=str(message.get("content") or ""),
         scene_analysis=bool(config.get("scene_analysis")),
         appearance=str(profile.get("appearance_prompt") or ""),
     )

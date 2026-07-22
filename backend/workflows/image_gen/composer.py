@@ -327,7 +327,6 @@ async def compose_scene(
     client: Any,
     prefix: Sequence[dict],
     settings: Mapping[str, Any],
-    anchor_text: str,
     scene_analysis: bool = False,
     appearance: str = "",
 ) -> tuple[str, str, str, bool]:
@@ -337,6 +336,10 @@ async def compose_scene(
     *include_appearance* is False when the analyzed cast shows the main
     character off-frame, so the caller must not prepend their profile
     appearance (it would summon them back into the image).
+
+    Raises ``ValueError`` when the forced compose call yields no scene: the
+    generation stops rather than falling back to the raw reply text. There is
+    no excerpt fallback -- see the scene-guard note below.
 
     Both LLM calls ride *prefix* unchanged -- the same byte-identical
     conversation prefix the chat turns send -- so the server's cached KV is
@@ -383,9 +386,16 @@ async def compose_scene(
         reasoning_on=reasoning_on,
     )
 
-    scene = _bounded(args.get("scene")) or _bounded(anchor_text, 1_200)
+    scene = _bounded(args.get("scene"))
     if not scene:
-        raise ValueError("message has no visual text to compose")
+        # No excerpt fallback. When the forced call produces no scene, stop --
+        # do not ship the raw reply text to the diffusion model as the image
+        # prompt. Prose is exactly what the tag-trained checkpoints render as
+        # washed-out mush (see the plan's "composer's output format is a real
+        # design risk"), so an excerpt fallback trades a clean failure for a
+        # bad image. Callers already degrade on this: on-demand surfaces the
+        # error, regenerate/reroll drop the attachment.
+        raise ValueError("couldn't compose an image prompt for this message")
     avoid = _bounded(args.get("avoid"))
     include_appearance = True
     if analysis_block:
@@ -401,9 +411,7 @@ async def compose_scene(
         # ponytail: whole-image negative -- a removed dress lying visibly in
         # frame will fight it; scope per-character if that ever matters.
         avoid = _join([args.get("avoid"), *(ch.get("outfit_removed") for ch in characters)])
-    if not args.get("scene"):
-        mode = "fallback_excerpt"
-    elif analysis_block:
+    if analysis_block:
         mode = "scene_analysis"
     elif scene_analysis:
         mode = "analysis_failed"

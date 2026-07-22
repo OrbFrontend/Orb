@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from backend.workflows.image_gen import composer
 from backend.workflows.image_gen.composer import _render_scene, compose_scene
 
@@ -68,7 +70,7 @@ async def test_scene_analysis_prepends_analysis_and_reports_mode(monkeypatch):
         ),
     )
     scene, avoid, mode, include_appearance = await compose_scene(
-        client=None, prefix=[], settings={"model_name": "m"}, anchor_text="x", scene_analysis=True
+        client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True
     )
     assert scene == "1girl, waving"  # no sex reported -> anchor not pinned, scene untouched
     assert mode == "scene_analysis"
@@ -90,9 +92,7 @@ async def test_first_person_pin_strips_leaked_camera_boy(monkeypatch):
             }
         ),
     )
-    scene, _, mode, _ = await compose_scene(
-        client=None, prefix=[], settings={"model_name": "m"}, anchor_text="x", scene_analysis=True
-    )
+    scene, _, mode, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert scene == "1girl, solo, pov, long red hair, smiling"
     assert mode == "scene_analysis"
 
@@ -112,9 +112,7 @@ async def test_removed_outfit_rides_avoid_not_scene(monkeypatch):
             }
         ),
     )
-    scene, avoid, _, _ = await compose_scene(
-        client=None, prefix=[], settings={"model_name": "m"}, anchor_text="x", scene_analysis=True
-    )
+    scene, avoid, _, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert scene == "1girl, solo, silk dress"
     assert avoid == "blur, slippers"
 
@@ -131,9 +129,7 @@ async def test_main_character_off_frame_drops_profile_appearance(monkeypatch):
             }
         ),
     )
-    _, _, _, include_appearance = await compose_scene(
-        client=None, prefix=[], settings={"model_name": "m"}, anchor_text="x", scene_analysis=True
-    )
+    _, _, _, include_appearance = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert not include_appearance
 
 
@@ -144,7 +140,7 @@ async def test_empty_analysis_reports_analysis_failed(monkeypatch):
         _fake_forced({"analyze_scene": {}, "compose_image_prompt": {"scene": "1girl"}}),
     )
     _, _, mode, include_appearance = await compose_scene(
-        client=None, prefix=[], settings={"model_name": "m"}, anchor_text="x", scene_analysis=True
+        client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True
     )
     assert mode == "analysis_failed"
     assert include_appearance  # no cast knowledge -> keep the old behavior
@@ -179,7 +175,7 @@ async def test_both_calls_ride_the_prefix_unchanged_with_shared_tool_blob(monkey
         ),
     )
     prefix = [{"role": "system", "content": "sys"}, {"role": "assistant", "content": "she waves"}]
-    await compose_scene(client=None, prefix=prefix, settings={"model_name": "m"}, anchor_text="x", scene_analysis=True)
+    await compose_scene(client=None, prefix=prefix, settings={"model_name": "m"}, scene_analysis=True)
     assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
     for call in calls:
         assert call["prefix"] is prefix
@@ -222,7 +218,6 @@ async def test_reasoning_mode_inherits_editor_and_ignores_director(monkeypatch):
         client=None,
         prefix=[],
         settings={"model_name": "m", "reasoning_enabled_passes": {"director": False, "editor": True}},
-        anchor_text="x",
         scene_analysis=True,
     )
     assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
@@ -234,7 +229,6 @@ async def test_reasoning_mode_inherits_editor_and_ignores_director(monkeypatch):
         client=None,
         prefix=[],
         settings={"model_name": "m", "reasoning_enabled_passes": {"director": True, "editor": False}},
-        anchor_text="x",
         scene_analysis=True,
     )
     assert all(c["reasoning_on"] is False for c in calls)
@@ -247,17 +241,17 @@ async def test_reasoning_mode_defaults_off_when_config_absent_or_malformed(monke
         if passes is not None:
             settings["reasoning_enabled_passes"] = passes
         calls = _record_forced_calls(monkeypatch)
-        await compose_scene(client=None, prefix=[], settings=settings, anchor_text="x", scene_analysis=True)
+        await compose_scene(client=None, prefix=[], settings=settings, scene_analysis=True)
         assert all(c["reasoning_on"] is False for c in calls), passes
 
 
-async def test_failed_compose_falls_back_to_anchor_excerpt(monkeypatch):
+async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
+    # Every forced call returns empty args -> no scene. The composer must stop,
+    # never fall back to the raw reply text as the image prompt (prose the
+    # tag-trained checkpoints render as mush).
     monkeypatch.setattr(composer, "forced_tool_call", _fake_forced({}))
-    scene, _, mode, _ = await compose_scene(
-        client=None, prefix=[], settings={"model_name": "m"}, anchor_text="she stood by the window"
-    )
-    assert scene == "she stood by the window"
-    assert mode == "fallback_excerpt"
+    with pytest.raises(ValueError, match="couldn't compose an image prompt"):
+        await compose_scene(client=None, prefix=[], settings={"model_name": "m"})
 
 
 def test_assemble_strips_profile_counts():
