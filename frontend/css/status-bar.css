@@ -65,3 +65,5 @@
   to { transform: rotate(360deg); }
 }
 
+.gen-text { color: var(--text-primary); }
+
