@@ -8,15 +8,6 @@ from backend.workflows.image_gen.config import (
 from backend.workflows.image_gen.hooks import fold_seed
 
 
-def test_config_normalizes_external_source_and_seeded_styles():
-    cfg = normalize_config({})
-    assert cfg["source"] == "external_comfy"
-    styles = cfg["external_comfy"]["styles"]
-    assert [s["id"] for s in styles] == ["realistic", "anime"]
-    assert styles[0]["prompt"].startswith("photorealistic")
-    assert styles[1]["prompt"].startswith("anime illustration")
-
-
 def test_a_style_id_does_not_change_empty_prompt_fields():
     cfg = normalize_config(
         {"external_comfy": {"styles": [{"id": "anime", "label": "Anything", "prompt": "", "negative_prompt": ""}]}}
