@@ -117,6 +117,27 @@ async def test_removed_outfit_rides_avoid_not_scene(monkeypatch):
     assert avoid == "blur, slippers"
 
 
+async def test_hidden_elements_ride_avoid(monkeypatch):
+    # `hidden` (present but not visible -- turned away, occluded, cropped) feeds
+    # the negative so the checkpoint doesn't invent it (e.g. a face on a back view).
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "analyze_scene": {
+                    "viewpoint": "third_person",
+                    "characters": [{"name": "Ashley", "sex": "girl", "appearance": "", "action": "walking away"}],
+                    "hidden": "looking at viewer, face",
+                },
+                "compose_image_prompt": {"scene": "1girl, from behind", "avoid": "blur"},
+            }
+        ),
+    )
+    _, avoid, _, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    assert avoid == "blur, looking at viewer, face"
+
+
 async def test_main_character_off_frame_drops_profile_appearance(monkeypatch):
     monkeypatch.setattr(
         composer,

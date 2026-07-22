@@ -17,14 +17,15 @@ _SCENE_FORMAT = (
     "Write the scene as booru tags and short natural-language clauses mixed freely, comma-separated. Start with the "
     "count anchor (1girl, 1boy, 2girls, 1boy 1girl, ...). Then give EACH character their own clause -- who they are, "
     "hair, eyes, build, clothing, pose, action, and their own expression -- keeping every attribute inside that "
-    "character's clause so it does not bleed onto the others (e.g. 'a slim woman with long red hair and red eyes in a "
+    "character's clause to avoid bleeding onto the others (e.g. 'a slim woman with long red hair and red eyes in a "
     "silk dress, holding a book, teary-eyed'); keep each comma-separated chunk self-contained so meaning does not "
     "leak across boundaries. For a first-person point-of-view scene, add the pov tag and do not draw the camera "
     "character (hands at most), leaving only the others as subjects -- the camera character is NEVER counted in the "
-    "count anchor: you facing one girl is '1girl, solo, pov', never '1boy 1girl'; add looking at viewer when someone "
-    "faces the camera. Add the interaction between them, then shared setting, lighting, and framing last. The "
-    "main subjects or objects of interest (body parts, items, etc.) must be described many times to reinforce details. "
-    "Use as many clauses as the moment needs; do not compress to single-word tags. No art-style or quality terms."
+    "count anchor: you facing one girl is '1girl, solo, pov', never '1boy 1girl'; IMPORTANT: ONLY describe things that are visible. "
+    "Add the interaction between them, then shared setting, lighting, and framing last. The "
+    "main subjects or objects of interest (body parts, clothes, etc.) must be described many times to reinforce details. "
+    "Use as many clauses as the moment needs; do not compress to single-word tags. No art-style or quality terms. "
+    "Fill avoid with everything not visible: for example, `looking at viewer` if the character is facing away, etc."
 )
 
 COMPOSE_TOOL_SCHEMA = {
@@ -126,8 +127,16 @@ ANALYZE_TOOL_SCHEMA = {
                     "description": "Comma-separated setting objects the characters are positioned against.",
                 },
                 "setting": {"type": ["string", "null"], "description": "Location, time of day, and lighting."},
+                "hidden": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Comma-separated elements present in the moment but NOT visible -- a face turned away, an "
+                        "occluded or cropped body part -- that a tag-trained checkpoint would wrongly render. Feeds "
+                        "the negative prompt."
+                    ),
+                },
             },
-            "required": ["viewpoint", "characters", "anchors", "setting"],
+            "required": ["viewpoint", "characters", "anchors", "setting", "hidden"],
             "additionalProperties": False,
         },
     },
@@ -170,7 +179,10 @@ _ANALYZE_OOC = (
     "character's default. Report each present character's sex (girl/boy/other) and their outfit as a delta from their "
     "default (outfit_added / outfit_removed). Leave appearance empty for the main character, whose default look is "
     "supplied separately; for anyone else give their visible fixed traits (hair, eyes, build). Do not infer outfits, poses, "
-    "or positions from genre convention. Decide the viewpoint from the narration voice, and in first_person leave the camera "
+    "or positions from genre convention. IMPORTANT: include ONLY what is directly visible in this moment; omit anything "
+    "off-frame, implied, or assumed. Then list in hidden anything present but not visible -- a face turned away, an "
+    "occluded or cropped body part -- that a tag checkpoint might wrongly draw, so it can be negated. Decide the "
+    "viewpoint from the narration voice, and in first_person leave the camera "
     "character out of the character list; list only character(s) actually visible in frame.]"
 )
 
@@ -406,11 +418,12 @@ async def compose_scene(
         # Empty `appearance` marks the main character (the analyze contract), so a
         # cast without one means the main character is off-frame.
         include_appearance = any(not _bounded(ch.get("appearance")) for ch in characters)
-        # Removed outfit articles are enforced from the negative side; the
-        # positive prompt can't say "not X" in a way CLIP respects.
+        # `hidden` (turned-away/occluded/cropped) and removed outfit articles are
+        # enforced from the negative side; the positive prompt can't say "not X"
+        # in a way CLIP respects.
         # ponytail: whole-image negative -- a removed dress lying visibly in
         # frame will fight it; scope per-character if that ever matters.
-        avoid = _join([args.get("avoid"), *(ch.get("outfit_removed") for ch in characters)])
+        avoid = _join([args.get("avoid"), analysis.get("hidden"), *(ch.get("outfit_removed") for ch in characters)])
     if analysis_block:
         mode = "scene_analysis"
     elif scene_analysis:
