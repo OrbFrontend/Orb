@@ -32,6 +32,7 @@ from ...inference import client_from_settings
 from ...workflows import (
     HookType,
     OnDemandCtx,
+    QueryCtx,
     RegenCtx,
     RerollGenCtx,
     Subscription,
@@ -128,6 +129,34 @@ async def api_get_workflow_config(workflow_id: str):
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
     return {"config": _normalized(workflow_id, await get_workflow_config(workflow_id))}
+
+
+@router.post("/api/workflows/{workflow_id}/query")
+async def api_query_workflow(workflow_id: str, body: dict = Body(default={})):  # noqa: B008
+    """Run a workflow's conversation-less QUERY hook: global config / discovery.
+
+    The off-turn counterpart to ``/trigger`` for operations with no conversation
+    in scope -- readiness, capability discovery, external-backend probing.
+    Ungated by enablement, the same policy and reason as the config routes: these
+    answer setup and capability questions that must work *before* a workflow is
+    enabled (an artifact backend is configured, then switched on). Single-dispatch
+    by workflow id; 404 when the workflow declares no QUERY handler. No lock -- the
+    contract is read-only (queries never mutate workflow state). The handler's dict
+    is returned verbatim; it reports its own failures in-band as ``{"error": ...}``,
+    so a probe failure is a 200 the caller can degrade on, not an HTTP error. An
+    *unexpected* raise still becomes a 500, mirroring ``/trigger``.
+    """
+    if get_workflow(workflow_id) is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    sub = get_subscription(workflow_id, HookType.QUERY)
+    if sub is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} has no query handler")
+    settings_snapshot = await get_settings()
+    try:
+        return await sub.callable(QueryCtx(settings=_readonly(settings_snapshot)), body)
+    except Exception:
+        logger.exception("query hook %r failed", scrub_log(workflow_id))
+        raise HTTPException(status_code=500, detail="Query handler raised; see server logs") from None
 
 
 @router.post("/api/workflows/{workflow_id}/enabled")

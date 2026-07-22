@@ -40,6 +40,7 @@ from .contracts import (
     OnDemandCtx,
     PostCtx,
     PreCtx,
+    QueryCtx,
     RegenCtx,
     RerollGenCtx,
     ToolSpec,
@@ -51,6 +52,7 @@ from .format_consistency.hooks import (
 )
 from .image_gen import image_gen_workflow
 from .image_gen.hooks import on_demand as _image_gen_on_demand
+from .image_gen.hooks import query as _image_gen_query
 from .image_gen.hooks import regenerate as _image_gen_regenerate
 from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
 from .registry import (
@@ -100,6 +102,7 @@ __all__ = [
     "OnDemandCtx",
     "PostCtx",
     "PreCtx",
+    "QueryCtx",
     "RegenCtx",
     "RerollGenCtx",
     "Subscription",
@@ -142,6 +145,7 @@ subscribe(format_consistency_workflow.id, HookType.POST_PIPELINE, _fc_post_pipel
 
 register_workflow(image_gen_workflow)
 subscribe(image_gen_workflow.id, HookType.ON_DEMAND, _image_gen_on_demand)
+subscribe(image_gen_workflow.id, HookType.QUERY, _image_gen_query)
 subscribe(image_gen_workflow.id, HookType.REGENERATE, _image_gen_regenerate)
 subscribe(image_gen_workflow.id, HookType.REROLL_GEN, _image_gen_reroll_gen)
 

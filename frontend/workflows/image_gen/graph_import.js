@@ -2,7 +2,7 @@
 // graphs. Kept free of the plugin facade so it loads under `node --test`.
 //
 // Node typing comes from the server's /object_info via the compact
-// `external/node-types` route and is passed in as `nodeTypes`; this module owns
+// `node_types` query action and is passed in as `nodeTypes`; this module owns
 // only the shape rules. When typing is unavailable (server unreachable, unknown
 // class) it falls back to the conventional input names, which is a degraded
 // picker rather than a broken one.

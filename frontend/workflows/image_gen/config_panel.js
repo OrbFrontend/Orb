@@ -51,6 +51,14 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "styleChange", (el) => refreshStyleState(el));
 }
 
+// Every conversation-less config/discovery call rides the one QUERY route.
+// It is not conversation-scoped, so the path is built by hand (convUrl is for
+// the /trigger surface). Handlers report failure in-band as `{error}`; a raise
+// here is a route-level fault (missing/500), which each caller degrades on.
+function query(action, extra) {
+  return api.post(`/workflows/${WORKFLOW_ID}/query`, { action, ...extra });
+}
+
 // Last readiness answer, so the card renders synchronously from a known value
 // instead of painting empty and filling in later.
 let cardReadiness = { text: "", ready: true };
@@ -99,7 +107,7 @@ async function selectDefaultStyle(styleId) {
 // picker is patched in place so an open tools panel need not be re-rendered.
 export async function refreshCardStyles() {
   try {
-    const res = await api.get(`/workflows/${WORKFLOW_ID}/styles`);
+    const res = await query("styles");
     cardStyles = Array.isArray(res?.styles) ? res.styles : [];
   } catch {
     cardStyles = [];
@@ -108,13 +116,13 @@ export async function refreshCardStyles() {
   if (sel && cardStyles.length) sel.innerHTML = cardStyleOptions();
 }
 
-// Readiness is a configuration question, not a network one -- `/status` answers
-// from the saved config alone, so the tools panel never waits on a remote
-// server. Reachability stays with the Visualize modal's connection probe, which
-// runs at the moment it matters.
+// Readiness is a configuration question, not a network one -- the `status`
+// query answers from the saved config alone, so the tools panel never waits on
+// a remote server. Reachability stays with the Visualize modal's connection
+// probe, which runs at the moment it matters.
 export async function refreshCardReadiness() {
   try {
-    const status = await api.get(`/workflows/${WORKFLOW_ID}/status`);
+    const status = await query("status");
     cardReadiness = {
       ready: !!status?.ready,
       text: status?.ready
@@ -268,7 +276,7 @@ function applyCheckpoints(names) {
 // unreachable server must not delay the form. Failure leaves plain text fields.
 async function loadCheckpoints() {
   try {
-    const res = await api.get(`/workflows/${WORKFLOW_ID}/external/models`);
+    const res = await query("models");
     applyCheckpoints(res?.models);
   } catch {
     applyCheckpoints([]);
@@ -280,7 +288,7 @@ async function loadCheckpoints() {
 async function loadStyleDefaults() {
   if (styleDefaults.size) return;
   try {
-    const res = await api.get(`/workflows/${WORKFLOW_ID}/styles`);
+    const res = await query("styles");
     for (const s of res?.styles || []) {
       styleDefaults.set(s.id, { prompt: s.prompt_default || "", negative_prompt: s.negative_prompt_default || "" });
     }
@@ -370,10 +378,7 @@ function candidateOptions(items, selectedIndex = 0, noneLabel = "") {
 // still be imported while the server is unreachable.
 async function graphNodeTypes(graph) {
   try {
-    const res = await api.post(`/workflows/${WORKFLOW_ID}/external/node-types`, {
-      class_types: classTypes(graph),
-      config: readConfig(),
-    });
+    const res = await query("node_types", { class_types: classTypes(graph), config: readConfig() });
     return res?.nodes || {};
   } catch {
     return {};
@@ -447,27 +452,21 @@ async function testConnection() {
   const result = document.getElementById("ig-test-result");
   if (result) result.textContent = "Testing...";
   try {
-    const res = await api.post(`/workflows/${WORKFLOW_ID}/connections/test`, { config: readConfig() });
+    const res = await query("test", { config: readConfig() });
+    // The probe names the unmet prerequisite in `error`, which is more use than
+    // "failed"; a route-level fault falls through to the catch instead.
+    if (res?.error) {
+      if (result) result.textContent = res.error;
+      return;
+    }
     // Tested against the form's unsaved URL, so this is the only probe that can
     // fill the checkpoint list for a server that has not been saved yet.
     applyCheckpoints(res?.models);
     const device = res?.system?.devices?.[0]?.name;
     if (result) result.textContent = device ? `Connected — ${device}` : "Connected";
-  } catch (e) {
-    if (result) result.textContent = failureDetail(e, "Connection failed");
-  }
-}
-
-// `api` rejects with the raw body; the route sends `{"detail": "..."}` naming
-// the unmet prerequisite, which is more use than "failed".
-function failureDetail(error, fallback) {
-  try {
-    const detail = JSON.parse(error?.message)?.detail;
-    if (typeof detail === "string" && detail) return detail;
   } catch {
-    // Not JSON — keep the caller's bounded message.
+    if (result) result.textContent = "Connection failed";
   }
-  return fallback;
 }
 
 async function saveSettings() {

@@ -16,8 +16,8 @@ const GRAPH = {
   3: { class_type: "SaveImage", inputs: { images: ["5", 0] } },
 };
 
-// What POST /external/node-types answers with: the typing verdict only, derived
-// server-side from /object_info so the browser never receives that payload.
+// What the `node_types` query action answers with: the typing verdict only,
+// derived server-side from /object_info so the browser never receives that payload.
 const NODE_TYPES = {
   CLIPTextEncode: { output_node: false, text_inputs: ["text"], seed_inputs: [] },
   KSampler: { output_node: false, text_inputs: [], seed_inputs: ["seed"] },

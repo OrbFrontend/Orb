@@ -19,16 +19,30 @@ from ..toolkit import (
     set_workflow_character_state,
 )
 from .composer import assemble_prompts, compose_scene
-from .config import WORKFLOW_ID, normalize_config, normalize_profile, resolve_style
+from .config import (
+    STYLE_DEFAULTS,
+    WORKFLOW_ID,
+    normalize_config,
+    normalize_profile,
+    resolve_style,
+)
 from .engine import (
+    CAPABILITIES,
     ImageGenerationError,
     ImageRequest,
     ProgressCallback,
+    has_graph,
+    list_models,
+    node_roles,
     resolve_and_generate,
+    validate_connection,
 )
 
 logger = logging.getLogger(__name__)
 SEED_MODULUS = 2**64
+# Upper bound on class-type names the `node_types` query inspects per graph, so a
+# hostile or malformed import cannot fan out into an unbounded object_info sweep.
+MAX_INSPECTED_CLASS_TYPES = 200
 
 
 def fold_seed(seed: str | int) -> int:
@@ -238,6 +252,141 @@ async def on_demand(ctx, body):
         await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, normalized)
         return {"ok": True, "profile": normalized}
     return {"error": f"unknown action: {action!r}"}
+
+
+# --- QUERY: conversation-less config / capability discovery -------------------
+# These back the tools-panel card and the Advanced settings form. They answer
+# from the saved workflow config or by probing the external ComfyUI server, with
+# no conversation in scope, and report their own failures in-band as
+# ``{"error": ...}`` -- the caller degrades (empty model list, plain-text fields)
+# rather than treating a probe failure as an HTTP error.
+
+
+async def _config_from_query(body) -> dict:
+    """Normalized config the query answers against: the form's unsaved override
+    if the body carries one, else the persisted slot.
+
+    The Advanced form tests and inspects a config it has not saved yet, so a
+    ``config`` in the body wins; the tools-panel card sends none and reads the
+    saved slot.
+    """
+    if isinstance(body, dict) and isinstance(body.get("config"), dict):
+        return normalize_config(body["config"])
+    return normalize_config(await get_workflow_config(WORKFLOW_ID))
+
+
+def _configuration_readiness(config: Mapping[str, Any]) -> dict:
+    """What the saved configuration alone can tell us, with no network I/O.
+
+    Deliberately not a health probe: the tools-panel card renders on every panel
+    open, and making that wait on a remote server would trade a fast honest
+    answer for a slow one. Reachability is the ``test`` action, which the
+    Visualize modal already runs at the moment it matters.
+    """
+    external = config["external_comfy"]
+    unresolved = sorted(
+        {style["workflow"] for style in external["styles"] if style["workflow"] and not has_graph(config, style["workflow"])}
+    )
+    needs_checkpoint = any(
+        not style["checkpoint"] and (style["workflow"] or "external_core") == "external_core" for style in external["styles"]
+    )
+    if unresolved:
+        return {"ready": False, "reason": "unknown_workflow", "detail": f"Unknown workflow: {', '.join(unresolved)}"}
+    if needs_checkpoint:
+        return {
+            "ready": False,
+            "reason": "no_checkpoint",
+            "detail": "Choose a checkpoint in settings before generating",
+        }
+    return {"ready": True, "reason": "", "detail": f"External ComfyUI at {external['api_url']}"}
+
+
+async def query(ctx, body):
+    action = body.get("action") if isinstance(body, dict) else None
+    if action == "status":
+        return await _status(body)
+    if action == "styles":
+        return await _styles(body)
+    if action == "test":
+        return await _test_connection(body)
+    if action == "models":
+        return await _external_models(body)
+    if action == "node_types":
+        return await _node_types(body)
+    return {"error": f"unknown action: {action!r}"}
+
+
+async def _status(body) -> dict:
+    config = await _config_from_query(body)
+    external = config["external_comfy"]
+    return {
+        "source": "external_comfy",
+        "capabilities": dict(CAPABILITIES),
+        "configured": any(s["checkpoint"] or s["workflow"] not in ("", "external_core") for s in external["styles"]),
+        "api_url": external["api_url"],
+        "default_style": config["default_style"],
+        "style_count": len(external["styles"]),
+        "user_graph_count": len(external["user_graphs"]),
+        **_configuration_readiness(config),
+        "managed_local": {
+            "available": False,
+            "reason": "Managed local image generation is not included in this stage",
+        },
+    }
+
+
+async def _styles(body) -> dict:
+    config = await _config_from_query(body)
+    defaults = {s["id"]: s for s in STYLE_DEFAULTS}
+    return {
+        "source": "external_comfy",
+        "default_style": config["default_style"],
+        "styles": [
+            {
+                **style,
+                "prompt_default": defaults.get(style["id"], {}).get("prompt", ""),
+                "negative_prompt_default": defaults.get(style["id"], {}).get("negative_prompt", ""),
+            }
+            for style in config["external_comfy"]["styles"]
+        ],
+    }
+
+
+async def _test_connection(body) -> dict:
+    # An explicit test carries an unsaved config from the Advanced form; the
+    # readiness probe behind the Visualize modal sends none. Only the latter may
+    # answer from the cached node catalogue -- pressing Test means "look again".
+    explicit = isinstance(body, dict) and isinstance(body.get("config"), dict)
+    config = await _config_from_query(body)
+    try:
+        return await validate_connection(config, allow_cached=not explicit)
+    except (ImageGenerationError, ValueError) as exc:
+        return {"error": str(exc)}
+
+
+async def _external_models(body) -> dict:
+    config = await _config_from_query(body)
+    try:
+        return {"models": await list_models(config)}
+    except ImageGenerationError as exc:
+        return {"error": str(exc)}
+
+
+async def _node_types(body) -> dict:
+    """Slot-role typing for the node classes in a graph the user is importing.
+
+    Takes class-type names rather than the graph itself: the browser already
+    parsed the graph, and this only needs to know what its node classes can do.
+    """
+    raw = body.get("class_types") if isinstance(body, dict) else None
+    if not isinstance(raw, list):
+        return {"error": "class_types (list of strings) required"}
+    class_types = [item for item in raw if isinstance(item, str) and item][:MAX_INSPECTED_CLASS_TYPES]
+    config = await _config_from_query(body)
+    try:
+        return {"nodes": await node_roles(config, class_types)}
+    except ImageGenerationError as exc:
+        return {"error": str(exc)}
 
 
 async def _generate_response(ctx, body):

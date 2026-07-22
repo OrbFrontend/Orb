@@ -1,6 +1,6 @@
 """Boundary contracts for the workflow subsystem.
 
-Defines the five context dataclasses passed to workflow hooks, the
+Defines the six context dataclasses passed to workflow hooks, the
 ``ToolSpec`` declaration carried on a ``Workflow``, and the ``_readonly``
 recursive wrapper that turns mutable orchestrator-derived structures into
 deeply read-only views.
@@ -236,12 +236,37 @@ class RerollGenCtx:
     prior_consumption_metadata: MappingProxyType | None = None
 
 
+@dataclass(frozen=True)
+class QueryCtx:
+    """Inputs available to a workflow's conversation-less query hook.
+
+    QUERY is the off-turn, single-dispatch slot for a workflow's *global*
+    configuration and capability-discovery surface -- operations that answer
+    from the workflow's own config slot or by probing an external backend,
+    with no conversation, message, or character in scope (image generation's
+    readiness check, style list, remote model enumeration, and connection
+    probe are the shipped uses). It carries only the global ``settings``
+    snapshot; a workflow reads its own config via the toolkit's
+    ``get_workflow_config`` exactly as its other hooks do, so config is never
+    a Ctx field.
+
+    No ``client`` by design: query handlers are the first-run setup surface
+    and must answer *before* any LLM endpoint is configured, so they never
+    perform inference. This is the one Ctx a handler may receive during
+    bootstrap, and building an LLM client from possibly-absent endpoint
+    settings is exactly the failure that surface must not have.
+    """
+
+    settings: MappingProxyType
+
+
 class HookType(Enum):
     """Identifies which pipeline slot a subscription binds to.
 
     PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow
-    per turn; ON_DEMAND, REGENERATE, and REROLL_GEN are single-dispatch
-    slots resolved by workflow id from an HTTP route.
+    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, and QUERY are single-dispatch
+    slots resolved by workflow id from an HTTP route. QUERY is the only one
+    with no conversation in scope -- the global config/discovery surface.
     """
 
     PRE_PIPELINE = "pre_pipeline"
@@ -249,6 +274,7 @@ class HookType(Enum):
     ON_DEMAND = "on_demand"
     REGENERATE = "regenerate"
     REROLL_GEN = "reroll_gen"
+    QUERY = "query"
 
 
 PreHook = Callable[[PreCtx], AsyncIterator[dict]]
@@ -256,3 +282,4 @@ PostHook = Callable[[PostCtx], AsyncIterator[dict]]
 OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[dict]]
 RegenHook = Callable[[RegenCtx, dict], Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable["bytes | tuple[bytes, dict | None]"]]
+QueryHook = Callable[[QueryCtx, dict], Awaitable[dict]]

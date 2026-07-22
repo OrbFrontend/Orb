@@ -31,7 +31,7 @@ async def test_manifest_and_status_expose_external_only_stage(client):
     entry = next(w for w in manifest if w["id"] == "image_gen")
     assert entry["display_name"] == "Image Generation"
 
-    status = (await client.get("/api/workflows/image_gen/status")).json()
+    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
     assert status["source"] == "external_comfy"
     assert status["capabilities"] == {
         "can_generate": True,
@@ -45,7 +45,10 @@ def test_image_generation_is_on_demand_only():
     workflow = get_workflow("image_gen")
     assert workflow is not None
     assert workflow_has_hook(workflow, HookType.ON_DEMAND)
+    # QUERY is off-turn too (global config/discovery); still no in-turn binding.
+    assert workflow_has_hook(workflow, HookType.QUERY)
     assert not workflow_has_hook(workflow, HookType.POST_PIPELINE)
+    assert not workflow_has_hook(workflow, HookType.PRE_PIPELINE)
 
 
 @pytest.mark.asyncio
@@ -210,22 +213,39 @@ async def test_config_round_trips_through_the_workflow_normalizer(client):
 async def test_status_reports_why_it_is_not_ready(client):
     styles = [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]
     await set_workflow_config("image_gen", {"external_comfy": {"styles": styles}})
-    status = (await client.get("/api/workflows/image_gen/status")).json()
+    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
     assert status["ready"] is False
     assert status["reason"] == "no_checkpoint"
 
     for s in styles:
         s["checkpoint"] = "anime.safetensors"
     await set_workflow_config("image_gen", {"external_comfy": {"styles": styles}})
-    status = (await client.get("/api/workflows/image_gen/status")).json()
+    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
     assert status["ready"] is True
     assert status["style_count"] == 2
 
 
 @pytest.mark.asyncio
-async def test_node_types_route_requires_a_class_type_list(client):
-    response = await client.post("/api/workflows/image_gen/external/node-types", json={"class_types": "KSampler"})
-    assert response.status_code == 422
+async def test_node_types_query_rejects_a_non_list_in_band(client):
+    """A bad request shape is reported in-band (200 + {"error"}) like the rest of
+    the query surface, not as an HTTP 4xx -- the caller degrades to conventional
+    input names rather than treating it as a transport failure."""
+    response = await client.post("/api/workflows/image_gen/query", json={"action": "node_types", "class_types": "KSampler"})
+    assert response.status_code == 200
+    assert "class_types" in response.json()["error"]
+
+
+@pytest.mark.asyncio
+async def test_query_route_rejects_unknown_workflow_and_unknown_action(client):
+    # Unregistered workflow: 404 at the route, before any hook.
+    assert (await client.post("/api/workflows/nope/query", json={"action": "status"})).status_code == 404
+    # A registered workflow with no QUERY binding is indistinguishable: 404.
+    assert (await client.post("/api/workflows/tts/query", json={"action": "status"})).status_code == 404
+    # A registered QUERY handler that does not recognize the action answers
+    # in-band rather than raising, so the route stays 200.
+    unknown = await client.post("/api/workflows/image_gen/query", json={"action": "does_not_exist"})
+    assert unknown.status_code == 200
+    assert "unknown action" in unknown.json()["error"]
 
 
 @pytest.mark.asyncio
