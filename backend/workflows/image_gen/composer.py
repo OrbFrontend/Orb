@@ -23,7 +23,7 @@ _SCENE_FORMAT = (
     "character (hands at most), leaving only the others as subjects -- the camera character is NEVER counted in the "
     "count anchor: you facing one girl is '1girl, solo, pov', never '1boy 1girl'; add looking at viewer when someone "
     "faces the camera. Add the interaction between them, then shared setting, lighting, and framing last. When the "
-    "main subjects or objects of interest are visible (body parts, scenery, etc.), describe them. Use as many clauses "
+    "main subjects or objects of interest are visible (body parts, items, etc.), describe them twice to reinforce detail. Use as many clauses "
     "as the moment needs; do not compress to single-word tags. No art-style or quality terms."
 )
 
@@ -171,7 +171,7 @@ _ANALYZE_OOC = (
     "default (outfit_added / outfit_removed). Leave appearance empty for the main character, whose default look is "
     "supplied separately; for anyone else give their visible fixed traits (hair, eyes, build). Do not infer outfits, poses, "
     "or positions from genre convention. Decide the viewpoint from the narration voice, and in first_person leave the camera "
-    "character out of the character list; list only characters actually visible in frame.]"
+    "character out of the character list; list only character(s) actually visible in frame.]"
 )
 
 
