@@ -17,6 +17,7 @@ import {
   slotCandidates,
   splitCandidate,
 } from "./graph_import.js";
+import { modelPickerState } from "./model_picker.js";
 import { isLoopbackUrl } from "./policy.js";
 
 const WORKFLOW_ID = "image_gen";
@@ -29,10 +30,10 @@ let draft = { styles: [], graphs: [] };
 // Shipped per-style prompt defaults, used as placeholders so an empty field
 // shows what it actually inherits. Fetched once, then reused on every open.
 const styleDefaults = new Map();
-// Checkpoint filenames discovered on the configured server. Suggestions only:
-// the fields stay free text so they remain editable while the server is
-// unreachable and so a pin naming a since-removed file survives an edit.
+// Checkpoint filenames discovered on the configured server. A non-empty probe
+// renders real selects; an empty/failed probe leaves plain text inputs.
 let checkpointNames = [];
+let checkpointProbeId = 0;
 
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
@@ -149,10 +150,38 @@ function placeholder(styleId, field) {
 // One collapsed row per style: the summary carries just the name, so a long
 // list stays scannable without opening anything. Empty fields explain their
 // inherited default via the placeholder, so no summary badge is needed.
-function styleRows(expandId = "") {
+function checkpointField(value) {
+  const state = modelPickerState(checkpointNames, value);
+  const attrs =
+    'data-ig-field="checkpoint" data-wf-action="image_gen:styleChange" data-wf-on="change"';
+  if (state.kind === "input") {
+    return `<input ${attrs} value="${escAttr(state.current)}" placeholder="checkpoint.safetensors">`;
+  }
+
+  const options = [];
+  if (!state.current) {
+    options.push('<option value="" selected>Choose a checkpoint</option>');
+  } else if (!state.models.includes(state.current)) {
+    // Keep a configured checkpoint visible if it disappeared from the server;
+    // choosing another detected model replaces it normally.
+    options.push(
+      `<option value="${escAttr(state.current)}" selected>${esc(state.current)} (not detected)</option>`,
+    );
+  }
+  options.push(
+    ...state.models.map(
+      (name) =>
+        `<option value="${escAttr(name)}"${name === state.current ? " selected" : ""}>${esc(name)}</option>`,
+    ),
+  );
+  return `<select ${attrs}>${options.join("")}</select>`;
+}
+
+function styleRows(expandIds = "") {
+  const expanded = new Set(Array.isArray(expandIds) ? expandIds : [expandIds]);
   return draft.styles
     .map((s, i) => {
-      return `<details class="ig-style" data-style-index="${i}"${s.id === expandId ? " open" : ""}>
+      return `<details class="ig-style" data-style-index="${i}"${expanded.has(s.id) ? " open" : ""}>
         <summary>
           <span class="ig-style-name">${esc(s.label || s.id)}</span>
         </summary>
@@ -161,7 +190,7 @@ function styleRows(expandId = "") {
           <label>Positive style tags<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="${escAttr(placeholder(s.id, "prompt"))}">${esc(s.prompt || "")}</textarea></label>
           <label>Negative style tags<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="${escAttr(placeholder(s.id, "negative_prompt"))}">${esc(s.negative_prompt || "")}</textarea></label>
           <div class="ig-grid">
-            <label>Checkpoint<input data-ig-field="checkpoint" list="${CHECKPOINT_LIST_ID}" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(s.checkpoint || "")}" placeholder="checkpoint.safetensors"></label>
+            <label>Checkpoint${checkpointField(s.checkpoint || "")}</label>
             <label>Workflow<select data-ig-field="workflow" data-wf-action="image_gen:styleChange" data-wf-on="change">${workflowOptions(s.workflow || "external_core")}</select></label>
           </div>
           <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${i}">Remove style</button>
@@ -259,27 +288,26 @@ function removeGraph(graphId) {
   renderStyles();
 }
 
-const CHECKPOINT_LIST_ID = "ig-checkpoints";
-
-function checkpointOptions() {
-  return checkpointNames.map((name) => `<option value="${escAttr(name)}"></option>`).join("");
-}
-
-// The list is shared by every style pin, so one refresh updates all of them.
+// Swap every style checkpoint control together when discovery completes. Live
+// values and open accordions survive the asynchronous re-render.
 function applyCheckpoints(names) {
-  checkpointNames = Array.isArray(names) ? names.filter((n) => typeof n === "string") : [];
-  const list = document.getElementById(CHECKPOINT_LIST_ID);
-  if (list) list.innerHTML = checkpointOptions();
+  const openIds = Array.from(document.querySelectorAll(".ig-style[open]"))
+    .map((row) => draft.styles[Number(row.dataset.styleIndex)]?.id)
+    .filter(Boolean);
+  captureStyles();
+  checkpointNames = modelPickerState(names).models;
+  renderStyles(openIds);
 }
 
 // Probes the saved connection after the modal is already open; a slow or
 // unreachable server must not delay the form. Failure leaves plain text fields.
 async function loadCheckpoints() {
+  const probeId = ++checkpointProbeId;
   try {
     const res = await query("models");
-    applyCheckpoints(res?.models);
+    if (probeId === checkpointProbeId) applyCheckpoints(res?.models);
   } catch {
-    applyCheckpoints([]);
+    if (probeId === checkpointProbeId) applyCheckpoints([]);
   }
 }
 
@@ -300,6 +328,10 @@ async function loadStyleDefaults() {
 async function openSettings(expandStyleId = "") {
   const ext = cfg.external_comfy || {};
   pendingGraph = null;
+  // Start honest: discovery for a previous modal/server must not make this one
+  // look probed before its own request completes.
+  checkpointProbeId += 1;
+  checkpointNames = [];
   draft = {
     styles: (Array.isArray(ext.styles) ? ext.styles : []).map((s) => ({ ...s })),
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
@@ -339,7 +371,6 @@ async function openSettings(expandStyleId = "") {
         <div id="ig-graph-picker"></div>
       </div>
     </details>
-    <datalist id="${CHECKPOINT_LIST_ID}">${checkpointOptions()}</datalist>
   </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" data-wf-action="image_gen:save">Save</button></div>`);
   populateProfile();
   loadCheckpoints();
@@ -455,11 +486,14 @@ function addPendingGraph() {
 async function testConnection() {
   const result = document.getElementById("ig-test-result");
   if (result) result.textContent = "Testing...";
+  const probeId = ++checkpointProbeId;
   try {
     const res = await query("test", { config: readConfig() });
+    if (probeId !== checkpointProbeId) return;
     // The probe names the unmet prerequisite in `error`, which is more use than
     // "failed"; a route-level fault falls through to the catch instead.
     if (res?.error) {
+      applyCheckpoints([]);
       if (result) result.textContent = res.error;
       return;
     }
@@ -469,6 +503,8 @@ async function testConnection() {
     const device = res?.system?.devices?.[0]?.name;
     if (result) result.textContent = device ? `Connected — ${device}` : "Connected";
   } catch {
+    if (probeId !== checkpointProbeId) return;
+    applyCheckpoints([]);
     if (result) result.textContent = "Connection failed";
   }
 }
