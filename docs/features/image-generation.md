@@ -1,10 +1,11 @@
 # Image Generation
 
-Orb can generate an image from an assistant reply. You start each image manually.
+Orb can generate an image of the current scene. You request each image on demand.
 
 Orb uses a ComfyUI server to render the image. Orb does not install ComfyUI or
-image models. For ComfyUI installation instructions, refer to the
-[official ComfyUI installation guide](https://docs.comfy.org/installation/system_requirements).
+image models. For a quick, out-of-the-box setup, see [ComfyUI Setup](comfyui-setup.md).
+For hardware requirements and advanced options, refer to the
+[official ComfyUI documentation](https://docs.comfy.org/installation/system_requirements).
 
 ## Before you start
 
@@ -52,6 +53,7 @@ compatible ComfyUI workflow.
 
 ## Make an image
 
+
 1. Open **Workflow** and select the **Secondary** tab.
 2. In the **Image Generation** card, select a style.
 3. Find the assistant reply that you want to show as an image.
@@ -85,9 +87,10 @@ Select the style name in these details to edit that style.
 Use the delete button in the image header to remove a variant or its variant
 group. Read the confirmation message before you continue.
 
-## Set the character appearance
+## Set the character appearance (Optional)
 
-Appearance settings apply to the current character.
+Allow user-defined appearance tags to always come with the character. Common use case 
+is name of a non-OC character, some image models prompt better with canon names.
 
 1. Open a conversation with the character.
 2. Open **Image Generation** settings.
@@ -171,24 +174,6 @@ Select **None** for the model slot if the workflow must keep its own model.
 
 If a PNG does not contain workflow metadata, export an API-format JSON file
 from ComfyUI instead.
-
-## Protect your data
-
-Use a loopback URL when ComfyUI is on the same computer. Do not expose a
-ComfyUI server to the internet without access control.
-
-When you use a remote ComfyUI server, these conditions apply:
-
-- Orb sends the scene prompt and negative prompt to that server.
-- Other clients of that server can possibly read queued prompts.
-- ComfyUI keeps its generated output file on that server.
-- Orb saves a copy of the image with the conversation.
-
-Orb shows a privacy confirmation when you save a non-loopback URL. The
-confirmation applies to that server address.
-
-Treat the API key as a secret. Orb stores the key in its workflow
-configuration and sends it as a Bearer token.
 
 ## Solve common problems
 

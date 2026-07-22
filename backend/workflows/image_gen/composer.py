@@ -22,9 +22,9 @@ _SCENE_FORMAT = (
     "leak across boundaries. For a first-person point-of-view scene, add the pov tag and do not draw the camera "
     "character (hands at most), leaving only the others as subjects -- the camera character is NEVER counted in the "
     "count anchor: you facing one girl is '1girl, solo, pov', never '1boy 1girl'; add looking at viewer when someone "
-    "faces the camera. Add the interaction between them, then shared setting, lighting, and framing last. When the "
-    "main subjects or objects of interest are visible (body parts, items, etc.), describe them twice to reinforce detail. Use as many clauses "
-    "as the moment needs; do not compress to single-word tags. No art-style or quality terms."
+    "faces the camera. Add the interaction between them, then shared setting, lighting, and framing last. The "
+    "main subjects or objects of interest (body parts, items, etc.) must be described many times to reinforce details. "
+    "Use as many clauses as the moment needs; do not compress to single-word tags. No art-style or quality terms."
 )
 
 COMPOSE_TOOL_SCHEMA = {
