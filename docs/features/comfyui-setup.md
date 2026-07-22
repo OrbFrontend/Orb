@@ -78,9 +78,10 @@ Make sure ComfyUI starts up without any problems.
 ComfyUI needs at least one checkpoint (image model) to render anything.
 
 1. Go to https://civitai.com/models/2458426/anima?modelVersionId=2945208
-2. Download a checkpoint (Anima base v1.0 model) as a `.safetensors` file and place it in `ComfyUI/models/checkpoints/`.
-3. Download the VAE (qwen_3_06b_base.safetensors) and put it in `ComfyUI/models/vae/`.
-4. Restart ComfyUI, or refresh the UI, so the model appears.
+2. Download the checkpoint (anima-base-v1.0.safetensors) as a `.safetensors` file and place it in `ComfyUI/models/checkpoints/`.
+3. Download the text encoder (qwen_3_06b_base.safetensors) and put it in `ComfyUI/models/text_encoders/`.
+4. Download the VAE (qwen_image_vae.safetensors) and put it in `ComfyUI/models/vae/`.
+5. Restart ComfyUI, or refresh the UI.
 
 ## Create your first ComfyUI gen
 
