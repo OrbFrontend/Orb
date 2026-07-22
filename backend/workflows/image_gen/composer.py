@@ -104,18 +104,23 @@ COMPOSE_TOOL_SCHEMA = {
     },
 }
 
-# Structured scene, used only when `scene_analysis` is on. The point is the outfit
-# delta and per-character spatial fields: a flat `characters` array (one object per
+# Structured scene, used only when `scene_analysis` is on. The point is the
+# per-character outfit + spatial fields: a flat `characters` array (one object per
 # person) keeps rendering trivial and sidesteps the name-matching a parallel-array
-# shape needs. Every field required; optionals are nullable, matching the compose
+# shape needs. `outfit` is the FULL current outfit for EVERY character, read live
+# from the transcript -- not a delta against a stored default. The old delta leaned
+# on the profile's appearance_prompt as a baseline, which is (a) blank for every
+# non-owner character and (b) usually blank even for the owner, since authors don't
+# fill it -- so the delta just dropped clothes. The scene is the ground truth for
+# what is worn. Every field required; optionals are nullable, matching the compose
 # schema's strict style.
 ANALYZE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "analyze_scene",
         "description": (
-            "Extract the structured scene from the conversation: the viewpoint, who is visible, each one's outfit "
-            "as a delta from their default, and where each stands relative to anchors and to each other."
+            "Extract the structured scene from the conversation: the viewpoint, who is visible, each one's full "
+            "current outfit, and where each stands relative to anchors and to each other."
         ),
         "parameters": {
             "type": "object",
@@ -147,13 +152,14 @@ ANALYZE_TOOL_SCHEMA = {
                                     "character, whose default appearance is supplied separately."
                                 ),
                             },
-                            "outfit_added": {
-                                "type": ["string", "null"],
-                                "description": "Comma-separated articles worn in addition to, or in place of, the default outfit.",
-                            },
-                            "outfit_removed": {
-                                "type": ["string", "null"],
-                                "description": "Comma-separated default articles that are absent in this moment.",
+                            "outfit": {
+                                "type": "string",
+                                "description": (
+                                    "Comma-separated full outfit the character wears in this moment -- every "
+                                    "visible article. Give it for every character. This is the ground truth for "
+                                    "what is worn: always fill it, never report it as a change from a default. "
+                                    "If the character is unclothed, say so (e.g. 'nude')."
+                                ),
                             },
                             "position": {
                                 "type": ["string", "null"],
@@ -166,8 +172,7 @@ ANALYZE_TOOL_SCHEMA = {
                             "name",
                             "sex",
                             "appearance",
-                            "outfit_added",
-                            "outfit_removed",
+                            "outfit",
                             "position",
                             "pose",
                             "action",
@@ -184,7 +189,7 @@ ANALYZE_TOOL_SCHEMA = {
                     "type": ["string", "null"],
                     "description": (
                         "Comma-separated elements present in the moment but NOT visible -- a face turned away, an "
-                        "occluded or cropped body part, a character no longer in scene, etc. -- that the image gen model should not render. Feeds "
+                        "occluded or cropped body part, an item that's gone, etc. -- that the image gen model should not render. Feeds "
                         "the negative prompt."
                     ),
                 },
@@ -227,16 +232,16 @@ _COMPOSE_OOC_PROSE = _STRUCTURED_OOC_HEAD + _SCENE_FORMAT_STRUCTURED_PROSE + "]"
 
 _ANALYZE_OOC = (
     "[OOC: Call analyze_scene for the visible moment in the assistant reply above. Use only what the history "
-    "establishes directly. For each attribute, use the most recent statement. If nothing changed, keep the "
-    "character's default. "
-    "Report each character's sex (girl, boy, or other). Report each character's outfit as a change from the default. "
-    "Put added or replaced articles in outfit_added. Put absent default articles in outfit_removed. "
+    "establishes directly. For each attribute, use the most recent statement in the history. "
+    "Report each character's sex (girl, boy, or other). Report each character's full outfit in outfit -- every "
+    "visible article, for every character. Always fill outfit. Do not report it as a change and do not leave it "
+    "empty. If a character is unclothed, say so. "
     "Leave appearance empty for the main character. The system supplies the main character's default look. For each "
     "other character, give the visible fixed traits (hair, eyes, build). "
     "Do not infer outfits, poses, or positions from genre convention. Include only what is visible in this moment. "
     "Omit anything that is off-frame, implied, or assumed. "
-    "In hidden, put each thing that is present but not visible. Examples: a face turned away, a body part that is "
-    "occluded or cropped. A tag checkpoint can draw these by mistake, so the system negates them. "
+    "In `hidden`, put each thing that is present but not visible. Examples: a face turned away, a body part that is "
+    "occluded or cropped, an item that's gone, etc. A tag checkpoint can draw these by mistake, so the system negates them. "
     "Decide the viewpoint from the narration voice. For first_person, do not put the viewer character in the "
     "character list. List only the characters that are visible in frame.]"
 )
@@ -322,10 +327,10 @@ _COUNT_TOKEN = r"(?:\d+\+?\s*(?:girls?|boys?|others?)|multiple\s+(?:girls|boys|o
 _COUNT_CHUNK_RE = re.compile(rf"{_COUNT_TOKEN}(?:\s+{_COUNT_TOKEN})*", re.IGNORECASE)
 # CLIP has no negation: a "no longer wearing X" chunk copied through to the
 # image prompt draws X. Drop any chunk that negates, in every mode -- the phrase
-# can sit anywhere in the chunk, so this matches by search, not just at the
-# start. In analysis mode the removed articles are re-enforced via the negative;
-# single-call has no delta to route, so the removal is simply dropped, which
-# still beats drawing the item.
+# can sit anywhere in the chunk, so this matches by search, not just at the start.
+# The absolute-truth outfit already omits what isn't worn, so an item a character
+# took off simply isn't in the prompt; this only catches a composer that narrates
+# the removal anyway. Dropping the chunk still beats drawing the item.
 _NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", re.IGNORECASE)
 
 
@@ -394,12 +399,9 @@ def _render_scene(scene: Any) -> str:
         appearance = _bounded(ch.get("appearance"))
         if appearance:
             bits.append(appearance)
-        added = _bounded(ch.get("outfit_added"))
-        if added:
-            bits.append(f"wearing {added}")
-        removed = _bounded(ch.get("outfit_removed"))
-        if removed:
-            bits.append(f"no longer wearing {removed}")
+        outfit = _bounded(ch.get("outfit"))
+        if outfit:
+            bits.append(f"wearing {outfit}")
         for key in ("position", "pose", "action"):
             value = _bounded(ch.get(key))
             if value:
@@ -448,7 +450,10 @@ async def compose_scene(
     if scene_analysis:
         instr = _ANALYZE_OOC
         if appearance.strip():
-            instr += "\n\nMain character's default appearance and outfit:\n" + appearance.strip()
+            # Identifies the main character so the analyzer leaves their `appearance`
+            # empty (it is prepended separately). NOT an outfit baseline: outfit is
+            # read live from the transcript for everyone, never delta'd against this.
+            instr += "\n\nMain character's fixed appearance (already supplied; do not repeat it):\n" + appearance.strip()
         analysis = await _forced_args(
             client=client,
             prefix=prefix,
@@ -504,14 +509,13 @@ async def compose_scene(
         raise ValueError("couldn't compose an image prompt for this message")
     avoid = _bounded(args.get("avoid"))
     if analysis_block:
-        characters = [ch for ch in analysis.get("characters") or [] if isinstance(ch, Mapping)]
         anchor = _count_anchor(analysis.get("characters"))
         if anchor is not None:
             scene = _pin_anchor(scene, anchor, _bounded(analysis.get("viewpoint")) == "first_person")
-        # `hidden` (turned-away/occluded/cropped) and removed outfit articles are
-        # enforced from the negative side; the positive prompt can't say "not X"
-        # in a way CLIP respects.
-        avoid = _join([args.get("avoid"), analysis.get("hidden"), *(ch.get("outfit_removed") for ch in characters)])
+        # `hidden` (turned-away/occluded/cropped) is enforced from the negative side;
+        # the positive prompt can't say "not X" in a way CLIP respects. Outfit is now
+        # a full positive statement, so there is nothing outfit-related to negate.
+        avoid = _join([args.get("avoid"), analysis.get("hidden")])
     if analysis_block:
         mode = "scene_analysis"
     elif scene_analysis:

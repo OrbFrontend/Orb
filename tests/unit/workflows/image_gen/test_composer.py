@@ -6,15 +6,14 @@ from backend.workflows.image_gen import composer
 from backend.workflows.image_gen.composer import _render_scene, compose_scene
 
 
-def test_render_scene_lays_out_each_character_with_outfit_delta_and_position():
+def test_render_scene_lays_out_each_character_with_outfit_and_position():
     block = _render_scene(
         {
             "characters": [
                 {
                     "name": "Ashley",
                     "appearance": "",
-                    "outfit_added": "silk dress",
-                    "outfit_removed": "slippers",
+                    "outfit": "silk dress, bare feet",
                     "position": "left, holding a book",
                     "pose": "sitting",
                     "action": "reading",
@@ -26,7 +25,7 @@ def test_render_scene_lays_out_each_character_with_outfit_delta_and_position():
         }
     )
     lines = block.splitlines()
-    assert lines[0] == "Ashley: wearing silk dress, no longer wearing slippers, left, holding a book, sitting, reading"
+    assert lines[0] == "Ashley: wearing silk dress, bare feet, left, holding a book, sitting, reading"
     assert lines[1] == "nobleman: tall man, dark hair, right, behind her"
     assert lines[2] == "setting: medieval garden, midday, stone bench"
 
@@ -94,7 +93,10 @@ async def test_first_person_pin_strips_leaked_camera_boy(monkeypatch):
     assert mode == "scene_analysis"
 
 
-async def test_removed_outfit_rides_avoid_not_scene(monkeypatch):
+async def test_composer_negation_stripped_from_scene(monkeypatch):
+    # Outfit is a full positive statement now, so nothing routes to avoid from the
+    # analysis. But if the composer itself writes a negation ("no longer wearing X"),
+    # CLIP would draw X -- so that clause is still dropped from the scene.
     monkeypatch.setattr(
         composer,
         "forced_tool_call",
@@ -102,16 +104,15 @@ async def test_removed_outfit_rides_avoid_not_scene(monkeypatch):
             {
                 "analyze_scene": {
                     "viewpoint": "third_person",
-                    "characters": [{"name": "Ashley", "sex": "girl", "appearance": "", "outfit_removed": "slippers"}],
+                    "characters": [{"name": "Ashley", "sex": "girl", "appearance": "", "outfit": "silk dress"}],
                 },
-                # Composer copies the negation through; CLIP would draw the slippers.
                 "compose_image_prompt": {"scene": "1girl, silk dress, no longer wearing slippers", "avoid": "blur"},
             }
         ),
     )
     scene, avoid, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert scene == "1girl, solo, silk dress"
-    assert avoid == "blur, slippers"
+    assert avoid == "blur"
 
 
 async def test_hidden_elements_ride_avoid(monkeypatch):
