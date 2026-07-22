@@ -5,6 +5,7 @@ import {
   esc,
   escAttr,
   getActiveConvId,
+  getMessages,
   refreshConversationMessages,
   registerAction,
   setWorkflowPhase,
@@ -12,7 +13,7 @@ import {
   streamPost,
   toast,
 } from "/static/workflow_api.js";
-import { attachmentDetailsHtml, messageButtonHtml } from "./render.js";
+import { attachmentDetailsHtml, hasAttachment, messageButtonHtml } from "./render.js";
 
 const WORKFLOW_ID = "image_gen";
 const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg>`;
@@ -84,9 +85,16 @@ async function generate(msgId, button) {
     // the button stays and the finally block restores it to its idle state.
     if (attachmentId) await refreshConversationMessages(msgId);
   } catch (e) {
+    // AbortError = the user clicked cancel; the finally restores the button.
+    // Anything else is a read-side drop of the SSE stream (a browser/network
+    // error on the fetch body — Firefox surfaces it as "Error in input stream").
+    // The backend never sees a read-side drop, so it finishes and persists the
+    // image regardless. Poll for it instead of declaring failure, which used to
+    // leave the user reloading the page to find the image already there.
     if (e?.name !== "AbortError") {
-      console.error("image generation failed", e);
-      toast("Image generation failed", "error");
+      console.warn("image generation stream dropped; polling for the result", e);
+      if (!(await pollForAttachment(msgId, controller.signal)) && !controller.signal.aborted)
+        toast("Image generation failed", "error");
     }
   } finally {
     inFlight.delete(msgId);
@@ -94,6 +102,25 @@ async function generate(msgId, button) {
     button.classList.remove("image-gen-generating");
     button.title = "Visualize reply";
   }
+}
+
+// Re-fetch the message until the backend's still-running render persists its
+// image_gen attachment, so a dropped SSE stream recovers on its own. Stops on a
+// second click (signal aborted), on navigating to another conversation, or after
+// the ceiling — whichever comes first. ponytail: 120s ceiling covers compose +
+// external ComfyUI render; past it the button restores and the old reload-to-see
+// behaviour still applies.
+async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
+  const convId = getActiveConvId();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (signal.aborted || getActiveConvId() !== convId) return false;
+    await new Promise((r) => setTimeout(r, intervalMs));
+    await refreshConversationMessages(msgId);
+    const msg = getMessages().find((m) => m.id === msgId);
+    if (msg && hasAttachment(msg)) return true;
+  }
+  return false;
 }
 
 export function attachmentRenderer(ctx) {

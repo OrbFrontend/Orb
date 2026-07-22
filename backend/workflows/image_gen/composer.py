@@ -61,7 +61,7 @@ _SCENE_FORMAT_STRUCTURED_TAGS = (
     "Write the image prompt as booru tags with short natural-language clauses between them. Separate all items "
     "with commas. "
     "Give the character's traits, clothing, pose, action, and expression. Then give the setting, the lighting, "
-    "and the framing. May have as many items as needed. "
+    "and the framing. The prompt can be as long and detailed and meticulous as possible. "
     "Do not write what the character is not wearing or not doing. Write only positive items. "
     "Do not add count words such as 1girl or 1boy. The system already adds the count words. "
     "Do not add art-style words or quality words. Do not use names. "
@@ -91,11 +91,11 @@ COMPOSE_TOOL_SCHEMA = {
             "properties": {
                 "scene": {
                     "type": "string",
-                    "description": "The image prompt: count tags followed by prose sentences describing the scene, per the format given in the request; can be as long and detailed as the moment needs.",
+                    "description": "The image prompt: count tags followed by prose sentences describing the scene, per the format given in the request; can be as long and detailed and meticulous as needed.",
                 },
                 "avoid": {
                     "type": ["string", "null"],
-                    "description": "Optional comma-separated tags for non-visible elements that must not appear.",
+                    "description": "Comma-separated tags for non-visible elements that must not appear.",
                 },
             },
             "required": ["scene", "avoid"],
@@ -157,7 +157,7 @@ ANALYZE_TOOL_SCHEMA = {
                                 "description": (
                                     "Comma-separated full outfit the character wears in this moment -- every "
                                     "visible article. Give it for every character. This is the ground truth for "
-                                    "what is worn: always fill it, never report it as a change from a default. "
+                                    "what is worn: always fill it in extremely meticulous detail. "
                                     "If the character is unclothed, say so (e.g. 'nude')."
                                 ),
                             },
@@ -166,7 +166,10 @@ ANALYZE_TOOL_SCHEMA = {
                                 "description": "Where they stand relative to anchors and to the other characters (left, right, behind, etc.).",
                             },
                             "pose": {"type": ["string", "null"], "description": "Current pose."},
-                            "action": {"type": ["string", "null"], "description": "What they are doing in this moment."},
+                            "action": {
+                                "type": ["string", "null"],
+                                "description": "Detailed description of what they are doing in this moment.",
+                            },
                         },
                         "required": [
                             "name",
@@ -238,7 +241,7 @@ _ANALYZE_OOC = (
     "empty. If a character is unclothed, say so. "
     "Leave appearance empty for the main character. The system supplies the main character's default look. For each "
     "other character, give the visible fixed traits (hair, eyes, build). "
-    "Do not infer outfits, poses, or positions from genre convention. Include only what is visible in this moment. "
+    "Include only what is visible in this moment. "
     "Omit anything that is off-frame, implied, or assumed. "
     "In `hidden`, put each thing that is present but not visible. Examples: a face turned away, a body part that is "
     "occluded or cropped, an item that's gone, etc. A tag checkpoint can draw these by mistake, so the system negates them. "
