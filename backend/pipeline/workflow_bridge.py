@@ -14,10 +14,9 @@ orchestrator path can safely import it.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Mapping, Sequence
+from typing import Any, AsyncIterator, Mapping, Sequence, cast
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
 from ..inference import TOOLS, LLMClient, _KVCacheTracker
@@ -33,6 +32,7 @@ from ..workflows import (
     _readonly,
     get_workflow,
     iter_subscriptions,
+    public_event_error,
 )
 from ..workflows.enablement import effective_workflow_enabled
 
@@ -44,54 +44,20 @@ def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict 
 
     Control events are consumed before this boundary. Anything left must use
     the public ``{"event": <non-empty str>, ...}`` shape; accepting arbitrary
-    objects here merely defers the failure to the SSE adapter.
+    objects here merely defers the failure to the SSE adapter. Shape validation
+    lives in ``workflows.contracts.public_event_error`` so this bridge and the
+    API on-demand SSE encoder enforce one definition of a public event.
     """
-    if not isinstance(ev, dict):
+    reason = public_event_error(ev)
+    if reason is not None:
         logger.warning(
-            "%s hook %r yielded a non-dict public event (type=%s); dropping",
+            "%s hook %r yielded an invalid public event (%s); dropping",
             hook_type,
             workflow_id,
-            type(ev).__name__,
+            reason,
         )
         return None
-    event_name = ev.get("event")
-    if not isinstance(event_name, str) or not event_name.strip() or "\r" in event_name or "\n" in event_name:
-        logger.warning(
-            "%s hook %r yielded an invalid public event name; dropping",
-            hook_type,
-            workflow_id,
-        )
-        return None
-    if event_name.startswith("_"):
-        logger.warning(
-            "%s hook %r yielded reserved internal event %r; dropping",
-            hook_type,
-            workflow_id,
-            event_name,
-        )
-        return None
-    data = ev.get("data", "")
-    if not isinstance(data, (str, dict)):
-        logger.warning(
-            "%s hook %r yielded public event %r with unsupported data type %s; dropping",
-            hook_type,
-            workflow_id,
-            event_name,
-            type(data).__name__,
-        )
-        return None
-    if isinstance(data, dict):
-        try:
-            json.dumps(data, allow_nan=False)
-        except (TypeError, ValueError):
-            logger.warning(
-                "%s hook %r yielded public event %r with non-JSON-serializable data; dropping",
-                hook_type,
-                workflow_id,
-                event_name,
-            )
-            return None
-    return ev
+    return cast(dict, ev)
 
 
 @dataclass

@@ -36,6 +36,7 @@ from ...workflows import (
     RegenCtx,
     RerollGenCtx,
     Subscription,
+    WorkflowEventStream,
     _readonly,
     get_subscription,
     get_workflow,
@@ -56,7 +57,7 @@ from ...workflows.attachment_cache import (
     validate_workflow_attachment_shape,
 )
 from ...workflows.enablement import effective_workflow_enabled
-from ..deps import _workflow_root_lock, require_conversation
+from ..deps import _workflow_event_stream_response, locked_attachment_group, require_conversation
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
 
 logger = logging.getLogger(__name__)
@@ -214,10 +215,18 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                     character_id=conv.get("character_card_id"),
                     character=_readonly(card),
                 )
-                return await sub.callable(od_ctx, body)
+                result = await sub.callable(od_ctx, body)
             except Exception:
                 logger.exception("on_demand hook %r failed", scrub_log(workflow_id))
                 raise HTTPException(status_code=500, detail="On-demand handler raised; see server logs") from None
+    # A streaming result is wrapped by the API layer -- the workflow returns a
+    # transport-neutral WorkflowEventStream, never an HTTP response. The response
+    # is built after the workflow locks release: the event iterator is lazy, so
+    # the hook's DB/prefix prep ran under the locks while the stream itself runs
+    # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
+    if isinstance(result, WorkflowEventStream):
+        return _workflow_event_stream_response(result)
+    return result
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate")
@@ -241,11 +250,13 @@ async def api_regenerate_attachment(
         action="regenerate",
         detail=f"Workflow {wid!r} is not registered or has no regenerate handler",
     )
-    # Single hop suffices: the dispatcher itself assigns parent_attachment_id = root_id
-    # on every write, so the variant tree is flat by construction (root + N siblings).
-    root_id = att["parent_attachment_id"] or aid
-
-    async with _workflow_root_lock(root_id):
+    # The group root is a mutable identity (deleting a root promotes a sibling to
+    # root), so root resolution and locking happen together under
+    # locked_attachment_group: it re-reads `att` under the canonical-root lock and
+    # retries if a concurrent delete moved the root, so the hook never runs against
+    # a since-deleted parent. The dispatcher assigns parent_attachment_id = root_id
+    # on every write, so the variant tree stays flat (root + N siblings).
+    async with locked_attachment_group(aid, mid) as (att, root_id):
         anchor = await get_message_by_id(mid)
         if anchor is None or anchor["conversation_id"] != cid:
             raise HTTPException(status_code=404, detail="Message not found in conversation")
@@ -430,11 +441,10 @@ async def api_reroll_gen_attachment(
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
 
-    params = _decode_generation_params(att)
-
-    root_id = att["parent_attachment_id"] or aid
-
-    async with _workflow_root_lock(root_id):
+    # Resolve-and-lock the canonical root together (see regenerate): the in-lock
+    # snapshot and root id are read under the same lock the write will hold.
+    async with locked_attachment_group(aid, mid) as (att, root_id):
+        params = _decode_generation_params(att)
         seed = _generated_seed()
         client = client_from_settings(settings_snapshot)
 
@@ -524,16 +534,14 @@ async def api_rehydrate_attachment(
     # two concurrent callers would each run the full reroll_gen LLM call
     # before the cache helper's transactional recheck deduplicates them at
     # the DB layer -- doubling LLM cost even though the row stays consistent.
-    # parent_attachment_id is NULL on root rows, so `or aid` resolves to the
-    # root id whether the request targets a sibling or the root itself.
-    root_id = att["parent_attachment_id"] or aid
-    async with _workflow_root_lock(root_id):
-        # Re-read inside the lock so a concurrent caller that already
-        # rehydrated cannot slip past the snapshot check above and double
-        # the reroll_gen LLM call before the cache helper's transactional
-        # recheck deduplicates the bytes write.
-        att = await get_workflow_attachment_by_id(aid)
-        if att is None or att.get("data_b64") != EVICTED_MARKER:
+    # locked_attachment_group holds the canonical-root lock and re-reads `att`
+    # under it, replacing the manual in-lock re-read this route used to do.
+    async with locked_attachment_group(aid, mid) as (att, _root_id):
+        # Re-check the eviction precondition on the in-lock snapshot so a
+        # concurrent caller that already rehydrated cannot slip past the pre-lock
+        # check and double the reroll_gen LLM call before the cache helper's
+        # transactional recheck deduplicates the bytes write.
+        if att.get("data_b64") != EVICTED_MARKER:
             raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate")
         wid = att.get("workflow_id")
         sub = get_subscription(wid, HookType.REROLL_GEN) if wid else None
@@ -595,8 +603,11 @@ async def api_activate_workflow_attachment(
     if raw_sibling_id is not None and (not isinstance(raw_sibling_id, int) or isinstance(raw_sibling_id, bool)):
         raise HTTPException(status_code=400, detail="sibling_id must be an integer or null")
 
+    # `aid` is the group root here; locked_attachment_group resolves and locks the
+    # canonical root, so a request holding a root id that a concurrent delete has
+    # since promoted away 404s (target gone) instead of locking a stale key.
     try:
-        async with _workflow_root_lock(aid):
+        async with locked_attachment_group(aid, mid) as (_att, _root_id):
             await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -625,12 +636,13 @@ async def api_delete_workflow_attachment(
     scope = body.get("scope") if isinstance(body, dict) else None
     if scope not in ("variant", "group"):
         raise HTTPException(status_code=400, detail="scope must be 'variant' or 'group'")
-    att = await get_workflow_attachment_by_id(aid)
-    if att is None or att["message_id"] != mid:
-        raise HTTPException(status_code=404, detail="Attachment not found on this message")
-    root_id = att["parent_attachment_id"] or aid
+    # locked_attachment_group resolves the canonical root and locks it, retrying if
+    # a concurrent delete promotes the root mid-acquire -- so a delete that promotes
+    # a sibling and a delete racing it never end up holding different keys for what
+    # is now one group. delete_workflow_attachments re-derives the root in its own
+    # BEGIN IMMEDIATE, which remains the integrity boundary.
     try:
-        async with _workflow_root_lock(root_id):
+        async with locked_attachment_group(aid, mid) as (_att, _root_id):
             result = await delete_workflow_attachments(aid, scope=scope, expected_message_id=mid)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

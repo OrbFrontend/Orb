@@ -8,8 +8,7 @@ import logging
 import secrets
 from typing import Any, Mapping, Sequence
 
-from starlette.responses import StreamingResponse
-
+from ..contracts import WorkflowEventStream
 from ..toolkit import (
     build_offturn_prefix,
     get_message_by_id,
@@ -61,43 +60,41 @@ def _fresh_seed() -> int:
     return fold_seed(secrets.token_hex(16))
 
 
-def _frame(event: str, data: Any) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
-
-
-def _phase(label: str) -> str:
+def _phase(label: str) -> dict:
     # No `channel`: this stream has exactly one consumer, the Visualize modal,
     # and it keys the phase pill per message id. A channel written here could
     # only disagree with the one the client already owns.
-    return _frame("phase_status", {"label": label})
+    return {"event": "phase_status", "data": {"label": label}}
 
 
-def _terminal(attachment_id: int | None, error: str | None) -> list[str]:
-    """The frames every generate stream ends on, success or failure.
+def _terminal(attachment_id: int | None, error: str | None) -> list[dict]:
+    """The events every generate stream ends on, success or failure.
 
     Clients finish on `image_gen_done` rather than on stream close, so this
     sequence is the contract: at most one error, then the phase reset, then the
-    terminal event carrying the new attachment id or null.
+    terminal event carrying the new attachment id or null. These are
+    transport-neutral event dicts; the API layer serializes them to SSE frames.
     """
-    frames = [_frame("image_gen_error", {"message": error})] if error else []
-    frames.append(_frame("phase_status", {"state": "done"}))
-    frames.append(_frame("image_gen_done", {"attachment_id": attachment_id}))
-    return frames
+    events: list[dict] = [{"event": "image_gen_error", "data": {"message": error}}] if error else []
+    events.append({"event": "phase_status", "data": {"state": "done"}})
+    events.append({"event": "image_gen_done", "data": {"attachment_id": attachment_id}})
+    return events
 
 
-def _failed_stream(message: str) -> StreamingResponse:
+def _failed_stream(message: str) -> WorkflowEventStream:
     """A guard rejection, delivered over the same wire as a render failure.
 
     Returning a bare `{"error": ...}` dict here would leave the client parsing a
     JSON body as SSE: it finds no frames, sees no terminal event, and silently
-    re-enables its button with nothing shown to the user.
+    re-enables its button with nothing shown to the user. The event stream keeps
+    the guard rejection on the same wire the successful render uses.
     """
 
-    async def stream():
-        for frame in _terminal(None, message):
-            yield frame
+    async def events():
+        for event in _terminal(None, message):
+            yield event
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return WorkflowEventStream(events=events())
 
 
 def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
@@ -388,7 +385,7 @@ async def _node_types(body) -> dict:
         return {"error": str(exc)}
 
 
-async def _generate_response(ctx, body):
+async def _generate_response(ctx, body) -> WorkflowEventStream:
     mid = body.get("message_id")
     if not isinstance(mid, int) or isinstance(mid, bool):
         return _failed_stream("message_id (int) required")
@@ -463,10 +460,10 @@ async def _generate_response(ctx, body):
             # reader left anyway. Cancelling here is what keeps the render task
             # from outliving the request.
             task.cancel()
-        for frame in _terminal(attachment_id, error):
-            yield frame
+        for event in _terminal(attachment_id, error):
+            yield event
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return WorkflowEventStream(events=stream())
 
 
 async def regenerate(ctx, body):

@@ -15,10 +15,11 @@ and ``frozenset.add``, ``TypeError`` from tuple item assignment.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable, Union
 
 
 def _readonly(obj: Any) -> Any:
@@ -260,6 +261,58 @@ class QueryCtx:
     settings: MappingProxyType
 
 
+@dataclass(frozen=True)
+class WorkflowEventStream:
+    """A transport-neutral stream of public workflow events.
+
+    The domain-layer result an on-demand hook returns when its output is a
+    sequence of SSE-style events rather than a single JSON object. ``events``
+    yields ``{"event": <name>, "data": <str | JSON-serializable dict>}`` dicts
+    (the shape :func:`public_event_error` validates); the API layer -- never
+    the workflow -- owns turning them into HTTP/SSE frames and closing the
+    iterator on client disconnect. This keeps ``workflows/`` free of any
+    HTTP-transport dependency: a hook describes *what* to emit, the transport
+    decides *how*.
+
+    ``frozen=True`` freezes the reference to the iterator, not the stream's
+    own cursor state -- ``events`` is single-use, consumed exactly once by the
+    transport.
+    """
+
+    events: AsyncIterator[dict]
+
+
+def public_event_error(ev: object) -> str | None:
+    """Validate a public workflow event; return ``None`` if valid, else a short reason.
+
+    A public event is a dict ``{"event": <name>, "data": <payload>}`` where
+    ``name`` is a non-empty, single-line string that does not start with ``_``
+    (the reserved prefix for internal control events) and ``payload`` is a
+    string or a JSON-serializable (``allow_nan=False``) dict. ``data`` defaults
+    to ``""`` when absent.
+
+    One definition of the wire shape, shared by the pipeline bridge (pre/post
+    hook pass-through events) and the API on-demand SSE encoder, so the two
+    consumers cannot drift into subtly different notions of a valid event.
+    """
+    if not isinstance(ev, dict):
+        return f"not a dict (type={type(ev).__name__})"
+    name = ev.get("event")
+    if not isinstance(name, str) or not name.strip() or "\r" in name or "\n" in name:
+        return "event name must be a non-empty single-line string"
+    if name.startswith("_"):
+        return f"event name {name!r} uses the reserved internal prefix"
+    data = ev.get("data", "")
+    if not isinstance(data, (str, dict)):
+        return f"data must be str or dict (type={type(data).__name__})"
+    if isinstance(data, dict):
+        try:
+            json.dumps(data, allow_nan=False)
+        except (TypeError, ValueError):
+            return "data dict is not JSON-serializable"
+    return None
+
+
 class HookType(Enum):
     """Identifies which pipeline slot a subscription binds to.
 
@@ -279,7 +332,10 @@ class HookType(Enum):
 
 PreHook = Callable[[PreCtx], AsyncIterator[dict]]
 PostHook = Callable[[PostCtx], AsyncIterator[dict]]
-OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[dict]]
+# An on-demand hook returns either a plain JSON object (the API renders it as a
+# JSON response) or a WorkflowEventStream (the API renders it as an SSE stream).
+OnDemandResult = Union[dict, WorkflowEventStream]
+OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[OnDemandResult]]
 RegenHook = Callable[[RegenCtx, dict], Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable["bytes | tuple[bytes, dict | None]"]]
 QueryHook = Callable[[QueryCtx, dict], Awaitable[dict]]
