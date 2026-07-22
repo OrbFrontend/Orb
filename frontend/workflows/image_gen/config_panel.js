@@ -40,7 +40,6 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "settingsClose", () => closeModal());
   registerAction(WORKFLOW_ID, "test", () => testConnection());
   registerAction(WORKFLOW_ID, "save", () => saveSettings());
-  registerAction(WORKFLOW_ID, "profileSave", () => saveProfile());
   registerAction(WORKFLOW_ID, "graphFile", (el) => importGraphFile(el));
   registerAction(WORKFLOW_ID, "graphAdd", () => addPendingGraph());
   registerAction(WORKFLOW_ID, "graphRemove", (el) => removeGraph(el.dataset.graphId));
@@ -490,6 +489,7 @@ async function saveSettings() {
     const stored = res?.config || next;
     const droppedGraphs = next.external_comfy.user_graphs.length - (stored.external_comfy?.user_graphs?.length || 0);
     Object.assign(cfg, stored);
+    await saveProfile();
     toast(
       droppedGraphs > 0
         ? `Saved, but ${droppedGraphs} imported workflow${droppedGraphs > 1 ? "s were" : " was"} rejected as too large`
@@ -530,25 +530,22 @@ async function populateProfile() {
     el.innerHTML = `<div class="ig-profile-fields">
         <label>Appearance tags<textarea id="ig-appearance" placeholder="Booru tags. For a canon character the model knows, just its tag (e.g. hatsune miku). Leave blank for OCs.">${esc(res.profile.appearance_prompt || "")}</textarea></label>
         <label>Negative tags<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, hat). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
-      </div>
-      <button class="btn btn-sm" data-wf-action="image_gen:profileSave">Save appearance</button>`;
+      </div>`;
   } catch {
     el.textContent = "Could not load character appearance.";
   }
 }
 
 async function saveProfile() {
-  if (!getActiveConvId()) return;
-  try {
-    await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
-      action: "set_profile",
-      profile: {
-        appearance_prompt: document.getElementById("ig-appearance")?.value || "",
-        negative_prompt: document.getElementById("ig-profile-negative")?.value || "",
-      },
-    });
-    toast("Character appearance saved");
-  } catch {
-    toast("Could not save character appearance", "error");
-  }
+  // No profile fields rendered (no active character) => nothing to persist, and
+  // sending blanks here would wipe a saved appearance.
+  const appearanceEl = document.getElementById("ig-appearance");
+  if (!appearanceEl || !getActiveConvId()) return;
+  await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
+    action: "set_profile",
+    profile: {
+      appearance_prompt: appearanceEl.value || "",
+      negative_prompt: document.getElementById("ig-profile-negative")?.value || "",
+    },
+  });
 }
