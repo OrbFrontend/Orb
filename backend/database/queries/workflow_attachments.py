@@ -53,15 +53,15 @@ def _encode_metadata_field(value: object, field_name: str, workflow_id: str, fil
 
     Non-dict values produce None silently -- the row helper accepts these from
     callers that have already coerced them and from defensive paths upstream.
-    A dict containing non-serializable contents (e.g. nested ``set``) trips
-    ``TypeError`` from ``json.dumps``; the error is logged and the column is
-    written as NULL so the row insert still lands.
+    A dict containing non-serializable contents (e.g. nested ``set``) or
+    non-finite numbers trips strict JSON encoding; the error is logged and the
+    column is written as NULL so the row insert still lands.
     """
     if not isinstance(value, dict):
         return None
     try:
-        return json.dumps(value)
-    except TypeError:
+        return json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
         logger.warning(
             "workflow %r attachment %r %s contains non-JSON-serializable values; storing NULL",
             scrub_log(workflow_id),

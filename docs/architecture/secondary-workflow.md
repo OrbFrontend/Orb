@@ -88,7 +88,9 @@ Authors construct one of these and never touch `subscriptions` -- that field is 
   config_normalizer: Optional[Callable]     # default None; see below
 ```
 
-`config_schema` is manifest metadata for the settings form and enforces nothing. `config_normalizer` is the enforcement: a `(raw) -> dict` callable owning the workflow's strict normalization of its config slot, applied by both config routes (sec. 12.2). Declare it whenever a hook already normalizes on read -- otherwise the API persists and echoes a shape that read path silently repairs or drops, and the settings panel goes on showing entries the workflow ignores. Shipped example: `backend/workflows/image_gen/config.py:normalize_config`, which bounds user-authored graphs and style entries.
+`config_schema` is manifest metadata for the settings form and enforces nothing. `config_normalizer` is the enforcement: a `(raw) -> dict` callable owning the workflow's strict normalization of its config slot, applied by both config routes (sec. 12.2). Declare it whenever a hook already normalizes on read -- otherwise the API persists and echoes a shape that read path silently repairs or drops, and the settings panel goes on showing entries the workflow ignores. Shipped examples are `backend/workflows/image_gen/config.py:normalize_config`, which bounds user-authored graphs and style entries, and `backend/workflows/tts/config.py:normalize_config`, which supplies the complete typed TTS config and clamps volume.
+
+Workflow ids are boundary keys, not arbitrary labels: `register_workflow` requires 1-64 ASCII letters, digits, underscores, or hyphens, starting with a letter or digit. This single grammar is safe in SQLite JSON paths, URL segments, frontend object keys, and `/static/workflows/<id>/` module paths.
 
 Live example: shipped TTS builds its `Workflow(...)` instance at `backend/workflows/tts/__init__.py`.
 
@@ -145,7 +147,7 @@ subscribe(format_consistency_workflow.id, HookType.POST_PIPELINE, _fc_post_pipel
 finalize_registry()                                                    # step 3 (keep at file bottom)
 ```
 
-- `register_workflow(w)` -- `registry.py`. Idempotent on `w.id`; re-registering the same id preserves the original insertion position, so manifest order stays stable across reloads (docstring `registry.py`). Raises `ToolNameCollision` if any declared tool name is a built-in, or if a newly-claimed name (one not already owned by a prior registration of this id) collides with another workflow's tool. Both checks run before any mutation, so a rejected call leaves the registry, `TOOLS`, and `STANDALONE_TOOLS` untouched. On re-registration the new `tools` list is diffed against the prior one: names new to this registration are registered, dropped names are removed from `TOOLS`/`STANDALONE_TOOLS`, and names in both have schema/choice/standalone overwritten (`registry.py`).
+- `register_workflow(w)` -- `registry.py`. Idempotent on `w.id`; re-registering the same id preserves the original insertion position, so manifest order stays stable across reloads (docstring `registry.py`). Static declaration validation runs before mutation: workflow-id grammar; unique, API-safe tool names; and equality between `ToolSpec.name`, `schema.function.name`, and `choice.function.name`. Invalid declarations raise `WorkflowDeclarationError`. Name ownership conflicts raise `ToolNameCollision` if a declared tool name is a built-in, or if a newly-claimed name (one not already owned by a prior registration of this id) collides with another workflow's tool. A rejected call leaves the registry, `TOOLS`, and `STANDALONE_TOOLS` untouched. On re-registration the new `tools` list is diffed against the prior one: names new to this registration are registered, dropped names are removed from `TOOLS`/`STANDALONE_TOOLS`, and names in both have schema/choice/standalone overwritten (`registry.py`).
 - `subscribe(workflow_id, hook_type, fn, *, priority=0)` -- `registry.py`. Appends a `Subscription` to `w.subscriptions`. Raises `LookupError` if id unknown, `ValueError` on duplicate hook for same id, `ValueError` on `REGENERATE`/`REROLL_GEN` without `produces_artifacts=True`.
 - `finalize_registry()` -- `registry.py`. Every `produces_artifacts=True` workflow MUST also have `REGENERATE` and `REROLL_GEN` bindings; missing either raises `WorkflowMandateError` at import time.
 
@@ -372,7 +374,7 @@ For each subscription (priority-ascending; a disabled workflow's subscription is
 |---|---|
 | `"enable_tools"` | Merge `ev["tools"]` into `accumulators["merged_enabled_tools"]`: `set`/`frozenset` -> each name True; `dict` -> entries whose value is exactly `True`. Names not in `TOOLS`, dict values that are not `True`, and a `tools` payload that is not set/frozenset/dict each drop (the whole event, for a bad payload) with WARNING. |
 | `"system_prompt"` | Append `ev["block"]` to `accumulators["extras"]` if it is a non-whitespace `str` (empty/whitespace-only dropped with WARNING). |
-| neither | Forward `ev` to SSE stream verbatim. |
+| neither | Validate as a public SSE event, then forward. It must be a dict with a non-empty, single-line string `event` and optional `data` that is either a string or a strictly JSON-serializable dict; malformed values are logged and dropped. |
 
 Reserved-name rule: any `ev["event"]` that is a string starting with `_` is dropped with WARNING.
 
@@ -393,7 +395,7 @@ For each subscription (a disabled workflow's subscription is skipped first, logg
 | `"draft_replaced"` | One per hook. `ev["draft"]` must be a str differing from current `draft`, else WARNING + drop. On accept: `draft = ev["draft"]`, yield `{"event": "writer_rewrite", "data": {"refined_text": draft}}`. |
 | `"attach_artifact"` | Gated on `get_workflow(wid)` resolving with `produces_artifacts` truthy (unknown workflow or unset flag -> WARNING + drop). Validated via `_stage_workflow_attachment`. Survivors appended to local `staged_attachments`. No SSE event at attach time. |
 | `"set_message_state"` | `ev["state"]` must be a dict (else WARNING + drop). On accept: staged under the hook's `workflow_id` (last-wins), then written to the new assistant message's per-message state slot in `_persist_result` once the assistant row exists. No SSE event. |
-| neither | Forward `ev` to SSE stream. Underscore-prefixed `ev["event"]` dropped. |
+| neither | Validate as a public SSE event, then forward. It must be a dict with a non-empty, single-line string `event` and optional `data` that is either a string or a strictly JSON-serializable dict; malformed values and underscore-prefixed event names are logged and dropped. |
 
 Error containment: each subscription wrapped in `try / except Exception`.
 
@@ -596,7 +598,7 @@ Gates in order: dict, non-empty str `workflow_id`, str `filename`, str `mime`, X
 | `delete_workflow_attachments(target_id, *, scope, expected_message_id=None)` | `dict` | BEGIN IMMEDIATE | `LookupError`, `ValueError` |
 | `get_workflow_attachment_by_id(aid)` | `dict | None` | (read-only, `database/queries/workflow_attachments.py`) | -- |
 | `get_budget_bytes()` | `int` | (read-only) | -- |
-| `evict(aid)` | `None` | BEGIN IMMEDIATE | -- |
+| `evict(aid)` | `None` | BEGIN IMMEDIATE | `ValueError` when the row has no usable recovery metadata |
 
 Only `insert_workflow_attachment` is re-exported from `toolkit.py`. The others are called by the routes, the orchestrator, or the cache's own internal paths.
 
@@ -604,13 +606,13 @@ Only `insert_workflow_attachment` is re-exported from `toolkit.py`. The others a
 
 1. Reject if `not _is_produces_artifacts_workflow(workflow_id)` -> tagged `WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON`.
 2. `_check_flat_parent_on` -- parent must exist, must have `parent_attachment_id IS NULL`, must be on same message.
-3. Size via `_estimate_size`. If `size > budget` and rehydratable (`seed` non-empty str AND `generation_metadata` dict; `_is_rehydratable`), insert as marker; if not rehydratable, reject with `OVERSIZE_NO_METADATA_REASON`.
-4. Otherwise evict existing rows via `_lru3_key`-sorted candidates until residual `(occupied + new_size) - budget <= 0`.
+3. Size via `_estimate_size`. If `size > budget` and rehydratable (`seed` non-empty str AND strictly JSON-serializable `generation_metadata` dict; `_is_rehydratable`), insert as marker; if not rehydratable, reject with `OVERSIZE_NO_METADATA_REASON`.
+4. Otherwise evict existing rows via `_lru3_key`-sorted candidates until residual `(occupied + new_size) - budget <= 0`. A byte-bearing row without usable recovery metadata is pinned and never enters an eviction plan. If pinned occupancy prevents the new bytes from fitting, a recoverable new attachment is marker-inserted; an unrecoverable one is rejected.
 5. `insert_workflow_attachment_row` (`backend/database/queries/workflow_attachments.py`) issues `SELECT id FROM messages WHERE id=?` then `INSERT INTO workflow_attachments(...) VALUES(?,?,?,?,?,?,?,?,?,?,?)`.
 6. Birth-as-access via `_record_access_inner`.
 7. Optional `_set_active_sibling_on` when `mark_active=True`.
 
-`insert_workflow_attachments` (batch) runs three partition stages: Step 0 routes non-`produces_artifacts` workflows to `rejected_atts` (same policy as the single-row path); Step A markers/rejects oversize new atts biggest-first (tie-break by input index), so markering one big att can spare many small existing rows; Step B then runs the same step-4 eviction over existing rows for any residual shortfall.
+`insert_workflow_attachments` (batch) runs three partition stages: Step 0 routes non-`produces_artifacts` workflows to `rejected_atts` (same policy as the single-row path); Step A reserves the budget already occupied by pinned rows, then markers/rejects new atts biggest-first (tie-break by input index), so markering one big att can spare many small existing rows; Step B then runs the same step-4 eviction over recoverable existing rows for any residual shortfall. Legacy pinned rows can leave the cache above a newly-shrunk budget, but no write is allowed to destroy their only byte copy.
 
 ### 9.6 Sibling group
 

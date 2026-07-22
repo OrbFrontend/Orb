@@ -14,6 +14,7 @@ orchestrator path can safely import it.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Mapping, Sequence
@@ -36,6 +37,61 @@ from ..workflows import (
 from ..workflows.enablement import effective_workflow_enabled
 
 logger = logging.getLogger(__name__)
+
+
+def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict | None:
+    """Return a valid public SSE event, or log and drop malformed output.
+
+    Control events are consumed before this boundary. Anything left must use
+    the public ``{"event": <non-empty str>, ...}`` shape; accepting arbitrary
+    objects here merely defers the failure to the SSE adapter.
+    """
+    if not isinstance(ev, dict):
+        logger.warning(
+            "%s hook %r yielded a non-dict public event (type=%s); dropping",
+            hook_type,
+            workflow_id,
+            type(ev).__name__,
+        )
+        return None
+    event_name = ev.get("event")
+    if not isinstance(event_name, str) or not event_name.strip() or "\r" in event_name or "\n" in event_name:
+        logger.warning(
+            "%s hook %r yielded an invalid public event name; dropping",
+            hook_type,
+            workflow_id,
+        )
+        return None
+    if event_name.startswith("_"):
+        logger.warning(
+            "%s hook %r yielded reserved internal event %r; dropping",
+            hook_type,
+            workflow_id,
+            event_name,
+        )
+        return None
+    data = ev.get("data", "")
+    if not isinstance(data, (str, dict)):
+        logger.warning(
+            "%s hook %r yielded public event %r with unsupported data type %s; dropping",
+            hook_type,
+            workflow_id,
+            event_name,
+            type(data).__name__,
+        )
+        return None
+    if isinstance(data, dict):
+        try:
+            json.dumps(data, allow_nan=False)
+        except (TypeError, ValueError):
+            logger.warning(
+                "%s hook %r yielded public event %r with non-JSON-serializable data; dropping",
+                hook_type,
+                workflow_id,
+                event_name,
+            )
+            return None
+    return ev
 
 
 @dataclass
@@ -172,17 +228,13 @@ async def _run_post_pipeline(
                             t,
                         )
                         continue
-                    # Reject reserved internal events (underscore-prefixed) so hooks
-                    # cannot impersonate _result and trigger spurious persistence.
-                    e_name = ev.get("event") if isinstance(ev, dict) else None
-                    if isinstance(e_name, str) and e_name.startswith("_"):
-                        logger.warning(
-                            "post_pipeline hook %r yielded reserved internal event %r; dropping",
-                            sub.workflow_id,
-                            e_name,
-                        )
-                        continue
-                    yield ev
+                    public_event = _public_hook_event(
+                        ev,
+                        hook_type="post_pipeline",
+                        workflow_id=sub.workflow_id,
+                    )
+                    if public_event is not None:
+                        yield public_event
             except Exception:
                 logger.exception("post_pipeline hook %r failed", sub.workflow_id)
 
@@ -376,15 +428,12 @@ async def _iterate_pre_pipeline_hooks(
                             t,
                         )
                         continue
-                    # Reject reserved internal events (defense-in-depth).
-                    e_name = ev.get("event") if isinstance(ev, dict) else None
-                    if isinstance(e_name, str) and e_name.startswith("_"):
-                        logger.warning(
-                            "pre_pipeline hook %r yielded reserved internal event %r; dropping",
-                            sub.workflow_id,
-                            e_name,
-                        )
-                        continue
-                    yield ev
+                    public_event = _public_hook_event(
+                        ev,
+                        hook_type="pre_pipeline",
+                        workflow_id=sub.workflow_id,
+                    )
+                    if public_event is not None:
+                        yield public_event
             except Exception:
                 logger.exception("pre_pipeline hook %r failed", sub.workflow_id)

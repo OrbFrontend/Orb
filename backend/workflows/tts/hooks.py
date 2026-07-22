@@ -31,6 +31,7 @@ from ..toolkit import (
     insert_workflow_attachment,
     set_workflow_character_state,
 )
+from .config import normalize_config
 from .engine.router import get_adapter, list_backends
 from .synth import (
     audio_mime_ext,
@@ -95,7 +96,7 @@ async def post_pipeline(ctx):
     yield {"type": "attach_artifact", "attachment": att}
     yield {"event": "phase_status", "data": {"channel": f"workflow:{WORKFLOW_ID}", "state": "done"}}
 
-    if (await get_workflow_config(WORKFLOW_ID)).get("auto_play"):
+    if normalize_config(await get_workflow_config(WORKFLOW_ID))["auto_play"]:
         yield {"event": "tts_autoplay", "data": {}}
 
 

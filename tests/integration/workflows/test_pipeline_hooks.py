@@ -23,6 +23,8 @@ from backend.pipeline.orchestrator import _run_pipeline
 from backend.pipeline.persistence import _consume_pipeline
 from backend.pipeline.workflow_bridge import (
     _iterate_pre_pipeline_hooks,
+    _PostPipelineResult,
+    _run_post_pipeline,
     _stage_workflow_attachment,
 )
 
@@ -237,6 +239,89 @@ async def test_pre_pipeline_iter_passes_through_unknown_event_types():
         ):
             events.append(ev)
     assert events == [{"event": "custom_sse", "data": {"hello": "world"}}]
+
+
+@pytest.mark.parametrize(
+    "bad_event",
+    [
+        None,
+        "not-an-event",
+        [],
+        {},
+        {"data": {"x": 1}},
+        {"event": ""},
+        {"event": "bad\nname"},
+        {"event": "bad_data", "data": []},
+        {"event": "bad_data", "data": {"values": {1, 2}}},
+    ],
+)
+async def test_pre_pipeline_iter_drops_malformed_public_events(bad_event):
+    async def hook(pre_ctx):
+        yield bad_event
+
+    w = make_workflow("tw_bad_public", pre_pipeline=hook)
+    with register_for_test(w):
+        accumulators = {"merged_enabled_tools": {}, "extras": []}
+        events = [
+            ev
+            async for ev in _iterate_pre_pipeline_hooks(
+                conversation_id="c1",
+                history=[],
+                last_user_message="hi",
+                settings={"model_name": "test"},
+                prefix_base=_PREFIX,
+                enabled_tools_pre_merge={},
+                turn_scratch={},
+                client=None,
+                kv_tracker=_KVCacheTracker(),
+                schema_overrides={},
+                accumulators=accumulators,
+            )
+        ]
+    assert events == []
+
+
+@pytest.mark.parametrize(
+    "bad_event",
+    [
+        None,
+        "not-an-event",
+        [],
+        {},
+        {"data": {"x": 1}},
+        {"event": ""},
+        {"event": "bad\nname"},
+        {"event": "bad_data", "data": []},
+        {"event": "bad_data", "data": {"values": {1, 2}}},
+    ],
+)
+async def test_post_pipeline_iter_drops_malformed_public_events(bad_event):
+    async def hook(post_ctx):
+        yield bad_event
+
+    w = make_workflow("tw_bad_post_public", post_pipeline=hook)
+    with register_for_test(w):
+        events = [
+            ev
+            async for ev in _run_post_pipeline(
+                draft="draft",
+                conversation_id="c1",
+                character_id=None,
+                card=None,
+                history=[],
+                effective_msg="hi",
+                director_output={},
+                settings={"model_name": "test"},
+                prefix=_PREFIX,
+                enabled_tools={},
+                turn_scratch={},
+                client=_make_client(),
+                kv_tracker=_KVCacheTracker(),
+                schema_overrides={},
+            )
+        ]
+    assert len(events) == 1
+    assert isinstance(events[0], _PostPipelineResult)
 
 
 async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues():

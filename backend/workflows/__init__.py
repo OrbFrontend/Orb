@@ -2,7 +2,7 @@
 
 Public surface re-exported from this module:
   - ``Workflow``, ``Subscription``, ``HookType``, ``ToolNameCollision``,
-    ``WorkflowMandateError``
+    ``WorkflowDeclarationError``, ``WorkflowMandateError``
   - ``register_workflow``, ``subscribe``, ``iter_subscriptions``,
     ``get_subscription``, ``workflow_has_hook``, ``list_workflows``,
     ``get_workflow``, ``finalize_registry``
@@ -59,6 +59,7 @@ from .registry import (
     Subscription,
     ToolNameCollision,
     Workflow,
+    WorkflowDeclarationError,
     WorkflowMandateError,
     finalize_registry,
     get_subscription,
@@ -112,6 +113,7 @@ __all__ = [
     "ToolNameCollision",
     "ToolSpec",
     "Workflow",
+    "WorkflowDeclarationError",
     "WorkflowMandateError",
     "_readonly",
     "finalize_registry",

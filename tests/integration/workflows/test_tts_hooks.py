@@ -300,9 +300,18 @@ async def test_config_round_trip(client):
     payload = {"config": {"auto_play": True, "volume": 0.4}}
     put = await client.put("/api/workflows/tts/config", json=payload)
     assert put.status_code == 200
-    assert put.json() == payload
+    expected = {
+        "config": {
+            "auto_play": True,
+            "volume": 0.4,
+            "click_granularity": "block",
+            "click_play_scope": "unit",
+            "show_karaoke": True,
+        }
+    }
+    assert put.json() == expected
     got = await client.get("/api/workflows/tts/config")
-    assert got.json() == payload
+    assert got.json() == expected
 
 
 async def test_config_defaults_on_fresh_slot(client):
