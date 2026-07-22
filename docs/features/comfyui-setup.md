@@ -73,7 +73,7 @@ It's recommended to run with ComfyUI Manager. We'll install custom nodes later m
 
 Make sure ComfyUI starts up without any problems.
 
-## Add a checkpoint
+## Download checkpoints
 
 ComfyUI needs at least one checkpoint (image model) to render anything.
 
@@ -83,11 +83,20 @@ ComfyUI needs at least one checkpoint (image model) to render anything.
 4. Download the VAE (qwen_image_vae.safetensors) and put it in `ComfyUI/models/vae/`.
 5. Restart ComfyUI, or refresh the UI.
 
+Do the same for the realistic model: https://civitai.red/models/153568/real-dream?modelVersionId=3098044
+
+Simply download and put real-dream-v2-anima-bf16.safetensors in `ComfyUI/models/checkpoints/`.
+
 ## Create your first ComfyUI gen
 
-1. Drag the stock .png and drop it inside ComfyUI.
+1. Download the [Anima_Default.png](../assets/Anima_Default.png) and drag it into ComfyUI. The embedded workflow loads automatically.
+1b. If can't drag and drop, go to ComfyUI -> File -> Open... And select the image.
 2. Click Run and wait, your GPU will work, then an image will show up.
-3. Export/Save the output image as a PNG file. This file contains the whole workflow config which we'll import to Orb later.
+3. Export/Save the output image as a PNG file. This file contains the whole workflow config which we'll import into Orb later.
+
+For the realistic model, do [RealDream_Default.png](../assets/RealDream_Default.png)
+
+Or you can also just import the above default PNG workflows straight into Orb, no need to even touch ComfyUI.
 
 ## Make ComfyUI reachable from Orb
 

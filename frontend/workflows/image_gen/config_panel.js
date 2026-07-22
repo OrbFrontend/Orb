@@ -78,11 +78,11 @@ function cardStyleOptions() {
 export function configPanelRenderer() {
   const endpoint = cfg?.external_comfy?.api_url || "http://127.0.0.1:8188";
   const stylePicker = cardStyles.length
-    ? `<label class="image-gen-card-style">Style<select id="ig-card-style" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select></label>`
+    ? `<label class="image-gen-card-style">Style<select id="ig-card-style" class="tool-card-select" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select></label>`
     : "";
   return `<div class="tool-card-desc">Generate images on demand with external ComfyUI.</div>
-    <div class="image-gen-card-status" title="${escAttr(endpoint)}">${esc(endpoint)}</div>
     <div class="image-gen-card-status" id="ig-card-readiness" data-ig-ready="${cardReadiness.ready ? "yes" : "no"}">${esc(cardReadiness.text)}</div>
+    <div class="image-gen-card-endpoint" title="${escAttr(endpoint)}">${esc(endpoint)}</div>
     ${stylePicker}
     <button class="btn btn-sm image-gen-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
 }

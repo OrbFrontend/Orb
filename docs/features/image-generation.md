@@ -30,6 +30,12 @@ configuration status.
 
 ## Connect Orb to ComfyUI
 
+First, this is what the UI look like (at least part of it):
+
+![The Image Generation settings modal, showing a style's fields, Character appearance, and Imported ComfyUI workflows](../assets/screenshots/imagegen-settings-modal.png)
+
+Now, time to connect:
+
 1. Start ComfyUI.
 2. In Orb, Open **Workflow** and select the **Secondary** tab.
 3. In the **Image Generation** card, select **Settings**.

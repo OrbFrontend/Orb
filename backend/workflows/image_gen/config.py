@@ -24,15 +24,15 @@ CONFIG_DEFAULTS = {
             {
                 "id": "realistic",
                 "label": "Realistic",
-                "prompt": "photorealistic, cinematic lighting, detailed skin, high contrast",
-                "negative_prompt": "anime, illustration, painting, low detail, low quality, worst quality, bad quality",
+                "prompt": "RAW photo, realistic illumination, realistic shadows, photography, photorealistic, cinematic lighting, detailed skin, high contrast",
+                "negative_prompt": "cartoon, anime, drawing, paint, flat, illustration, painting, low detail, low quality, worst quality, bad quality",
                 "checkpoint": "",
                 "workflow": "",
             },
             {
                 "id": "anime",
                 "label": "Anime",
-                "prompt": "anime illustration, clean line art, very aesthetic, high contrast",
+                "prompt": "anime illustration, clean line art, very aesthetic, high contrast, masterpiece, best quality",
                 "negative_prompt": "photorealistic, 3d render, muddy colors, low quality, worst quality, bad quality, score_1, score_2, bad anatomy",
                 "checkpoint": "",
                 "workflow": "",
