@@ -51,8 +51,41 @@ compatible ComfyUI workflow.
     **Test connection** checks all styles in the form. Each style must use an available
     checkpoint and a valid workflow.
 
-## Make an image
+## Import a ComfyUI workflow
 
+Use an imported workflow when the Orb core workflow is not compatible with your
+model. The ComfyUI server must have all nodes and models that the workflow uses.
+
+Orb accepts these files:
+
+- An API-format JSON workflow
+- A ComfyUI output PNG that contains workflow metadata
+
+If you previously followed the tutorial in [ComfyUI Setup](comfyui-setup.md), import 
+the .png file here.
+
+A normal ComfyUI workflow JSON file is not an API-format file. In ComfyUI,
+turn on the developer options. Then use **Save (API Format)** or **Export
+(API)**. The exact label depends on your ComfyUI version. ComfyUI documents the
+developer switch under [Comfy settings](https://docs.comfy.org/interface/settings/comfy).
+
+To import the workflow, do these steps:
+
+1. Open **Image Generation** settings.
+2. Open **Imported ComfyUI workflows**.
+3. Select the API-format JSON file or the ComfyUI PNG file.
+4. Enter a name for the workflow.
+5. Check the selected prompt, seed, image output, and model slots.
+6. Select **Confirm slots and add workflow**.
+7. In a style, select the imported workflow.
+8. Select a checkpoint if Orb must replace the model in the workflow.
+9. Select **Test connection**.
+10. Select **Save**.
+
+If a PNG does not contain workflow metadata, export an API-format JSON file
+from ComfyUI instead.
+
+## Make an image
 
 1. Open **Workflow** and select the **Secondary** tab.
 2. In the **Image Generation** card, select a style.
@@ -65,9 +98,6 @@ or rendering. If another render is before your render, Orb shows the number of
 renders in front of it.
 
 Select the image button again to cancel an active render.
-
-Orb can make images only for assistant replies on the active conversation
-branch. If another Orb tab has write control, close that tab or use that tab.
 
 ## Use image variants
 
@@ -90,7 +120,7 @@ group. Read the confirmation message before you continue.
 ## Set the character appearance (Optional)
 
 Allow user-defined appearance tags to always come with the character. Common use case 
-is name of a non-OC character, some image models prompt better with canon names.
+is name of a non-OC character, some image models do better with canon character names.
 
 1. Open a conversation with the character.
 2. Open **Image Generation** settings.
@@ -140,40 +170,6 @@ positions. Orb then writes the image prompt.
 
 This option makes one additional LLM call for each new image or regenerated
 image. A reroll uses the stored prompt and does not make this additional call.
-
-## Import a ComfyUI workflow
-
-Use an imported workflow when the Orb core workflow is not compatible with your
-model. The ComfyUI server must have all nodes and models that the workflow uses.
-
-Orb accepts these files:
-
-- An API-format JSON workflow
-- A ComfyUI output PNG that contains workflow metadata
-
-A normal ComfyUI workflow JSON file is not an API-format file. In ComfyUI,
-turn on the developer options. Then use **Save (API Format)** or **Export
-(API)**. The exact label depends on your ComfyUI version. ComfyUI documents the
-developer switch under [Comfy settings](https://docs.comfy.org/interface/settings/comfy).
-
-To import the workflow, do these steps:
-
-1. Open **Image Generation** settings.
-2. Open **Imported ComfyUI workflows**.
-3. Select the API-format JSON file or the ComfyUI PNG file.
-4. Enter a name for the workflow.
-5. Check the selected prompt, seed, image output, and model slots.
-6. Select **Confirm slots and add workflow**.
-7. In a style, select the imported workflow.
-8. Select a checkpoint if Orb must replace the model in the workflow.
-9. Select **Test connection**.
-10. Select **Save**.
-
-Select **None** for the negative-prompt slot if the workflow does not use one.
-Select **None** for the model slot if the workflow must keep its own model.
-
-If a PNG does not contain workflow metadata, export an API-format JSON file
-from ComfyUI instead.
 
 ## Solve common problems
 
