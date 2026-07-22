@@ -341,13 +341,16 @@ async def compose_scene(
     settings: Mapping[str, Any],
     scene_analysis: bool = False,
     appearance: str = "",
-) -> tuple[str, str, str, bool]:
+) -> tuple[str, str, str]:
     """Compose the scene text for one message.
 
-    Returns ``(scene, avoid, mode, include_appearance)`` --
-    *include_appearance* is False when the analyzed cast shows the main
-    character off-frame, so the caller must not prepend their profile
-    appearance (it would summon them back into the image).
+    Returns ``(scene, avoid, mode)``. The profile appearance is always
+    prepended by the caller: the target character (the profile owner -- the
+    "main character" the analyze contract names, NOT the user, who is the
+    excluded camera in first-person POV) has a fixed look (e.g. a character
+    tag) that must show up whether or not the analyzer thinks they are
+    on-frame -- the empty-appearance "off-frame" heuristic over-fired
+    whenever the model filled appearance for every character.
 
     Raises ``ValueError`` when the forced compose call yields no scene: the
     generation stops rather than falling back to the raw reply text. There is
@@ -409,20 +412,14 @@ async def compose_scene(
         # error, regenerate/reroll drop the attachment.
         raise ValueError("couldn't compose an image prompt for this message")
     avoid = _bounded(args.get("avoid"))
-    include_appearance = True
     if analysis_block:
         characters = [ch for ch in analysis.get("characters") or [] if isinstance(ch, Mapping)]
         anchor = _count_anchor(analysis.get("characters"))
         if anchor is not None:
             scene = _pin_anchor(scene, anchor, _bounded(analysis.get("viewpoint")) == "first_person")
-        # Empty `appearance` marks the main character (the analyze contract), so a
-        # cast without one means the main character is off-frame.
-        include_appearance = any(not _bounded(ch.get("appearance")) for ch in characters)
         # `hidden` (turned-away/occluded/cropped) and removed outfit articles are
         # enforced from the negative side; the positive prompt can't say "not X"
         # in a way CLIP respects.
-        # ponytail: whole-image negative -- a removed dress lying visibly in
-        # frame will fight it; scope per-character if that ever matters.
         avoid = _join([args.get("avoid"), analysis.get("hidden"), *(ch.get("outfit_removed") for ch in characters)])
     if analysis_block:
         mode = "scene_analysis"
@@ -430,7 +427,7 @@ async def compose_scene(
         mode = "analysis_failed"
     else:
         mode = "single_call"
-    return scene, avoid, mode, include_appearance
+    return scene, avoid, mode
 
 
 def assemble_prompts(
@@ -443,6 +440,11 @@ def assemble_prompts(
     style = resolve_style(config, style_id)
     # Counts and pov belong to the scene's anchor; a profile that opens with
     # "1girl," would duplicate or fight it from in front of the anchor.
+    # ponytail: always prepended. The one shot this over-includes is a POV
+    # *through the target character's own eyes* (they're the camera, shouldn't
+    # be drawn) -- rare, and the analyzer can't tell it apart from the common
+    # POV (user's eyes on the target) anyway, which is why the old auto-drop
+    # over-fired. Gate on an explicit "target is the camera" signal if it bites.
     appearance = _strip_chunks(_bounded(profile.get("appearance_prompt")), _COUNT_CHUNK_RE)
     positive = _join((appearance, scene, style.get("prompt")))
     negative = _join((profile.get("negative_prompt"), avoid, style.get("negative_prompt")))

@@ -69,12 +69,9 @@ async def test_scene_analysis_prepends_analysis_and_reports_mode(monkeypatch):
             }
         ),
     )
-    scene, avoid, mode, include_appearance = await compose_scene(
-        client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True
-    )
+    scene, avoid, mode = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert scene == "1girl, waving"  # no sex reported -> anchor not pinned, scene untouched
     assert mode == "scene_analysis"
-    assert include_appearance  # empty appearance marks the main character in frame
 
 
 async def test_first_person_pin_strips_leaked_camera_boy(monkeypatch):
@@ -92,7 +89,7 @@ async def test_first_person_pin_strips_leaked_camera_boy(monkeypatch):
             }
         ),
     )
-    scene, _, mode, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    scene, _, mode = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert scene == "1girl, solo, pov, long red hair, smiling"
     assert mode == "scene_analysis"
 
@@ -112,7 +109,7 @@ async def test_removed_outfit_rides_avoid_not_scene(monkeypatch):
             }
         ),
     )
-    scene, avoid, _, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    scene, avoid, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert scene == "1girl, solo, silk dress"
     assert avoid == "blur, slippers"
 
@@ -134,24 +131,8 @@ async def test_hidden_elements_ride_avoid(monkeypatch):
             }
         ),
     )
-    _, avoid, _, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    _, avoid, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert avoid == "blur, looking at viewer, face"
-
-
-async def test_main_character_off_frame_drops_profile_appearance(monkeypatch):
-    monkeypatch.setattr(
-        composer,
-        "forced_tool_call",
-        _fake_forced(
-            {
-                # Every visible character has their own appearance -> main char off-frame.
-                "analyze_scene": {"characters": [{"name": "guard", "sex": "boy", "appearance": "tall, armored"}]},
-                "compose_image_prompt": {"scene": "1boy, tall, armored, at the gate", "avoid": None},
-            }
-        ),
-    )
-    _, _, _, include_appearance = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
-    assert not include_appearance
 
 
 async def test_empty_analysis_reports_analysis_failed(monkeypatch):
@@ -160,11 +141,8 @@ async def test_empty_analysis_reports_analysis_failed(monkeypatch):
         "forced_tool_call",
         _fake_forced({"analyze_scene": {}, "compose_image_prompt": {"scene": "1girl"}}),
     )
-    _, _, mode, include_appearance = await compose_scene(
-        client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True
-    )
+    _, _, mode = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
     assert mode == "analysis_failed"
-    assert include_appearance  # no cast knowledge -> keep the old behavior
 
 
 async def test_both_calls_ride_the_prefix_unchanged_with_shared_tool_blob(monkeypatch):

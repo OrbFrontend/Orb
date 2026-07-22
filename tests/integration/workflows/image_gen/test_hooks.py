@@ -83,7 +83,7 @@ async def _trigger(client, conv_id: str, body: dict) -> list[tuple[str, dict]]:
 
 def _stub(monkeypatch, render=None, scene="1girl, standing"):
     async def fake_compose(**kwargs):
-        return scene, "", "single_call", True
+        return scene, "", "single_call"
 
     async def fake_render(config, request, **kwargs):
         return _image()
