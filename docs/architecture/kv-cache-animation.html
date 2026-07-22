@@ -397,8 +397,8 @@ const STEPS = [
       seg("chat history", "", 4, "ghost"),
       seg("trailing user message", "", 3, "ghost"),
     ],
-    stats: `Orb's per-pass <code>reasoning_enabled_passes</code> defaults to <b>director: on</b>, <b>writer: off</b>, <b>editor: off</b> — so the passes don't all use the same thinking mode.`,
-    narration: `Here's the subtlety. On <strong>some backends</strong> (a DeepSeek-style model is the one we've measured), sending <code>thinking: on</code> vs <code>off</code> routes the request down a <strong>different path with its own KV cache</strong> — even on the same endpoint. So one server can hold <span class="k">two cache lanes</span>. Identical prompt bytes in different lanes <strong>do not share a cache</strong>. Since Orb defaults the Director to thinking-on and the Writer/Editor to thinking-off, watch what that does within a turn.`,
+    stats: `This walkthrough sets <code>reasoning_enabled_passes</code> to <b>director: on</b>, <b>writer: off</b>, <b>editor: off</b> so the passes don't all use the same thinking mode. (The shipped default is all three off — one lane, no fork; this divergent config is what triggers the split below.)`,
+    narration: `Here's the subtlety. On <strong>some backends</strong> (a DeepSeek-style model is the one we've measured), sending <code>thinking: on</code> vs <code>off</code> routes the request down a <strong>different path with its own KV cache</strong> — even on the same endpoint. So one server can hold <span class="k">two cache lanes</span>. Identical prompt bytes in different lanes <strong>do not share a cache</strong>. With this config's Director on thinking-on and the Writer/Editor on thinking-off (the default keeps all three off), watch what that does within a turn.`,
   },
 
   // 4 ── Turn N, Director (dynamic — driven by the toggle bar)

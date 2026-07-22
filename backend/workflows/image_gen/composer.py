@@ -181,17 +181,20 @@ def _reasoning_on(settings: Mapping[str, Any]) -> bool:
     On a provider that keeps separate KV caches for thinking-on and thinking-off
     (the reasoning fork in docs/architecture/kv-cache.md §9), this off-turn call
     reuses the cached conversation prefix only if it lands in the same lane as a
-    pipeline pass. We inherit the *editor's* mode rather than the director's:
+    pipeline pass. The shipped default runs every pass thinking-off, so they share
+    one lane and the choice is moot; it only bites when a user diverges the passes
+    (e.g. enables director reasoning while the writer/editor stay off) — and there
+    we want the *editor's* mode, not the director's:
 
     - The editor shares the writer's thinking-off lane, which every turn is warmed
       LAST and is the ONLY lane that has already seen this turn's user message and
       the assistant reply the image is composed from (the writer streamed the draft
-      into it). The director's lane stops at the history before this turn, never
-      touching the anchor reply. So tracking the editor reuses at least as much of
-      the prefix as tracking the director, and strictly more whenever the writer's
-      trailing injection is small.
-    - It self-heals: if the user turns the director off, this call still tracks the
-      writer/editor lane instead of forking a thinking-on lane nothing else warms.
+      into it). A thinking-on director rides a separate lane that stops at the history
+      before this turn, never touching the anchor reply. So tracking the editor reuses
+      at least as much of the prefix as tracking the director, and strictly more
+      whenever the writer's trailing injection is small.
+    - Tracking the editor keeps this call on the writer/editor lane whatever the
+      director is set to, rather than forking onto a lane nothing else warms.
 
     Absent/malformed config degrades to off (the writer/editor default), never raising.
     """

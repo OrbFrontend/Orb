@@ -462,7 +462,7 @@ Note: when `resp_text` is empty, `_persist_result` short-circuits (sec. 7.7) and
 
 `user_message_created`? -> PRE passthrough events* -> `director_start`? -> `reasoning(director)`? -> `director_done`? -> `reasoning(writer)`? -> `token`* -> `reasoning(editor)`? -> `writer_rewrite`? -> `editor_done`? -> POST-hook events* (`writer_rewrite` from `draft_replaced`, plus passthrough, interleaved per hook in priority order) -> `workflow_attachments_rejected`? -> `done`.
 
-`?` = conditional. `director_start` and `reasoning(director)` run only when the agent is on and a pre-writer tool is enabled. `director_done` fires unconditionally (outside the director block), absent only when the turn aborts at the post-director stop check. Each `reasoning(pass)` fires only when that pass's reasoning flag is set (director on by default, writer/editor off); `user_message_created` is suppressed when the caller pre-persisted the user row.
+`?` = conditional. `director_start` and `reasoning(director)` run only when the agent is on and a pre-writer tool is enabled. `director_done` fires unconditionally (outside the director block), absent only when the turn aborts at the post-director stop check. Each `reasoning(pass)` fires only when that pass's reasoning flag is set (the shipped default keeps all three off, so none fire until a pass is enabled in `reasoning_enabled_passes`); `user_message_created` is suppressed when the caller pre-persisted the user row.
 
 ---
 

@@ -212,9 +212,9 @@ async def test_reasoning_mode_inherits_editor_and_ignores_director(monkeypatch):
 
     The image-gen call rides the writer/editor thinking-off lane so it reuses the
     turn's cached conversation prefix on a reasoning-forking provider (kv-cache §9).
-    It must follow the editor flag specifically, not the director's -- the default
-    ships director-on / editor-off, and tracking the director would fork a lane the
-    anchor reply was never warmed in.
+    It must follow the editor flag specifically, not the director's: when a user
+    enables director reasoning (writer/editor stay off), tracking the director would
+    fork onto a thinking-on lane the anchor reply was never warmed in.
     """
     # editor on -> both calls reason, regardless of the director flag.
     calls = _record_forced_calls(monkeypatch)
