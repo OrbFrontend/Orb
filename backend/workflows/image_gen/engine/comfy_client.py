@@ -11,6 +11,7 @@ from typing import Any, Awaitable, Callable, Mapping, Optional
 import httpx
 
 from .contracts import ImageGenerationError, ImageResult
+from .display_encode import shrink_for_display
 
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ProgressCallback = Callable[[str, Mapping[str, Any]], Optional[Awaitable[None]]]
@@ -249,6 +250,8 @@ class ComfyClient:
             raise
         except httpx.HTTPError as exc:
             raise ImageGenerationError("Could not fetch the generated image from ComfyUI") from exc
+        # Full-res PNG -> capped WebP off-thread (CPU-bound) before it is stored/inlined.
+        data, mime = await asyncio.to_thread(shrink_for_display, data, mime)
         return ImageResult(
             image_bytes=data,
             mime=mime,
