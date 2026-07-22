@@ -22,6 +22,7 @@ from backend.workflows import (
     set_workflow_config,
     workflow_has_hook,
 )
+from backend.workflows.image_gen.config import CONFIG_DEFAULTS
 from backend.workflows.image_gen.engine import ImageResult
 
 
@@ -41,9 +42,9 @@ async def test_manifest_and_status_expose_external_only_stage(client):
     }
 
     styles = (await client.post("/api/workflows/image_gen/query", json={"action": "styles"})).json()["styles"]
-    assert styles[0]["prompt"].startswith("photorealistic")
-    assert styles[1]["prompt"].startswith("anime illustration")
-    assert "prompt_default" not in styles[0]
+    # Structure, not prompt copy-text: the tag strings live in config and are meant to be edited.
+    assert [s["id"] for s in styles] == ["realistic", "anime"]
+    assert styles[0]["prompt"] and "prompt_default" not in styles[0]
 
 
 def test_image_generation_is_on_demand_only():
@@ -104,7 +105,8 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert "event: image_gen_done" in response.text
     assert '"attachment_id":' in response.text
     assert captured["request"].prompt.startswith("long silver hair, 1girl")
-    assert captured["request"].prompt.endswith("anime illustration, clean line art, very aesthetic, high contrast")
+    anime_suffix = CONFIG_DEFAULTS["external_comfy"]["styles"][1]["prompt"]
+    assert captured["request"].prompt.endswith(anime_suffix)
 
     match = re.search(r'"attachment_id":(\d+)', response.text)
     assert match
