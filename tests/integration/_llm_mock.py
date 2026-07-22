@@ -367,16 +367,17 @@ def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
     any feature test that drives a new LLM call site alongside a chat turn is
     automatically a KV-cache test — coverage is default-on, not opt-in per
     entry point. This is the guarantee the magic_rewrite ``tools=None`` bust
-    and the image-gen off-turn leaks (missing constant-lorebook block;
-    per-call tool schemas rendered into the prompt) both slipped past: each
-    was a new call site nobody registered in a hand-maintained test list.
+    and the image-gen off-turn missing-constant-lorebook-block leak both
+    slipped past: each was a new call site nobody registered in a
+    hand-maintained test list.
 
     Invariant: any two calls on the same cache lane (server endpoint + model)
     that belong to the same conversation must (a) ship a byte-identical system
-    message and (b) ship
-    one tools blob among the calls whose schemas actually render into the
-    prompt (``tools_in_prompt`` is not False). One diverging byte in either
-    region evicts the llama.cpp prefix KV and re-bills from token zero.
+    message and (b) among the core chat passes whose schemas render into the
+    prompt (``tools_in_prompt`` is not False), ship one tools blob. Off-turn
+    workflow calls are exempt from (b): they force a standalone tool via
+    tool_choice and ride their own lane by design. One diverging byte in either
+    checked region evicts the llama.cpp prefix KV and re-bills from token zero.
 
     Conversation identity is the wire bytes of ``messages[1]`` (greeting or
     first user message): stable across passes, entry points, and off-turn
@@ -420,6 +421,15 @@ def verify_kv_prefix_invariants(captured: list[dict]) -> list[str]:
             if c.get("params", {}).get("tools_in_prompt", True) is False:
                 # Forced via grammar/response_format; schemas never reach the
                 # server-rendered prompt, so this blob is cache-irrelevant.
+                continue
+            if c["pass"] == "workflow":
+                # Off-turn workflow forced calls (image_gen's analyze/compose)
+                # ship their own standalone tools blob and force via tool_choice --
+                # the pipeline's pattern, but a self-contained lane, not the chat
+                # turns' union. A chat model needs the real tool to call it; forcing
+                # via tools=None is unreliable. In text mode the schemas never
+                # render (KV parity holds); in chat mode this is an accepted
+                # separate lane. The system-message parity check above still binds.
                 continue
             blobs.setdefault(_wire(c.get("tools") or []), []).append(c["pass"])
         if len(blobs) > 1:

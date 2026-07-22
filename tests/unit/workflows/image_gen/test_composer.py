@@ -150,11 +150,13 @@ async def test_empty_analysis_reports_analysis_failed(monkeypatch):
     assert include_appearance  # no cast knowledge -> keep the old behavior
 
 
-async def test_both_calls_ride_the_prefix_unchanged_with_tools_out_of_prompt(monkeypatch):
+async def test_both_calls_ride_the_prefix_unchanged_with_shared_tool_blob(monkeypatch):
     """KV-cache contract: analyze and compose send the byte-identical shared
-    prefix (per-call instructions ride only the tail), and neither lets its
-    tool schema into the prompt (`tools_in_prompt=False`), so the server's
-    cached conversation KV survives analyze -> compose -> the next chat turn."""
+    prefix (per-call instructions ride only the tail) and ship the same
+    workflow-local tools blob, forcing one via tool_choice -- the pipeline
+    pattern. A chat model needs the real tool to call it; forcing via tools=None
+    is unreliable (Gemma) or rejected (DeepSeek). In text mode the schemas still
+    never render, so the cached conversation KV survives across the two calls."""
     calls: list[dict] = []
 
     def recording(results):
@@ -181,7 +183,8 @@ async def test_both_calls_ride_the_prefix_unchanged_with_tools_out_of_prompt(mon
     assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
     for call in calls:
         assert call["prefix"] is prefix
-        assert call["tools_in_prompt"] is False
+        assert call["offer_tools"] == ("analyze_scene", "compose_image_prompt")
+        assert call.get("tools_in_prompt", True) is not False  # ship the tools, never tools=None
         for msg in call["tail_messages"]:
             assert msg["role"] == "user"
 

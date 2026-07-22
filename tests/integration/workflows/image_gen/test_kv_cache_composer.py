@@ -126,18 +126,25 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     assert resp.status_code == 200
     assert "event: image_gen_done" in resp.text
 
-    # Vacuity guards: the forced calls really reached the client boundary, keep
-    # their schemas out of the prompt, and share the conversation identity the
-    # teardown invariant groups by — so system-prefix parity with the chat turn
-    # is enforced there for this and every future off-turn call site.
+    # Vacuity guards: the forced calls really reached the client boundary, ship
+    # the workflow's own tools blob and force via tool_choice (the pipeline
+    # pattern — a chat model needs the real tool, not tools=None), and share the
+    # conversation identity the teardown invariant groups by — so system-prefix
+    # parity with the chat turn is enforced there for every off-turn call site.
     wf = [c for c in llm_mock.captured if c["pass"] == "workflow"]
     assert len(wf) == 2, "composer must issue analyze + compose through the real forced-call stack"
     writer = next(c for c in llm_mock.captured if c["pass"] == "writer")
+    blobs = set()
     for c in wf:
-        assert c["params"].get("tools_in_prompt") is False, (
-            "off-turn forced calls must not render tool schemas into the prompt (tools_in_prompt=False)"
+        names = [t["function"]["name"] for t in (c["tools"] or [])]
+        assert names == ["analyze_scene", "compose_image_prompt"], (
+            "off-turn calls must ship the workflow's own tools blob, not tools=None — "
+            "most chat models won't reliably call a tool they were never given"
         )
+        assert isinstance(c["tool_choice"], dict), "the off-turn call forces its tool via tool_choice"
+        blobs.add(json.dumps(c["tools"], sort_keys=True))
         assert c["messages"][1] == writer["messages"][1], (
             "off-turn call lost the conversation's history head — the teardown invariant would "
             "silently group it apart from the chat turn instead of comparing prefixes"
         )
+    assert len(blobs) == 1, "analyze and compose must ship the byte-identical blob so they reuse each other's prefix"

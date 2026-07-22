@@ -185,6 +185,16 @@ def _join(parts: Sequence[Any]) -> str:
     return ", ".join(part for part in (_bounded(p) for p in parts) if part)[:6_000].strip(" ,")
 
 
+# The workflow's own tools blob, this pass's answer to the pipeline's base.tools:
+# both off-turn calls ship these two schemas and force one via tool_choice, the
+# same shape every core pass uses. A chat model needs the actual tool to call it
+# reliably -- forcing via response_format with tools=None is unreliable (Gemma) or
+# rejected outright (DeepSeek). Order is fixed regardless of which is forced, so
+# analyze and compose are byte-identical and reuse each other's cached prefix.
+# Kept out of enabled_schemas (standalone): never leaks into the pipeline's set.
+_OFFER_TOOLS = ("analyze_scene", "compose_image_prompt")
+
+
 async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens) -> dict:
     args: dict = {}
     async for event in forced_tool_call(
@@ -196,12 +206,12 @@ async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens)
         reasoning_on=True,
         temperature=0.2,
         max_tokens=max_tokens,
-        # Never let the forced tool's schema into the prompt: chat mode would
-        # otherwise render a different single-tool array per call (analyze vs
-        # compose vs the chat turns' union), evicting the conversation's KV
-        # three times per image. Forcing rides grammar/response_format instead;
-        # prompt bytes stay those of the shared prefix + tail.
-        tools_in_prompt=False,
+        # Ship the real tools and force via tool_choice (the pipeline pattern),
+        # not tools_in_prompt=False -- that nulls tools and forces via
+        # response_format, which most chat providers don't honor. In text mode
+        # the schemas still never render (grammar-only), so KV parity holds; in
+        # chat mode this is a self-contained off-turn lane.
+        offer_tools=_OFFER_TOOLS,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
             args = event["args"]

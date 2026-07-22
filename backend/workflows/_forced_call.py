@@ -55,6 +55,7 @@ async def forced_tool_call(
     pass_id: str | None = None,
     enabled_tools: Mapping[str, bool] | None = None,
     schema_overrides: Mapping[str, Mapping] | None = None,
+    offer_tools: Sequence[str] | None = None,
     kv_tracker: Any = None,
     reasoning_on: bool = True,
     temperature: float = 0.25,
@@ -70,6 +71,11 @@ async def forced_tool_call(
     The terminal event is always ``{"type": "result", "args": <dict>}``.
 
     Tools assembly:
+      - ``offer_tools=<names>`` -- fixed, order-stable array of those
+        registry tools (forced ``tool_name`` appended if absent). Use to
+        share one blob across sibling forced calls so a provider that must
+        keep tools in the body still lets them reuse each other's cached
+        prefix. Takes precedence over ``enabled_tools``.
       - ``enabled_tools=None`` -- single-tool array. Smallest bytes; use
         when the caller does not need pipeline tools-bytes cache reuse.
       - ``enabled_tools=<dict>`` -- assemble the same tools array
@@ -90,7 +96,19 @@ async def forced_tool_call(
     forced tool's schema cannot perturb the server-rendered prompt bytes.
     """
     schema = TOOLS[tool_name]["schema"]
-    if enabled_tools is None:
+    if offer_tools is not None:
+        # Fixed, order-stable blob shared verbatim across sibling forced calls
+        # (image_gen's analyze + compose). A provider that rejects response_format
+        # json_schema (DeepSeek) can't be forced promptlessly and must keep tools
+        # in the body; sending the identical blob on both calls -- order fixed
+        # regardless of which is forced, only tool_choice differs -- lets them
+        # reuse each other's cached conversation prefix. Standalone tools stay out
+        # of enabled_schemas; the caller names them here rather than leaking them
+        # into the pipeline's tool set.
+        tools = [TOOLS[n]["schema"] for n in offer_tools]
+        if schema not in tools:
+            tools.append(schema)
+    elif enabled_tools is None:
         tools = [schema]
     else:
         overrides_arg = _plain(schema_overrides) if schema_overrides else None
