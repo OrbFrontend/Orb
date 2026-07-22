@@ -312,7 +312,27 @@ async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGen
     external render in its generator ``finally`` -- always runs.
     """
     try:
-        async for ev in events:
+        it = events.__aiter__()
+        while True:
+            nxt = asyncio.ensure_future(it.__anext__())
+            try:
+                # Same keepalive race as _sse_stream: a long silent ComfyUI
+                # render yields no labels for stretches, so emit comment frames
+                # to keep an idle-timeout proxy/browser from dropping the stream
+                # (which surfaced as a frontend "Error in input stream" while the
+                # backend rendered on and persisted the image unseen).
+                while True:
+                    done_set, _ = await asyncio.wait({nxt}, timeout=_SSE_KEEPALIVE_SECS)
+                    if nxt in done_set:
+                        break
+                    yield ": keepalive\n\n"
+            except BaseException:
+                nxt.cancel()
+                raise
+            try:
+                ev = nxt.result()
+            except StopAsyncIteration:
+                break
             reason = public_event_error(ev)
             if reason is not None:
                 logger.warning("workflow on-demand stream yielded an invalid public event (%s); dropping", reason)

@@ -378,6 +378,53 @@ export function _mergeWorkflowRejections(msgId, originatingId, incoming) {
     .concat(incoming.map((e) => ({ ...e, message_id: msgId })));
 }
 
+// Regenerate/reroll are plain POSTs that hold one connection open for the whole
+// render (a minute+ for image gen, zero bytes until it returns). The browser can
+// give up waiting before the backend finishes -- but the server persists the new
+// sibling regardless. So a network-class failure is NOT proof the op failed; the
+// render is likely still landing. fetch() rejects with a bare TypeError on
+// connection loss/timeout, whereas api._req attaches `.status` to real HTTP
+// errors (validation, 500) -- those are genuine and must not trigger recovery.
+function _isNetworkError(e) {
+  return e instanceof TypeError && e.status === undefined;
+}
+
+function _rootSiblingIds(msg, rootId) {
+  const atts = msg?.workflow_attachments || [];
+  return new Set(atts.filter((a) => (a.parent_attachment_id || a.id) === rootId).map((a) => a.id));
+}
+
+// Poll GET messages until the root gains a sibling id absent from `before` (the
+// one the backend is still writing), then refresh. Returns true if it landed or
+// the user navigated away (no failure chip owed either way), false on timeout.
+// ponytail: 200s ceiling covers image gen's 180s max render; other workflows
+// finish well within it. Raise it if a workflow can legitimately render longer.
+async function _recoverWorkflowSibling(convId, msgId, rootId, before) {
+  const deadline = Date.now() + 200_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (S.activeConvId !== convId) return true; // left the conversation; nothing to render
+    let msgs;
+    try {
+      msgs = await api.get(convUrl(convId, "messages"));
+    } catch {
+      continue; // transient; keep waiting for the render to land
+    }
+    const now = _rootSiblingIds(
+      msgs.find((m) => m.id === msgId),
+      rootId,
+    );
+    if ([...now].some((id) => !before.has(id))) {
+      if (S.activeConvId !== convId) return true;
+      setMessages(msgs);
+      renderMessages();
+      broadcastWorkflowMutation({ convId, msgId });
+      return true;
+    }
+  }
+  return false;
+}
+
 window.workflowRegenerate = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
   if (!requestSendPermission()) return;
@@ -388,26 +435,34 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
   btn.disabled = true;
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:regen:${rootId}`;
+  const convId = S.activeConvId;
+  const beforeSiblings = _rootSiblingIds(
+    S.messages.find((m) => m.id === msgId),
+    rootId,
+  );
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."));
-    const result = await api.post(
-      convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "regenerate"),
-      {},
-    );
+    const result = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate"), {});
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
     // Dispatcher writes active_sibling_id = new sibling for each new row,
     // so the refreshed state already points the renderer at the latest.
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+    setMessages(await api.get(convUrl(convId, "messages")));
     renderMessages();
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    console.error("Regenerate failed:", e);
-    if (container && !container.querySelector(".workflow-regen-error")) {
-      const cap = document.createElement("div");
-      cap.className = "workflow-regen-error";
-      cap.textContent = "Regenerate failed";
-      container.appendChild(cap);
+    // The client can give up mid-render while the backend renders on and
+    // persists the sibling; poll for it before declaring failure.
+    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+      // Recovered (or navigated away) -- no failure chip owed.
+    } else {
+      console.error("Regenerate failed:", e);
+      if (container && !container.querySelector(".workflow-regen-error")) {
+        const cap = document.createElement("div");
+        cap.className = "workflow-regen-error";
+        cap.textContent = "Regenerate failed";
+        container.appendChild(cap);
+      }
     }
   } finally {
     clearWorkflowPhase(ch);
@@ -426,24 +481,32 @@ window.workflowReroll = async (msgId, attId, btn) => {
   btn.disabled = true;
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:reroll:${rootId}`;
+  const convId = S.activeConvId;
+  const beforeSiblings = _rootSiblingIds(
+    S.messages.find((m) => m.id === msgId),
+    rootId,
+  );
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "rerolling..."));
-    const result = await api.post(
-      convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"),
-      {},
-    );
+    const result = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"), {});
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+    setMessages(await api.get(convUrl(convId, "messages")));
     renderMessages();
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    console.error("Reroll failed:", e);
-    if (container && !container.querySelector(".workflow-reroll-error")) {
-      const cap = document.createElement("div");
-      cap.className = "workflow-reroll-error";
-      cap.textContent = "Reroll failed";
-      container.appendChild(cap);
+    // Same recovery as regenerate: a network-class failure isn't proof the
+    // reroll failed -- the backend persists the sibling even if we stopped waiting.
+    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+      // Recovered (or navigated away) -- no failure chip owed.
+    } else {
+      console.error("Reroll failed:", e);
+      if (container && !container.querySelector(".workflow-reroll-error")) {
+        const cap = document.createElement("div");
+        cap.className = "workflow-reroll-error";
+        cap.textContent = "Reroll failed";
+        container.appendChild(cap);
+      }
     }
   } finally {
     clearWorkflowPhase(ch);
