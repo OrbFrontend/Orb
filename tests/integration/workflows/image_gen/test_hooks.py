@@ -282,7 +282,7 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
             "data": b"\x89PNG\r\n\x1a\nold",
             "workflow_id": "image_gen",
             "seed": "1234",
-            "generation_metadata": {"style_id": "anime", "prompt": "stale", "negative_prompt": ""},
+            "generation_metadata": {"style_id": "realistic", "prompt": "stale", "negative_prompt": ""},
         },
     )
     _stub(monkeypatch, scene="1girl, doorway, looking back")
@@ -296,5 +296,9 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
     rows = await get_workflow_attachments_for_message(mid)
     sibling = next(row for row in rows if row["id"] != aid)
     assert sibling["parent_attachment_id"] == aid
-    # Recomposed, not replayed: the stored prompt is not reused.
-    assert "doorway" in json.loads(sibling["generation_metadata"])["prompt"]
+    metadata = json.loads(sibling["generation_metadata"])
+    # Recomposed from current settings, not replayed from the predecessor: both
+    # its stored prompt and its realistic style are left behind.
+    assert metadata["style_id"] == "anime"
+    assert "doorway" in metadata["prompt"]
+    assert "anime illustration" in metadata["prompt"]

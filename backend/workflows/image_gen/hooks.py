@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import secrets
 from typing import Any, Mapping, Sequence
@@ -58,6 +57,12 @@ def fold_seed(seed: str | int) -> int:
 
 def _fresh_seed() -> int:
     return fold_seed(secrets.token_hex(16))
+
+
+def _requested_style_id(body: Any, config: Mapping[str, Any]) -> str:
+    """Use an explicit request style, otherwise today's global selection."""
+    style_id = body.get("style_id") if isinstance(body, Mapping) else None
+    return style_id or config["default_style"]
 
 
 def _phase(label: str) -> dict:
@@ -395,7 +400,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
     if message.get("role") != "assistant":
         return _failed_stream("Images can only be generated for assistant messages")
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
-    style_id = body.get("style_id") or config["default_style"]
+    style_id = _requested_style_id(body, config)
     profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
     # The response body runs after the generic trigger route releases its
     # workflow locks. Rebuild every DB-backed prefix component now and capture
@@ -471,13 +476,9 @@ async def regenerate(ctx, body):
     if message is None or message.get("role") != "assistant":
         return []
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
-    raw_original = ctx.original_attachment.get("generation_metadata")
-    try:
-        original = json.loads(raw_original) if isinstance(raw_original, str) else dict(raw_original or {})
-    except (TypeError, ValueError):
-        original = {}
-    style_id = body.get("style_id") if isinstance(body, dict) else None
-    style_id = style_id or original.get("style_id") or config["default_style"]
+    # Full regenerate recomposes from current settings. Only reroll/rehydrate
+    # replay the predecessor attachment's stored generation parameters.
+    style_id = _requested_style_id(body, config)
     profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
     # RegenCtx history excludes the anchor; append it before rebuilding the prefix.
     ctx_with_history = _RegenCompositionCtx(ctx, tuple(list(ctx.history) + [message]))
