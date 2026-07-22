@@ -24,25 +24,26 @@ logger = logging.getLogger(__name__)
 # Two variants. The FULL guide is for the single-call path, where the compose
 # model owns everything -- count anchor, viewpoint, and what to negate. The
 # STRUCTURED guide is for the analysis path, where the analyzer and Python
-# already own counts, viewpoint, and negatives, so the compose model only turns
-# the given scene into tags; telling it to redo that work would only dilute the
-# instructions that matter (Python overwrites the counts either way).
+# already own counts, viewpoint, and negatives, so the compose model only
+# renders the given scene as prose; telling it to redo that work would only
+# dilute the instructions that matter (Python overwrites the counts either way).
+#
+# Modern checkpoints read prose: full sentences with names bind attributes to
+# the right character far better than the old keep-tags-in-clause tricks, so
+# the guides ask for count tags up front and plain sentences after.
 _SCENE_FORMAT = (
-    "Write the image prompt as booru tags and short natural-language clauses. Separate all items with commas. "
-    "Start with the count anchor. The count anchor gives the number of persons. "
+    "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "Examples: 1girl. 1boy. 2girls. 1boy, 1girl. "
-    "Give each character one clause. In each clause put that character's identity, hair, eyes, build, clothing, pose, "
-    "action, and expression. Keep each character's attributes inside that character's clause. Do not move an attribute "
-    "to another character. Keep each comma item complete on its own. "
-    "Repeat the most important attributes of a character. Repeat them inside that same character's clause. Do not "
-    "repeat them in another character's clause. "
-    "For a first-person view, add the pov tag. Do not draw the viewer character. Draw the viewer character's hands "
-    "only. Do not count the viewer character in the count anchor. Example: if you look at one girl, write '1girl, "
-    "solo, pov', not '1boy, 1girl'. "
-    "Describe only the things that you can see. "
-    "Add the interaction between the characters. Then add the setting, the lighting, and the framing last. "
-    "Use as many clauses as the moment needs. Do not reduce the prompt to single words. "
-    "Do not add art-style words or quality words. Do not use names. "
+    "After the count tags, write the scene as short prose sentences. Use complete sentences, not single words. "
+    "Use each character's name. Name the character in each sentence about that character. The name binds the "
+    "attributes to the right character. "
+    "Describe each character's hair, eyes, build, clothing, pose, action, and expression. "
+    "Describe the interaction between the characters. Then describe the setting, the lighting, and the framing. "
+    "For a first-person view, add the pov tag after the count tags. Do not draw the viewer character. Draw the "
+    "viewer character's hands only. Do not count the viewer character in the count tags. Example: if you look at "
+    "one girl, write '1girl, solo, pov', not '1boy, 1girl'. "
+    "Describe only the things that you can see. Do not write what a character is not wearing or not doing. "
+    "Do not add art-style words or quality words. "
     "In avoid, put each thing that is not visible. Example: put 'looking at viewer' if the character looks away."
 )
 
@@ -50,14 +51,14 @@ _SCENE_FORMAT = (
 # instructions: the analyzer supplies those and Python enforces them.
 _SCENE_FORMAT_STRUCTURED = (
     "Show exactly the structured scene below. Do not add anything that the scene does not state. "
-    "Write the image prompt as booru tags and short natural-language clauses. Separate all items with commas. "
-    "Give each character one clause. In each clause put that character's traits, clothing, pose, action, and "
-    "expression. Keep each character's attributes inside that character's clause. Do not move an attribute to another "
-    "character. Keep each comma item complete on its own. "
-    "Repeat the most important attributes of a character. Repeat them inside that same character's clause only. "
-    "Add the interaction between the characters. Then add the setting, the lighting, and the framing last. "
+    "Write the image prompt as short prose sentences. Use complete sentences, not single words. "
+    "Use each character's name. Name the character in each sentence about that character. The name binds the "
+    "attributes to the right character. "
+    "Describe each character's traits, clothing, pose, action, and expression. "
+    "Describe the interaction between the characters. Then describe the setting, the lighting, and the framing. "
+    "Do not write what a character is not wearing or not doing. Write only positive statements. "
     "Do not add count words such as 1girl or 1boy. The system already adds the count words. "
-    "Do not add art-style words or quality words. Do not use names. "
+    "Do not add art-style words or quality words. "
     "Leave avoid empty. The system already adds the items to avoid."
 )
 
@@ -65,13 +66,13 @@ COMPOSE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "compose_image_prompt",
-        "description": "Tag the current visible moment without choosing an art style.",
+        "description": "Describe the current visible moment without choosing an art style.",
         "parameters": {
             "type": "object",
             "properties": {
                 "scene": {
                     "type": "string",
-                    "description": "The image prompt: booru tags and short natural-language clauses, comma-separated, per the format given in the request; can have as many items as needed.",
+                    "description": "The image prompt: count tags followed by prose sentences describing the scene, per the format given in the request; can be as long as the moment needs.",
                 },
                 "avoid": {
                     "type": ["string", "null"],
@@ -461,15 +462,20 @@ async def compose_scene(
         reasoning_on=reasoning_on,
     )
 
-    # Strip negations in every mode: CLIP draws "no longer wearing X" as X, so no
-    # composed prompt may carry one, analysis path or not.
-    scene = _strip_chunks(_bounded(args.get("scene")), _NEGATION_CHUNK_RE, whole=False)
+    # Prose composers naturally end the count block with a period ("1boy, 1girl.
+    # Gon eats..."); normalize it to a comma so the comma-based count peeling and
+    # pinning below still see the tags.
+    scene = re.sub(rf"\b({_COUNT_TOKEN})\.", r"\1,", _bounded(args.get("scene")), flags=re.IGNORECASE)
+    # Strip negations in every mode: diffusion text encoders draw "no longer
+    # wearing X" as X, so no composed prompt may carry one, analysis path or not.
+    # Comma-splitting still works on prose: it drops the negated comma-clause and
+    # keeps the rest of the sentence.
+    scene = _strip_chunks(scene, _NEGATION_CHUNK_RE, whole=False)
     if not scene:
         # No excerpt fallback. When the forced call produces no scene, stop --
         # do not ship the raw reply text to the diffusion model as the image
-        # prompt. Prose is exactly what the tag-trained checkpoints render as
-        # washed-out mush (see the plan's "composer's output format is a real
-        # design risk"), so an excerpt fallback trades a clean failure for a
+        # prompt. The raw reply is narration and dialogue, not a scene
+        # description, so an excerpt fallback trades a clean failure for a
         # bad image. Callers already degrade on this: on-demand surfaces the
         # error, regenerate/reroll drop the attachment.
         raise ValueError("couldn't compose an image prompt for this message")
