@@ -244,6 +244,19 @@ async def test_reasoning_mode_defaults_off_when_config_absent_or_malformed(monke
         assert all(c["reasoning_on"] is False for c in calls), passes
 
 
+async def test_single_call_strips_negation_from_scene(monkeypatch):
+    # No analysis path here: negation hygiene must still run, or CLIP draws the
+    # item. The negation phrase sits mid-chunk, so a start-anchored match misses it.
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced({"compose_image_prompt": {"scene": "1girl, red dress, not wearing shoes, garden", "avoid": None}}),
+    )
+    scene, _, mode = await compose_scene(client=None, prefix=[], settings={"model_name": "m"})
+    assert scene == "1girl, red dress, garden"
+    assert mode == "single_call"
+
+
 async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
     # Every forced call returns empty args -> no scene. The composer must stop,
     # never fall back to the raw reply text as the image prompt (prose the
@@ -271,4 +284,6 @@ def test_assemble_strips_profile_counts():
     positive, _, _ = composer.assemble_prompts(
         config, "anime", {"appearance_prompt": "1girl, solo, long red hair"}, "2girls, garden", ""
     )
-    assert positive == "long red hair, 2girls, garden, anime illustration, clean line art, very aesthetic, high contrast"
+    # Count anchor from the scene leads; appearance (its own count stripped) sits
+    # right behind it, then the scene body, then the style.
+    assert positive == "2girls, long red hair, garden, anime illustration, clean line art, very aesthetic, high contrast"

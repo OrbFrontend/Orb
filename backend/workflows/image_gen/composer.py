@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Mapping, Sequence
 
@@ -9,23 +10,55 @@ from ..contracts import ToolSpec
 from ..toolkit import forced_tool_call
 from .config import resolve_style
 
-# The full scene format rides the OOC tail messages, not this schema: text mode
-# never renders tool schemas into the prompt (the forced call is grammar-only),
-# so any instruction living in a description is invisible there. The tail sits
-# after the shared conversation prefix, so carrying it per-call costs no KV reuse.
+logger = logging.getLogger(__name__)
+
+# The scene format rides the OOC tail messages, not this schema: text mode never
+# renders tool schemas into the prompt (the forced call is grammar-only), so any
+# instruction living in a description is invisible there. The tail sits after the
+# shared conversation prefix, so carrying it per-call costs no KV reuse.
+#
+# Written in ASD-STE100 Simplified Technical English: short sentences, one
+# instruction each, imperative mood, no synonyms. A small agent model (Gemma E4B
+# locally) follows plain instructions more reliably than dense prose.
+#
+# Two variants. The FULL guide is for the single-call path, where the compose
+# model owns everything -- count anchor, viewpoint, and what to negate. The
+# STRUCTURED guide is for the analysis path, where the analyzer and Python
+# already own counts, viewpoint, and negatives, so the compose model only turns
+# the given scene into tags; telling it to redo that work would only dilute the
+# instructions that matter (Python overwrites the counts either way).
 _SCENE_FORMAT = (
-    "Write the scene as booru tags and short natural-language clauses mixed freely, comma-separated. Start with the "
-    "count anchor (1girl, 1boy, 2girls, 1boy 1girl, ...). Then give EACH character their own clause -- who they are, "
-    "hair, eyes, build, clothing, pose, action, and their own expression -- keeping every attribute inside that "
-    "character's clause to avoid bleeding onto the others (e.g. 'a slim woman with long red hair and red eyes in a "
-    "silk dress, holding a book, teary-eyed'); keep each comma-separated chunk self-contained so meaning does not "
-    "leak across boundaries. For a first-person point-of-view scene, add the pov tag and do not draw the camera "
-    "character (hands at most), leaving only the others as subjects -- the camera character is NEVER counted in the "
-    "count anchor: you facing one girl is '1girl, solo, pov', never '1boy 1girl'; IMPORTANT: ONLY describe things that are visible. "
-    "Add the interaction between them, then shared setting, lighting, and framing last. The "
-    "main subjects or objects of interest (body parts, clothes, etc.) must be described many times to reinforce details. "
-    "Use as many clauses as the moment needs; do not compress to single-word tags. No art-style or quality terms. "
-    "Fill avoid with everything not visible: for example, `looking at viewer` if the character is facing away, etc."
+    "Write the image prompt as booru tags and short natural-language clauses. Separate all items with commas. "
+    "Start with the count anchor. The count anchor gives the number of persons. "
+    "Examples: 1girl. 1boy. 2girls. 1boy, 1girl. "
+    "Give each character one clause. In each clause put that character's identity, hair, eyes, build, clothing, pose, "
+    "action, and expression. Keep each character's attributes inside that character's clause. Do not move an attribute "
+    "to another character. Keep each comma item complete on its own. "
+    "Repeat the most important attributes of a character. Repeat them inside that same character's clause. Do not "
+    "repeat them in another character's clause. "
+    "For a first-person view, add the pov tag. Do not draw the viewer character. Draw the viewer character's hands "
+    "only. Do not count the viewer character in the count anchor. Example: if you look at one girl, write '1girl, "
+    "solo, pov', not '1boy, 1girl'. "
+    "Describe only the things that you can see. "
+    "Add the interaction between the characters. Then add the setting, the lighting, and the framing last. "
+    "Use as many clauses as the moment needs. Do not reduce the prompt to single words. "
+    "Do not add art-style words or quality words. Do not use names. "
+    "In avoid, put each thing that is not visible. Example: put 'looking at viewer' if the character looks away."
+)
+
+# Formatting-only guide for the analysis path. No count, viewpoint, or avoid
+# instructions: the analyzer supplies those and Python enforces them.
+_SCENE_FORMAT_STRUCTURED = (
+    "Show exactly the structured scene below. Do not add anything that the scene does not state. "
+    "Write the image prompt as booru tags and short natural-language clauses. Separate all items with commas. "
+    "Give each character one clause. In each clause put that character's traits, clothing, pose, action, and "
+    "expression. Keep each character's attributes inside that character's clause. Do not move an attribute to another "
+    "character. Keep each comma item complete on its own. "
+    "Repeat the most important attributes of a character. Repeat them inside that same character's clause only. "
+    "Add the interaction between the characters. Then add the setting, the lighting, and the framing last. "
+    "Do not add count words such as 1girl or 1boy. The system already adds the count words. "
+    "Do not add art-style words or quality words. Do not use names. "
+    "Leave avoid empty. The system already adds the items to avoid."
 )
 
 COMPOSE_TOOL_SCHEMA = {
@@ -38,11 +71,11 @@ COMPOSE_TOOL_SCHEMA = {
             "properties": {
                 "scene": {
                     "type": "string",
-                    "description": "The image prompt: booru tags and short clauses, comma-separated, per the format given in the request.",
+                    "description": "The image prompt: booru tags and short natural-language clauses, comma-separated, per the format given in the request; can have as many items as needed.",
                 },
                 "avoid": {
                     "type": ["string", "null"],
-                    "description": "Optional comma-separated tags for visible elements that must not appear.",
+                    "description": "Optional comma-separated tags for non-visible elements that must not appear.",
                 },
             },
             "required": ["scene", "avoid"],
@@ -72,12 +105,12 @@ ANALYZE_TOOL_SCHEMA = {
                     "enum": ["first_person", "third_person"],
                     "description": (
                         "first_person when the moment is narrated through a character's eyes (usually the user, 'you') "
-                        "-- that character is the camera and is NOT listed below. third_person otherwise."
+                        "-- that character is the viewer and is NOT listed below. third_person otherwise."
                     ),
                 },
                 "characters": {
                     "type": "array",
-                    "description": "One entry per character actually visible in frame. Excludes the camera character in first_person.",
+                    "description": "One entry per character actually visible in frame. Excludes the viewer character in first_person.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -131,7 +164,7 @@ ANALYZE_TOOL_SCHEMA = {
                     "type": ["string", "null"],
                     "description": (
                         "Comma-separated elements present in the moment but NOT visible -- a face turned away, an "
-                        "occluded or cropped body part -- that a tag-trained checkpoint would wrongly render. Feeds "
+                        "occluded or cropped body part, a character no longer in scene, etc. -- that the image gen model should not render. Feeds "
                         "the negative prompt."
                     ),
                 },
@@ -163,27 +196,31 @@ ANALYZE_TOOL = ToolSpec(
 # one place that never perturbs the shared prefix KV.
 _COMPOSE_OOC = (
     "[OOC: Call compose_image_prompt for the visible moment in the assistant reply above. " + _SCENE_FORMAT + " "
-    "Use only details established by the conversation, and prefer the most recent explicit detail. Decide the point of "
-    "view from the narration voice -- narration through a character's eyes (usually the user, 'you') is first-person. "
-    "Use simple and concise language.]"
+    "Use only the details that the conversation establishes. If a detail changed, use the most recent statement. "
+    "Decide the point of view from the narration voice. Narration through a character's eyes, usually the user "
+    "('you'), is first-person.]"
 )
 
 _COMPOSE_FORMAT = (
-    "[OOC: Call compose_image_prompt depicting exactly the structured scene below and nothing beyond it, following "
-    "the scene's viewpoint line. " + _SCENE_FORMAT + "]"
+    "[OOC: Call compose_image_prompt for the structured scene below. Follow the scene's viewpoint line. "
+    + _SCENE_FORMAT_STRUCTURED
+    + "]"
 )
 
 _ANALYZE_OOC = (
-    "[OOC: Call analyze_scene for the visible moment in the assistant reply above. Use ONLY what the history directly "
-    "establishes; for every attribute take the most recent explicit statement, and where nothing changed leave it at the "
-    "character's default. Report each present character's sex (girl/boy/other) and their outfit as a delta from their "
-    "default (outfit_added / outfit_removed). Leave appearance empty for the main character, whose default look is "
-    "supplied separately; for anyone else give their visible fixed traits (hair, eyes, build). Do not infer outfits, poses, "
-    "or positions from genre convention. IMPORTANT: include ONLY what is directly visible in this moment; omit anything "
-    "off-frame, implied, or assumed. Then list in hidden anything present but not visible -- a face turned away, an "
-    "occluded or cropped body part -- that a tag checkpoint might wrongly draw, so it can be negated. Decide the "
-    "viewpoint from the narration voice, and in first_person leave the camera "
-    "character out of the character list; list only character(s) actually visible in frame.]"
+    "[OOC: Call analyze_scene for the visible moment in the assistant reply above. Use only what the history "
+    "establishes directly. For each attribute, use the most recent statement. If nothing changed, keep the "
+    "character's default. "
+    "Report each character's sex (girl, boy, or other). Report each character's outfit as a change from the default. "
+    "Put added or replaced articles in outfit_added. Put absent default articles in outfit_removed. "
+    "Leave appearance empty for the main character. The system supplies the main character's default look. For each "
+    "other character, give the visible fixed traits (hair, eyes, build). "
+    "Do not infer outfits, poses, or positions from genre convention. Include only what is visible in this moment. "
+    "Omit anything that is off-frame, implied, or assumed. "
+    "In hidden, put each thing that is present but not visible. Examples: a face turned away, a body part that is "
+    "occluded or cropped. A tag checkpoint can draw these by mistake, so the system negates them. "
+    "Decide the viewpoint from the narration voice. For first_person, do not put the viewer character in the "
+    "character list. List only the characters that are visible in frame.]"
 )
 
 
@@ -235,6 +272,9 @@ _OFFER_TOOLS = ("analyze_scene", "compose_image_prompt")
 
 
 async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens, reasoning_on) -> dict:
+    # Debug: the per-call instruction actually sent (the tail; the prefix is the
+    # conversation itself). Set this logger to WARNING to silence.
+    logger.info("[image_gen] %s tail:\n%s", tool_name, "\n--\n".join(m["content"] for m in tail))
     args: dict = {}
     async for event in forced_tool_call(
         client=client,
@@ -256,24 +296,32 @@ async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
             args = event["args"]
+    logger.info("[image_gen] %s returned: %s", tool_name, args)
     return args
 
 
 _COUNT_TOKEN = r"(?:\d+\+?\s*(?:girls?|boys?|others?)|multiple\s+(?:girls|boys|others)|solo|pov)"
 _COUNT_CHUNK_RE = re.compile(rf"{_COUNT_TOKEN}(?:\s+{_COUNT_TOKEN})*", re.IGNORECASE)
 # CLIP has no negation: a "no longer wearing X" chunk copied through to the
-# image prompt draws X. Removed articles are enforced via the negative instead.
-_NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b.*", re.IGNORECASE)
+# image prompt draws X. Drop any chunk that negates, in every mode -- the phrase
+# can sit anywhere in the chunk, so this matches by search, not just at the
+# start. In analysis mode the removed articles are re-enforced via the negative;
+# single-call has no delta to route, so the removal is simply dropped, which
+# still beats drawing the item.
+_NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", re.IGNORECASE)
 
 
-def _strip_chunks(text: str, pattern: re.Pattern) -> str:
-    return ", ".join(c for c in (c.strip() for c in text.split(",")) if c and not pattern.fullmatch(c))
+def _strip_chunks(text: str, pattern: re.Pattern, *, whole: bool = True) -> str:
+    """Drop comma chunks the pattern hits. `whole` matches a chunk that IS the
+    pattern (count blocks); otherwise the pattern need only appear inside it."""
+    hit = pattern.fullmatch if whole else pattern.search
+    return ", ".join(c for c in (c.strip() for c in text.split(",")) if c and not hit(c))
 
 
 def _count_anchor(characters: Any) -> str | None:
     """Booru count tags from the analyzed cast, e.g. '1boy, 1girl' or '1girl, solo'.
 
-    The analyze schema already excludes the camera character in first_person, so
+    The analyze schema already excludes the viewer character in first_person, so
     counting this list is what guarantees POV scenes never leak the extra '1boy'.
     Returns None when any entry is malformed or missing a sex -- caller skips
     pinning rather than guess.
@@ -293,8 +341,20 @@ def _count_anchor(characters: Any) -> str | None:
 def _pin_anchor(scene: str, anchor: str, pov: bool) -> str:
     """Deterministically own the count block: drop whatever counts the composer wrote."""
     lead = ([anchor] if anchor else []) + (["pov"] if pov else [])
-    kept = _strip_chunks(_strip_chunks(scene, _COUNT_CHUNK_RE), _NEGATION_CHUNK_RE)
+    kept = _strip_chunks(scene, _COUNT_CHUNK_RE)
     return ", ".join(lead + [kept] if kept else lead) or scene
+
+
+def _split_lead_count(scene: str) -> tuple[str, str]:
+    """Peel the leading run of count/pov chunks off the scene, so the caller can
+    seat the count anchor at the very head of the final prompt (booru training
+    puts counts first; a long appearance in front pushes them out of CLIP's first
+    77-token window). Returns (count_lead, remainder)."""
+    parts = [c.strip() for c in scene.split(",") if c.strip()]
+    lead = 0
+    while lead < len(parts) and _COUNT_CHUNK_RE.fullmatch(parts[lead]):
+        lead += 1
+    return ", ".join(parts[:lead]), ", ".join(parts[lead:])
 
 
 def _render_scene(scene: Any) -> str:
@@ -307,7 +367,7 @@ def _render_scene(scene: Any) -> str:
         return ""
     lines: list[str] = []
     if _bounded(scene.get("viewpoint")) == "first_person":
-        lines.append("viewpoint: first-person POV (pov) -- the camera character is not drawn, hands at most")
+        lines.append("viewpoint: first-person POV (pov) -- the viewer character is not drawn, hands at most")
     for ch in scene.get("characters") or []:
         if not isinstance(ch, Mapping):
             continue
@@ -347,7 +407,7 @@ async def compose_scene(
     Returns ``(scene, avoid, mode)``. The profile appearance is always
     prepended by the caller: the target character (the profile owner -- the
     "main character" the analyze contract names, NOT the user, who is the
-    excluded camera in first-person POV) has a fixed look (e.g. a character
+    excluded viewer in first-person POV) has a fixed look (e.g. a character
     tag) that must show up whether or not the analyzer thinks they are
     on-frame -- the empty-appearance "off-frame" heuristic over-fired
     whenever the model filled appearance for every character.
@@ -401,7 +461,9 @@ async def compose_scene(
         reasoning_on=reasoning_on,
     )
 
-    scene = _bounded(args.get("scene"))
+    # Strip negations in every mode: CLIP draws "no longer wearing X" as X, so no
+    # composed prompt may carry one, analysis path or not.
+    scene = _strip_chunks(_bounded(args.get("scene")), _NEGATION_CHUNK_RE, whole=False)
     if not scene:
         # No excerpt fallback. When the forced call produces no scene, stop --
         # do not ship the raw reply text to the diffusion model as the image
@@ -441,11 +503,15 @@ def assemble_prompts(
     # Counts and pov belong to the scene's anchor; a profile that opens with
     # "1girl," would duplicate or fight it from in front of the anchor.
     # ponytail: always prepended. The one shot this over-includes is a POV
-    # *through the target character's own eyes* (they're the camera, shouldn't
+    # *through the target character's own eyes* (they're the viewer, shouldn't
     # be drawn) -- rare, and the analyzer can't tell it apart from the common
     # POV (user's eyes on the target) anyway, which is why the old auto-drop
-    # over-fired. Gate on an explicit "target is the camera" signal if it bites.
+    # over-fired. Gate on an explicit "target is the viewer" signal if it bites.
     appearance = _strip_chunks(_bounded(profile.get("appearance_prompt")), _COUNT_CHUNK_RE)
-    positive = _join((appearance, scene, style.get("prompt")))
+    # Count anchor leads the whole prompt, appearance right behind it: booru
+    # training weights the first tags heaviest, and the prepended appearance was
+    # pushing the anchor back out of CLIP's first window.
+    count_lead, scene_body = _split_lead_count(scene)
+    positive = _join((count_lead, appearance, scene_body, style.get("prompt")))
     negative = _join((profile.get("negative_prompt"), avoid, style.get("negative_prompt")))
     return positive, negative, style

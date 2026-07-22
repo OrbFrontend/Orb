@@ -171,6 +171,11 @@ async def generate(
     progress: ProgressCallback | None = None,
 ) -> ImageResult:
     graph, slots, shipped = resolve_graph(config, graph_id)
+    # A graph with no negative slot silently discards everything the composer
+    # routed to the negative -- removed outfits, turned-away faces. Disclose it on
+    # the attachment rather than let the user wonder why the negation had no effect.
+    if "negative" not in slots and request.negative_prompt.strip():
+        notes = (*notes, "this workflow has no negative prompt input; the items to avoid were not applied")
     patched, output_node = patch_graph(
         graph,
         slots,

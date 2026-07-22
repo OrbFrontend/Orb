@@ -104,7 +104,8 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert response.status_code == 200
     assert "event: image_gen_done" in response.text
     assert '"attachment_id":' in response.text
-    assert captured["request"].prompt.startswith("long silver hair, 1girl")
+    # Count anchor leads, appearance right behind it (see assemble_prompts).
+    assert captured["request"].prompt.startswith("1girl, long silver hair")
     anime_suffix = CONFIG_DEFAULTS["external_comfy"]["styles"][1]["prompt"]
     assert captured["request"].prompt.endswith(anime_suffix)
 
