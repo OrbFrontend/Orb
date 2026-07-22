@@ -18,38 +18,57 @@ logger = logging.getLogger(__name__)
 # shared conversation prefix, so carrying it per-call costs no KV reuse.
 #
 # Written in ASD-STE100 Simplified Technical English: short sentences, one
-# instruction each, imperative mood, no synonyms. A small agent model (Gemma E4B
-# locally) follows plain instructions more reliably than dense prose.
+# instruction each, imperative mood, no synonyms. A small agent model
+# follows plain instructions more reliably than dense prose.
 #
-# Two variants. The FULL guide is for the single-call path, where the compose
-# model owns everything -- count anchor, viewpoint, and what to negate. The
-# STRUCTURED guide is for the analysis path, where the analyzer and Python
-# already own counts, viewpoint, and negatives, so the compose model only
-# renders the given scene as prose; telling it to redo that work would only
-# dilute the instructions that matter (Python overwrites the counts either way).
+# Two format families, one per person count.
 #
-# Modern checkpoints read prose: full sentences with names bind attributes to
-# the right character far better than the old keep-tags-in-clause tricks, so
-# the guides ask for count tags up front and plain sentences after.
+# Single subject -> booru tags: one subject has no attribute-binding problem,
+# and tag-trained checkpoints render one subject most faithfully from tags.
+# Two or more subjects -> prose with each character named: that is exactly where
+# tags bleed attributes across characters, and a named sentence binds each
+# attribute to the right person.
+#
+# The single-call path (_SCENE_FORMAT) owns everything -- count, viewpoint,
+# negatives -- and does not know the count until it writes it, so it carries the
+# tags-vs-prose choice as a conditional the model resolves. The analysis path
+# already knows the cast (the analyzer returns it), so Python picks the format
+# and hands the model just one structured guide, tags or prose.
 _SCENE_FORMAT = (
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "Examples: 1girl. 1boy. 2girls. 1boy, 1girl. "
-    "After the count tags, write the scene as short prose sentences. Use complete sentences, not single words. "
-    "Use each character's name. Name the character in each sentence about that character. The name binds the "
-    "attributes to the right character. "
-    "Describe each character's hair, eyes, build, clothing, pose, action, and expression. "
-    "Describe the interaction between the characters. Then describe the setting, the lighting, and the framing. "
     "For a first-person view, add the pov tag after the count tags. Do not draw the viewer character. Draw the "
     "viewer character's hands only. Do not count the viewer character in the count tags. Example: if you look at "
     "one girl, write '1girl, solo, pov', not '1boy, 1girl'. "
+    "Count the persons. Then choose the format for the rest of the prompt. "
+    "For one person, write booru tags with short natural-language clauses between them. Separate all items with "
+    "commas. Give the hair, eyes, build, clothing, pose, action, and expression. Then give the setting, the "
+    "lighting, and the framing. Do not use names. "
+    "For more than one person, write short prose sentences. Use each character's name. Name the character in each "
+    "sentence about that character. The name binds the attributes to the right character. Describe each character's "
+    "hair, eyes, build, clothing, pose, action, and expression. Describe the interaction between the characters. "
+    "Then describe the setting, the lighting, and the framing. "
     "Describe only the things that you can see. Do not write what a character is not wearing or not doing. "
-    "Do not add art-style words or quality words. "
+    "Do not add art-style words or quality words. May have as many items as needed. "
     "In avoid, put each thing that is not visible. Example: put 'looking at viewer' if the character looks away."
 )
 
-# Formatting-only guide for the analysis path. No count, viewpoint, or avoid
-# instructions: the analyzer supplies those and Python enforces them.
-_SCENE_FORMAT_STRUCTURED = (
+# Formatting-only guides for the analysis path. No count, viewpoint, or avoid
+# instructions: the analyzer supplies those and Python enforces them. Python
+# picks tags vs prose from the analyzed cast size (see compose_scene).
+_SCENE_FORMAT_STRUCTURED_TAGS = (
+    "Show exactly the structured scene below. Do not add anything that the scene does not state. "
+    "Write the image prompt as booru tags with short natural-language clauses between them. Separate all items "
+    "with commas. "
+    "Give the character's traits, clothing, pose, action, and expression. Then give the setting, the lighting, "
+    "and the framing. "
+    "Do not write what the character is not wearing or not doing. Write only positive items. "
+    "Do not add count words such as 1girl or 1boy. The system already adds the count words. "
+    "Do not add art-style words or quality words. Do not use names. "
+    "Leave avoid empty. The system already adds the items to avoid."
+)
+
+_SCENE_FORMAT_STRUCTURED_PROSE = (
     "Show exactly the structured scene below. Do not add anything that the scene does not state. "
     "Write the image prompt as short prose sentences. Use complete sentences, not single words. "
     "Use each character's name. Name the character in each sentence about that character. The name binds the "
@@ -202,11 +221,9 @@ _COMPOSE_OOC = (
     "('you'), is first-person.]"
 )
 
-_COMPOSE_FORMAT = (
-    "[OOC: Call compose_image_prompt for the structured scene below. Follow the scene's viewpoint line. "
-    + _SCENE_FORMAT_STRUCTURED
-    + "]"
-)
+_STRUCTURED_OOC_HEAD = "[OOC: Call compose_image_prompt for the structured scene below. Follow the scene's viewpoint line. "
+_COMPOSE_OOC_TAGS = _STRUCTURED_OOC_HEAD + _SCENE_FORMAT_STRUCTURED_TAGS + "]"
+_COMPOSE_OOC_PROSE = _STRUCTURED_OOC_HEAD + _SCENE_FORMAT_STRUCTURED_PROSE + "]"
 
 _ANALYZE_OOC = (
     "[OOC: Call analyze_scene for the visible moment in the assistant reply above. Use only what the history "
@@ -444,10 +461,16 @@ async def compose_scene(
         analysis_block = _render_scene(analysis)
 
     if analysis_block:
+        # One subject -> tags (checkpoint-native, no binding problem); two or
+        # more -> prose with names (binds each attribute to the right character).
+        # The analyzer already excluded the viewer in first-person, so the cast
+        # size is the visible count.
+        visible = [ch for ch in analysis.get("characters") or [] if isinstance(ch, Mapping)]
+        guide = _COMPOSE_OOC_PROSE if len(visible) > 1 else _COMPOSE_OOC_TAGS
         # Format-only framing, then the scene as the final message where attention
         # is strongest: the composer renders exactly this instead of re-deriving it.
         tail = [
-            {"role": "user", "content": _COMPOSE_FORMAT},
+            {"role": "user", "content": guide},
             {"role": "user", "content": "Structured scene extracted from the conversation:\n\n" + analysis_block},
         ]
     else:

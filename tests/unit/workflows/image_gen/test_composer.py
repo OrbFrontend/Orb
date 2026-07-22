@@ -257,6 +257,37 @@ async def test_single_call_strips_negation_from_scene(monkeypatch):
     assert mode == "single_call"
 
 
+def _fake_forced_capturing(results: dict, captured: dict):
+    async def fake(*, tool_name, tail_messages=None, **kwargs):
+        captured[tool_name] = " ".join(m["content"] for m in tail_messages or [])
+        yield {"type": "result", "args": results.get(tool_name, {})}
+
+    return fake
+
+
+async def test_analysis_format_follows_cast_size(monkeypatch):
+    # One visible character -> tags guide; two or more -> prose (names bind
+    # attributes to the right person, where tags bleed across characters).
+    for cast, marker in (
+        ([{"name": "a", "sex": "girl", "action": "waving"}], "booru tags"),
+        (
+            [{"name": "a", "sex": "girl", "action": "waving"}, {"name": "b", "sex": "boy", "action": "watching"}],
+            "prose sentences",
+        ),
+    ):
+        captured: dict = {}
+        monkeypatch.setattr(
+            composer,
+            "forced_tool_call",
+            _fake_forced_capturing(
+                {"analyze_scene": {"characters": cast}, "compose_image_prompt": {"scene": "1girl, x", "avoid": None}},
+                captured,
+            ),
+        )
+        await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+        assert marker in captured["compose_image_prompt"], (len(cast), marker)
+
+
 async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
     # Every forced call returns empty args -> no scene. The composer must stop,
     # never fall back to the raw reply text as the image prompt (prose the
