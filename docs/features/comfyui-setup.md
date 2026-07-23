@@ -90,9 +90,9 @@ Simply download and put real-dream-v2-anima-bf16.safetensors in `ComfyUI/models/
 ## Create your first ComfyUI gen
 
 1. Download the [Anima_Default.png](../assets/Anima_Default.png) and drag it into ComfyUI. The embedded workflow loads automatically.
-1b. If can't drag and drop, go to ComfyUI -> File -> Open... And select the image.
-2. Click Run and wait, your GPU will work, then an image will show up.
-3. Export/Save the output image as a PNG file. This file contains the whole workflow config which we'll import into Orb later.
+2. If drag and drop doesn't work, go to ComfyUI -> File -> Open, then select the image.
+3. Click Run button (top right corner) and wait, your GPU will work, then an image will show up.
+4. Export/Save the output image as a PNG file. This file contains the whole workflow config which we'll import into Orb later.
 
 Or you can also just import the above default PNG workflows straight into Orb, no need to even touch ComfyUI.
 

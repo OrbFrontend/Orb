@@ -311,6 +311,6 @@ def test_assemble_strips_profile_counts():
     positive, _, _ = composer.assemble_prompts(
         config, "anime", {"appearance_prompt": "1girl, solo, long red hair"}, "2girls, garden", ""
     )
-    # Count anchor from the scene leads; appearance (its own count stripped) sits
-    # right behind it, then the scene body, then the style.
-    assert positive == "2girls, long red hair, garden, anime illustration, clean line art, very aesthetic, high contrast"
+    # Count anchor from the scene leads; style follows immediately, then the
+    # appearance (with its own count stripped) and scene body.
+    assert positive == "2girls, anime illustration, clean line art, very aesthetic, high contrast, long red hair, garden"

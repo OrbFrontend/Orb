@@ -518,10 +518,10 @@ def assemble_prompts(
     # POV (user's eyes on the target) anyway, which is why the old auto-drop
     # over-fired. Gate on an explicit "target is the viewer" signal if it bites.
     appearance = _strip_chunks(_bounded(profile.get("appearance_prompt")), _COUNT_CHUNK_RE)
-    # Count anchor leads the whole prompt, appearance right behind it: booru
-    # training weights the first tags heaviest, and the prepended appearance was
-    # pushing the anchor back out of CLIP's first window.
+    # Keep the count/pov anchor at the head, then apply the style immediately
+    # after it. Modern tag prompting establishes the rendering vocabulary before
+    # the character appearance and scene details that the style should govern.
     count_lead, scene_body = _split_lead_count(scene)
-    positive = _join((count_lead, appearance, scene_body, style.get("prompt")))
+    positive = _join((count_lead, style.get("prompt"), appearance, scene_body))
     negative = _join((profile.get("negative_prompt"), avoid, style.get("negative_prompt")))
     return positive, negative, style
