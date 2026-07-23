@@ -30,6 +30,7 @@ An **Editor** audits the LLM's response then surgically fixes it.
 12. **AI Feedback**: Give suggestions and commentary on what to do next, solving writer's block
 13. **Text Completion**: Advanced harness optimizations when an endpoint supports raw text completion
 14. **Assisted Document Mode**: A version of Mikupad where you don't need to worry about special tokens
+15. **Image Generation**: One-click ComfyUI-compatible image-gen workflow
 
 ## Architecture
 
