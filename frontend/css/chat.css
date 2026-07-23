@@ -118,6 +118,11 @@
   max-width: 95%;
   animation: msgIn .2s ease;
   position: relative;
+  /* ponytail: skip layout+image-decode of off-screen messages on open.
+     contain-intrinsic-size reserves height so the scrollbar/scroll-restore
+     don't jump as off-screen messages get skipped. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
 }
 
 @keyframes msgIn {

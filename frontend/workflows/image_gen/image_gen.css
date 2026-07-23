@@ -1,0 +1,92 @@
+/* Never set a min-width here: the modal shell is 600px with 24px padding, so
+   anything above ~552px scrolls the modal sideways. Widths are fluid instead. */
+.image-gen-settings{display:grid;gap:20px}
+.image-gen-settings label{display:grid;gap:5px}
+.image-gen-settings input,.image-gen-settings select,.image-gen-settings textarea{width:100%}
+.image-gen-settings textarea{min-height:54px;resize:vertical}
+.image-gen-row{display:flex;align-items:center;gap:10px}
+.image-gen-settings label.ig-toggle{display:flex;align-items:flex-start;gap:8px;cursor:pointer}
+.image-gen-settings label.ig-toggle input{width:auto;flex:none;margin-top:2px}
+.ig-toggle-body{display:grid;gap:3px}
+.image-gen-note{color:var(--text-muted);font-size:.85em;margin:0;line-height:1.45}
+
+/* ---- tools-panel card ----
+   Readiness leads with a status dot (colour echoes the text: secondary when
+   ready, accent when it needs attention); the endpoint sits under it as a dimmer
+   sub-detail. The style picker is an inline label+select to match the Injection
+   control that sits beside it in the same tools panel. */
+.image-gen-card-status{display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:11px;line-height:1.5;margin:.45em 0 0}
+.image-gen-card-status::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:currentColor}
+.image-gen-card-status:empty{display:none}
+.image-gen-card-status[data-ig-ready="no"]{color:var(--accent)}
+.image-gen-card-endpoint{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:11px;margin:1px 0 0 13px}
+.image-gen-card-style{display:flex;align-items:center;gap:8px;margin:.55em 0 0;font-size:12px}
+.image-gen-card-style select{flex:1;min-width:0;width:auto}
+.image-gen-card-btn{margin-top:8px}
+
+/* The Visualize button pulses while its render is in flight; clicking it again
+   cancels. */
+.image-gen-generating{opacity:.6;animation:image-gen-pulse 1.2s ease-in-out infinite}
+@keyframes image-gen-pulse{50%{opacity:1}}
+
+/* ---- settings modal sections ----
+   Grid children default to min-width:auto, which lets a long option label or an
+   unbroken URL widen a track past the modal; every track is pinned to 0 instead. */
+.ig-section{display:grid;gap:10px}
+.image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
+.ig-heading{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);padding-bottom:5px;border-bottom:1px solid var(--border)}
+.ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.ig-profile-fields{display:grid;gap:10px;margin-bottom:10px}
+
+/* ---- styles accordion ----
+   One collapsed row per style so the list stays short as styles are added; the
+   summary states how far each style departs from the Defaults section. */
+.ig-styles{display:grid;gap:6px}
+.ig-style{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated)}
+.ig-style>summary,.ig-advanced>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:12px;list-style:none}
+.ig-style>summary::-webkit-details-marker,.ig-advanced>summary::-webkit-details-marker{display:none}
+.ig-style>summary::before,.ig-advanced>summary::before{content:"▸";color:var(--text-muted);font-size:10px}
+.ig-style[open]>summary::before,.ig-advanced[open]>summary::before{content:"▾"}
+.ig-style[open]>summary{border-bottom:1px solid var(--border)}
+.ig-style>summary:hover,.ig-advanced>summary:hover{color:var(--text-primary)}
+.ig-style-name{flex:1;min-width:0;font-weight:500;color:var(--text-primary)}
+.ig-style-body{display:grid;gap:10px;padding:10px}
+.ig-style-body>.ig-danger{justify-self:start}
+.ig-danger{color:var(--danger,var(--accent))}
+
+/* ---- imported workflow list ---- */
+.ig-graph-list{display:grid;gap:6px}
+.ig-graph-row{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.ig-graph-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+
+/* ---- advanced: workflow import ---- */
+.ig-advanced{border:1px solid var(--border);border-radius:var(--radius);color:var(--text-secondary)}
+.ig-advanced-body{display:grid;gap:10px;padding:10px;border-top:1px solid var(--border)}
+.image-gen-graph-picker{display:grid;gap:10px}
+.image-gen-graph-picker button{justify-self:start}
+
+@media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
+
+/* ---- attachment layout ----
+   Image on the left with its reroll/regen controls overlaid on the corner, render
+   details on the right. The default widget lays regen/reroll out as flat siblings
+   of the image in a centre-aligned flex row, which leaves them floating between
+   the image and the details text; the renderer regroups them so they read as one
+   toolbar belonging to the image. */
+.image-gen-attachment{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px}
+.image-gen-media{position:relative;flex:0 0 auto;line-height:0}
+.image-gen-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;padding:3px;border-radius:calc(var(--radius) + 2px);background:rgba(0,0,0,.5);backdrop-filter:blur(3px);opacity:.6;transition:opacity .15s}
+.image-gen-media:hover .image-gen-actions,.image-gen-actions:focus-within{opacity:1}
+/* Ghost buttons over the translucent pill instead of the framework's boxed look. */
+.image-gen-actions .workflow-regen-button,.image-gen-actions .workflow-reroll-button{border:none;background:transparent;color:#fff}
+.image-gen-actions .workflow-regen-button:hover:not(:disabled),.image-gen-actions .workflow-reroll-button:hover:not(:disabled){background:rgba(255,255,255,.2);color:#fff;border-color:transparent}
+
+/* ---- attachment render details ---- */
+.image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
+.image-gen-details dl{display:grid;grid-template-columns:max-content 1fr;gap:5px 10px}
+.image-gen-details dt{color:var(--text-muted)}
+.image-gen-details dd{margin:0;overflow-wrap:anywhere}
+/* The style name opens its entry in the style editor: judge the image, then tune
+   the style that made it, without hunting through settings. */
+.image-gen-style-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-align:left}
+.image-gen-style-link:hover{text-decoration:underline}

@@ -96,5 +96,7 @@ nav:
           - Homepage Stats: features/homepage-stats.md
           - Mobile Compatibility: features/mobile.md
           - Integrated TTS: features/tts.md
+          - ComfyUI Setup: features/comfyui-setup.md
+          - Image Generation: features/image-generation.md
           - Text Completion Mode: features/text-completion.md
   - Contributing: contributing.md

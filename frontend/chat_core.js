@@ -187,7 +187,7 @@ function renderUserAttachments(userAtts) {
       const size = att.size || 0;
       return `
     <div class="attachment-item">
-      <img src="data:${mime};base64,${b64}" alt="${esc(filename)}">
+      <img loading="lazy" decoding="async" src="data:${mime};base64,${b64}" alt="${esc(filename)}">
       <div class="attachment-info">
         <div class="attachment-name">${esc(filename)}</div>
         <div class="attachment-size">${formatBytes(size)}</div>

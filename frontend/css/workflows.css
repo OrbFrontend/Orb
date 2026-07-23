@@ -103,6 +103,27 @@
   max-height: 360px;
   border-radius: var(--radius);
   display: block;
+  cursor: zoom-in;
+}
+
+/* Click a generated image to pop it out full-screen. max-width/height only —
+   an <img> never upscales past its natural size, so this is "as big as possible
+   without exceeding original dimensions" for free. */
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+
+.image-lightbox img {
+  max-width: 95vw;
+  max-height: 95vh;
+  border-radius: var(--radius);
 }
 
 .workflow-artifact-link {

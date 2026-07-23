@@ -23,7 +23,7 @@ from httpx import ASGITransport
 import backend.database.connection as db_connection
 from backend.database import init_db
 
-from ._llm_mock import FakeLLMClient, llm_factory
+from ._llm_mock import FakeLLMClient, llm_factory, verify_kv_prefix_invariants
 
 
 @pytest.fixture(autouse=True)
@@ -90,18 +90,34 @@ async def db(db_path: Path):
 
 
 @pytest.fixture
-def llm_mock(monkeypatch):
+def llm_mock(monkeypatch, request):
     """Substitute the streaming LLM client everywhere.
 
     Every production construction goes through
     ``backend.inference.client.client_from_settings`` /
     ``agent_client_from_settings``, which resolve ``LLMClient`` from their
     module's globals at call time — so this single patch covers all of them.
+
+    Teardown enforces the global KV-prefix invariant over every captured call
+    (see ``verify_kv_prefix_invariants``): any test that drives an LLM call
+    site is a KV-cache test whether it meant to be or not, so a new entry
+    point cannot ship uncovered the way magic_rewrite and the image-gen
+    off-turn calls did. Deliberate prompt divergence (persona/settings switch
+    mid-conversation) opts out with ``@pytest.mark.kv_divergence_expected``.
     """
     fake = FakeLLMClient()
     factory = llm_factory(fake)
     monkeypatch.setattr("backend.inference.client.LLMClient", factory)
-    return fake
+    yield fake
+    if request.node.get_closest_marker("kv_divergence_expected"):
+        return
+    violations = verify_kv_prefix_invariants(fake.captured)
+    if violations:
+        pytest.fail(
+            "KV-cache prefix invariant violated (checked for every llm_mock test at teardown):\n"
+            + "\n".join(f"  - {v}" for v in violations),
+            pytrace=False,
+        )
 
 
 @pytest.fixture

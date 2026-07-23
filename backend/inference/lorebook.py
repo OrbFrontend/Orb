@@ -1,5 +1,5 @@
 """
-activation.py — Lorebook activation: one pipeline, three sources.
+lorebook.py — Lorebook activation: one pipeline, three sources.
 
 A lorebook entry activates from any of three sources:
   * ``constant`` — always active; rides the cached system-prompt prefix
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from ...core import Macros
+from ..core import Macros
 
 LOREBOOK_SCAN_DEPTH = 6
 # The agentic fallback scan only looks at the current turn (previous assistant

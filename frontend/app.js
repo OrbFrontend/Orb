@@ -229,6 +229,30 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest("#burger-btn") && !e.target.closest("#burger-dropdown")) closeBurger();
 });
 
+// ── Image lightbox: click a generated image to pop it out full-screen; click
+// anywhere or press Escape to dismiss. Built as DOM nodes (not innerHTML) so the
+// data: src and alt need no escaping.
+document.addEventListener("click", (e) => {
+  const src = e.target.closest(".workflow-artifact-image");
+  if (!src) return;
+  const box = document.createElement("div");
+  box.className = "image-lightbox";
+  const big = document.createElement("img");
+  big.src = src.src;
+  big.alt = src.alt;
+  box.appendChild(big);
+  const onKey = (ev) => {
+    if (ev.key === "Escape") close();
+  };
+  const close = () => {
+    box.remove();
+    document.removeEventListener("keydown", onKey);
+  };
+  box.addEventListener("click", close);
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(box);
+});
+
 // ── Expose to inline handlers
 Object.assign(window, {
   // modal

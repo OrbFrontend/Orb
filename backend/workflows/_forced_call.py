@@ -55,10 +55,13 @@ async def forced_tool_call(
     pass_id: str | None = None,
     enabled_tools: Mapping[str, bool] | None = None,
     schema_overrides: Mapping[str, Mapping] | None = None,
+    offer_tools: Sequence[str] | None = None,
     kv_tracker: Any = None,
+    model_name: str | None = None,
     reasoning_on: bool = True,
     temperature: float = 0.25,
     max_tokens: int = 8192,
+    tools_in_prompt: bool = True,
 ) -> AsyncIterator[dict]:
     """Force one tool call and yield its parsed arguments.
 
@@ -69,6 +72,11 @@ async def forced_tool_call(
     The terminal event is always ``{"type": "result", "args": <dict>}``.
 
     Tools assembly:
+      - ``offer_tools=<names>`` -- fixed, order-stable array of those
+        registry tools (forced ``tool_name`` appended if absent). Use to
+        share one blob across sibling forced calls so a provider that must
+        keep tools in the body still lets them reuse each other's cached
+        prefix. Takes precedence over ``enabled_tools``.
       - ``enabled_tools=None`` -- single-tool array. Smallest bytes; use
         when the caller does not need pipeline tools-bytes cache reuse.
       - ``enabled_tools=<dict>`` -- assemble the same tools array
@@ -81,9 +89,30 @@ async def forced_tool_call(
 
     ``kv_tracker=None`` skips the per-call ``record(...)`` + ``record_usage(...)``
     steps silently (the on-demand path does not participate in turn caching).
+
+    ``model_name`` overrides ``settings["model_name"]`` for callers on another
+    resolved lane. The same value labels the KV tracker and the wire request.
+
+    ``tools_in_prompt=False`` forwards the client flag of the same name: the
+    prompt must not carry the tool schemas (text mode never renders them; chat
+    mode then forces via ``response_format`` and omits ``tools`` from the body).
+    Use it for off-turn calls that ride a cached conversation prefix, so the
+    forced tool's schema cannot perturb the server-rendered prompt bytes.
     """
     schema = TOOLS[tool_name]["schema"]
-    if enabled_tools is None:
+    if offer_tools is not None:
+        # Fixed, order-stable blob shared verbatim across sibling forced calls
+        # (image_gen's analyze + compose). A provider that rejects response_format
+        # json_schema (DeepSeek) can't be forced promptlessly and must keep tools
+        # in the body; sending the identical blob on both calls -- order fixed
+        # regardless of which is forced, only tool_choice differs -- lets them
+        # reuse each other's cached conversation prefix. Standalone tools stay out
+        # of enabled_schemas; the caller names them here rather than leaking them
+        # into the pipeline's tool set.
+        tools = [TOOLS[n]["schema"] for n in offer_tools]
+        if schema not in tools:
+            tools.append(schema)
+    elif enabled_tools is None:
         tools = [schema]
     else:
         overrides_arg = _plain(schema_overrides) if schema_overrides else None
@@ -93,6 +122,7 @@ async def forced_tool_call(
             tools.append(canonical)
 
     messages = [_plain(m) for m in prefix] + [_plain(m) for m in tail_messages]
+    resolved_model = model_name or settings["model_name"]
 
     kv_label = pass_id or f"forced:{tool_name}"
     if kv_tracker is not None:
@@ -100,7 +130,7 @@ async def forced_tool_call(
             kv_label,
             messages,
             tools,
-            model=settings.get("model_name", ""),
+            model=resolved_model,
         )
 
     reasoning_params = reasoning_cfg(reasoning_on)
@@ -108,11 +138,12 @@ async def forced_tool_call(
     try:
         async for event in client.complete(
             messages=messages,
-            model=settings["model_name"],
+            model=resolved_model,
             tools=tools,
             tool_choice=TOOLS[tool_name]["choice"],
             temperature=temperature,
             max_tokens=max_tokens,
+            tools_in_prompt=tools_in_prompt,
             **reasoning_params,
         ):
             etype = event.get("type")

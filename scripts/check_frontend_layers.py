@@ -124,6 +124,8 @@ FROZEN_ABI = {
     "toast",
     "showModal",
     "closeModal",
+    "sseEvents",
+    "streamPost",
     # audio
     "playAudio",
     "stopChannel",

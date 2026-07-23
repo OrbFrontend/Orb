@@ -24,9 +24,15 @@ from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Sequen
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from ..database import get_conversation, get_lorebook_entry, get_world
+from ..database import (
+    get_conversation,
+    get_lorebook_entry,
+    get_workflow_attachment_by_id,
+    get_world,
+)
 from ..database.models import ConversationRow
 from ..inference import AbortToken
+from ..workflows import WorkflowEventStream, public_event_error
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +60,54 @@ async def _workflow_root_lock(root_id: int):
     lock = _workflow_root_locks.setdefault(root_id, asyncio.Lock())
     async with lock:
         yield
+
+
+@asynccontextmanager
+async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIterator[tuple[Mapping[str, Any], int]]:
+    """Hold the group-root lock for attachment ``aid``, stable against root promotion.
+
+    The group root id (``parent_attachment_id or id``) is a *mutable* identity:
+    deleting a root variant promotes the oldest surviving sibling to a new root
+    (see ``delete_workflow_attachments``). Resolving the root from a pre-lock
+    snapshot and then locking it has a time-of-check/time-of-use gap -- a
+    concurrent delete can promote the root between the read and the acquire,
+    leaving the caller holding an obsolete lock and mutating the group under a
+    stale identity (two callers on the same logical group could even hold
+    different keys, defeating serialization).
+
+    This resolves the root, acquires its lock, then RE-READS ``aid`` under the
+    lock. If the canonical root moved while acquiring, the held lock is stale, so
+    it releases and retries on the new root. On success it yields the attachment
+    snapshot read *under the held lock* together with the canonical root id, so a
+    caller feeds its hook / insert a snapshot consistent with the lock it holds.
+
+    Raises ``HTTPException`` 404 if the target does not exist or is not attached
+    to ``expected_message_id`` (raised here, in the API layer, exactly as
+    ``require_conversation`` does, so callers need no error mapping).
+    ``BEGIN IMMEDIATE`` in the cache layer remains the final integrity boundary;
+    this only stabilizes the process-local lock identity so same-group mutations
+    serialize and a generative hook never runs against a since-deleted parent.
+    Retry is unbounded, which is safe here: promotion requires this same lock, so
+    churn cannot outrun acquisition on a single-user local app.
+    """
+    while True:
+        before = await get_workflow_attachment_by_id(aid)
+        if before is None or before["message_id"] != expected_message_id:
+            raise HTTPException(status_code=404, detail="Attachment not found on this message")
+        candidate_root = before["parent_attachment_id"] or before["id"]
+        async with _workflow_root_lock(candidate_root):
+            current = await get_workflow_attachment_by_id(aid)
+            if current is None or current["message_id"] != expected_message_id:
+                raise HTTPException(status_code=404, detail="Attachment not found on this message")
+            current_root = current["parent_attachment_id"] or current["id"]
+            if current_root != candidate_root:
+                # A concurrent delete promoted the group's root between the
+                # snapshot and this acquire; the lock we hold is for a stale
+                # root. Release (exiting this `async with`) and retry on the
+                # now-canonical root.
+                continue
+            yield current, current_root
+            return
 
 
 # Per-conversation serialization for the streaming pipeline. The five chat
@@ -244,6 +298,69 @@ async def _sse_stream(
             # cleanup rather than waiting on it.
             lock.release()
         await _safe_aclose(gen)
+
+
+async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGenerator[str, None]:
+    """Serialize a workflow ``WorkflowEventStream`` as SSE frames -- API-owned wire encoding.
+
+    Each event is validated against the shared public-event contract
+    (:func:`public_event_error`); a malformed event is logged and dropped rather
+    than corrupting the frame stream. The ``finally`` closes the underlying
+    domain iterator, so on normal completion *and* on client disconnect (the
+    wrapping :class:`_CleanupStreamingResponse` calls ``aclose`` on this
+    generator) the workflow's own teardown -- e.g. cancelling an in-flight
+    external render in its generator ``finally`` -- always runs.
+    """
+    try:
+        it = events.__aiter__()
+        while True:
+            nxt = asyncio.ensure_future(it.__anext__())
+            try:
+                # Same keepalive race as _sse_stream: a long silent ComfyUI
+                # render yields no labels for stretches, so emit comment frames
+                # to keep an idle-timeout proxy/browser from dropping the stream
+                # (which surfaced as a frontend "Error in input stream" while the
+                # backend rendered on and persisted the image unseen).
+                while True:
+                    done_set, _ = await asyncio.wait({nxt}, timeout=_SSE_KEEPALIVE_SECS)
+                    if nxt in done_set:
+                        break
+                    yield ": keepalive\n\n"
+            except BaseException:
+                nxt.cancel()
+                raise
+            try:
+                ev = nxt.result()
+            except StopAsyncIteration:
+                break
+            reason = public_event_error(ev)
+            if reason is not None:
+                logger.warning("workflow on-demand stream yielded an invalid public event (%s); dropping", reason)
+                continue
+            name = ev["event"]
+            data = ev.get("data", "")
+            if isinstance(data, dict):
+                data = json.dumps(data, separators=(",", ":"))
+            else:
+                data = data.replace("\n", "\\n")
+            yield f"event: {name}\ndata: {data}\n\n"
+    finally:
+        if hasattr(events, "aclose"):
+            await _safe_aclose(cast(AsyncGenerator[Any, None], events))
+
+
+def _workflow_event_stream_response(stream: WorkflowEventStream) -> _CleanupStreamingResponse:
+    """API-owned SSE response for a workflow ``WorkflowEventStream`` domain result.
+
+    The workflow hook returns *what* to emit (validated event dicts); the API
+    layer owns *how* it reaches the client. ``_CleanupStreamingResponse``
+    guarantees the domain iterator is closed on client disconnect so the
+    workflow can cancel in-flight work.
+    """
+    return _CleanupStreamingResponse(
+        _encode_workflow_event_stream(stream.events),
+        media_type="text/event-stream",
+    )
 
 
 def _pipeline_sse_response(

@@ -1,7 +1,9 @@
 // Tools-panel "Secondary" card. Two sections: the global config slot
 // (volume / click-to-speak / karaoke) read and written through the workflow
 // config route, and the active conversation's per-character voice profile read
-// and written through the on-demand trigger.
+// and written through the on-demand trigger. Backend / voice / model discovery
+// and voice preview need no conversation, so they ride the conversation-less
+// query route instead.
 
 import {
   api,
@@ -68,13 +70,20 @@ function triggerUrl() {
   return convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger");
 }
 
+// Conversation-less config/discovery: backend list, voice/model enumeration,
+// and preview. Unlike triggerUrl(), these carry no conversation, so they post
+// to the workflow's query route rather than the per-conversation trigger.
+function query(action, extra) {
+  return api.post(`/workflows/${WORKFLOW_ID}/query`, { action, ...extra });
+}
+
 // Tools-panel card body: the framework owns the card frame (name + on/off toggle);
 // this fills in the description and a Settings button that opens the full form in a
 // modal, so the workflow stays a single entry rather than spilling its whole form
 // into the panel.
 export function configPanelRenderer() {
   return `<div class="tool-card-desc">Generate and play spoken audio for assistant replies.</div>
-    <button class="tts-settings-btn" data-wf-action="tts:openSettings">Settings</button>`;
+    <button class="btn btn-sm tts-settings-btn" data-wf-action="tts:openSettings">Settings</button>`;
 }
 
 function settingsBodyHtml() {
@@ -153,10 +162,7 @@ async function populateProfile() {
   let profile;
   let backends;
   try {
-    const [pr, bk] = await Promise.all([
-      api.post(triggerUrl(), { action: "get_profile" }),
-      api.post(triggerUrl(), { action: "list_backends" }),
-    ]);
+    const [pr, bk] = await Promise.all([api.post(triggerUrl(), { action: "get_profile" }), query("list_backends")]);
     profile = pr?.profile;
     backends = bk?.backends || [];
   } catch (e) {
@@ -244,12 +250,13 @@ function onBackendChange() {
 
 async function loadVoices(selectId) {
   const sel = document.getElementById("tts-pf-voice");
-  if (!sel || !getActiveConvId()) return;
+  // The mounted <select> is the real precondition, not a conversation: voice
+  // discovery rides the conversation-less query route (see query()).
+  if (!sel) return;
   const f = readForm();
   const want = selectId != null ? selectId : sel.value;
   try {
-    const res = await api.post(triggerUrl(), {
-      action: "list_voices",
+    const res = await query("list_voices", {
       backend: f.backend,
       language: f.language,
       api_url: f.api_url,
@@ -266,12 +273,11 @@ async function loadVoices(selectId) {
 
 async function loadModels(selectId) {
   const sel = document.getElementById("tts-pf-model");
-  if (!sel || !getActiveConvId()) return;
+  if (!sel) return;
   const f = readForm();
   const want = selectId != null ? selectId : sel.value;
   try {
-    const res = await api.post(triggerUrl(), {
-      action: "list_models",
+    const res = await query("list_models", {
       backend: f.backend,
       api_url: f.api_url,
       api_key: f.api_key,
@@ -298,17 +304,20 @@ async function saveProfile() {
 }
 
 async function preview() {
-  if (!getActiveConvId()) return;
+  // Guard on the mounted form, not a conversation: preview synthesizes the
+  // form's unsaved profile through the conversation-less query route, and the
+  // Preview button only exists once the form is rendered.
   const status = document.getElementById("tts-pf-status");
+  if (!status) return;
   try {
-    const res = await api.post(triggerUrl(), { action: "preview", ...readForm() });
+    const res = await query("preview", readForm());
     if (res?.audio_b64) {
       playAudio({ channel: WORKFLOW_ID, segments: [{ b64: res.audio_b64, mime: res.mime }], volume: cfg.volume });
-    } else if (status) {
+    } else {
       status.textContent = res?.error || "Preview failed";
     }
   } catch (e) {
     console.error("tts: preview failed", e);
-    if (status) status.textContent = "Preview failed";
+    status.textContent = "Preview failed";
   }
 }

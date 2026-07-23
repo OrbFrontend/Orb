@@ -4,7 +4,7 @@ This doc explains, in plain English, how Orb keeps each LLM call fast and cheap 
 
 Audience: someone who can read code but isn't deep in LLM internals. No tokenisation math, no transformer diagrams.
 
-> **Animation:** [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) is a stepped, self-contained walkthrough of the mechanism across all three passes and two turns — and of the reasoning-mode fork that silently splits the cache when `reasoning_enabled_passes` differs across passes (the default: director on, writer/editor off). Open it in a browser.
+> **Animation:** [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) is a stepped, self-contained walkthrough of the mechanism across all three passes and two turns — and of the reasoning-mode fork that silently splits the cache when `reasoning_enabled_passes` differs across passes (it walks through a director-on, writer/editor-off configuration; the shipped default is all three off, so no fork out of the box — see §9). Open it in a browser.
 
 ---
 
@@ -198,7 +198,7 @@ How well that bottom is *already* cached when the loop starts depends on whether
 
 The editor's iteration-1 bottom is already hot: system + history + the writer's trailing user message + draft were cached when the writer streamed its response. Iteration 1 only pays a cache miss for the editor instruction itself; iterations 2+ pay a miss only for the new tool-call/tool-result turn at the top.
 
-This holds because the editor and writer default to the **same reasoning mode** (both thinking-off), so they share a cache lane. The director does *not* contribute to this warmth: with the default `reasoning_enabled_passes` it runs thinking-on, in a separate lane (see §9). So the pre-warming credit here belongs to the writer, not the director.
+This holds because the editor and writer share a **reasoning mode** (both thinking-off), so they share a cache lane. Either way the pre-warming credit for the writer-pancake-and-draft slice belongs to the writer, not the director — the director's call never contained those bytes. And if the director is switched to thinking-on (a non-default setting; the default ships all three off), it rides a *separate* lane and shares nothing with the writer/editor within the turn at all (see §9).
 
 ### Dual-model mode (`agent_same_as_writer = false`)
 
@@ -225,9 +225,9 @@ The tracker also remembers the previous turn's snapshot per conversation, so the
 
 ## 9. Caveat: a per-pass reasoning split forks the cache
 
-Everything above assumes that passes sharing a base also share a **reasoning mode**. By default they don't. `reasoning_enabled_passes` ships as `{"director": true, "writer": false, "editor": false}` — the director thinks, the writer and editor don't.
+Everything above assumes that passes sharing a base also share a **reasoning mode**. By default they do: `reasoning_enabled_passes` ships as `{"director": false, "writer": false, "editor": false}` — all three thinking-off, one shared lane, no fork. But the setting is per-pass, so a non-default configuration that turns reasoning on for some passes and not others breaks that assumption. Take the canonical example — director thinking-on, writer and editor off (`{"director": true, "writer": false, "editor": false}`):
 
-On a backend that routes thinking-on and thinking-off down different paths with **separate KV caches** (DeepSeek is the one we've measured), that single setting splits the single-model cache in two:
+On a backend that routes thinking-on and thinking-off down different paths with **separate KV caches** (DeepSeek is the one we've measured), that split configuration splits the single-model cache in two:
 
 - **thinking-ON lane** — the director.
 - **thinking-OFF lane** — the writer and the editor.
@@ -241,9 +241,26 @@ writer                  cached=2176/4297 tok (50.6%)   ← from the previous tur
 
 The tell is the gap between the two tracker views (§8): the local `msgs_overlap` reads ~91% (the prefix bytes *are* shared) while the provider `cached` sits far lower — exactly the "msgs_overlap high, provider lower, template-dependent" case the tracker is built to surface. The counter-intuitive result — the director showing *more* cached than the writer that ran right after it — is not cross-pass reuse at all; it's two independent lineages, each warmed by its own prior-turn call.
 
-**This is intentional, not a bug.** The director reasons on purpose, and the cache still pays off **across turns within each lane** — you're just keeping two warm prefixes instead of one. To collapse the lanes back into a single shared cache, make the reasoning mode uniform across the passes (set all three the same in `reasoning_enabled_passes`), accepting the trade-off: either the director loses its reasoning, or the writer pays for thinking on the main generation. On backends that *don't* fork the cache by thinking mode, the split is free and this whole section is moot.
+**When you opt into it, this is a trade-off, not a bug.** A pass you've set to reason (here the director) does so on purpose, and the cache still pays off **across turns within each lane** — you're just keeping two warm prefixes instead of one. The shipped default sidesteps it entirely by keeping all three passes off (uniform → one lane). To collapse the lanes back after diverging them, make the reasoning mode uniform across the passes again (set all three the same in `reasoning_enabled_passes`), accepting the trade-off: either the director loses its reasoning, or the writer pays for thinking on the main generation. On backends that *don't* fork the cache by thinking mode, the split is free and this whole section is moot.
 
 A stepped, click-through walkthrough of the mechanism and this fork lives in [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html).
+
+### Off-turn image prompter
+
+Image generation's `analyze_scene` and `compose_image_prompt` calls run on the
+resolved Agent lane: the shared Writer/Agent client in single-model mode, or the
+Director/Editor endpoint, model, and agent system prefix in dual-model mode. The
+off-turn prefix builder must therefore reproduce the corresponding pipeline
+prefix byte-for-byte; parity for both model topologies is regression-tested.
+
+The prompter has its own `prompter_reasoning` switch rather than inheriting a
+pipeline pass. Both calls always use the same switch value and the same
+order-stable two-tool schema blob, so they stay in one reasoning lane and reuse
+one another. Matching Editor reasoning is a useful cross-pass heuristic because
+it is the same Agent server and often the latest Agent-side call, but it is not
+an invariant: the Editor may be skipped, providers differ, and the prompter's
+standalone tools can create a distinct templated prefix. Keeping the prompter
+setting stable is the only portable cache rule.
 
 ---
 
@@ -255,4 +272,4 @@ A stepped, click-through walkthrough of the mechanism and this fork lives in [kv
 - The editor extends the writer's stack, not the bare prefix — that's where most editor-pass savings come from.
 - Across turns, the new prefix is "old prefix + one (user, assistant) pair," so cache flows naturally turn-over-turn.
 - Provider `usage` is the truth; the local tracker is an indicator, deliberately unfused so it doesn't lie.
-- A per-pass reasoning split forks the cache on backends that separate thinking-on/off (DeepSeek): the director (thinking on) rides one lane, the writer + editor (thinking off) another, so they don't share *within* a turn — only across turns within each lane. Make `reasoning_enabled_passes` uniform to collapse them. See §9.
+- The shipped default runs all three passes thinking-off (`reasoning_enabled_passes` all false) — uniform, so one shared lane and no fork. A non-default config that diverges the passes (e.g. director thinking-on, writer + editor off) forks the cache on backends that separate thinking-on/off (DeepSeek): each mode rides its own lane, so passes in different modes don't share *within* a turn — only across turns within each lane. Keep `reasoning_enabled_passes` uniform to avoid the split. See §9.

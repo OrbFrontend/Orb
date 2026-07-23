@@ -12,12 +12,15 @@ from .client import (
     AbortToken,
     LLMClient,
     agent_client_from_settings,
+    agent_lane_from_settings,
     client_from_settings,
     parse_tool_calls,
     reasoning_cfg,
+    separate_agent_lane_configured,
 )
 from .endpoint_profiles import ModelProfile, is_forced_tool_choice, profile_for
 from .kv_tracker import _KVCacheTracker
+from .lorebook import compute_constant_lorebook_block
 from .prompt_builder import (
     build_direction_note_prompt,
     build_director_scene_step_prompt,
@@ -56,9 +59,11 @@ __all__ = [
     "AbortToken",
     "LLMClient",
     "agent_client_from_settings",
+    "agent_lane_from_settings",
     "client_from_settings",
     "parse_tool_calls",
     "reasoning_cfg",
+    "separate_agent_lane_configured",
     # retry
     "RetryPolicy",
     # endpoint_profiles — provider adapter
@@ -70,6 +75,8 @@ __all__ = [
     "_KVCacheTracker",
     # text_completion
     "has_image_parts",
+    # lorebook — full surface via .lorebook / features.lorebook facade
+    "compute_constant_lorebook_block",
     # prompt_builder
     "build_director_scene_step_prompt",
     "build_director_tool_prompt",

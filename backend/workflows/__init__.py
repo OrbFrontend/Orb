@@ -2,7 +2,7 @@
 
 Public surface re-exported from this module:
   - ``Workflow``, ``Subscription``, ``HookType``, ``ToolNameCollision``,
-    ``WorkflowMandateError``
+    ``WorkflowDeclarationError``, ``WorkflowMandateError``
   - ``register_workflow``, ``subscribe``, ``iter_subscriptions``,
     ``get_subscription``, ``workflow_has_hook``, ``list_workflows``,
     ``get_workflow``, ``finalize_registry``
@@ -38,21 +38,31 @@ from .contracts import (
     EV_SYSTEM_PROMPT,
     HookType,
     OnDemandCtx,
+    OnDemandResult,
     PostCtx,
     PreCtx,
+    QueryCtx,
     RegenCtx,
     RerollGenCtx,
     ToolSpec,
+    WorkflowEventStream,
     _readonly,
+    public_event_error,
 )
 from .format_consistency import format_consistency_workflow
 from .format_consistency.hooks import (
     post_pipeline as _fc_post_pipeline,
 )
+from .image_gen import image_gen_workflow
+from .image_gen.hooks import on_demand as _image_gen_on_demand
+from .image_gen.hooks import query as _image_gen_query
+from .image_gen.hooks import regenerate as _image_gen_regenerate
+from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
 from .registry import (
     Subscription,
     ToolNameCollision,
     Workflow,
+    WorkflowDeclarationError,
     WorkflowMandateError,
     finalize_registry,
     get_subscription,
@@ -80,6 +90,9 @@ from .tts.hooks import (
     post_pipeline as _tts_post_pipeline,
 )
 from .tts.hooks import (
+    query as _tts_query,
+)
+from .tts.hooks import (
     regenerate as _tts_regenerate,
 )
 from .tts.hooks import (
@@ -94,16 +107,21 @@ __all__ = [
     "EV_SYSTEM_PROMPT",
     "HookType",
     "OnDemandCtx",
+    "OnDemandResult",
     "PostCtx",
     "PreCtx",
+    "QueryCtx",
     "RegenCtx",
     "RerollGenCtx",
     "Subscription",
     "ToolNameCollision",
     "ToolSpec",
     "Workflow",
+    "WorkflowDeclarationError",
+    "WorkflowEventStream",
     "WorkflowMandateError",
     "_readonly",
+    "public_event_error",
     "finalize_registry",
     "get_subscription",
     "get_workflow",
@@ -127,6 +145,7 @@ __all__ = [
 register_workflow(tts_workflow)
 subscribe(tts_workflow.id, HookType.POST_PIPELINE, _tts_post_pipeline)
 subscribe(tts_workflow.id, HookType.ON_DEMAND, _tts_on_demand)
+subscribe(tts_workflow.id, HookType.QUERY, _tts_query)
 subscribe(tts_workflow.id, HookType.REGENERATE, _tts_regenerate)
 subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
 
@@ -135,6 +154,12 @@ subscribe(tts_workflow.id, HookType.REROLL_GEN, _tts_reroll_gen)
 # from the normalized text rather than the raw draft.
 register_workflow(format_consistency_workflow)
 subscribe(format_consistency_workflow.id, HookType.POST_PIPELINE, _fc_post_pipeline, priority=-10)
+
+register_workflow(image_gen_workflow)
+subscribe(image_gen_workflow.id, HookType.ON_DEMAND, _image_gen_on_demand)
+subscribe(image_gen_workflow.id, HookType.QUERY, _image_gen_query)
+subscribe(image_gen_workflow.id, HookType.REGENERATE, _image_gen_regenerate)
+subscribe(image_gen_workflow.id, HookType.REROLL_GEN, _image_gen_reroll_gen)
 
 
 finalize_registry()

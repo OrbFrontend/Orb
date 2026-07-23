@@ -11,7 +11,7 @@ import { renderDefaultWidget } from "./default_widget.js";
 import { closeModal, showModal } from "./modal.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
-import { convUrl, esc, toast } from "./utils.js";
+import { $, convUrl, esc, toast } from "./utils.js";
 
 // Eviction sentinel for workflow attachment bytes -- must match
 // `EVICTED_MARKER` in backend/workflows/attachment_cache.py.
@@ -378,6 +378,125 @@ export function _mergeWorkflowRejections(msgId, originatingId, incoming) {
     .concat(incoming.map((e) => ({ ...e, message_id: msgId })));
 }
 
+// Regenerate/reroll are plain POSTs that hold one connection open for the whole
+// render (a minute+ for image gen, zero bytes until it returns). The browser can
+// give up waiting before the backend finishes -- but the server persists the new
+// sibling regardless. So a network-class failure is NOT proof the op failed; the
+// render is likely still landing. fetch() rejects with a bare TypeError on
+// connection loss/timeout, whereas api._req attaches `.status` to real HTTP
+// errors (validation, 500) -- those are genuine and must not trigger recovery.
+function _isNetworkError(e) {
+  return e instanceof TypeError && e.status === undefined;
+}
+
+function _rootSiblingIds(msg, rootId) {
+  const atts = msg?.workflow_attachments || [];
+  return new Set(atts.filter((a) => (a.parent_attachment_id || a.id) === rootId).map((a) => a.id));
+}
+
+// Poll GET messages until the root gains a sibling id absent from `before` (the
+// one the backend is still writing), then refresh. Returns true if it landed or
+// the user navigated away (no failure chip owed either way), false on timeout.
+// ponytail: 200s ceiling covers image gen's 180s max render; other workflows
+// finish well within it. Raise it if a workflow can legitimately render longer.
+async function _recoverWorkflowSibling(convId, msgId, rootId, before) {
+  const deadline = Date.now() + 200_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (S.activeConvId !== convId) return true; // left the conversation; nothing to render
+    let msgs;
+    try {
+      msgs = await api.get(convUrl(convId, "messages"));
+    } catch {
+      continue; // transient; keep waiting for the render to land
+    }
+    const now = _rootSiblingIds(
+      msgs.find((m) => m.id === msgId),
+      rootId,
+    );
+    if ([...now].some((id) => !before.has(id))) {
+      if (S.activeConvId !== convId) return true;
+      setMessages(msgs);
+      renderMessages();
+      _scrollArtifactIntoView(msgId, rootId);
+      broadcastWorkflowMutation({ convId, msgId });
+      return true;
+    }
+  }
+  return false;
+}
+
+// Bring a just-rendered artifact back into view. renderMessages restores scroll
+// by distance-from-bottom, measured BEFORE the new image has any height, so a
+// fresh render or a differently-sized reroll lands off-screen either way: at the
+// bottom the image grows past the fold, in the middle the growing tail pushes the
+// message up out of the viewport.
+//
+// So the measurement has to happen once the image occupies its real height, and
+// `load` + one frame is the signal for that -- NOT decode(), which can resolve
+// before the intrinsic size reaches the layout box. Measuring a still-0px-tall
+// widget is precisely what left the newest message unscrolled: centring a
+// zero-height box sitting at the end of the document clamps to the scroll
+// position we were already at, and the image then grew below the fold.
+//
+// Already fully visible => no scroll, so repeated rerolls of a same-size image
+// don't nudge the viewport. Taller than the viewport => top-align (you want the
+// top of the image, not its bottom edge); otherwise centre it -- which the
+// browser clamps to "scrolled to the bottom" for the newest message, exactly
+// what that case wants.
+//
+// A backgrounded tab pauses rAF outright and throttles timers, so a render that
+// finishes while the user is away must not measure or scroll then; the whole tail
+// waits for the tab to come back, and re-finds the widget when it does (a repaint
+// may have replaced the node meanwhile, and scrolling a detached node is a no-op
+// -- which looked exactly like the bug this function fixes).
+function _scrollArtifactIntoView(msgId, rootId = null) {
+  // Without a rootId (the plugin-driven first render, which knows only the
+  // message) the newest group is the last one painted for that message.
+  const sel = rootId != null ? `#ws-${msgId}-${rootId}` : `.message[data-msg-id="${msgId}"] .workflow-artifact-swipe`;
+  const find = () => {
+    const found = $("chat-messages")?.querySelectorAll(sel) || [];
+    return found[found.length - 1] || null;
+  };
+  const el = find();
+  if (!el) return;
+  const show = () => {
+    const ct = $("chat-messages");
+    const target = find();
+    if (!ct || !target) return;
+    const r = target.getBoundingClientRect();
+    const box = ct.getBoundingClientRect();
+    if (r.top >= box.top && r.bottom <= box.bottom) return;
+    S._programmaticScroll = true;
+    target.scrollIntoView({ behavior: "smooth", block: r.height <= ct.clientHeight ? "center" : "start" });
+    setTimeout(() => {
+      S._programmaticScroll = false;
+    }, 400);
+  };
+  // One frame after load, so the new intrinsic height is in the layout box --
+  // and only once the tab is visible, since that frame never comes while hidden.
+  const showWhenVisible = () => {
+    if (document.hidden)
+      document.addEventListener("visibilitychange", () => requestAnimationFrame(show), { once: true });
+    else requestAnimationFrame(show);
+  };
+  const pending = [...el.querySelectorAll("img")].filter((i) => !i.complete);
+  if (!pending.length) return showWhenVisible();
+  const loaded = pending.map((img) => {
+    // The artifact renders `loading="lazy"`; while it sits below the fold that
+    // load never starts, so its `load` never fires and we would wait out the cap
+    // below on an image the user is waiting for. Flipping to eager resumes it.
+    img.loading = "eager";
+    return new Promise((res) => {
+      img.addEventListener("load", res, { once: true });
+      img.addEventListener("error", res, { once: true });
+    });
+  });
+  // ponytail: 2s cap -- scrolling on a stale height beats not scrolling at all if
+  // an image somehow never loads. Raise it if a slow load ever beats the cap.
+  Promise.race([Promise.all(loaded), new Promise((res) => setTimeout(res, 2000))]).then(showWhenVisible);
+}
+
 window.workflowRegenerate = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
   if (!requestSendPermission()) return;
@@ -388,26 +507,35 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
   btn.disabled = true;
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:regen:${rootId}`;
+  const convId = S.activeConvId;
+  const beforeSiblings = _rootSiblingIds(
+    S.messages.find((m) => m.id === msgId),
+    rootId,
+  );
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."));
-    const result = await api.post(
-      convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "regenerate"),
-      {},
-    );
+    const result = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate"), {});
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
     // Dispatcher writes active_sibling_id = new sibling for each new row,
     // so the refreshed state already points the renderer at the latest.
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+    setMessages(await api.get(convUrl(convId, "messages")));
     renderMessages();
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    _scrollArtifactIntoView(msgId, rootId);
+    broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    console.error("Regenerate failed:", e);
-    if (container && !container.querySelector(".workflow-regen-error")) {
-      const cap = document.createElement("div");
-      cap.className = "workflow-regen-error";
-      cap.textContent = "Regenerate failed";
-      container.appendChild(cap);
+    // The client can give up mid-render while the backend renders on and
+    // persists the sibling; poll for it before declaring failure.
+    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+      // Recovered (or navigated away) -- no failure chip owed.
+    } else {
+      console.error("Regenerate failed:", e);
+      if (container && !container.querySelector(".workflow-regen-error")) {
+        const cap = document.createElement("div");
+        cap.className = "workflow-regen-error";
+        cap.textContent = "Regenerate failed";
+        container.appendChild(cap);
+      }
     }
   } finally {
     clearWorkflowPhase(ch);
@@ -426,24 +554,33 @@ window.workflowReroll = async (msgId, attId, btn) => {
   btn.disabled = true;
   const wid = _resolveWorkflowId(msgId, attId);
   const ch = `workflow:${wid || "op"}:reroll:${rootId}`;
+  const convId = S.activeConvId;
+  const beforeSiblings = _rootSiblingIds(
+    S.messages.find((m) => m.id === msgId),
+    rootId,
+  );
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "rerolling..."));
-    const result = await api.post(
-      convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"),
-      {},
-    );
+    const result = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"), {});
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+    setMessages(await api.get(convUrl(convId, "messages")));
     renderMessages();
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    _scrollArtifactIntoView(msgId, rootId);
+    broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    console.error("Reroll failed:", e);
-    if (container && !container.querySelector(".workflow-reroll-error")) {
-      const cap = document.createElement("div");
-      cap.className = "workflow-reroll-error";
-      cap.textContent = "Reroll failed";
-      container.appendChild(cap);
+    // Same recovery as regenerate: a network-class failure isn't proof the
+    // reroll failed -- the backend persists the sibling even if we stopped waiting.
+    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+      // Recovered (or navigated away) -- no failure chip owed.
+    } else {
+      console.error("Reroll failed:", e);
+      if (container && !container.querySelector(".workflow-reroll-error")) {
+        const cap = document.createElement("div");
+        cap.className = "workflow-reroll-error";
+        cap.textContent = "Reroll failed";
+        container.appendChild(cap);
+      }
     }
   } finally {
     clearWorkflowPhase(ch);
@@ -623,6 +760,10 @@ export async function refreshConversationMessages(msgId = null) {
       if (root) root.active_sibling_id = activeId;
     }
     renderMessages();
+    // The caller is a workflow whose generation just landed on msgId (a blanket
+    // refresh passes null), so the artifact it produced is what the user is
+    // waiting to see -- same scroll treatment as regenerate/reroll.
+    if (msgId != null) _scrollArtifactIntoView(msgId);
     broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
     return true;
   } catch (e) {

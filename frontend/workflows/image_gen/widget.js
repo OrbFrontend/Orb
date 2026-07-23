@@ -1,0 +1,138 @@
+import {
+  canMutate,
+  clearWorkflowPhase,
+  convUrl,
+  esc,
+  escAttr,
+  getActiveConvId,
+  getMessages,
+  refreshConversationMessages,
+  registerAction,
+  setWorkflowPhase,
+  sseEvents,
+  streamPost,
+  toast,
+} from "/static/workflow_api.js";
+import { attachmentDetailsHtml, hasAttachment, messageButtonHtml } from "./render.js";
+
+const WORKFLOW_ID = "image_gen";
+const ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="15" height="15"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg>`;
+let cfg;
+
+// One render per message, tab-wide. The Visualize button hides itself once the
+// message carries an image, but that check reads local state: a second click
+// mid-render would append a second independent attachment root to the same
+// message. Keyed by message id so distinct messages still render in parallel.
+const inFlight = new Map(); // msgId -> AbortController
+
+export function initWidget(sharedConfig) {
+  cfg = sharedConfig;
+  registerAction(WORKFLOW_ID, "generate", (el) => generate(Number(el.dataset.msgId), el));
+}
+
+export function createButtonRenderer(msg) {
+  return messageButtonHtml(msg, { mutable: canMutate(), icon: ICON, escAttr });
+}
+
+async function generate(msgId, button) {
+  // Click again while a render is in flight = cancel. Aborting the fetch closes
+  // the SSE stream, which closes the hook's generator and cancels the render
+  // server-side, not just the local view.
+  if (inFlight.has(msgId)) {
+    inFlight.get(msgId).abort();
+    return;
+  }
+  if (!getActiveConvId() || !canMutate()) return;
+  // Style comes from the tools-panel card's picker, which writes cfg.default_style
+  // on change; the panel need not be open for this to hold the last choice.
+  const styleId = cfg.default_style || "realistic";
+  const controller = new AbortController();
+  inFlight.set(msgId, controller);
+  button.classList.add("image-gen-generating");
+  button.title = "Cancel image generation";
+  const channel = `workflow:image_gen:generate:${msgId}`;
+  try {
+    setWorkflowPhase(channel, "Composing image prompt...");
+    const response = await streamPost(
+      convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"),
+      { action: "generate", message_id: msgId, style_id: styleId },
+      controller.signal,
+    );
+    if (!response.ok) throw new Error(`generate returned ${response.status}`);
+    let attachmentId = null;
+    let terminated = false;
+    let failure = null;
+    for await (const event of sseEvents(response.body, { signal: controller.signal })) {
+      let data = {};
+      try {
+        data = event.data ? JSON.parse(event.data) : {};
+      } catch {
+        data = {};
+      }
+      if (event.event === "phase_status" && data.label) setWorkflowPhase(channel, data.label);
+      if (event.event === "image_gen_error") failure = data.message || "Image generation failed";
+      if (event.event === "image_gen_done") {
+        attachmentId = data.attachment_id;
+        terminated = true;
+      }
+    }
+    // Finishing without the terminal event means the body was never an image_gen
+    // stream at all (a proxy error page, a framework-level JSON error). Silence
+    // there is what left the button re-enabling with nothing shown.
+    if (!terminated && !failure) failure = "Image generation did not complete";
+    if (failure) toast(failure, "error");
+    // On success the message re-renders without its Visualize button; on failure
+    // the button stays and the finally block restores it to its idle state.
+    if (attachmentId) await refreshConversationMessages(msgId);
+  } catch (e) {
+    // AbortError = the user clicked cancel; the finally restores the button.
+    // Anything else is a read-side drop of the SSE stream (a browser/network
+    // error on the fetch body — Firefox surfaces it as "Error in input stream").
+    // The backend never sees a read-side drop, so it finishes and persists the
+    // image regardless. Poll for it instead of declaring failure, which used to
+    // leave the user reloading the page to find the image already there.
+    if (e?.name !== "AbortError") {
+      console.warn("image generation stream dropped; polling for the result", e);
+      if (!(await pollForAttachment(msgId, controller.signal)) && !controller.signal.aborted)
+        toast("Image generation failed", "error");
+    }
+  } finally {
+    inFlight.delete(msgId);
+    clearWorkflowPhase(channel);
+    button.classList.remove("image-gen-generating");
+    button.title = "Visualize reply";
+  }
+}
+
+// Re-fetch the message until the backend's still-running render persists its
+// image_gen attachment, so a dropped SSE stream recovers on its own. Stops on a
+// second click (signal aborted), on navigating to another conversation, or after
+// the ceiling — whichever comes first. ponytail: 120s ceiling covers compose +
+// external ComfyUI render; past it the button restores and the old reload-to-see
+// behaviour still applies.
+async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
+  const convId = getActiveConvId();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (signal.aborted || getActiveConvId() !== convId) return false;
+    await new Promise((r) => setTimeout(r, intervalMs));
+    await refreshConversationMessages(msgId);
+    const msg = getMessages().find((m) => m.id === msgId);
+    if (msg && hasAttachment(msg)) return true;
+  }
+  return false;
+}
+
+export function attachmentRenderer(ctx) {
+  const { att, buttons, defaultHtml } = ctx;
+  // defaultHtml is the image plus the framework's regen/reroll strip concatenated;
+  // the two button strings are documented substrings of it, so stripping them
+  // leaves the bare image, which we re-place with the controls as an overlay
+  // toolbar on the image corner instead of floating between image and details.
+  const media = defaultHtml.replace(buttons.regen, "").replace(buttons.reroll, "");
+  const actions =
+    buttons.reroll || buttons.regen ? `<div class="image-gen-actions">${buttons.reroll}${buttons.regen}</div>` : "";
+  // Empty defaultHtml -> attachmentDetailsHtml returns just the <details> block.
+  const details = attachmentDetailsHtml(att, "", { esc, escAttr });
+  return `<div class="image-gen-attachment"><div class="image-gen-media">${media}${actions}</div>${details}</div>`;
+}

@@ -8,6 +8,7 @@ import backend.inference.client as llm_mod
 from backend.inference.client import (
     LLMClient,
     agent_client_from_settings,
+    agent_lane_from_settings,
     apply_reasoning_effort,
     client_from_settings,
     reasoning_cfg,
@@ -118,6 +119,49 @@ def test_agent_factory_prefers_agent_effort():
     }
     client = agent_client_from_settings(settings)
     assert client.reasoning_effort == "high"
+
+
+def test_agent_lane_reuses_writer_client_in_single_model():
+    settings = {
+        "endpoint_url": "http://writer:5000/v1",
+        "model_name": "writer-model",
+        "agent_same_as_writer": True,
+    }
+    writer = client_from_settings(settings)
+    client, model = agent_lane_from_settings(settings, writer_client=writer)
+    assert client is writer
+    assert model == "writer-model"
+
+
+def test_agent_lane_reuses_writer_client_when_dual_config_is_incomplete():
+    settings = {
+        "endpoint_url": "http://writer:5000/v1",
+        "model_name": "writer-model",
+        "agent_same_as_writer": False,
+        "agent_endpoint_id": 2,
+    }
+    writer = client_from_settings(settings)
+    client, model = agent_lane_from_settings(settings, writer_client=writer)
+    assert client is writer
+    assert model == "writer-model"
+
+
+def test_agent_lane_uses_configured_dual_model_client():
+    settings = {
+        "endpoint_url": "http://writer:5000/v1",
+        "model_name": "writer-model",
+        "agent_same_as_writer": False,
+        "agent_endpoint_id": 2,
+        "agent_endpoint_url": "http://agent:6000/v1",
+        "agent_model_name": "agent-model",
+        "agent_reasoning_effort": "high",
+    }
+    writer = client_from_settings(settings)
+    client, model = agent_lane_from_settings(settings, writer_client=writer)
+    assert client is not writer
+    assert client.base_url == "http://agent:6000/v1"
+    assert client.reasoning_effort == "high"
+    assert model == "agent-model"
 
 
 # ── Wire-level: the client attribute must land in the outbound body ──────────

@@ -14,6 +14,7 @@ from backend.workflows import (
     Subscription,
     ToolNameCollision,
     Workflow,
+    WorkflowDeclarationError,
     WorkflowMandateError,
     finalize_registry,
     get_subscription,
@@ -98,6 +99,27 @@ class TestFreshRegistration:
 
     def test_get_workflow_missing(self):
         assert get_workflow("nope") is None
+
+    @pytest.mark.parametrize("workflow_id", ["", ".hidden", "foo.bar", "foo/bar", "foo[0]", "white space"])
+    def test_invalid_workflow_id_rejected(self, workflow_id):
+        with pytest.raises(WorkflowDeclarationError, match="workflow id"):
+            register_workflow(Workflow(id=workflow_id, display_name="Invalid"))
+
+    def test_tool_schema_name_must_match_declared_name(self):
+        spec = _tool_spec("declared")
+        spec.schema["function"]["name"] = "different"
+        with pytest.raises(WorkflowDeclarationError, match="schema function name"):
+            register_workflow(Workflow(id="wf_bad_tool", display_name="Bad", tools=[spec]))
+
+    def test_duplicate_tool_names_within_workflow_rejected(self):
+        with pytest.raises(WorkflowDeclarationError, match="duplicate tool name"):
+            register_workflow(Workflow(id="wf_dup_tools", display_name="Dup", tools=[_tool_spec("same"), _tool_spec("same")]))
+
+    def test_malformed_tool_payload_is_a_declaration_error(self):
+        spec = _tool_spec("declared")
+        spec.schema["function"] = []
+        with pytest.raises(WorkflowDeclarationError, match="schema function name"):
+            register_workflow(Workflow(id="wf_bad_shape", display_name="Bad", tools=[spec]))
 
 
 class TestReRegistration:

@@ -7,7 +7,9 @@ Eviction marker:
     The literal sentinel string EVICTED_MARKER replaces an evicted row's
     `data_b64` column. Other columns (seed, generation_metadata,
     filename, mime_type, etc.) stay intact so a subsequent rehydrate
-    can recover the bytes from stored parameters.
+    can recover the bytes from stored parameters. Rows without usable
+    recovery metadata are pinned: eviction is refused rather than
+    destroying their only byte copy.
 """
 
 from __future__ import annotations
@@ -119,9 +121,10 @@ def select_lru3_victim(candidates: list[dict]) -> int | None:
     single-victim path is a separate pinned interface for the unit tests
     that exercise the LRU-3 ordering in isolation.
     """
-    if not candidates:
+    evictable = [c for c in candidates if c.get("rehydratable", True)]
+    if not evictable:
         return None
-    return min(candidates, key=_lru3_key)["id"]
+    return min(evictable, key=_lru3_key)["id"]
 
 
 def plan_eviction(candidates: list[dict], shortfall: int) -> list[dict]:
@@ -130,7 +133,8 @@ def plan_eviction(candidates: list[dict], shortfall: int) -> list[dict]:
     Returns the victim candidate dicts in eviction order; empty when
     *shortfall* is already non-positive. Shared by the rehydrate,
     single-insert, and batch-insert paths so all three budget the cache
-    with identical ordering.
+    with identical ordering. Candidates explicitly marked
+    ``rehydratable=False`` are pinned and skipped.
     """
     victims: list[dict] = []
     if shortfall <= 0:
@@ -138,6 +142,8 @@ def plan_eviction(candidates: list[dict], shortfall: int) -> list[dict]:
     for victim in sorted(candidates, key=_lru3_key):
         if shortfall <= 0:
             break
+        if not victim.get("rehydratable", True):
+            continue
         victims.append(victim)
         shortfall -= victim["size"]
     return victims
@@ -178,15 +184,25 @@ async def _byte_bearing_candidates_on(db) -> list[dict]:
         await db.execute_fetchall(
             "SELECT id, "
             "((length(data_b64) / 4) * 3) - (length(data_b64) - length(rtrim(data_b64, '='))) AS size, "
-            "recent_accesses "
+            "recent_accesses, seed, generation_metadata "
             "FROM workflow_attachments WHERE data_b64 != ? ORDER BY id ASC",
             (EVICTED_MARKER,),
         )
     )
     return [
-        {"id": r["id"], "size": int(r["size"] or 0), "recent_accesses": _decode_recent_accesses(r["recent_accesses"])}
+        {
+            "id": r["id"],
+            "size": int(r["size"] or 0),
+            "recent_accesses": _decode_recent_accesses(r["recent_accesses"]),
+            "rehydratable": _stored_rehydratable(r["seed"], r["generation_metadata"]),
+        }
         for r in rows
     ]
+
+
+def _covered(victims: list[dict], shortfall: int) -> bool:
+    """Whether an eviction plan releases enough bytes for ``shortfall``."""
+    return shortfall <= 0 or sum(v["size"] for v in victims) >= shortfall
 
 
 async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_metadata: dict | None = None) -> None:
@@ -250,7 +266,11 @@ async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_m
         candidates = await _byte_bearing_candidates_on(db)
         candidates = [c for c in candidates if c["id"] != attachment_id]
         occupied = sum(c["size"] for c in candidates)
-        for victim in plan_eviction(candidates, (occupied + new_size) - budget):
+        shortfall = (occupied + new_size) - budget
+        victims = plan_eviction(candidates, shortfall)
+        if not _covered(victims, shortfall):
+            raise ValueError(f"workflow_attachment {attachment_id!r} cannot fit without evicting unrecoverable artifacts")
+        for victim in victims:
             await _evict_on(db, victim["id"])
 
         # Reset recent_accesses alongside the bytes write so the post-rehydrate
@@ -275,6 +295,16 @@ async def rehydrate_attachment(attachment_id: int, data: bytes, *, consumption_m
 
 
 async def _evict_on(db, attachment_id: int) -> None:
+    rows = list(
+        await db.execute_fetchall(
+            "SELECT data_b64, seed, generation_metadata FROM workflow_attachments WHERE id = ?",
+            (attachment_id,),
+        )
+    )
+    if not rows or rows[0]["data_b64"] == EVICTED_MARKER:
+        return
+    if not _stored_rehydratable(rows[0]["seed"], rows[0]["generation_metadata"]):
+        raise ValueError(f"workflow_attachment {attachment_id!r} has no usable recovery metadata; eviction refused")
     await db.execute(
         "UPDATE workflow_attachments SET data_b64 = ? WHERE id = ?",
         (EVICTED_MARKER, attachment_id),
@@ -387,15 +417,38 @@ def _estimate_size(attachment: dict) -> int:
 
 def _is_rehydratable(attachment: dict) -> bool:
     """Gate for marker-insertion: only atts carrying both seed (non-empty
-    string) and generation_metadata (dict) can be safely stored as evicted
-    markers, because rehydrate needs both to reproduce the bytes later.
+    string) and strictly JSON-serializable generation_metadata (dict) can be
+    safely stored as evicted markers, because rehydrate needs both to
+    reproduce the bytes later.
     Atts lacking either field would become permanently unrecoverable rows
     if marker-stored, so they are refused (single-row) or dropped from the
     batch (batch). Empty-dict metadata is allowed -- some workflows
     regenerate deterministically from seed alone."""
     seed = attachment.get("seed")
     md = attachment.get("generation_metadata")
-    return isinstance(seed, str) and bool(seed) and isinstance(md, dict)
+    return isinstance(seed, str) and bool(seed) and _serializable_metadata_dict(md)
+
+
+def _serializable_metadata_dict(value: object) -> bool:
+    """True for dicts that survive the strict JSON storage contract."""
+    if not isinstance(value, dict):
+        return False
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _stored_rehydratable(seed: object, generation_metadata: object) -> bool:
+    """Apply the recovery contract to the database's encoded row shape."""
+    if not isinstance(seed, str) or not seed or not isinstance(generation_metadata, str):
+        return False
+    try:
+        decoded = json.loads(generation_metadata)
+    except (TypeError, ValueError):
+        return False
+    return _serializable_metadata_dict(decoded)
 
 
 def validate_workflow_attachment_shape(attachment: Any) -> tuple[bool, str | None]:
@@ -520,8 +573,9 @@ async def insert_workflow_attachment(
 
     Oversize policy: an attachment whose size exceeds the cache budget
     is marker-inserted (bytes never stored; row carries the EVICTED_MARKER
-    sentinel) iff it carries both ``seed`` and ``generation_metadata`` --
-    the fields rehydrate needs to reproduce the bytes later. Without
+    sentinel) iff it carries a non-empty ``seed`` and strictly
+    JSON-serializable dict ``generation_metadata`` -- the fields rehydrate
+    needs to reproduce the bytes later. Without
     those fields the att is permanently unrecoverable as a marker, so
     the function rejects instead of inserting. Marker-inserted rows still
     get their parent's ``active_sibling_id`` updated -- the freshly
@@ -568,11 +622,22 @@ async def insert_workflow_attachment(
         if insert_as_marker and not _is_rehydratable(attachment):
             return (None, {**attachment, "reason": OVERSIZE_NO_METADATA_REASON})
 
-        if not insert_as_marker:
-            candidates = await _byte_bearing_candidates_on(db)
-            occupied = sum(c["size"] for c in candidates)
-            for victim in plan_eviction(candidates, (occupied + new_size) - budget):
-                await _evict_on(db, victim["id"])
+        candidates = await _byte_bearing_candidates_on(db)
+        occupied = sum(c["size"] for c in candidates)
+        shortfall = 0 if insert_as_marker else (occupied + new_size) - budget
+        victims = plan_eviction(candidates, shortfall)
+
+        # Pinned legacy rows may leave too little safe capacity for this
+        # artifact. Preserve the new row as a marker when it is recoverable;
+        # otherwise reject it instead of destroying an irreplaceable old row.
+        if not insert_as_marker and not _covered(victims, shortfall):
+            if not _is_rehydratable(attachment):
+                return (None, {**attachment, "reason": OVERSIZE_NO_METADATA_REASON})
+            insert_as_marker = True
+            victims = plan_eviction(candidates, occupied - budget)
+
+        for victim in victims:
+            await _evict_on(db, victim["id"])
 
         new_id = await insert_workflow_attachment_row(message_id, attachment, db=db, insert_as_evicted=insert_as_marker)
         # Birth-counts-as-access: every new row starts with one counter entry
@@ -616,18 +681,20 @@ async def insert_workflow_attachments(
 
     Plan, in order:
 
-    1. Marker/reject new attachments biggest-first until the new
-       byte-bearing total fits in budget. Markering a big new att can
+    1. Reserve capacity occupied by pinned existing rows, then marker/reject
+       new attachments biggest-first until the new byte-bearing total fits
+       in the remaining budget. Markering a big new att can
        spare many small existing rows from eviction, so this runs
        first. Rehydratable atts become markers (insert_as_evicted);
        non-rehydratable ones drop into ``rejected_atts``. Marker rows
        persist with EVICTED_MARKER in ``data_b64`` and recover via
        ``rehydrate_attachment``.
-    2. Evict existing byte-bearing rows oldest-first per LRU-3 for any
+    2. Evict recoverable existing byte-bearing rows oldest-first per LRU-3 for any
        residual shortfall (``occupied + new_byte_total > budget``).
        When pre-existing occupancy already exceeds budget (e.g. after
        a runtime settings shrink), step 2 converges toward budget by
-       evicting on the next write.
+       evicting on the next write. Unrecoverable rows remain pinned even
+       when their occupancy alone exceeds the new budget.
 
     Birth-as-access fires once for every successfully-inserted row
     (rejected ones never reach the DB at all).
@@ -707,6 +774,8 @@ async def insert_workflow_attachments(
         budget = await _get_budget_bytes_on(conn)
         existing = await _byte_bearing_candidates_on(conn)
         occupied = sum(c["size"] for c in existing)
+        pinned_occupied = sum(c["size"] for c in existing if not c["rehydratable"])
+        new_byte_capacity = max(0, budget - pinned_occupied)
 
         # Step A: marker/reject new atts biggest-first until the new
         # byte-bearing total fits in budget. Markering one big new att
@@ -716,10 +785,10 @@ async def insert_workflow_attachments(
         plan_mark_new: set[int] = set()
         rejected_idx_oversize: set[int] = set()
         new_byte_total = new_total
-        if new_byte_total > budget:
+        if new_byte_total > new_byte_capacity:
             indexed = sorted(effective_indices, key=lambda i: (-sizes[i], i))
             for i in indexed:
-                if new_byte_total <= budget:
+                if new_byte_total <= new_byte_capacity:
                     break
                 if not _is_rehydratable(attachments[i]):
                     rejected_idx_oversize.add(i)

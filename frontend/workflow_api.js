@@ -38,6 +38,7 @@ import {
   setWorkflowPhase,
 } from "./chat.js";
 import { closeModal, showModal } from "./modal.js";
+import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
 import { convUrl, esc, escAttr, toast } from "./utils.js";
@@ -92,9 +93,11 @@ export {
   setChannelVolume,
   setWorkflowPhase,
   showModal,
+  sseEvents,
   startTextEffect,
   stopAll,
   stopChannel,
+  streamPost,
   subscribe,
   toast,
 };

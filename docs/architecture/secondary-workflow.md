@@ -14,7 +14,7 @@ A workflow is a Python record in the process-local registry -- one record per wo
 - Carry state across four DB-backed tiers (conversation, message, character, config) plus one in-memory per-turn scratch tier.
 - Ship a frontend module that registers renderers (message buttons, attachment widgets, inspector/tools-panel cards -- a config panel is just a tools-panel renderer), click/text-effect/SSE handlers.
 
-Built-in registered workflows: `tts` (`backend/workflows/tts/`, `frontend/workflows/tts/`) and `format_consistency` (`backend/workflows/format_consistency/`, `frontend/workflows/format_consistency/`). `tts` binds four of the five hook types (post-pipeline, on-demand, regenerate, reroll-gen -- not pre-pipeline) and uses the character and config state tiers; cross-reference it as the full worked example. `format_consistency` is the minimal example: a single post-pipeline hook (priority `-10`, so it runs before any artifact hook like TTS and they synthesize from the normalized text) that calls the deterministic RP-markup normalizer in `backend/analysis/format_consistency.py` via the toolkit, produces no artifacts, no tools, and no config -- its former `enabled` config flag is gone, replaced by the framework per-workflow on/off toggle (sec. 3.7), so the hook simply runs whenever the workflow is enabled. Its frontend module does nothing but register a one-line Tools-panel card body (a description); the on/off toggle itself is framework-rendered for every manifest workflow.
+Built-in registered workflows: `tts` (`backend/workflows/tts/`, `frontend/workflows/tts/`), `image_gen` (`backend/workflows/image_gen/`, `frontend/workflows/image_gen/`), and `format_consistency` (`backend/workflows/format_consistency/`, `frontend/workflows/format_consistency/`). `tts` binds five of the six hook types (post-pipeline, on-demand, query, regenerate, reroll-gen -- not pre-pipeline) and uses the character and config state tiers; cross-reference it as the full worked example. `image_gen` binds no in-turn hook: it is on-demand, query, regenerate, and reroll-gen, uses a standalone prompt-composition tool, and currently renders through a user-configured external ComfyUI server without delaying turn persistence. Both are shipped users of `QUERY` (sec. 3.3) — the conversation-less slot backing `image_gen`'s readiness card, style list, remote-model enumeration, and connection probe, and `tts`'s backend list, voice/model enumeration, and voice preview, all of which must answer during first-run setup before any conversation or LLM endpoint exists. `format_consistency` is the minimal example: a single post-pipeline hook (priority `-10`, so it runs before any artifact hook like TTS and they synthesize from the normalized text) that calls the deterministic RP-markup normalizer in `backend/analysis/format_consistency.py` via the toolkit, produces no artifacts, no tools, and no config -- its former `enabled` config flag is gone, replaced by the framework per-workflow on/off toggle (sec. 3.7), so the hook simply runs whenever the workflow is enabled. Its frontend module does nothing but register a one-line Tools-panel card body (a description); the on/off toggle itself is framework-rendered for every manifest workflow.
 
 ---
 
@@ -85,7 +85,12 @@ Authors construct one of these and never touch `subscriptions` -- that field is 
   config_schema: Optional[dict]             # default None
   produces_artifacts: bool                  # default False
   subscriptions: list[Subscription]         # default-factory []; framework-owned
+  config_normalizer: Optional[Callable]     # default None; see below
 ```
+
+`config_schema` is manifest metadata for the settings form and enforces nothing. `config_normalizer` is the enforcement: a `(raw) -> dict` callable owning the workflow's strict normalization of its config slot, applied by both config routes (sec. 12.2). Declare it whenever a hook already normalizes on read -- otherwise the API persists and echoes a shape that read path silently repairs or drops, and the settings panel goes on showing entries the workflow ignores. Shipped examples are `backend/workflows/image_gen/config.py:normalize_config`, which bounds user-authored graphs and style entries, and `backend/workflows/tts/config.py:normalize_config`, which supplies the complete typed TTS config and clamps volume.
+
+Workflow ids are boundary keys, not arbitrary labels: `register_workflow` requires 1-64 ASCII letters, digits, underscores, or hyphens, starting with a letter or digit. This single grammar is safe in SQLite JSON paths, URL segments, frontend object keys, and `/static/workflows/<id>/` module paths.
 
 Live example: shipped TTS builds its `Workflow(...)` instance at `backend/workflows/tts/__init__.py`.
 
@@ -108,8 +113,9 @@ Live example: shipped TTS builds its `Workflow(...)` instance at `backend/workfl
 | `ON_DEMAND` | `"on_demand"` | Single-dispatch by workflow id | `POST .../conversations/{cid}/workflows/{workflow_id}/trigger` |
 | `REGENERATE` | `"regenerate"` | Single-dispatch by workflow id | `POST .../workflow-attachments/{aid}/regenerate` |
 | `REROLL_GEN` | `"reroll_gen"` | Single-dispatch by workflow id | `POST .../workflow-attachments/{aid}/reroll-gen` and `.../{aid}/rehydrate` |
+| `QUERY` | `"query"` | Single-dispatch by workflow id | `POST .../workflows/{workflow_id}/query` |
 
-Single-dispatch hooks fire from their own HTTP routes, never from the turn pipeline. Note the name clash on `regenerate`: the message-level route `POST .../messages/{msg_id}/regenerate` reruns the three-pass pipeline via `handle_regenerate`, firing PRE_PIPELINE/POST_PIPELINE but no single-dispatch hook. The `REGENERATE` hook fires only from the attachment-level `POST .../workflow-attachments/{aid}/regenerate` route (`main.py`).
+Single-dispatch hooks fire from their own HTTP routes, never from the turn pipeline. `QUERY` is the only one with no conversation in scope: it is the workflow's global config/discovery surface (readiness, capability probing, external-backend queries), ungated by enablement like the config routes so setup can precede enable (sec. 8.1). Note the name clash on `regenerate`: the message-level route `POST .../messages/{msg_id}/regenerate` reruns the three-pass pipeline via `handle_regenerate`, firing PRE_PIPELINE/POST_PIPELINE but no single-dispatch hook. The `REGENERATE` hook fires only from the attachment-level `POST .../workflow-attachments/{aid}/regenerate` route (`main.py`).
 
 ### 3.4 Registration sequence
 
@@ -124,6 +130,7 @@ from .tts import tts_workflow                                          # the Wor
 from .tts.hooks import (
     on_demand as _tts_on_demand,
     post_pipeline as _tts_post_pipeline,
+    query as _tts_query,
     regenerate as _tts_regenerate,
     reroll_gen as _tts_reroll_gen,
 )
@@ -131,6 +138,7 @@ from .tts.hooks import (
 register_workflow(tts_workflow)                                        # step 1
 subscribe(tts_workflow.id, HookType.POST_PIPELINE, _tts_post_pipeline)      # step 2 (one per hook)
 subscribe(tts_workflow.id, HookType.ON_DEMAND,    _tts_on_demand)
+subscribe(tts_workflow.id, HookType.QUERY,        _tts_query)
 subscribe(tts_workflow.id, HookType.REGENERATE,   _tts_regenerate)
 subscribe(tts_workflow.id, HookType.REROLL_GEN,   _tts_reroll_gen)
 
@@ -139,7 +147,7 @@ subscribe(format_consistency_workflow.id, HookType.POST_PIPELINE, _fc_post_pipel
 finalize_registry()                                                    # step 3 (keep at file bottom)
 ```
 
-- `register_workflow(w)` -- `registry.py`. Idempotent on `w.id`; re-registering the same id preserves the original insertion position, so manifest order stays stable across reloads (docstring `registry.py`). Raises `ToolNameCollision` if any declared tool name is a built-in, or if a newly-claimed name (one not already owned by a prior registration of this id) collides with another workflow's tool. Both checks run before any mutation, so a rejected call leaves the registry, `TOOLS`, and `STANDALONE_TOOLS` untouched. On re-registration the new `tools` list is diffed against the prior one: names new to this registration are registered, dropped names are removed from `TOOLS`/`STANDALONE_TOOLS`, and names in both have schema/choice/standalone overwritten (`registry.py`).
+- `register_workflow(w)` -- `registry.py`. Idempotent on `w.id`; re-registering the same id preserves the original insertion position, so manifest order stays stable across reloads (docstring `registry.py`). Static declaration validation runs before mutation: workflow-id grammar; unique, API-safe tool names; and equality between `ToolSpec.name`, `schema.function.name`, and `choice.function.name`. Invalid declarations raise `WorkflowDeclarationError`. Name ownership conflicts raise `ToolNameCollision` if a declared tool name is a built-in, or if a newly-claimed name (one not already owned by a prior registration of this id) collides with another workflow's tool. A rejected call leaves the registry, `TOOLS`, and `STANDALONE_TOOLS` untouched. On re-registration the new `tools` list is diffed against the prior one: names new to this registration are registered, dropped names are removed from `TOOLS`/`STANDALONE_TOOLS`, and names in both have schema/choice/standalone overwritten (`registry.py`).
 - `subscribe(workflow_id, hook_type, fn, *, priority=0)` -- `registry.py`. Appends a `Subscription` to `w.subscriptions`. Raises `LookupError` if id unknown, `ValueError` on duplicate hook for same id, `ValueError` on `REGENERATE`/`REROLL_GEN` without `produces_artifacts=True`.
 - `finalize_registry()` -- `registry.py`. Every `produces_artifacts=True` workflow MUST also have `REGENERATE` and `REROLL_GEN` bindings; missing either raises `WorkflowMandateError` at import time.
 
@@ -228,7 +236,11 @@ Fields: `conversation_id`, `message_id`, `attachment_id`, `original_attachment`,
 
 Fields: `conversation_id`, `message_id`, `attachment_id`, `original_attachment`, `settings`, `client`, `prior_consumption_metadata`. No history, no character. Shared backend for `/reroll-gen` and `/rehydrate`; the hook does not branch on route.
 
-### 4.6 Hook callable signatures (`contracts.py`)
+### 4.6 QueryCtx -- paired with QUERY
+
+Field: `settings` only. No `conversation_id`, `history`, `character`, `client`, `turn_scratch`, or `kv_tracker`. This is the deliberately minimal conversation-less ctx for global config/discovery: the handler reads its own config via the toolkit's `get_workflow_config` (config is never a ctx field on any hook), and it carries **no client** by design -- query handlers are the first-run setup surface and must answer before any LLM endpoint is configured, so they never perform inference. Handlers report their own failures in-band (`return {"error": ...}`), so a probe failure is a 200 the caller degrades on rather than an HTTP error (sec. 8.1).
+
+### 4.7 Hook callable signatures (`contracts.py`)
 
 ```
 PreHook       = Callable[[PreCtx],                 AsyncIterator[dict]]
@@ -236,6 +248,7 @@ PostHook      = Callable[[PostCtx],                AsyncIterator[dict]]
 OnDemandHook  = Callable[[OnDemandCtx, dict],      Awaitable[dict]]
 RegenHook     = Callable[[RegenCtx, dict],         Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable[bytes | tuple[bytes, dict | None]]]
+QueryHook     = Callable[[QueryCtx, dict],         Awaitable[dict]]
 ```
 
 PRE/POST hooks are async generators yielding dict events. The rest are awaited and return a single value (dict / list / bytes-or-tuple).
@@ -361,7 +374,7 @@ For each subscription (priority-ascending; a disabled workflow's subscription is
 |---|---|
 | `"enable_tools"` | Merge `ev["tools"]` into `accumulators["merged_enabled_tools"]`: `set`/`frozenset` -> each name True; `dict` -> entries whose value is exactly `True`. Names not in `TOOLS`, dict values that are not `True`, and a `tools` payload that is not set/frozenset/dict each drop (the whole event, for a bad payload) with WARNING. |
 | `"system_prompt"` | Append `ev["block"]` to `accumulators["extras"]` if it is a non-whitespace `str` (empty/whitespace-only dropped with WARNING). |
-| neither | Forward `ev` to SSE stream verbatim. |
+| neither | Validate as a public SSE event, then forward. It must be a dict with a non-empty, single-line string `event` and optional `data` that is either a string or a strictly JSON-serializable dict; malformed values are logged and dropped. |
 
 Reserved-name rule: any `ev["event"]` that is a string starting with `_` is dropped with WARNING.
 
@@ -382,7 +395,7 @@ For each subscription (a disabled workflow's subscription is skipped first, logg
 | `"draft_replaced"` | One per hook. `ev["draft"]` must be a str differing from current `draft`, else WARNING + drop. On accept: `draft = ev["draft"]`, yield `{"event": "writer_rewrite", "data": {"refined_text": draft}}`. |
 | `"attach_artifact"` | Gated on `get_workflow(wid)` resolving with `produces_artifacts` truthy (unknown workflow or unset flag -> WARNING + drop). Validated via `_stage_workflow_attachment`. Survivors appended to local `staged_attachments`. No SSE event at attach time. |
 | `"set_message_state"` | `ev["state"]` must be a dict (else WARNING + drop). On accept: staged under the hook's `workflow_id` (last-wins), then written to the new assistant message's per-message state slot in `_persist_result` once the assistant row exists. No SSE event. |
-| neither | Forward `ev` to SSE stream. Underscore-prefixed `ev["event"]` dropped. |
+| neither | Validate as a public SSE event, then forward. It must be a dict with a non-empty, single-line string `event` and optional `data` that is either a string or a strictly JSON-serializable dict; malformed values and underscore-prefixed event names are logged and dropped. |
 
 Error containment: each subscription wrapped in `try / except Exception`.
 
@@ -459,7 +472,7 @@ Note: when `resp_text` is empty, `_persist_result` short-circuits (sec. 7.7) and
 
 `user_message_created`? -> PRE passthrough events* -> `director_start`? -> `reasoning(director)`? -> `director_done`? -> `reasoning(writer)`? -> `token`* -> `reasoning(editor)`? -> `writer_rewrite`? -> `editor_done`? -> POST-hook events* (`writer_rewrite` from `draft_replaced`, plus passthrough, interleaved per hook in priority order) -> `workflow_attachments_rejected`? -> `done`.
 
-`?` = conditional. `director_start` and `reasoning(director)` run only when the agent is on and a pre-writer tool is enabled. `director_done` fires unconditionally (outside the director block), absent only when the turn aborts at the post-director stop check. Each `reasoning(pass)` fires only when that pass's reasoning flag is set (director on by default, writer/editor off); `user_message_created` is suppressed when the caller pre-persisted the user row.
+`?` = conditional. `director_start` and `reasoning(director)` run only when the agent is on and a pre-writer tool is enabled. `director_done` fires unconditionally (outside the director block), absent only when the turn aborts at the post-director stop check. Each `reasoning(pass)` fires only when that pass's reasoning flag is set (the shipped default keeps all three off, so none fire until a pass is enabled in `reasoning_enabled_passes`); `user_message_created` is suppressed when the caller pre-persisted the user row.
 
 ---
 
@@ -467,7 +480,7 @@ Note: when `resp_text` is empty, `_persist_result` short-circuits (sec. 7.7) and
 
 ### 8.1 Per-route reference cards
 
-Disabled-workflow gating: the four hook-firing routes -- `/trigger`, `/regenerate`, `/reroll-gen`, `/rehydrate` -- return 404 when the owning workflow is disabled (global or per-workflow), checked before the route takes its lock and before the hook runs (sec. 3.7); `/regenerate`, `/reroll-gen`, and `/rehydrate` first load the conversation and target attachment, since that read resolves the owning workflow id. To the caller this is indistinguishable from a missing handler, and the server log disambiguates. The hookless routes (manifest, config, enabled, activate, delete, access) are never gated.
+Disabled-workflow gating: the four *conversation-scoped* hook-firing routes -- `/trigger`, `/regenerate`, `/reroll-gen`, `/rehydrate` -- return 404 when the owning workflow is disabled (global or per-workflow), checked before the route takes its lock and before the hook runs (sec. 3.7); `/regenerate`, `/reroll-gen`, and `/rehydrate` first load the conversation and target attachment, since that read resolves the owning workflow id. To the caller this is indistinguishable from a missing handler, and the server log disambiguates. The hookless routes (manifest, config, enabled, activate, delete, access) are never gated. `/query` fires a hook but is deliberately **not** gated either: like the config routes it is the setup-and-discovery surface, and gating it would make a disabled workflow impossible to configure before enabling.
 
 #### GET `/api/workflows` (manifest)
 
@@ -475,15 +488,19 @@ Handler `api_list_workflows`. No locks. Response: JSON list of `{id, display_nam
 
 #### PUT `/api/workflows/{wid}/config`
 
-Handler `api_set_workflow_config`. Body model `WorkflowConfigUpdate`: `{"config": dict}`, REQUIRED -- missing key is FastAPI 422 before handler. Lock: `workflow_config_lock()`. DB: `set_workflow_config(wid, data.config)` then `get_workflow_config(wid)`. Response: `{"config": <effective>}` (post-write read; empty dict slot falls back to `config_defaults`). 404 if unregistered.
+Handler `api_set_workflow_config`. Body model `WorkflowConfigUpdate`: `{"config": dict}`, REQUIRED -- missing key is FastAPI 422 before handler. The workflow's `config_normalizer` (sec. 3.1), when declared, is applied to the body before the write and to the effective value before the response. Lock: `workflow_config_lock()`. DB: `set_workflow_config(wid, <normalized>)` then `get_workflow_config(wid)`. Response: `{"config": <effective>}` (post-write read; empty dict slot falls back to `config_defaults`). 404 if unregistered.
 
 #### GET `/api/workflows/{wid}/config`
 
-Handler `api_get_workflow_config`. No locks. DB: `get_workflow_config(wid)`. Response `{"config": <effective>}`. 404 if unregistered.
+Handler `api_get_workflow_config`. No locks. DB: `get_workflow_config(wid)`, then the workflow's `config_normalizer` when declared -- both directions normalize, so a panel edits and re-reads the exact shape the hooks will use. Response `{"config": <effective>}`. 404 if unregistered.
 
 #### POST `/api/workflows/{wid}/enabled`
 
 Handler `api_set_workflow_enabled`. Body model `WorkflowEnabledUpdate`: `{"enabled": bool}`, REQUIRED -- a body missing the key is FastAPI 422 before the handler. No lock (the per-key `set_workflow_enabled` write is atomic). DB: `set_workflow_enabled(wid, enabled)` then `get_settings()`. Response: `{"workflow_enabled": <full decoded {wid: bool} map>}`. 404 if unregistered. Ungated -- this is the control that re-enables a suspended workflow. Per-workflow on/off contract: sec. 3.7.
+
+#### POST `/api/workflows/{wid}/query`
+
+Handler `api_query_workflow`. Body: raw `dict` (default `{}`). The conversation-less counterpart to `/trigger`: single-dispatch by workflow id for a workflow's global config/discovery surface. 404 if the workflow is unregistered or has no `QUERY` subscription; **never** enablement-gated (setup precedes enable -- sec. 3.7, 8.1). No lock (the contract is read-only). Builds `QueryCtx(settings=<snapshot>)` -- no conversation, no client -- and returns `await sub.callable(query_ctx, body)` verbatim (the query contract is a dict). The handler reports its own failures in-band as `{"error": ...}` and the route stays 200; an *unexpected* raise becomes a 500, mirroring `/trigger`. Shipped handlers, both action-routers on `body["action"]` that report failures in-band: `image_gen`'s `query` (`status` / `styles` / `test` / `models` / `node_types`), each answering from the saved config or by probing the external ComfyUI server; and `tts`'s `query` (`list_backends` / `list_voices` / `list_models` / `preview`), answering from the static backend registry or by probing the TTS backend named in the request's unsaved profile.
 
 #### POST `/api/conversations/{cid}/workflows/{wid}/trigger`
 
@@ -581,7 +598,7 @@ Gates in order: dict, non-empty str `workflow_id`, str `filename`, str `mime`, X
 | `delete_workflow_attachments(target_id, *, scope, expected_message_id=None)` | `dict` | BEGIN IMMEDIATE | `LookupError`, `ValueError` |
 | `get_workflow_attachment_by_id(aid)` | `dict | None` | (read-only, `database/queries/workflow_attachments.py`) | -- |
 | `get_budget_bytes()` | `int` | (read-only) | -- |
-| `evict(aid)` | `None` | BEGIN IMMEDIATE | -- |
+| `evict(aid)` | `None` | BEGIN IMMEDIATE | `ValueError` when the row has no usable recovery metadata |
 
 Only `insert_workflow_attachment` is re-exported from `toolkit.py`. The others are called by the routes, the orchestrator, or the cache's own internal paths.
 
@@ -589,13 +606,13 @@ Only `insert_workflow_attachment` is re-exported from `toolkit.py`. The others a
 
 1. Reject if `not _is_produces_artifacts_workflow(workflow_id)` -> tagged `WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON`.
 2. `_check_flat_parent_on` -- parent must exist, must have `parent_attachment_id IS NULL`, must be on same message.
-3. Size via `_estimate_size`. If `size > budget` and rehydratable (`seed` non-empty str AND `generation_metadata` dict; `_is_rehydratable`), insert as marker; if not rehydratable, reject with `OVERSIZE_NO_METADATA_REASON`.
-4. Otherwise evict existing rows via `_lru3_key`-sorted candidates until residual `(occupied + new_size) - budget <= 0`.
+3. Size via `_estimate_size`. If `size > budget` and rehydratable (`seed` non-empty str AND strictly JSON-serializable `generation_metadata` dict; `_is_rehydratable`), insert as marker; if not rehydratable, reject with `OVERSIZE_NO_METADATA_REASON`.
+4. Otherwise evict existing rows via `_lru3_key`-sorted candidates until residual `(occupied + new_size) - budget <= 0`. A byte-bearing row without usable recovery metadata is pinned and never enters an eviction plan. If pinned occupancy prevents the new bytes from fitting, a recoverable new attachment is marker-inserted; an unrecoverable one is rejected.
 5. `insert_workflow_attachment_row` (`backend/database/queries/workflow_attachments.py`) issues `SELECT id FROM messages WHERE id=?` then `INSERT INTO workflow_attachments(...) VALUES(?,?,?,?,?,?,?,?,?,?,?)`.
 6. Birth-as-access via `_record_access_inner`.
 7. Optional `_set_active_sibling_on` when `mark_active=True`.
 
-`insert_workflow_attachments` (batch) runs three partition stages: Step 0 routes non-`produces_artifacts` workflows to `rejected_atts` (same policy as the single-row path); Step A markers/rejects oversize new atts biggest-first (tie-break by input index), so markering one big att can spare many small existing rows; Step B then runs the same step-4 eviction over existing rows for any residual shortfall.
+`insert_workflow_attachments` (batch) runs three partition stages: Step 0 routes non-`produces_artifacts` workflows to `rejected_atts` (same policy as the single-row path); Step A reserves the budget already occupied by pinned rows, then markers/rejects new atts biggest-first (tie-break by input index), so markering one big att can spare many small existing rows; Step B then runs the same step-4 eviction over recoverable existing rows for any residual shortfall. Legacy pinned rows can leave the cache above a newly-shrunk budget, but no write is allowed to destroy their only byte copy.
 
 ### 9.6 Sibling group
 
@@ -912,10 +929,11 @@ Paths passed to `api.*` must NOT include `/api` -- `_req` adds it. A conversatio
 ### 13.6 Author-callable HTTP routes
 
 - `POST /api/conversations/<cid>/workflows/<wid>/trigger` -- ON_DEMAND. Body + response are author-defined.
+- `POST /api/workflows/<wid>/query` -- QUERY. Conversation-less config/discovery; body + response author-defined (report failures in-band as `{error}`).
 - `GET /api/workflows/<wid>/config` -- live effective config.
 - `PUT /api/workflows/<wid>/config` body `{config: {...}}` -- full replacement; `{config: {}}` resets to defaults.
 
-No first-party JS wrapper for any of these; call `api.*` directly with the path minus the `/api` prefix. The config routes are not conversation-scoped, so build them by hand; the trigger route is, so `convUrl` applies. E.g. `api.get("/workflows/" + wid + "/config")`, `api.put("/workflows/" + wid + "/config", {config})`, `api.post(convUrl(cid, "workflows", wid, "trigger"), body)`.
+No first-party JS wrapper for any of these; call `api.*` directly with the path minus the `/api` prefix. The config and query routes are not conversation-scoped, so build them by hand; the trigger route is, so `convUrl` applies. E.g. `api.get("/workflows/" + wid + "/config")`, `api.put("/workflows/" + wid + "/config", {config})`, `api.post("/workflows/" + wid + "/query", {action, ...})`, `api.post(convUrl(cid, "workflows", wid, "trigger"), body)`.
 
 ---
 
@@ -1205,9 +1223,9 @@ To ship a new workflow:
 
 ### 17.3 Config form
 
-1. Workflow's `config_schema` (a JSON Schema dict) ships in the manifest.
+1. Workflow's `config_schema` (a JSON Schema dict) ships in the manifest. It describes the form; it does not enforce anything.
 2. Form populates from `GET /api/workflows/<id>/config` (effective values).
-3. Save via `PUT /api/workflows/<id>/config` with `{config: {...}}` (full replacement; `{}` resets to defaults).
+3. Save via `PUT /api/workflows/<id>/config` with `{config: {...}}` (full replacement; `{}` resets to defaults). The response is the normalized config when the workflow declares a `config_normalizer` -- adopt it rather than the value you sent, or the panel will keep showing settings the backend clamped or dropped.
 4. Backend reads via `get_workflow_config(wid)` (default-fallback aware).
 
 ### 17.4 Per-character data

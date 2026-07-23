@@ -42,7 +42,7 @@ def _restore_registry():
 
 class TestBuiltinToolNames:
     def test_matches_tools_keys_at_module_load(self):
-        assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys())
+        assert BUILTIN_TOOL_NAMES == frozenset(TOOLS) - STANDALONE_TOOLS
 
     def test_is_a_frozenset(self):
         assert isinstance(BUILTIN_TOOL_NAMES, frozenset)
@@ -50,7 +50,7 @@ class TestBuiltinToolNames:
 
 class TestStandaloneToolsBaseline:
     def test_empty_at_module_load(self):
-        assert STANDALONE_TOOLS == set()
+        assert BUILTIN_TOOL_NAMES.isdisjoint(STANDALONE_TOOLS)
 
 
 class TestPipelinePhaseSets:

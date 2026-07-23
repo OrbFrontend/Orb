@@ -5,7 +5,7 @@ export function renderDefaultWidget(att) {
   const mime = att.mime || att.mime_type || "application/octet-stream";
   const filename = att.filename || att.workflow_id || "artifact";
   if (mime.startsWith("image/")) {
-    return `<img class="workflow-artifact-image" src="data:${mime};base64,${b64}" alt="${esc(filename)}">`;
+    return `<img class="workflow-artifact-image" loading="lazy" decoding="async" src="data:${mime};base64,${b64}" alt="${esc(filename)}">`;
   }
   if (mime.startsWith("audio/")) {
     return `<audio class="workflow-artifact-audio" controls src="data:${mime};base64,${b64}"></audio>`;
