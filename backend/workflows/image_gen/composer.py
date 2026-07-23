@@ -441,7 +441,9 @@ def _render_scene(scene: Any) -> str:
     lines: list[str] = []
     viewpoint = _bounded(scene.get("viewpoint"))
     if viewpoint == "first_person":
-        lines.append("viewpoint: first-person POV (pov) -- possess the user's POV, the viewer character is not drawn, hands at most")
+        lines.append(
+            "viewpoint: first-person POV (pov) -- possess the user's POV, the viewer character is not drawn, hands at most"
+        )
     elif viewpoint == "third_person":
         lines.append("viewpoint: third-person")
     for ch in scene.get("characters") or []:
