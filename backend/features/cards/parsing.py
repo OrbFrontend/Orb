@@ -131,6 +131,29 @@ def position_converter(data: Any) -> Any:
     return None
 
 
+def first_chara_chunk(image_path: str) -> Optional[str]:
+    """Return the first ``chara`` tEXt chunk of a PNG, or None.
+
+    PIL's ``img.info`` is a plain dict, so a card carrying *several* ``chara``
+    chunks (some editors append instead of replacing) collapses to the **last**
+    one — often a stale copy missing alternate_greetings. SillyTavern and
+    chub.ai take the first match, so we do too.
+    """
+    with open(image_path, "rb") as fh:
+        data = fh.read()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None
+    i = 8
+    while i + 12 <= len(data):
+        length = int.from_bytes(data[i : i + 4], "big")
+        if data[i + 4 : i + 8] == b"tEXt":
+            key, _, value = data[i + 8 : i + 8 + length].partition(b"\x00")
+            if key == b"chara":
+                return value.decode("latin-1")
+        i += 12 + length
+    return None
+
+
 def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
     """
     Parses Tavern Card data from an image file's metadata.
@@ -138,6 +161,11 @@ def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
     """
     logger.info(f"Parsing tavern card from: {image_path}")
     metadata = extract_exif_data(image_path)
+    # Duplicate chara chunks: PIL kept the last, the spec readers use the first.
+    if first := first_chara_chunk(image_path):
+        if first != metadata.get("chara"):
+            logger.warning("PNG carries multiple 'chara' chunks - using the first, as SillyTavern/chub do")
+        metadata["chara"] = first
     if "chara" not in metadata:
         logger.error("Invalid Tavern card format - missing 'chara' field in image metadata")
         raise ValueError("Invalid Tavern card format - missing 'chara' field in image metadata")
