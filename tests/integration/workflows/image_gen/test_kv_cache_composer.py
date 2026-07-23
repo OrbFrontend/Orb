@@ -101,11 +101,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
             "default_style": "anime",
             "scene_analysis": True,  # both forced calls (analyze + compose) must fire
             "prompter_reasoning": True,
-            "external_comfy": {
-                "api_url": "http://127.0.0.1:8188",
-                "checkpoint": "a.safetensors",
-                "workflow": "external_core",
-            },
+            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
         },
     )
     await set_workflow_character_state(card_id, "image_gen", {"appearance_prompt": "long silver hair"})
@@ -116,7 +112,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
             mime="image/png",
             backend_info={
                 "source": "external_comfy",
-                "workflow_id": "external_core",
+                "workflow_id": "user_a",
                 "backend_model": "a.safetensors",
             },
         )

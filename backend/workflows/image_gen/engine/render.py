@@ -47,7 +47,12 @@ def resolve_render_target(
     stored_graph = replay.get("workflow_id")
     graph_id = stored_graph if isinstance(stored_graph, str) and stored_graph else ""
     if graph_id and not has_graph(config, graph_id):
-        notes.append(f"the workflow this image used ({graph_id}) is gone; rendered with {style['workflow']!r} instead")
+        fallback = style["workflow"]
+        notes.append(
+            f"the workflow this image used ({graph_id}) is gone; rendered with {fallback!r} instead"
+            if fallback
+            else f"the workflow this image used ({graph_id}) is gone, and this style has no workflow assigned"
+        )
         graph_id = ""
     stored_checkpoint = replay.get("backend_model")
     # An empty stored checkpoint means the original ran a user graph carrying its

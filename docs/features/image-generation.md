@@ -41,26 +41,26 @@ Now, time to connect:
 3. In the **Image Generation** card, select **Settings**.
 4. Enter the ComfyUI URL.
 5. Enter an API key if your server uses a Bearer token.
-6. In each style that uses the Orb core workflow, select a checkpoint.
-7. Select **Test connection**.
-8. Make sure that the result is **Connected**.
-9. Select **Save**.
+6. Select **Test connection**.
+7. Make sure that the result is **Connected**.
+8. Select **Save**.
 
 Use `http://127.0.0.1:8188` when Orb and ComfyUI use the same computer and the
 ComfyUI port is `8188`.
 
-The **Orb core workflow** uses standard ComfyUI nodes. It makes a 1024 × 1024
-image. Some models need a different workflow. For these models, import a
-compatible ComfyUI workflow.
+A connection is not enough to render. Orb has no built-in workflow: each style
+renders through a ComfyUI workflow that you import and assign. Until you do, the
+status stays **Import a ComfyUI workflow**.
 
 !!! note
-    **Test connection** checks all styles in the form. Each style must use an available
-    checkpoint and a valid workflow.
+    **Test connection** checks every style that has a workflow assigned. Each of
+    those workflows must be valid, and a checkpoint is required when the workflow
+    lets Orb override the model.
 
 ## Import a ComfyUI workflow
 
-Use an imported workflow when the Orb core workflow is not compatible with your
-model. The ComfyUI server must have all nodes and models that the workflow uses.
+Orb renders through ComfyUI workflows that you import. The ComfyUI server must
+have all nodes and models that the workflow uses.
 
 Orb accepts these files:
 
@@ -200,7 +200,8 @@ guaranteed.
 | Problem | Action |
 |---|---|
 | The image button is not shown. | Turn on the workflow. Use an assistant reply without an image. Make sure that this tab has write control. |
-| The status says **Choose a checkpoint**. | Open each style that uses the Orb core workflow. Select a checkpoint. |
+| The status says **Import a ComfyUI workflow**. | Import a workflow under **Imported ComfyUI workflows**. Assign it to each style. |
+| The status says **Choose a checkpoint**. | Open each style whose workflow overrides the model. Select a checkpoint. |
 | The connection test fails. | Make sure that ComfyUI is running. Check the URL, port, firewall, and API key. |
 | Orb cannot find a checkpoint. | Add the checkpoint to ComfyUI. Restart or refresh ComfyUI. Test the connection again. |
 | ComfyUI rejects the workflow. | Check that the server has all required nodes. Check the selected checkpoint and imported slots. |

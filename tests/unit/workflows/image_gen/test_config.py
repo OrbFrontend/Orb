@@ -114,10 +114,17 @@ def test_each_style_carries_its_own_checkpoint_and_workflow():
     )
     pinned = resolve_style(cfg, "pinned")
     assert (pinned["checkpoint"], pinned["workflow"]) == ("pinned.safetensors", "user_a")
-    # No global default to inherit: an empty checkpoint stays empty, an empty
-    # workflow resolves to the shipped core graph.
+    # No global default to inherit, and no shipped core graph to fall back on: an
+    # empty checkpoint stays empty and an empty workflow stays empty (unconfigured).
     plain = resolve_style(cfg, "plain")
-    assert (plain["checkpoint"], plain["workflow"]) == ("", "external_core")
+    assert (plain["checkpoint"], plain["workflow"]) == ("", "")
+
+
+def test_a_style_naming_the_removed_core_graph_migrates_to_unconfigured():
+    # "external_core" was the shipped default; it no longer exists. A stored config
+    # that still names it must read as "no workflow", not as a dangling reference.
+    cfg = normalize_config({"external_comfy": {"styles": [{"id": "legacy", "label": "Legacy", "workflow": "external_core"}]}})
+    assert resolve_style(cfg, "legacy")["workflow"] == ""
 
 
 def test_default_style_falls_back_when_it_no_longer_resolves():

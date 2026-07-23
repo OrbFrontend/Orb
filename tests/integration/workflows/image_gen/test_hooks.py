@@ -24,13 +24,23 @@ from backend.database import (
 from backend.workflows import set_workflow_config
 from backend.workflows.image_gen.engine import ImageResult
 
+USER_GRAPH = {
+    "id": "user_a",
+    "label": "Mine",
+    "graph": {
+        "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
+        "o": {"class_type": "SaveImage", "inputs": {"images": ["0", 0]}},
+    },
+    "slots": {"positive": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "images"]},
+}
+
 CONFIG = {
     "source": "external_comfy",
     "default_style": "anime",
     "external_comfy": {
         "api_url": "http://127.0.0.1:8188",
-        "checkpoint": "current.safetensors",
-        "workflow": "external_core",
+        "user_graphs": [USER_GRAPH],
     },
 }
 
@@ -39,7 +49,7 @@ def _image(**info) -> ImageResult:
     return ImageResult(
         image_bytes=b"\x89PNG\r\n\x1a\nimage",
         mime="image/png",
-        backend_info={"source": "external_comfy", "workflow_id": "external_core", **info},
+        backend_info={"source": "external_comfy", "workflow_id": "user_a", **info},
     )
 
 
@@ -210,7 +220,7 @@ async def test_reroll_replays_the_stored_graph_and_model_not_todays_style(client
                 "style_id": "anime",
                 "prompt": "1girl, standing",
                 "negative_prompt": "",
-                "workflow_id": "external_core",
+                "workflow_id": "user_a",
                 "backend_model": "original.safetensors",
             },
         },
@@ -230,7 +240,7 @@ async def test_reroll_replays_the_stored_graph_and_model_not_todays_style(client
 
     assert response.status_code == 200
     assert captured["checkpoint"] == "original.safetensors"
-    assert captured["graph_id"] == "external_core"
+    assert captured["graph_id"] == "user_a"
     assert captured["seed"] != 1234, "a reroll must move the seed or it silently returns the cached image"
 
 

@@ -42,7 +42,10 @@ async def validate_connection(config: Mapping[str, Any], *, allow_cached: bool =
     stats = await client.system_stats()
     info = await client.object_info(allow_cached=allow_cached)
     checked: set[str] = set()
-    selections = [(s["workflow"] or "external_core", s["checkpoint"]) for s in config["external_comfy"]["styles"]]
+    # A style with no workflow assigned has no graph to validate against the
+    # server; readiness reports that gap separately, so skip it here rather than
+    # fail the whole probe. Only pinned workflows are checked.
+    selections = [(s["workflow"], s["checkpoint"]) for s in config["external_comfy"]["styles"] if s["workflow"]]
     models: list[str] | None = None
 
     async def available_checkpoints() -> list[str]:
@@ -56,12 +59,7 @@ async def validate_connection(config: Mapping[str, Any], *, allow_cached: bool =
         if key in checked:
             continue
         checked.add(key)
-        graph, slots, shipped = resolve_graph(config, graph_id)
-        if shipped:
-            if not checkpoint:
-                raise ValueError("Select a checkpoint before generating")
-            if checkpoint not in await available_checkpoints():
-                raise ValueError(f"checkpoint {checkpoint!r} is not present on the server")
+        graph, slots = resolve_graph(config, graph_id)
         # Apply the model override before validating so Test connection checks the
         # model that will actually run, not the filename the graph was imported
         # with -- an imported PNG pins a model from whatever machine exported it,
@@ -170,7 +168,7 @@ async def generate(
     notes: tuple[str, ...] = (),
     progress: ProgressCallback | None = None,
 ) -> ImageResult:
-    graph, slots, shipped = resolve_graph(config, graph_id)
+    graph, slots = resolve_graph(config, graph_id)
     # A graph with no negative slot silently discards everything the composer
     # routed to the negative -- removed outfits, turned-away faces. Disclose it on
     # the attachment rather than let the user wonder why the negation had no effect.
@@ -198,7 +196,10 @@ async def generate(
             **describe_render_params(patched, slots),
             "source": "external_comfy",
             "workflow_id": graph_id,
-            "backend_model": checkpoint if shipped else None,
+            # Record the model only when the graph actually applied it. A
+            # self-contained graph (no checkpoint slot) ignores the value, and
+            # replay reads a null here as "the graph carried its own model".
+            "backend_model": checkpoint if "checkpoint" in slots else None,
             "notes": list(notes),
         },
     )

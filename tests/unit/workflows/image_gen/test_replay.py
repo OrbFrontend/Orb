@@ -28,8 +28,10 @@ def _config(**external) -> dict:
 
 
 def test_a_fresh_render_follows_the_style():
+    # The style pins no workflow and external mode ships no default graph, so the
+    # target graph is empty; the adapter turns that into an "assign a workflow" error.
     target = resolve_render_target(_config(), "anime")
-    assert (target.graph_id, target.checkpoint, target.notes) == ("external_core", "current.safetensors", ())
+    assert (target.graph_id, target.checkpoint, target.notes) == ("", "current.safetensors", ())
 
 
 def test_replay_prefers_what_the_stored_image_recorded():
@@ -41,7 +43,9 @@ def test_replay_prefers_what_the_stored_image_recorded():
 
 def test_replay_of_a_deleted_graph_degrades_with_disclosure():
     target = resolve_render_target(_config(), "anime", {"workflow_id": "user_gone", "backend_model": "old.safetensors"})
-    assert target.graph_id == "external_core"
+    # The style has no workflow to fall back to, so the target is empty and the
+    # note discloses both the missing graph and the unconfigured style.
+    assert target.graph_id == ""
     assert target.checkpoint == "old.safetensors"
     assert len(target.notes) == 1
     assert "user_gone" in target.notes[0]

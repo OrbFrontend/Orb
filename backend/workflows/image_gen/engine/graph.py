@@ -3,32 +3,23 @@
 from __future__ import annotations
 
 import copy
-import json
-from importlib.resources import files
 from typing import Any, Mapping
 
 from .contracts import ImageGenerationError
 
-CORE_SLOTS = {
-    "positive": ["6", "text"],
-    "negative": ["7", "text"],
-    "seed": ["3", "seed"],
-    "checkpoint": ["4", "ckpt_name"],
-    "output": ["9", "images"],
-}
 
+def resolve_graph(config: Mapping[str, Any], graph_id: str) -> tuple[dict, dict]:
+    """The imported graph and its slot map for `graph_id`.
 
-def load_core_graph() -> dict:
-    resource = files(__package__).joinpath("resources/workflows/external_core.json")
-    return json.loads(resource.read_text(encoding="utf-8"))
-
-
-def resolve_graph(config: Mapping[str, Any], graph_id: str) -> tuple[dict, dict, bool]:
-    if graph_id == "external_core":
-        return load_core_graph(), copy.deepcopy(CORE_SLOTS), True
+    External mode ships no default graph: every style renders through a workflow
+    the user imported, so an empty or dangling id is a configuration gap, not a
+    fallback. The messages say which so the caller can surface it verbatim.
+    """
     for item in config["external_comfy"]["user_graphs"]:
         if item["id"] == graph_id:
-            return copy.deepcopy(item["graph"]), copy.deepcopy(item["slots"]), False
+            return copy.deepcopy(item["graph"]), copy.deepcopy(item["slots"])
+    if not graph_id:
+        raise ImageGenerationError("Import a ComfyUI workflow and assign it to this style before generating")
     raise ImageGenerationError(f"Configured workflow {graph_id!r} no longer exists")
 
 
@@ -39,8 +30,6 @@ def has_graph(config: Mapping[str, Any], graph_id: str) -> bool:
     a user graph deleted since the render must degrade to the style's current
     workflow with a note, not raise from inside the adapter.
     """
-    if graph_id == "external_core":
-        return True
     return any(item["id"] == graph_id for item in config["external_comfy"]["user_graphs"])
 
 

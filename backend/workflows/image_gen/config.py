@@ -63,6 +63,12 @@ def _style(raw: Any) -> dict | None:
     prompt_format = _text(raw.get("prompt_format"), 16, DEFAULT_PROMPT_FORMAT).lower()
     if prompt_format not in PROMPT_FORMATS:
         prompt_format = DEFAULT_PROMPT_FORMAT
+    # "external_core" was the shipped default graph; it no longer exists. Migrate
+    # a config that still names it to unconfigured so the style reads as "assign a
+    # workflow", not as a reference to a graph that will never resolve.
+    workflow = _text(raw.get("workflow"), 64)
+    if workflow == "external_core":
+        workflow = ""
     return {
         "id": sid,
         "label": _text(raw.get("label"), 80, sid) or sid,
@@ -70,7 +76,7 @@ def _style(raw: Any) -> dict | None:
         "prompt": _text(raw.get("prompt"), 2_000),
         "negative_prompt": _text(raw.get("negative_prompt"), 2_000),
         "checkpoint": _text(raw.get("checkpoint"), 512),
-        "workflow": _text(raw.get("workflow"), 64),
+        "workflow": workflow,
     }
 
 
@@ -144,7 +150,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     raw_graphs = external_raw.get("user_graphs")
     for candidate in raw_graphs if isinstance(raw_graphs, list) else []:
         item = _user_graph(candidate)
-        if item and item["id"] not in graph_seen and item["id"] != "external_core":
+        if item and item["id"] not in graph_seen:
             graphs.append(item)
             graph_seen.add(item["id"])
         if len(graphs) >= MAX_USER_GRAPHS:
@@ -178,10 +184,10 @@ def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:
     style = next((s for s in external["styles"] if s["id"] == style_id), None)
     if style is None:
         raise ValueError(f"unknown image style {style_id!r}")
-    return {
-        **style,
-        "workflow": style["workflow"] or "external_core",
-    }
+    # An empty workflow stays empty: external mode has no default graph, so the
+    # render path turns "no workflow" into a clear "assign one" error rather than
+    # silently substituting.
+    return dict(style)
 
 
 def normalize_profile(raw: Mapping[str, Any] | None) -> dict:

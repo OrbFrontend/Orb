@@ -4,12 +4,48 @@ import pytest
 
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
 from backend.workflows.image_gen.engine.graph import (
-    CORE_SLOTS,
     describe_render_params,
-    load_core_graph,
     patch_graph,
     validate_graph_structure,
 )
+
+# A generic SDXL-shaped graph standing in for a typical imported workflow, with
+# the standard slot map Orb patches through. External mode ships no default
+# graph, so these fixtures live in the test rather than being loaded from one.
+CORE_SLOTS = {
+    "positive": ["6", "text"],
+    "negative": ["7", "text"],
+    "seed": ["3", "seed"],
+    "checkpoint": ["4", "ckpt_name"],
+    "output": ["9", "images"],
+}
+
+
+def _base_graph() -> dict:
+    return {
+        "3": {
+            "class_type": "KSampler",
+            "inputs": {
+                "seed": 0,
+                "steps": 24,
+                "cfg": 6.0,
+                "sampler_name": "euler",
+                "scheduler": "normal",
+                "denoise": 1.0,
+                "model": ["4", 0],
+                "positive": ["6", 0],
+                "negative": ["7", 0],
+                "latent_image": ["5", 0],
+            },
+        },
+        "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ""}},
+        "5": {"class_type": "EmptyLatentImage", "inputs": {"width": 1024, "height": 1024, "batch_size": 1}},
+        "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["4", 1]}},
+        "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "", "clip": ["4", 1]}},
+        "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+        "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "Orb", "images": ["8", 0]}},
+    }
+
 
 # A minimal /object_info shaped like the real one: `input.required` maps an input
 # name to [type, options], where a list type is a combo of legal values.
@@ -32,14 +68,14 @@ OBJECT_INFO = {
 
 
 def _core():
-    """The shipped graph with a checkpoint filled in, as a real submission has."""
-    graph = load_core_graph()
+    """A representative imported graph with a checkpoint filled in, as a real submission has."""
+    graph = _base_graph()
     graph["4"]["inputs"]["ckpt_name"] = "model.safetensors"
     return graph, dict(CORE_SLOTS)
 
 
-def test_core_graph_patches_only_declared_slots():
-    original = load_core_graph()
+def test_graph_patches_only_declared_slots():
+    original = _base_graph()
     patched, output = patch_graph(
         original,
         CORE_SLOTS,
@@ -56,10 +92,10 @@ def test_core_graph_patches_only_declared_slots():
     assert original["4"]["inputs"]["ckpt_name"] == ""
 
 
-def test_core_graph_requires_checkpoint():
+def test_graph_requires_checkpoint():
     with pytest.raises(ImageGenerationError, match="checkpoint"):
         patch_graph(
-            load_core_graph(),
+            _base_graph(),
             CORE_SLOTS,
             prompt="x",
             negative_prompt="",

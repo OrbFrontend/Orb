@@ -69,11 +69,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
         {
             "source": "external_comfy",
             "default_style": "anime",
-            "external_comfy": {
-                "api_url": "http://127.0.0.1:8188",
-                "checkpoint": "anime.safetensors",
-                "workflow": "external_core",
-            },
+            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
         },
     )
     await set_workflow_character_state("ig-char", "image_gen", {"appearance_prompt": "long silver hair"})
@@ -100,7 +96,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
             mime="image/png",
             backend_info={
                 "source": "external_comfy",
-                "workflow_id": "external_core",
+                "workflow_id": "user_a",
                 "backend_model": "anime.safetensors",
             },
         )
@@ -165,7 +161,7 @@ def _image() -> ImageResult:
     return ImageResult(
         image_bytes=b"\x89PNG\r\n\x1a\nimage",
         mime="image/png",
-        backend_info={"source": "external_comfy", "workflow_id": "external_core"},
+        backend_info={"source": "external_comfy", "workflow_id": "user_a"},
     )
 
 
@@ -237,18 +233,57 @@ async def test_config_round_trips_through_the_workflow_normalizer(client):
 
 @pytest.mark.asyncio
 async def test_status_reports_why_it_is_not_ready(client):
+    async def status() -> dict:
+        return (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
+
+    # A model-override graph (checkpoint slot) and a self-contained one (none).
+    override_graph = {
+        "id": "user_override",
+        "label": "Override",
+        "graph": {
+            "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+            "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
+            "m": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ""}},
+            "o": {"class_type": "SaveImage", "inputs": {"images": ["0", 0]}},
+        },
+        "slots": {
+            "positive": ["0", "text"],
+            "seed": ["s", "seed"],
+            "output": ["o", "images"],
+            "checkpoint": ["m", "ckpt_name"],
+        },
+    }
+    self_contained = {**override_graph, "id": "user_self", "label": "Self"}
+    self_contained["slots"] = {k: v for k, v in override_graph["slots"].items() if k != "checkpoint"}
+
+    # No workflow assigned: external mode ships no default graph, so the styles
+    # cannot render until one is imported and pinned -- reported first.
     styles = [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]
     await set_workflow_config("image_gen", {"external_comfy": {"styles": styles}})
-    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
-    assert status["ready"] is False
-    assert status["reason"] == "no_checkpoint"
+    first = await status()
+    assert first["ready"] is False
+    assert first["reason"] == "no_workflow"
 
+    # Workflow assigned but it overrides the model and no checkpoint is chosen.
     for s in styles:
-        s["checkpoint"] = "anime.safetensors"
-    await set_workflow_config("image_gen", {"external_comfy": {"styles": styles}})
-    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
-    assert status["ready"] is True
-    assert status["style_count"] == 2
+        s["workflow"] = "user_override"
+    await set_workflow_config(
+        "image_gen", {"external_comfy": {"styles": styles, "user_graphs": [override_graph, self_contained]}}
+    )
+    second = await status()
+    assert second["ready"] is False
+    assert second["reason"] == "no_checkpoint"
+
+    # Point one style at the self-contained graph (needs no checkpoint) and give
+    # the override style a checkpoint: now everything can render.
+    styles[0]["workflow"] = "user_self"
+    styles[1]["checkpoint"] = "anime.safetensors"
+    await set_workflow_config(
+        "image_gen", {"external_comfy": {"styles": styles, "user_graphs": [override_graph, self_contained]}}
+    )
+    third = await status()
+    assert third["ready"] is True
+    assert third["style_count"] == 2
 
 
 @pytest.mark.asyncio

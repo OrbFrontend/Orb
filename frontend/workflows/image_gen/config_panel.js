@@ -188,7 +188,7 @@ function styleRows(expandIds = "") {
           <label>Negative style prompt<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No negative style prompt">${esc(s.negative_prompt || "")}</textarea></label>
           <div class="ig-grid">
             <label>Checkpoint${checkpointField(s.checkpoint || "")}</label>
-            <label>Workflow<select data-ig-field="workflow" data-wf-action="image_gen:styleChange" data-wf-on="change">${workflowOptions(s.workflow || "external_core")}</select></label>
+            <label>Workflow${workflowField(s.workflow || "")}</label>
           </div>
           <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${i}">Remove style</button>
         </div>
@@ -259,10 +259,24 @@ function refreshStyleState(el) {
   if (nameEl && name) nameEl.textContent = name;
 }
 
+// The per-style workflow control. With nothing imported there is nothing to
+// pick, so the select would be an empty (or single dead-option) menu -- show the
+// user what to do instead. Once graphs exist it becomes a real chooser.
+function workflowField(selected) {
+  if (!draft.graphs.length) {
+    return `<span class="image-gen-note ig-workflow-empty">No workflows detected. Import one in <strong>Imported ComfyUI workflows</strong> below.</span>`;
+  }
+  return `<select data-ig-field="workflow" data-wf-action="image_gen:styleChange" data-wf-on="change">${workflowOptions(selected)}</select>`;
+}
+
 function workflowOptions(selected) {
-  const options = [
-    `<option value="external_core"${selected === "external_core" ? " selected" : ""}>Orb core workflow</option>`,
-  ];
+  const known = draft.graphs.some((graph) => graph.id === selected);
+  const options = [`<option value="" disabled${selected && known ? "" : " selected"}>Choose a workflow</option>`];
+  // Keep a pinned-but-missing workflow visible rather than silently swapping the
+  // style onto whatever graph happens to sort first, mirroring the checkpoint field.
+  if (selected && !known) {
+    options.push(`<option value="${escAttr(selected)}" selected>${esc(selected)} (not found)</option>`);
+  }
   for (const graph of draft.graphs) {
     options.push(
       `<option value="${escAttr(graph.id)}"${selected === graph.id ? " selected" : ""}>${esc(graph.label || graph.id)}</option>`,

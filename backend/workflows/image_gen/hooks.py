@@ -28,7 +28,6 @@ from .engine import (
     ImageGenerationError,
     ImageRequest,
     ProgressCallback,
-    has_graph,
     list_models,
     node_roles,
     resolve_and_generate,
@@ -286,12 +285,25 @@ def _configuration_readiness(config: Mapping[str, Any]) -> dict:
     Visualize modal already runs at the moment it matters.
     """
     external = config["external_comfy"]
+    graphs = {graph["id"]: graph for graph in external["user_graphs"]}
+    # External mode ships no default graph, so a style with nothing pinned cannot
+    # render at all -- the first thing to fix, ahead of checkpoints.
+    needs_workflow = any(not style["workflow"] for style in external["styles"])
     unresolved = sorted(
-        {style["workflow"] for style in external["styles"] if style["workflow"] and not has_graph(config, style["workflow"])}
+        {style["workflow"] for style in external["styles"] if style["workflow"] and style["workflow"] not in graphs}
     )
+    # A checkpoint is only required when the pinned graph exposes a model slot for
+    # Orb's selection to override; a self-contained graph carries its own.
     needs_checkpoint = any(
-        not style["checkpoint"] and (style["workflow"] or "external_core") == "external_core" for style in external["styles"]
+        not style["checkpoint"] and style["workflow"] in graphs and "checkpoint" in graphs[style["workflow"]]["slots"]
+        for style in external["styles"]
     )
+    if needs_workflow:
+        return {
+            "ready": False,
+            "reason": "no_workflow",
+            "detail": "Import a ComfyUI workflow and assign it to each style",
+        }
     if unresolved:
         return {"ready": False, "reason": "unknown_workflow", "detail": f"Unknown workflow: {', '.join(unresolved)}"}
     if needs_checkpoint:
@@ -324,7 +336,7 @@ async def _status(body) -> dict:
     return {
         "source": "external_comfy",
         "capabilities": dict(CAPABILITIES),
-        "configured": any(s["checkpoint"] or s["workflow"] not in ("", "external_core") for s in external["styles"]),
+        "configured": any(s["checkpoint"] or s["workflow"] for s in external["styles"]),
         "api_url": external["api_url"],
         "default_style": config["default_style"],
         "style_count": len(external["styles"]),
