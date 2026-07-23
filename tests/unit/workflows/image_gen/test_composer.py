@@ -27,14 +27,15 @@ def test_render_scene_lays_out_each_character_with_outfit_and_position():
     lines = block.splitlines()
     assert lines[0] == "Ashley: wearing silk dress, bare feet, left, holding a book, sitting, reading"
     assert lines[1] == "nobleman: tall man, dark hair, right, behind her"
-    assert lines[2] == "setting: medieval garden, midday, stone bench"
+    assert lines[2] == "setting and framing: medieval garden, midday, stone bench"
 
 
 def test_render_scene_marks_first_person_pov():
     block = _render_scene({"viewpoint": "first_person", "characters": [{"name": "a", "action": "smiling"}]})
     assert block.splitlines()[0].startswith("viewpoint: first-person POV")
-    # third_person adds no viewpoint line
-    assert "viewpoint" not in _render_scene({"viewpoint": "third_person", "characters": [{"name": "a", "action": "x"}]})
+    assert _render_scene({"viewpoint": "third_person", "characters": [{"name": "a", "action": "x"}]}).startswith(
+        "viewpoint: third-person"
+    )
 
 
 def test_render_scene_tolerates_junk_and_empties():
@@ -121,9 +122,7 @@ async def test_composer_negation_stripped_from_scene(monkeypatch):
     assert avoid == "blur"
 
 
-async def test_hidden_elements_ride_avoid(monkeypatch):
-    # `hidden` (present but not visible -- turned away, occluded, cropped) feeds
-    # the negative so the checkpoint doesn't invent it (e.g. a face on a back view).
+async def test_analysis_avoid_items_ride_avoid(monkeypatch):
     monkeypatch.setattr(
         composer,
         "forced_tool_call",
@@ -132,16 +131,20 @@ async def test_hidden_elements_ride_avoid(monkeypatch):
                 "analyze_scene": {
                     "viewpoint": "third_person",
                     "characters": [{"name": "Ashley", "sex": "girl", "appearance": "", "action": "walking away"}],
-                    "hidden": "looking at viewer, face",
+                    "avoid": "looking at viewer",
                 },
-                "compose_image_prompt": {"scene": "1girl, from behind", "avoid": "blur"},
+                "compose_image_prompt": {
+                    "scene": "1girl, from behind",
+                    "avoid": "blur",
+                    "profile_owner_visible": False,
+                },
             }
         ),
     )
     _, avoid, _ = await compose_scene(
         client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
     )
-    assert avoid == "blur, looking at viewer, face"
+    assert avoid == "blur, looking at viewer"
 
 
 async def test_empty_analysis_reports_analysis_failed(monkeypatch):
@@ -253,6 +256,144 @@ async def test_single_call_strips_negation_from_scene(monkeypatch):
     assert mode == "single_call"
 
 
+async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monkeypatch):
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "compose_image_prompt": {
+                    "scene": "1girl, solo, sitting by a window",
+                    "avoid": None,
+                    "profile_owner_visible": True,
+                }
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        appearance="long silver hair, blue eyes",
+        profile_owner_name="Iris",
+        prompt_format="hybrid",
+    )
+    assert scene == "1girl, solo, long silver hair, blue eyes, sitting by a window"
+
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "compose_image_prompt": {
+                    "scene": "1boy, solo, standing in a doorway",
+                    "avoid": None,
+                    "profile_owner_visible": False,
+                }
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        appearance="long silver hair, blue eyes",
+        profile_owner_name="Iris",
+    )
+    assert "silver hair" not in scene
+
+
+async def test_analysis_owns_profile_visibility_and_preserves_scene_fields(monkeypatch):
+    captured: dict = {}
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced_capturing(
+            {
+                "analyze_scene": {
+                    "viewpoint": "third_person",
+                    "characters": [
+                        {
+                            "name": "Iris",
+                            "is_profile_owner": True,
+                            "sex": "girl",
+                            "appearance": None,
+                            "outfit": "black dress",
+                            "position": "left",
+                            "pose": "standing",
+                            "action": "holding Ashley's hand",
+                            "expression": "smiling",
+                            "gaze": "looking at Ashley",
+                        }
+                    ],
+                    "setting": "library at night",
+                    "anchors": "window",
+                    "interaction": "Iris holds Ashley's hand",
+                    "framing": "medium shot",
+                    "avoid": "looking at viewer",
+                },
+                "compose_image_prompt": {
+                    "scene": "black dress, holding hands, smiling, library at night, medium shot",
+                    "avoid": None,
+                    # Structured analysis, not this redundant field, owns visibility.
+                    "profile_owner_visible": False,
+                },
+            },
+            captured,
+        ),
+    )
+    scene, avoid, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        appearance="long silver hair",
+        profile_owner_name="Iris",
+        scene_analysis=True,
+    )
+    assert scene.startswith("1girl, solo, long silver hair")
+    assert avoid == "looking at viewer"
+    structured_tail = captured["compose_image_prompt"]
+    assert "expression: smiling" in structured_tail
+    assert "gaze: looking at Ashley" in structured_tail
+    assert "interaction: Iris holds Ashley's hand" in structured_tail
+    assert "medium shot" in structured_tail
+
+
+async def test_analysis_does_not_insert_off_frame_profile(monkeypatch):
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "analyze_scene": {
+                    "viewpoint": "third_person",
+                    "characters": [{"name": "Ashley", "is_profile_owner": False, "sex": "girl", "action": "reading"}],
+                    "setting": "library",
+                },
+                "compose_image_prompt": {
+                    "scene": "reading in a library",
+                    "avoid": None,
+                    # The structured cast is authoritative.
+                    "profile_owner_visible": True,
+                },
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        appearance="long silver hair",
+        profile_owner_name="Iris",
+        scene_analysis=True,
+    )
+    assert "silver hair" not in scene
+
+
 def _fake_forced_capturing(results: dict, captured: dict):
     async def fake(*, tool_name, tail_messages=None, **kwargs):
         captured[tool_name] = " ".join(m["content"] for m in tail_messages or [])
@@ -323,7 +464,7 @@ async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
         await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"})
 
 
-def test_assemble_strips_profile_counts():
+def test_assemble_keeps_profile_out_of_positive_because_composer_owns_it():
     config = {
         "external_comfy": {
             "styles": [
@@ -341,6 +482,4 @@ def test_assemble_strips_profile_counts():
     positive, _, _ = composer.assemble_prompts(
         config, "anime", {"appearance_prompt": "1girl, solo, long red hair"}, "2girls, garden", ""
     )
-    # Count anchor from the scene leads; style follows immediately, then the
-    # appearance (with its own count stripped) and scene body.
-    assert positive == "2girls, anime illustration, clean line art, very aesthetic, high contrast, long red hair, garden"
+    assert positive == "2girls, anime illustration, clean line art, very aesthetic, high contrast, garden"

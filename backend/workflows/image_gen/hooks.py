@@ -198,6 +198,8 @@ async def _generate_fresh(
         history = _history_through(ctx.history, int(message["id"]))
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     selected_style = resolve_style(config, style_id)
+    character = getattr(ctx, "character", None)
+    profile_owner_name = str(character.get("name") or "") if isinstance(character, Mapping) else ""
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,
         model_name=ctx.agent_model_name,
@@ -207,6 +209,7 @@ async def _generate_fresh(
         reasoning_on=bool(config.get("prompter_reasoning")),
         scene_analysis=bool(config.get("scene_analysis")),
         appearance=str(profile.get("appearance_prompt") or ""),
+        profile_owner_name=profile_owner_name,
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()
@@ -509,6 +512,7 @@ class _RegenCompositionCtx:
         self.settings = ctx.settings
         self.agent_client = ctx.agent_client
         self.agent_model_name = ctx.agent_model_name
+        self.character = ctx.character
 
 
 async def reroll_gen(ctx, params, seed):
