@@ -261,27 +261,57 @@ def _fake_forced_capturing(results: dict, captured: dict):
     return fake
 
 
-async def test_analysis_format_follows_cast_size(monkeypatch):
-    # One visible character -> tags guide; two or more -> prose (names bind
-    # attributes to the right person, where tags bleed across characters).
-    for cast, marker in (
-        ([{"name": "a", "sex": "girl", "action": "waving"}], "booru tags"),
-        (
-            [{"name": "a", "sex": "girl", "action": "waving"}, {"name": "b", "sex": "boy", "action": "watching"}],
-            "prose sentences",
-        ),
+async def test_analysis_format_follows_explicit_style_setting_not_cast_size(monkeypatch):
+    casts = (
+        [{"name": "a", "sex": "girl", "action": "waving"}],
+        [{"name": "a", "sex": "girl", "action": "waving"}, {"name": "b", "sex": "boy", "action": "watching"}],
+    )
+    for prompt_format, marker in (
+        ("tags", "booru tags only"),
+        ("hybrid", "hybrid image prompt"),
+        ("prose", "complete prose sentences"),
+    ):
+        for cast in casts:
+            captured: dict = {}
+            monkeypatch.setattr(
+                composer,
+                "forced_tool_call",
+                _fake_forced_capturing(
+                    {"analyze_scene": {"characters": cast}, "compose_image_prompt": {"scene": "1girl, x", "avoid": None}},
+                    captured,
+                ),
+            )
+            await compose_scene(
+                client=None,
+                model_name="m",
+                prefix=[],
+                settings={"model_name": "writer"},
+                prompt_format=prompt_format,
+                scene_analysis=True,
+            )
+            assert marker in captured["compose_image_prompt"], (prompt_format, len(cast), marker)
+
+
+async def test_single_call_format_follows_explicit_style_setting(monkeypatch):
+    for prompt_format, marker in (
+        ("tags", "booru tags only"),
+        ("hybrid", "hybrid image prompt"),
+        ("prose", "complete prose sentences"),
     ):
         captured: dict = {}
         monkeypatch.setattr(
             composer,
             "forced_tool_call",
-            _fake_forced_capturing(
-                {"analyze_scene": {"characters": cast}, "compose_image_prompt": {"scene": "1girl, x", "avoid": None}},
-                captured,
-            ),
+            _fake_forced_capturing({"compose_image_prompt": {"scene": "1girl, x", "avoid": None}}, captured),
         )
-        await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True)
-        assert marker in captured["compose_image_prompt"], (len(cast), marker)
+        await compose_scene(
+            client=None,
+            model_name="m",
+            prefix=[],
+            settings={"model_name": "writer"},
+            prompt_format=prompt_format,
+        )
+        assert marker in captured["compose_image_prompt"]
 
 
 async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):

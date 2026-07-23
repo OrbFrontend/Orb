@@ -198,11 +198,13 @@ async def _generate_fresh(
     if prefix is None:
         history = _history_through(ctx.history, int(message["id"]))
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
+    selected_style = resolve_style(config, style_id)
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,
         model_name=ctx.agent_model_name,
         prefix=prefix,
         settings=ctx.settings,
+        prompt_format=selected_style["prompt_format"],
         reasoning_on=bool(config.get("prompter_reasoning")),
         scene_analysis=bool(config.get("scene_analysis")),
         appearance=str(profile.get("appearance_prompt") or ""),

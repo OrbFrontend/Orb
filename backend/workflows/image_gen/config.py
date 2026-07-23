@@ -11,6 +11,8 @@ WORKFLOW_ID = "image_gen"
 MAX_STYLES = 32
 MAX_USER_GRAPHS = 16
 MAX_GRAPH_BYTES = 512_000
+PROMPT_FORMATS = ("tags", "hybrid", "prose")
+DEFAULT_PROMPT_FORMAT = "hybrid"
 
 CONFIG_DEFAULTS = {
     "source": "external_comfy",
@@ -25,6 +27,7 @@ CONFIG_DEFAULTS = {
             {
                 "id": "realistic",
                 "label": "Realistic",
+                "prompt_format": DEFAULT_PROMPT_FORMAT,
                 "prompt": "RAW photo, realistic illumination, realistic shadows, photography, photorealistic, cinematic lighting, detailed skin, high contrast",
                 "negative_prompt": "cartoon, anime, drawing, paint, flat, illustration, painting, low detail, low quality, worst quality, bad quality",
                 "checkpoint": "",
@@ -33,6 +36,7 @@ CONFIG_DEFAULTS = {
             {
                 "id": "anime",
                 "label": "Anime",
+                "prompt_format": DEFAULT_PROMPT_FORMAT,
                 "prompt": "anime illustration, clean line art, very aesthetic, high contrast, masterpiece, best quality",
                 "negative_prompt": "photorealistic, 3d render, muddy colors, low quality, worst quality, bad quality, score_1, score_2, bad anatomy",
                 "checkpoint": "",
@@ -56,9 +60,13 @@ def _style(raw: Any) -> dict | None:
     sid = _text(raw.get("id"), 64)
     if not _ID_RE.fullmatch(sid):
         return None
+    prompt_format = _text(raw.get("prompt_format"), 16, DEFAULT_PROMPT_FORMAT).lower()
+    if prompt_format not in PROMPT_FORMATS:
+        prompt_format = DEFAULT_PROMPT_FORMAT
     return {
         "id": sid,
         "label": _text(raw.get("label"), 80, sid) or sid,
+        "prompt_format": prompt_format,
         "prompt": _text(raw.get("prompt"), 2_000),
         "negative_prompt": _text(raw.get("negative_prompt"), 2_000),
         "checkpoint": _text(raw.get("checkpoint"), 512),

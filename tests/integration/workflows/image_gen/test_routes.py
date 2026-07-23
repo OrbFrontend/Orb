@@ -123,6 +123,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert lane["agent_client"] is lane["writer_client"]
     assert captured["compose"]["client"] is lane["writer_client"]
     assert captured["compose"]["model_name"] == lane["agent_model_name"]
+    assert captured["compose"]["prompt_format"] == "hybrid"
 
     match = re.search(r'"attachment_id":(\d+)', response.text)
     assert match

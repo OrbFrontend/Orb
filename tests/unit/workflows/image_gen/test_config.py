@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from backend.workflows.image_gen.config import (
+    DEFAULT_PROMPT_FORMAT,
     MAX_USER_GRAPHS,
+    PROMPT_FORMATS,
     normalize_config,
     resolve_style,
 )
@@ -13,8 +15,18 @@ def test_a_style_id_does_not_change_empty_prompt_fields():
         {"external_comfy": {"styles": [{"id": "anime", "label": "Anything", "prompt": "", "negative_prompt": ""}]}}
     )
     style = resolve_style(cfg, "anime")
+    assert style["prompt_format"] == DEFAULT_PROMPT_FORMAT
     assert style["prompt"] == ""
     assert style["negative_prompt"] == ""
+
+
+def test_style_prompt_format_is_explicit_and_limited_to_three_choices():
+    styles = [{"id": prompt_format, "prompt_format": prompt_format} for prompt_format in PROMPT_FORMATS]
+    styles.append({"id": "invalid", "prompt_format": "checkpoint-dependent"})
+    cfg = normalize_config({"external_comfy": {"styles": styles}})
+
+    assert [resolve_style(cfg, prompt_format)["prompt_format"] for prompt_format in PROMPT_FORMATS] == list(PROMPT_FORMATS)
+    assert resolve_style(cfg, "invalid")["prompt_format"] == DEFAULT_PROMPT_FORMAT
 
 
 def test_config_rejects_credentials_in_url_and_bounds_timeout():

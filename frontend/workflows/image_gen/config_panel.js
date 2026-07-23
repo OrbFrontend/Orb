@@ -21,6 +21,11 @@ import { modelPickerState } from "./model_picker.js";
 import { isLoopbackUrl } from "./policy.js";
 
 const WORKFLOW_ID = "image_gen";
+const PROMPT_FORMATS = [
+  ["tags", "Tags"],
+  ["hybrid", "Hybrid"],
+  ["prose", "Prose"],
+];
 let cfg;
 let pendingGraph = null;
 // The styles and imported graphs being edited. A working copy rather than cfg
@@ -161,6 +166,13 @@ function checkpointField(value) {
   return `<select ${attrs}>${options.join("")}</select>`;
 }
 
+function promptFormatOptions(value) {
+  const selected = PROMPT_FORMATS.some(([id]) => id === value) ? value : "hybrid";
+  return PROMPT_FORMATS.map(
+    ([id, label]) => `<option value="${id}"${id === selected ? " selected" : ""}>${label}</option>`,
+  ).join("");
+}
+
 function styleRows(expandIds = "") {
   const expanded = new Set(Array.isArray(expandIds) ? expandIds : [expandIds]);
   return draft.styles
@@ -171,8 +183,9 @@ function styleRows(expandIds = "") {
         </summary>
         <div class="ig-style-body">
           <label>Name<input data-ig-field="label" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(s.label || "")}"></label>
-          <label>Positive style tags<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No style tags">${esc(s.prompt || "")}</textarea></label>
-          <label>Negative style tags<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No style tags">${esc(s.negative_prompt || "")}</textarea></label>
+          <label>Prompt format<select data-ig-field="prompt_format" data-wf-action="image_gen:styleChange" data-wf-on="change">${promptFormatOptions(s.prompt_format)}</select></label>
+          <label>Positive style prompt<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No positive style prompt">${esc(s.prompt || "")}</textarea></label>
+          <label>Negative style prompt<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No negative style prompt">${esc(s.negative_prompt || "")}</textarea></label>
           <div class="ig-grid">
             <label>Checkpoint${checkpointField(s.checkpoint || "")}</label>
             <label>Workflow<select data-ig-field="workflow" data-wf-action="image_gen:styleChange" data-wf-on="change">${workflowOptions(s.workflow || "external_core")}</select></label>
@@ -195,6 +208,7 @@ function captureStyles() {
     return {
       ...s,
       label: get("label").trim() || s.label || s.id,
+      prompt_format: get("prompt_format") || "hybrid",
       prompt: get("prompt"),
       negative_prompt: get("negative_prompt"),
       checkpoint: get("checkpoint"),
@@ -211,7 +225,15 @@ function renderStyles(expandId = "") {
 function addStyle() {
   captureStyles();
   const id = `style_${Date.now().toString(36)}`;
-  draft.styles.push({ id, label: "New style", prompt: "", negative_prompt: "", checkpoint: "", workflow: "" });
+  draft.styles.push({
+    id,
+    label: "New style",
+    prompt_format: "hybrid",
+    prompt: "",
+    negative_prompt: "",
+    checkpoint: "",
+    workflow: "",
+  });
   renderStyles(id);
 }
 
@@ -330,7 +352,7 @@ function openSettings(expandStyleId = "") {
     </section>
     <section class="ig-section">
       <div class="ig-heading">Character appearance</div>
-      <div id="ig-profile" class="image-gen-note">Open a conversation to edit appearance tags.</div>
+      <div id="ig-profile" class="image-gen-note">Open a conversation to edit its appearance prompt.</div>
     </section>
     <details class="ig-advanced">
       <summary>Imported ComfyUI workflows</summary>
@@ -530,8 +552,8 @@ async function populateProfile() {
     }
     el.classList.remove("image-gen-note");
     el.innerHTML = `<div class="ig-profile-fields">
-        <label>Appearance tags<textarea id="ig-appearance" placeholder="Booru tags. For a canon character the model knows, just its tag (e.g. hatsune miku). Leave blank for OCs.">${esc(res.profile.appearance_prompt || "")}</textarea></label>
-        <label>Negative tags<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, hat). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
+        <label>Appearance prompt<textarea id="ig-appearance" placeholder="Fixed character appearance in the selected prompt format. Leave blank for OCs without a saved description.">${esc(res.profile.appearance_prompt || "")}</textarea></label>
+        <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, hat). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
       </div>`;
   } catch {
     el.textContent = "Could not load character appearance.";

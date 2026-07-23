@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from ..contracts import ToolSpec
 from ..toolkit import forced_tool_call
-from .config import resolve_style
+from .config import DEFAULT_PROMPT_FORMAT, PROMPT_FORMATS, resolve_style
 
 logger = logging.getLogger(__name__)
 
@@ -21,65 +21,68 @@ logger = logging.getLogger(__name__)
 # instruction each, imperative mood, no synonyms. A small agent model
 # follows plain instructions more reliably than dense prose.
 #
-# Two format families, one per person count.
-#
-# Single subject -> booru tags: one subject has no attribute-binding problem,
-# and tag-trained checkpoints render one subject most faithfully from tags.
-# Two or more subjects -> prose with each character named: that is exactly where
-# tags bleed attributes across characters, and a named sentence binds each
-# attribute to the right person.
-#
-# The single-call path (_SCENE_FORMAT) owns everything -- count, viewpoint,
-# negatives -- and does not know the count until it writes it, so it carries the
-# tags-vs-prose choice as a conditional the model resolves. The analysis path
-# already knows the cast (the analyzer returns it), so Python picks the format
-# and hands the model just one structured guide, tags or prose.
-_SCENE_FORMAT = (
+# Prompt format is an explicit per-style user choice. Do not infer it from the
+# checkpoint, workflow, or visible cast size: all three are unreliable proxies
+# for what an imported graph's text encoder expects.
+_FORMAT_INSTRUCTIONS = {
+    "tags": (
+        "Write the rest of the image prompt as booru tags only. Separate all tags with commas. "
+        "Do not write complete prose sentences. Do not use character names. "
+    ),
+    "hybrid": (
+        "Write the rest as a hybrid image prompt. Use booru tags for visible attributes. "
+        "Use short natural-language clauses for spatial relationships, interactions, and other details that tags "
+        "cannot bind clearly. Separate tags and clauses with commas. For more than one person, use each character's "
+        "name in every natural-language clause about that character. "
+    ),
+    "prose": (
+        "Write the rest as short, complete prose sentences, not a list of tags. "
+        "For more than one person, use each character's name. Name the character in each sentence about that "
+        "character so the attributes stay bound to the right person. "
+    ),
+}
+
+_SCENE_FORMAT_HEAD = (
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "Examples: 1girl. 1boy. 2girls. 1boy, 1girl. "
     "For a first-person view, add the pov tag after the count tags. Do not draw the viewer character. Draw the "
     "viewer character's hands only. Do not count the viewer character in the count tags. Example: if you look at "
     "one girl, write '1girl, solo, pov', not '1boy, 1girl'. "
-    "Count the persons. Then choose the format for the rest of the prompt. "
-    "For one person, write booru tags with short natural-language clauses between them. Separate all items with "
-    "commas. Give the hair, eyes, build, clothing, pose, action, and expression. Then give the setting, the "
-    "lighting, and the framing. May have as many items as needed. Do not use names. "
-    "For more than one person, write short prose sentences. Use each character's name. Name the character in each "
-    "sentence about that character. The name binds the attributes to the right character. Describe each character's "
-    "hair, eyes, build, clothing, pose, action, and expression. Describe the interaction between the characters. "
+)
+
+_SCENE_FORMAT_TAIL = (
+    "Describe each character's hair, eyes, build, clothing, pose, action, and expression. "
+    "Describe the interaction between the characters. "
     "Then describe the setting, the lighting, and the framing. "
+    "The prompt can be as long and detailed and meticulous as possible. "
     "Describe only the things that you can see. Do not write what a character is not wearing or not doing. "
     "Do not add art-style words or quality words. "
     "In `avoid`, put each thing that is not visible. Example: put 'looking at viewer' if the character looks away."
 )
 
-# Formatting-only guides for the analysis path. No count, viewpoint, or avoid
-# instructions: the analyzer supplies those and Python enforces them. Python
-# picks tags vs prose from the analyzed cast size (see compose_scene).
-_SCENE_FORMAT_STRUCTURED_TAGS = (
-    "Show exactly the structured scene below. Do not add anything that the scene does not state. "
-    "Write the image prompt as booru tags with short natural-language clauses between them. Separate all items "
-    "with commas. "
-    "Give the character's traits, clothing, pose, action, and expression. Then give the setting, the lighting, "
-    "and the framing. The prompt can be as long and detailed and meticulous as possible. "
-    "Do not write what the character is not wearing or not doing. Write only positive items. "
-    "Do not add count words such as 1girl or 1boy. The system already adds the count words. "
-    "Do not add art-style words or quality words. Do not use names. "
-    "Leave `avoid` empty. The system already adds the items to avoid."
-)
+_SCENE_FORMAT_STRUCTURED_HEAD = "Show exactly the structured scene below. Do not add anything that the scene does not state. "
 
-_SCENE_FORMAT_STRUCTURED_PROSE = (
-    "Show exactly the structured scene below. Do not add anything that the scene does not state. "
-    "Write the image prompt as short prose sentences. Use complete sentences, not single words. "
-    "Use each character's name. Name the character in each sentence about that character. The name binds the "
-    "attributes to the right character. "
+_SCENE_FORMAT_STRUCTURED_TAIL = (
     "Describe each character's traits, clothing, pose, action, and expression. "
-    "Describe the interaction between the characters. Then describe the setting, the lighting, and the framing. "
-    "Do not write what a character is not wearing or not doing. Write only positive statements. "
+    "Describe the interaction between the characters. Then describe the setting, the lighting, "
+    "and the framing. The prompt can be as long and detailed and meticulous as possible. "
+    "Do not write what a character is not wearing or not doing. Write only positive items. "
     "Do not add count words such as 1girl or 1boy. The system already adds the count words. "
     "Do not add art-style words or quality words. "
     "Leave `avoid` empty. The system already adds the items to avoid."
 )
+
+
+def _normalize_prompt_format(value: str) -> str:
+    return value if value in PROMPT_FORMATS else DEFAULT_PROMPT_FORMAT
+
+
+def _format_guide(prompt_format: str, *, structured: bool) -> str:
+    instruction = _FORMAT_INSTRUCTIONS[_normalize_prompt_format(prompt_format)]
+    if structured:
+        return _SCENE_FORMAT_STRUCTURED_HEAD + instruction + _SCENE_FORMAT_STRUCTURED_TAIL
+    return _SCENE_FORMAT_HEAD + instruction + _SCENE_FORMAT_TAIL
+
 
 COMPOSE_TOOL_SCHEMA = {
     "type": "function",
@@ -91,7 +94,7 @@ COMPOSE_TOOL_SCHEMA = {
             "properties": {
                 "scene": {
                     "type": "string",
-                    "description": "The image prompt: count tags followed by prose sentences describing the scene, per the format given in the request; can be as long and detailed and meticulous as needed.",
+                    "description": "The image prompt: count tags followed by the scene in the format selected in the request; can be as long and detailed and meticulous as needed.",
                 },
                 "avoid": {
                     "type": ["string", "null"],
@@ -217,21 +220,26 @@ ANALYZE_TOOL = ToolSpec(
     standalone=True,
 )
 
-# Each OOC carries the format guide plus where the facts come from. Single-call
-# extracts and infers POV itself; the analysis path is handed both, so it only
-# formats. The guide is repeated per-call rather than living in the schema or
-# the prefix: tails are the one place every transport shows the model and the
-# one place that never perturbs the shared prefix KV.
-_COMPOSE_OOC = (
-    "[OOC: Call compose_image_prompt for the visible moment in the assistant reply above. " + _SCENE_FORMAT + " "
-    "Use only the details that the conversation establishes. If a detail changed, use the most recent statement. "
-    "Decide the point of view from the narration voice. Narration through a character's eyes, usually the user "
-    "('you'), is first-person.]"
-)
 
-_STRUCTURED_OOC_HEAD = "[OOC: Call compose_image_prompt for the structured scene below. Follow the scene's viewpoint line. "
-_COMPOSE_OOC_TAGS = _STRUCTURED_OOC_HEAD + _SCENE_FORMAT_STRUCTURED_TAGS + "]"
-_COMPOSE_OOC_PROSE = _STRUCTURED_OOC_HEAD + _SCENE_FORMAT_STRUCTURED_PROSE + "]"
+# Each OOC carries the selected format guide plus where the facts come from.
+# Single-call extracts and infers POV itself; the analysis path is handed both,
+# so it only formats. The guide is repeated per-call rather than living in the
+# schema or prefix: tails are the one place every transport shows the model and
+# the one place that never perturbs the shared prefix KV.
+def _compose_ooc(prompt_format: str, *, structured: bool) -> str:
+    guide = _format_guide(prompt_format, structured=structured)
+    if structured:
+        return (
+            "[OOC: Call compose_image_prompt for the structured scene below. Follow the scene's viewpoint line. " + guide + "]"
+        )
+    return (
+        "[OOC: Call compose_image_prompt for the visible moment in the assistant reply above. "
+        + guide
+        + " Use only the details that the conversation establishes. If a detail changed, use the most recent "
+        "statement. Decide the point of view from the narration voice. Narration through a character's eyes, "
+        "usually the user ('you'), is first-person.]"
+    )
+
 
 _ANALYZE_OOC = (
     "[OOC: Call analyze_scene for the visible moment in the assistant reply above. Use only what the history "
@@ -397,6 +405,7 @@ async def compose_scene(
     model_name: str,
     prefix: Sequence[dict],
     settings: Mapping[str, Any],
+    prompt_format: str = DEFAULT_PROMPT_FORMAT,
     reasoning_on: bool = False,
     scene_analysis: bool = False,
     appearance: str = "",
@@ -442,20 +451,14 @@ async def compose_scene(
         analysis_block = _render_scene(analysis)
 
     if analysis_block:
-        # One subject -> tags (checkpoint-native, no binding problem); two or
-        # more -> prose with names (binds each attribute to the right character).
-        # The analyzer already excluded the viewer in first-person, so the cast
-        # size is the visible count.
-        visible = [ch for ch in analysis.get("characters") or [] if isinstance(ch, Mapping)]
-        guide = _COMPOSE_OOC_PROSE if len(visible) > 1 else _COMPOSE_OOC_TAGS
         # Format-only framing, then the scene as the final message where attention
         # is strongest: the composer renders exactly this instead of re-deriving it.
         tail = [
-            {"role": "user", "content": guide},
+            {"role": "user", "content": _compose_ooc(prompt_format, structured=True)},
             {"role": "user", "content": "Structured scene extracted from the conversation:\n\n" + analysis_block},
         ]
     else:
-        tail = [{"role": "user", "content": _COMPOSE_OOC}]
+        tail = [{"role": "user", "content": _compose_ooc(prompt_format, structured=False)}]
     args = await _forced_args(
         client=client,
         model_name=model_name,
