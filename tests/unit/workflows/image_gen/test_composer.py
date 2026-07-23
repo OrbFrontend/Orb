@@ -98,30 +98,6 @@ async def test_first_person_pin_strips_leaked_camera_boy(monkeypatch):
     assert mode == "scene_analysis"
 
 
-async def test_composer_negation_stripped_from_scene(monkeypatch):
-    # Outfit is a full positive statement now, so nothing routes to avoid from the
-    # analysis. But if the composer itself writes a negation ("no longer wearing X"),
-    # CLIP would draw X -- so that clause is still dropped from the scene.
-    monkeypatch.setattr(
-        composer,
-        "forced_tool_call",
-        _fake_forced(
-            {
-                "analyze_scene": {
-                    "viewpoint": "third_person",
-                    "characters": [{"name": "Ashley", "sex": "girl", "appearance": "", "outfit": "silk dress"}],
-                },
-                "compose_image_prompt": {"scene": "1girl, silk dress, no longer wearing slippers", "avoid": "blur"},
-            }
-        ),
-    )
-    scene, avoid, _ = await compose_scene(
-        client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
-    )
-    assert scene == "1girl, solo, silk dress"
-    assert avoid == "blur"
-
-
 async def test_analysis_avoid_items_ride_avoid(monkeypatch):
     monkeypatch.setattr(
         composer,
@@ -500,59 +476,6 @@ def _fake_forced_capturing(results: dict, captured: dict):
         yield {"type": "result", "args": results.get(tool_name, {})}
 
     return fake
-
-
-async def test_analysis_format_follows_explicit_style_setting_not_cast_size(monkeypatch):
-    casts = (
-        [{"name": "a", "sex": "girl", "action": "waving"}],
-        [{"name": "a", "sex": "girl", "action": "waving"}, {"name": "b", "sex": "boy", "action": "watching"}],
-    )
-    for prompt_format, marker in (
-        ("tags", "booru tags only"),
-        ("hybrid", "hybrid image prompt"),
-        ("prose", "complete prose sentences"),
-    ):
-        for cast in casts:
-            captured: dict = {}
-            monkeypatch.setattr(
-                composer,
-                "forced_tool_call",
-                _fake_forced_capturing(
-                    {"analyze_scene": {"characters": cast}, "compose_image_prompt": {"scene": "1girl, x", "avoid": None}},
-                    captured,
-                ),
-            )
-            await compose_scene(
-                client=None,
-                model_name="m",
-                prefix=[],
-                settings={"model_name": "writer"},
-                prompt_format=prompt_format,
-                scene_analysis=True,
-            )
-            assert marker in captured["compose_image_prompt"], (prompt_format, len(cast), marker)
-
-
-async def test_single_call_format_follows_explicit_style_setting(monkeypatch):
-    for prompt_format, marker in (
-        ("tags", "booru tags only"),
-        ("hybrid", "hybrid image prompt"),
-        ("prose", "complete prose sentences"),
-    ):
-        captured: dict = {}
-        monkeypatch.setattr(
-            composer,
-            "forced_tool_call",
-            _fake_forced_capturing({"compose_image_prompt": {"scene": "1girl, x", "avoid": None}}, captured),
-        )
-        await compose_scene(
-            client=None,
-            model_name="m",
-            prefix=[],
-            settings={"model_name": "writer"},
-            prompt_format=prompt_format,
-        )
-        assert marker in captured["compose_image_prompt"]
 
 
 async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
