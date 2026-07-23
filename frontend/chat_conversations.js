@@ -371,7 +371,7 @@ export function showCompressModal() {
     <div style="margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.95em">
         Keep last
-        <select id="compress-keep-select" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg-input,var(--bg-secondary));color:var(--text)">
+        <select id="compress-keep-select" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border)">
           ${validOptions.map((n) => `<option value="${n}"${defaultKeep === n ? " selected" : ""}>${n} messages</option>`).join("")}
         </select>
       </label>

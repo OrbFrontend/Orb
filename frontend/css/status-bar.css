@@ -8,7 +8,7 @@
   justify-content: center;
   gap: 8px;
   height: 34px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary); /* no theme defines --bg-secondary; bar fell through to --bg-deep */
   border-top: 1px solid var(--border);
   font-size: 12px;
   color: var(--text-secondary);

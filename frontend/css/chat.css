@@ -414,7 +414,6 @@
   min-width: 0;
   padding: 3px 8px;
   font-size: 12px;
-  background: var(--bg-input, var(--bg-secondary));
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-primary);

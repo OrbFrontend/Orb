@@ -643,7 +643,6 @@
   flex: 1;
   padding: 6px 8px;
   font-size: 12px;
-  background: var(--bg-base);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-primary);

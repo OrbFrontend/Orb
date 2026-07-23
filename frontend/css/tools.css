@@ -157,7 +157,6 @@ input[type="range"]::-moz-range-track {
   width: 100%;
   padding: 4px 6px;
   font-size: 12px;
-  background: var(--bg-base);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-primary);
