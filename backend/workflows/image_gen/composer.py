@@ -54,7 +54,7 @@ _SCENE_FORMAT_HEAD = (
 )
 
 _SCENE_FORMAT_TAIL = (
-    "Describe each character's hair, eyes, build, clothing, pose, action, and expression. "
+    "Describe each character's hair, eyes, build, clothing, pose, action, and expression meticulously. "
     "Describe their interaction, then the setting, lighting, and framing. "
     "Be very meticulous, and as lengthy as needed. Use the word 'own' if action is done to self. Be obsessively precise, use quantitative words like 'one' or 'two'. "
     "Focus on objects and subjects of interest (items, clothing, specific body parts, etc.). "
@@ -66,9 +66,9 @@ _SCENE_FORMAT_TAIL = (
 _SCENE_FORMAT_STRUCTURED_HEAD = "Show exactly the structured scene below. Do not add anything that the scene does not state. "
 
 _SCENE_FORMAT_STRUCTURED_TAIL = (
-    "Describe each character's hair, eyes, build, clothing, pose, action, and expression in the requested prompt format. "
+    "Describe each character's hair, eyes, build, clothing, pose, action, and expression meticulously in the requested prompt format. "
     "Describe the interaction between the characters. Then describe the setting, the lighting, "
-    "and the framing. Be very meticulous and as lengthy as needed. Use the word 'own' if action is done to self. "
+    "and the framing. Be very detailed and as lengthy as needed. Use the word 'own' if action is done to self. "
     "Be obsessively precise, use quantitative words like 'one' or 'two'."
     "Focus on objects and subjects of interest (items, clothing, specific body parts, etc.). "
     "Do not add art-style words or quality words. Do not list every absent thing. "
