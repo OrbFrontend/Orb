@@ -274,6 +274,23 @@ async def test_replaying_a_deleted_user_graph_discloses_the_substitution(client,
 @pytest.mark.asyncio
 async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client, monkeypatch):
     mid = await _seed("ig-regen")
+    agent_endpoint = await client.post("/api/endpoints", json={"url": "http://regen-agent.local", "api_key": "agent-key"})
+    assert agent_endpoint.status_code == 200
+    agent_model = await client.put(
+        f"/api/models/{agent_endpoint.json()['agent_active_model_config_id']}",
+        json={"model_name": "regen-agent-model"},
+    )
+    assert agent_model.status_code == 200
+    settings = await client.put(
+        "/api/settings",
+        json={
+            "agent_same_as_writer": False,
+            "agent_endpoint_id": agent_endpoint.json()["id"],
+            "agent_shared_system_prompt": "Regeneration agent system.",
+        },
+    )
+    assert settings.status_code == 200
+
     aid = await insert_workflow_attachment_row(
         mid,
         {
@@ -285,7 +302,17 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
             "generation_metadata": {"style_id": "realistic", "prompt": "stale", "negative_prompt": ""},
         },
     )
-    _stub(monkeypatch, scene="1girl, doorway, looking back")
+    captured = {}
+
+    async def fake_compose(**kwargs):
+        captured.update(kwargs)
+        return "1girl, doorway, looking back", "", "single_call"
+
+    async def fake_render(config, request, **kwargs):
+        return _image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
     response = await client.post(
         f"/api/conversations/ig-regen/messages/{mid}/workflow-attachments/{aid}/regenerate",
@@ -302,3 +329,7 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
     assert metadata["style_id"] == "anime"
     assert "doorway" in metadata["prompt"]
     assert "anime illustration" in metadata["prompt"]
+    assert captured["client"].base_url == "http://regen-agent.local"
+    assert captured["model_name"] == "regen-agent-model"
+    assert captured["prefix"][0]["content"].startswith("Regeneration agent system.")
+    assert captured["reasoning_on"] is False

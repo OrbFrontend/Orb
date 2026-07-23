@@ -213,6 +213,8 @@ class TestAllCtxFrozen:
             last_user_message="",
             settings=_readonly({}),
             client=object(),
+            agent_client=object(),
+            agent_model_name="agent",
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             od.client = None  # type: ignore[misc]
@@ -227,6 +229,8 @@ class TestAllCtxFrozen:
             last_user_message="",
             settings=_readonly({}),
             client=object(),
+            agent_client=object(),
+            agent_model_name="agent",
         )
         with pytest.raises(dataclasses.FrozenInstanceError):
             rc.client = None  # type: ignore[misc]

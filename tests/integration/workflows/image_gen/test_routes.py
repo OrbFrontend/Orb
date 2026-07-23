@@ -5,6 +5,7 @@ import re
 
 import pytest
 
+import backend.api.routes.workflows as workflow_routes
 from backend.database import (
     add_message,
     create_character_card,
@@ -77,7 +78,17 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     )
     await set_workflow_character_state("ig-char", "image_gen", {"appearance_prompt": "long silver hair"})
 
+    lane = {}
+    resolve_agent_lane = workflow_routes.agent_lane_from_settings
+
+    def capture_agent_lane(settings, *, writer_client=None, abort_token=None):
+        resolved = resolve_agent_lane(settings, writer_client=writer_client, abort_token=abort_token)
+        lane["writer_client"] = writer_client
+        lane["agent_client"], lane["agent_model_name"] = resolved
+        return resolved
+
     async def fake_compose(**kwargs):
+        captured["compose"] = kwargs
         return "1girl, sitting, window, rain, night", "day", "single_call"
 
     captured = {}
@@ -94,6 +105,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
             },
         )
 
+    monkeypatch.setattr(workflow_routes, "agent_lane_from_settings", capture_agent_lane)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
@@ -108,6 +120,9 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert captured["request"].prompt.startswith("1girl, long silver hair")
     anime_suffix = CONFIG_DEFAULTS["external_comfy"]["styles"][1]["prompt"]
     assert captured["request"].prompt.endswith(anime_suffix)
+    assert lane["agent_client"] is lane["writer_client"]
+    assert captured["compose"]["client"] is lane["writer_client"]
+    assert captured["compose"]["model_name"] == lane["agent_model_name"]
 
     match = re.search(r'"attachment_id":(\d+)', response.text)
     assert match
@@ -197,6 +212,7 @@ async def test_config_round_trips_through_the_workflow_normalizer(client):
             "config": {
                 "timeout_seconds": "99999",
                 "default_style": "does-not-exist",
+                "prompter_reasoning": True,
                 "external_comfy": {
                     "api_url": "http://user:secret@comfy.test:8188/",
                     "user_graphs": [oversized],
@@ -210,6 +226,7 @@ async def test_config_round_trips_through_the_workflow_normalizer(client):
     stored = response.json()["config"]
     assert stored["timeout_seconds"] == 900.0
     assert stored["default_style"] == "realistic"
+    assert stored["prompter_reasoning"] is True
     assert stored["external_comfy"]["api_url"] == "http://127.0.0.1:8188"
     assert stored["external_comfy"]["user_graphs"] == []
     assert "unknown_key" not in stored["external_comfy"]

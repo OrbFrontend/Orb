@@ -250,33 +250,6 @@ _ANALYZE_OOC = (
 )
 
 
-def _reasoning_on(settings: Mapping[str, Any]) -> bool:
-    """Reasoning mode for the off-turn analyze/compose calls, inherited from the editor.
-
-    On a provider that keeps separate KV caches for thinking-on and thinking-off
-    (the reasoning fork in docs/architecture/kv-cache.md §9), this off-turn call
-    reuses the cached conversation prefix only if it lands in the same lane as a
-    pipeline pass. The shipped default runs every pass thinking-off, so they share
-    one lane and the choice is moot; it only bites when a user diverges the passes
-    (e.g. enables director reasoning while the writer/editor stay off) — and there
-    we want the *editor's* mode, not the director's:
-
-    - The editor shares the writer's thinking-off lane, which every turn is warmed
-      LAST and is the ONLY lane that has already seen this turn's user message and
-      the assistant reply the image is composed from (the writer streamed the draft
-      into it). A thinking-on director rides a separate lane that stops at the history
-      before this turn, never touching the anchor reply. So tracking the editor reuses
-      at least as much of the prefix as tracking the director, and strictly more
-      whenever the writer's trailing injection is small.
-    - Tracking the editor keeps this call on the writer/editor lane whatever the
-      director is set to, rather than forking onto a lane nothing else warms.
-
-    Absent/malformed config degrades to off (the writer/editor default), never raising.
-    """
-    passes = settings.get("reasoning_enabled_passes")
-    return bool(passes.get("editor", False)) if isinstance(passes, Mapping) else False
-
-
 def _bounded(value: Any, limit: int = 2_000) -> str:
     if not isinstance(value, str):
         return ""
@@ -297,7 +270,7 @@ def _join(parts: Sequence[Any]) -> str:
 _OFFER_TOOLS = ("analyze_scene", "compose_image_prompt")
 
 
-async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens, reasoning_on) -> dict:
+async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, max_tokens, reasoning_on) -> dict:
     # Debug: the per-call instruction actually sent (the tail; the prefix is the
     # conversation itself). Set this logger to WARNING to silence.
     logger.info("[image_gen] %s tail:\n%s", tool_name, "\n--\n".join(m["content"] for m in tail))
@@ -308,8 +281,9 @@ async def _forced_args(*, client, prefix, tail, tool_name, settings, max_tokens,
         tail_messages=tail,
         tool_name=tool_name,
         settings=settings,
-        # Inherit the editor's reasoning mode so both off-turn calls ride the
-        # writer/editor KV lane on a reasoning-forking provider (see _reasoning_on).
+        model_name=model_name,
+        # One explicit workflow-owned mode for both calls. Keeping it stable is
+        # what lets analyze and compose share a reasoning-forked provider lane.
         reasoning_on=reasoning_on,
         temperature=0.2,
         max_tokens=max_tokens,
@@ -420,8 +394,10 @@ def _render_scene(scene: Any) -> str:
 async def compose_scene(
     *,
     client: Any,
+    model_name: str,
     prefix: Sequence[dict],
     settings: Mapping[str, Any],
+    reasoning_on: bool = False,
     scene_analysis: bool = False,
     appearance: str = "",
 ) -> tuple[str, str, str]:
@@ -444,10 +420,6 @@ async def compose_scene(
     reused, not evicted, across analyze -> compose -> the next chat turn.
     Everything per-call rides the tail messages after it.
     """
-    # One reasoning mode for both forced calls, so analyze and compose stay
-    # mode-identical and reuse each other's cached prefix on the same lane.
-    reasoning_on = _reasoning_on(settings)
-
     analysis: dict = {}
     analysis_block = ""
     if scene_analysis:
@@ -459,6 +431,7 @@ async def compose_scene(
             instr += "\n\nMain character's fixed appearance (already supplied; do not repeat it):\n" + appearance.strip()
         analysis = await _forced_args(
             client=client,
+            model_name=model_name,
             prefix=prefix,
             tail=[{"role": "user", "content": instr}],
             tool_name="analyze_scene",
@@ -485,6 +458,7 @@ async def compose_scene(
         tail = [{"role": "user", "content": _COMPOSE_OOC}]
     args = await _forced_args(
         client=client,
+        model_name=model_name,
         prefix=prefix,
         tail=tail,
         tool_name="compose_image_prompt",

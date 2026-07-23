@@ -20,7 +20,7 @@ through one chokepoint.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from ..analysis import (
     FormatDriftReport,
@@ -58,6 +58,7 @@ from ..inference import (
     format_message_with_attachments,
     parse_tool_calls,
     reasoning_cfg,
+    separate_agent_lane_configured,
 )
 from ._forced_call import forced_tool_call
 from .attachment_cache import insert_workflow_attachment
@@ -119,6 +120,8 @@ async def build_offturn_prefix(
     conversation_id: str,
     history,
     settings,
+    *,
+    lane: Literal["writer", "agent"] = "writer",
 ) -> list[Any]:
     """Rebuild the character/persona prefix for a standalone off-turn call.
 
@@ -126,21 +129,35 @@ async def build_offturn_prefix(
     one-way layer rule. This helper keeps the shared resolution at the workflow
     toolkit boundary and uses the same lower-layer primitives as the pipeline.
 
-    The output must stay **byte-identical** to the pipeline's own prefix
-    (``pipeline.context._build_prefix_from_ctx``) for the same conversation
-    state: off-turn LLM calls ride the llama.cpp server's cached KV for the
-    whole conversation prefix, and a single diverging byte evicts it — both for
-    this call and again for the next chat turn. That parity is pinned by
-    ``tests/integration/workflows/test_offturn_prefix_parity.py``; any field
+    ``lane="writer"`` reproduces the writer prefix. ``lane="agent"`` reproduces
+    that same prefix in single-model mode and substitutes the agent shared
+    system prompt in dual-model mode, exactly like
+    ``pipeline.context._build_prefixes``.
+
+    The output must stay **byte-identical** to the corresponding pipeline prefix
+    for the same conversation state: off-turn LLM calls ride the server's cached
+    KV for the whole conversation prefix, and a single diverging byte evicts it
+    — both for this call and again for the next chat turn. That parity is pinned
+    by ``tests/integration/workflows/test_offturn_prefix_parity.py``; any field
     added to one builder must be added to both. Pre-pipeline workflow system
     blocks are the one accepted gap: no PRE_PIPELINE hook currently emits any.
     """
+    if lane not in ("writer", "agent"):
+        raise ValueError(f"unknown off-turn model lane {lane!r}")
     conv = await get_conversation(conversation_id)
     if conv is None:
         return []
     card_id = conv.get("character_card_id")
     card = await get_character_card(card_id) if card_id else None
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
+    dual_agent = lane == "agent" and separate_agent_lane_configured(settings)
+    if dual_agent:
+        system_prompt, _, _ = await resolve_char_context(
+            conv,
+            settings,
+            card=card,
+            shared_key="agent_shared_system_prompt",
+        )
     persona_id = (
         conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
     )

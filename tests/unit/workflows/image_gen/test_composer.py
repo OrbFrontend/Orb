@@ -68,7 +68,9 @@ async def test_scene_analysis_prepends_analysis_and_reports_mode(monkeypatch):
             }
         ),
     )
-    scene, avoid, mode = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    scene, avoid, mode = await compose_scene(
+        client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
+    )
     assert scene == "1girl, waving"  # no sex reported -> anchor not pinned, scene untouched
     assert mode == "scene_analysis"
 
@@ -88,7 +90,9 @@ async def test_first_person_pin_strips_leaked_camera_boy(monkeypatch):
             }
         ),
     )
-    scene, _, mode = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    scene, _, mode = await compose_scene(
+        client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
+    )
     assert scene == "1girl, solo, pov, long red hair, smiling"
     assert mode == "scene_analysis"
 
@@ -110,7 +114,9 @@ async def test_composer_negation_stripped_from_scene(monkeypatch):
             }
         ),
     )
-    scene, avoid, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    scene, avoid, _ = await compose_scene(
+        client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
+    )
     assert scene == "1girl, solo, silk dress"
     assert avoid == "blur"
 
@@ -132,7 +138,9 @@ async def test_hidden_elements_ride_avoid(monkeypatch):
             }
         ),
     )
-    _, avoid, _ = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    _, avoid, _ = await compose_scene(
+        client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
+    )
     assert avoid == "blur, looking at viewer, face"
 
 
@@ -142,7 +150,9 @@ async def test_empty_analysis_reports_analysis_failed(monkeypatch):
         "forced_tool_call",
         _fake_forced({"analyze_scene": {}, "compose_image_prompt": {"scene": "1girl"}}),
     )
-    _, _, mode = await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+    _, _, mode = await compose_scene(
+        client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
+    )
     assert mode == "analysis_failed"
 
 
@@ -175,10 +185,13 @@ async def test_both_calls_ride_the_prefix_unchanged_with_shared_tool_blob(monkey
         ),
     )
     prefix = [{"role": "system", "content": "sys"}, {"role": "assistant", "content": "she waves"}]
-    await compose_scene(client=None, prefix=prefix, settings={"model_name": "m"}, scene_analysis=True)
+    await compose_scene(
+        client=None, model_name="agent-m", prefix=prefix, settings={"model_name": "writer"}, scene_analysis=True
+    )
     assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
     for call in calls:
         assert call["prefix"] is prefix
+        assert call["model_name"] == "agent-m"
         assert call["offer_tools"] == ("analyze_scene", "compose_image_prompt")
         assert call.get("tools_in_prompt", True) is not False  # ship the tools, never tools=None
         for msg in call["tail_messages"]:
@@ -203,46 +216,28 @@ def _record_forced_calls(monkeypatch) -> list[dict]:
     return calls
 
 
-async def test_reasoning_mode_inherits_editor_and_ignores_director(monkeypatch):
-    """Both off-turn calls track the editor's reasoning lane, per _reasoning_on.
-
-    The image-gen call rides the writer/editor thinking-off lane so it reuses the
-    turn's cached conversation prefix on a reasoning-forking provider (kv-cache §9).
-    It must follow the editor flag specifically, not the director's: when a user
-    enables director reasoning (writer/editor stay off), tracking the director would
-    fork onto a thinking-on lane the anchor reply was never warmed in.
-    """
-    # editor on -> both calls reason, regardless of the director flag.
-    calls = _record_forced_calls(monkeypatch)
-    await compose_scene(
-        client=None,
-        prefix=[],
-        settings={"model_name": "m", "reasoning_enabled_passes": {"director": False, "editor": True}},
-        scene_analysis=True,
-    )
-    assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
-    assert all(c["reasoning_on"] is True for c in calls)
-
-    # director on, editor off -> both calls stay off (never inherit the director).
-    calls = _record_forced_calls(monkeypatch)
-    await compose_scene(
-        client=None,
-        prefix=[],
-        settings={"model_name": "m", "reasoning_enabled_passes": {"director": True, "editor": False}},
-        scene_analysis=True,
-    )
-    assert all(c["reasoning_on"] is False for c in calls)
-
-
-async def test_reasoning_mode_defaults_off_when_config_absent_or_malformed(monkeypatch):
-    """Missing/malformed reasoning config degrades to off (the writer/editor default)."""
-    for passes in (None, "junk", {}):
-        settings = {"model_name": "m"}
-        if passes is not None:
-            settings["reasoning_enabled_passes"] = passes
+async def test_reasoning_mode_is_explicit_and_ignores_pipeline_pass_flags(monkeypatch):
+    """The workflow setting owns both calls; no pipeline pass is its fallback."""
+    for reasoning_on in (False, True):
         calls = _record_forced_calls(monkeypatch)
-        await compose_scene(client=None, prefix=[], settings=settings, scene_analysis=True)
-        assert all(c["reasoning_on"] is False for c in calls), passes
+        await compose_scene(
+            client=None,
+            model_name="agent-m",
+            prefix=[],
+            settings={
+                "model_name": "writer",
+                "reasoning_enabled_passes": {
+                    "director": not reasoning_on,
+                    "writer": not reasoning_on,
+                    "editor": not reasoning_on,
+                },
+            },
+            reasoning_on=reasoning_on,
+            scene_analysis=True,
+        )
+        assert [c["tool_name"] for c in calls] == ["analyze_scene", "compose_image_prompt"]
+        assert all(c["reasoning_on"] is reasoning_on for c in calls)
+        assert all(c["model_name"] == "agent-m" for c in calls)
 
 
 async def test_single_call_strips_negation_from_scene(monkeypatch):
@@ -253,7 +248,7 @@ async def test_single_call_strips_negation_from_scene(monkeypatch):
         "forced_tool_call",
         _fake_forced({"compose_image_prompt": {"scene": "1girl, red dress, not wearing shoes, garden", "avoid": None}}),
     )
-    scene, _, mode = await compose_scene(client=None, prefix=[], settings={"model_name": "m"})
+    scene, _, mode = await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"})
     assert scene == "1girl, red dress, garden"
     assert mode == "single_call"
 
@@ -285,7 +280,7 @@ async def test_analysis_format_follows_cast_size(monkeypatch):
                 captured,
             ),
         )
-        await compose_scene(client=None, prefix=[], settings={"model_name": "m"}, scene_analysis=True)
+        await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True)
         assert marker in captured["compose_image_prompt"], (len(cast), marker)
 
 
@@ -295,7 +290,7 @@ async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
     # tag-trained checkpoints render as mush).
     monkeypatch.setattr(composer, "forced_tool_call", _fake_forced({}))
     with pytest.raises(ValueError, match="couldn't compose an image prompt"):
-        await compose_scene(client=None, prefix=[], settings={"model_name": "m"})
+        await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"})
 
 
 def test_assemble_strips_profile_counts():

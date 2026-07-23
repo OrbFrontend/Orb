@@ -16,6 +16,7 @@ CONFIG_DEFAULTS = {
     "source": "external_comfy",
     "default_style": "realistic",
     "scene_analysis": False,
+    "prompter_reasoning": False,
     "timeout_seconds": 180.0,
     "external_comfy": {
         "api_url": "http://127.0.0.1:8188",
@@ -153,6 +154,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         "source": "external_comfy",
         "default_style": default_style,
         "scene_analysis": bool(raw.get("scene_analysis", False)),
+        "prompter_reasoning": raw.get("prompter_reasoning") is True,
         "timeout_seconds": min(900.0, max(10.0, timeout)),
         "external_comfy": {
             "api_url": url,

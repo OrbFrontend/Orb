@@ -28,6 +28,13 @@ def test_config_rejects_credentials_in_url_and_bounds_timeout():
     assert cfg["timeout_seconds"] == 900.0
 
 
+def test_prompter_reasoning_is_an_explicit_boolean_defaulting_off():
+    assert normalize_config({})["prompter_reasoning"] is False
+    assert normalize_config({"prompter_reasoning": False})["prompter_reasoning"] is False
+    assert normalize_config({"prompter_reasoning": True})["prompter_reasoning"] is True
+    assert normalize_config({"prompter_reasoning": "true"})["prompter_reasoning"] is False
+
+
 def test_seed_fold_round_trips_decimal_and_framework_hex():
     assert fold_seed("18446744073709551615") == 2**64 - 1
     assert fold_seed("ffffffffffffffffffffffffffffffff") == 2**64 - 1

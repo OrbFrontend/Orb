@@ -75,6 +75,7 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     assert ctx is not None
     pipeline_prefix, _ = _build_prefixes(ctx, history)
     offturn_prefix = await build_offturn_prefix(conv_id, history, settings)
+    single_agent_prefix = await build_offturn_prefix(conv_id, history, settings, lane="agent")
 
     # Guard against a vacuous pass: the fixture must actually exercise the
     # constant-lorebook and persona sections of the system body.
@@ -84,3 +85,27 @@ async def test_offturn_prefix_is_byte_identical_to_pipeline_prefix(client):
     assert "A curious visitor." in body
 
     assert _serialize(offturn_prefix) == _serialize(pipeline_prefix)
+    assert _serialize(single_agent_prefix) == _serialize(pipeline_prefix)
+
+    # Dual-model mode substitutes only the agent system prompt; every other
+    # prefix-shaping byte must still match the pipeline's own agent builder.
+    endpoint = await client.post("/api/endpoints", json={"url": "http://agent.local", "api_key": "agent-key"})
+    assert endpoint.status_code == 200
+    await update_settings(
+        {
+            "agent_same_as_writer": 0,
+            "agent_endpoint_id": endpoint.json()["id"],
+            "agent_shared_system_prompt": "Agent-only system prompt.",
+            "prevent_prompt_overrides": 1,
+        }
+    )
+    dual_settings = await get_settings()
+    dual_ctx = await _load_pipeline_context(conv_id)
+    assert dual_ctx is not None
+    dual_writer_prefix, dual_agent_prefix = _build_prefixes(dual_ctx, history)
+    assert dual_agent_prefix is not None
+    offturn_agent_prefix = await build_offturn_prefix(conv_id, history, dual_settings, lane="agent")
+
+    assert _serialize(offturn_agent_prefix) == _serialize(dual_agent_prefix)
+    assert _serialize(offturn_agent_prefix) != _serialize(dual_writer_prefix)
+    assert offturn_agent_prefix[0]["content"].startswith("Agent-only system prompt.")

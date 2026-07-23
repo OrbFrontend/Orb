@@ -321,6 +321,7 @@ function openSettings(expandStyleId = "") {
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
       </div>
       <label class="ig-toggle"><input id="ig-scene-analysis" type="checkbox"${cfg.scene_analysis === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Analyze complex scenes</span><span class="image-gen-note">More accurate outfits and positions for scenes; one extra model call.</span></span></label>
+      <label class="ig-toggle"><input id="ig-prompter-reasoning" type="checkbox"${cfg.prompter_reasoning === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Enable prompter thinking</span><span class="image-gen-note">Uses thinking for scene analysis and prompt composition. Changing this may reduce prompt-cache reuse on some providers.</span></span></label>
     </section>
     <section class="ig-section">
       <div class="ig-heading">Styles</div>
@@ -352,6 +353,7 @@ function readConfig() {
     // Chosen in the tools-panel card now, not here; carry the live value through.
     default_style: cfg.default_style || draft.styles[0]?.id || "realistic",
     scene_analysis: document.getElementById("ig-scene-analysis")?.checked === true,
+    prompter_reasoning: document.getElementById("ig-prompter-reasoning")?.checked === true,
     timeout_seconds: Number(document.getElementById("ig-timeout")?.value) || 180,
     external_comfy: {
       ...(cfg.external_comfy || {}),

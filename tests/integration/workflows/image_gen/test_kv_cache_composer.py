@@ -32,11 +32,32 @@ def _tc(name: str, args: dict) -> list[dict]:
 
 
 async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monkeypatch):
+    writer_endpoint = await client.post("/api/endpoints", json={"url": "http://writer.local", "api_key": "writer-key"})
+    assert writer_endpoint.status_code == 200
+    writer_config_id = writer_endpoint.json()["active_model_config_id"]
+    writer_model = await client.put(
+        f"/api/models/{writer_config_id}",
+        json={"model_name": "writer-model"},
+    )
+    assert writer_model.status_code == 200
+
+    agent_endpoint = await client.post("/api/endpoints", json={"url": "http://agent.local", "api_key": "agent-key"})
+    assert agent_endpoint.status_code == 200
+    agent_config_id = agent_endpoint.json()["agent_active_model_config_id"]
+    agent_model = await client.put(
+        f"/api/models/{agent_config_id}",
+        json={"model_name": "agent-model", "reasoning_effort": "high"},
+    )
+    assert agent_model.status_code == 200
+
     resp = await client.put(
         "/api/settings",
         json={
-            "model_name": "writer-model",
+            "active_endpoint_id": writer_endpoint.json()["id"],
             "enable_agent": True,
+            "agent_same_as_writer": False,
+            "agent_endpoint_id": agent_endpoint.json()["id"],
+            "agent_shared_system_prompt": "Agent-only system prompt.",
             "enabled_tools": {"direct_scene": True, "editor_apply_patch": True},
         },
     )
@@ -79,6 +100,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
             "source": "external_comfy",
             "default_style": "anime",
             "scene_analysis": True,  # both forced calls (analyze + compose) must fire
+            "prompter_reasoning": True,
             "external_comfy": {
                 "api_url": "http://127.0.0.1:8188",
                 "checkpoint": "a.safetensors",
@@ -134,6 +156,9 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     wf = [c for c in llm_mock.captured if c["pass"] == "workflow"]
     assert len(wf) == 2, "composer must issue analyze + compose through the real forced-call stack"
     writer = next(c for c in llm_mock.captured if c["pass"] == "writer")
+    agent_pass = next(c for c in llm_mock.captured if c["pass"] == "director")
+    assert writer["endpoint"] == "http://writer.local"
+    assert writer["model"] == "writer-model"
     blobs = set()
     for c in wf:
         names = [t["function"]["name"] for t in (c["tools"] or [])]
@@ -142,8 +167,14 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
             "most chat models won't reliably call a tool they were never given"
         )
         assert isinstance(c["tool_choice"], dict), "the off-turn call forces its tool via tool_choice"
+        assert c["endpoint"] == "http://agent.local"
+        assert c["model"] == "agent-model"
+        assert c["messages"][0] == agent_pass["messages"][0]
+        assert c["messages"][0] != writer["messages"][0]
+        assert c["params"]["reasoning"] == {"enabled": True}
+        assert c["params"]["thinking"] == {"type": "enabled"}
         blobs.add(json.dumps(c["tools"], sort_keys=True))
-        assert c["messages"][1] == writer["messages"][1], (
+        assert c["messages"][1] == agent_pass["messages"][1], (
             "off-turn call lost the conversation's history head — the teardown invariant would "
             "silently group it apart from the chat turn instead of comparing prefixes"
         )

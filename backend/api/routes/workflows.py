@@ -28,7 +28,7 @@ from ...database import (
     set_workflow_enabled,
 )
 from ...database.models import ConversationRow
-from ...inference import client_from_settings
+from ...inference import agent_lane_from_settings, client_from_settings
 from ...workflows import (
     HookType,
     OnDemandCtx,
@@ -208,6 +208,7 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
         msgs = await get_messages(cid)
         last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
         client = client_from_settings(settings_snapshot)
+        agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
         async with workflow_character_state_lock(conv.get("character_card_id") or "", workflow_id):
             try:
                 od_ctx = OnDemandCtx(
@@ -216,6 +217,8 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                     last_user_message=last_user,
                     settings=_readonly(settings_snapshot),
                     client=client,
+                    agent_client=agent_client,
+                    agent_model_name=agent_model_name,
                     character_id=conv.get("character_card_id"),
                     character=_readonly(card),
                 )
@@ -267,6 +270,7 @@ async def api_regenerate_attachment(
         msgs = await get_messages_before(cid, mid)
         last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
         client = client_from_settings(settings_snapshot)
+        agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
 
         card_id = conv.get("character_card_id")
         card = await get_character_card(card_id) if card_id else None
@@ -280,6 +284,8 @@ async def api_regenerate_attachment(
                 last_user_message=last_user,
                 settings=_readonly(settings_snapshot),
                 client=client,
+                agent_client=agent_client,
+                agent_model_name=agent_model_name,
                 character_id=conv.get("character_card_id"),
                 character=_readonly(card),
             )

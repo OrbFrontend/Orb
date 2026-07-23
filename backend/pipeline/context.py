@@ -47,6 +47,7 @@ from ..inference import (
     agent_client_from_settings,
     build_prefix,
     client_from_settings,
+    separate_agent_lane_configured,
 )
 from .config import _build_writer_tools_blob
 from .predicates import agent_enabled, resolve_persona_id
@@ -122,10 +123,9 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
 
     system_prompt, char_persona, mes_example = await db.resolve_char_context(conv, settings, card=card)
 
-    agent_same = settings.get("agent_same_as_writer", True)
     agent_client = None
     agent_system_prompt = None
-    if not agent_same and settings.get("agent_endpoint_id"):
+    if separate_agent_lane_configured(settings):
         agent_client = agent_client_from_settings(settings, abort_token=abort_token)
         agent_system_prompt, _, _ = await db.resolve_char_context(
             conv, settings, shared_key="agent_shared_system_prompt", card=card

@@ -197,11 +197,13 @@ async def _generate_fresh(
 ):
     if prefix is None:
         history = _history_through(ctx.history, int(message["id"]))
-        prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings)
+        prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     scene, avoid, composer_mode = await compose_scene(
-        client=ctx.client,
+        client=ctx.agent_client,
+        model_name=ctx.agent_model_name,
         prefix=prefix,
         settings=ctx.settings,
+        reasoning_on=bool(config.get("prompter_reasoning")),
         scene_analysis=bool(config.get("scene_analysis")),
         appearance=str(profile.get("appearance_prompt") or ""),
     )
@@ -399,7 +401,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
         history = _history_through(ctx.history, mid)
     except ValueError as exc:
         return _failed_stream(str(exc))
-    prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings)
+    prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
 
     async def stream():
         attachment_id: int | None = None
@@ -491,7 +493,8 @@ class _RegenCompositionCtx:
         self.conversation_id = ctx.conversation_id
         self.history = history
         self.settings = ctx.settings
-        self.client = ctx.client
+        self.agent_client = ctx.agent_client
+        self.agent_model_name = ctx.agent_model_name
 
 
 async def reroll_gen(ctx, params, seed):

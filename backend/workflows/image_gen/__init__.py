@@ -16,6 +16,7 @@ _CONFIG_SCHEMA = {
         },
         "default_style": {"type": "string", "title": "Default style"},
         "scene_analysis": {"type": "boolean", "title": "Analyze complex scenes"},
+        "prompter_reasoning": {"type": "boolean", "title": "Enable prompter thinking"},
         "timeout_seconds": {
             "type": "number",
             "minimum": 10,

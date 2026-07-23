@@ -12,6 +12,7 @@ const config = {
   source: "external_comfy",
   default_style: "realistic",
   scene_analysis: false,
+  prompter_reasoning: false,
   timeout_seconds: 180,
   external_comfy: {
     api_url: "http://127.0.0.1:8188",

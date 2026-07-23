@@ -895,6 +895,39 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
     )
 
 
+def separate_agent_lane_configured(settings: Mapping[str, Any]) -> bool:
+    """Whether settings resolve to a usable, physically separate Agent lane."""
+    return (
+        not bool(settings.get("agent_same_as_writer", True))
+        and bool(settings.get("agent_endpoint_id"))
+        and bool(settings.get("agent_endpoint_url"))
+        and bool(settings.get("agent_model_name"))
+    )
+
+
+def agent_lane_from_settings(
+    settings: Mapping[str, Any],
+    *,
+    writer_client: LLMClient,
+    abort_token: AbortToken | None = None,
+) -> tuple[LLMClient, str]:
+    """Resolve the client/model pair used by agentic off-turn work.
+
+    The pipeline represents single-model mode by reusing the writer lane and
+    dual-model mode by constructing a separate agent lane. Workflow HTTP routes
+    need the same resolution without importing ``pipeline`` upward into ``api``:
+    reuse the already-built ``writer_client`` unless a concrete separate agent
+    endpoint is selected, otherwise construct the configured agent client.
+    ``separate_agent_lane_configured`` already guarantees ``agent_model_name``.
+    """
+    if separate_agent_lane_configured(settings):
+        return (
+            agent_client_from_settings(settings, abort_token=abort_token),
+            settings["agent_model_name"],
+        )
+    return writer_client, settings["model_name"]
+
+
 def _sanitize_args(obj):
     """Recursively strip tokenizer-artifact quote tokens (``<|"|>``) from string values."""
     if isinstance(obj, str):

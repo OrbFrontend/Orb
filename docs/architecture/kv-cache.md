@@ -245,6 +245,23 @@ The tell is the gap between the two tracker views (§8): the local `msgs_overlap
 
 A stepped, click-through walkthrough of the mechanism and this fork lives in [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html).
 
+### Off-turn image prompter
+
+Image generation's `analyze_scene` and `compose_image_prompt` calls run on the
+resolved Agent lane: the shared Writer/Agent client in single-model mode, or the
+Director/Editor endpoint, model, and agent system prefix in dual-model mode. The
+off-turn prefix builder must therefore reproduce the corresponding pipeline
+prefix byte-for-byte; parity for both model topologies is regression-tested.
+
+The prompter has its own `prompter_reasoning` switch rather than inheriting a
+pipeline pass. Both calls always use the same switch value and the same
+order-stable two-tool schema blob, so they stay in one reasoning lane and reuse
+one another. Matching Editor reasoning is a useful cross-pass heuristic because
+it is the same Agent server and often the latest Agent-side call, but it is not
+an invariant: the Editor may be skipped, providers differ, and the prompter's
+standalone tools can create a distinct templated prefix. Keeping the prompter
+setting stable is the only portable cache rule.
+
 ---
 
 ## 10. TL;DR

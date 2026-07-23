@@ -167,7 +167,9 @@ class OnDemandCtx:
 
     No ``turn_scratch`` or ``kv_tracker``: on-demand handlers run outside
     any turn, Python locals serve in place of scratch, and on-demand LLM
-    calls do not participate in turn cache accounting.
+    calls do not participate in turn cache accounting. ``client`` is the
+    Writer lane; ``agent_client`` and ``agent_model_name`` are the resolved
+    Agent lane, reusing that same client in single-model mode.
     """
 
     conversation_id: str
@@ -175,6 +177,8 @@ class OnDemandCtx:
     last_user_message: str
     settings: MappingProxyType
     client: Any
+    agent_client: Any
+    agent_model_name: str
     character_id: str | None = None
     character: MappingProxyType | None = None
 
@@ -192,7 +196,9 @@ class RegenCtx:
     ``original_attachment`` carries the workflow_attachments row currently
     being regenerated; ``history`` is the conversation as sliced for this
     regenerate call. No ``turn_scratch`` or ``kv_tracker``: regen runs
-    outside any turn.
+    outside any turn. ``client`` is the Writer lane; ``agent_client`` and
+    ``agent_model_name`` are the resolved Agent lane, reusing that same client
+    in single-model mode.
     """
 
     conversation_id: str
@@ -203,6 +209,8 @@ class RegenCtx:
     last_user_message: str
     settings: MappingProxyType
     client: Any
+    agent_client: Any
+    agent_model_name: str
     character_id: str | None = None
     character: MappingProxyType | None = None
 

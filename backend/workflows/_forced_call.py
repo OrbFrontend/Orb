@@ -57,6 +57,7 @@ async def forced_tool_call(
     schema_overrides: Mapping[str, Mapping] | None = None,
     offer_tools: Sequence[str] | None = None,
     kv_tracker: Any = None,
+    model_name: str | None = None,
     reasoning_on: bool = True,
     temperature: float = 0.25,
     max_tokens: int = 8192,
@@ -89,6 +90,9 @@ async def forced_tool_call(
     ``kv_tracker=None`` skips the per-call ``record(...)`` + ``record_usage(...)``
     steps silently (the on-demand path does not participate in turn caching).
 
+    ``model_name`` overrides ``settings["model_name"]`` for callers on another
+    resolved lane. The same value labels the KV tracker and the wire request.
+
     ``tools_in_prompt=False`` forwards the client flag of the same name: the
     prompt must not carry the tool schemas (text mode never renders them; chat
     mode then forces via ``response_format`` and omits ``tools`` from the body).
@@ -118,6 +122,7 @@ async def forced_tool_call(
             tools.append(canonical)
 
     messages = [_plain(m) for m in prefix] + [_plain(m) for m in tail_messages]
+    resolved_model = model_name or settings["model_name"]
 
     kv_label = pass_id or f"forced:{tool_name}"
     if kv_tracker is not None:
@@ -125,7 +130,7 @@ async def forced_tool_call(
             kv_label,
             messages,
             tools,
-            model=settings.get("model_name", ""),
+            model=resolved_model,
         )
 
     reasoning_params = reasoning_cfg(reasoning_on)
@@ -133,7 +138,7 @@ async def forced_tool_call(
     try:
         async for event in client.complete(
             messages=messages,
-            model=settings["model_name"],
+            model=resolved_model,
             tools=tools,
             tool_choice=TOOLS[tool_name]["choice"],
             temperature=temperature,

@@ -12,9 +12,11 @@ from .client import (
     AbortToken,
     LLMClient,
     agent_client_from_settings,
+    agent_lane_from_settings,
     client_from_settings,
     parse_tool_calls,
     reasoning_cfg,
+    separate_agent_lane_configured,
 )
 from .endpoint_profiles import ModelProfile, is_forced_tool_choice, profile_for
 from .kv_tracker import _KVCacheTracker
@@ -57,9 +59,11 @@ __all__ = [
     "AbortToken",
     "LLMClient",
     "agent_client_from_settings",
+    "agent_lane_from_settings",
     "client_from_settings",
     "parse_tool_calls",
     "reasoning_cfg",
+    "separate_agent_lane_configured",
     # retry
     "RetryPolicy",
     # endpoint_profiles — provider adapter

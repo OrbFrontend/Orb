@@ -230,6 +230,8 @@ async def test_regenerate_uses_current_profile_not_stored_metadata(client, fake_
         last_user_message="",
         settings=MappingProxyType({}),
         client=None,
+        agent_client=None,
+        agent_model_name="",
         character_id=char_id,
     )
 

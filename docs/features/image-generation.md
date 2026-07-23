@@ -177,6 +177,24 @@ positions. Orb then writes the image prompt.
 This option makes one additional LLM call for each new image or regenerated
 image. A reroll uses the stored prompt and does not make this additional call.
 
+## Enable prompter thinking
+
+Turn on **Enable prompter thinking** when the Agent model benefits from reasoning
+before it analyzes the scene or writes the diffusion prompt. The setting applies
+to both prompt calls: the optional complex-scene analysis and the always-on prompt
+composition call.
+
+The prompter always uses Orb's Agent model lane. In single-model mode this is the
+same endpoint and model as the Writer. In dual-model mode it uses the configured
+Director/Editor endpoint, model, system prompt, and reasoning-effort setting.
+
+Changing thinking mode can reduce prompt-cache reuse on providers that keep
+thinking and non-thinking requests in separate cache lanes. Keeping the setting
+stable gives the two prompter calls the best chance to reuse one another. Matching
+the Editor setting may also improve reuse when an Editor-side call ran recently,
+but provider behavior and the prompter's separate tool schemas mean this is not
+guaranteed.
+
 ## Solve common problems
 
 | Problem | Action |
