@@ -76,6 +76,7 @@ async def feedback_step(
     writer_user_msg: "str | list[ContentPart]",
     kv_tracker=None,
     reasoning_on: bool = False,
+    reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
     """Yield reasoning chunks during the call, then a single done dict.
 
@@ -126,7 +127,7 @@ async def feedback_step(
         tool_choice=GIVE_FEEDBACK_CHOICE,
         kv_tracker=kv_tracker,
         **hyperparams,
-        **reasoning_cfg(reasoning_on),
+        **reasoning_cfg(reasoning_on, reasoning_prefill),
     ):
         if event["type"] == "reasoning":
             yield {"type": "reasoning", "delta": event["delta"]}

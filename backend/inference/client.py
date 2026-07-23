@@ -36,11 +36,17 @@ class AbortToken:
         await self._event.wait()
 
 
-def reasoning_cfg(on: bool) -> dict:
+def reasoning_cfg(on: bool, prefill: str = "") -> dict:
     """Reasoning params dict to spread into a ``client.complete()`` call.
 
     Covers all known API styles in one place (OpenAI-style, llama.cpp,
     Anthropic thinking).
+
+    *prefill* is the text-mode reasoning prefill: words put in the model's mouth
+    inside the thought channel. It rides this dict (rather than a free kwarg) so
+    that a prefill cannot exist on a reasoning-off call — the ``on`` branch is
+    the only one that carries it. ``reasoning_prefill`` is Orb-internal: both
+    transports strip it, it is never sent to a provider.
 
     ``chat_template_kwargs`` carries two aliases for the same toggle because
     templates disagree on the name: Qwen3/Gemma read ``enable_thinking``; Kimi K2
@@ -58,6 +64,7 @@ def reasoning_cfg(on: bool) -> dict:
             "reasoning": {"enabled": True},
             "chat_template_kwargs": {"enable_thinking": True, "thinking": True},
             "thinking": {"type": "enabled"},
+            **({"reasoning_prefill": prefill} if prefill else {}),
         }
         if on
         else {
@@ -253,6 +260,9 @@ class LLMClient:
             # structured forced calls (and discards it otherwise).
             params.pop("prefill", None)
             params.pop("grammar", None)
+            # Reasoning prefill needs byte control of the prompt; chat mode has no
+            # such seam (the provider owns the reasoning channel).
+            params.pop("reasoning_prefill", None)
             # n_probs is a llama.cpp /completion field; a text→chat fallback (e.g. a
             # call carrying image parts) must not leak it into the OpenAI-compat body.
             params.pop("n_probs", None)
@@ -668,6 +678,9 @@ class LLMClient:
         """
         prefill = params.pop("prefill", None)
         grammar = params.pop("grammar", None)
+        # Popped before the /apply-template try below so the chat fallback never
+        # leaks it into an OpenAI-compat body either.
+        rprefill = params.pop("reasoning_prefill", "") or ""
         schema_override = params.pop("json_schema", None)
         # No-op here (tools are never rendered into the text-mode prompt), but
         # forwarded to the chat fallback below so the flag's contract survives.
@@ -696,6 +709,20 @@ class LLMClient:
         # Prime the splitter from what the template ACTUALLY rendered, not from the
         # requested reasoning flag.
         pre_opened = bool(tags[0]) and prompt.rstrip().endswith(tags[0].rstrip())
+
+        # Reasoning prefill: open the thought channel (unless the template already
+        # did) and seed it with the user's words. Prompt tail only — the shared KV
+        # prefix is untouched. Never closed: a grammar-forced pass emits its JSON
+        # inside the span, which is what a forced call with reasoning on already
+        # does. ``not prefill``: an assistant prefill already owns the tail via a
+        # trailing assistant turn in render_prompt, and the two cannot both.
+        if rprefill and reasoning_on and tags[0] and not prefill:
+            if not pre_opened:
+                prompt += tags[0]
+                pre_opened = True
+            prompt += rprefill
+        else:
+            rprefill = ""  # no-op: reasoning off, non-thinking model, or assistant-prefill call
 
         # Forced tool_choice → grammar-constrain the whole output to the tool's
         # JSON schema. tools is otherwise unused in text mode (never rendered).
@@ -736,6 +763,12 @@ class LLMClient:
         usage: dict | None = None
         finish_reason: str | None = None
         async for data in self._stream_completion(f"{server_root}/completion", body):
+            if rprefill:
+                # First chunk only: the POST is known good here, so _with_retry's
+                # clean-retry window (no event yielded yet) is preserved.
+                reasoning_parts.append(rprefill)
+                yield {"type": "reasoning", "delta": rprefill}
+                rprefill = ""
             stop = bool(data.get("stop"))
             if stop:
                 usage = text_completion.synthesize_usage(data)

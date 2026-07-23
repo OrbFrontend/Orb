@@ -74,6 +74,17 @@ function _buildReasoningHtml() {
   const currentText = S[`reasoning${selectedPass.key.charAt(0).toUpperCase()}${selectedPass.key.slice(1)}`] || "";
   const openAttr = S.reasoningOpen ? " open" : "";
 
+  // Reasoning prefill: text mode only — chat endpoints give no seam to write
+  // inside the thought channel. Handlers are delegated at module scope below.
+  const key = selectedPass.key;
+  const prefillHtml = _passTextMode(key)
+    ? `<textarea class="reasoning-box reasoning-prefill" id="reasoning-prefill" data-pass="${key}" rows="3"
+         title="Applies only while this pass's reasoning is on"
+         placeholder="Prefill this pass's reasoning… (macros resolved)"
+         style="${S.reasoningEnabled[key] === false ? "opacity:.5" : ""}"
+       >${esc(S.reasoningPrefill[key] || "")}</textarea>`
+    : "";
+
   return `<details class="inspector-block reasoning-section" id="reasoning-section"${openAttr} ontoggle="S.reasoningOpen=this.open;saveInspectorOpenStates()">
     <summary class="reasoning-summary">
       <span class="reasoning-summary-arrow">▶</span>
@@ -85,9 +96,35 @@ function _buildReasoningHtml() {
         <span class="reasoning-pass-label">${esc(selectedPass.label)}</span>
       </div>
       <div class="reasoning-box" id="reasoning-box">${esc(currentText)}</div>
+      ${prefillHtml}
     </div>
   </details>`;
 }
+
+// Text mode is an endpoint property. Director/editor ride the agent lane only
+// when a separate agent endpoint is actually configured; otherwise they run on
+// the writer's client (config.py: agent_lane = writer_lane).
+function _passTextMode(key) {
+  const separate = !S.agentSameAsWriter && !!S.agentEndpointId;
+  const id = key === "writer" || !separate ? S.activeEndpointId : S.agentEndpointId;
+  return S.endpoints.find((e) => e.id === id)?.completion_mode === "text";
+}
+
+// Delegated (no inline on*= handler — the frontend layer check ratchets those down).
+// Syncing S on input and rendering from S means a _refreshReasoningSection()
+// rebuild cannot eat typed text.
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "reasoning-prefill") return;
+  S.reasoningPrefill[e.target.dataset.pass] = e.target.value;
+  // Typing is an explicit pass selection: pin the rail so a mid-stream
+  // _advanceReasoningPass can't swap the box out from under the cursor.
+  S.reasoningUserOverride = true;
+});
+document.addEventListener("change", (e) => {
+  // Fires on blur for a textarea.
+  if (e.target.id === "reasoning-prefill")
+    api.put("/settings", { reasoning_prefill_passes: { ...S.reasoningPrefill } });
+});
 
 function _refreshReasoningSection() {
   const existing = document.getElementById("reasoning-section");

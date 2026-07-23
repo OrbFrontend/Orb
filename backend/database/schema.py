@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS settings (
     length_guard_enforce INTEGER NOT NULL DEFAULT 0,
     agentic_lorebook_enabled INTEGER NOT NULL DEFAULT 0,
     reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":false,"writer":false,"editor":false}',
+    reasoning_prefill_passes TEXT NOT NULL DEFAULT '{"director":"","writer":"","editor":""}',
     active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
     active_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     character_library_view TEXT NOT NULL DEFAULT 'grid',

@@ -192,6 +192,7 @@ async def editor_pass(
     length_guard: LengthGuard | None = None,
     kv_tracker=None,
     reasoning_on: bool = False,
+    reasoning_prefill: str = "",
     audit_context_msgs: list[str] | None = None,
     writer_user_msg: "str | list[ContentPart] | None" = None,
     feedback_fragments: "Sequence[Mapping[str, Any]] | None" = None,
@@ -223,6 +224,7 @@ async def editor_pass(
         length_guard,
         kv_tracker=kv_tracker,
         reasoning_on=reasoning_on,
+        reasoning_prefill=reasoning_prefill,
         audit_context_msgs=audit_context_msgs,
         writer_user_msg=writer_user_msg,
     ):
@@ -252,6 +254,7 @@ async def editor_pass(
             # Feedback shares the editor's reasoning toggle — it is a sub-step, not
             # a separately-configurable pass.
             reasoning_on=reasoning_on,
+            reasoning_prefill=reasoning_prefill,
         ):
             if ev["type"] == "reasoning":
                 yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
@@ -325,6 +328,7 @@ async def editor_stage(
             cfg.length_guard,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.editor_reasoning_on,
+            reasoning_prefill=cfg.editor_reasoning_prefill,
             audit_context_msgs=editor_audit_msgs,
             writer_user_msg=state.writer_content,
             feedback_fragments=feedback_fragments if feedback_needed else None,
@@ -380,6 +384,7 @@ async def _run_edit_loop(
     audit_enabled: bool = True,
     length_guard: LengthGuard | None = None,
     kv_tracker=None,
+    reasoning_prefill: str = "",  # text-mode reasoning prefill, forwarded to reasoning_cfg
     reasoning_on: bool = False,  # If true, use structured tool-use message format (role=tool) for iteration feedback; non-thinking models get a synthetic recap instead
     audit_context_msgs: (
         list[str] | None
@@ -542,7 +547,7 @@ async def _run_edit_loop(
                 # so apply/replay/events downstream stay untouched.
                 parsed = [{"name": "editor_apply_patch", "arguments": {"patches": found}}]
             else:
-                reasoning_params = reasoning_cfg(reasoning_on)
+                reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
                 if not reasoning_params["reasoning"].get("enabled", True):
                     logger.info("Editor iteration %d: reasoning disabled", iteration + 1)
 

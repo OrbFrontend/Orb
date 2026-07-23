@@ -60,6 +60,14 @@ def _resolve_pipeline_config(
 
     agent_on = agent_enabled(settings)
     reasoning_passes = settings.get("reasoning_enabled_passes") or {}
+    prefills = settings.get("reasoning_prefill_passes") or {}
+
+    def _prefill(key: str) -> str:
+        # resolve_message is seeded by conversation id, so {{random}}/{{roll}} pin
+        # per conversation exactly like fragment text — the tail stays byte-stable
+        # turn over turn.
+        raw = str(prefills.get(key) or "")
+        return macros.resolve_message(raw) if raw else ""
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
 
@@ -101,6 +109,9 @@ def _resolve_pipeline_config(
         director_reasoning_on=bool(reasoning_passes.get("director", False)),
         writer_reasoning_on=bool(reasoning_passes.get("writer", False)),
         editor_reasoning_on=bool(reasoning_passes.get("editor", False)),
+        director_reasoning_prefill=_prefill("director"),
+        writer_reasoning_prefill=_prefill("writer"),
+        editor_reasoning_prefill=_prefill("editor"),
         audit_enabled=audit_enabled,
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard is not None,

@@ -135,6 +135,7 @@ async def director_pass(
     attachments: Optional[Sequence[Mapping[str, Any]]] = None,
     kv_tracker=None,
     reasoning_on: bool = True,
+    reasoning_prefill: str = "",
     lorebook_block: str = "",
     progressive_state: dict | None = None,
     direction_notes_block: str = "",
@@ -185,7 +186,7 @@ async def director_pass(
             break
         tool_schema = next((s for s in tool_schemas if s["function"]["name"] == name), None)
         if name == "direct_scene" and per_fragment_on and interactive_fragments:
-            reasoning_params = reasoning_cfg(reasoning_on)
+            reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
             hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
 
             # One forced call per fragment, each shown the values already chosen
@@ -289,7 +290,7 @@ async def director_pass(
         # tools and the writer still run, like the lorebook-select and
         # direction-note steps. Aborting the turn here would also skip
         # persisting the finished reply.
-        reasoning_params = reasoning_cfg(reasoning_on)
+        reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
         hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
         try:
             async for event in base.complete(
@@ -395,6 +396,7 @@ async def director_stage(
             attachments=attachments,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
+            reasoning_prefill=cfg.director_reasoning_prefill,
             lorebook_block=lorebook.block,
             progressive_state=prior_progressive,
             direction_notes_block=notes_block if direction_note_to_director(settings) else "",
@@ -435,6 +437,7 @@ async def director_stage(
             user_message=state.user_message,
             kv_tracker=kv_tracker,
             reasoning_on=cfg.director_reasoning_on,
+            reasoning_prefill=cfg.director_reasoning_prefill,
         ):
             if event["type"] == "reasoning":
                 state.reasoning_director += event["delta"]

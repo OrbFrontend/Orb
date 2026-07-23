@@ -54,6 +54,9 @@ export const S = {
   preventPromptOverrides: false, // when true, character card system_prompt and post_history_instructions are ignored
   showEditorDiff: true, // when false, editor-pass diff highlights + "clear diff" button are suppressed
   reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
+  // Per-pass reasoning prefill (text-completion endpoints only; ignored when that
+  // pass's reasoning is off).
+  reasoningPrefill: { director: "", writer: "", editor: "" },
   editorAuditToggles: {
     // per-scanner on/off for the Output Auditor; keys match backend AUDIT_TYPES
     banned_phrases: true,
