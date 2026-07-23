@@ -239,10 +239,9 @@ async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monk
         _fake_forced(
             {
                 "compose_image_prompt": {
-                    "viewpoint": "third_person",
-                    "visible_characters": [{"name": "Iris", "is_profile_owner": True, "sex": "girl"}],
                     "scene": "1girl, solo, sitting by a window",
                     "avoid": None,
+                    "profile_owner_visible": True,
                 }
             }
         ),
@@ -264,10 +263,9 @@ async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monk
         _fake_forced(
             {
                 "compose_image_prompt": {
-                    "viewpoint": "third_person",
-                    "visible_characters": [{"name": "Ren", "is_profile_owner": False, "sex": "boy"}],
                     "scene": "1boy, solo, standing in a doorway",
                     "avoid": None,
+                    "profile_owner_visible": False,
                 }
             }
         ),
@@ -281,33 +279,6 @@ async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monk
         profile_owner_name="Iris",
     )
     assert "silver hair" not in scene
-
-
-async def test_single_call_control_fields_pin_count_and_pov(monkeypatch):
-    monkeypatch.setattr(
-        composer,
-        "forced_tool_call",
-        _fake_forced(
-            {
-                "compose_image_prompt": {
-                    "viewpoint": "first_person",
-                    "visible_characters": [{"name": "Iris", "is_profile_owner": False, "sex": "girl"}],
-                    # The free-form prompt incorrectly counts the viewer as a boy.
-                    "scene": "1boy, 1girl, Iris reaches toward the viewer",
-                    "avoid": None,
-                }
-            }
-        ),
-    )
-    scene, _, mode = await compose_scene(
-        client=None,
-        model_name="m",
-        prefix=[],
-        settings={"model_name": "writer"},
-        prompt_format="hybrid",
-    )
-    assert scene == "1girl, solo, pov, Iris reaches toward the viewer"
-    assert mode == "single_call"
 
 
 @pytest.mark.parametrize(
@@ -331,13 +302,9 @@ async def test_profile_appearance_binding_follows_prompt_format(monkeypatch, pro
         _fake_forced(
             {
                 "compose_image_prompt": {
-                    "viewpoint": "third_person",
-                    "visible_characters": [
-                        {"name": "Iris", "is_profile_owner": True, "sex": "girl"},
-                        {"name": "Ashley", "is_profile_owner": False, "sex": "girl"},
-                    ],
                     "scene": "2girls, Iris sits beside Ashley.",
                     "avoid": None,
+                    "profile_owner_visible": True,
                 }
             }
         ),
@@ -361,10 +328,9 @@ async def test_profile_appearance_negation_cannot_bypass_scene_cleanup(monkeypat
         _fake_forced(
             {
                 "compose_image_prompt": {
-                    "viewpoint": "third_person",
-                    "visible_characters": [{"name": "Iris", "is_profile_owner": True, "sex": "girl"}],
                     "scene": "1girl, solo, sitting",
                     "avoid": None,
+                    "profile_owner_visible": True,
                 }
             }
         ),
