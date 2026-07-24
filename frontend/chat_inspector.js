@@ -6,6 +6,7 @@ import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
+import { preserveScroll } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, S } from "./state.js";
 import { $, esc, sentenceTail } from "./utils.js";
 
@@ -20,33 +21,16 @@ export const REASONING_PASSES = [
 const REASONING_BOTTOM_THRESHOLD = 20;
 
 // A reasoning box follows new text only while it is pinned to the bottom.
-// Inspect the position before mutating the DOM: appending first would move the
-// bottom and make a previously pinned box look scrolled-up.
-function _reasoningScrollSnapshot(box) {
-  if (!box) return null;
-  return {
-    atBottom: box.scrollHeight - box.scrollTop - box.clientHeight <= REASONING_BOTTOM_THRESHOLD,
-    scrollTop: box.scrollTop,
-  };
-}
-
-function _restoreReasoningScroll(box, snapshot) {
-  if (!box) return;
-  if (!snapshot || snapshot.atBottom) {
-    box.scrollTop = box.scrollHeight;
-  } else {
-    box.scrollTop = snapshot.scrollTop;
-  }
-}
-
-// Shared by the built-in and secondary-workflow reasoning streams. Reading the
-// pin state for every delta also handles wheel, touch, keyboard, and scrollbar
-// dragging without maintaining a second state machine.
+// preserveScroll reads the pin state right before mutating the DOM (wheel,
+// touch, keyboard, and scrollbar dragging all just move scrollTop, so there's
+// no separate state machine to keep in sync) and restores it after.
 export function appendReasoningDelta(box, delta) {
   if (!box) return;
-  const scroll = _reasoningScrollSnapshot(box);
-  box.appendChild(document.createTextNode(delta));
-  _restoreReasoningScroll(box, scroll);
+  preserveScroll(
+    () => box,
+    REASONING_BOTTOM_THRESHOLD,
+    () => box.appendChild(document.createTextNode(delta)),
+  );
 }
 
 // Advance the streaming-progress dot to `targetIdx` when it is further ahead.
@@ -161,11 +145,15 @@ document.addEventListener("change", (e) => {
 function _refreshReasoningSection() {
   const existing = document.getElementById("reasoning-section");
   if (!existing) return;
-  const scroll = _reasoningScrollSnapshot(document.getElementById("reasoning-box"));
-  existing.outerHTML = _buildReasoningHtml();
   // Rebuilding the rail (most notably at pass boundaries) must not re-enable
   // following after the user has scrolled up.
-  _restoreReasoningScroll(document.getElementById("reasoning-box"), scroll);
+  preserveScroll(
+    () => document.getElementById("reasoning-box"),
+    REASONING_BOTTOM_THRESHOLD,
+    () => {
+      existing.outerHTML = _buildReasoningHtml();
+    },
+  );
 }
 
 export function selectReasoningPass(idx) {
@@ -510,7 +498,9 @@ export function renderInspector() {
 }
 
 function _renderInspectorMain() {
-  const reasoningScroll = _reasoningScrollSnapshot(document.getElementById("reasoning-box"));
+  const withReasoningScroll = (mutate) =>
+    preserveScroll(() => document.getElementById("reasoning-box"), REASONING_BOTTOM_THRESHOLD, mutate);
+
   if (S.isStreaming && S.lastDirectorData === null) {
     // Reserve slots in the canonical (after-stream) order so blocks fill in
     // place rather than reordering when director data lands. Activation is
@@ -519,7 +509,8 @@ function _renderInspectorMain() {
     const pendingMoodsHtml = moodFragmentsView()
       .map((f) => `<span class="style-tag">${esc(f.label)}</span>`)
       .join("");
-    $("inspector-content").innerHTML = `
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
        <div class="inspector-block"><h4>Moods</h4>
          <div>${pendingMoodsHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
@@ -528,7 +519,7 @@ function _renderInspectorMain() {
        <div style="color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:8px">
          <span class="typing-indicator"><span></span><span></span><span></span></span> Director thinking…
        </div>`;
-    _restoreReasoningScroll(document.getElementById("reasoning-box"), reasoningScroll);
+    });
     renderContextSize();
     return;
   }
@@ -543,7 +534,8 @@ function _renderInspectorMain() {
     const lat = insp.agent_latency_ms || 0;
     const tc = insp.tool_calls || [];
     const inj = insp.injection_block || "";
-    $("inspector-content").innerHTML = `
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
       <div class="inspector-block" id="inspector-context-size"></div>
       <div class="inspector-block">
         <h4>Moods</h4>
@@ -560,7 +552,7 @@ function _renderInspectorMain() {
                  <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
           : ""
       }`;
-    _restoreReasoningScroll(document.getElementById("reasoning-box"), reasoningScroll);
+    });
     renderContextSize();
     return;
   }
@@ -575,13 +567,14 @@ function _renderInspectorMain() {
     const pnHtml = buildDirectionNotesHtml(S.lastDirectionNotes?.notes);
     // Canonical order: context-size, reasoning, feedback (matches the settled
     // director-data branch so nothing shifts once director output arrives).
-    $("inspector-content").innerHTML = `
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
        ${_buildReasoningHtml()}
        ${fbHtml}
        ${pnHtml}
        ${fbHtml || pnHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
-    _restoreReasoningScroll(document.getElementById("reasoning-box"), reasoningScroll);
+    });
     renderContextSize();
     return;
   }
@@ -595,7 +588,8 @@ function _renderInspectorMain() {
   const lat = ld.agent_latency_ms || 0;
   const tc = ld.tool_calls || [];
   const inj = ld.injection_block || "";
-  $("inspector-content").innerHTML = `
+  withReasoningScroll(() => {
+    $("inspector-content").innerHTML = `
     <div class="inspector-block" id="inspector-context-size"></div>
     <div class="inspector-block"><h4>Moods</h4>
       <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
@@ -611,7 +605,7 @@ function _renderInspectorMain() {
                <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
         : ""
     }`;
-  _restoreReasoningScroll(document.getElementById("reasoning-box"), reasoningScroll);
+  });
   renderContextSize();
 }
 

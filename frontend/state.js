@@ -79,8 +79,6 @@ export const S = {
   pendingUserMsgEdit: null, // stores edited content for the id-less pending user message to apply after streaming
   queuedEdits: {}, // { [msgId]: content } edits to persisted messages saved mid-stream, applied after the stream (the /edit route blocks on the stream lock)
   renderWindowStart: 0, // index into S.messages of the first message rendered; older messages are backfilled lazily on scroll-up. 0 means full history is in view.
-  autoscrollEnabled: true, // whether to auto-scroll chat to bottom during streaming
-  _programmaticScroll: false, // true while scrollToBottom() is executing — suppresses scroll listener
 
   // ── Streaming / generation lifecycle · owner: chat_stream.js
   isStreaming: false,

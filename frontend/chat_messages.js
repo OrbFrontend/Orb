@@ -17,7 +17,16 @@ import { confirmDelete } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
 import { S } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
-import { $, convUrl, resolvePlaceholders, scrollToBottom, scrollToMessage, toast } from "./utils.js";
+import {
+  $,
+  convUrl,
+  initChatScrollFollow,
+  resolvePlaceholders,
+  scrollToBottom,
+  scrollToMessage,
+  setChatFollowing,
+  toast,
+} from "./utils.js";
 import { validate } from "./validate.js";
 
 export function startEdit(msgId) {
@@ -233,55 +242,20 @@ export function initChatKeyNav() {
 
 // ── Smart autoscroll: follow the stream until the user scrolls up; re-enable
 // once they scroll back to the bottom. Call once at startup.
+const BACKFILL_TRIGGER = 200; // px from top at which to widen the render window
 export function initAutoscroll() {
   const ct = $("chat-messages");
   if (!ct) return;
-  const THRESHOLD = 20;
-  let scrollDebounce = null;
-
-  // Wheel: immediately cut autoscroll on any upward scroll intent
-  ct.addEventListener(
-    "wheel",
-    (e) => {
-      if (e.deltaY < 0) S.autoscrollEnabled = false;
+  initChatScrollFollow(ct, {
+    onScroll: () => {
+      // Lazy backfill: scrolling near the top widens the render window upward. The
+      // distFromBottom math in renderMessages preserves the scroll anchor so the
+      // prepend is seamless. No-op once the full history is already in view.
+      if (S.renderWindowStart > 0 && ct.scrollTop <= BACKFILL_TRIGGER) {
+        S.renderWindowStart = Math.max(0, S.renderWindowStart - RENDER_WINDOW_SIZE);
+        renderMessages();
+      }
     },
-    { passive: true },
-  );
-
-  // Touch: disable on upward swipe
-  let touchStartY = 0;
-  ct.addEventListener(
-    "touchstart",
-    (e) => {
-      touchStartY = e.touches[0].clientY;
-    },
-    { passive: true },
-  );
-  ct.addEventListener(
-    "touchmove",
-    (e) => {
-      if (e.touches[0].clientY > touchStartY) S.autoscrollEnabled = false;
-    },
-    { passive: true },
-  );
-
-  // Re-enable only once the user has scrolled back to the bottom (debounced to
-  // avoid false positives from rapid programmatic scroll events during streaming)
-  const BACKFILL_TRIGGER = 200; // px from top at which to widen the render window
-  ct.addEventListener("scroll", () => {
-    if (S._programmaticScroll) return;
-    // Lazy backfill: scrolling near the top widens the render window upward. The
-    // distFromBottom math in renderMessages preserves the scroll anchor so the
-    // prepend is seamless. No-op once the full history is already in view.
-    if (S.renderWindowStart > 0 && ct.scrollTop <= BACKFILL_TRIGGER) {
-      S.renderWindowStart = Math.max(0, S.renderWindowStart - RENDER_WINDOW_SIZE);
-      renderMessages();
-    }
-    clearTimeout(scrollDebounce);
-    scrollDebounce = setTimeout(() => {
-      const atBottom = ct.scrollHeight - ct.scrollTop - ct.clientHeight <= THRESHOLD;
-      if (atBottom) S.autoscrollEnabled = true;
-    }, 100);
   });
 }
 
@@ -438,7 +412,7 @@ export async function saveForkEdit(msgId) {
           S.streamCutoffIndex = S.messages.length;
         }
         S.pendingUserMsg = userMsg;
-        S.autoscrollEnabled = true;
+        setChatFollowing(true);
       },
       // The trailing renderMessages() guarantees the user row repaints with its
       // sibling swipe-nav (afterStream's in-place finalize only adds nav to the

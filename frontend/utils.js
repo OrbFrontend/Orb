@@ -1,3 +1,4 @@
+import { createScrollFollow } from "./scroll_follow.js";
 import { charactersView, S } from "./state.js";
 
 export function $(id) {
@@ -40,23 +41,27 @@ export function toast(msg, isError = false) {
   setTimeout(() => el.classList.add("hidden"), 3000);
 }
 
+// The chat area's follow controller. Constructed once by chat_messages.js's
+// initAutoscroll() (the element doesn't exist yet at module-eval time); this is
+// the one module every chat_*.js file that needs it can import from without
+// creating an import cycle (chat_workflow.js → chat_core.js already exists, so
+// the controller can't live in chat_messages.js or chat_core.js).
+let _chatFollow = null;
+
+export function initChatScrollFollow(el, { onScroll } = {}) {
+  _chatFollow = createScrollFollow(el, { threshold: 20, onScroll });
+}
+
+export function setChatFollowing(enabled) {
+  _chatFollow?.setFollowing(enabled);
+}
+
+export function markChatProgrammaticScroll(ms) {
+  _chatFollow?.markProgrammatic(ms);
+}
+
 export function scrollToBottom(smooth = false) {
-  const ct = $("chat-messages");
-  if (!ct || !S.autoscrollEnabled) return;
-  S._programmaticScroll = true;
-  requestAnimationFrame(() => {
-    if (smooth) {
-      ct.scrollTo({ top: ct.scrollHeight, behavior: "smooth" });
-      setTimeout(() => {
-        S._programmaticScroll = false;
-      }, 400);
-    } else {
-      // behavior:"instant" overrides #chat-messages' CSS scroll-behavior:smooth;
-      // a bare scrollTop assignment would animate instead of snapping.
-      ct.scrollTo({ top: ct.scrollHeight, behavior: "instant" });
-      S._programmaticScroll = false;
-    }
-  });
+  _chatFollow?.toBottom({ smooth });
 }
 
 export function scrollToMessage(msgId) {

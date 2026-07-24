@@ -51,6 +51,7 @@ import {
   resolvePlaceholders,
   scrollToBottom,
   sentenceDiff,
+  setChatFollowing,
   toast,
 } from "./utils.js";
 
@@ -665,7 +666,7 @@ export async function runStreamRequest(path, body, { cutoffMsgId = null, beforeR
   if (cutoffMsgId != null) {
     const idx = S.messages.findIndex((m) => m.id === cutoffMsgId);
     S.streamCutoffIndex = idx >= 0 ? idx : S.messages.length;
-    S.autoscrollEnabled = true;
+    setChatFollowing(true);
   }
 
   if (beforeRender) beforeRender();
