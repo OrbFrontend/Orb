@@ -4,7 +4,12 @@
 target-version = "py311"
 
 [lint]
+# Keep the complete lint policy here so local hooks, scripts, and CI cannot
+# silently select different rule sets. UP enforces syntax supported by the
+# Python 3.11 floor; I keeps import ordering in the same source of truth.
+select = ["E", "W", "F", "B", "I", "UP"]
+
 # Raising the target activates B905, but changing every zip() call to spell
 # strict=False is unrelated to the runtime/security upgrade and preserves no
 # additional invariant. Keep the existing truncating behavior explicitly.
-extend-ignore = ["B905"]
+ignore = ["E203", "E501", "B905"]

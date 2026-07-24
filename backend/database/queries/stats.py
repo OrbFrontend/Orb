@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from ..connection import get_db
 
@@ -127,7 +127,7 @@ async def get_global_stats() -> dict:
         # correctly. RANDOM() picks the candidate; the endpoint flips the coin
         # on which theme actually shows.
         fav_name = favorite_character["name"] if favorite_character else ""
-        recent_cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        recent_cutoff = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
         missed_row = list(
             await db.execute_fetchall(
                 f"""{_ACTIVE_PATH_CTE}

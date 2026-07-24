@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 
 from ..connection import _build_set_clause, get_db
@@ -29,7 +29,7 @@ async def get_world_by_name(name: str) -> WorldRow | None:
 
 async def create_world(data: dict) -> WorldRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         world_id = data.get("id") or str(uuid.uuid4())
         await db.execute(
             "INSERT INTO worlds (id, name, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -53,7 +53,7 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
         sets, vals = _build_set_clause(allowed, data)
         if sets:
             sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(datetime.now(UTC).isoformat())
             vals.append(world_id)
             await db.execute(
                 f"UPDATE worlds SET {', '.join(sets)} WHERE id = ?",
@@ -95,7 +95,7 @@ async def get_lorebook_entry(entry_id: int) -> LorebookEntryRow | None:
 
 async def create_lorebook_entry(world_id: str, data: dict) -> LorebookEntryRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cur = await db.execute(
             "INSERT INTO lorebook_entries (world_id, name, content, keywords, case_insensitive, constant, priority, enabled, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
@@ -134,7 +134,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
         sets, vals = _build_set_clause(allowed, data, json_fields={"keywords"})
         if sets:
             sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(datetime.now(UTC).isoformat())
             vals.append(entry_id)
             await db.execute(
                 f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",

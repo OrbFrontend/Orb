@@ -44,7 +44,7 @@ __all__ = [
 # ---------- public dataclasses ----------
 
 
-@dataclass
+@dataclass(slots=True)
 class FlaggedTemplate:
     template: str
     count: int
@@ -52,7 +52,7 @@ class FlaggedTemplate:
     sentences: list[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(slots=True)
 class TemplateResult:
     flagged_templates: list[FlaggedTemplate]
     all_templates: dict[str, int]

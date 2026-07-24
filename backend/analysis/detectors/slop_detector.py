@@ -53,19 +53,19 @@ _WINDOW_PADDING = 2
 _SENTENCE_BOUNDARY = re.compile(r'[.!?]["”’\'*_)\]]*(\s|[A-Z])')
 
 
-@dataclass
+@dataclass(slots=True)
 class ClicheHit:
     phrase: str
     score: float
 
 
-@dataclass
+@dataclass(slots=True)
 class FlaggedSentence:
     sentence: str
     cliches: list[ClicheHit] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(slots=True)
 class DetectionResult:
     flagged_sentences: list[FlaggedSentence]
     unique_cliches: list[str]

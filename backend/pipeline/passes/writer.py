@@ -7,7 +7,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 from ...core import (
     ChatMessage,
@@ -32,7 +33,7 @@ def build_writer_content(
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard: LengthGuard | None,
     text_mode: bool = False,
-) -> "str | list[ContentPart]":
+) -> str | list[ContentPart]:
     """Build the writer's user-message content (string or multimodal list).
 
     Built once and threaded into both the writer pass and the editor, which
@@ -58,7 +59,7 @@ async def writer_pass(
     client: LLMClient,
     base: CachedBase,
     settings: Mapping[str, Any],
-    content: "str | list[ContentPart]",
+    content: str | list[ContentPart],
     *,
     kv_tracker=None,
     reasoning_on: bool = True,
@@ -95,8 +96,8 @@ async def writer_pass(
 
 
 async def writer_stage(
-    cfg: "_PipelineConfig",
-    state: "TurnState",
+    cfg: _PipelineConfig,
+    state: TurnState,
     *,
     settings: Mapping[str, Any],
     attachments: Sequence[Mapping[str, Any]],

@@ -175,7 +175,7 @@ async def streaming_client(db_path: Path, monkeypatch):
         server.should_exit = True
         try:
             await asyncio.wait_for(serve_task, timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # uvicorn's force_exit path skips the connection-drain polls
             # but the trailing server.wait_closed() call is not gated by
             # it. The second bounded wait gives uvicorn's own graceful
@@ -184,7 +184,7 @@ async def streaming_client(db_path: Path, monkeypatch):
             server.force_exit = True
             try:
                 await asyncio.wait_for(serve_task, timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 serve_task.cancel()
                 await asyncio.gather(serve_task, return_exceptions=True)
         # uvicorn closes the socket itself on a normal exit; cover the

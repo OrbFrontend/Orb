@@ -20,6 +20,11 @@ ASTERISKS_ONLY = "*She smiles and steps back, turning to the window.* I won't go
 FULL_MARKUP = '*He leans on the doorframe, arms crossed.* "You came back," *he murmurs.*'
 
 
+def test_axis_enums_render_as_wire_values():
+    assert str(Dialogue.QUOTED) == "quoted"
+    assert f"{Narration.ASTERISK}" == "asterisk"
+
+
 # ---------- classification ----------
 
 

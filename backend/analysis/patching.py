@@ -11,6 +11,7 @@ unchanged.
 from __future__ import annotations
 
 import logging
+from dataclasses import fields
 
 from .audit import AuditReport
 from .detectors.opening_monotony import FlaggedOpener, MonotonyResult
@@ -38,7 +39,11 @@ def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_
     for item in items:
         kept = [s for s in item.sentences if s in sentences]
         if kept:
-            extra = {k: v for k, v in vars(item).items() if k not in (label_field, "count", "fraction", "sentences")}
+            extra = {
+                descriptor.name: getattr(item, descriptor.name)
+                for descriptor in fields(item)
+                if descriptor.name not in (label_field, "count", "fraction", "sentences")
+            }
             filtered.append(
                 cls(
                     **{label_field: getattr(item, label_field)},

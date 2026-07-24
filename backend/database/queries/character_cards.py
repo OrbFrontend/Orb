@@ -3,8 +3,9 @@ from __future__ import annotations
 import base64
 import json
 import re
-from datetime import datetime, timezone
-from typing import Any, Mapping, cast
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any, cast
 
 import aiosqlite
 
@@ -164,7 +165,7 @@ def card_embedded_fragments(
 
 async def create_character_card(data: dict) -> CharacterCardRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         try:
             await db.execute(
                 """INSERT INTO character_cards
@@ -217,7 +218,7 @@ async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[s
     if not alternate_greetings:
         return 0
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         count = 0
         for greeting in alternate_greetings:
             if greeting and greeting.strip():
@@ -303,7 +304,7 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
 
         if sets:
             sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(datetime.now(UTC).isoformat())
             vals.append(card_id)
             await db.execute(
                 f"UPDATE character_cards SET {', '.join(sets)} WHERE id = ?",

@@ -18,8 +18,9 @@ import json
 import logging
 import os
 import re
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence, cast
+from typing import Any, cast
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse

@@ -12,8 +12,9 @@ single bad LLM reply cannot crash a workflow.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator, Mapping, Sequence
 from types import MappingProxyType
-from typing import Any, AsyncIterator, Mapping, Sequence
+from typing import Any
 
 from ..inference import (
     STANDALONE_TOOLS,

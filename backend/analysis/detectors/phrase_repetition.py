@@ -57,7 +57,7 @@ __all__ = [
 # ---------- public dataclasses ----------
 
 
-@dataclass
+@dataclass(slots=True)
 class FlaggedPhrase:
     phrase: str
     count: int
@@ -65,7 +65,7 @@ class FlaggedPhrase:
     example_sentences: list[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(slots=True)
 class PhraseResult:
     flagged_phrases: list[FlaggedPhrase]
     total_messages: int

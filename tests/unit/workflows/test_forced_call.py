@@ -4,7 +4,8 @@ path."""
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from backend.inference import STANDALONE_TOOLS, TOOLS
 from backend.workflows._forced_call import forced_tool_call

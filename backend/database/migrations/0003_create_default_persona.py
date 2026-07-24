@@ -6,7 +6,7 @@ and settings.user_description, and link it as active_persona_id.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def migrate(conn: sqlite3.Connection) -> None:
@@ -30,7 +30,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         pass
 
     # Create a default persona
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     # Use a pleasant default avatar color (blue)
     avatar_color = "#3b82f6"
     cursor = conn.execute(

@@ -30,7 +30,8 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
+from typing import TypeVar
 
 from .text.text_segmentation import extract_block_spans, split_paragraphs
 
@@ -46,19 +47,22 @@ __all__ = [
 ]
 
 
-class Dialogue(str, Enum):
+class Dialogue(StrEnum):
     QUOTED = "quoted"
     BARE = "bare"
     UNKNOWN = "unknown"
 
 
-class Narration(str, Enum):
+class Narration(StrEnum):
     ASTERISK = "asterisk"
     BARE = "bare"
     UNKNOWN = "unknown"
 
 
-@dataclass(frozen=True)
+_StyleT = TypeVar("_StyleT", Dialogue, Narration)
+
+
+@dataclass(frozen=True, slots=True)
 class AxisStyle:
     dialogue: Dialogue
     narration: Narration
@@ -67,7 +71,7 @@ class AxisStyle:
         return f"dialogue={self.dialogue.value}, narration={self.narration.value}"
 
 
-@dataclass
+@dataclass(slots=True)
 class FormatDriftReport:
     """What the normalizer decided. ``changed`` is True only when the draft text
     was actually rewritten."""
@@ -239,7 +243,7 @@ def classify_axes(text: str) -> AxisStyle:
     return AxisStyle(dialogue=dialogue, narration=narration)
 
 
-def _stable(values: list[Enum], unknown: Enum) -> Enum:
+def _stable(values: list[_StyleT], unknown: _StyleT) -> _StyleT:
     """The agreed value across a baseline window, or *unknown* if it isn't stable.
 
     Confident (non-unknown) classifications must form a clear majority. A single
@@ -258,8 +262,8 @@ def baseline_axes(messages: list[str]) -> AxisStyle:
     only when the window agrees on it; otherwise it stays UNKNOWN (not enforced)."""
     styles = [classify_axes(m) for m in messages if m and m.strip()]
     return AxisStyle(
-        dialogue=_stable([s.dialogue for s in styles], Dialogue.UNKNOWN),  # type: ignore[arg-type]
-        narration=_stable([s.narration for s in styles], Narration.UNKNOWN),  # type: ignore[arg-type]
+        dialogue=_stable([s.dialogue for s in styles], Dialogue.UNKNOWN),
+        narration=_stable([s.narration for s in styles], Narration.UNKNOWN),
     )
 
 

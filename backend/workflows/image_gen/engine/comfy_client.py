@@ -6,7 +6,8 @@ import asyncio
 import json
 import time
 import uuid
-from typing import Any, Awaitable, Callable, Mapping, Optional
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any
 
 import httpx
 
@@ -14,7 +15,7 @@ from .contracts import ImageGenerationError, ImageResult
 from .display_encode import shrink_for_display
 
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
-ProgressCallback = Callable[[str, Mapping[str, Any]], Optional[Awaitable[None]]]
+ProgressCallback = Callable[[str, Mapping[str, Any]], Awaitable[None] | None]
 
 # `/object_info` is the one enormous response in this contract -- a real install
 # with custom-node packs reports ~2000 node types, tens of megabytes. Readiness
@@ -35,7 +36,7 @@ def invalidate_object_info(api_url: str | None = None) -> None:
         _object_info_cache.pop(api_url.rstrip("/"), None)
 
 
-async def _emit(progress: "ProgressCallback | None", stage: str, detail: Mapping[str, Any]) -> None:
+async def _emit(progress: ProgressCallback | None, stage: str, detail: Mapping[str, Any]) -> None:
     if not progress:
         return
     maybe = progress(stage, detail)

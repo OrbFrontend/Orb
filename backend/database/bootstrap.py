@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .connection import get_db
 from .schema import CREATE_TABLES_SQL
@@ -126,7 +126,7 @@ async def _seed_settings(db) -> None:
 
 async def _seed_default_persona(db) -> None:
     """Create the default persona and link it as active (was migration 0003)."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     cur = await db.execute(
         "INSERT INTO user_personas (name, description, avatar_color, created_at, updated_at) VALUES ('User', '', '#3b82f6', ?, ?)",
         (now, now),

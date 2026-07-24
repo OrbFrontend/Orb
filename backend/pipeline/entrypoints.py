@@ -18,7 +18,8 @@ message they inject.
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, Callable, List, Mapping, Optional, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from typing import Any
 
 from .. import database as db
 from ..core import resolve_inline
@@ -207,7 +208,7 @@ async def handle_turn(
     conversation_id: str,
     user_message: str,
     skip_user_persist: bool = False,
-    attachments: Optional[List[dict]] = None,
+    attachments: list[dict] | None = None,
     abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
     """Save the user message, run the pipeline, and stream the reply.

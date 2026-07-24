@@ -102,17 +102,13 @@ jobs:
         if: needs.detect-changes.outputs.backend == 'true'
         run: pip install -r requirements-dev.txt
 
-      - name: Ruff import sort check
-        if: needs.detect-changes.outputs.backend == 'true'
-        run: python -m ruff check --select I backend/ tests/
-
       - name: Ruff format check
         if: needs.detect-changes.outputs.backend == 'true'
         run: python -m ruff format --line-length 128 --check backend/ tests/
 
       - name: Ruff lint
         if: needs.detect-changes.outputs.backend == 'true'
-        run: python -m ruff check --select E,W,F,B --ignore E203,E501,B905 --line-length 128 backend/ tests/
+        run: python -m ruff check backend/ tests/
 
       - name: Pyright type check
         if: needs.detect-changes.outputs.backend == 'true'

@@ -13,7 +13,8 @@ why the dependency-free predicates live in ``predicates.py`` rather than here.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from ..core import ChatMessage, Macros
 from ..database.models import PhraseGroup

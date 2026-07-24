@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from ..contracts import WorkflowEventStream
 from ..toolkit import (
@@ -451,7 +452,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
             while not task.done():
                 try:
                     label = await asyncio.wait_for(labels.get(), 0.5)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 yield _phase(label)
             while not labels.empty():

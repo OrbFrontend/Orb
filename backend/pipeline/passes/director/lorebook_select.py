@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Mapping
 
 from ....core import extract_hyperparams
 from ....inference import (
@@ -33,7 +33,7 @@ from ....inference import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(slots=True)
 class LorebookSelectResult:
     """Typed result of the lorebook-select step, yielded as the ``done`` payload.
 
