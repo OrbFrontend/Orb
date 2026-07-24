@@ -48,6 +48,7 @@ import {
   esc,
   formatProse,
   formatProseWithDiff,
+  pinStreamingMessage,
   resolvePlaceholders,
   scrollToBottom,
   sentenceDiff,
@@ -120,6 +121,9 @@ function finalizeStreamingDiv(lastMsg) {
   const div = body.closest(".message");
   if (!div?.isConnected || !lastMsg || lastMsg.role !== "assistant" || !lastMsg.id) return false;
 
+  // Target pinning is only for the in-flight replacement. Once committed,
+  // restore ordinary bottom-follow behavior and leave no synthetic tail space.
+  div.classList.remove("stream-scroll-target");
   div.setAttribute("data-msg-id", lastMsg.id);
   body.removeAttribute("id");
 
@@ -657,8 +661,14 @@ export function agentPayload() {
 //                     (regenerate family); the refetch in afterStream restores.
 //   • beforeRender  — sync hook run just before the first paint, for callers
 //                     that splice an optimistic user message + set pendingUserMsg.
+//   • anchorStream  — pin the replacement streaming bubble to its target until
+//                     its content grows beyond the viewport.
 //   • afterDone     — async hook run after afterStream (persona pin, fork repaint).
-export async function runStreamRequest(path, body, { cutoffMsgId = null, beforeRender = null, afterDone = null } = {}) {
+export async function runStreamRequest(
+  path,
+  body,
+  { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
+) {
   setStreaming(true);
   setGenerationPhase("pending");
   $("send-btn").disabled = true;
@@ -675,7 +685,8 @@ export async function runStreamRequest(path, body, { cutoffMsgId = null, beforeR
   const ct = $("chat-messages");
   const msgDiv = createStreamingDiv();
   if (!S.hideUntilBaked) ct.appendChild(msgDiv);
-  scrollToBottom();
+  if (cutoffMsgId != null || anchorStream) pinStreamingMessage(msgDiv);
+  else scrollToBottom();
   S.abortController = new AbortController();
   try {
     const resp = await streamPost(path, body, S.abortController.signal);

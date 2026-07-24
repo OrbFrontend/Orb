@@ -316,98 +316,113 @@ export function renderMessages(forceBottom = false) {
   // scroll state. Otherwise: near-bottom → snap to bottom; else preserve
   // distance from bottom (needed because the windowed render below can insert
   // messages above the viewport during backfill).
-  preserveScrollDistance(
-    () => ct,
-    50,
-    () => {
-      let streamingEl = null;
-      let badgeEl = null;
-      if (S.isStreaming) {
-        streamingEl = S.streamingBodyEl?.closest(".message") ?? null;
-        badgeEl = document.getElementById("active-director-badge");
-      }
-      if (!S.activeConvId) {
-        ct.innerHTML =
-          '<div class="empty-state"><div class="icon" id="home-greeting-icon">📜</div><div id="home-greeting">Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
-        renderHomeStats();
-      } else if (!S.messages.length) {
-        ct.innerHTML =
-          '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
-      } else {
-        let msgs = S.messages;
-        if (S.isStreaming && S.streamCutoffIndex != null) {
-          msgs = S.messages.slice(0, S.streamCutoffIndex);
+  // Newly-created content-visibility:auto nodes initially expose only their
+  // intrinsic fallback height. Make the replacement fully measurable through
+  // the synchronous restore, then re-enable off-screen layout skipping.
+  ct.classList.add("measuring-render");
+  try {
+    preserveScrollDistance(
+      () => ct,
+      50,
+      () => {
+        let streamingEl = null;
+        let badgeEl = null;
+        if (S.isStreaming) {
+          streamingEl = S.streamingBodyEl?.closest(".message") ?? null;
+          badgeEl = document.getElementById("active-director-badge");
         }
-        // Windowed render: only paint the trailing slice synchronously. The window
-        // always includes the tail, so the regular scroll-to-bottom behavior and all
-        // existing callers see the latest messages with no change. Older messages are
-        // backfilled lazily on scroll-up and fully filled during idle time below.
-        const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
-        if (start > 0) msgs = msgs.slice(start);
-        renderedMsgs = msgs;
-        // Precompute parent_id → assistant child once (was an O(N) find per user
-        // message → O(N²)). Built over the full list so a child just below the window
-        // edge is still found.
-        const childByParent = new Map();
-        for (const c of S.messages) {
-          if (c.role === "assistant" && c.parent_id != null && !childByParent.has(c.parent_id)) {
-            childByParent.set(c.parent_id, c);
+        if (!S.activeConvId) {
+          ct.innerHTML =
+            '<div class="empty-state"><div class="icon" id="home-greeting-icon">📜</div><div id="home-greeting">Select a character to begin</div><div class="stats-grid" id="home-stats-grid"></div></div>';
+          renderHomeStats();
+        } else if (!S.messages.length) {
+          ct.innerHTML =
+            '<div class="empty-state"><div class="icon">📜</div><div>Start writing to begin the scene</div></div>';
+        } else {
+          let msgs = S.messages;
+          if (S.isStreaming && S.streamCutoffIndex != null) {
+            msgs = S.messages.slice(0, S.streamCutoffIndex);
           }
-        }
-        ct.innerHTML = msgs
-          .map((m) => {
-            const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
-            const isEditing =
-              (S.editingMsgId !== null && S.editingMsgId === m.id) ||
-              (!m.id && S.editingPendingUserMsg) ||
-              isForkEditing;
-            const bc = m.branch_count || 1;
-            const bi = m.branch_index || 0;
-            const branchHtml =
-              bc > 1
-                ? `
+          // Windowed render: only paint the trailing slice synchronously. The window
+          // always includes the tail, so the regular scroll-to-bottom behavior and all
+          // existing callers see the latest messages with no change. Older messages are
+          // backfilled lazily on scroll-up and fully filled during idle time below.
+          const start = Math.min(Math.max(S.renderWindowStart | 0, 0), msgs.length);
+          if (start > 0) msgs = msgs.slice(start);
+          renderedMsgs = msgs;
+          // Precompute parent_id → assistant child once (was an O(N) find per user
+          // message → O(N²)). Built over the full list so a child just below the window
+          // edge is still found.
+          const childByParent = new Map();
+          for (const c of S.messages) {
+            if (c.role === "assistant" && c.parent_id != null && !childByParent.has(c.parent_id)) {
+              childByParent.set(c.parent_id, c);
+            }
+          }
+          ct.innerHTML = msgs
+            .map((m) => {
+              const isForkEditing = S.forkEditMsgId !== null && S.forkEditMsgId === m.id;
+              const isEditing =
+                (S.editingMsgId !== null && S.editingMsgId === m.id) ||
+                (!m.id && S.editingPendingUserMsg) ||
+                isForkEditing;
+              const bc = m.branch_count || 1;
+              const bi = m.branch_index || 0;
+              const branchHtml =
+                bc > 1
+                  ? `
         <span class="swipe-nav">
           <button onclick="event.stopPropagation();switchBranch(${m.prev_branch_id})" ${!m.prev_branch_id ? "disabled" : ""}>◀</button>
           <span class="swipe-counter">${bi + 1}/${bc}</span>
           <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? "disabled" : ""}>▶</button>
         </span>`
-                : "";
-            const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}</div>`;
-            const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
-            const editActions = isForkEditing
-              ? `<button class="btn btn-sm" onclick="cancelForkEdit()">Cancel</button>
+                  : "";
+              const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}</div>`;
+              const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
+              const editActions = isForkEditing
+                ? `<button class="btn btn-sm" onclick="cancelForkEdit()">Cancel</button>
             <button class="btn btn-sm btn-accent" onclick="saveForkEdit(${m.id})">Fork</button>`
-              : `<button class="btn btn-sm" onclick="${m.id ? `cancelEdit()` : `cancelEditPending()`}">Cancel</button>
+                : `<button class="btn btn-sm" onclick="${m.id ? `cancelEdit()` : `cancelEditPending()`}">Cancel</button>
             <button class="btn btn-sm btn-accent" onclick="${m.id ? `saveEdit(${m.id},'${m.role}')` : `saveEditPending()`}">Save</button>`;
-            const body = isEditing
-              ? `
+              const body = isEditing
+                ? `
         <div class="msg-edit-area">
           <textarea id="${taId}" rows="5">${esc(m.content)}</textarea>
           <div class="msg-edit-actions">
             ${editActions}
           </div>
         </div>`
-              : `<div class="msg-body">${
-                  S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
-                    ? formatProseWithDiff(S.pendingRefineDiff.ops)
-                    : formatProse(resolvePlaceholders(m.content))
-                }</div>`;
-            const attachmentsHtml = renderUserAttachments(m.user_attachments);
-            const workflowArtifactsHtml = _renderWorkflowArtifacts(m);
-            const rejectionHtml = _renderWorkflowRejection(m);
-            return `<div class="message ${m.role}" data-msg-id="${m.id}">
+                : `<div class="msg-body">${
+                    S.pendingRefineDiff?.msgId && m.id === S.pendingRefineDiff.msgId && S.showEditorDiff
+                      ? formatProseWithDiff(S.pendingRefineDiff.ops)
+                      : formatProse(resolvePlaceholders(m.content))
+                  }</div>`;
+              const attachmentsHtml = renderUserAttachments(m.user_attachments);
+              const workflowArtifactsHtml = _renderWorkflowArtifacts(m);
+              const rejectionHtml = _renderWorkflowRejection(m);
+              return `<div class="message ${m.role}" data-msg-id="${m.id}">
         <div class="msg-role">${m.role === "user" ? "You" : esc(getCharName())} ${branchHtml}</div>
         ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${toolbar}
       </div>`;
-          })
-          .join("");
-      }
-      if (badgeEl) ct.appendChild(badgeEl);
-      // Keep streaming box visible while editing; only hide if explicitly flagged
-      if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
-    },
-    { forceBottom },
-  );
+            })
+            .join("");
+        }
+        if (badgeEl) ct.appendChild(badgeEl);
+        // Keep streaming box visible while editing; only hide if explicitly flagged
+        if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
+      },
+      { forceBottom },
+    );
+  } finally {
+    // Preserve the just-measured height as each new node's own intrinsic
+    // fallback. Once content-visibility:auto is restored, off-screen messages
+    // therefore keep byte-for-byte-equivalent geometry instead of all
+    // collapsing to the generic 300px estimate.
+    for (const messageEl of ct.querySelectorAll(".message")) {
+      messageEl.style.containIntrinsicSize = `auto ${messageEl.offsetHeight}px`;
+    }
+    ct.classList.remove("measuring-render");
+  }
   if (!S.isStreaming) updateContextCounter();
   _refreshWorkflowViewportObserver();
   _segmentRenderedMessages(renderedMsgs);

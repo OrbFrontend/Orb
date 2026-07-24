@@ -36,24 +36,18 @@ export function startEdit(msgId) {
   // The target may be above the current render window; widen so it's in the DOM.
   ensureIndexInWindow(S.messages.findIndex((m) => m.id === msgId));
   renderMessages();
-  // If editing the latest message, scroll to bottom so it's at the bottom of view.
-  // Otherwise, center-focus on the message being edited.
-  const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
-  const isLatest = msgEl && !msgEl.nextElementSibling;
-  if (isLatest) {
-    scrollToBottom(true);
-  } else {
-    scrollToMessage(msgId);
-  }
   focusEditTextarea($(`edit-textarea-${msgId}`), cancelEdit);
+  scrollToMessage(msgId);
   // Editing is isolated to the message itself; it must not re-fetch the
   // director-log or repaint the inspector bar.
 }
 
 export function cancelEdit() {
+  const msgId = S.editingMsgId;
   S.editingMsgId = null;
   S.editingPendingUserMsg = false;
   renderMessages();
+  if (msgId != null) scrollToMessage(msgId);
 }
 
 // Open the "Edit & Fork" textarea on a user message. Mirrors startEdit but
@@ -65,22 +59,18 @@ export function startForkEdit(msgId) {
   S.editingPendingUserMsg = false;
   ensureIndexInWindow(S.messages.findIndex((m) => m.id === msgId));
   renderMessages();
-  const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
-  const isLatest = msgEl && !msgEl.nextElementSibling;
-  if (isLatest) {
-    scrollToBottom(true);
-  } else {
-    scrollToMessage(msgId);
-  }
   focusEditTextarea($(`edit-textarea-${msgId}`), cancelForkEdit);
+  scrollToMessage(msgId);
   // Surface the director data for the reply that currently follows this message.
   const childAssistant = S.messages.find((c) => c.parent_id === msgId && c.role === "assistant");
   if (childAssistant) inspectMessage(childAssistant.id);
 }
 
 export function cancelForkEdit() {
+  const msgId = S.forkEditMsgId;
   S.forkEditMsgId = null;
   renderMessages();
+  if (msgId != null) scrollToMessage(msgId);
 }
 
 export async function inspectMessage(msgId) {
@@ -117,11 +107,15 @@ function focusEditTextarea(ta, onEscape) {
       onEscape();
     }
   });
-  ta.focus();
+  // startEdit/startForkEdit already position the whole target message. Avoid a
+  // second native focus scroll overriding that centered destination.
+  ta.focus({ preventScroll: true });
   ta.selectionStart = ta.selectionEnd = ta.value.length;
   ta.style.height = "auto";
   const lineH = parseFloat(getComputedStyle(ta).lineHeight) || 20;
   ta.style.height = `${Math.max(lineH * 3, ta.scrollHeight)}px`;
+  const messageEl = ta.closest(".message");
+  if (messageEl) messageEl.style.containIntrinsicSize = `auto ${messageEl.offsetHeight}px`;
 }
 
 export async function deleteMessage(msgId) {
@@ -138,6 +132,7 @@ export async function deleteMessage(msgId) {
       // Deletion cascades to the notes on the removed messages and moves the active branch,
       // so the panel's path-scoped set is stale; refetch it if open (mirrors switchBranch).
       if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
+      setChatFollowing(true);
       scrollToBottom();
       toast("Message deleted");
     } catch (e) {
@@ -357,6 +352,7 @@ export async function saveEdit(msgId, _role) {
     // refetch here won't evict an unpersisted user bubble.
     setMessages(await api.get(convUrl(S.activeConvId, "messages")));
     renderMessages();
+    scrollToMessage(msgId);
     toast("Message edited");
   } catch (e) {
     toast(e.message, true);
@@ -417,6 +413,7 @@ export async function saveForkEdit(msgId) {
       // The trailing renderMessages() guarantees the user row repaints with its
       // sibling swipe-nav (afterStream's in-place finalize only adds nav to the
       // assistant bubble).
+      anchorStream: true,
       afterDone: renderMessages,
     },
   );

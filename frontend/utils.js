@@ -60,13 +60,48 @@ export function markChatProgrammaticScroll(ms) {
   _chatFollow?.markProgrammatic(ms);
 }
 
+function scrollChatTarget(el, align) {
+  const ct = $("chat-messages");
+  if (!ct || !el) return;
+  const topWithinScroller = el.getBoundingClientRect().top - ct.getBoundingClientRect().top + ct.scrollTop;
+  let targetTop = topWithinScroller;
+  if (align === "center") {
+    targetTop -= Math.max(0, (ct.clientHeight - el.offsetHeight) / 2);
+  }
+  // Never manufacture scroll range to reach the ideal alignment. At the end
+  // of a conversation the browser must clamp to the real bottom; adding a
+  // spacer here leaves a large blank tail after regeneration or deletion.
+  targetTop = Math.min(Math.max(0, targetTop), Math.max(0, ct.scrollHeight - ct.clientHeight));
+  markChatProgrammaticScroll();
+  ct.scrollTo({ top: targetTop, behavior: "instant" });
+}
+
 export function scrollToBottom(smooth = false) {
+  const ct = $("chat-messages");
+  const pinnedTarget = ct?.querySelector(".stream-scroll-target");
+  if (ct && pinnedTarget && _chatFollow?.isFollowing()) {
+    markChatProgrammaticScroll();
+    requestAnimationFrame(() => {
+      const topWithinScroller =
+        pinnedTarget.getBoundingClientRect().top - ct.getBoundingClientRect().top + ct.scrollTop;
+      const desiredTop = Math.max(topWithinScroller, topWithinScroller + pinnedTarget.offsetHeight - ct.clientHeight);
+      const targetTop = Math.min(Math.max(0, desiredTop), Math.max(0, ct.scrollHeight - ct.clientHeight));
+      ct.scrollTo({ top: targetTop, behavior: smooth ? "smooth" : "instant" });
+    });
+    return;
+  }
   _chatFollow?.toBottom({ smooth });
 }
 
 export function scrollToMessage(msgId) {
-  const el = document.querySelector(`[data-msg-id="${msgId}"]`);
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  const ct = $("chat-messages");
+  const el = ct?.querySelector(`.message[data-msg-id="${msgId}"]`);
+  if (el) scrollChatTarget(el, "center");
+}
+
+export function pinStreamingMessage(el) {
+  el.classList.add("stream-scroll-target");
+  if (el.isConnected) scrollChatTarget(el, "start");
 }
 
 export function avatarUrl(charId) {
