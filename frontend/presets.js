@@ -3,7 +3,7 @@
 
 import { api } from "./api.js";
 import { closeSubModal, showModal, showSubConfirmModal, showSubModal } from "./modal.js";
-import { $, downloadBlob, esc, toast } from "./utils.js";
+import { $, downloadBlob, esc, escHandlerArg, toast } from "./utils.js";
 
 const DOMAINS = [
   { id: "characters", label: "Characters" },
@@ -257,10 +257,10 @@ function presetRow(it) {
           <div class="preset-item-meta">${fmtDate(it.created_at)} · ${fmtSize(it.size)}</div>
         </div>
         <div class="preset-item-actions">
-          <button class="btn btn-sm" onclick="downloadPreset('${esc(it.name)}')" title="Download">⬇</button>
-          <button class="btn btn-sm" onclick="applyPreset('${esc(it.name)}')" title="Merge into current data">Apply</button>
-          <button class="btn btn-sm" onclick="restorePreset('${esc(it.name)}')" title="Replace everything">Restore</button>
-          <button class="btn btn-sm btn-danger" onclick="deletePreset('${esc(it.name)}')" title="Delete">✕</button>
+          <button class="btn btn-sm" onclick="downloadPreset('${escHandlerArg(it.name)}')" title="Download">⬇</button>
+          <button class="btn btn-sm" onclick="applyPreset('${escHandlerArg(it.name)}')" title="Merge into current data">Apply</button>
+          <button class="btn btn-sm" onclick="restorePreset('${escHandlerArg(it.name)}')" title="Replace everything">Restore</button>
+          <button class="btn btn-sm btn-danger" onclick="deletePreset('${escHandlerArg(it.name)}')" title="Delete">✕</button>
         </div>
       </div>
       <div class="preset-chips">${chips}</div>

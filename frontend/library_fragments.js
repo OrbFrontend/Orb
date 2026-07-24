@@ -4,8 +4,10 @@
 import { api } from "./api.js";
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
 import { S } from "./state.js";
-import { $, esc, toast } from "./utils.js";
+import { $, boolFlag, esc, escAttr, escHandlerArg, toast } from "./utils.js";
 import { validate } from "./validate.js";
+
+const _dragAndDropContainers = new WeakSet();
 
 // ── Mood Fragments
 export async function loadMoodFragments() {
@@ -31,17 +33,17 @@ export function renderMoodFragments() {
   const html = (S.moodFragments || [])
     .map((f) => {
       // Handle both boolean and numeric (0/1) enabled values from backend
-      const enabled = f.enabled === true || f.enabled === 1;
+      const enabled = boolFlag(f.enabled);
       const toggleId = `frag-toggle-${f.id}`;
       return `
-    <div class="fragment-item" style="cursor:pointer" title="${esc(f.description)}" onclick="showMoodFragmentModal('${f.id}')">
+    <div class="fragment-item" style="cursor:pointer" title="${escAttr(f.description)}" onclick="showMoodFragmentModal('${escHandlerArg(f.id)}')">
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>
       </div>
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="tog" for="${toggleId}">
           <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
-                 onchange="toggleMoodFragmentEnabled('${f.id}', this.checked)">
+                 onchange="toggleMoodFragmentEnabled('${escHandlerArg(f.id)}', this.checked)">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -58,12 +60,12 @@ function _moodFragFormHtml(d, isEdit) {
   return `
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
-        <input id="frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. dramatic"></div>
+        <input id="frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="e.g. dramatic"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
-        <input id="frag-label" value="${esc(d.label)}" placeholder="Terse"></div>
+        <input id="frag-label" value="${escAttr(d.label)}" placeholder="Terse"></div>
     </div>
     <div class="field"><label>Description <span style="font-size:10px;color:var(--text-muted)">(tells the Director when to activate — sent in its tool schema)</span></label>
-      <input id="frag-desc" value="${esc(d.description)}" placeholder="Short, clipped sentences. Minimal description."></div>
+      <input id="frag-desc" value="${escAttr(d.description)}" placeholder="Short, clipped sentences. Minimal description."></div>
     <div class="field"><label>Prompt Text <span style="font-size:10px;color:var(--text-muted)">(injected into the writer context when this mood is active)</span></label>
       <textarea id="frag-text" rows="4" placeholder="Write tersely. Short sentences. No flowery language.">${esc(d.prompt_text)}</textarea></div>
     <div class="field">
@@ -91,7 +93,7 @@ export function showMoodFragmentModal(fragId = null) {
     <h2>${isEdit ? "Edit Mood Fragment" : "New Mood Fragment"}</h2>
     ${_moodFragFormHtml(d, isEdit)}
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteMoodFragment('${esc(d.id)}')">Delete</button>` : ""}
+      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteMoodFragment('${escHandlerArg(d.id)}')">Delete</button>` : ""}
       <div style="flex:1"></div>
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-accent" onclick="saveMoodFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
@@ -155,6 +157,7 @@ export async function loadInteractiveFragments() {
 export function renderInteractiveFragments() {
   const el = document.getElementById("interactive-frag-list");
   if (!el) return;
+  setupDragAndDrop(el);
   const cardHtml = _cardInteractiveSidepanelHtml();
   // Add button sits with the global list, above the "From character" divider.
   const addBtn = `<button class="btn btn-block btn-sm" onclick="showInteractiveFragmentModal()" style="margin-top:6px">+ Add Interactive Fragment</button>`;
@@ -173,7 +176,7 @@ export function renderInteractiveFragments() {
 
   const html = sorted
     .map((f) => {
-      const enabled = f.enabled === true || f.enabled === 1;
+      const enabled = boolFlag(f.enabled);
       const toggleId = `interactive-frag-toggle-${f.id}`;
       const userBadge =
         f.field_type === "feedback"
@@ -190,9 +193,9 @@ export function renderInteractiveFragments() {
         ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
         : directionNoteDisabled
           ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
-          : esc(f.description);
+          : f.description;
       return `
-    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" draggable="true" data-id="${esc(f.id)}" title="${itemTitle}" onclick="showInteractiveFragmentModal('${f.id}')">
+    <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" draggable="true" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
       <div class="frag-drag-handle" onclick="event.stopPropagation()">⋮⋮</div>
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label)}</span>${userBadge}
@@ -200,7 +203,7 @@ export function renderInteractiveFragments() {
       <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
         <label class="tog" for="${toggleId}">
           <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
-                 onchange="toggleInteractiveFragmentEnabled('${f.id}', this.checked)">
+                 onchange="toggleInteractiveFragmentEnabled('${escHandlerArg(f.id)}', this.checked)">
           <span class="tog-slider"></span>
         </label>
       </div>
@@ -211,10 +214,11 @@ export function renderInteractiveFragments() {
   // Card items live in .frag-card-list (not .fragment-item), so the drag/reorder
   // machinery below never sees them.
   el.innerHTML = html + addBtn + cardHtml;
-  setupDragAndDrop(el);
 }
 
 function setupDragAndDrop(container) {
+  if (_dragAndDropContainers.has(container)) return;
+  _dragAndDropContainers.add(container);
   let dragged = null;
 
   container.addEventListener("dragstart", (e) => {
@@ -371,13 +375,13 @@ function _interactiveFragFormHtml(d, isEdit) {
   return `
     <div class="field-row">
       <div class="field"><label>ID <span style="font-size:10px;color:var(--text-muted)">(For tool-calling)</span></label>
-        <input id="interactive-frag-id" value="${esc(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${esc(ex.id)}"></div>
+        <input id="interactive-frag-id" value="${escAttr(d.id)}" ${isEdit ? "disabled" : ""} placeholder="${escAttr(ex.id)}"></div>
       <div class="field"><label>Label <span style="font-size:10px;color:var(--text-muted)">(For display only)</span></label>
-        <input id="interactive-frag-label" value="${esc(d.label)}" placeholder="${esc(ex.label)}"></div>
+        <input id="interactive-frag-label" value="${escAttr(d.label)}" placeholder="${escAttr(ex.label)}"></div>
     </div>
     <div class="field-row">
       <div class="field"><label>Injection Label <span id="interactive-frag-inj-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.inj_hint)})</span></label>
-        <input id="interactive-frag-inj-label" value="${esc(d.injection_label)}" placeholder="${esc(ex.injection_label)}"></div>
+        <input id="interactive-frag-inj-label" value="${escAttr(d.injection_label)}" placeholder="${escAttr(ex.injection_label)}"></div>
       <div class="field"><label>Field Type</label>
         <select id="interactive-frag-type" onchange="updateInteractiveFragmentExample(this.value)">
           <option value="string" ${d.field_type === "string" ? "selected" : ""}>single</option>
@@ -396,7 +400,7 @@ function _interactiveFragFormHtml(d, isEdit) {
       </select>
     </div>
     <div class="field"><label>Description <span id="interactive-frag-desc-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.desc_hint)})</span></label>
-      <textarea id="interactive-frag-desc" rows="4" placeholder="${esc(ex.description)}">${esc(d.description)}</textarea></div>
+      <textarea id="interactive-frag-desc" rows="4" placeholder="${escAttr(ex.description)}">${esc(d.description)}</textarea></div>
     <div class="field-row">
       <div class="field" style="align-self:flex-end;padding-bottom:4px">
         <label class="modal-checkbox-label">
@@ -436,7 +440,7 @@ export function showInteractiveFragmentModal(fragId = null) {
     <h2>${isEdit ? "Edit" : "New"} Interactive Fragment</h2>
     ${_interactiveFragFormHtml(d, isEdit)}
     <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteInteractiveFragment('${esc(d.id)}')">Delete</button>` : ""}
+      ${isEdit ? `<button class="btn btn-danger btn-sm" onclick="deleteInteractiveFragment('${escHandlerArg(d.id)}')">Delete</button>` : ""}
       <div style="flex:1"></div>
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-accent" onclick="saveInteractiveFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
@@ -507,7 +511,7 @@ function _interactiveTypeBadge(f) {
 function _cardMoodSidepanelHtml() {
   const frags = S.cardMoodFragments || [];
   if (!frags.length) return "";
-  const items = frags.map((f) => `<span title="${esc(f.description || "")}">${esc(f.label)}</span>`).join("");
+  const items = frags.map((f) => `<span title="${escAttr(f.description || "")}">${esc(f.label)}</span>`).join("");
   return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
 }
 
@@ -523,8 +527,8 @@ function _cardInteractiveSidepanelHtml() {
         ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
         : directionNoteDisabled
           ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
-          : esc(f.description || "");
-      return `<span${featureDisabled ? ' class="frag-feature-disabled"' : ""} title="${itemTitle}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
+          : f.description || "";
+      return `<span${featureDisabled ? ' class="frag-feature-disabled"' : ""} title="${escAttr(itemTitle)}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
     })
     .join("");
   return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
@@ -548,7 +552,7 @@ export function renderCardFragmentsTab() {
   const el = document.getElementById("ce-card-frag-list");
   if (!el || !_cardFragPending) return;
   const row = (type, f) => `
-    <div class="fragment-item" data-type="${type}" data-id="${esc(f.id)}">
+    <div class="fragment-item" data-type="${escAttr(type)}" data-id="${escAttr(f.id)}">
       <div style="flex:1; min-width:0;">
         <span class="frag-label">${esc(f.label || f.id)}</span>${type === "mood" ? "" : _interactiveTypeBadge(f)}
         ${f.description ? `<div class="frag-desc">${esc(f.description)}</div>` : ""}

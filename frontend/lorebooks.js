@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { createChipInput } from "./chips.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { charactersView } from "./state.js";
-import { $, downloadBlob, esc, toast } from "./utils.js";
+import { $, boolFlag, downloadBlob, esc, toast } from "./utils.js";
 
 // ── Module state
 let _worlds = [];
@@ -59,7 +59,7 @@ async function _loadEntries(worldId) {
 }
 
 // ── Sidebar rendering
-const _isWorldEnabled = (w) => w.enabled === true || w.enabled === 1;
+const _isWorldEnabled = (w) => boolFlag(w.enabled);
 const _worldRecencyTs = (w) => Date.parse(w.updated_at || w.created_at || "") || 0;
 const _byRecency = (a, b) => _worldRecencyTs(b) - _worldRecencyTs(a);
 
@@ -166,7 +166,7 @@ export async function activateAndPrioritizeWorld(worldId) {
   const idx = _worlds.findIndex((w) => w.id === worldId);
   if (idx === -1) return;
   const world = _worlds[idx];
-  const enabled = world.enabled === true || world.enabled === 1;
+  const enabled = boolFlag(world.enabled);
   if (!enabled) {
     try {
       const updated = await api.put(`/worlds/${worldId}`, { enabled: true });
@@ -185,7 +185,7 @@ export async function activateAndPrioritizeWorld(worldId) {
 export async function deactivateWorld(worldId) {
   const world = _worlds.find((w) => w.id === worldId);
   if (!world) return;
-  const enabled = world.enabled === true || world.enabled === 1;
+  const enabled = boolFlag(world.enabled);
   if (!enabled) return;
   try {
     const updated = await api.put(`/worlds/${worldId}`, { enabled: false });
@@ -371,7 +371,7 @@ function renderLorebookDrawer() {
   }
 
   const allEntries = _entries[_focusWorldId] || [];
-  const activeCount = allEntries.filter((e) => e.enabled === true || e.enabled === 1).length;
+  const activeCount = allEntries.filter((e) => boolFlag(e.enabled)).length;
 
   const q = _entrySearch.trim().toLowerCase();
   const entries = q
@@ -381,7 +381,7 @@ function renderLorebookDrawer() {
   const entryListHtml = entries.length
     ? entries
         .map((e) => {
-          const enabled = e.enabled === true || e.enabled === 1;
+          const enabled = boolFlag(e.enabled);
           const sel = _selectedEntryId === e.id;
           const toggleId = `lb-entry-toggle-${e.id}`;
           const dirtyDot = _dirty && _selectedEntryId === e.id ? `<span class="lb-dirty-dot"></span>` : "";
@@ -610,9 +610,9 @@ function _doSelectEntry(entryId) {
       content: entry.content || "",
       keywords: [...(entry.keywords || [])],
       priority: entry.priority ?? 100,
-      case_insensitive: entry.case_insensitive === true || entry.case_insensitive === 1,
-      constant: entry.constant === true || entry.constant === 1,
-      enabled: entry.enabled === true || entry.enabled === 1,
+      case_insensitive: boolFlag(entry.case_insensitive),
+      constant: boolFlag(entry.constant),
+      enabled: boolFlag(entry.enabled),
     };
   }
   renderLorebookDrawer();
@@ -626,7 +626,7 @@ export async function lbToggleEntry(entryId, enabled) {
     const idx = (_entries[worldId] || []).findIndex((e) => e.id === entryId);
     if (idx !== -1) _entries[worldId][idx] = { ..._entries[worldId][idx], ...updated };
     if (_selectedEntryId === entryId) _draft.enabled = enabled;
-    const activeCount = (_entries[worldId] || []).filter((e) => e.enabled === true || e.enabled === 1).length;
+    const activeCount = (_entries[worldId] || []).filter((e) => boolFlag(e.enabled)).length;
     const countEl = document.querySelector(".lb-active-count");
     if (countEl) countEl.textContent = `${activeCount} active`;
   } catch (_e) {
@@ -667,9 +667,9 @@ export function lbDiscardChanges() {
       content: entry.content || "",
       keywords: [...(entry.keywords || [])],
       priority: entry.priority ?? 100,
-      case_insensitive: entry.case_insensitive === true || entry.case_insensitive === 1,
-      constant: entry.constant === true || entry.constant === 1,
-      enabled: entry.enabled === true || entry.enabled === 1,
+      case_insensitive: boolFlag(entry.case_insensitive),
+      constant: boolFlag(entry.constant),
+      enabled: boolFlag(entry.enabled),
     };
   }
   _dirty = false;

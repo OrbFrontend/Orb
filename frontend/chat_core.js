@@ -123,7 +123,7 @@ export function buildMsgToolbar(m, childByParent = null) {
 
   const magicBtn =
     isAssistant && m.id && !isGreeting
-      ? `<button onclick="toggleMagicInput(${m.id})" title="Magic Rewrite">${ICON_MAGIC}</button>`
+      ? `<button class="msg-btn-magic" onclick="toggleMagicInput(${m.id})" title="Magic Rewrite">${ICON_MAGIC}</button>`
       : "";
 
   const magicInput =

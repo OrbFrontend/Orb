@@ -805,8 +805,9 @@ export function toggleMagicInput(msgId) {
   const onMouseDown = (e) => {
     const wrap = document.getElementById(`magic-wrap-${msgId}`);
     if (wrap?.contains(e.target)) return;
-    // If the magic button itself was clicked, its onclick will handle the toggle.
-    if (e.target.closest(`[onclick="toggleMagicInput(${msgId})"]`)) {
+    // If the magic button itself was clicked, its handler will manage the toggle.
+    // Select by semantic class rather than coupling behavior to serialized JS.
+    if (e.target.closest(".msg-btn-magic")) {
       document.removeEventListener("mousedown", onMouseDown);
       return;
     }

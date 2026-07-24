@@ -32,6 +32,13 @@ export function escHandlerArg(s) {
   return js.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// SQLite flag columns arrive as 0/1, while optimistic frontend updates commonly
+// store real booleans. Keep the accepted wire/local shapes explicit rather than
+// relying on truthiness (where "0" would incorrectly count as enabled).
+export function boolFlag(value) {
+  return value === true || value === 1;
+}
+
 export function toast(msg, isError = false) {
   const el = $("toast");
   if (!el) return;
