@@ -75,15 +75,15 @@ function _buildReasoningHtml() {
   const openAttr = S.reasoningOpen ? " open" : "";
 
   // Reasoning prefill: text mode only — chat endpoints give no seam to write
-  // inside the thought channel. Handlers are delegated at module scope below.
+  // inside the thought channel. Hidden when the pass's reasoning is off, since
+  // prefill has no effect there. Handlers are delegated at module scope below.
   const key = selectedPass.key;
-  const prefillHtml = _passTextMode(key)
-    ? `<textarea class="reasoning-box reasoning-prefill" id="reasoning-prefill" data-pass="${key}" rows="3"
-         title="Applies only while this pass's reasoning is on"
+  const prefillHtml =
+    _passTextMode(key) && S.reasoningEnabled[key] !== false
+      ? `<textarea class="reasoning-box reasoning-prefill" id="reasoning-prefill" data-pass="${key}" rows="3"
          placeholder="Prefill this pass's reasoning… (macros resolved)"
-         style="${S.reasoningEnabled[key] === false ? "opacity:.5" : ""}"
        >${esc(S.reasoningPrefill[key] || "")}</textarea>`
-    : "";
+      : "";
 
   return `<details class="inspector-block reasoning-section" id="reasoning-section"${openAttr} ontoggle="S.reasoningOpen=this.open;saveInspectorOpenStates()">
     <summary class="reasoning-summary">
