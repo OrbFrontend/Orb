@@ -88,29 +88,24 @@ def think_tags_from_template(chat_template: str) -> ThinkTags:
     return _NONE
 
 
-# Session cache keyed by server root (clients are rebuilt every turn, so an
-# instance cache would re-probe /props per turn). Mirrors endpoint_profiles'
-# session-learned registry. Only successful sniffs are cached, so a transient
-# /props failure self-heals on the next call.
-_tag_cache: dict[str, ThinkTags] = {}
-
-
 async def get_think_tags(server_root: str, fetch_template: Callable[[], Awaitable[str]]) -> ThinkTags:
-    """Return the cached tag triple for *server_root*, sniffing on a miss.
+    """Sniff the tag triple from the server's live chat template, every call.
 
     *fetch_template* is an async ``() -> chat_template str`` supplied by the
-    client (it owns the HTTP). On fetch failure the caller's callable should
-    return ``""``; we then fall back to :data:`_NONE` for this call **without**
-    caching, so a later call retries the probe.
+    client (it owns the HTTP). On fetch failure the caller's callable returns
+    ``""`` and we fall back to :data:`_NONE` for this call.
+
+    Deliberately **not** cached per server root. The tags belong to the loaded
+    *model*, not the URL: swapping the GGUF behind a live endpoint left a
+    long-running backend parsing the old model's tags, so the close tag never
+    matched, the whole reply stayed classified as reasoning, and the turn
+    persisted an empty message. Text mode is llama.cpp-only and already makes
+    two round trips per call (/apply-template + /completion), so a third local
+    GET is noise next to being wrong until someone restarts the process.
+
+    *server_root* is kept in the signature for logging/call-site symmetry.
     """
-    cached = _tag_cache.get(server_root)
-    if cached is not None:
-        return cached
-    template = await fetch_template()
-    tags = think_tags_from_template(template)
-    if template:  # only cache a real sniff; let a failed /props retry next call
-        _tag_cache[server_root] = tags
-    return tags
+    return think_tags_from_template(await fetch_template())
 
 
 def _max_overlap(buf: str, target: str) -> int:
@@ -170,6 +165,7 @@ class ThinkSplitter:
     def __init__(self, tags: ThinkTags, already_open: bool = False) -> None:
         self._open, self._close, _ = tags
         self._buf = ""
+        self._content_started = False
         if not self._open:
             self._state = "content"
         elif already_open:
@@ -177,24 +173,46 @@ class ThinkSplitter:
         else:
             self._state = "pre"
 
+    def _emit(self, out: list[tuple[str, str]], kind: str, text: str) -> None:
+        """Append one classified piece, trimming the run's leading whitespace.
+
+        Templates pad the close tag (Qwen renders ``</think>\\n\\n``), so the
+        first content byte after the span is a blank line that would otherwise
+        be stored, replayed into the next turn's prefix, and painted as an empty
+        first line in the reply. Only the *start* of a content run is trimmed —
+        newlines inside the reply are untouched — and a whitespace-only first
+        piece is dropped entirely so the trim carries to the next one.
+        """
+        if kind == "content" and not self._content_started:
+            text = text.lstrip()
+            if not text:
+                return
+            self._content_started = True
+        out.append((kind, text))
+
     def feed(self, delta: str) -> list[tuple[str, str]]:
         out: list[tuple[str, str]] = []
         self._buf += delta
         while True:
             if self._state == "content":
                 if self._buf:
-                    out.append(("content", self._buf))
+                    self._emit(out, "content", self._buf)
                     self._buf = ""
                 break
             target = self._open if self._state == "pre" else self._close
             kind = "content" if self._state == "pre" else "reasoning"
             emit, rem, matched = _scan(self._buf, target)
             if emit:
-                out.append((kind, emit))
+                self._emit(out, kind, emit)
             self._buf = rem
             if not matched:
                 break
-            self._state = "reasoning" if self._state == "pre" else "content"
+            if self._state == "pre":
+                # Provisional content before the span was a false start; the real
+                # reply begins after the close tag, so re-arm the trim.
+                self._state, self._content_started = "reasoning", False
+            else:
+                self._state = "content"
         return out
 
     def flush(self) -> list[tuple[str, str]]:
@@ -202,7 +220,8 @@ class ThinkSplitter:
         if not self._buf:
             return []
         kind = "reasoning" if self._state == "reasoning" else "content"
-        out = [(kind, self._buf)]
+        out: list[tuple[str, str]] = []
+        self._emit(out, kind, self._buf)
         self._buf = ""
         return out
 

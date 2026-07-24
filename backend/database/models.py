@@ -133,6 +133,7 @@ class SettingsRow(_SettingsBase, total=False):
     # SELECT * branch only (DEFAULT_SETTINGS omits them).
     enabled_tools: dict[str, bool]
     reasoning_enabled_passes: dict
+    reasoning_prefill_passes: dict
     inspector_open_states: dict
     workflow_config: str  # left raw; decoded per-slot by get_workflow_config()
     workflow_enabled: dict[str, bool]  # decoded by get_settings(); per-workflow on/off, missing key => on

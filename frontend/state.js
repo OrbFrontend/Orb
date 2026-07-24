@@ -54,6 +54,9 @@ export const S = {
   preventPromptOverrides: false, // when true, character card system_prompt and post_history_instructions are ignored
   showEditorDiff: true, // when false, editor-pass diff highlights + "clear diff" button are suppressed
   reasoningEnabled: { director: false, writer: false, editor: false, scripter: false },
+  // Per-pass reasoning prefill (text-completion endpoints only; ignored when that
+  // pass's reasoning is off).
+  reasoningPrefill: { director: "", writer: "", editor: "" },
   editorAuditToggles: {
     // per-scanner on/off for the Output Auditor; keys match backend AUDIT_TYPES
     banned_phrases: true,
@@ -76,8 +79,6 @@ export const S = {
   pendingUserMsgEdit: null, // stores edited content for the id-less pending user message to apply after streaming
   queuedEdits: {}, // { [msgId]: content } edits to persisted messages saved mid-stream, applied after the stream (the /edit route blocks on the stream lock)
   renderWindowStart: 0, // index into S.messages of the first message rendered; older messages are backfilled lazily on scroll-up. 0 means full history is in view.
-  autoscrollEnabled: true, // whether to auto-scroll chat to bottom during streaming
-  _programmaticScroll: false, // true while scrollToBottom() is executing — suppresses scroll listener
 
   // ── Streaming / generation lifecycle · owner: chat_stream.js
   isStreaming: false,

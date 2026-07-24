@@ -22,6 +22,7 @@ import {
   _advanceReasoningPass,
   _relightWorkflowPipelinePass,
   _syncGenerationStatusVisibility,
+  appendReasoningDelta,
   clearWorkflowPhase,
   REASONING_PASSES,
   renderInspector,
@@ -47,9 +48,11 @@ import {
   esc,
   formatProse,
   formatProseWithDiff,
+  pinStreamingMessage,
   resolvePlaceholders,
   scrollToBottom,
   sentenceDiff,
+  setChatFollowing,
   toast,
 } from "./utils.js";
 
@@ -118,6 +121,9 @@ function finalizeStreamingDiv(lastMsg) {
   const div = body.closest(".message");
   if (!div?.isConnected || !lastMsg || lastMsg.role !== "assistant" || !lastMsg.id) return false;
 
+  // Target pinning is only for the in-flight replacement. Once committed,
+  // restore ordinary bottom-follow behavior and leave no synthetic tail space.
+  div.classList.remove("stream-scroll-target");
   div.setAttribute("data-msg-id", lastMsg.id);
   body.removeAttribute("id");
 
@@ -478,8 +484,7 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
             // from the (now-current) state; appending again would duplicate this delta.
             // Text node append (not `textContent += ...`) avoids the DOM re-serialisation
             // that produced the visible scrollbar wobble on long streams.
-            if (!rebuilt) box.appendChild(document.createTextNode(delta));
-            box.scrollTop = box.scrollHeight;
+            if (!rebuilt) appendReasoningDelta(box, delta);
           }
           // When the box is absent (Inspector closed, or user is on the Secondary tab)
           // state accumulates silently; renderInspector will paint the full text the
@@ -496,8 +501,7 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
             if (firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
             const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
             if (wbox && wbox.dataset.passId === passKey) {
-              wbox.appendChild(document.createTextNode(delta));
-              wbox.scrollTop = wbox.scrollHeight;
+              appendReasoningDelta(wbox, delta);
             }
           }
           break;
@@ -657,8 +661,14 @@ export function agentPayload() {
 //                     (regenerate family); the refetch in afterStream restores.
 //   • beforeRender  — sync hook run just before the first paint, for callers
 //                     that splice an optimistic user message + set pendingUserMsg.
+//   • anchorStream  — pin the replacement streaming bubble to its target until
+//                     its content grows beyond the viewport.
 //   • afterDone     — async hook run after afterStream (persona pin, fork repaint).
-export async function runStreamRequest(path, body, { cutoffMsgId = null, beforeRender = null, afterDone = null } = {}) {
+export async function runStreamRequest(
+  path,
+  body,
+  { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
+) {
   setStreaming(true);
   setGenerationPhase("pending");
   $("send-btn").disabled = true;
@@ -666,7 +676,7 @@ export async function runStreamRequest(path, body, { cutoffMsgId = null, beforeR
   if (cutoffMsgId != null) {
     const idx = S.messages.findIndex((m) => m.id === cutoffMsgId);
     S.streamCutoffIndex = idx >= 0 ? idx : S.messages.length;
-    S.autoscrollEnabled = true;
+    setChatFollowing(true);
   }
 
   if (beforeRender) beforeRender();
@@ -675,7 +685,8 @@ export async function runStreamRequest(path, body, { cutoffMsgId = null, beforeR
   const ct = $("chat-messages");
   const msgDiv = createStreamingDiv();
   if (!S.hideUntilBaked) ct.appendChild(msgDiv);
-  scrollToBottom();
+  if (cutoffMsgId != null || anchorStream) pinStreamingMessage(msgDiv);
+  else scrollToBottom();
   S.abortController = new AbortController();
   try {
     const resp = await streamPost(path, body, S.abortController.signal);

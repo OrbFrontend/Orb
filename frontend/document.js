@@ -27,6 +27,7 @@ import {
 } from "./document_probs.js";
 import { confirmDelete, showConfirmModal } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
+import { createScrollFollow } from "./scroll_follow.js";
 import { renderToolsPanel } from "./settings.js";
 import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
 import { S } from "./state.js";
@@ -479,40 +480,16 @@ function stopFlushInterval() {
 
 // Smart autoscroll (mirrors chat's): follow the stream while the caret's at the
 // bottom; wheel/touch-up cuts it instantly, scrolling back to the bottom re-arms.
-let docAutoscroll = true;
+// twoWayScroll: true because (unlike chat) a direct scrollbar drag away from the
+// bottom must also disarm following here, not just wheel/touch.
+let docScrollFollow = null;
 function initDocAutoscroll() {
   const scroll = $("doc-editor-scroll");
   if (!scroll) return;
-  const THRESHOLD = 40;
-  let touchY = 0;
-  scroll.addEventListener(
-    "wheel",
-    (e) => {
-      if (e.deltaY < 0) docAutoscroll = false;
-    },
-    { passive: true },
-  );
-  scroll.addEventListener(
-    "touchstart",
-    (e) => {
-      touchY = e.touches[0].clientY;
-    },
-    { passive: true },
-  );
-  scroll.addEventListener(
-    "touchmove",
-    (e) => {
-      if (e.touches[0].clientY > touchY) docAutoscroll = false;
-    },
-    { passive: true },
-  );
-  scroll.addEventListener("scroll", () => {
-    docAutoscroll = scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight <= THRESHOLD;
-  });
+  docScrollFollow = createScrollFollow(scroll, { threshold: 40, debounceMs: 0, twoWayScroll: true });
 }
 function scrollAnchorIntoView() {
-  const scroll = $("doc-editor-scroll");
-  if (scroll && docAutoscroll) scroll.scrollTop = scroll.scrollHeight;
+  docScrollFollow?.toBottom();
 }
 
 // Generation-end facts for the Output Auditor: where the run began, whether the
@@ -547,7 +524,7 @@ export async function docGenerate() {
 
   page.setAttribute("contenteditable", "false");
   page.classList.add("generating");
-  docAutoscroll = true; // each generation starts by following the stream
+  docScrollFollow?.setFollowing(true); // each generation starts by following the stream
   S.docStreaming = true;
   S.docAbortController = new AbortController();
   swapGenButtons(true);

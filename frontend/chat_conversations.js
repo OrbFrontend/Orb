@@ -30,6 +30,7 @@ import {
   esc,
   formatRelativeDate,
   scrollToBottom,
+  setChatFollowing,
   toast,
 } from "./utils.js";
 import { validate } from "./validate.js";
@@ -213,7 +214,7 @@ export async function selectConversation(id) {
   // Fresh conversation: re-enable autoscroll (the prior conv may have disabled it
   // by scrolling up) and snap to the bottom on the first synchronous paint so the
   // chat opens at the latest message with no visible top-to-bottom scroll.
-  S.autoscrollEnabled = true;
+  setChatFollowing(true);
   renderMessages(true);
   scrollToBottom();
   // Fetch the director-log for the inspector after first paint — it's a separate

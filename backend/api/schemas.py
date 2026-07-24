@@ -39,6 +39,7 @@ class SettingsUpdate(BaseModel):
     length_guard_max_words: int | None = None
     length_guard_max_paragraphs: int | None = None
     reasoning_enabled_passes: dict | None = None
+    reasoning_prefill_passes: dict | None = None
     active_persona_id: int | None = None
     character_library_view: str | None = None
     character_library_sort: str | None = None

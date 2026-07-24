@@ -11,7 +11,7 @@ import { renderDefaultWidget } from "./default_widget.js";
 import { closeModal, showModal } from "./modal.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
-import { $, convUrl, esc, toast } from "./utils.js";
+import { $, convUrl, esc, markChatProgrammaticScroll, toast } from "./utils.js";
 
 // Eviction sentinel for workflow attachment bytes -- must match
 // `EVICTED_MARKER` in backend/workflows/attachment_cache.py.
@@ -467,11 +467,8 @@ function _scrollArtifactIntoView(msgId, rootId = null) {
     const r = target.getBoundingClientRect();
     const box = ct.getBoundingClientRect();
     if (r.top >= box.top && r.bottom <= box.bottom) return;
-    S._programmaticScroll = true;
+    markChatProgrammaticScroll(400);
     target.scrollIntoView({ behavior: "smooth", block: r.height <= ct.clientHeight ? "center" : "start" });
-    setTimeout(() => {
-      S._programmaticScroll = false;
-    }, 400);
   };
   // One frame after load, so the new intrinsic height is in the layout box --
   // and only once the tab is visible, since that frame never comes while hidden.

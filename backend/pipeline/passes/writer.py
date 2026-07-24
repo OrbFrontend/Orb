@@ -63,6 +63,7 @@ async def writer_pass(
     *,
     kv_tracker=None,
     reasoning_on: bool = True,
+    reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
     """Yield ``{"type": "content"|"reasoning", "delta": str}`` dicts.
 
@@ -87,7 +88,7 @@ async def writer_pass(
         # from calling anything.
         tool_choice="none" if base.tools else None,
         kv_tracker=kv_tracker,
-        **reasoning_cfg(reasoning_on),
+        **reasoning_cfg(reasoning_on, reasoning_prefill),
         **hyperparams,
     ):
         if item["type"] == "done":
@@ -127,6 +128,7 @@ async def writer_stage(
         state.writer_content,
         kv_tracker=kv_tracker,
         reasoning_on=cfg.writer_reasoning_on,
+        reasoning_prefill=cfg.writer_reasoning_prefill,
     ):
         if item["type"] == "reasoning":
             state.reasoning_writer += item["delta"]

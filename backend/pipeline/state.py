@@ -56,6 +56,11 @@ class _PipelineConfig:
     director_reasoning_on: bool
     writer_reasoning_on: bool
     editor_reasoning_on: bool
+    # Macro-resolved reasoning prefill per pass (text mode only; ignored when
+    # that pass's reasoning is off — see reasoning_cfg).
+    director_reasoning_prefill: str
+    writer_reasoning_prefill: str
+    editor_reasoning_prefill: str
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool

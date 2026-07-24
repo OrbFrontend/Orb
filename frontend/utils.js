@@ -1,3 +1,4 @@
+import { createScrollFollow } from "./scroll_follow.js";
 import { charactersView, S } from "./state.js";
 
 export function $(id) {
@@ -40,28 +41,67 @@ export function toast(msg, isError = false) {
   setTimeout(() => el.classList.add("hidden"), 3000);
 }
 
+// The chat area's follow controller. Constructed once by chat_messages.js's
+// initAutoscroll() (the element doesn't exist yet at module-eval time); this is
+// the one module every chat_*.js file that needs it can import from without
+// creating an import cycle (chat_workflow.js → chat_core.js already exists, so
+// the controller can't live in chat_messages.js or chat_core.js).
+let _chatFollow = null;
+
+export function initChatScrollFollow(el, { onScroll } = {}) {
+  _chatFollow = createScrollFollow(el, { threshold: 20, onScroll });
+}
+
+export function setChatFollowing(enabled) {
+  _chatFollow?.setFollowing(enabled);
+}
+
+export function markChatProgrammaticScroll(ms) {
+  _chatFollow?.markProgrammatic(ms);
+}
+
+function scrollChatTarget(el, align) {
+  const ct = $("chat-messages");
+  if (!ct || !el) return;
+  const topWithinScroller = el.getBoundingClientRect().top - ct.getBoundingClientRect().top + ct.scrollTop;
+  let targetTop = topWithinScroller;
+  if (align === "center") {
+    targetTop -= Math.max(0, (ct.clientHeight - el.offsetHeight) / 2);
+  }
+  // Never manufacture scroll range to reach the ideal alignment. At the end
+  // of a conversation the browser must clamp to the real bottom; adding a
+  // spacer here leaves a large blank tail after regeneration or deletion.
+  targetTop = Math.min(Math.max(0, targetTop), Math.max(0, ct.scrollHeight - ct.clientHeight));
+  markChatProgrammaticScroll();
+  ct.scrollTo({ top: targetTop, behavior: "instant" });
+}
+
 export function scrollToBottom(smooth = false) {
   const ct = $("chat-messages");
-  if (!ct || !S.autoscrollEnabled) return;
-  S._programmaticScroll = true;
-  requestAnimationFrame(() => {
-    if (smooth) {
-      ct.scrollTo({ top: ct.scrollHeight, behavior: "smooth" });
-      setTimeout(() => {
-        S._programmaticScroll = false;
-      }, 400);
-    } else {
-      // behavior:"instant" overrides #chat-messages' CSS scroll-behavior:smooth;
-      // a bare scrollTop assignment would animate instead of snapping.
-      ct.scrollTo({ top: ct.scrollHeight, behavior: "instant" });
-      S._programmaticScroll = false;
-    }
-  });
+  const pinnedTarget = ct?.querySelector(".stream-scroll-target");
+  if (ct && pinnedTarget && _chatFollow?.isFollowing()) {
+    markChatProgrammaticScroll();
+    requestAnimationFrame(() => {
+      const topWithinScroller =
+        pinnedTarget.getBoundingClientRect().top - ct.getBoundingClientRect().top + ct.scrollTop;
+      const desiredTop = Math.max(topWithinScroller, topWithinScroller + pinnedTarget.offsetHeight - ct.clientHeight);
+      const targetTop = Math.min(Math.max(0, desiredTop), Math.max(0, ct.scrollHeight - ct.clientHeight));
+      ct.scrollTo({ top: targetTop, behavior: smooth ? "smooth" : "instant" });
+    });
+    return;
+  }
+  _chatFollow?.toBottom({ smooth });
 }
 
 export function scrollToMessage(msgId) {
-  const el = document.querySelector(`[data-msg-id="${msgId}"]`);
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  const ct = $("chat-messages");
+  const el = ct?.querySelector(`.message[data-msg-id="${msgId}"]`);
+  if (el) scrollChatTarget(el, "center");
+}
+
+export function pinStreamingMessage(el) {
+  el.classList.add("stream-scroll-target");
+  if (el.isConnected) scrollChatTarget(el, "start");
 }
 
 export function avatarUrl(charId) {

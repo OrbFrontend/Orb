@@ -91,9 +91,20 @@
 
 #chat-messages {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
+  /* Orb owns restoration/follow behavior. Native anchoring races innerHTML
+     replacement and explicit target scrolls, moving the viewport a second time. */
+  overflow-anchor: none;
   padding: 24px 20px 16px;
   scroll-behavior: smooth;
+}
+
+/* Keep a short conversation attached to the composer. Once the messages exceed
+   the viewport the auto margin resolves to zero and normal scrolling takes over. */
+#chat-messages > .message:first-child {
+  margin-top: auto;
 }
 
 #chat-messages.streaming {
@@ -113,8 +124,10 @@
 
 /* ── Messages ── */
 .message {
+  flex-shrink: 0;
   margin-bottom: 0px;
   margin-top: 0px;
+  width: 100%;
   max-width: 95%;
   animation: msgIn .2s ease;
   position: relative;
@@ -123,6 +136,14 @@
      don't jump as off-screen messages get skipped. */
   content-visibility: auto;
   contain-intrinsic-size: auto 300px;
+}
+
+/* renderMessages() replaces every message node, so content-visibility has no
+   remembered size for the new nodes yet. Keep the replacement fully measurable
+   until scroll restoration is complete; otherwise long off-screen messages use
+   the 300px intrinsic fallback and the viewport restores to the wrong message. */
+#chat-messages.measuring-render .message {
+  content-visibility: visible;
 }
 
 @keyframes msgIn {
@@ -1056,4 +1077,3 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
-

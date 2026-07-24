@@ -20,6 +20,9 @@ async def get_settings() -> SettingsRow:
         )
         # Remove stale scripter key from reasoning_enabled_passes if present.
         s["reasoning_enabled_passes"].pop("scripter", None)
+        s["reasoning_prefill_passes"] = json.loads(
+            s.get("reasoning_prefill_passes") or '{"director":"","writer":"","editor":""}'
+        )
         s["inspector_open_states"] = json.loads(
             s.get("inspector_open_states")
             or '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}'
@@ -252,6 +255,7 @@ async def update_settings(data: dict) -> SettingsRow:
             "length_guard_enforce",
             "agentic_lorebook_enabled",
             "reasoning_enabled_passes",
+            "reasoning_prefill_passes",
             "active_persona_id",
             "character_library_view",
             "character_library_sort",
@@ -279,6 +283,7 @@ async def update_settings(data: dict) -> SettingsRow:
             json_fields={
                 "enabled_tools",
                 "reasoning_enabled_passes",
+                "reasoning_prefill_passes",
                 "inspector_open_states",
                 "editor_audit_toggles",
                 "document_audit_toggles",

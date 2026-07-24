@@ -3,6 +3,7 @@
 // persist endpoint + model records. Split out of settings.js; the public
 // surface is re-exported from settings.js.
 import { api } from "./api.js";
+import { renderInspector } from "./chat.js";
 import { showConfirmModal } from "./modal.js";
 import { S } from "./state.js";
 import { $, esc, toast } from "./utils.js";
@@ -136,6 +137,7 @@ export async function toggleAgentSameAsWriter(checked) {
     _fillEndpointFields(AGENT_CTX);
   }
   updateAgentModelWarning();
+  renderInspector(); // the lane swap changes which endpoint gates the prefill box
 }
 
 export function renderEndpoints() {
@@ -786,6 +788,10 @@ async function _doSaveEndpointSetting(ctx, el) {
       // Endpoint-scoped like api_key; the /settings PUT above is a harmless
       // no-op (not in the settings allowlist — it lives on the endpoint row).
       await api.put(`/endpoints/${S[ctx.endpointIdKey]}`, { completion_mode: v });
+      // Keep the cached row in sync: the inspector reads completion_mode off
+      // S.endpoints, and nothing else refetches it until a reload.
+      const row = S.endpoints.find((e) => e.id === S[ctx.endpointIdKey]);
+      if (row) row.completion_mode = v;
     } else if (baseKey === "proxy" && S[ctx.endpointIdKey]) {
       // Endpoint-scoped like completion_mode; the /settings PUT above is a
       // harmless no-op (proxy lives on the endpoint row, not settings).
@@ -801,6 +807,9 @@ async function _doSaveEndpointSetting(ctx, el) {
   }
   updateAgentModelWarning();
   updateEndpointsLabel();
+  // The reasoning-prefill box is gated on the lane's endpoint being in text
+  // mode, so an endpoint/mode switch has to repaint it.
+  renderInspector();
 }
 
 async function _onHybridInputCtx(ctx, el) {
@@ -853,6 +862,9 @@ async function _onHybridInputCtx(ctx, el) {
   }
   updateAgentModelWarning();
   updateEndpointsLabel();
+  // The reasoning-prefill box is gated on the lane's endpoint being in text
+  // mode, so an endpoint/mode switch has to repaint it.
+  renderInspector();
 }
 
 // ── Public API

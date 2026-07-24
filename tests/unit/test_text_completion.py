@@ -18,6 +18,7 @@ from backend.inference.client import (
     parse_tool_calls,
     reasoning_cfg,
 )
+from backend.inference.retry import RetryPolicy
 
 GEMMA_OPEN, GEMMA_CLOSE, GEMMA_DISABLE = tc._GEMMA4
 
@@ -148,30 +149,25 @@ def test_splitter_minimax_pair():
     assert c == "answer"
 
 
-async def test_get_think_tags_caches_successful_sniff():
-    tc._tag_cache.clear()
-    calls = []
+async def test_get_think_tags_re_sniffs_every_call():
+    # Never cached: the tags belong to the loaded model, not the URL. A GGUF
+    # swapped behind a live endpoint must be picked up on the very next call --
+    # a stale triple means the close tag never matches, the whole reply is
+    # classified as reasoning, and the turn persists an empty message.
+    templates = ["<think>...</think>", "<|channel>thought here"]  # Qwen, then a swap to Gemma
 
     async def fetch():
-        calls.append(1)
-        return "<|channel>thought here"
+        return templates.pop(0)
 
+    assert await tc.get_think_tags("rootA", fetch) == tc._THINK
     assert await tc.get_think_tags("rootA", fetch) == tc._GEMMA4
-    assert await tc.get_think_tags("rootA", fetch) == tc._GEMMA4
-    assert len(calls) == 1  # cached; fetched once
 
 
-async def test_get_think_tags_does_not_cache_failed_sniff():
-    tc._tag_cache.clear()
-    calls = []
-
+async def test_get_think_tags_failed_sniff_falls_back_to_none():
     async def fetch():
-        calls.append(1)
         return ""  # /props failed → empty
 
-    await tc.get_think_tags("rootB", fetch)
-    await tc.get_think_tags("rootB", fetch)
-    assert len(calls) == 2  # retried; failure not cached
+    assert await tc.get_think_tags("rootB", fetch) == tc._NONE
 
 
 # ── Param remap ──────────────────────────────────────────────────────────────
@@ -415,7 +411,6 @@ def test_reasoning_enabled_reads_reasoning_cfg():
 
 
 def _text_client() -> LLMClient:
-    tc._tag_cache.clear()
     return LLMClient("http://x/v1", completion_mode="text")
 
 
@@ -512,7 +507,7 @@ async def test_complete_text_primes_splitter_when_prompt_pre_opens_think():
     reasoning = "".join(e["delta"] for e in events_seen if e.get("type") == "reasoning")
     content = "".join(e["delta"] for e in events_seen if e.get("type") == "content")
     assert reasoning == "Analyzing the ask."
-    assert content == "\n\nSarah smiled."
+    assert content == "Sarah smiled."  # the template's "</think>\n\n" padding is trimmed
     assert "</think>" not in content  # the special token no longer leaks
 
 
@@ -741,3 +736,162 @@ async def test_chat_transport_drops_prefill():
     client._complete_chat = fake_chat  # type: ignore[method-assign]
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", prefill="X"))
     assert "prefill" not in captured["params"]
+
+
+# ── Reasoning prefill ─────────────────────────────────────────────────────────
+
+
+def _prefill_client(template: str, props: str, pieces: list[str], captured: dict) -> LLMClient:
+    """A text client whose three HTTP seams return fixed bytes.
+
+    *template* is what /apply-template renders, *props* what the tag sniff sees,
+    *pieces* the streamed content chunks. The outbound prompt lands in
+    ``captured["prompt"]``.
+    """
+    client = _text_client()
+
+    async def fake_apply(root, msgs, chat_template_kwargs=None):
+        return template
+
+    async def fake_props(root):
+        return props
+
+    async def fake_stream(url, body):
+        captured["prompt"] = body["prompt"]
+        for piece in pieces:
+            yield {"content": piece, "stop": False}
+        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
+
+    client._apply_template = fake_apply  # type: ignore[method-assign]
+    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
+    client._stream_completion = fake_stream  # type: ignore[method-assign]
+    return client
+
+
+def test_reasoning_cfg_carries_prefill_only_when_reasoning_on():
+    assert reasoning_cfg(True, "seed")["reasoning_prefill"] == "seed"
+    assert "reasoning_prefill" not in reasoning_cfg(True)
+    assert "reasoning_prefill" not in reasoning_cfg(True, "")
+    assert "reasoning_prefill" not in reasoning_cfg(False, "seed")
+
+
+async def test_reasoning_prefill_appends_to_pre_opened_think():
+    # Qwen3 shape: the template already opened <think>, so only the seed text is
+    # appended (no second open tag), and it is echoed as reasoning ahead of the
+    # model's own deltas.
+    captured: dict = {}
+    client = _prefill_client("<|im_start|>assistant\n<think>\n", "<think>...</think>", ["CoT", "</think>", "text"], captured)
+    events = await _drain(
+        client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True, "I will think. "))
+    )
+    assert captured["prompt"] == "<|im_start|>assistant\n<think>\nI will think. "
+    assert events[0] == {"type": "reasoning", "delta": "I will think. "}
+    reasoning = "".join(e["delta"] for e in events if e.get("type") == "reasoning")
+    content = "".join(e["delta"] for e in events if e.get("type") == "content")
+    assert reasoning == "I will think. CoT"  # echo + the model's continuation
+    assert content == "text"
+
+
+async def test_reasoning_prefill_opens_think_when_template_does_not():
+    # Gemma 4 shape: the template leaves the open tag to the model, so Orb injects it.
+    captured: dict = {}
+    client = _prefill_client("BASE", "<|channel>thought", ["x"], captured)
+    await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True, "Seed.")))
+    assert captured["prompt"] == "BASE" + GEMMA_OPEN + "Seed."
+
+
+async def test_reasoning_prefill_ignored_when_reasoning_off():
+    captured: dict = {}
+    client = _prefill_client("BASE", "<|channel>thought", ["x"], captured)
+    events = await _drain(
+        client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(False, "Seed."))
+    )
+    assert captured["prompt"] == "BASE"
+    assert not any(e["type"] == "reasoning" for e in events)
+
+
+async def test_reasoning_prefill_ignored_on_non_thinking_template():
+    captured: dict = {}
+    client = _prefill_client("BASE", "", ["x"], captured)  # props sniff → _NONE
+    events = await _drain(
+        client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True, "Seed."))
+    )
+    assert captured["prompt"] == "BASE"
+    assert not any(e["type"] == "reasoning" for e in events)
+
+
+async def test_assistant_prefill_wins_over_reasoning_prefill():
+    # The assistant prefill already owns the prompt tail (a trailing assistant
+    # turn in render_prompt); the two cannot both.
+    captured: dict = {}
+    client = _prefill_client("BASE", "<|channel>thought", ["x"], captured)
+    events = await _drain(
+        client.complete(
+            messages=[{"role": "user", "content": "hi"}],
+            model="m",
+            prefill="Once upon",
+            **reasoning_cfg(True, "Seed."),
+        )
+    )
+    assert captured["prompt"] == "BASE"
+    assert not any(e["type"] == "reasoning" for e in events)
+
+
+async def test_reasoning_prefill_preserves_retry_window():
+    # The echo is emitted on the first streamed chunk, not before the POST, so a
+    # transient failure is still a clean retry (no event yielded yet).
+    captured: dict = {}
+    client = _prefill_client("BASE", "<|channel>thought", ["x"], captured)
+    client.retry = RetryPolicy(count=1, delay=0)
+    attempts = {"n": 0}
+    real_stream = client._stream_completion
+
+    async def flaky_stream(url, body):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise httpx.ConnectError("blip")
+        async for data in real_stream(url, body):
+            yield data
+
+    client._stream_completion = flaky_stream  # type: ignore[method-assign]
+    events = await _drain(
+        client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True, "Seed."))
+    )
+    assert attempts["n"] == 2  # retried
+    assert events[0] == {"type": "reasoning", "delta": "Seed."}  # echoed exactly once
+    assert sum(1 for e in events if e.get("delta") == "Seed.") == 1
+
+
+# ── Leading-whitespace trim at the content seam ───────────────────────────────
+
+
+def test_splitter_trims_template_padding_after_close_tag():
+    # Qwen renders "</think>\n\n"; the blank line must not open the reply.
+    r, c = _run(tc.ThinkSplitter(tc._THINK, already_open=True), ["reason", "</think>", "\n\n", "Sarah smiled."])
+    assert r == "reason"
+    assert c == "Sarah smiled."
+
+
+def test_splitter_trims_when_padding_shares_the_close_chunk():
+    r, c = _run(tc.ThinkSplitter(tc._THINK, already_open=True), ["reason</think>\n\nSarah smiled."])
+    assert c == "Sarah smiled."
+
+
+def test_splitter_keeps_newlines_inside_the_reply():
+    # Only the start of the content run is trimmed.
+    r, c = _run(tc.ThinkSplitter(tc._THINK, already_open=True), ["r", "</think>", "\n\nLine one.\n\nLine two.\n"])
+    assert c == "Line one.\n\nLine two.\n"
+
+
+def test_splitter_trims_pre_state_content_run():
+    # Non-thinking output (model never opens a span) still starts clean.
+    r, c = _run(tc.ThinkSplitter(tc._GEMMA4), ["\n\n", "Just answering."])
+    assert c == "Just answering."
+
+
+def test_splitter_retrims_after_a_late_open_tag():
+    # Provisional pre-span whitespace is a false start: the trim re-arms so the
+    # real reply after the close is still clean.
+    r, c = _run(tc.ThinkSplitter(tc._THINK), ["\n", "<think>", "cot", "</think>", "\n\nReply."])
+    assert r == "cot"
+    assert c == "Reply."

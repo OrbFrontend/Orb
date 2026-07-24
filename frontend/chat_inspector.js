@@ -6,6 +6,7 @@ import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
+import { preserveScroll } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, S } from "./state.js";
 import { $, esc, sentenceTail } from "./utils.js";
 
@@ -16,6 +17,21 @@ export const REASONING_PASSES = [
   { key: "writer", label: "Writer", color: "var(--accent-dim)" },
   { key: "editor", label: "Editor", color: "var(--accent-dim)" },
 ];
+
+const REASONING_BOTTOM_THRESHOLD = 20;
+
+// A reasoning box follows new text only while it is pinned to the bottom.
+// preserveScroll reads the pin state right before mutating the DOM (wheel,
+// touch, keyboard, and scrollbar dragging all just move scrollTop, so there's
+// no separate state machine to keep in sync) and restores it after.
+export function appendReasoningDelta(box, delta) {
+  if (!box) return;
+  preserveScroll(
+    () => box,
+    REASONING_BOTTOM_THRESHOLD,
+    () => box.appendChild(document.createTextNode(delta)),
+  );
+}
 
 // Advance the streaming-progress dot to `targetIdx` when it is further ahead.
 // Auto-follows the streaming pass into the selected view only while the user
@@ -74,6 +90,17 @@ function _buildReasoningHtml() {
   const currentText = S[`reasoning${selectedPass.key.charAt(0).toUpperCase()}${selectedPass.key.slice(1)}`] || "";
   const openAttr = S.reasoningOpen ? " open" : "";
 
+  // Reasoning prefill: text mode only — chat endpoints give no seam to write
+  // inside the thought channel. Hidden when the pass's reasoning is off, since
+  // prefill has no effect there. Handlers are delegated at module scope below.
+  const key = selectedPass.key;
+  const prefillHtml =
+    _passTextMode(key) && S.reasoningEnabled[key] !== false
+      ? `<textarea class="reasoning-box reasoning-prefill" id="reasoning-prefill" data-pass="${key}" rows="3"
+         placeholder="Prefill this pass's reasoning… (macros resolved)"
+       >${esc(S.reasoningPrefill[key] || "")}</textarea>`
+      : "";
+
   return `<details class="inspector-block reasoning-section" id="reasoning-section"${openAttr} ontoggle="S.reasoningOpen=this.open;saveInspectorOpenStates()">
     <summary class="reasoning-summary">
       <span class="reasoning-summary-arrow">▶</span>
@@ -85,19 +112,48 @@ function _buildReasoningHtml() {
         <span class="reasoning-pass-label">${esc(selectedPass.label)}</span>
       </div>
       <div class="reasoning-box" id="reasoning-box">${esc(currentText)}</div>
+      ${prefillHtml}
     </div>
   </details>`;
 }
 
+// Text mode is an endpoint property. Director/editor ride the agent lane only
+// when a separate agent endpoint is actually configured; otherwise they run on
+// the writer's client (config.py: agent_lane = writer_lane).
+function _passTextMode(key) {
+  const separate = !S.agentSameAsWriter && !!S.agentEndpointId;
+  const id = key === "writer" || !separate ? S.activeEndpointId : S.agentEndpointId;
+  return S.endpoints.find((e) => e.id === id)?.completion_mode === "text";
+}
+
+// Delegated (no inline on*= handler — the frontend layer check ratchets those down).
+// Syncing S on input and rendering from S means a _refreshReasoningSection()
+// rebuild cannot eat typed text.
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "reasoning-prefill") return;
+  S.reasoningPrefill[e.target.dataset.pass] = e.target.value;
+  // Typing is an explicit pass selection: pin the rail so a mid-stream
+  // _advanceReasoningPass can't swap the box out from under the cursor.
+  S.reasoningUserOverride = true;
+});
+document.addEventListener("change", (e) => {
+  // Fires on blur for a textarea.
+  if (e.target.id === "reasoning-prefill")
+    api.put("/settings", { reasoning_prefill_passes: { ...S.reasoningPrefill } });
+});
+
 function _refreshReasoningSection() {
   const existing = document.getElementById("reasoning-section");
   if (!existing) return;
-  existing.outerHTML = _buildReasoningHtml();
-  // Auto-scroll the newly rendered box to bottom only when viewing the streaming pass
-  if (!S.reasoningUserOverride) {
-    const box = document.getElementById("reasoning-box");
-    if (box) box.scrollTop = box.scrollHeight;
-  }
+  // Rebuilding the rail (most notably at pass boundaries) must not re-enable
+  // following after the user has scrolled up.
+  preserveScroll(
+    () => document.getElementById("reasoning-box"),
+    REASONING_BOTTOM_THRESHOLD,
+    () => {
+      existing.outerHTML = _buildReasoningHtml();
+    },
+  );
 }
 
 export function selectReasoningPass(idx) {
@@ -442,6 +498,9 @@ export function renderInspector() {
 }
 
 function _renderInspectorMain() {
+  const withReasoningScroll = (mutate) =>
+    preserveScroll(() => document.getElementById("reasoning-box"), REASONING_BOTTOM_THRESHOLD, mutate);
+
   if (S.isStreaming && S.lastDirectorData === null) {
     // Reserve slots in the canonical (after-stream) order so blocks fill in
     // place rather than reordering when director data lands. Activation is
@@ -450,7 +509,8 @@ function _renderInspectorMain() {
     const pendingMoodsHtml = moodFragmentsView()
       .map((f) => `<span class="style-tag">${esc(f.label)}</span>`)
       .join("");
-    $("inspector-content").innerHTML = `
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
        <div class="inspector-block"><h4>Moods</h4>
          <div>${pendingMoodsHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
@@ -459,8 +519,7 @@ function _renderInspectorMain() {
        <div style="color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:8px">
          <span class="typing-indicator"><span></span><span></span><span></span></span> Director thinking…
        </div>`;
-    const _rb = document.getElementById("reasoning-box");
-    if (_rb) _rb.scrollTop = _rb.scrollHeight;
+    });
     renderContextSize();
     return;
   }
@@ -475,7 +534,8 @@ function _renderInspectorMain() {
     const lat = insp.agent_latency_ms || 0;
     const tc = insp.tool_calls || [];
     const inj = insp.injection_block || "";
-    $("inspector-content").innerHTML = `
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
       <div class="inspector-block" id="inspector-context-size"></div>
       <div class="inspector-block">
         <h4>Moods</h4>
@@ -492,8 +552,7 @@ function _renderInspectorMain() {
                  <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
           : ""
       }`;
-    const _rb = document.getElementById("reasoning-box");
-    if (_rb) _rb.scrollTop = _rb.scrollHeight;
+    });
     renderContextSize();
     return;
   }
@@ -508,12 +567,14 @@ function _renderInspectorMain() {
     const pnHtml = buildDirectionNotesHtml(S.lastDirectionNotes?.notes);
     // Canonical order: context-size, reasoning, feedback (matches the settled
     // director-data branch so nothing shifts once director output arrives).
-    $("inspector-content").innerHTML = `
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
        ${_buildReasoningHtml()}
        ${fbHtml}
        ${pnHtml}
        ${fbHtml || pnHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
+    });
     renderContextSize();
     return;
   }
@@ -527,7 +588,8 @@ function _renderInspectorMain() {
   const lat = ld.agent_latency_ms || 0;
   const tc = ld.tool_calls || [];
   const inj = ld.injection_block || "";
-  $("inspector-content").innerHTML = `
+  withReasoningScroll(() => {
+    $("inspector-content").innerHTML = `
     <div class="inspector-block" id="inspector-context-size"></div>
     <div class="inspector-block"><h4>Moods</h4>
       <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
@@ -543,9 +605,7 @@ function _renderInspectorMain() {
                <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
         : ""
     }`;
-  // Scroll the freshly rendered reasoning box to bottom
-  const _rb = document.getElementById("reasoning-box");
-  if (_rb) _rb.scrollTop = _rb.scrollHeight;
+  });
   renderContextSize();
 }
 
