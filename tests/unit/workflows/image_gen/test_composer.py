@@ -25,9 +25,29 @@ def test_render_scene_lays_out_each_character_with_outfit_and_position():
         }
     )
     lines = block.splitlines()
-    assert lines[0] == "Ashley: wearing silk dress, bare feet, left, holding a book, sitting, reading"
-    assert lines[1] == "nobleman: tall man, dark hair, right, behind her"
+    # Pose/position first, then visible attributes (outfit, appearance).
+    assert lines[0] == "Ashley: left, holding a book, sitting, reading, wearing silk dress, bare feet"
+    assert lines[1] == "nobleman: right, behind her, tall man, dark hair"
     assert lines[2] == "setting and framing: medieval garden, midday, stone bench"
+
+
+def test_render_scene_hides_face_for_turned_away_character():
+    block = _render_scene(
+        {
+            "characters": [
+                {
+                    "name": "Malina",
+                    "action": "flying away",
+                    "face_visible": False,
+                    "expression": "annoyed",
+                    "gaze": "looking ahead",
+                }
+            ]
+        }
+    )
+    line = block.splitlines()[0]
+    assert line == "Malina: from behind, facing away, flying away, gaze: looking ahead"
+    assert "expression" not in line  # no expression readable off the back of a head
 
 
 def test_render_scene_marks_first_person_pov():
@@ -255,7 +275,7 @@ async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monk
         profile_owner_name="Iris",
         prompt_format="hybrid",
     )
-    assert scene == "1girl, solo, Iris: long silver hair, blue eyes, sitting by a window"
+    assert scene == "1girl, solo, sitting by a window, Iris: long silver hair, blue eyes"
 
     monkeypatch.setattr(
         composer,
@@ -284,14 +304,14 @@ async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monk
 @pytest.mark.parametrize(
     ("prompt_format", "expected"),
     (
-        ("tags", "2girls, long silver hair, blue eyes, Iris sits beside Ashley."),
+        ("tags", "2girls, Iris sits beside Ashley., long silver hair, blue eyes"),
         (
             "hybrid",
-            "2girls, Iris: long silver hair, blue eyes, Iris sits beside Ashley.",
+            "2girls, Iris sits beside Ashley., Iris: long silver hair, blue eyes",
         ),
         (
             "prose",
-            "2girls, Iris has these visible traits: long silver hair, blue eyes. Iris sits beside Ashley.",
+            "2girls, Iris sits beside Ashley. Iris has these visible traits: long silver hair, blue eyes.",
         ),
     ),
 )
@@ -344,7 +364,7 @@ async def test_profile_appearance_negation_cannot_bypass_scene_cleanup(monkeypat
         profile_owner_name="Iris",
         prompt_format="hybrid",
     )
-    assert scene == "1girl, solo, Iris: long silver hair, blue eyes, sitting"
+    assert scene == "1girl, solo, sitting, Iris: long silver hair, blue eyes"
 
 
 async def test_analysis_owns_profile_visibility_and_preserves_scene_fields(monkeypatch):
@@ -395,13 +415,82 @@ async def test_analysis_owns_profile_visibility_and_preserves_scene_fields(monke
         profile_owner_name="Iris",
         scene_analysis=True,
     )
-    assert scene.startswith("1girl, solo, Iris: long silver hair")
+    assert scene.startswith("1girl, solo,")
+    assert scene.endswith("Iris: long silver hair")  # appearance seated after the pose body
     assert avoid == "looking at viewer"
     structured_tail = captured["compose_image_prompt"]
     assert "expression: smiling" in structured_tail
     assert "gaze: looking at Ashley" in structured_tail
     assert "interaction: Iris holds Ashley's hand" in structured_tail
     assert "medium shot" in structured_tail
+
+
+async def test_back_shot_strips_face_traits_from_injected_appearance(monkeypatch):
+    # Malina flies away: the analyzer flags her face hidden, so the injected fixed
+    # sheet must lose its face-only traits (eyes, eyeliner) but keep hair/wings.
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "analyze_scene": {
+                    "viewpoint": "third_person",
+                    "characters": [
+                        {
+                            "name": "Malina",
+                            "is_profile_owner": True,
+                            "sex": "girl",
+                            "appearance": None,
+                            "action": "flying upward away from the viewer",
+                            "face_visible": False,
+                            "expression": None,
+                        }
+                    ],
+                },
+                "compose_image_prompt": {"scene": "flying upward away from the viewer", "avoid": None},
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        appearance="jet-black wings, long silky black hair, glowing purple eyes, black eyeliner, black nails",
+        profile_owner_name="Malina",
+        prompt_format="tags",
+        scene_analysis=True,
+    )
+    assert "eyes" not in scene and "eyeliner" not in scene
+    assert "jet-black wings" in scene and "long silky black hair" in scene and "black nails" in scene
+
+
+async def test_visible_face_keeps_all_traits(monkeypatch):
+    # Same sheet, face toward camera -> nothing stripped.
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "analyze_scene": {
+                    "viewpoint": "third_person",
+                    "characters": [{"name": "Malina", "is_profile_owner": True, "sex": "girl", "face_visible": True}],
+                },
+                "compose_image_prompt": {"scene": "standing", "avoid": None},
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        appearance="glowing purple eyes, black eyeliner",
+        profile_owner_name="Malina",
+        prompt_format="tags",
+        scene_analysis=True,
+    )
+    assert "glowing purple eyes" in scene and "black eyeliner" in scene
 
 
 async def test_analysis_does_not_insert_off_frame_profile(monkeypatch):
