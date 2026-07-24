@@ -11,18 +11,15 @@
 .image-gen-note{color:var(--text-muted);font-size:.85em;margin:0;line-height:1.45}
 
 /* ---- tools-panel card ----
-   Readiness leads with a status dot (colour echoes the text: secondary when
-   ready, accent when it needs attention); the endpoint sits under it as a dimmer
-   sub-detail. The style picker is an inline label+select to match the Injection
-   control that sits beside it in the same tools panel. */
-.image-gen-card-status{display:flex;align-items:center;gap:6px;color:var(--text-secondary);font-size:11px;line-height:1.5;margin:.45em 0 0}
+   Setup and normal-use controls are mutually exclusive, keeping the card to one
+   compact action row below its description. */
+.image-gen-card-setup,.image-gen-card-controls{display:flex;align-items:center;gap:8px;margin-top:8px}
+.image-gen-card-status{display:flex;align-items:center;gap:6px;min-width:0;color:var(--accent);font-size:11px;line-height:1.4}
 .image-gen-card-status::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:currentColor}
-.image-gen-card-status:empty{display:none}
-.image-gen-card-status[data-ig-ready="no"]{color:var(--accent)}
-.image-gen-card-endpoint{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);font-size:11px;margin:1px 0 0 13px}
-.image-gen-card-style{display:flex;align-items:center;gap:8px;margin:.55em 0 0;font-size:12px}
+.image-gen-card-style{display:flex;align-items:center;gap:8px;min-width:0;flex:1;font-size:12px}
 .image-gen-card-style select{flex:1;min-width:0;width:auto}
-.image-gen-card-btn{margin-top:8px}
+.image-gen-card-setup .image-gen-card-btn{margin-left:auto}
+.image-gen-card-btn{flex:none}
 
 /* The Visualize button pulses while its render is in flight; clicking it again
    cancels. */

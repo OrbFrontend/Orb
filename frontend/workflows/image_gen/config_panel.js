@@ -78,18 +78,34 @@ function cardStyleOptions() {
     .join("");
 }
 
-// Tools-panel card: what this will do, whether it can do it right now, the style
-// the Visualize button will use, and one button that opens the whole form.
-export function configPanelRenderer() {
-  const endpoint = cfg?.external_comfy?.api_url || "http://127.0.0.1:8188";
+// Keep the card focused on the next useful action. An incomplete setup gets one
+// concise status and one action; normal use gets the style picker and Settings.
+// Connection details and diagnostics belong in the full form.
+function configPanelBody() {
+  if (!cardReadiness.ready) {
+    return `<div class="image-gen-card-setup">
+      <span class="image-gen-card-status" title="${escAttr(cardReadiness.text)}">Setup required</span>
+      <button class="btn btn-sm btn-accent image-gen-card-btn" data-wf-action="image_gen:settings">Finish setup</button>
+    </div>`;
+  }
+
   const stylePicker = cardStyles.length
     ? `<label class="image-gen-card-style">Style<select id="ig-card-style" class="tool-card-select" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select></label>`
     : "";
-  return `<div class="tool-card-desc">Generate images on demand with external ComfyUI.</div>
-    <div class="image-gen-card-status" id="ig-card-readiness" data-ig-ready="${cardReadiness.ready ? "yes" : "no"}">${esc(cardReadiness.text)}</div>
-    <div class="image-gen-card-endpoint" title="${escAttr(endpoint)}">${esc(endpoint)}</div>
+  return `<div class="image-gen-card-controls">
     ${stylePicker}
-    <button class="btn btn-sm image-gen-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
+    <button class="btn btn-sm image-gen-card-btn" data-wf-action="image_gen:settings">Settings</button>
+  </div>`;
+}
+
+function refreshCard() {
+  const el = document.getElementById("ig-card-config");
+  if (el) el.innerHTML = configPanelBody();
+}
+
+export function configPanelRenderer() {
+  return `<div class="tool-card-desc">Generate images on demand with external ComfyUI.</div>
+    <div id="ig-card-config">${configPanelBody()}</div>`;
 }
 
 // The card picker is the only place a default style is chosen, so its choice
@@ -114,8 +130,7 @@ export async function refreshCardStyles() {
   } catch {
     cardStyles = [];
   }
-  const sel = document.getElementById("ig-card-style");
-  if (sel && cardStyles.length) sel.innerHTML = cardStyleOptions();
+  refreshCard();
 }
 
 // Readiness is a configuration question, not a network one -- the `status`
@@ -134,11 +149,7 @@ export async function refreshCardReadiness() {
   } catch {
     cardReadiness = { ready: false, text: "" };
   }
-  const el = document.getElementById("ig-card-readiness");
-  if (el) {
-    el.textContent = cardReadiness.text;
-    el.dataset.igReady = cardReadiness.ready ? "yes" : "no";
-  }
+  refreshCard();
 }
 
 // One collapsed row per style: the summary carries just the name, so a long
