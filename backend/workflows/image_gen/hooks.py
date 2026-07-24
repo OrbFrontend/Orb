@@ -29,6 +29,7 @@ from .engine import (
     ImageGenerationError,
     ImageRequest,
     ProgressCallback,
+    graph_has_negative,
     list_models,
     node_roles,
     resolve_and_generate,
@@ -212,6 +213,7 @@ async def _generate_fresh(
         appearance=str(profile.get("appearance_prompt") or ""),
         profile_owner_name=profile_owner_name,
         extra_instructions=str(selected_style.get("extra_instructions") or ""),
+        supports_negative=graph_has_negative(config, selected_style["workflow"]),
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()

@@ -34,6 +34,16 @@ def has_graph(config: Mapping[str, Any], graph_id: str) -> bool:
     return any(item["id"] == graph_id for item in config["external_comfy"]["user_graphs"])
 
 
+def graph_has_negative(config: Mapping[str, Any], graph_id: str) -> bool:
+    """Whether the workflow `graph_id` maps a negative-prompt slot.
+
+    A graph with no negative slot discards the composed negative at render time
+    (see `generate`), so the composer is told to leave `avoid` empty instead of
+    spending the model's effort on a negation the workflow throws away.
+    """
+    return any(item["id"] == graph_id and "negative" in item["slots"] for item in config["external_comfy"]["user_graphs"])
+
+
 def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> Any:
     """A widget value, or None when the input is absent or wired from a link.
 

@@ -13,7 +13,7 @@ from .contracts import (
     ImageRequest,
     ImageResult,
 )
-from .graph import has_graph
+from .graph import graph_has_negative, has_graph
 from .render import RenderTarget, resolve_and_generate, resolve_render_target
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "ImageResult",
     "ProgressCallback",
     "RenderTarget",
+    "graph_has_negative",
     "has_graph",
     "invalidate_object_info",
     "list_models",

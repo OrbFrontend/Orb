@@ -118,6 +118,53 @@ async def test_first_person_pin_strips_leaked_camera_boy(monkeypatch):
     assert mode == "scene_analysis"
 
 
+async def test_first_person_keeps_only_profile_owner(monkeypatch):
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "analyze_scene": {
+                    "viewpoint": "first_person",
+                    "characters": [
+                        {"name": "Ashley", "is_profile_owner": True, "sex": "girl", "action": "smiling"},
+                        {"name": "bystander", "sex": "boy", "action": "walking past"},
+                    ],
+                },
+                "compose_image_prompt": {"scene": "2girls 1boy, smiling", "avoid": None},
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        scene_analysis=True,
+        profile_owner_name="Ashley",
+    )
+    # Bystander stripped: count anchor is solo, and the composer's leaked counts are pinned over.
+    assert scene == "1girl, solo, pov, smiling"
+
+
+def test_keep_profile_owner_no_op_when_owner_absent():
+    analysis = {"characters": [{"name": "stranger", "sex": "girl"}]}
+    composer._keep_profile_owner(analysis, "Ashley")
+    assert analysis["characters"] == [{"name": "stranger", "sex": "girl"}]
+
+
+async def test_no_negative_workflow_tells_model_to_leave_avoid_empty(monkeypatch):
+    seen: list[str] = []
+
+    async def spy(*, tool_name, tail_messages, **kwargs):
+        seen.extend(m["content"] for m in tail_messages)
+        yield {"type": "result", "args": {"scene": "1girl", "profile_owner_visible": False}}
+
+    monkeypatch.setattr(composer, "forced_tool_call", spy)
+    await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, supports_negative=False)
+    assert any(composer._LEAVE_AVOID_EMPTY in c for c in seen)
+
+
 async def test_analysis_avoid_items_ride_avoid(monkeypatch):
     monkeypatch.setattr(
         composer,
