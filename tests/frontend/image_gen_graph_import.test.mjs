@@ -54,6 +54,24 @@ test("builds explicit slot candidates", () => {
   assert.equal(candidates.output[0].nodeId, "3");
 });
 
+test("a save node's filename_prefix is not a prompt candidate", () => {
+  // Krea/Flux export: SaveImage (#29) sorts before the encoder (#51), and real
+  // /object_info types filename_prefix as STRING. Offering it made it the default
+  // positive slot, pushing the real prompt onto the filename and the negative
+  // onto the only encoder.
+  const graph = {
+    29: { class_type: "SaveImage", inputs: { filename_prefix: "Krea2", images: ["56", 0] } },
+    51: { class_type: "CLIPTextEncode", inputs: { text: "1girl", clip: ["4", 1] } },
+  };
+  const typing = {
+    SaveImage: { output_node: true, text_inputs: ["filename_prefix"], seed_inputs: [] },
+    CLIPTextEncode: { output_node: false, text_inputs: ["text"], seed_inputs: [] },
+  };
+  const candidates = slotCandidates(graph, typing);
+  assert.equal(candidates.text.length, 1);
+  assert.deepEqual(splitCandidate(candidates.text[0].value), ["51", "text"]);
+});
+
 test("server typing beats the class-name fallback", () => {
   // A graph whose save node is a custom class: the name heuristic finds no
   // output at all, while the server's output_node verdict does.

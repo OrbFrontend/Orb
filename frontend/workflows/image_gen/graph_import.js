@@ -111,7 +111,11 @@ export function slotCandidates(graph, nodeTypes = {}) {
     for (const name of Object.keys(inputs)) {
       if (!isWidget(inputs[name])) continue;
       const item = { value: `${nodeId}\u001f${name}`, nodeId, input: name, label: `${label(nodeId, node)} — ${name}` };
-      if (textInputs.includes(name)) text.push(item);
+      // A save/preview node's STRING widget (e.g. filename_prefix) types as text
+      // but is never conditioning. Offering it made it the default positive slot
+      // whenever the output node sorts before the encoder, so the real prompt
+      // landed on the filename (later clobbered) and the negative on the encoder.
+      if (!isOutput && textInputs.includes(name)) text.push(item);
       if (seedInputs.includes(name)) seed.push(item);
       if (MODEL_INPUTS.includes(name)) checkpoint.push(item);
     }
