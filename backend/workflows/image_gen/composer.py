@@ -50,14 +50,15 @@ _SCENE_FORMAT_HEAD = (
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "Examples: 1girl. 1boy. 2girls. 1boy, 1girl. "
     "For a clear first-person view, add the pov tag after the count tags. Do not draw or count the viewer character. "
-    "Include the viewer's hands only if the scene has them. If the viewer looks at one girl, write "
+    "Include the viewer's hands/arms only if the scene has them. If the viewer looks at one girl, write "
     "'1girl, solo, pov', not '1boy, 1girl'. "
 )
 
 _SCENE_FORMAT_TAIL = (
     "First state the viewpoint, then each character's pose and action. Then describe their build, clothing, hair, "
     "and other visible attributes meticulously. Describe their interaction, then the setting, lighting, and framing. "
-    "Be very meticulous, and as lengthy as needed. Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. Repetition is allowed."
+    "Be very meticulous, and as lengthy as needed. Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. "
+    "Prefer proactive verb-ing over passive verb-ed (e.g. pulling over pulled). Repetition is allowed. "
     "Focus on objects and subjects of interest (items, clothing, specific body parts, etc.). "
     "Do not add art-style words or quality words. Do not describe a face that is turned away from the camera. "
 )
@@ -77,7 +78,8 @@ _SCENE_FORMAT_STRUCTURED_TAIL = (
     "Render the structured scene exactly in the requested prompt format, keeping its order: the viewpoint, pose, and "
     "action come before the visible attributes. Do not add attributes the scene does not state. Do not describe a "
     "turned-away face. Describe the interaction, then the setting, the lighting, and the framing. "
-    "Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. Repetition is allowed."
+    "Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. "
+    "Prefer proactive verb-ing over passive verb-ed (e.g. pulling over pulled). Repetition is allowed. "
     "Do not add art-style words or quality words. Leave `avoid` empty."
 )
 
@@ -110,7 +112,7 @@ COMPOSE_TOOL_SCHEMA = {
                 },
                 "avoid": {
                     "type": ["string", "null"],
-                    "description": "A short comma-separated list of out-of-frame or wrong details that would contradict the scene, or null.",
+                    "description": "A short comma-separated list of out-of-frame or occluded details that would contradict the scene, or null.",
                 },
                 "profile_owner_visible": {
                     "type": "boolean",
@@ -222,7 +224,7 @@ ANALYZE_TOOL_SCHEMA = {
                 },
                 "avoid": {
                     "type": ["string", "null"],
-                    "description": "Short comma-separated list of out-of-frame or wrong details that would contradict the scene, or null.",
+                    "description": "Short comma-separated list of out-of-frame or occluded details that would contradict the scene, or null.",
                 },
             },
             "required": ["viewpoint", "characters", "anchors", "setting", "interaction", "framing", "avoid"],
@@ -265,8 +267,8 @@ def _profile_instruction(profile_owner_name: str, appearance: str) -> str:
     if not owner or not fixed:
         return "Set `profile_owner_visible` to false because no named appearance profile was supplied. "
     return (
-        f"The profile owner is {owner}. Their fixed appearance is already added later: {fixed}. "
-        "Set `profile_owner_visible` true only if this person is visible. Do not repeat the fixed appearance in `scene`. "
+        f"The profile owner is {owner}. Their fixed tags are already added later: {fixed}. "
+        "Set `profile_owner_visible` true only if this person is visible. Do not repeat or contradict the fixed tags in `scene`. "
     )
 
 
@@ -311,7 +313,7 @@ def _compose_ooc(
 
 def _analyze_ooc(supports_negative: bool = True) -> str:
     avoid = (
-        "In `avoid`, put only a short list of out-of-frame or wrong details that would contradict the scene. "
+        "In `avoid`, put only a short list of out-of-frame or occluded details that would contradict the scene. "
         if supports_negative
         else _LEAVE_AVOID_EMPTY + " "
     )
@@ -459,7 +461,7 @@ def _render_scene(scene: Any) -> str:
     viewpoint = _bounded(scene.get("viewpoint"))
     if viewpoint == "first_person":
         lines.append(
-            "viewpoint: first-person POV (pov) -- possess the user's POV, the viewer character is not drawn, hands at most"
+            "viewpoint: first-person POV (pov) -- possess the user's POV, the viewer character is not drawn, hands/arms at most"
         )
     elif viewpoint == "third_person":
         lines.append("viewpoint: third-person")
@@ -491,7 +493,7 @@ def _render_scene(scene: Any) -> str:
             bits.append(appearance)
         outfit = _bounded(ch.get("outfit"))
         if outfit:
-            bits.append(f"wearing {outfit}")
+            bits.append(f"wearing: {outfit}")
         expression = _bounded(ch.get("expression"))
         if expression and face_visible:
             bits.append(f"expression: {expression}")
@@ -572,7 +574,7 @@ def _inject_profile_appearance(
     if owner and normalized_format == "hybrid":
         fixed = f"{owner}: {fixed}"
     elif owner and normalized_format == "prose":
-        fixed = f"{owner} has these visible traits: {fixed}."
+        fixed = f"{owner} has these traits: {fixed}."
     # Seat the appearance after the pose body: the composer states the shot first,
     # the visible attributes follow.
     # ponytail: appearance now trails the pose/setting body. If a long body pushes
@@ -622,9 +624,9 @@ async def compose_scene(
         fixed = _bounded(appearance)
         if owner and fixed:
             instr += (
-                f"\n\nProfile owner: {owner}\nFixed appearance already added: {fixed}\n"
+                f"\n\nProfile owner: {owner}\nFixed tags already added: {fixed}\n"
                 "Mark this visible character as `is_profile_owner: true`. Still fill `appearance` with their current "
-                "visible traits. Do not repeat the fixed appearance above. "
+                "visible traits. Do not repeat or contradict the fixed tags above. "
                 "Do not use the fixed appearance as an outfit."
             )
         analysis = await _forced_args(
