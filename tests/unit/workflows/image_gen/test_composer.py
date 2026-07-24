@@ -26,7 +26,7 @@ def test_render_scene_lays_out_each_character_with_outfit_and_position():
     )
     lines = block.splitlines()
     # Pose/position first, then visible attributes (outfit, appearance).
-    assert lines[0] == "Ashley: left, holding a book, sitting, reading, wearing silk dress, bare feet"
+    assert lines[0] == "Ashley: left, holding a book, sitting, reading, wearing: silk dress, bare feet"
     assert lines[1] == "nobleman: right, behind her, tall man, dark hair"
     assert lines[2] == "setting and framing: medieval garden, midday, stone bench"
 
@@ -358,7 +358,7 @@ async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monk
         ),
         (
             "prose",
-            "2girls, Iris sits beside Ashley. Iris has these visible traits: long silver hair, blue eyes.",
+            "2girls, Iris sits beside Ashley. Iris has these traits: long silver hair, blue eyes.",
         ),
     ),
 )
