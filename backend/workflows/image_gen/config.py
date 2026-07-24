@@ -31,6 +31,7 @@ CONFIG_DEFAULTS = {
                 "prompt_format": DEFAULT_PROMPT_FORMAT,
                 "prompt": "RAW photo, realistic illumination, realistic shadows, photography, photorealistic, cinematic lighting, detailed skin, high contrast",
                 "negative_prompt": "cartoon, anime, drawing, paint, flat, illustration, painting, low detail, low quality, worst quality, bad quality, bad perspective",
+                "extra_instructions": "",
                 "checkpoint": "",
                 "workflow": "",
             },
@@ -40,6 +41,7 @@ CONFIG_DEFAULTS = {
                 "prompt_format": DEFAULT_PROMPT_FORMAT,
                 "prompt": "masterpiece, best quality, anime illustration, very aesthetic, very detailed, high contrast, good perspective",
                 "negative_prompt": "photorealistic, pixelated, 3d render, muddy colors, low quality, worst quality, bad quality, score_1, score_2, bad fingers, missing fingers, fused fingers, bad anatomy, bad hair, bad perspective, bad face",
+                "extra_instructions": "",
                 "checkpoint": "",
                 "workflow": "",
             },
@@ -76,6 +78,7 @@ def _style(raw: Any) -> dict | None:
         "prompt_format": prompt_format,
         "prompt": _text(raw.get("prompt"), 2_000),
         "negative_prompt": _text(raw.get("negative_prompt"), 2_000),
+        "extra_instructions": _text(raw.get("extra_instructions"), 2_000),
         "checkpoint": _text(raw.get("checkpoint"), 512),
         "workflow": workflow,
     }

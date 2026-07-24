@@ -14,6 +14,8 @@
    Setup and normal-use controls are mutually exclusive, keeping the card to one
    compact action row below its description. */
 .image-gen-card-setup,.image-gen-card-controls{display:flex;align-items:center;gap:8px;margin-top:8px}
+.image-gen-card-controls{flex-wrap:wrap}
+.image-gen-card-controls .image-gen-card-style{flex-basis:100%}
 .image-gen-card-status{display:flex;align-items:center;gap:6px;min-width:0;color:var(--accent);font-size:11px;line-height:1.4}
 .image-gen-card-status::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:currentColor}
 .image-gen-card-style{display:flex;align-items:center;gap:8px;min-width:0;flex:1;font-size:12px}

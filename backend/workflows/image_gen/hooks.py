@@ -211,6 +211,7 @@ async def _generate_fresh(
         scene_analysis=bool(config.get("scene_analysis")),
         appearance=str(profile.get("appearance_prompt") or ""),
         profile_owner_name=profile_owner_name,
+        extra_instructions=str(selected_style.get("extra_instructions") or ""),
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()

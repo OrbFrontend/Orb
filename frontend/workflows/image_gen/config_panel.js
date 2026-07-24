@@ -197,6 +197,7 @@ function styleRows(expandIds = "") {
           <label>Prompt format<select data-ig-field="prompt_format" data-wf-action="image_gen:styleChange" data-wf-on="change">${promptFormatOptions(s.prompt_format)}</select></label>
           <label>Positive style prompt<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No positive style prompt">${esc(s.prompt || "")}</textarea></label>
           <label>Negative style prompt<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No negative style prompt">${esc(s.negative_prompt || "")}</textarea></label>
+          <label>Extra instructions<textarea data-ig-field="extra_instructions" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="Extra guidance for the prompter model (e.g. describe every limb, etc.).">${esc(s.extra_instructions || "")}</textarea></label>
           <div class="ig-grid">
             <label>Checkpoint${checkpointField(s.checkpoint || "")}</label>
             <label>Workflow${workflowField(s.workflow || "")}</label>
@@ -222,6 +223,7 @@ function captureStyles() {
       prompt_format: get("prompt_format") || "hybrid",
       prompt: get("prompt"),
       negative_prompt: get("negative_prompt"),
+      extra_instructions: get("extra_instructions"),
       checkpoint: get("checkpoint"),
       workflow: get("workflow"),
     };
@@ -242,6 +244,7 @@ function addStyle() {
     prompt_format: "hybrid",
     prompt: "",
     negative_prompt: "",
+    extra_instructions: "",
     checkpoint: "",
     workflow: "",
   });
