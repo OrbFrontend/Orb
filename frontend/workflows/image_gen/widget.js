@@ -1,11 +1,11 @@
 import {
+  api,
   canMutate,
   clearWorkflowPhase,
   convUrl,
   esc,
   escAttr,
   getActiveConvId,
-  getMessages,
   refreshConversationMessages,
   registerAction,
   setWorkflowPhase,
@@ -116,9 +116,21 @@ async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalM
   while (Date.now() < deadline) {
     if (signal.aborted || getActiveConvId() !== convId) return false;
     await new Promise((r) => setTimeout(r, intervalMs));
-    await refreshConversationMessages(msgId);
-    const msg = getMessages().find((m) => m.id === msgId);
-    if (msg && hasAttachment(msg)) return true;
+    // Peek at the raw messages instead of refreshConversationMessages, which
+    // repaints the list and refetches the context counter on every call --
+    // that flickered the page (and spammed /messages + /context-size) for the
+    // whole poll. Only repaint once, when the image actually lands.
+    let msgs;
+    try {
+      msgs = await api.get(convUrl(convId, "messages"));
+    } catch {
+      continue; // transient; keep waiting for the render to land
+    }
+    const msg = msgs.find((m) => m.id === msgId);
+    if (msg && hasAttachment(msg)) {
+      if (!signal.aborted && getActiveConvId() === convId) await refreshConversationMessages(msgId);
+      return true;
+    }
   }
   return false;
 }

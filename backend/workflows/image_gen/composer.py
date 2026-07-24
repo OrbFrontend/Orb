@@ -28,13 +28,13 @@ logger = logging.getLogger(__name__)
 _FORMAT_INSTRUCTIONS = {
     "tags": (
         "Write the rest of the image prompt as booru tags only. Separate all tags with commas. "
-        "Do not write complete prose sentences. Do not use character names. "
+        "Do not use character names. "
         "Format example only; do not copy its details: '1girl, solo, short black hair, blue jacket, smiling'. "
     ),
     "hybrid": (
         "Write the rest as a hybrid image prompt. Use booru tags for visible attributes. "
-        "Use short natural-language clauses for spatial relationships, interactions, and other details that tags "
-        "cannot bind clearly. Separate tags and clauses with commas. For more than one person, use each character's "
+        "Use concise natural-language clauses for spatial relationships, interactions, and other details that tags "
+        "cannot bind clearly. Separate tags and clauses with commas. If more than one visible person, use each character's "
         "name in every natural-language clause about that specific character. "
         "Format example only; do not copy its details: '1girl, 1boy, Mara stands left of Ren, Ren reaches toward Mara'. "
     ),

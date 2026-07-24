@@ -115,6 +115,14 @@ def patch_graph(
         if not checkpoint:
             raise ImageGenerationError("Select a checkpoint before generating")
         inputs[name] = checkpoint
+    # Imported graphs often wire the prompt text into a save node's filename_prefix
+    # ("name files by prompt"). Orb's long scene prompts overflow the OS 255-byte
+    # filename limit (OSError 36). Orb fetches the image by the name ComfyUI reports,
+    # never by this prefix, so pinning it to a constant is always safe.
+    for node in patched.values():
+        node_inputs = node.get("inputs") if isinstance(node, Mapping) else None
+        if isinstance(node_inputs, dict) and "filename_prefix" in node_inputs:
+            node_inputs["filename_prefix"] = "orb"
     output = slots.get("output")
     if not isinstance(output, (list, tuple)) or len(output) != 2 or str(output[0]) not in patched:
         raise ImageGenerationError("The output slot points to a missing node")

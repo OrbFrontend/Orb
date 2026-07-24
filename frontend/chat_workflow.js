@@ -266,6 +266,7 @@ window.workflowArtifactStep = async (instanceId, delta) => {
   // server fetch if the POST fails.
   if (root) root.active_sibling_id = newActiveId;
   el.outerHTML = _renderWorkflowSwipeContainer(msg, rootId, group.atts);
+  _scrollArtifactIntoView(msgId, rootId);
   try {
     await api.post(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", rootId, "activate"), {
       sibling_id: newActiveId,

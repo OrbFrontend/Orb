@@ -104,6 +104,17 @@ def test_graph_requires_checkpoint():
         )
 
 
+def test_patch_neutralizes_prompt_wired_filenames():
+    """Imported graphs that name files by prompt (a literal or a link into
+    filename_prefix) would overflow the OS filename limit on long scene prompts."""
+    graph, slots = _core()
+    graph["9"]["inputs"]["filename_prefix"] = "x" * 300  # a literal too-long prefix
+    graph["10"] = {"class_type": "SaveImage", "inputs": {"filename_prefix": ["6", 0], "images": ["8", 0]}}
+    patched, _ = patch_graph(graph, slots, prompt="p", negative_prompt="n", seed=1, checkpoint="model.safetensors")
+    assert patched["9"]["inputs"]["filename_prefix"] == "orb"
+    assert patched["10"]["inputs"]["filename_prefix"] == "orb"  # link clobbered too
+
+
 def test_a_graph_without_a_negative_slot_still_patches():
     """A prose-trained graph has one text encoder and no negative conditioning."""
     graph, slots = _core()
