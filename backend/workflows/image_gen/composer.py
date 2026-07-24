@@ -57,7 +57,7 @@ _SCENE_FORMAT_HEAD = (
 _SCENE_FORMAT_TAIL = (
     "First state the viewpoint, then each character's pose and action. Then describe their build, clothing, hair, "
     "and other visible attributes meticulously. Describe their interaction, then the setting, lighting, and framing. "
-    "Be very meticulous, and as lengthy as needed. Use the word 'own' if action is done to self. Be obsessively precise, use quantitative words like 'one' or 'two'. "
+    "Be very meticulous, and as lengthy as needed. Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. "
     "Focus on objects and subjects of interest (items, clothing, specific body parts, etc.). "
     "Do not add art-style words or quality words. Do not describe a face that is turned away from the camera. "
     "In `avoid`, put only a short list of out-of-frame or wrong details that would contradict the scene - "
@@ -70,7 +70,7 @@ _SCENE_FORMAT_STRUCTURED_TAIL = (
     "Render the structured scene exactly in the requested prompt format, keeping its order: the viewpoint, pose, and "
     "action come before the visible attributes. Do not add attributes the scene does not state. Do not describe a "
     "turned-away face. Describe the interaction, then the setting, the lighting, and the framing. "
-    "Use the word 'own' if action is done to self. Be obsessively precise, use quantitative words like 'one' or 'two'. "
+    "Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. "
     "Do not add art-style words or quality words. Leave `avoid` empty."
 )
 
@@ -153,7 +153,7 @@ ANALYZE_TOOL_SCHEMA = {
                             },
                             "appearance": {
                                 "type": ["string", "null"],
-                                "description": "Visible fixed traits established by the conversation, or null if unknown.",
+                                "description": "Current visible traits established by the conversation, null if unknown.",
                             },
                             "outfit": {
                                 "type": ["string", "null"],
@@ -242,7 +242,7 @@ ANALYZE_TOOL = ToolSpec(
 # schema or prefix: tails are the one place every transport shows the model and
 # the one place that never perturbs the shared prefix KV.
 _COMPOSER_MISSION = (
-    "Pause the roleplay and make an image prompt. "
+    "Pause the roleplay and construct a spatial image prompt. "
     "Freeze the final visible instant in the previous assistant reply. The image model sees only your prompt. "
 )
 
@@ -590,8 +590,9 @@ async def compose_scene(
         fixed = _bounded(appearance)
         if owner and fixed:
             instr += (
-                f"\n\nProfile owner: {owner}\nFixed appearance already added later: {fixed}\n"
-                "Mark this visible character as `is_profile_owner: true` and leave their `appearance` null. "
+                f"\n\nProfile owner: {owner}\nFixed appearance already added: {fixed}\n"
+                "Mark this visible character as `is_profile_owner: true`. Still fill `appearance` with their current "
+                "visible traits. Do not repeat the fixed appearance above. "
                 "Do not use the fixed appearance as an outfit."
             )
         analysis = await _forced_args(
