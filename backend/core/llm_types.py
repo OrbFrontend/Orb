@@ -12,9 +12,7 @@ catch-all.
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict, Union
-
-from typing_extensions import NotRequired
+from typing import Any, Literal, NotRequired, TypedDict
 
 
 class TextPart(TypedDict):
@@ -40,7 +38,7 @@ class ImagePart(TypedDict):
 # A message body is either a plain string or, for vision-capable turns, a list
 # of typed parts. ``build_multimodal_content`` and
 # ``format_message_with_attachments`` emit the list form.
-ContentPart = Union[TextPart, ImagePart]
+ContentPart = TextPart | ImagePart
 
 
 class ChatMessage(TypedDict):
@@ -90,4 +88,4 @@ class ToolResultMessage(TypedDict):
 # ``ChatMessage`` could not flow into it. As a union member it flows in
 # directly, letting a buffer be built ``[*prefix, ...]`` and typed
 # ``list[WireMessage]`` with no cast.
-WireMessage = Union[ChatMessage, AssistantToolMessage, ToolResultMessage]
+WireMessage = ChatMessage | AssistantToolMessage | ToolResultMessage

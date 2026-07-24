@@ -13,7 +13,8 @@ public entry points in ``entrypoints``. ``_run_pipeline`` is called by
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, Mapping, Optional, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from typing import Any
 
 from ..core import ChatMessage, Macros
 from ..database.models import PhraseGroup
@@ -66,7 +67,7 @@ async def _run_pipeline(
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],
     user_message: str,
-    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
+    attachments: Sequence[Mapping[str, Any]] | None = None,
     phrase_bank: list[PhraseGroup] | None = None,
     editor_audit_msgs: list[str] | None = None,
     agent_client: LLMClient | None = None,

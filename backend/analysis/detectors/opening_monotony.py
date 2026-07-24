@@ -27,7 +27,7 @@ DEBUG = "DEBUG_OPENING_MONOTONY" in os.environ
 # ---------- public dataclasses (unchanged) ----------
 
 
-@dataclass
+@dataclass(slots=True)
 class FlaggedOpener:
     opener: str
     count: int
@@ -36,7 +36,7 @@ class FlaggedOpener:
     sentences: list[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(slots=True)
 class MonotonyResult:
     flagged_openers: list[FlaggedOpener]
     all_openers: dict[str, int]

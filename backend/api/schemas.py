@@ -7,59 +7,61 @@ it needs and the shapes stay discoverable in one place.
 
 from __future__ import annotations
 
-from typing import Any, List, Literal, Optional
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from ..core.domain_types import AgentLane, CompletionMode
 
 
 class SettingsUpdate(BaseModel):
     model_config = {"protected_namespaces": ()}
 
-    endpoint_url: Optional[str] = None
-    api_key: Optional[str] = None
-    model_name: Optional[str] = None
+    endpoint_url: str | None = None
+    api_key: str | None = None
+    model_name: str | None = None
     # Hyperparameters (temperature, min_p, top_k, top_p, repetition_penalty,
     # max_tokens) are intentionally NOT on this contract: they live on the active
     # endpoint's model_config and are edited via /models/{id}. get_settings()
     # overlays them for reads, so a write here would be silently discarded. The
     # frontend still includes them in its /settings PUT payload; extra fields are
     # ignored (default Pydantic behavior), mirroring completion_mode.
-    shared_system_prompt: Optional[str] = None
-    system_prompt: Optional[str] = None
-    user_name: Optional[str] = None
-    user_description: Optional[str] = None
-    enabled_tools: Optional[dict[str, bool]] = None
-    enable_agent: Optional[bool] = None
-    length_guard_enabled: Optional[bool] = None
-    length_guard_enforce: Optional[bool] = None
-    agentic_lorebook_enabled: Optional[bool] = None
-    length_guard_max_words: Optional[int] = None
-    length_guard_max_paragraphs: Optional[int] = None
-    reasoning_enabled_passes: Optional[dict] = None
-    reasoning_prefill_passes: Optional[dict] = None
-    active_persona_id: Optional[int] = None
-    character_library_view: Optional[str] = None
-    character_library_sort: Optional[str] = None
-    active_endpoint_id: Optional[int] = None
-    show_editor_diff: Optional[bool] = None
-    editor_audit_toggles: Optional[dict] = None
+    shared_system_prompt: str | None = None
+    system_prompt: str | None = None
+    user_name: str | None = None
+    user_description: str | None = None
+    enabled_tools: dict[str, bool] | None = None
+    enable_agent: bool | None = None
+    length_guard_enabled: bool | None = None
+    length_guard_enforce: bool | None = None
+    agentic_lorebook_enabled: bool | None = None
+    length_guard_max_words: int | None = None
+    length_guard_max_paragraphs: int | None = None
+    reasoning_enabled_passes: dict | None = None
+    reasoning_prefill_passes: dict | None = None
+    active_persona_id: int | None = None
+    character_library_view: str | None = None
+    character_library_sort: str | None = None
+    active_endpoint_id: int | None = None
+    show_editor_diff: bool | None = None
+    editor_audit_toggles: dict | None = None
     # Document-mode Output Auditor (doc-owned columns; deliberately not shared
     # with editor_audit_toggles so a doc-mode save can't perturb chat scanners).
-    document_audit_enabled: Optional[bool] = None
-    document_audit_autopatch: Optional[bool] = None
-    document_audit_toggles: Optional[dict] = None
-    hide_streaming_until_baked: Optional[bool] = None
-    prevent_prompt_overrides: Optional[bool] = None
-    agent_same_as_writer: Optional[bool] = None
-    agent_endpoint_id: Optional[int] = None
-    agent_shared_system_prompt: Optional[str] = None
-    feedback_enabled: Optional[bool] = None
-    director_individual_fragments: Optional[bool] = None
-    direction_notes_record: Optional[bool] = None
-    direction_notes_inject: Optional[Literal["off", "director", "writer", "both"]] = None
-    inspector_open_states: Optional[dict] = None
-    workflows_globally_enabled: Optional[bool] = None
+    document_audit_enabled: bool | None = None
+    document_audit_autopatch: bool | None = None
+    document_audit_toggles: dict | None = None
+    hide_streaming_until_baked: bool | None = None
+    prevent_prompt_overrides: bool | None = None
+    agent_same_as_writer: bool | None = None
+    agent_endpoint_id: int | None = None
+    agent_shared_system_prompt: str | None = None
+    feedback_enabled: bool | None = None
+    director_individual_fragments: bool | None = None
+    direction_notes_record: bool | None = None
+    direction_notes_inject: Literal["off", "director", "writer", "both"] | None = None
+    inspector_open_states: dict | None = None
+    workflows_globally_enabled: bool | None = None
 
 
 class DirectionNoteUpdate(BaseModel):
@@ -92,16 +94,16 @@ class EndpointCreate(BaseModel):
 
 
 class EndpointUpdate(BaseModel):
-    url: Optional[str] = None
-    api_key: Optional[str] = None
-    active_model_config_id: Optional[int] = None
-    agent_active_model_config_id: Optional[int] = None
-    completion_mode: Optional[Literal["chat", "text"]] = None
-    proxy: Optional[str] = None
+    url: str | None = None
+    api_key: str | None = None
+    active_model_config_id: int | None = None
+    agent_active_model_config_id: int | None = None
+    completion_mode: CompletionMode | None = None
+    proxy: str | None = None
 
     @field_validator("proxy")
     @classmethod
-    def _validate_proxy(cls, v: Optional[str]) -> Optional[str]:
+    def _validate_proxy(cls, v: str | None) -> str | None:
         # Empty/blank means "no proxy". A set value must use a scheme httpx
         # accepts (http/https, or socks5 via the httpx[socks] extra); reject
         # anything else here so a typo fails at save time, not on every LLM turn.
@@ -126,7 +128,7 @@ class ModelConfigCreate(BaseModel):
     top_p: float = 0.95
     repetition_penalty: float = 1.0
     max_tokens: int = 4096
-    role: str = "writer"
+    role: AgentLane = "writer"
     reasoning_effort: str = ""
     reasoning_effort_param: str = ""
     reasoning_effort_value: str = ""
@@ -135,17 +137,17 @@ class ModelConfigCreate(BaseModel):
 class ModelConfigUpdate(BaseModel):
     model_config = {"protected_namespaces": ()}
 
-    model_name: Optional[str] = None
-    system_prompt: Optional[str] = None
-    temperature: Optional[float] = None
-    min_p: Optional[float] = None
-    top_k: Optional[int] = None
-    top_p: Optional[float] = None
-    repetition_penalty: Optional[float] = None
-    max_tokens: Optional[int] = None
-    reasoning_effort: Optional[str] = None
-    reasoning_effort_param: Optional[str] = None
-    reasoning_effort_value: Optional[str] = None
+    model_name: str | None = None
+    system_prompt: str | None = None
+    temperature: float | None = None
+    min_p: float | None = None
+    top_k: int | None = None
+    top_p: float | None = None
+    repetition_penalty: float | None = None
+    max_tokens: int | None = None
+    reasoning_effort: str | None = None
+    reasoning_effort_param: str | None = None
+    reasoning_effort_value: str | None = None
 
 
 class MoodFragmentCreate(BaseModel):
@@ -158,11 +160,11 @@ class MoodFragmentCreate(BaseModel):
 
 
 class MoodFragmentUpdate(BaseModel):
-    label: Optional[str] = None
-    description: Optional[str] = None
-    prompt_text: Optional[str] = None
-    negative_prompt: Optional[str] = None
-    enabled: Optional[bool] = None
+    label: str | None = None
+    description: str | None = None
+    prompt_text: str | None = None
+    negative_prompt: str | None = None
+    enabled: bool | None = None
 
 
 class InteractiveFragmentCreate(BaseModel):
@@ -178,14 +180,14 @@ class InteractiveFragmentCreate(BaseModel):
 
 
 class InteractiveFragmentUpdate(BaseModel):
-    label: Optional[str] = None
-    description: Optional[str] = None
-    field_type: Optional[str] = None
-    required: Optional[bool] = None
-    enabled: Optional[bool] = None
-    injection_label: Optional[str] = None
-    sort_order: Optional[int] = None
-    direction_note_timing: Optional[Literal["pre_writer", "post_turn"]] = None
+    label: str | None = None
+    description: str | None = None
+    field_type: str | None = None
+    required: bool | None = None
+    enabled: bool | None = None
+    injection_label: str | None = None
+    sort_order: int | None = None
+    direction_note_timing: Literal["pre_writer", "post_turn"] | None = None
 
 
 class WorldCreate(BaseModel):
@@ -193,8 +195,8 @@ class WorldCreate(BaseModel):
 
 
 class WorldUpdate(BaseModel):
-    name: Optional[str] = None
-    enabled: Optional[bool] = None
+    name: str | None = None
+    enabled: bool | None = None
 
 
 class LorebookEntryCreate(BaseModel):
@@ -208,13 +210,13 @@ class LorebookEntryCreate(BaseModel):
 
 
 class LorebookEntryUpdate(BaseModel):
-    name: Optional[str] = None
-    content: Optional[str] = None
-    keywords: Optional[list[str]] = None
-    case_insensitive: Optional[bool] = None
-    constant: Optional[bool] = None
-    priority: Optional[int] = None
-    enabled: Optional[bool] = None
+    name: str | None = None
+    content: str | None = None
+    keywords: list[str] | None = None
+    case_insensitive: bool | None = None
+    constant: bool | None = None
+    priority: int | None = None
+    enabled: bool | None = None
 
 
 class LorebookImportPayload(BaseModel):
@@ -229,7 +231,7 @@ class LorebookImportPayload(BaseModel):
 
 class ConversationCreate(BaseModel):
     title: str = "New Conversation"
-    character_card_id: Optional[str] = None
+    character_card_id: str | None = None
     character_name: str = ""
     character_scenario: str = ""
     first_mes: str = ""
@@ -237,15 +239,15 @@ class ConversationCreate(BaseModel):
 
 
 class ConversationUpdate(BaseModel):
-    title: Optional[str] = None
+    title: str | None = None
     # Persona lock for this conversation; an explicit null clears it (the route
     # uses model_dump(exclude_unset=True), so absence leaves it untouched).
-    persona_lock_id: Optional[int] = None
+    persona_lock_id: int | None = None
 
 
 class SummarizeRequest(BaseModel):
     keep_count: int  # must be one of 2, 4, 6, 8
-    custom_instructions: Optional[str] = None
+    custom_instructions: str | None = None
 
 
 class CompressRequest(BaseModel):
@@ -254,7 +256,7 @@ class CompressRequest(BaseModel):
 
 
 class CheckpointRequest(BaseModel):
-    title: Optional[str] = None
+    title: str | None = None
 
 
 class DocumentSpan(BaseModel):
@@ -267,16 +269,16 @@ class DocumentSpan(BaseModel):
 
 
 class DocumentCreate(BaseModel):
-    title: Optional[str] = None
+    title: str | None = None
 
 
 class DocumentUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    generated_spans: Optional[List[DocumentSpan]] = None
+    title: str | None = None
+    content: str | None = None
+    generated_spans: list[DocumentSpan] | None = None
 
     @model_validator(mode="after")
-    def _spans_need_content(self) -> "DocumentUpdate":
+    def _spans_need_content(self) -> DocumentUpdate:
         # content and generated_spans must travel together: spans without content
         # would apply offsets to stale server-side text. Title-only updates are
         # unaffected (neither field set). Uses model_fields_set so an explicit
@@ -323,7 +325,7 @@ class DocumentAuditResponse(BaseModel):
     report: AuditReportPayload
     # "no_complete_sentence" when a truncated draft had nothing auditable left
     # after trimming (the /patch route also uses "clean": nothing to fix).
-    skipped: Optional[str] = None
+    skipped: str | None = None
     # True when a truncated tail fragment was excluded from the scan.
     tail_excluded: bool = False
 
@@ -335,7 +337,7 @@ class DocumentPatchResponse(BaseModel):
     patch_count: int
     errors: list[str] = []
     report_after: AuditReportPayload
-    skipped: Optional[str] = None
+    skipped: str | None = None
 
 
 class CharacterCardCreate(BaseModel):
@@ -345,8 +347,8 @@ class CharacterCardCreate(BaseModel):
     # SHA-256-derived UUID of the raw bytes), then the frontend passes it back
     # here on Save. Preserving the original ID means re-importing a card after
     # deletion relinks its conversation history instead of creating an orphan.
-    id: Optional[str] = None
-    source_format: Optional[str] = None
+    id: str | None = None
+    source_format: str | None = None
     name: str
     description: str = ""
 
@@ -368,23 +370,23 @@ class CharacterCardCreate(BaseModel):
     tags: list[str] = []
     creator: str = ""
     alternate_greetings: list[str] = []
-    avatar_b64: Optional[str] = None
-    avatar_mime: Optional[str] = None
-    world_id: Optional[str] = None
-    character_book: Optional[dict] = None
+    avatar_b64: str | None = None
+    avatar_mime: str | None = None
+    world_id: str | None = None
+    character_book: dict | None = None
     # V2 card extensions dict, stored verbatim (third-party keys round-trip
     # through export). Orb's card-embedded fragments live at orb.fragments;
     # card_embedded_fragments() validates that subtree on consumption.
-    extensions: Optional[dict] = None
+    extensions: dict | None = None
 
 
 class CharacterCardUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
 
     @field_validator("name")
     @classmethod
-    def name_must_not_be_blank(cls, v: Optional[str]) -> Optional[str]:
+    def name_must_not_be_blank(cls, v: str | None) -> str | None:
         if v is not None:
             stripped = v.strip()
             if not stripped:
@@ -392,30 +394,30 @@ class CharacterCardUpdate(BaseModel):
             return stripped
         return v
 
-    personality: Optional[str] = None
-    scenario: Optional[str] = None
-    first_mes: Optional[str] = None
-    mes_example: Optional[str] = None
-    creator_notes: Optional[str] = None
-    system_prompt: Optional[str] = None
-    post_history_instructions: Optional[str] = None
-    tags: Optional[list[str]] = None
-    creator: Optional[str] = None
-    alternate_greetings: Optional[list[str]] = None
-    avatar_b64: Optional[str] = None
-    avatar_mime: Optional[str] = None
-    world_id: Optional[str] = None
-    extensions: Optional[dict] = None
+    personality: str | None = None
+    scenario: str | None = None
+    first_mes: str | None = None
+    mes_example: str | None = None
+    creator_notes: str | None = None
+    system_prompt: str | None = None
+    post_history_instructions: str | None = None
+    tags: list[str] | None = None
+    creator: str | None = None
+    alternate_greetings: list[str] | None = None
+    avatar_b64: str | None = None
+    avatar_mime: str | None = None
+    world_id: str | None = None
+    extensions: dict | None = None
     # Persona lock for this character card; an explicit null clears it (handled
     # via model_fields_set in api_update_character since the route drops Nones).
-    persona_lock_id: Optional[int] = None
+    persona_lock_id: int | None = None
 
 
 class AttachmentIn(BaseModel):
     b64: str
     mime: str
-    filename: Optional[str] = None
-    size: Optional[int] = None
+    filename: str | None = None
+    size: int | None = None
 
     @field_validator("size")
     @classmethod
@@ -440,14 +442,14 @@ class AttachmentIn(BaseModel):
 class SendMessage(BaseModel):
     content: str
     enable_agent: bool = True
-    turn_index: Optional[int] = None
-    attachments: List[AttachmentIn] = []
+    turn_index: int | None = None
+    attachments: list[AttachmentIn] = []
 
 
 class EditMessage(BaseModel):
     content: str
     enable_agent: bool = True
-    attachments: List[AttachmentIn] = []
+    attachments: list[AttachmentIn] = []
 
 
 class RegenerateMsg(BaseModel):
@@ -477,13 +479,13 @@ class PhraseGroupUpdate(BaseModel):
 class UserPersonaCreate(BaseModel):
     name: str
     description: str = ""
-    avatar_color: Optional[str] = None
+    avatar_color: str | None = None
 
 
 class UserPersonaUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    avatar_color: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
+    avatar_color: str | None = None
 
 
 class ResetConfirm(BaseModel):
@@ -496,6 +498,6 @@ class ImportUrlRequest(BaseModel):
 
 
 class PresetExportRequest(BaseModel):
-    domains: List[str]
+    domains: list[str]
     strip_keys: bool = True
     label: str = ""

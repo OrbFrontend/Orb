@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 
 from ..connection import _build_set_clause, get_db
@@ -30,7 +30,7 @@ async def get_document(document_id: str) -> DocumentRow | None:
 
 async def create_document(data: dict) -> DocumentRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         document_id = data.get("id") or str(uuid.uuid4())
         await db.execute(
             "INSERT INTO documents (id, title, content, generated_spans, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -55,7 +55,7 @@ async def update_document(document_id: str, data: dict) -> DocumentRow | None:
         sets, vals = _build_set_clause(allowed, data, json_fields={"generated_spans"})
         if sets:
             sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(datetime.now(UTC).isoformat())
             vals.append(document_id)
             await db.execute(f"UPDATE documents SET {', '.join(sets)} WHERE id = ?", vals)  # nosec B608
             await db.commit()

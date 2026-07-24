@@ -4,7 +4,8 @@ tool_registry.py — Built-in tool schemas and the tool registry.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 # ── Agent tool definitions (OpenAI function-calling format)
 

@@ -5,7 +5,8 @@ injections, and tool-call request messages for the pipeline passes.
 
 from __future__ import annotations
 
-from typing import Any, Collection, Mapping, MutableMapping, Sequence
+from collections.abc import Collection, Mapping, MutableMapping, Sequence
+from typing import Any
 
 from ..core import ChatMessage, ContentPart, Macros, resolve_stored_random
 from .tool_registry import TOOLS

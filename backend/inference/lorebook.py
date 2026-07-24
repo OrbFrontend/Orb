@@ -17,7 +17,8 @@ so the two named entry points below (:func:`compute_lorebook_injection_block`,
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from ..core import Macros
 

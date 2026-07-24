@@ -67,8 +67,9 @@ from __future__ import annotations
 
 import random
 import re
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from datetime import datetime
-from typing import Any, Callable, Mapping, MutableMapping, NamedTuple, Sequence
+from typing import Any, NamedTuple
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -296,7 +297,7 @@ class Macros(NamedTuple):
         char_name: str,
         active_persona: Mapping[str, Any] | None = None,
         seed: str = "",
-    ) -> "Macros":
+    ) -> Macros:
         user = active_persona.get("name", "User") if active_persona else settings.get("user_name", "User")
         return cls(user=user, char=char_name, seed=seed)
 

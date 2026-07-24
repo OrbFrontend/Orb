@@ -20,7 +20,8 @@ Two prompting strategies, chosen per request by the ``assisted`` flag:
 from __future__ import annotations
 
 import re
-from typing import Any, AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Mapping
+from typing import Any
 
 from ...core import ChatMessage, extract_hyperparams
 from ...inference import LLMClient, reasoning_cfg

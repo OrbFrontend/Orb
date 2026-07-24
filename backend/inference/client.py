@@ -4,7 +4,8 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from typing import Any
 
 import httpx
 
@@ -319,7 +320,7 @@ class LLMClient:
         try:
             await asyncio.wait_for(self.abort_token.wait(), timeout=delay)
             return False  # abort fired within the delay
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return True  # full delay elapsed, no abort
 
     async def _complete_chat(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, AsyncGenerator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Mapping, Sequence
+from typing import Any
 
 from ...core import ChatMessage, Macros
 from ...inference import LLMClient, prompt_builder

@@ -11,13 +11,14 @@ package can call these without pulling in the heavier pass dependencies.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..inference import LLMClient
 
 
-def is_dual_model(agent_client: "LLMClient | None") -> bool:
+def is_dual_model(agent_client: LLMClient | None) -> bool:
     """Return True when the agent runs on a separate endpoint (dual-model mode).
 
     Single-model: writer and agent share one endpoint and KV cache.

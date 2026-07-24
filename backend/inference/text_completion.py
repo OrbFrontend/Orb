@@ -17,7 +17,8 @@ from __future__ import annotations
 import logging
 import math
 import re
-from typing import Any, Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

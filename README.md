@@ -83,7 +83,7 @@ For a stepped visual walkthrough of the cache mechanism across all three passes 
 ## Requirements
 1. A model with solid tool/function calling capabilities (recommended: Gemma 4)
 2. OpenAI-compatible LLM inference backend API that supports prompt-caching
-3. Python 3.9+
+3. Python 3.11+
 
 ## Wiki
 

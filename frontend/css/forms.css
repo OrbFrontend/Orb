@@ -221,7 +221,7 @@ label {
 .tab-lock-banner {
   display: none;
   background: var(--red);
-  color: var(--text-on-accent);
+  color: #fff;
   padding: 10px 16px;
   align-items: center;
   justify-content: center;

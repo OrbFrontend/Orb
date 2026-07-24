@@ -15,8 +15,9 @@ orchestrator path can safely import it.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Mapping, Sequence, cast
+from typing import Any, cast
 
 from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lock
 from ..inference import TOOLS, LLMClient, _KVCacheTracker
@@ -60,7 +61,7 @@ def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict 
     return cast(dict, ev)
 
 
-@dataclass
+@dataclass(slots=True)
 class _PostPipelineResult:
     """Final value of :func:`_run_post_pipeline`: the (possibly rewritten) draft
     plus any attachments and per-message state staged for persistence."""

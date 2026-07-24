@@ -1,6 +1,6 @@
 {
   "include": ["backend"],
   "typeCheckingMode": "standard",
-  "pythonVersion": "3.12",
+  "pythonVersion": "3.11",
   "reportMissingImports": "warning"
 }

@@ -11,9 +11,10 @@ held by both the test and the registry (see clear at end of
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 

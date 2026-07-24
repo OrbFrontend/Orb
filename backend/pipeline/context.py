@@ -18,9 +18,10 @@ patching ``backend.inference.client.LLMClient``.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, AsyncIterator, Mapping, Optional, Sequence
+from typing import Any
 
 from .. import database as db
 from ..core import ChatMessage, Macros
@@ -55,7 +56,7 @@ from .state import LorebookTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PipelineContext:
     """Per-conversation data loaded once and threaded through every entry point.
 
@@ -69,7 +70,7 @@ class PipelineContext:
 
     settings: SettingsRow
     conv: ConversationRow
-    card: Optional[CharacterCardRow]
+    card: CharacterCardRow | None
     # Seeded from director_state, then carried as mutable per-turn director state
     # (active moods, progressive fields, direction notes); not all keys are columns.
     director: dict[str, Any]
@@ -81,9 +82,9 @@ class PipelineContext:
     system_prompt: str
     char_persona: str
     mes_example: str
-    active_persona: Optional[UserPersonaRow]
-    agent_client: Optional[LLMClient]
-    agent_system_prompt: Optional[str]
+    active_persona: UserPersonaRow | None
+    agent_client: LLMClient | None
+    agent_system_prompt: str | None
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -248,7 +249,7 @@ def _build_prefixes(
     return prefix, agent_prefix
 
 
-@dataclass
+@dataclass(slots=True)
 class _TurnSetup:
     """Per-turn inputs produced by :func:`_prepare_turn`, ready for ``_run_pipeline``.
 

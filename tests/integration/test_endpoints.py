@@ -80,6 +80,21 @@ async def test_create_model_config_persists_to_db(client, db):
     assert row["max_tokens"] == 2048
 
 
+async def test_create_model_config_rejects_unknown_role(client):
+    endpoint_resp = await client.post(
+        "/api/endpoints",
+        json={"url": "https://api.invalid-role.com", "api_key": "key"},
+    )
+    endpoint_id = endpoint_resp.json()["id"]
+
+    resp = await client.post(
+        f"/api/endpoints/{endpoint_id}/models",
+        json={"model_name": "invalid-role", "role": "critic"},
+    )
+
+    assert resp.status_code == 422
+
+
 async def test_list_model_configs_for_endpoint(client, db):
     """Test GET /api/endpoints/{id}/models returns model configs"""
     # Create an endpoint

@@ -16,8 +16,9 @@ exception that adds behavior: it falls back to the workflow's
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, Optional
+from typing import Any
 
 from ..database import (
     get_workflow_character_state as _db_get_workflow_character_state,
@@ -74,10 +75,10 @@ class Workflow:
     display_name: str
     tools: list[ToolSpec] = field(default_factory=list)
     config_defaults: dict = field(default_factory=dict)
-    config_schema: Optional[dict] = None
+    config_schema: dict | None = None
     produces_artifacts: bool = False
-    subscriptions: list["Subscription"] = field(default_factory=list)
-    config_normalizer: Optional[Callable[[Any], dict]] = None
+    subscriptions: list[Subscription] = field(default_factory=list)
+    config_normalizer: Callable[[Any], dict] | None = None
 
 
 @dataclass(frozen=True)
@@ -223,7 +224,7 @@ def iter_subscriptions(hook_type: HookType) -> list[Subscription]:
     return subs
 
 
-def get_subscription(workflow_id: str, hook_type: HookType) -> Optional[Subscription]:
+def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription | None:
     """Return the workflow's subscription for ``hook_type``, or None.
 
     Collapses "unregistered" and "no binding" into one None -- the routes
@@ -267,7 +268,7 @@ def list_workflows() -> list[Workflow]:
     return list(_WORKFLOWS_BY_ID.values())
 
 
-def get_workflow(workflow_id: str) -> Optional[Workflow]:
+def get_workflow(workflow_id: str) -> Workflow | None:
     """Look up a workflow by id, or None if not registered."""
     return _WORKFLOWS_BY_ID.get(workflow_id)
 

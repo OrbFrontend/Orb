@@ -20,7 +20,7 @@ through one chokepoint.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from ..analysis import (
     FormatDriftReport,
@@ -34,6 +34,7 @@ from ..core import (
     workflow_config_lock,
     workflow_state_lock,
 )
+from ..core.domain_types import AgentLane
 from ..database import (
     get_active_lorebook_entries,
     get_character_card,
@@ -121,7 +122,7 @@ async def build_offturn_prefix(
     history,
     settings,
     *,
-    lane: Literal["writer", "agent"] = "writer",
+    lane: AgentLane = "writer",
 ) -> list[Any]:
     """Rebuild the character/persona prefix for a standalone off-turn call.
 

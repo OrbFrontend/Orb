@@ -8,8 +8,9 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any
 
 from ....core import (
     ChatMessage,
@@ -77,7 +78,7 @@ def _step_schema(tool_schema: dict, keep: str) -> dict | None:
     }
 
 
-@dataclass
+@dataclass(slots=True)
 class DirectorResult:
     """Typed result of the director pass, yielded as the ``done`` event payload.
 
@@ -132,7 +133,7 @@ async def director_pass(
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],
     enabled_tools: Mapping[str, bool],
-    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
+    attachments: Sequence[Mapping[str, Any]] | None = None,
     kv_tracker=None,
     reasoning_on: bool = True,
     reasoning_prefill: str = "",
@@ -348,8 +349,8 @@ def _resolve_random_in_value(value: Any) -> Any:
 
 
 async def director_stage(
-    cfg: "_PipelineConfig",
-    state: "TurnState",
+    cfg: _PipelineConfig,
+    state: TurnState,
     *,
     settings: Mapping[str, Any],
     director: Mapping[str, Any],
@@ -357,8 +358,8 @@ async def director_stage(
     writer_fragments: Sequence[Mapping[str, Any]],
     attachments: Sequence[Mapping[str, Any]],
     kv_tracker: _KVCacheTracker,
-    lorebook: "LorebookTurn",
-    macros: "Macros",
+    lorebook: LorebookTurn,
+    macros: Macros,
 ) -> AsyncIterator[dict]:
     """Input-prep + director pass + all post-processing for the director stage.
 

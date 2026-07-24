@@ -14,8 +14,9 @@ that dict to drive the saves.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from ..core import ContentPart, Macros
 from ..features.lorebook import (
@@ -27,7 +28,7 @@ from ..inference import CachedBase, LLMClient
 from .passes.editor.length_guard import LengthGuard
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ModelLane:
     """One model's call surface for a turn: an LLM client paired with its
     cached base (prefix + tool blob + model name + macro resolver).
@@ -46,7 +47,7 @@ class ModelLane:
     base: CachedBase
 
 
-@dataclass
+@dataclass(slots=True)
 class _PipelineConfig:
     """Resolved per-turn flags, lanes, and prefixes for ``_run_pipeline``."""
 
@@ -115,7 +116,7 @@ _DIRECTOR_OUTPUT_FIELDS = (
 )
 
 
-@dataclass
+@dataclass(slots=True)
 class TurnState:
     """Mutable state threaded through all three pass stages, then consumed by persistence.
 
@@ -156,7 +157,7 @@ class TurnState:
 
     # --- writer / editor outputs ---
     resp_text: str = ""
-    writer_content: "str | list[ContentPart]" = ""
+    writer_content: str | list[ContentPart] = ""
     reasoning_director: str = ""
     reasoning_writer: str = ""
     reasoning_editor: str = ""
@@ -184,7 +185,7 @@ class TurnState:
         return {name: getattr(self, name) for name in _DIRECTOR_OUTPUT_FIELDS}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LorebookTurn:
     """The lorebook inputs for one main-pipeline turn.
 
