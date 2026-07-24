@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence, cast
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Any, cast
 
 from ..connection import get_db
 from ..models import DirectionNoteRow
@@ -13,7 +14,7 @@ async def create_direction_notes(conversation_id: str, message_id: int, notes: S
     recorded notes key to the turn's assistant reply, a user-authored note to the message the
     Notes button sat on (user or assistant)."""
     ids: list[int] = []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     async with get_db() as db:
         for n in notes:
             cur = await db.execute(

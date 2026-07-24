@@ -16,10 +16,11 @@ and ``frozenset.add``, ``TypeError`` from tuple item assignment.
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, AsyncIterator, Awaitable, Callable, Union
+from typing import Any
 
 
 def _readonly(obj: Any) -> Any:
@@ -342,7 +343,7 @@ PreHook = Callable[[PreCtx], AsyncIterator[dict]]
 PostHook = Callable[[PostCtx], AsyncIterator[dict]]
 # An on-demand hook returns either a plain JSON object (the API renders it as a
 # JSON response) or a WorkflowEventStream (the API renders it as an SSE stream).
-OnDemandResult = Union[dict, WorkflowEventStream]
+OnDemandResult = dict | WorkflowEventStream
 OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[OnDemandResult]]
 RegenHook = Callable[[RegenCtx, dict], Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable["bytes | tuple[bytes, dict | None]"]]

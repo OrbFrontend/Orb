@@ -54,7 +54,7 @@ test_image() {
     local version="$1"
     local tag="orb-app:$version"
     local container_name="orb-test-$version"
-    if [[ "$version" == "3.9" ]]; then
+    if [[ "$version" == "3.11" ]]; then
         local host_port=9899
     elif [[ "$version" == "3.14" ]]; then
         local host_port=9898
@@ -112,7 +112,7 @@ test_image() {
 }
 
 main() {
-    local versions=("3.9" "3.14")
+    local versions=("3.11" "3.14")
     local failures=0
 
     for version in "${versions[@]}"; do

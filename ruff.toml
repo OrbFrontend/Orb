@@ -1,4 +1,15 @@
-# Pin to the minimum supported Python version so version-gated lints
-# (e.g. B905 zip-without-explicit-strict, a 3.10+ feature) don't demand
-# syntax that breaks our 3.9 runtime compatibility target.
-target-version = "py39"
+# Pin to the minimum supported Python version so version-gated lints and
+# autofixes target syntax that runs on our floor — e.g. pyupgrade rewrites to
+# `X | Y` unions and builtin generics (`list[int]`), which require 3.10+.
+target-version = "py311"
+
+[lint]
+# Keep the complete lint policy here so local hooks, scripts, and CI cannot
+# silently select different rule sets. UP enforces syntax supported by the
+# Python 3.11 floor; I keeps import ordering in the same source of truth.
+select = ["E", "W", "F", "B", "I", "UP"]
+
+# Raising the target activates B905, but changing every zip() call to spell
+# strict=False is unrelated to the runtime/security upgrade and preserves no
+# additional invariant. Keep the existing truncating behavior explicitly.
+ignore = ["E203", "E501", "B905"]

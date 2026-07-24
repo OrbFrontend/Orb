@@ -9,8 +9,20 @@ echo "  Orb - Agentic"
 echo "═══════════════════════════════════════════"
 echo ""
 
-# Install dependencies
-if [ ! -d ".venv" ]; then
+# Create a supported virtual environment, or reject a stale one left behind by
+# an older Orb install. Activating an existing venv does not follow upgrades to
+# the system's python3 executable.
+if [ -d ".venv" ]; then
+    if [ ! -x ".venv/bin/python" ] || ! .venv/bin/python -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
+        echo "Error: .venv uses Python older than 3.11 or is invalid."
+        echo "Remove .venv and rerun this script with Python 3.11 or newer installed."
+        exit 1
+    fi
+else
+    if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 11))'; then
+        echo "Error: Python 3.11 or newer is required."
+        exit 1
+    fi
     echo "Creating virtual environment..."
     python3 -m venv .venv
 fi

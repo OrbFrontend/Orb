@@ -9,8 +9,9 @@ no runtime dependency on it.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .kv_tracker import _KVCacheTracker
@@ -23,8 +24,8 @@ async def cached_complete(
     messages: Sequence[Mapping[str, Any]],
     model: str,
     tools: list[dict] | None = None,
-    tool_choice: "dict | str | None" = None,
-    kv_tracker: "_KVCacheTracker | None" = None,
+    tool_choice: dict | str | None = None,
+    kv_tracker: _KVCacheTracker | None = None,
     record: bool = True,
     **params: Any,
 ) -> AsyncIterator[dict]:
@@ -82,8 +83,8 @@ class CachedBase:
         *,
         label: str,
         trailing: Sequence[Mapping[str, Any]],
-        tool_choice: "dict | str | None" = None,
-        kv_tracker: "_KVCacheTracker | None" = None,
+        tool_choice: dict | str | None = None,
+        kv_tracker: _KVCacheTracker | None = None,
         record: bool = True,
         **params: Any,
     ) -> AsyncIterator[dict]:

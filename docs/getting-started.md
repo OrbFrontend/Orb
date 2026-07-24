@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.11+
 - OpenAI-compatible LLM backend with prompt-caching support
 - A model with strong tool/function calling (recommended: Gemma 4)
 

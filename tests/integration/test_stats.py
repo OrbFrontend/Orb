@@ -9,6 +9,7 @@ never recomputed from the messages table.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 
 import backend.database as dbmod
 
@@ -27,7 +28,7 @@ async def _seed_character(name: str, message_count: int, *, old: bool = False) -
     Pass ``old=True`` to backdate all messages by 48 hours so they satisfy the
     "missed" spotlight query's 24-hour recency cutoff.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     import aiosqlite
 
@@ -40,7 +41,7 @@ async def _seed_character(name: str, message_count: int, *, old: bool = False) -
     if old:
         import backend.database.connection as _db_conn
 
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
         async with aiosqlite.connect(_db_conn.DB_PATH) as conn:
             await conn.execute(
                 "UPDATE messages SET created_at = ? WHERE conversation_id = ?",

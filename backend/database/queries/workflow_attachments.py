@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 
 from ...core import scrub_log
@@ -191,7 +191,7 @@ async def insert_workflow_attachment_row(
         rows = list(await conn.execute_fetchall("SELECT id FROM messages WHERE id = ?", (message_id,)))
         if not rows:
             raise LookupError(f"message_id {message_id!r} does not exist")
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cur = await conn.execute(
             """INSERT INTO workflow_attachments
                (message_id, mime_type, data_b64, filename, created_at,

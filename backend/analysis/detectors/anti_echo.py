@@ -57,14 +57,14 @@ __all__ = [
 # ---------- public dataclasses ----------
 
 
-@dataclass
+@dataclass(slots=True)
 class FlaggedEcho:
     echo: str  # the interrogative sentence flagged
     matched_phrase: str  # the contiguous run copied from the user (normalized)
     n_words: int  # length of that run, in words
 
 
-@dataclass
+@dataclass(slots=True)
 class EchoResult:
     flagged_echoes: list[FlaggedEcho] = field(default_factory=list)
 

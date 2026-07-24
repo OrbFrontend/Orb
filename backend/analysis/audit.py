@@ -97,7 +97,7 @@ class AuditReport:
         self.echo_result = echo_result
 
     @classmethod
-    def clean(cls) -> "AuditReport":
+    def clean(cls) -> AuditReport:
         """Return a clean report with zero issues (used when audit is disabled)."""
         return cls(
             cliche_result=DetectionResult([], [], 0, 0),

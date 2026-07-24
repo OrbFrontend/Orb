@@ -9,7 +9,9 @@ architectural inversion; put the shape here instead.
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict, Union
+from typing import Literal, TypedDict
+
+from ..core.domain_types import AgentLane, CompletionMode, MessageRole
 
 
 # A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the
@@ -31,7 +33,7 @@ class RegexPhraseGroup(TypedDict):
     pattern: str
 
 
-PhraseGroup = Union[list[str], LiteralPhraseGroup, RegexPhraseGroup]
+PhraseGroup = list[str] | LiteralPhraseGroup | RegexPhraseGroup
 
 
 class PhraseBankRow(TypedDict):
@@ -138,8 +140,8 @@ class SettingsRow(_SettingsBase, total=False):
     # Per-endpoint transport mode, surfaced by the get_settings() overlay from
     # the active/agent endpoint row (default 'chat'). agent_completion_mode
     # falls back to completion_mode when the agent shares the writer endpoint.
-    completion_mode: Literal["chat", "text"]
-    agent_completion_mode: Literal["chat", "text"]
+    completion_mode: CompletionMode
+    agent_completion_mode: CompletionMode
     # Per-endpoint proxy URL, surfaced by the same overlay (default ''); empty
     # means a direct connection. agent_proxy falls back to proxy when the agent
     # shares the writer endpoint.
@@ -214,7 +216,7 @@ class MessageRow(TypedDict):
 
     id: int
     conversation_id: str
-    role: Literal["user", "assistant"]
+    role: MessageRole
     content: str
     turn_index: int
     parent_id: int | None
@@ -303,7 +305,7 @@ class EndpointRow(TypedDict):
     api_key: str
     active_model_config_id: int | None
     agent_active_model_config_id: int | None
-    completion_mode: Literal["chat", "text"]
+    completion_mode: CompletionMode
     proxy: str
 
 
@@ -320,7 +322,7 @@ class ModelConfigRow(TypedDict):
     top_p: float
     repetition_penalty: float
     max_tokens: int
-    role: Literal["writer", "agent"]
+    role: AgentLane
     reasoning_effort: str
     reasoning_effort_param: str
     reasoning_effort_value: str

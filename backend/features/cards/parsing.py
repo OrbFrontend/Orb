@@ -10,7 +10,7 @@ import binascii
 import io
 import json
 import logging
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Literal
 
 from PIL import Image, PngImagePlugin
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -29,31 +29,31 @@ class TavernCardV1(BaseModel):
     scenario: str = ""
     first_mes: str = ""
     mes_example: str = ""
-    fav: Optional[bool] = None
-    chat: Optional[str] = None
-    creatorcomment: Optional[str] = None
-    avatar: Optional[str] = None
-    create_date: Optional[str] = None
-    talkativeness: Optional[float] = None
+    fav: bool | None = None
+    chat: str | None = None
+    creatorcomment: str | None = None
+    avatar: str | None = None
+    create_date: str | None = None
+    talkativeness: float | None = None
 
 
-PositionType = Optional[Literal["before_char", "after_char"]]
+PositionType = Literal["before_char", "after_char"] | None
 
 
 class CharacterBookEntry(BaseModel):
-    keys: List[str] = Field(default_factory=list)
+    keys: list[str] = Field(default_factory=list)
     content: str = ""
-    extensions: Dict[str, Any] = Field(default_factory=dict)
+    extensions: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
-    insertion_order: Union[int, float] = 0
-    case_sensitive: Optional[bool] = None
-    name: Optional[str] = None
-    priority: Optional[Union[int, float]] = None
-    id: Optional[Union[int, float]] = None
-    comment: Optional[str] = None
-    selective: Optional[bool] = None
-    secondary_keys: Optional[List[str]] = None
-    constant: Optional[bool] = None
+    insertion_order: int | float = 0
+    case_sensitive: bool | None = None
+    name: str | None = None
+    priority: int | float | None = None
+    id: int | float | None = None
+    comment: str | None = None
+    selective: bool | None = None
+    secondary_keys: list[str] | None = None
+    constant: bool | None = None
     position: PositionType = None
 
     # Runs before Literal validation so numeric/string world-info positions are
@@ -65,13 +65,13 @@ class CharacterBookEntry(BaseModel):
 
 
 class CharacterBook(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    scan_depth: Optional[int] = None
-    token_budget: Optional[Union[int, float]] = None
-    recursive_scanning: Optional[bool] = None
-    extensions: Dict[str, Any] = Field(default_factory=dict)
-    entries: List[CharacterBookEntry] = Field(default_factory=list)
+    name: str | None = None
+    description: str | None = None
+    scan_depth: int | None = None
+    token_budget: int | float | None = None
+    recursive_scanning: bool | None = None
+    extensions: dict[str, Any] = Field(default_factory=dict)
+    entries: list[CharacterBookEntry] = Field(default_factory=list)
 
 
 class TavernCardV2Data(BaseModel):
@@ -86,18 +86,18 @@ class TavernCardV2Data(BaseModel):
     creator_notes: str = ""
     system_prompt: str = ""
     post_history_instructions: str = ""
-    alternate_greetings: List[str] = Field(default_factory=list)
-    character_book: Optional[CharacterBook] = None
-    tags: List[str] = Field(default_factory=list)
+    alternate_greetings: list[str] = Field(default_factory=list)
+    character_book: CharacterBook | None = None
+    tags: list[str] = Field(default_factory=list)
     creator: str = ""
     character_version: str = ""
-    extensions: Dict[str, Any] = Field(default_factory=dict)
-    fav: Optional[bool] = None
-    chat: Optional[str] = None
-    creatorcomment: Optional[str] = None
-    avatar: Optional[str] = None
-    create_date: Optional[str] = None
-    talkativeness: Optional[float] = None
+    extensions: dict[str, Any] = Field(default_factory=dict)
+    fav: bool | None = None
+    chat: str | None = None
+    creatorcomment: str | None = None
+    avatar: str | None = None
+    create_date: str | None = None
+    talkativeness: float | None = None
 
 
 class TavernCardV2(BaseModel):
@@ -106,7 +106,7 @@ class TavernCardV2(BaseModel):
     data: TavernCardV2Data = Field(default_factory=TavernCardV2Data)
 
 
-def extract_exif_data(image_path: str) -> Dict[str, Any]:
+def extract_exif_data(image_path: str) -> dict[str, Any]:
     img = Image.open(image_path)
     img.load()
     return {k: v for k, v in img.info.items() if isinstance(k, str)}
@@ -131,7 +131,7 @@ def position_converter(data: Any) -> Any:
     return None
 
 
-def first_chara_chunk(image_path: str) -> Optional[str]:
+def first_chara_chunk(image_path: str) -> str | None:
     """Return the first ``chara`` tEXt chunk of a PNG, or None.
 
     PIL's ``img.info`` is a plain dict, so a card carrying *several* ``chara``
@@ -154,7 +154,7 @@ def first_chara_chunk(image_path: str) -> Optional[str]:
     return None
 
 
-def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
+def parse(image_path: str) -> TavernCardV2 | TavernCardV1:
     """
     Parses Tavern Card data from an image file's metadata.
     Attempts to parse as V2 first, falls back to V1 if needed.
@@ -191,7 +191,7 @@ def parse(image_path: str) -> Union[TavernCardV2, TavernCardV1]:
     return from_json_obj(jobj)
 
 
-def from_json_obj(jobj: Dict[str, Any]) -> Union[TavernCardV2, TavernCardV1]:
+def from_json_obj(jobj: dict[str, Any]) -> TavernCardV2 | TavernCardV1:
     """Build a Tavern card from an already-parsed JSON object.
 
     Tries the V2 spec first and falls back to V1, mirroring :func:`parse`
@@ -285,7 +285,7 @@ def to_png(card_dict: dict, avatar_bytes: bytes | None = None) -> bytes:
     return buf.getvalue()
 
 
-def card_to_dict(card: Union[TavernCardV2, TavernCardV1]) -> dict:
+def card_to_dict(card: TavernCardV2 | TavernCardV1) -> dict:
     """Normalize a parsed card (V1 or V2) into a flat dictionary for storage."""
     if isinstance(card, TavernCardV2):
         d = card.data

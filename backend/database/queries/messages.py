@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
-from typing import Any, List, Mapping, Optional, Protocol, Sequence, cast
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Any, Protocol, cast
 
+from ...core.domain_types import MessageRole
 from ..connection import get_db
 from ..models import (
     MessageRow,
@@ -33,10 +35,10 @@ class _WorkflowAttachmentPersister(Protocol):
 # Left None in DB-only contexts that never produce workflow attachments; in
 # that state a workflow attachment reaching ``add_message`` is a wiring bug, so
 # we fail loudly rather than silently dropping bytes.
-_workflow_attachment_persister: "_WorkflowAttachmentPersister | None" = None
+_workflow_attachment_persister: _WorkflowAttachmentPersister | None = None
 
 
-def register_workflow_attachment_persister(fn: "_WorkflowAttachmentPersister") -> None:
+def register_workflow_attachment_persister(fn: _WorkflowAttachmentPersister) -> None:
     """Wire the workflow-attachment persister into ``add_message``.
 
     Called once, at import of ``backend.workflows.attachment_cache``.
@@ -207,11 +209,11 @@ def user_attachment_payloads(msg: Mapping[str, Any]) -> list[dict] | None:
 
 async def add_message(
     cid: str,
-    role: str,
+    role: MessageRole,
     content: str,
     turn_index: int,
     parent_id: int | None = None,
-    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
+    attachments: Sequence[Mapping[str, Any]] | None = None,
     progressive_fields: dict | None = None,
 ) -> tuple[int, list[dict]]:
     """Add a message. Returns ``(message_id, rejected_workflow_atts)``.
@@ -257,7 +259,7 @@ async def add_message(
         # message INSERT. The cache helper enforces this -- it raises
         # if its conn is not already in a transaction.
         await db.execute("BEGIN IMMEDIATE")
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         try:
             cur = await db.execute(
                 "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, progressive_fields, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -304,7 +306,7 @@ async def add_message(
     return message_id, rejected_workflow_atts
 
 
-async def get_user_attachments_for_message(message_id: int) -> List[UserAttachmentRow]:
+async def get_user_attachments_for_message(message_id: int) -> list[UserAttachmentRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -316,7 +318,7 @@ async def get_user_attachments_for_message(message_id: int) -> List[UserAttachme
         return [cast(UserAttachmentRow, dict(r)) for r in rows]
 
 
-async def get_workflow_attachments_for_message(message_id: int) -> List[WorkflowAttachmentRowBase]:
+async def get_workflow_attachments_for_message(message_id: int) -> list[WorkflowAttachmentRowBase]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(

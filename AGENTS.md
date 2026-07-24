@@ -6,7 +6,7 @@
 
 Orb is an **agentic AI roleplay/writing frontend**: Python/FastAPI backend, vanilla JS frontend. Orchestrates a multi-pass LLM pipeline (Director → Writer → Editor). Characters are PNG cards (V2 spec). Conversations are branching message trees with lorebooks, mood/interactive fragments, and personas.
 
-**Stack:** Python 3.9+, FastAPI, aiosqlite, SQLite, vanilla JS (no framework), uvicorn
+**Stack:** Python 3.11+, FastAPI, aiosqlite, SQLite, vanilla JS (no framework), uvicorn
 
 ## Architecture
 
@@ -33,7 +33,7 @@ Dependency order (top to bottom — each layer may only import layers below it):
 
 | Layer | Purpose |
 |-------|---------|
-| `core/` | Dependency-free kernel: `llm_types`, `macros`, `locks`, `utils` |
+| `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `utils` |
 | `database/` | aiosqlite foundation: schema, migrations, queries, models (TypedDicts) |
 | `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`) |
 | `analysis/` | Pure prose-quality detection: `audit.py` + detectors; shared by editor + workflows |

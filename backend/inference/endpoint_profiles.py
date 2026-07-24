@@ -18,14 +18,14 @@ To add a new quirk:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable, Optional
 
 # Body keys always sent; never subject to allowlist filtering.
 ALWAYS_ALLOWED: frozenset[str] = frozenset({"model", "messages", "stream", "tools", "tool_choice"})
 
 # Mutates body in place. Returns a log line to surface the action, or None.
-Transform = Callable[[dict], Optional[str]]
+Transform = Callable[[dict], str | None]
 
 
 def is_forced_tool_choice(tc: object) -> bool:
@@ -118,7 +118,7 @@ _DEEPSEEK_REASONER_EXTRA: frozenset[str] = _DEEPSEEK_DEFAULT_EXTRA - {
 }
 
 
-def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> Optional[str]:
+def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> str | None:
     """Coerce forced ``tool_choice`` to ``"auto"`` when thinking is enabled.
 
     DeepSeek routes any thinking-on request through reasoner semantics, which
@@ -141,7 +141,7 @@ def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> Optional[str]:
 # -- the more specific one must come first).
 # Inner None key: endpoint default profile. Inner str keys: exact-match
 # per-model overrides (replace, not merge).
-PROFILES: dict[str, dict[Optional[str], ModelProfile]] = {
+PROFILES: dict[str, dict[str | None, ModelProfile]] = {
     "api.deepseek.com": {
         # deepseek-chat supports forced-function tool_choice in chat mode but
         # rejects it whenever the request also carries thinking=enabled (the
@@ -190,7 +190,7 @@ def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
     return profile is not None and profile.structured_tool_calls
 
 
-def profile_for(endpoint_url: str, model: str = "") -> Optional[ModelProfile]:
+def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     """Resolve (endpoint_url, model) to a ``ModelProfile``, or ``None`` for pass-through.
 
     A blank *model* falls through to the endpoint default. An unmatched URL
@@ -261,7 +261,7 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
     return actions
 
 
-def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, text: str) -> Optional[str]:
+def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, text: str) -> str | None:
     """Handle a >=400 response. If a known provider quirk explains it, mutate
     *body* in place, record the quirk for the session, and return a log line
     (triggering one retry). Returns ``None`` to propagate the error.

@@ -19,7 +19,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from backend.inference import AbortToken
 

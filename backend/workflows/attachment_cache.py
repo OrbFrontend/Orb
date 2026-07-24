@@ -17,7 +17,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from ..database.connection import get_db
 from ..database.queries.messages import register_workflow_attachment_persister

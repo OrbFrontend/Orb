@@ -3,8 +3,6 @@ SSE-streaming regenerate / rewrite endpoints."""
 
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ...core.macros import Macros, resolve_inline
@@ -131,7 +129,7 @@ async def api_regenerate_msg(
     cid: str,
     msg_id: int,
     request: Request,
-    data: Optional[RegenerateMsg] = None,
+    data: RegenerateMsg | None = None,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Regenerate a specific assistant message as a new sibling branch."""
@@ -143,7 +141,7 @@ async def api_super_regenerate_msg(
     cid: str,
     msg_id: int,
     request: Request,
-    data: Optional[RegenerateMsg] = None,
+    data: RegenerateMsg | None = None,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Super-regenerate: keeps prior response as context, asks model for a different direction."""
@@ -179,7 +177,7 @@ async def api_send_message(
 async def api_continue_from_user(
     cid: str,
     request: Request,
-    data: Optional[RegenerateMsg] = None,
+    data: RegenerateMsg | None = None,
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Generate an assistant response for the current user turn without creating a new message."""

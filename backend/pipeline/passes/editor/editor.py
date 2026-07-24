@@ -9,7 +9,8 @@ import asyncio
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 from ....analysis import (
     AuditReport,
@@ -193,8 +194,8 @@ async def editor_pass(
     kv_tracker=None,
     reasoning_on: bool = False,
     audit_context_msgs: list[str] | None = None,
-    writer_user_msg: "str | list[ContentPart] | None" = None,
-    feedback_fragments: "Sequence[Mapping[str, Any]] | None" = None,
+    writer_user_msg: str | list[ContentPart] | None = None,
+    feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
     """Run the ReAct edit loop, then the optional feedback sub-step.
 
@@ -268,8 +269,8 @@ async def editor_pass(
 
 
 async def editor_stage(
-    cfg: "_PipelineConfig",
-    state: "TurnState",
+    cfg: _PipelineConfig,
+    state: TurnState,
     *,
     settings: Mapping[str, Any],
     phrase_bank: list[PhraseGroup] | None,
@@ -384,7 +385,9 @@ async def _run_edit_loop(
     audit_context_msgs: (
         list[str] | None
     ) = None,  # explicit previous-assistant list for repetition scanning; if None, derived from base.prefix
-    writer_user_msg: "str | list[ContentPart] | None" = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
+    writer_user_msg: str
+    | list[ContentPart]
+    | None = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
 ) -> AsyncIterator[dict]:
     """ReAct-style edit loop with optional audit and/or length guard.
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 
 from ..connection import _build_set_clause, get_db
@@ -30,7 +30,7 @@ async def get_user_persona(persona_id: int) -> UserPersonaRow | None:
 
 async def create_user_persona(data: dict) -> UserPersonaRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cur = await db.execute(
             "INSERT INTO user_personas (name, description, avatar_color, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             (
@@ -55,7 +55,7 @@ async def update_user_persona(persona_id: int, data: dict) -> UserPersonaRow | N
         sets, vals = _build_set_clause(allowed, data)
         if sets:
             sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(datetime.now(UTC).isoformat())
             vals.append(persona_id)
             await db.execute(
                 f"UPDATE user_personas SET {', '.join(sets)} WHERE id = ?",
