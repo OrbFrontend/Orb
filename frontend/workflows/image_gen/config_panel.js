@@ -366,21 +366,21 @@ function openSettings(expandStyleId = "") {
       <div class="image-gen-row"><button class="btn btn-sm" data-wf-action="image_gen:test">Test connection</button><span id="ig-test-result" class="image-gen-note"></span></div>
     </section>
     <section class="ig-section">
+      <div class="ig-heading">Styles</div>
+      <div class="ig-styles">${styleRows(expandStyleId)}</div>
+      <button class="btn btn-sm" data-wf-action="image_gen:styleAdd">Add style</button>
+    </section>
+    <section class="ig-section">
+      <div class="ig-heading">Per-character prompt</div>
+      <div id="ig-profile" class="image-gen-note">Open a conversation to edit its character-specific prompt.</div>
+    </section>
+    <section class="ig-section">
       <div class="ig-heading">Generation</div>
       <div class="ig-grid">
         <label>Render timeout (seconds)<input id="ig-timeout" type="number" min="10" max="900" value="${escAttr(cfg.timeout_seconds || 180)}"></label>
       </div>
       <label class="ig-toggle"><input id="ig-scene-analysis" type="checkbox"${cfg.scene_analysis === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Analyze complex scenes</span><span class="image-gen-note">More accurate outfits and positions for scenes; one extra model call.</span></span></label>
       <label class="ig-toggle"><input id="ig-prompter-reasoning" type="checkbox"${cfg.prompter_reasoning === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Enable prompter thinking</span><span class="image-gen-note">Uses thinking for scene analysis and prompt composition. For best prompt-cache reuse, match Editor reasoning config.</span></span></label>
-    </section>
-    <section class="ig-section">
-      <div class="ig-heading">Styles</div>
-      <div class="ig-styles">${styleRows(expandStyleId)}</div>
-      <button class="btn btn-sm" data-wf-action="image_gen:styleAdd">Add style</button>
-    </section>
-    <section class="ig-section">
-      <div class="ig-heading">Character appearance</div>
-      <div id="ig-profile" class="image-gen-note">Open a conversation to edit its appearance prompt.</div>
     </section>
     <details class="ig-advanced">
       <summary>Imported ComfyUI workflows</summary>
@@ -580,8 +580,8 @@ async function populateProfile() {
     }
     el.classList.remove("image-gen-note");
     el.innerHTML = `<div class="ig-profile-fields">
-        <label>Appearance prompt<textarea id="ig-appearance" placeholder="Fixed character appearance in the selected prompt format. Leave blank for OCs without a saved description.">${esc(res.profile.appearance_prompt || "")}</textarea></label>
-        <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, hat). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
+        <label>Positive prompt<textarea id="ig-appearance" placeholder="Per-character permanent tags (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
+        <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, colored, color). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
       </div>`;
   } catch {
     el.textContent = "Could not load character appearance.";
