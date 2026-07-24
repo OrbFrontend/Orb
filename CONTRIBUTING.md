@@ -6,7 +6,7 @@ Thanks for wanting to contribute. Here's what to do before opening a PR.
 
 Make sure the feature or fix works first.
 
-Start the backend with `./run_unix.sh` (or `run_windows.bat` on Windows). Python 3.9+ required.
+Start the backend with `./run_unix.sh` (or `run_windows.bat` on Windows). Python 3.11+ required.
 
 ### Optional: Auto-formatting on commit
 

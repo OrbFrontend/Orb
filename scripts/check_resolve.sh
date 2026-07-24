@@ -12,14 +12,14 @@
 # by pip whenever --python-version is combined with --target. A consequence is
 # that a dependency which only ships an sdist (no wheel) for the target version
 # will be reported as a failure even though it could compile from source; for
-# this project every runtime dep ships wheels, and sdist-only on 3.9 would be
+# this project every runtime dep ships wheels, and sdist-only on 3.11 would be
 # fragile anyway.
 #
 # Usage:
 #   scripts/check_resolve.sh                # checks the default version set
-#   scripts/check_resolve.sh 3.9            # checks a single version
-#   scripts/check_resolve.sh 3.9 3.14       # checks multiple versions
-#   REQ_FILE=requirements-dev.txt scripts/check_resolve.sh 3.9
+#   scripts/check_resolve.sh 3.11           # checks a single version
+#   scripts/check_resolve.sh 3.11 3.14      # checks multiple versions
+#   REQ_FILE=requirements-dev.txt scripts/check_resolve.sh 3.11
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -46,7 +46,7 @@ fi
 
 versions=("$@")
 if [[ ${#versions[@]} -eq 0 ]]; then
-    versions=("3.9" "3.14")
+    versions=("3.11" "3.14")
 fi
 
 failures=0

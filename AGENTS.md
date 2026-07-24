@@ -6,7 +6,7 @@
 
 Orb is an **agentic AI roleplay/writing frontend**: Python/FastAPI backend, vanilla JS frontend. Orchestrates a multi-pass LLM pipeline (Director → Writer → Editor). Characters are PNG cards (V2 spec). Conversations are branching message trees with lorebooks, mood/interactive fragments, and personas.
 
-**Stack:** Python 3.9+, FastAPI, aiosqlite, SQLite, vanilla JS (no framework), uvicorn
+**Stack:** Python 3.11+, FastAPI, aiosqlite, SQLite, vanilla JS (no framework), uvicorn
 
 ## Architecture
 
