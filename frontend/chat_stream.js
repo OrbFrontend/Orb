@@ -22,6 +22,7 @@ import {
   _advanceReasoningPass,
   _relightWorkflowPipelinePass,
   _syncGenerationStatusVisibility,
+  appendReasoningDelta,
   clearWorkflowPhase,
   REASONING_PASSES,
   renderInspector,
@@ -478,8 +479,7 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
             // from the (now-current) state; appending again would duplicate this delta.
             // Text node append (not `textContent += ...`) avoids the DOM re-serialisation
             // that produced the visible scrollbar wobble on long streams.
-            if (!rebuilt) box.appendChild(document.createTextNode(delta));
-            box.scrollTop = box.scrollHeight;
+            if (!rebuilt) appendReasoningDelta(box, delta);
           }
           // When the box is absent (Inspector closed, or user is on the Secondary tab)
           // state accumulates silently; renderInspector will paint the full text the
@@ -496,8 +496,7 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
             if (firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
             const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
             if (wbox && wbox.dataset.passId === passKey) {
-              wbox.appendChild(document.createTextNode(delta));
-              wbox.scrollTop = wbox.scrollHeight;
+              appendReasoningDelta(wbox, delta);
             }
           }
           break;

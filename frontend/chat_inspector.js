@@ -17,6 +17,38 @@ export const REASONING_PASSES = [
   { key: "editor", label: "Editor", color: "var(--accent-dim)" },
 ];
 
+const REASONING_BOTTOM_THRESHOLD = 20;
+
+// A reasoning box follows new text only while it is pinned to the bottom.
+// Inspect the position before mutating the DOM: appending first would move the
+// bottom and make a previously pinned box look scrolled-up.
+function _reasoningScrollSnapshot(box) {
+  if (!box) return null;
+  return {
+    atBottom: box.scrollHeight - box.scrollTop - box.clientHeight <= REASONING_BOTTOM_THRESHOLD,
+    scrollTop: box.scrollTop,
+  };
+}
+
+function _restoreReasoningScroll(box, snapshot) {
+  if (!box) return;
+  if (!snapshot || snapshot.atBottom) {
+    box.scrollTop = box.scrollHeight;
+  } else {
+    box.scrollTop = snapshot.scrollTop;
+  }
+}
+
+// Shared by the built-in and secondary-workflow reasoning streams. Reading the
+// pin state for every delta also handles wheel, touch, keyboard, and scrollbar
+// dragging without maintaining a second state machine.
+export function appendReasoningDelta(box, delta) {
+  if (!box) return;
+  const scroll = _reasoningScrollSnapshot(box);
+  box.appendChild(document.createTextNode(delta));
+  _restoreReasoningScroll(box, scroll);
+}
+
 // Advance the streaming-progress dot to `targetIdx` when it is further ahead.
 // Auto-follows the streaming pass into the selected view only while the user
 // has not manually clicked a dot this turn: once `reasoningUserOverride` is
@@ -129,12 +161,11 @@ document.addEventListener("change", (e) => {
 function _refreshReasoningSection() {
   const existing = document.getElementById("reasoning-section");
   if (!existing) return;
+  const scroll = _reasoningScrollSnapshot(document.getElementById("reasoning-box"));
   existing.outerHTML = _buildReasoningHtml();
-  // Auto-scroll the newly rendered box to bottom only when viewing the streaming pass
-  if (!S.reasoningUserOverride) {
-    const box = document.getElementById("reasoning-box");
-    if (box) box.scrollTop = box.scrollHeight;
-  }
+  // Rebuilding the rail (most notably at pass boundaries) must not re-enable
+  // following after the user has scrolled up.
+  _restoreReasoningScroll(document.getElementById("reasoning-box"), scroll);
 }
 
 export function selectReasoningPass(idx) {
@@ -479,6 +510,7 @@ export function renderInspector() {
 }
 
 function _renderInspectorMain() {
+  const reasoningScroll = _reasoningScrollSnapshot(document.getElementById("reasoning-box"));
   if (S.isStreaming && S.lastDirectorData === null) {
     // Reserve slots in the canonical (after-stream) order so blocks fill in
     // place rather than reordering when director data lands. Activation is
@@ -496,8 +528,7 @@ function _renderInspectorMain() {
        <div style="color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:8px">
          <span class="typing-indicator"><span></span><span></span><span></span></span> Director thinking…
        </div>`;
-    const _rb = document.getElementById("reasoning-box");
-    if (_rb) _rb.scrollTop = _rb.scrollHeight;
+    _restoreReasoningScroll(document.getElementById("reasoning-box"), reasoningScroll);
     renderContextSize();
     return;
   }
@@ -529,8 +560,7 @@ function _renderInspectorMain() {
                  <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
           : ""
       }`;
-    const _rb = document.getElementById("reasoning-box");
-    if (_rb) _rb.scrollTop = _rb.scrollHeight;
+    _restoreReasoningScroll(document.getElementById("reasoning-box"), reasoningScroll);
     renderContextSize();
     return;
   }
@@ -551,6 +581,7 @@ function _renderInspectorMain() {
        ${fbHtml}
        ${pnHtml}
        ${fbHtml || pnHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
+    _restoreReasoningScroll(document.getElementById("reasoning-box"), reasoningScroll);
     renderContextSize();
     return;
   }
@@ -580,9 +611,7 @@ function _renderInspectorMain() {
                <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
         : ""
     }`;
-  // Scroll the freshly rendered reasoning box to bottom
-  const _rb = document.getElementById("reasoning-box");
-  if (_rb) _rb.scrollTop = _rb.scrollHeight;
+  _restoreReasoningScroll(document.getElementById("reasoning-box"), reasoningScroll);
   renderContextSize();
 }
 
