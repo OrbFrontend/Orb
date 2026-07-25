@@ -941,17 +941,11 @@ window.savePhraseGroup = async (editId) => {
 //
 // Two axes: which categories to clean, and how far back. Sizes are fetched per
 // cutoff so the age choice is made against real numbers rather than a guess.
-//
-// Artifacts are *evicted*, not deleted: the row keeps its seed and generation
-// metadata, so the image comes back through the normal rehydrate button. That
-// asymmetry with Director logs (a real delete) is the "(regenerable)" /
-// "(deleted for good)" tag on each checkbox.
-
 const CLEANUP_AGES = [
-  [0, "Everything"],
-  [7, "Older than 7 days"],
-  [30, "Older than 30 days"],
-  [90, "Older than 90 days"],
+  [0, "Now (everything)"],
+  [7, "7 days"],
+  [30, "30 days"],
+  [90, "90 days"],
 ];
 
 // The cap the LRU-3 eviction in the backend already enforces on every artifact
@@ -967,7 +961,7 @@ export async function showCleanupModal() {
     <h2>Data Hygiene</h2>
     <div class="field">
       <label class="tool-card-desc" style="display:flex;align-items:center;gap:8px;margin:0">
-        <span style="flex:1">Artifact cache limit</span>
+        <span style="flex:1">Artifact cache limit before auto-eviction</span>
         <input id="attach-budget-mb" type="number" min="50" step="50" style="width:90px"
                value="${Math.round((S.settings?.attachment_cache_budget_bytes ?? 524288000) / 1048576)}"> MB
       </label>
@@ -1003,18 +997,34 @@ export async function showCleanupModal() {
   $("cleanup-reset").addEventListener("click", showResetConfirmModal);
 
   const daysEl = $("cleanup-days");
+  // free_bytes is dead space *already* on the freelist, not what this run frees
+  // — right after a cleanup it is 0 while the checkboxes still show data, which
+  // read as a bug. The estimate is what the boxes select plus that freelist,
+  // since the cleanup VACUUMs either way.
+  let stats = null;
+  const paint = () => {
+    if (!stats) return;
+    const picked =
+      ($("cleanup-artifacts").checked ? stats.artifacts.bytes : 0) + ($("cleanup-logs").checked ? stats.logs.bytes : 0);
+    const total = picked + stats.free_bytes;
+    $("cleanup-db").textContent = `Database ${formatBytes(stats.db_bytes)} · this cleanup frees ~${formatBytes(total)}`;
+    $("cleanup-go").disabled = total === 0;
+  };
   const refresh = async () => {
     try {
-      const s = await api.get(`/storage?days=${daysEl.value}`);
-      $("cleanup-artifacts-size").textContent = `${formatBytes(s.artifacts.bytes)} · ${s.artifacts.count} items`;
-      $("cleanup-logs-size").textContent = `${formatBytes(s.logs.bytes)} · ${s.logs.count} entries`;
-      $("cleanup-db").textContent = `Database ${formatBytes(s.db_bytes)} · ${formatBytes(s.free_bytes)} reclaimable`;
+      stats = await api.get(`/storage?days=${daysEl.value}`);
+      $("cleanup-artifacts-size").textContent =
+        `${formatBytes(stats.artifacts.bytes)} · ${stats.artifacts.count} items`;
+      $("cleanup-logs-size").textContent = `${formatBytes(stats.logs.bytes)} · ${stats.logs.count} entries`;
+      paint();
     } catch (_e) {
       toast("Failed to read storage usage", true);
     }
   };
 
   daysEl.addEventListener("change", refresh);
+  $("cleanup-artifacts").addEventListener("change", paint);
+  $("cleanup-logs").addEventListener("change", paint);
   $("cleanup-cancel").addEventListener("click", closeModal);
   $("cleanup-go").addEventListener("click", async () => {
     const btn = $("cleanup-go");
