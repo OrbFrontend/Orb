@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     # normal startup-migration path.
     #
     # The second arm covers dead space that arrives without a migration --
-    # deleted conversations, cleaned-up Director logs, a cleanup whose own
+    # deleted conversations, cleaned-up Agent logs, a cleanup whose own
     # VACUUM lost its race with a live reader. Without it those pages are
     # stranded until a migration happens to come along. Both arms are gated so
     # an ordinary boot never rewrites the whole file. Safe here: we're before

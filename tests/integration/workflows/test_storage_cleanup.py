@@ -7,7 +7,7 @@ The cleanup is deliberately asymmetric and these tests pin that asymmetry:
     only true if the cleanup reuses the same sentinel the budget eviction uses.
   - Rows without recovery metadata (TTS audio stores no seed) are skipped, not
     destroyed -- for those the bytes are the only copy.
-  - Director logs have no recovery path and are a real DELETE.
+  - Agent logs have no recovery path and are a real DELETE.
 
 The preview route must agree with the cleanup it previews, otherwise the age
 choice in the UI is made against numbers that do not match the outcome.

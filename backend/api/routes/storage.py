@@ -1,11 +1,11 @@
 """Storage inspection and age-based data cleanup.
 
-Two axes, deliberately kept orthogonal: *what* to clean (artifacts, Director
+Two axes, deliberately kept orthogonal: *what* to clean (artifacts, Agent
 logs) and *how old* it has to be. The GET route previews both against the same
 cutoff the POST route will use, so the size shown is the size freed.
 
 Artifacts are evicted, not deleted -- the row and its recovery metadata survive
-so the image comes back through the normal rehydrate button. Director logs are
+so the image comes back through the normal rehydrate button. Agent logs are
 wiped: the payload columns (raw output, reasoning, tool calls, injection block)
 are blanked while the row itself stays, because the pipeline reads mood state
 back off old rows. Which columns those are is the database layer's business --
@@ -99,7 +99,7 @@ async def api_storage(days: int = 0):
 
 @router.post("/api/storage/cleanup")
 async def api_storage_cleanup(data: CleanupRequest):
-    """Evict artifacts and/or wipe Director logs older than the cutoff, then
+    """Evict artifacts and/or wipe Agent logs older than the cutoff, then
     compact. Serialized against the preset/snapshot machinery, which also
     rewrites the whole file."""
     cutoff = _cutoff(data.days)

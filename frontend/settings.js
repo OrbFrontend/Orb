@@ -980,7 +980,7 @@ export async function showCleanupModal() {
       </label>
       <label style="display:flex;gap:8px;align-items:flex-start">
         <input type="checkbox" id="cleanup-logs">
-        <span>Director logs (deleted for good)<br><span class="tool-card-desc" id="cleanup-logs-size">…</span></span>
+        <span>Agent logs (deleted for good)<br><span class="tool-card-desc" id="cleanup-logs-size">…</span></span>
       </label>
     </div>
     <p class="tool-card-desc" id="cleanup-db">…</p>

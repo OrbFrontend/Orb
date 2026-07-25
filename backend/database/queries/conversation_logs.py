@@ -160,7 +160,7 @@ async def logs_size_before(cutoff: str | None) -> tuple[int, int]:
 
 
 async def wipe_logs_older_than(cutoff: str | None) -> int:
-    """Blank the payload of Director logs older than ``cutoff`` (None = all).
+    """Blank the payload of Agent logs older than ``cutoff`` (None = all).
 
     Returns rows touched. Already-blank rows are excluded so the count matches
     what the preview promised and a repeat run is a no-op.
