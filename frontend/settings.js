@@ -6,12 +6,12 @@
 import { api } from "./api.js";
 import { renderInspectorSecondary, renderMessages } from "./chat.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
-import { confirmDelete, showConfirmModal, showModal } from "./modal.js";
+import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
-import { $, esc, toast } from "./utils.js";
+import { $, esc, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // Re-export the sub-module public surfaces so "./settings.js" remains the stable
@@ -152,6 +152,10 @@ export async function loadSettings() {
   updateUserBtn();
 }
 
+// Labelled hairline separator used by the settings panel and its modals.
+const divider = (label) =>
+  `<div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">${label}</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>`;
+
 export function renderSettings() {
   $("settings-form").innerHTML = `
     <div class="tool-card ${S.hideUntilBaked ? "tool-on" : ""}">
@@ -174,14 +178,17 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
     </div>
-    <div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Local ML</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+    ${divider("Local ML")}
     <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
-    <div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Data</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+    ${divider("Data")}
     <div class="field" style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-block btn-sm" id="cleanup-btn">🧹 Data Hygiene</button>
       <button class="btn btn-block btn-sm" onclick="showPresetsModal()">💾 Backup &amp; Presets</button>
-      <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>
     </div>
   `;
+  // Wired here rather than as inline on*= handlers: check_frontend_layers.py
+  // ratchets the inline-handler count and it is already at its ceiling.
+  $("cleanup-btn").addEventListener("click", showCleanupModal);
   loadLocalMLSection();
 }
 
@@ -930,10 +937,126 @@ window.savePhraseGroup = async (editId) => {
   }
 };
 
+// ── Data cleanup ──
+//
+// Two axes: which categories to clean, and how far back. Sizes are fetched per
+// cutoff so the age choice is made against real numbers rather than a guess.
+const CLEANUP_AGES = [
+  [0, "Now (everything)"],
+  [7, "7 days"],
+  [30, "30 days"],
+  [90, "90 days"],
+];
+
+// The cap the LRU-3 eviction in the backend already enforces on every artifact
+// write — setting it is what makes artifacts self-trim without pressing anything.
+async function saveAttachmentBudget(el) {
+  const mb = Math.max(50, Math.round(Number(el.value) || 0));
+  el.value = String(mb);
+  await persistSettings({ attachment_cache_budget_bytes: mb * 1048576 });
+}
+
+export async function showCleanupModal() {
+  showModal(`
+    <h2>Data Hygiene</h2>
+    <div class="field">
+      <label class="tool-card-desc" style="display:flex;align-items:center;gap:8px;margin:0">
+        <span style="flex:1">Artifact cache limit before auto-eviction</span>
+        <input id="attach-budget-mb" type="number" min="50" step="50" style="width:90px"
+               value="${Math.round((S.settings?.attachment_cache_budget_bytes ?? 524288000) / 1048576)}"> MB
+      </label>
+    </div>
+    ${divider("Reclaim Space")}
+    <div class="field">
+      <label for="cleanup-days">Older than</label>
+      <select id="cleanup-days">
+        ${CLEANUP_AGES.map(([d, label]) => `<option value="${d}">${label}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field" style="display:flex;flex-direction:column;gap:10px">
+      <label style="display:flex;gap:8px;align-items:flex-start">
+        <input type="checkbox" id="cleanup-artifacts" checked>
+        <span>Image &amp; audio artifacts (regenerable)<br><span class="tool-card-desc" id="cleanup-artifacts-size">…</span></span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:flex-start">
+        <input type="checkbox" id="cleanup-logs">
+        <span>Director logs (deleted for good)<br><span class="tool-card-desc" id="cleanup-logs-size">…</span></span>
+      </label>
+    </div>
+    <p class="tool-card-desc" id="cleanup-db">…</p>
+    <div class="modal-actions">
+      <button class="btn" id="cleanup-cancel">Cancel</button>
+      <button class="btn btn-danger" id="cleanup-go">Clean Up</button>
+    </div>
+    ${divider("Danger Zone")}
+    <button class="btn btn-danger" id="cleanup-reset" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>`);
+
+  // e.target, not the bare handler: saveAttachmentBudget wants the input, and
+  // addEventListener hands it an Event (the old wiring silently saved 50 MB).
+  $("attach-budget-mb").addEventListener("change", (e) => saveAttachmentBudget(e.target));
+  $("cleanup-reset").addEventListener("click", showResetConfirmModal);
+
+  const daysEl = $("cleanup-days");
+  // free_bytes is dead space *already* on the freelist, not what this run frees
+  // — right after a cleanup it is 0 while the checkboxes still show data, which
+  // read as a bug. The estimate is what the boxes select plus that freelist,
+  // since the cleanup VACUUMs either way.
+  let stats = null;
+  const paint = () => {
+    if (!stats) return;
+    const picked =
+      ($("cleanup-artifacts").checked ? stats.artifacts.bytes : 0) + ($("cleanup-logs").checked ? stats.logs.bytes : 0);
+    const total = picked + stats.free_bytes;
+    $("cleanup-db").textContent = `Database ${formatBytes(stats.db_bytes)} · this cleanup frees ~${formatBytes(total)}`;
+    $("cleanup-go").disabled = total === 0;
+  };
+  const refresh = async () => {
+    try {
+      stats = await api.get(`/storage?days=${daysEl.value}`);
+      $("cleanup-artifacts-size").textContent =
+        `${formatBytes(stats.artifacts.bytes)} · ${stats.artifacts.count} items`;
+      $("cleanup-logs-size").textContent = `${formatBytes(stats.logs.bytes)} · ${stats.logs.count} entries`;
+      paint();
+    } catch (_e) {
+      toast("Failed to read storage usage", true);
+    }
+  };
+
+  daysEl.addEventListener("change", refresh);
+  $("cleanup-artifacts").addEventListener("change", paint);
+  $("cleanup-logs").addEventListener("change", paint);
+  $("cleanup-cancel").addEventListener("click", closeModal);
+  $("cleanup-go").addEventListener("click", async () => {
+    const btn = $("cleanup-go");
+    btn.disabled = true;
+    btn.textContent = "Cleaning…";
+    try {
+      const r = await api.post("/storage/cleanup", {
+        artifacts: $("cleanup-artifacts").checked,
+        logs: $("cleanup-logs").checked,
+        days: Number(daysEl.value),
+      });
+      closeModal();
+      // A lost VACUUM race still frees the pages, it just cannot hand them back
+      // to the OS until the next boot — say so rather than report a smaller win.
+      const tail = r.compacted ? "" : " — disk space is returned on next restart";
+      toast(`Freed ${formatBytes(r.bytes_reclaimed)}${tail}`);
+      renderMessages();
+    } catch (e) {
+      toast(`Cleanup failed: ${e.message}`, true);
+      btn.disabled = false;
+      btn.textContent = "Clean Up";
+    }
+  });
+  await refresh();
+}
+
 // ── Reset to Defaults ──
 
+// Sub-modal layer: opened from inside Data Hygiene, so a cancel leaves that
+// modal standing instead of tearing it down.
 export async function showResetConfirmModal() {
-  showConfirmModal(
+  showSubConfirmModal(
     {
       title: "Reset to Defaults",
       message:
@@ -951,6 +1074,3 @@ export async function showResetConfirmModal() {
     },
   );
 }
-
-// Expose to global scope for inline onclick handlers
-window.showResetConfirmModal = showResetConfirmModal;

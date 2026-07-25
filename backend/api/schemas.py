@@ -62,6 +62,9 @@ class SettingsUpdate(BaseModel):
     direction_notes_inject: Literal["off", "director", "writer", "both"] | None = None
     inspector_open_states: dict | None = None
     workflows_globally_enabled: bool | None = None
+    # Floor, not a formality: the cap is enforced by evicting on the next
+    # attachment write, so a fumbled 0 would blank the whole artifact cache.
+    attachment_cache_budget_bytes: int | None = Field(default=None, ge=50 * 1024 * 1024)
 
 
 class DirectionNoteUpdate(BaseModel):
@@ -490,6 +493,14 @@ class UserPersonaUpdate(BaseModel):
 
 class ResetConfirm(BaseModel):
     confirm: bool
+
+
+class CleanupRequest(BaseModel):
+    """Age-based data cleanup. ``days=0`` means "everything, regardless of age"."""
+
+    artifacts: bool = False
+    logs: bool = False
+    days: int = Field(default=0, ge=0)
 
 
 class ImportUrlRequest(BaseModel):

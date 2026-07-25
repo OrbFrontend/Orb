@@ -34,6 +34,8 @@ from .queries.conversation_logs import (
     get_conversation_logs,
     get_director_log_for_message,
     get_moods_before_turn,
+    logs_size_before,
+    wipe_logs_older_than,
 )
 from .queries.conversations import (
     create_conversation,
@@ -242,6 +244,8 @@ __all__ = [
     "init_db",
     "insert_alternate_greeting_swipes",
     "insert_workflow_attachment_row",
+    "logs_size_before",
+    "wipe_logs_older_than",
     "list_character_cards",
     "list_conversations",
     "list_expression_labels",

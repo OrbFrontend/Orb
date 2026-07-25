@@ -166,9 +166,7 @@ async def test_checkpoint_duplicates_active_path(client, db):
     a1, _ = await dbmod.add_message(cid, "assistant", "hi there", 1, parent_id=u1)
     await dbmod.set_active_leaf(cid, a1)
     await dbmod.update_director_state(cid, ["tense"], keywords=["k"], progressive_fields={"hp": 5})
-    await dbmod.add_conversation_log(
-        cid, 0, "raw output", [], ["tense"], "inj block", 12, progressive_fields={"hp": 5}, message_id=a1, feedback={}
-    )
+    await dbmod.add_conversation_log(cid, 0, [], ["tense"], "inj block", 12, message_id=a1, feedback={})
 
     resp = await client.post(f"/api/conversations/{cid}/checkpoint", json={})
     assert resp.status_code == 200
@@ -195,7 +193,7 @@ async def test_checkpoint_duplicates_active_path(client, db):
     # Inspector log carried and re-pointed onto the copied assistant message.
     log = await dbmod.get_director_log_for_message(msgs[1]["id"])
     assert log is not None
-    assert log["agent_raw_output"] == "raw output"
+    assert log["injection_block"] == "inj block"
 
     # Source conversation is untouched.
     src = (await client.get(f"/api/conversations/{cid}/messages")).json()

@@ -328,6 +328,67 @@ async def evict(attachment_id: int) -> None:
         await db.commit()
 
 
+async def _aged_candidates_on(db, cutoff: str | None) -> list[tuple[int, int]]:
+    """``(id, size)`` for every byte-bearing, evictable row older than ``cutoff``.
+
+    ``cutoff`` is an ISO-8601 UTC string (None = no age limit). ``created_at``
+    is stored in that same format, so a plain string compare orders correctly
+    -- the trick queries/stats.py already documents and relies on.
+
+    The size expression is the one from ``_byte_bearing_candidates_on``: bytes
+    are derived from ``data_b64``'s length rather than stored, so there is no
+    separate column that can drift. ``_stored_rehydratable`` is applied here in
+    Python rather than as SQL: it JSON-decodes ``generation_metadata`` and
+    shape-checks it, which a ``seed IS NOT NULL`` test cannot approximate.
+    """
+    sql = (
+        "SELECT id, "
+        "((length(data_b64) / 4) * 3) - (length(data_b64) - length(rtrim(data_b64, '='))) AS size, "
+        "seed, generation_metadata "
+        "FROM workflow_attachments WHERE data_b64 != ?"
+    )
+    params: tuple[Any, ...] = (EVICTED_MARKER,)
+    if cutoff is not None:
+        sql += " AND created_at < ?"
+        params = (EVICTED_MARKER, cutoff)
+    rows = list(await db.execute_fetchall(sql, params))
+    return [(int(r["id"]), int(r["size"] or 0)) for r in rows if _stored_rehydratable(r["seed"], r["generation_metadata"])]
+
+
+async def aged_artifact_size(cutoff: str | None) -> tuple[int, int]:
+    """``(count, bytes)`` that ``evict_older_than(cutoff)`` would release.
+
+    Read-only preview for the cleanup UI, so the age choice is made against
+    real numbers. Same candidate set as the evictor, so the preview cannot
+    disagree with what the cleanup then does.
+    """
+    async with get_db() as db:
+        candidates = await _aged_candidates_on(db, cutoff)
+    return len(candidates), sum(size for _, size in candidates)
+
+
+async def evict_older_than(cutoff: str | None) -> tuple[int, int]:
+    """Sentinel-evict every evictable artifact created before ``cutoff``
+    (None = every artifact regardless of age). Returns ``(count, bytes_freed)``.
+
+    Bulk counterpart to ``evict``: same marker, same preserved columns, so an
+    age-based cleanup stays as reversible as a budget eviction -- the images
+    come back through the normal rehydrate button.
+
+    Rows without usable recovery metadata are skipped, not destroyed. Today
+    that is TTS audio, which stores no seed.
+    # ponytail: TTS is a handful of rows / negligible bytes. Add a hard-delete
+    # fallback for non-rehydratable artifacts only if audio actually grows.
+    """
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        candidates = await _aged_candidates_on(db, cutoff)
+        for attachment_id, _ in candidates:
+            await _evict_on(db, attachment_id)
+        await db.commit()
+    return len(candidates), sum(size for _, size in candidates)
+
+
 async def _record_access_inner(db, attachment_ids: list[int]) -> None:
     """Counter bump + recent_accesses prepend over an existing connection.
 
