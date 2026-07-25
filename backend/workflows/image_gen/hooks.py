@@ -533,6 +533,16 @@ async def reroll_gen(ctx, params, seed):
     # Resolve the style first: it is the one step that can reject, and spending a
     # full render before discovering the style was deleted wastes a minute.
     style = resolve_style(config, style_id)
+    # An override that changed the style retargets the render. The stored graph and
+    # checkpoint pins describe the OLD style, so drop them and let the new style resolve
+    # its own -- popping from `params` (not a filtered copy) so the sibling the route
+    # persists records no stale pins either. Data-driven, not route-driven: rehydrate
+    # sends no overrides, so its style always matches and its replay stays exact.
+    prior_style = (ctx.prior_consumption_metadata or {}).get("style_id")
+    style_changed = bool(prior_style) and prior_style != style_id
+    if style_changed:
+        params.pop("workflow_id", None)
+        params.pop("backend_model", None)
     resolved_seed = fold_seed(seed)
     result = await resolve_and_generate(
         config,
@@ -549,4 +559,11 @@ async def reroll_gen(ctx, params, seed):
         # overwriting the row with different bytes than it is meant to restore.
         replay=params,
     )
-    return result.image_bytes, _consumption(style, prompt, negative, result)
+    consumption = _consumption(style, prompt, negative, result)
+    if style_changed:
+        # Only the assembled prompt is stored, never the scene/avoid halves it was built
+        # from, so a style swap cannot re-word it -- say so rather than substitute silently.
+        consumption.setdefault("notes", []).append(
+            f"style changed to {style['label']} on reroll; the prompt text still carries the previous style's wording"
+        )
+    return result.image_bytes, consumption

@@ -378,6 +378,22 @@ def _decode_generation_params(att: Mapping[str, Any]) -> dict:
     return params if isinstance(params, dict) else {}
 
 
+def _apply_param_overrides(params: dict, body: Mapping[str, Any] | None) -> None:
+    """Merge caller-supplied overrides into an attachment's stored generation params.
+
+    Replaces only keys the artifact already recorded, and only string-for-string, so a
+    client can retarget a render it can see (an edited prompt, today's style) without
+    inventing parameters the workflow never wrote. Reached only from /reroll-gen:
+    /rehydrate must replay its row exactly to recover the bytes it lost.
+    """
+    overrides = body.get("params") if isinstance(body, Mapping) else None
+    if not isinstance(overrides, Mapping):
+        return
+    for key, value in overrides.items():
+        if isinstance(value, str) and isinstance(params.get(key), str):
+            params[key] = value
+
+
 def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, dict | None]:
     """Split a reroll_gen hook return into ``(data, consumption_metadata)``.
 
@@ -426,7 +442,7 @@ async def api_reroll_gen_attachment(
     cid: str,
     mid: int,
     aid: int,
-    body: dict = Body(default={}),  # noqa: B008, ARG001
+    body: dict = Body(default={}),  # noqa: B008
     _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Generate a new sibling using the original's stored generation_metadata
@@ -435,6 +451,11 @@ async def api_reroll_gen_attachment(
     The new sibling persists the new seed alongside the inherited
     generation_metadata so it is itself rehydratable; without that, an
     evict-then-rehydrate cycle would lose the rerolled output.
+
+    An optional ``{"params": {...}}`` body retargets the render (see
+    `_apply_param_overrides`). The params dict is handed to the hook in place and
+    the hook may amend it; the amended dict is what the new sibling records, so an
+    override sticks for the sibling's own future rerolls.
     """
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
@@ -456,6 +477,7 @@ async def api_reroll_gen_attachment(
     # snapshot and root id are read under the same lock the write will hold.
     async with locked_attachment_group(aid, mid) as (att, root_id):
         params = _decode_generation_params(att)
+        _apply_param_overrides(params, body)
         seed = _generated_seed()
         client = client_from_settings(settings_snapshot)
 

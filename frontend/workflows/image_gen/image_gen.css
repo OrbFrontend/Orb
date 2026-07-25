@@ -82,6 +82,12 @@
 
 /* ---- attachment render details ---- */
 .image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
+/* Matches the .ig-style disclosure above: own arrow, pointer cursor, so the
+   summary reads as a control instead of selectable text. */
+.image-gen-details>summary{display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;user-select:none;list-style:none}
+.image-gen-details>summary::-webkit-details-marker{display:none}
+.image-gen-details>summary::before{content:"▸";font-size:10px;color:var(--text-muted)}
+.image-gen-details[open]>summary::before{content:"▾"}
 .image-gen-details dl{display:grid;grid-template-columns:max-content 1fr;gap:5px 10px}
 .image-gen-details dt{color:var(--text-muted)}
 .image-gen-details dd{margin:0;overflow-wrap:anywhere}
@@ -89,3 +95,15 @@
    the style that made it, without hunting through settings. */
 .image-gen-style-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-align:left}
 .image-gen-style-link:hover{text-decoration:underline}
+/* The prompt rows render as plain text (readonly) until the pencil next to the
+   label unlocks them; then they behave as a field. Edit here, then 🎲 renders. */
+.image-gen-edit{display:block;background:none;border-color:transparent;padding:1px 3px;margin:-1px -3px;font:inherit;color:inherit;resize:vertical}
+.image-gen-edit[readonly]{resize:none;cursor:default;caret-color:transparent}
+/* forms.css puts an accent glow on every textarea's hover/focus; locked rows are
+   prose, not fields, so none of that shows here. */
+.image-gen-edit[readonly]:hover,.image-gen-edit[readonly]:focus{border-color:transparent;box-shadow:none;background:none}
+.image-gen-edit:not([readonly]):hover{border-color:var(--border)}
+.image-gen-edit:not([readonly]):focus{border-color:var(--accent-dim);background:var(--bg-deep)}
+.image-gen-edit-btn{background:none;border:0;padding:0;font-size:1.2em;line-height:1;color:var(--text-muted);cursor:pointer}
+.image-gen-edit-btn:hover{color:var(--accent)}
+.image-gen-pending{color:var(--text-muted);font-style:italic}

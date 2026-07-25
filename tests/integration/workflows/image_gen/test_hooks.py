@@ -281,6 +281,87 @@ async def test_replaying_a_deleted_user_graph_discloses_the_substitution(client,
     assert any("user_deleted" in note for note in notes)
 
 
+async def _seed_pinned(conv_id: str) -> int:
+    """An artifact whose stored params pin the graph/checkpoint its style resolved to."""
+    mid = await _seed(conv_id)
+    return mid, await insert_workflow_attachment_row(
+        mid,
+        {
+            "filename": "x.png",
+            "mime": "image/png",
+            "data": b"\x89PNG\r\n\x1a\nold",
+            "workflow_id": "image_gen",
+            "seed": "1234",
+            "generation_metadata": {
+                "style_id": "anime",
+                "prompt": "1girl",
+                "negative_prompt": "",
+                "workflow_id": "user_a",
+                "backend_model": "original.safetensors",
+            },
+            "consumption_metadata": {"style_id": "anime", "style_label": "Anime"},
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_style_override_drops_the_old_style_pins_and_discloses_the_wording(client, monkeypatch):
+    """Swapping style retargets the render; the pins describe the OLD style, so they go.
+    The prompt text cannot follow -- only the assembled string is stored -- so say so."""
+    mid, aid = await _seed_pinned("ig-swap")
+    captured = {}
+
+    async def capture(config, request, *, checkpoint, graph_id, notes=(), progress=None):
+        captured.update(checkpoint=checkpoint, graph_id=graph_id)
+        return _image(notes=list(notes))
+
+    monkeypatch.setattr("backend.workflows.image_gen.engine.render.external_comfy.generate", capture)
+
+    response = await client.post(
+        f"/api/conversations/ig-swap/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
+        json={"params": {"style_id": "realistic"}},
+    )
+
+    assert response.status_code == 200
+    assert captured["graph_id"] == ""  # the realistic style pins neither
+    assert captured["checkpoint"] == ""
+    rows = await get_workflow_attachments_for_message(mid)
+    sibling = next(row for row in rows if row["id"] != aid)
+    stored = json.loads(sibling["generation_metadata"])
+    assert stored["style_id"] == "realistic"
+    # Dropped, not blanked: the sibling carries no pins at all, so its own future
+    # rerolls resolve through the style it now names.
+    assert "workflow_id" not in stored and "backend_model" not in stored
+    cm = json.loads(sibling["consumption_metadata"])
+    assert cm["style_id"] == "realistic"
+    assert any("still carries the previous style" in note for note in cm["notes"])
+
+
+@pytest.mark.asyncio
+async def test_an_override_that_keeps_the_style_keeps_the_pins(client, monkeypatch):
+    mid, aid = await _seed_pinned("ig-noswap")
+    captured = {}
+
+    async def capture(config, request, *, checkpoint, graph_id, notes=(), progress=None):
+        captured.update(checkpoint=checkpoint, graph_id=graph_id, prompt=request.prompt)
+        return _image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.engine.render.external_comfy.generate", capture)
+
+    response = await client.post(
+        f"/api/conversations/ig-noswap/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
+        json={"params": {"style_id": "anime", "prompt": "edited"}},
+    )
+
+    assert response.status_code == 200
+    assert captured["graph_id"] == "user_a"
+    assert captured["checkpoint"] == "original.safetensors"
+    assert captured["prompt"] == "edited"
+    rows = await get_workflow_attachments_for_message(mid)
+    sibling = next(row for row in rows if row["id"] != aid)
+    assert "notes" not in json.loads(sibling["consumption_metadata"])
+
+
 @pytest.mark.asyncio
 async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client, monkeypatch):
     mid = await _seed("ig-regen")

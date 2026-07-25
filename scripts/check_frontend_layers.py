@@ -116,6 +116,7 @@ FROZEN_ABI = {
     "registerWorkflowMessageButton",
     "registerWorkflowEventHandler",
     "registerAttachmentRenderer",
+    "registerRerollParams",
     "registerAction",
     # http / dom helpers
     "api",

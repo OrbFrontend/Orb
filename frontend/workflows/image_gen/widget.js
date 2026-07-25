@@ -8,6 +8,8 @@ import {
   getActiveConvId,
   refreshConversationMessages,
   registerAction,
+  registerRerollParams,
+  requestRepaint,
   setWorkflowPhase,
   sseEvents,
   streamPost,
@@ -25,9 +27,53 @@ let cfg;
 // message. Keyed by message id so distinct messages still render in parallel.
 const inFlight = new Map(); // msgId -> AbortController
 
+// Prompt edits typed but not yet rendered. The dice picks them up on the next
+// reroll, which persists them onto the new sibling -- so this only ever holds the
+// gap between "saved" and "rendered".
+const pendingEdits = new Map(); // attId -> {prompt, negative_prompt}
+
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "generate", (el) => generate(Number(el.dataset.msgId), el));
+  registerAction(WORKFLOW_ID, "savePrompt", savePrompt);
+  registerAction(WORKFLOW_ID, "editPrompt", editPrompt);
+  registerRerollParams(WORKFLOW_ID, rerollParams);
+}
+
+// The pencil unlocks its one field; leaving it re-locks (blur fires after
+// `change`, so savePrompt has already committed by then).
+function editPrompt(el) {
+  const t = document.querySelector(
+    `.image-gen-edit[data-att-id="${el.dataset.attId}"][data-field="${el.dataset.field}"]`,
+  );
+  if (!t) return;
+  t.readOnly = false;
+  t.addEventListener("blur", () => (t.readOnly = true), { once: true });
+  t.focus();
+}
+
+// `change` fires on the one field that blurred, but pendingEdits carries the pair, so
+// read both off the DOM -- either may have been edited before the other lost focus.
+function savePrompt(el) {
+  const attId = Number(el.dataset.attId);
+  const fields = document.querySelectorAll(`.image-gen-edit[data-att-id="${attId}"]`);
+  const edit = { prompt: "", negative_prompt: "" };
+  for (const t of fields) edit[t.dataset.field] = t.value;
+  pendingEdits.set(attId, edit);
+  // Blurring straight into the sibling field is the common case, and a repaint there
+  // would yank focus back out mid-edit. The marker can wait for the next one.
+  if (!document.activeElement?.classList.contains("image-gen-edit")) requestRepaint();
+  toast("Prompt edited — reroll to render");
+}
+
+function rerollParams(_msgId, attId) {
+  // Deliberately not cleared after use: the edit stays keyed to the attachment it was
+  // made on, so a reroll that dies on the network doesn't eat the typed text and a
+  // second click just retries it. ponytail: the ceiling is a stale marker if you swipe
+  // back to an older sibling you had edited; clear on a matching sibling if it annoys.
+  const params = { ...(pendingEdits.get(attId) || {}) };
+  if (cfg?.default_style) params.style_id = cfg.default_style; // the tools-panel picker
+  return Object.keys(params).length ? params : null;
 }
 
 export function createButtonRenderer(msg) {
@@ -144,7 +190,13 @@ export function attachmentRenderer(ctx) {
   const media = defaultHtml.replace(buttons.regen, "").replace(buttons.reroll, "");
   const actions =
     buttons.reroll || buttons.regen ? `<div class="image-gen-actions">${buttons.reroll}${buttons.regen}</div>` : "";
+  // Show the pending edit only while it still differs from what the attachment stores:
+  // that is what makes the marker disappear once a reroll has rendered it, and it saves
+  // savePrompt an equality branch of its own.
+  const pend = pendingEdits.get(att.id);
+  const cm = att.consumption_metadata || {};
+  const pending = pend && (pend.prompt !== cm.prompt || pend.negative_prompt !== cm.negative_prompt) ? pend : undefined;
   // Empty defaultHtml -> attachmentDetailsHtml returns just the <details> block.
-  const details = attachmentDetailsHtml(att, "", { esc, escAttr });
+  const details = attachmentDetailsHtml(att, "", { esc, escAttr, pending });
   return `<div class="image-gen-attachment"><div class="image-gen-media">${media}${actions}</div>${details}</div>`;
 }

@@ -100,6 +100,50 @@ test("a style id that no longer resolves renders as plain text, not a dead link"
   assert.ok(html.includes("«Anime»"));
 });
 
+test("each prompt row is an editable field naming its own attachment and key", () => {
+  const html = attachmentDetailsHtml({ id: 7, consumption_metadata: {} }, "", MARKERS);
+  // `change` (not click) is what commits: it fires once on blur-after-edit.
+  assert.equal(html.split('data-wf-action="image_gen:savePrompt"').length - 1, 2);
+  assert.equal(html.split('data-wf-on="change"').length - 1, 2);
+  // fields + their pencils each name the attachment, through escAttr
+  assert.equal(html.split('data-att-id="“7”"').length - 1, 4);
+  assert.match(html, /data-field="prompt"/);
+  assert.match(html, /data-field="negative_prompt"/);
+  assert.match(html, /aria-label="Negative prompt"/); // the <dt> is not a programmatic label
+});
+
+test("prompt fields are readonly until their pencil unlocks them", () => {
+  const html = attachmentDetailsHtml({ id: 7, consumption_metadata: {} }, "", MARKERS);
+  assert.equal(html.split("<textarea").length - 1, 2);
+  assert.equal(html.split("readonly").length - 1, 2); // both fields locked
+  assert.equal(html.split('data-wf-action="image_gen:editPrompt"').length - 1, 2);
+});
+
+test("a prompt long enough to wrap gets more rows, clamped", () => {
+  const rows = (prompt) => Number(/rows="(\d+)"/.exec(attachmentDetailsHtml({ consumption_metadata: { prompt } }, "", MARKERS))[1]);
+  assert.equal(rows(""), 2); // the floor, not zero rows
+  assert.equal(rows("x".repeat(300)), 7);
+  assert.equal(rows("x".repeat(9000)), 10); // clamped, not a page-long field
+});
+
+test("a pending edit is shown through esc, marked, and beats the stored prompt", () => {
+  const html = attachmentDetailsHtml(
+    { consumption_metadata: { prompt: "stored", negative_prompt: "stored neg" } },
+    "",
+    { ...MARKERS, pending: { prompt: HOSTILE, negative_prompt: HOSTILE } },
+  );
+  assert.ok(!html.includes("«stored»"));
+  assert.equal(html.split(`«${HOSTILE}»`).length - 1, 2);
+  assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").includes("<script>"));
+  assert.match(html, /image-gen-pending/);
+});
+
+test("without a pending edit the stored metadata is shown unmarked", () => {
+  const html = attachmentDetailsHtml({ consumption_metadata: { prompt: "stored" } }, "", MARKERS);
+  assert.ok(html.includes("«stored»"));
+  assert.ok(!html.includes("image-gen-pending"));
+});
+
 test("replay disclosure notes are shown and escaped", () => {
   const html = attachmentDetailsHtml(
     { consumption_metadata: { notes: [HOSTILE, "second note"] } },

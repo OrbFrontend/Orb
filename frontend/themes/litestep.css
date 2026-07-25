@@ -166,6 +166,14 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   color: #1a1a1a !important;
 }
 
+/* Image-gen prompt rows read as plain text while readonly; the sunken
+   well only appears once the pencil unlocks the field. */
+.image-gen-edit[readonly] {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: inherit !important;
+}
+
 /* Combobox hybrids: the wrapper IS the sunken well; the inner
    input stays chromeless so there's no double border ring. */
 .cb-control {

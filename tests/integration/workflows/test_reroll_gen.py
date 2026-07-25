@@ -254,3 +254,62 @@ async def test_hook_returns_empty_bytes_500(client):
             json={},
         )
     assert resp.status_code == 500
+
+
+# ── caller-supplied overrides ────────────────────────────────────────────────
+
+
+async def _reroll_with_overrides(client, stored: dict, body: dict) -> tuple[dict, dict]:
+    """Reroll an attachment carrying `stored` params with `body`; return (params seen by
+    the hook, params the new sibling recorded)."""
+    cid = await _new_conversation(client)
+    mid, _ = await add_message(cid, "assistant", "x", 0)
+    await set_active_leaf(cid, mid)
+    aid = await insert_workflow_attachment_row(
+        mid,
+        {"filename": "x", "mime": "image/png", "data": b"O", "workflow_id": "img", "generation_metadata": stored},
+    )
+    captured: list = []
+
+    async def reroll(ctx, params, seed):
+        captured.append(dict(params))
+        return b"N"
+
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
+    with register_for_test(wf):
+        resp = await client.post(
+            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
+            json=body,
+        )
+    assert resp.status_code == 200
+    new_row = await must_get_workflow_attachment(resp.json()["attachment_id"])
+    return captured[0], json.loads(new_row["generation_metadata"])
+
+
+async def test_override_reaches_the_hook_and_lands_in_the_new_sibling(client):
+    # The sibling recording the edit is what makes it stick: rerolling the sibling
+    # replays the edited prompt with no further plumbing.
+    seen, stored = await _reroll_with_overrides(
+        client,
+        {"prompt": "original", "steps": 4},
+        {"params": {"prompt": "edited"}},
+    )
+    assert seen == {"prompt": "edited", "steps": 4}
+    assert stored == {"prompt": "edited", "steps": 4}
+
+
+async def test_overrides_cannot_invent_or_retype_params(client):
+    # Only keys the artifact already recorded, and only string-for-string: a client may
+    # retarget a render it can see, not hand the workflow parameters it never wrote.
+    seen, stored = await _reroll_with_overrides(
+        client,
+        {"prompt": "original", "steps": 4},
+        {"params": {"unknown": "x", "steps": "9", "prompt": 5}},
+    )
+    assert seen == {"prompt": "original", "steps": 4}
+    assert stored == {"prompt": "original", "steps": 4}
+
+
+async def test_a_non_dict_params_body_is_ignored(client):
+    seen, _ = await _reroll_with_overrides(client, {"prompt": "original"}, {"params": "edited"})
+    assert seen == {"prompt": "original"}

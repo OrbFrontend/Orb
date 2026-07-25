@@ -144,6 +144,7 @@ export const S = {
   workflowMessageButtonRenderers: [], // [{workflowId, render: (msg) => htmlString}], extra per-message toolbar buttons
   workflowEventHandlers: {}, // {[event_name]: {workflowId, handler: (data, msgDiv|null) => void}}, custom SSE dispatch
   workflowAttachmentRenderers: {}, // {[workflow_id]: (ctx) => htmlString} where ctx = {att, buttons:{regen,reroll}, defaultHtml}; defaultHtml is the complete default rendering (media plus the regen/reroll button strip) -- returning it reproduces the framework default exactly. buttons.regen/buttons.reroll are the individual button strings, already contained in defaultHtml, for authors who place the controls themselves; splice defaultHtml OR the buttons, not both (both double the strip). One renderer per workflow_id -- a workflow producing multiple attachment kinds should register as multiple workflow ids rather than branching inside one renderer. Widget renders one row (the active sibling)
+  workflowRerollParams: {}, // {[workflow_id]: (msgId, attId) => ({param: "value"}) | null}, consulted by workflowReroll just before the POST; string values only, keys the artifact already recorded (the route drops anything else). Consumption-side like workflowAttachmentRenderers -- not gated by the workflow toggle
   workflowPipelines: [], // [{id, label, passes:[{id,label}]}], pushed by registerWorkflowPipeline
   workflowState: {}, // {[workflow_id]: any}, per-workflow opaque UI state
   workflowPhases: {}, // {[channel]: label}, live status pill text per workflow channel

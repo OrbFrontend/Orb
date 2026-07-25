@@ -293,3 +293,24 @@ async def test_rehydrate_does_not_touch_active_sibling_id(client):
         )
     root = await must_get_workflow_attachment(aid)
     assert root["active_sibling_id"] == other, "rehydrate is in-place; active pointer unchanged"
+
+
+async def test_rehydrate_ignores_param_overrides(client):
+    # Rehydrate recovers evicted bytes, so it must replay its row exactly -- the
+    # override path is reroll-gen's alone.
+    cid, mid, aid = await _seed_with_seed(client)
+    await evict(aid)
+    captured: list = []
+
+    async def reroll(ctx, params, seed):
+        captured.append(dict(params))
+        return b"RESTORED"
+
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
+    with register_for_test(wf):
+        resp = await client.post(
+            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate",
+            json={"params": {"steps": "999"}},
+        )
+    assert resp.status_code == 200
+    assert captured == [{"steps": 4}]

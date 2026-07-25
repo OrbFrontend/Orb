@@ -118,6 +118,14 @@ export function registerAttachmentRenderer(wid, fn) {
   S.workflowAttachmentRenderers[wid] = fn;
 }
 
+// Called just before a reroll POST for this workflow's attachments. Return an object of
+// generation params to override (string values only; keys the artifact already recorded),
+// or null for the stored ones. The framework swallows a throw -- a broken plugin must not
+// break reroll.
+export function registerRerollParams(wid, fn) {
+  S.workflowRerollParams[wid] = fn;
+}
+
 // ── registerAction + the delegated dispatcher ────────────────────────────────
 // The plugin-sized slice of the core data-action dispatcher (stage 5 adopts the
 // same `data-wf-action` attribute convention so the two converge). A plugin

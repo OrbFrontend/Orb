@@ -38,7 +38,7 @@ Now, time to connect:
 
 1. Start ComfyUI.
 2. In Orb, Open **Workflow** and select the **Secondary** tab.
-3. In the **Image Generation** card, select **Settings**.
+3. In the **Image Generation** card, select **Settings** (or **Finish Setup** if first time).
 4. Enter the ComfyUI URL.
 5. Enter an API key if your server uses a Bearer token.
 6. Select **Test connection**.
@@ -84,9 +84,10 @@ To import the workflow, do these steps:
 5. Check the selected prompt, seed, image output, and model slots.
 6. Select **Confirm slots and add workflow**.
 7. In a style, select the imported workflow.
-8. Select a checkpoint if Orb must replace the model in the workflow.
-9. Select **Test connection**.
-10. Select **Save**.
+8. If your workflow is complex, review the nodes - make sure Orb points to the right node numbers.
+9. Select a checkpoint if Orb must replace the model in the workflow.
+10. Select **Test connection** to validate everything works.
+11. Select **Save**.
 
 If a PNG does not contain workflow metadata, export an API-format JSON file
 from ComfyUI instead.
@@ -111,7 +112,7 @@ The image has two action buttons:
 
 | Action | Result |
 |---|---|
-| **Reroll** | Orb uses the stored prompt and settings. It uses a new seed. |
+| **Reroll** | Orb uses the stored prompt and settings. It uses a new seed. See [Edit the prompt manually](#edit-the-prompt-manually). |
 | **Regenerate** | Orb writes a new prompt. It uses the current style and character settings. |
 
 Orb keeps each result as a variant. Use the left and right arrows to view the
@@ -123,17 +124,43 @@ Select the style name in these details to edit that style.
 Use the delete button in the image header to remove a variant or its variant
 group. Read the confirmation message before you continue.
 
-## Set the character appearance (Optional)
+## Edit the prompt manually
 
-Allow user-defined appearance tags to always come with the character. Common use case 
+The prompt that the prompter model wrote is not final. You can correct it and
+render the correction.
+
+1. Open **Render details** under the image.
+2. Select the pencil next to **Prompt** or **Negative**.
+3. Edit the text.
+4. Select outside the field. Orb shows **Prompt edited — reroll to render**.
+5. Select **Reroll**.
+
+Orb renders your text as written. The prompter model does not run again.
+
+**Reroll** also takes the style that is selected in the **Image Generation**
+card at that moment, not the style that made the original image. The style
+supplies the checkpoint and the ComfyUI workflow. Set the style you want before
+you reroll.
+
+Style tags are already baked into the stored prompt text, so a new style does
+not reword it. When the style changes, Orb adds a note to **Render details** to
+say that the prompt text still carries the previous style's wording. Edit the
+tags in the prompt field yourself if you want them to match.
+
+The edit stays with the attachment until you replace it, so a failed reroll does
+not lose your text. **Regenerate** ignores the edit: it writes a new prompt.
+
+## Set the character tags (Optional)
+
+Allow user-defined appearance tags to always come with the character. A common use case 
 is name of a non-OC character, some image models do better with canon character names.
 
 1. Open a conversation with the character.
 2. Open **Image Generation** settings.
-3. Find **Character appearance**.
-4. Enter comma-separated appearance tags in **Appearance tags**.
-5. Enter unwanted character features in **Negative tags**.
-6. Select **Save appearance**.
+3. Find **Per-character Prompt**.
+4. Enter comma-separated appearance tags in **Positive prompt**.
+5. Enter unwanted character features in **Negative prompt**.
+6. Select **Save**.
 
 Use fixed and visible details. For example, specify hair, eyes, body shape, and
 usual clothes. Do not add a character-count tag such as `1girl`. Orb gets the

@@ -559,7 +559,18 @@ window.workflowReroll = async (msgId, attId, btn) => {
   );
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "rerolling..."));
-    const result = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"), {});
+    // The owning plugin gets one chance to retarget the render (an edited prompt,
+    // today's style). A throw here must not cost the user their reroll.
+    let extra = null;
+    try {
+      extra = S.workflowRerollParams[wid]?.(msgId, attId) || null;
+    } catch (e) {
+      console.error("reroll params callback threw:", e);
+    }
+    const result = await api.post(
+      convUrl(convId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"),
+      extra ? { params: extra } : {},
+    );
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
     setMessages(await api.get(convUrl(convId, "messages")));
