@@ -121,9 +121,9 @@ Workflow: [MiaoMiaoHarem_Default.png](../assets/MiaoMiaoHarem_Default.png)
 
 Download <https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2.safetensors> and put it in `ComfyUI/models/upscale_models/`
 
-### If you're GPU-rich (24GB+ VRAM), use Krea 2:
+### If you're GPU-rich (24GB+ VRAM), try Krea 2:
 
-<https://civitai.red/models/958009/redcraft-or-2-or-3-int8int4fp8-scaled?modelVersionId=3139241>
+<https://civitai.red/models/2760803/dasiwa-krea2-or-turbo-or-raw?modelVersionId=3151280>
  (Download the int8-convrot version and put it in `ComfyUI/models/checkpoints/`)
 
 Workflow: [Krea2_Default.png](../assets/Krea2_Default.png)

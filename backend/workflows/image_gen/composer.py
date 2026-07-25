@@ -58,7 +58,7 @@ _SCENE_FORMAT_TAIL = (
     "First state the viewpoint, then each character's pose and action. Then describe their build, clothing, hair, "
     "and other visible attributes meticulously. Describe their interaction, then the setting, lighting, and framing. "
     "Be very meticulous, and as lengthy as needed. Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. "
-    "Prefer proactive verb-ing over passive verb-ed (e.g. pulling over pulled). Repetition is allowed. "
+    "Use direct, simple language; prefer proactive verb-ing over passive verb-ed (e.g. pulling over pulled). "
     "Focus on objects and subjects of interest (items, clothing, specific body parts, etc.), avoid abstract details (sensations, analogies, etc.). "
     "Do not add art-style words or quality words. Do not describe a face that is turned away from the camera. "
 )
@@ -79,7 +79,7 @@ _SCENE_FORMAT_STRUCTURED_TAIL = (
     "action come before the visible attributes. Do not add attributes the scene does not state. Do not describe a "
     "turned-away face. Describe the interaction, then the setting, the lighting, and the framing, avoid abstract details (sensations, analogies, etc.). "
     "Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. "
-    "Prefer proactive verb-ing over passive verb-ed (e.g. pulling over pulled). Repetition is allowed. "
+    "Use direct, simple language; prefer proactive verb-ing over passive verb-ed (e.g. pulling over pulled). "
     "Do not add art-style words or quality words. Leave `avoid` empty."
 )
 
@@ -133,9 +133,7 @@ ANALYZE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "analyze_scene",
-        "description": (
-            "Extract one visible scene: viewpoint, characters, current clothing, actions, interaction, setting, and framing."
-        ),
+        "description": ("Extract one visible scene: viewpoint, anchors, characters, actions, interaction, setting, etc."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -146,6 +144,10 @@ ANALYZE_TOOL_SCHEMA = {
                         "first_person when the moment is narrated through a character's eyes (usually the user, 'you') "
                         "-- that character is the viewer and is NOT listed below. third_person otherwise."
                     ),
+                },
+                "anchors": {
+                    "type": ["string", "null"],
+                    "description": "Comma-separated setting objects the characters are positioned against.",
                 },
                 "characters": {
                     "type": "array",
@@ -176,7 +178,7 @@ ANALYZE_TOOL_SCHEMA = {
                             },
                             "position": {
                                 "type": ["string", "null"],
-                                "description": "Where they stand relative to anchors and to the other characters (left, right, behind, etc.).",
+                                "description": "Where they stand relative to anchors and to the other characters (left, beside, behind, etc.).",
                             },
                             "pose": {"type": ["string", "null"], "description": "Current pose."},
                             "action": {
@@ -191,7 +193,10 @@ ANALYZE_TOOL_SCHEMA = {
                                 ),
                             },
                             "expression": {"type": ["string", "null"], "description": "Visible expression, or null."},
-                            "gaze": {"type": ["string", "null"], "description": "Where they are looking, or null."},
+                            "gaze": {
+                                "type": ["string", "null"],
+                                "description": "Where they are looking - up, down, back, etc.",
+                            },
                         },
                         "required": [
                             "name",
@@ -208,10 +213,6 @@ ANALYZE_TOOL_SCHEMA = {
                         ],
                         "additionalProperties": False,
                     },
-                },
-                "anchors": {
-                    "type": ["string", "null"],
-                    "description": "Comma-separated setting objects the characters are positioned against.",
                 },
                 "setting": {"type": ["string", "null"], "description": "Location, time of day, and lighting."},
                 "interaction": {

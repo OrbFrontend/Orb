@@ -580,7 +580,7 @@ async function populateProfile() {
     }
     el.classList.remove("image-gen-note");
     el.innerHTML = `<div class="ig-profile-fields">
-        <label>Positive prompt<textarea id="ig-appearance" placeholder="Per-character permanent tags (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
+        <label>Positive prompt<textarea id="ig-appearance" placeholder="Per-character permanent tags, fill as much as you can (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
         <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, colored, color). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
       </div>`;
   } catch {
