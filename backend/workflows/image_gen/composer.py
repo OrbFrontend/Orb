@@ -59,7 +59,7 @@ _SCENE_FORMAT_TAIL = (
     "and other visible attributes meticulously. Describe their interaction, then the setting, lighting, and framing. "
     "Be very meticulous, and as lengthy as needed. Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. "
     "Prefer proactive verb-ing over passive verb-ed (e.g. pulling over pulled). Repetition is allowed. "
-    "Focus on objects and subjects of interest (items, clothing, specific body parts, etc.). "
+    "Focus on objects and subjects of interest (items, clothing, specific body parts, etc.), avoid abstract details (sensations, analogies, etc.). "
     "Do not add art-style words or quality words. Do not describe a face that is turned away from the camera. "
 )
 
@@ -77,7 +77,7 @@ _SCENE_FORMAT_STRUCTURED_HEAD = "Show exactly the structured scene below. Do not
 _SCENE_FORMAT_STRUCTURED_TAIL = (
     "Render the structured scene exactly in the requested prompt format, keeping its order: the viewpoint, pose, and "
     "action come before the visible attributes. Do not add attributes the scene does not state. Do not describe a "
-    "turned-away face. Describe the interaction, then the setting, the lighting, and the framing. "
+    "turned-away face. Describe the interaction, then the setting, the lighting, and the framing, avoid abstract details (sensations, analogies, etc.). "
     "Use the word 'own' if action is done to self. Be obsessively precise and anatomically accurate, use quantitative words like 'one' or 'two'. "
     "Prefer proactive verb-ing over passive verb-ed (e.g. pulling over pulled). Repetition is allowed. "
     "Do not add art-style words or quality words. Leave `avoid` empty."

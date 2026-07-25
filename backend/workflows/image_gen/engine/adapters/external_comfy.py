@@ -174,7 +174,7 @@ async def generate(
     # routed to the negative -- removed outfits, turned-away faces. Disclose it on
     # the attachment rather than let the user wonder why the negation had no effect.
     if "negative" not in slots and request.negative_prompt.strip():
-        notes = (*notes, "this workflow has no negative prompt input; the items to avoid were not applied")
+        notes = (*notes, "this workflow has no negative prompt input; negative prompt was not applied")
     patched, output_node = patch_graph(
         graph,
         slots,
