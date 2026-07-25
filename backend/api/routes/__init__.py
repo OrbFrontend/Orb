@@ -21,6 +21,7 @@ from . import (
     presets,
     settings,
     stats,
+    storage,
     workflows,
     worlds,
 )
@@ -36,6 +37,7 @@ ROUTERS = [
     phrase_bank.router,
     personas.router,
     stats.router,
+    storage.router,
     conversations.router,
     characters.router,
     presets.router,

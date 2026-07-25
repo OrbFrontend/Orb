@@ -31,9 +31,11 @@ from .queries.character_expressions import (
 )
 from .queries.conversation_logs import (
     add_conversation_log,
+    delete_logs_older_than,
     get_conversation_logs,
     get_director_log_for_message,
     get_moods_before_turn,
+    logs_size_before,
 )
 from .queries.conversations import (
     create_conversation,
@@ -182,6 +184,7 @@ __all__ = [
     "delete_conversation",
     "delete_interactive_fragment",
     "delete_endpoint",
+    "delete_logs_older_than",
     "delete_lorebook_entry",
     "delete_message_with_descendants",
     "delete_model_config",
@@ -242,6 +245,7 @@ __all__ = [
     "init_db",
     "insert_alternate_greeting_swipes",
     "insert_workflow_attachment_row",
+    "logs_size_before",
     "list_character_cards",
     "list_conversations",
     "list_expression_labels",

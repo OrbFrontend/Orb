@@ -276,6 +276,11 @@ async def update_settings(data: dict) -> SettingsRow:
             "direction_notes_inject",
             "inspector_open_states",
             "workflows_globally_enabled",
+            # The artifact cache's size cap. Editable so artifacts self-trim at a
+            # size the user picked; the LRU-3 eviction that enforces it already
+            # runs on every attachment write. Stays in PRESERVED_COLUMNS, so an
+            # imported preset never overwrites this machine's storage limit.
+            "attachment_cache_budget_bytes",
         ]
         sets, vals = _build_set_clause(
             allowed,

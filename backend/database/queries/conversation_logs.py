@@ -97,3 +97,46 @@ async def get_director_log_for_message(message_id: int) -> ConversationLogRow | 
         d.setdefault("reasoning_writer", "")
         d.setdefault("reasoning_editor", "")
         return cast(ConversationLogRow, d)
+
+
+# ── Retention
+# The Director audit trail is the fastest-growing purely-diagnostic table in the
+# schema (one row per turn, each holding full LLM output + reasoning). Nothing
+# reads it after the fact except the Inspector, and that route already returns an
+# empty shape for a missing log, so pruning old rows degrades gracefully.
+#
+# ``cutoff`` is an ISO-8601 UTC string, matching how ``created_at`` is written;
+# a plain string compare therefore orders correctly. None means "no age limit".
+
+# ponytail: approximate -- sums the fat text columns only, ignoring row and page
+# overhead. This is a "is this worth cleaning?" hint for the UI, not accounting.
+_LOG_BYTES = (
+    "COALESCE(length(agent_raw_output), 0) + COALESCE(length(tool_calls), 0) "
+    "+ COALESCE(length(injection_block), 0) + COALESCE(length(reasoning_director), 0) "
+    "+ COALESCE(length(reasoning_writer), 0) + COALESCE(length(reasoning_editor), 0)"
+)
+
+
+async def logs_size_before(cutoff: str | None) -> tuple[int, int]:
+    """``(count, approx_bytes)`` of the logs ``delete_logs_older_than`` would drop."""
+    sql = f"SELECT COUNT(*) AS n, COALESCE(SUM({_LOG_BYTES}), 0) AS b FROM conversation_logs"
+    params: tuple[str, ...] = ()
+    if cutoff is not None:
+        sql += " WHERE created_at < ?"
+        params = (cutoff,)
+    async with get_db() as db:
+        rows = list(await db.execute_fetchall(sql, params))
+    return (int(rows[0]["n"]), int(rows[0]["b"])) if rows else (0, 0)
+
+
+async def delete_logs_older_than(cutoff: str | None) -> int:
+    """Drop Director logs created before ``cutoff`` (None = all). Returns rows deleted."""
+    sql = "DELETE FROM conversation_logs"
+    params: tuple[str, ...] = ()
+    if cutoff is not None:
+        sql += " WHERE created_at < ?"
+        params = (cutoff,)
+    async with get_db() as db:
+        cur = await db.execute(sql, params)
+        await db.commit()
+        return cur.rowcount or 0
