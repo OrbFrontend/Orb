@@ -268,8 +268,8 @@ def _profile_instruction(profile_owner_name: str, appearance: str) -> str:
     if not owner or not fixed:
         return "Set `profile_owner_visible` to false because no named appearance profile was supplied. "
     return (
-        f"The profile owner is {owner}. Their fixed tags are already added later: {fixed}. "
-        "Set `profile_owner_visible` true only if this person is visible. Do not repeat or contradict the fixed tags in `scene`. "
+        f"The profile owner is {owner}. Their fixed tags are already added later - Do not repeat or contradict: {fixed}. "
+        "Set `profile_owner_visible` true only if this person is visible. "
     )
 
 
@@ -625,9 +625,9 @@ async def compose_scene(
         fixed = _bounded(appearance)
         if owner and fixed:
             instr += (
-                f"\n\nProfile owner: {owner}\nFixed tags already added: {fixed}\n"
+                f"\n\nProfile owner: {owner}\nFixed tags already added - Do not repeat or contradict: {fixed}\n"
                 "Mark this visible character as `is_profile_owner: true`. Still fill `appearance` with their current "
-                "visible traits. Do not repeat or contradict the fixed tags above. "
+                "visible traits."
                 "Do not use the fixed appearance as an outfit."
             )
         analysis = await _forced_args(
