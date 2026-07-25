@@ -3,7 +3,6 @@ stop, and Inspector (director / logs / director-log) routes."""
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 
@@ -337,12 +336,10 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
         await add_conversation_log(
             new_cid,
             log["turn_index"],
-            log.get("agent_raw_output") or "",
             log.get("tool_calls") or [],
             log.get("active_moods_after") or [],
             log.get("injection_block") or "",
             log.get("agent_latency_ms") or 0,
-            progressive_fields=json.loads(log.get("progressive_fields_after") or "{}"),
             message_id=new_msg_id,
             reasoning_director=log.get("reasoning_director") or "",
             reasoning_writer=log.get("reasoning_writer") or "",

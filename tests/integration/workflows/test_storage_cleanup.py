@@ -106,38 +106,74 @@ async def test_unchecked_category_is_untouched(client, db):
     cid, mid = await _conversation(client)
     art = await _attachment(db, mid, created_at=OLD)
     await db.execute(
-        "INSERT INTO conversation_logs (conversation_id, turn_index, agent_raw_output, created_at) VALUES (?, 0, ?, ?)",
+        "INSERT INTO conversation_logs (conversation_id, turn_index, injection_block, created_at) VALUES (?, 0, ?, ?)",
         (cid, "director said things", OLD),
     )
     await db.commit()
 
     resp = await client.post("/api/storage/cleanup", json={"logs": True, "days": 7})
     assert resp.status_code == 200
-    assert resp.json()["logs_deleted"] == 1
+    assert resp.json()["logs_wiped"] == 1
     assert resp.json()["artifacts_evicted"] == 0
     assert await _data_b64(db, art) != EVICTED_MARKER
 
 
-async def test_log_cleanup_respects_cutoff_and_inspector_survives(client, db):
+async def test_log_wipe_respects_cutoff_and_keeps_the_row(client, db):
+    """The whole point of wiping over deleting: the row -- and the mood state the
+    pipeline reads back off it -- survives, payload and all else does not."""
     cid, mid = await _conversation(client)
-    for created_at in (OLD, RECENT):
+    # The fresh row is left unattached so the Inspector lookup below resolves to
+    # the wiped one (it takes the newest log for the message).
+    for created_at, message_id in ((OLD, mid), (RECENT, None)):
         await db.execute(
-            "INSERT INTO conversation_logs (conversation_id, turn_index, agent_raw_output, created_at, message_id) "
-            "VALUES (?, 0, ?, ?, ?)",
-            (cid, "x" * 100, created_at, mid),
+            "INSERT INTO conversation_logs (conversation_id, turn_index, created_at, message_id, "
+            "active_moods_after, agent_latency_ms, tool_calls, reasoning_director, injection_block, feedback) "
+            "VALUES (?, 0, ?, ?, ?, 1234, ?, ?, ?, ?)",
+            (cid, created_at, message_id, '["calm"]', '[{"name": "set_mood"}]', "r" * 80, "i" * 100, '{"a": 1}'),
         )
     await db.commit()
 
     resp = await client.post("/api/storage/cleanup", json={"logs": True, "days": 7})
     assert resp.status_code == 200
-    assert resp.json()["logs_deleted"] == 1
-    rows = list(await db.execute_fetchall("SELECT created_at FROM conversation_logs"))
-    assert [r["created_at"] for r in rows] == [RECENT]
+    assert resp.json()["logs_wiped"] == 1
 
-    # A purged turn must degrade to the empty log shape, not a 500.
+    rows = list(await db.execute_fetchall("SELECT * FROM conversation_logs ORDER BY created_at"))
+    assert len(rows) == 2  # nothing deleted
+    old, recent = rows
+    assert (old["tool_calls"], old["reasoning_director"], old["injection_block"]) == (None, None, None)
+    assert old["feedback"] == "{}"  # NOT NULL, so reset to its schema default
+    assert old["active_moods_after"] == '["calm"]'  # whitelisted -- mood continuity
+    assert old["agent_latency_ms"] == 1234  # whitelisted -- /api/stats averages it
+    assert recent["injection_block"] == "i" * 100  # out of scope, untouched
+
+    # A wiped turn must degrade to the empty log shape, not a 500.
     resp = await client.get(f"/api/conversations/{cid}/messages/{mid}/director-log")
     assert resp.status_code == 200
     assert resp.json()["tool_calls"] == []
+
+    # Nothing reclaimable left: the preview agrees and a repeat run is a no-op.
+    assert (await client.get("/api/storage?days=7")).json()["logs"]["count"] == 0
+    assert (await client.get("/api/storage?days=0")).json()["logs"]["count"] == 1  # the fresh row, still in scope
+    assert (await client.post("/api/storage/cleanup", json={"logs": True, "days": 7})).json()["logs_wiped"] == 0
+
+
+async def test_wipe_covers_every_column_not_whitelisted(client, db):
+    """Whitelist, not blacklist: a column added to the table later must be
+    reclaimed by default. This fails the day one is added and forgotten."""
+    from backend.database.queries.conversation_logs import LOG_KEEP_COLUMNS
+
+    cols = {r["name"] for r in await db.execute_fetchall("PRAGMA table_info(conversation_logs)")}
+    assert LOG_KEEP_COLUMNS <= cols, "whitelist names a column that no longer exists"
+    # Everything else is payload. Named here only so the diff shows what a new
+    # column joins -- the wipe itself needs no update.
+    assert cols - LOG_KEEP_COLUMNS == {
+        "tool_calls",
+        "injection_block",
+        "reasoning_director",
+        "reasoning_writer",
+        "reasoning_editor",
+        "feedback",
+    }
 
 
 async def test_preview_matches_what_cleanup_reports(client, db):

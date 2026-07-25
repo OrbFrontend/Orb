@@ -40,12 +40,10 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
         await db.add_conversation_log(
             conversation_id,
             log_turn_index,
-            res.agent_raw,
             res.calls,
             res.active_moods,
             res.inj_block,
             res.latency,
-            res.progressive_fields,
             message_id=asst_id,
             reasoning_director=res.reasoning_director,
             reasoning_writer=res.reasoning_writer,

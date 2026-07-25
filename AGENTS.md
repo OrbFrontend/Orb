@@ -143,7 +143,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Image generation:** external-ComfyUI readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types); generation uses the conversation-scoped workflow trigger
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`
 - **Direction notes:** CRUD under `/api/conversations/{cid}/direction-notes`
-- **Storage:** `GET /api/storage?days=N` (what a cleanup would reclaim), `POST /api/storage/cleanup` (age-based artifact eviction + Director-log purge, then VACUUM)
+- **Storage:** `GET /api/storage?days=N` (what a cleanup would reclaim), `POST /api/storage/cleanup` (age-based artifact eviction + Director-log wipe — payload columns blanked in place, `LOG_KEEP_COLUMNS` whitelist survives — then VACUUM)
 - **Other:** `GET /api/stats`, `GET /api/themes`, `POST /api/reset`
 
 ## Common Tasks

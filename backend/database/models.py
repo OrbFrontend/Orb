@@ -437,9 +437,8 @@ class ConversationLogRow(TypedDict):
     """A ``conversation_logs`` row as get_conversation_logs() /
     get_director_log_for_message() expose it.
 
-    ``tool_calls`` and ``active_moods_after`` are JSON-*decoded* to lists;
-    ``progressive_fields_after`` is left as the raw JSON string (neither reader
-    decodes it). The nullable TEXT/INTEGER columns come back ``None`` when unset
+    ``tool_calls`` and ``active_moods_after`` are JSON-*decoded* to lists.
+    The nullable TEXT/INTEGER columns come back ``None`` when unset
     -- get_director_log_for_message() additionally defaults the ``reasoning_*``
     keys to ``""``, but get_conversation_logs() leaves them as stored.
     ``feedback`` is the JSON-*decoded* dict (the editor feedback sub-step's
@@ -451,10 +450,8 @@ class ConversationLogRow(TypedDict):
     id: int
     conversation_id: str
     turn_index: int
-    agent_raw_output: str | None
     tool_calls: list
     active_moods_after: list
-    progressive_fields_after: str
     injection_block: str | None
     agent_latency_ms: int | None
     created_at: str

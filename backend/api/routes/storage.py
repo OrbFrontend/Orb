@@ -6,7 +6,10 @@ cutoff the POST route will use, so the size shown is the size freed.
 
 Artifacts are evicted, not deleted -- the row and its recovery metadata survive
 so the image comes back through the normal rehydrate button. Director logs are
-purely diagnostic and have no recovery path, so those are a real DELETE.
+wiped: the payload columns (raw output, reasoning, tool calls, injection block)
+are blanked while the row itself stays, because the pipeline reads mood state
+back off old rows. Which columns those are is the database layer's business --
+see LOG_KEEP_COLUMNS -- not something the user is asked to pick through.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter
 
 from ...core.locks import maintenance_lock
-from ...database import DB_PATH, delete_logs_older_than, logs_size_before
+from ...database import DB_PATH, logs_size_before, wipe_logs_older_than
 from ...workflows.attachment_cache import aged_artifact_size, evict_older_than
 from ..schemas import CleanupRequest
 
@@ -96,22 +99,22 @@ async def api_storage(days: int = 0):
 
 @router.post("/api/storage/cleanup")
 async def api_storage_cleanup(data: CleanupRequest):
-    """Evict artifacts and/or drop Director logs older than the cutoff, then
+    """Evict artifacts and/or wipe Director logs older than the cutoff, then
     compact. Serialized against the preset/snapshot machinery, which also
     rewrites the whole file."""
     cutoff = _cutoff(data.days)
-    artifacts_evicted = bytes_freed = logs_deleted = 0
+    artifacts_evicted = bytes_freed = logs_wiped = 0
     async with maintenance_lock():
         if data.artifacts:
             artifacts_evicted, bytes_freed = await evict_older_than(cutoff)
         if data.logs:
-            logs_deleted = await delete_logs_older_than(cutoff)
+            logs_wiped = await wipe_logs_older_than(cutoff)
         before = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
         compacted = await asyncio.to_thread(vacuum_sync)
         after = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
     return {
         "artifacts_evicted": artifacts_evicted,
-        "logs_deleted": logs_deleted,
+        "logs_wiped": logs_wiped,
         # What the user actually got back on disk. Falls back to the eviction's
         # own byte count when the VACUUM lost its race, since the pages are
         # freed either way -- just not returned to the OS until the next boot.
