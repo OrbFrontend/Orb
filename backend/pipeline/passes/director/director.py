@@ -212,11 +212,6 @@ async def director_pass(
                 step_tail = lorebook_prefix + notes_prefix + step_tail
                 content = build_multimodal_content(step_tail, attachments)
                 trailing = [{"role": "user", "content": content}]
-                logger.info(
-                    "Agent tool=direct_scene target=%s prompt:\n%s",
-                    target,
-                    json.dumps([*base.prefix, *trailing], indent=2, ensure_ascii=False),
-                )
                 resp = {}
                 try:
                     async for event in base.complete(
@@ -281,11 +276,6 @@ async def director_pass(
         tail = lorebook_prefix + (notes_prefix if name == "direct_scene" else "") + tool_tail
         content = build_multimodal_content(tail, attachments)
         trailing: list[ChatMessage] = [{"role": "user", "content": content}]
-        logger.info(
-            "Agent tool=%s prompt:\n%s",
-            name,
-            json.dumps([*base.prefix, *trailing], indent=2, ensure_ascii=False),
-        )
         resp: dict = {}
         # A failed call skips this tool but must not propagate: the remaining
         # tools and the writer still run, like the lorebook-select and

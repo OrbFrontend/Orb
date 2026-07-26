@@ -482,8 +482,6 @@ async def _run_edit_loop(
         reasoning_on=reasoning_on,
     )
 
-    logger.info(final_prompt)
-
     # base.prefix is the shared, frozen cached bottom; *trailing* is the broader
     # WireMessage buffer the ReAct loop mutates in place (assistant tool_calls,
     # tool-role results) and hands to base.complete() each iteration. Keeping the

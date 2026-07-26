@@ -9,12 +9,31 @@ no runtime dependency on it.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .kv_tracker import _KVCacheTracker
+
+logger = logging.getLogger(__name__)
+
+
+def _render_tail(tail: Sequence[Mapping[str, Any]]) -> str:
+    """Flatten the per-call tail messages for the console log.
+
+    Only the tail is logged: the prefix is byte-identical across every pass of
+    the turn, so printing it once per call is noise. Multimodal parts render as
+    their text, non-text parts as a ``[type]`` marker — never the base64 blob.
+    """
+    out = []
+    for m in tail:
+        content = m.get("content")
+        if isinstance(content, list):
+            content = "\n".join(p.get("text") or f"[{p.get('type', 'part')}]" for p in content)
+        out.append(f"--- {m.get('role')} ---\n{content}")
+    return "\n".join(out)
 
 
 async def cached_complete(
@@ -97,6 +116,7 @@ class CachedBase:
         messages: Sequence[Mapping[str, Any]] = [*self.prefix, *trailing]
         if self.resolve is not None:
             messages = self.resolve(messages)
+        logger.info("Pass %s tail:\n%s", label, _render_tail(messages[len(self.prefix) :]))
         return cached_complete(
             client,
             label=label,
