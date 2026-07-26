@@ -36,8 +36,8 @@ class ModelSpec:
 
 MODELS: dict[str, ModelSpec] = {
     "autocomplete": ModelSpec(
-        repo_id="chartreuse-verte/orb-human-typeahead-1b-v2.1",
-        filename="GGUF/orb-human-typeahead-1b-v2.1-Q4_0.gguf",
+        repo_id="chartreuse-verte/orb-human-typeahead-1b-v2.2",
+        filename="GGUF/orb-human-typeahead-1b-v2.2-Q4_0.gguf",
         size_mb=930,
     ),
     "slop_classifier": ModelSpec(
