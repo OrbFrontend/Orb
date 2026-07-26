@@ -50,9 +50,9 @@ def test_render_scene_hides_face_for_turned_away_character():
     assert "expression" not in line  # no expression readable off the back of a head
 
 
-def test_render_scene_marks_first_person_pov():
+def test_render_scene_marks_first_person():
     block = _render_scene({"viewpoint": "first_person", "characters": [{"name": "a", "action": "smiling"}]})
-    assert block.splitlines()[0].startswith("viewpoint: first-person POV")
+    assert block.splitlines()[0].startswith("viewpoint: first-person")
     assert _render_scene({"viewpoint": "third_person", "characters": [{"name": "a", "action": "x"}]}).startswith(
         "viewpoint: third-person"
     )
@@ -106,15 +106,15 @@ async def test_first_person_pin_strips_leaked_camera_boy(monkeypatch):
                     "viewpoint": "first_person",
                     "characters": [{"name": "Ashley", "sex": "girl", "action": "smiling"}],
                 },
-                # Composer leaks the camera character into the count anchor.
-                "compose_image_prompt": {"scene": "1boy 1girl, long red hair, smiling", "avoid": None},
+                # Composer leaks the camera character into the count anchor, and a pov tag with it.
+                "compose_image_prompt": {"scene": "1boy 1girl, pov, long red hair, smiling", "avoid": None},
             }
         ),
     )
     scene, _, mode = await compose_scene(
         client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
     )
-    assert scene == "1girl, solo, pov, long red hair, smiling"
+    assert scene == "1girl, solo, long red hair, smiling"
     assert mode == "scene_analysis"
 
 
@@ -144,7 +144,7 @@ async def test_first_person_keeps_only_profile_owner(monkeypatch):
         profile_owner_name="Ashley",
     )
     # Bystander stripped: count anchor is solo, and the composer's leaked counts are pinned over.
-    assert scene == "1girl, solo, pov, smiling"
+    assert scene == "1girl, solo, smiling"
 
 
 def test_keep_profile_owner_no_op_when_owner_absent():

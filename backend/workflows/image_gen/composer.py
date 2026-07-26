@@ -49,9 +49,9 @@ _FORMAT_INSTRUCTIONS = {
 _SCENE_FORMAT_HEAD = (
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "Examples: 1girl. 1boy. 2girls. 1boy, 1girl. "
-    "For a clear first-person view, add the pov tag after the count tags. Do not draw or count the viewer character. "
+    "For a first-person view, do not draw or count the viewer character. "
     "Include the viewer's hands/arms only if the scene has them. If the viewer looks at one girl, write "
-    "'1girl, solo, pov', not '1boy, 1girl'. "
+    "'1girl, solo', not '1boy, 1girl'. "
 )
 
 _SCENE_FORMAT_TAIL = (
@@ -323,7 +323,7 @@ def _analyze_ooc(supports_negative: bool = True) -> str:
         "Freeze the final visible instant in the assistant reply above. Call analyze_scene. "
         "Use established visible facts and the most recent statement for each fact. Leave unknown fields null. "
         "For outfit, give the whole currently known outfit. "
-        "Include only characters visible in frame. For first_person, possess the user's POV, exclude the viewer character. "
+        "Include only characters visible in frame. For first_person, the camera is the user's eyes, exclude the viewer character. "
         "Use positive fields such as gaze and framing to describe turned-away or cropped views. "
         "Set `face_visible` false when a character's face is turned from the camera: back view, flying or moving away, or looking away. Then set that character's `expression` null. "
         + avoid
@@ -391,6 +391,7 @@ _COUNT_CHUNK_RE = re.compile(rf"{_COUNT_TOKEN}(?:\s+{_COUNT_TOKEN})*", re.IGNORE
 # took off simply isn't in the prompt; this only catches a composer that narrates
 # the removal anyway. Dropping the chunk still beats drawing the item.
 _NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", re.IGNORECASE)
+_POV_CHUNK_RE = re.compile(r"pov", re.IGNORECASE)
 
 # A saved appearance sheet is frontal: on a back shot it must not carry face-only
 # traits (eyes, makeup, mouth) that contradict a turned-away face. Drop any comma
@@ -429,9 +430,9 @@ def _count_anchor(characters: Any) -> str | None:
     return ", ".join(parts)
 
 
-def _pin_anchor(scene: str, anchor: str, pov: bool) -> str:
+def _pin_anchor(scene: str, anchor: str) -> str:
     """Deterministically own the count block: drop whatever counts the composer wrote."""
-    lead = ([anchor] if anchor else []) + (["pov"] if pov else [])
+    lead = [anchor] if anchor else []
     kept = _strip_chunks(scene, _COUNT_CHUNK_RE)
     return ", ".join(lead + [kept] if kept else lead) or scene
 
@@ -460,7 +461,7 @@ def _render_scene(scene: Any) -> str:
     viewpoint = _bounded(scene.get("viewpoint"))
     if viewpoint == "first_person":
         lines.append(
-            "viewpoint: first-person POV (pov) -- possess the user's POV, the viewer character is not drawn, hands/arms at most"
+            "viewpoint: first-person -- the camera is the user's eyes, the viewer character is not drawn, hands/arms at most"
         )
     elif viewpoint == "third_person":
         lines.append("viewpoint: third-person")
@@ -692,6 +693,9 @@ async def compose_scene(
     # Comma-splitting still works on prose: it drops the negated comma-clause and
     # keeps the rest of the sentence.
     scene = _strip_chunks(scene, _NEGATION_CHUNK_RE, whole=False)
+    # No pov tag in any mode: a booru-trained composer writes one unprompted.
+    # ponytail: whole-chunk only, so prose clauses mentioning a point of view survive.
+    scene = _strip_chunks(scene, _POV_CHUNK_RE)
     if not scene:
         # No excerpt fallback. When the forced call produces no scene, stop --
         # do not ship the raw reply text to the diffusion model as the image
@@ -705,7 +709,7 @@ async def compose_scene(
     if analysis_block:
         anchor = _count_anchor(analysis.get("characters"))
         if anchor is not None:
-            scene = _pin_anchor(scene, anchor, _bounded(analysis.get("viewpoint")) == "first_person")
+            scene = _pin_anchor(scene, anchor)
         avoid = _join([args.get("avoid"), analysis.get("avoid")])
         owner_visible = _profile_owner_visible(analysis, profile_owner_name)
         face_visible = _owner_face_visible(analysis, profile_owner_name)
@@ -731,7 +735,7 @@ def assemble_prompts(
 ) -> tuple[str, str, dict]:
     style = resolve_style(config, style_id)
     # The composer has already inserted any visible profile appearance into the
-    # scene. Keep the count/pov anchor at the head, then apply the style before
+    # scene. Keep the count anchor at the head, then apply the style before
     # the subject and setting details it governs.
     count_lead, scene_body = _split_lead_count(scene)
     positive = _join((count_lead, style.get("prompt"), scene_body))
