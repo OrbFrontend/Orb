@@ -987,7 +987,7 @@ Source aliases: `att.b64 || att.data_b64`, `att.mime || att.mime_type` (fallback
 
 ### 14.4 Chrome (framework-owned; renderer body wrapped in `.workflow-widget`)
 
-- Header `.workflow-artifact-header` -- `.workflow-artifact-label` (the manifest entry's `display_name`, falling back to the raw `workflow_id` then `"artifact"`), Minimize `.workflow-min-btn`, Delete `.workflow-del-btn`.
+- Header `.workflow-artifact-header` -- `.workflow-artifact-label` (the manifest entry's `display_name`, falling back to the raw `workflow_id` then `"artifact"`), Minimize `.workflow-min-btn`, Delete `.workflow-del-btn`. The whole strip is the minimize/expand hit box (`onclick="workflowToggleMinimize(...)"`); both chrome buttons `stopPropagation` so their own handlers win.
 - Body `.workflow-artifact-body` -- contains renderer output inside `<div class="workflow-widget" data-workflow-id="<wid>" data-attachment-id="<aid>">`.
 - Nav `.workflow-artifact-nav` -- `.workflow-swipe-btn` arrows. No cycle: each arrow is disabled at its end of the list, and both are disabled when the group has one sibling or other tabs are open (`S.hasMultipleTabs`).
 - Counter `.workflow-artifact-counter` -- `idx+1 / total` when `total > 1`.

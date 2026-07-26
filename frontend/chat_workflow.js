@@ -137,7 +137,10 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
   // author-owned widget body and the regen/reroll buttons that live inside it.
   // Minimize is a local view toggle (no tab lock); delete mutates server state
   // and routes through a confirm dialog.
-  const header = `<div class="workflow-artifact-header">
+  // The whole strip is the collapse hit box; the chevron stays a real button so
+  // the control is still keyboard/AT reachable, and both chrome buttons stop
+  // propagation so the strip's handler cannot double-fire.
+  const header = `<div class="workflow-artifact-header" onclick="workflowToggleMinimize('${instanceId}')">
       <span class="workflow-artifact-label" title="${label}">${label}${countBadge}</span>
       <div class="workflow-artifact-controls">
         <button class="workflow-chrome-btn workflow-min-btn${minimized ? " collapsed" : ""}" title="${minimized ? "Expand" : "Minimize"}" aria-expanded="${minimized ? "false" : "true"}" onclick="event.stopPropagation();workflowToggleMinimize('${instanceId}')">${ICON_CHEVRON}</button>

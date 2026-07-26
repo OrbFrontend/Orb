@@ -297,11 +297,22 @@
 }
 
 /* Framework chrome header on every workflow-artifact widget: label left,
-   minimize + delete controls right. */
+   minimize + delete controls right. The whole strip toggles collapse, so it
+   bleeds out to the card's padding edges -- the hover tint then reads as "this
+   bar is the button" rather than a pill floating inside the card. */
 .workflow-artifact-header {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin: -6px -6px 0;
+  padding: 6px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.workflow-artifact-header:hover {
+  background: var(--bg-elevated);
 }
 
 .workflow-artifact-label {
@@ -341,10 +352,12 @@
   cursor: pointer;
 }
 
+/* One step above the header strip's own hover so the button stays legible when
+   both are lit. */
 .workflow-chrome-btn:hover {
   color: var(--text-primary);
   border-color: var(--border);
-  background: var(--bg-elevated);
+  background: var(--bg-hover);
 }
 
 .workflow-min-btn svg {
@@ -361,9 +374,15 @@
   background: rgba(196, 93, 93, .12);
 }
 
-/* Collapsed widget is just the header strip -- no body, nav, or counter. */
+/* Collapsed widget is just the header strip -- no body, nav, or counter, so the
+   strip fills the card and rounds on all four corners. */
 .workflow-artifact-swipe.minimized {
   gap: 0;
+}
+
+.workflow-artifact-swipe.minimized .workflow-artifact-header {
+  margin-bottom: -6px;
+  border-radius: var(--radius);
 }
 
 /* Delete dialog actions: Cancel pinned left, destructive choices grouped right.
