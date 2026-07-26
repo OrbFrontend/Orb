@@ -189,9 +189,9 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
   return `<div class="workflow-artifact-swipe" id="${instanceId}" data-msg-id="${msg.id}" data-root-id="${rootId}">
     ${header}
     <div class="workflow-artifact-nav">
-      <button class="workflow-swipe-btn"${prevDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',-1)">&#9664;</button>
+      <button class="workflow-swipe-btn prev"${prevDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',-1)">${ICON_CHEVRON}</button>
       <div class="workflow-artifact-body">${bodyHtml}</div>
-      <button class="workflow-swipe-btn"${nextDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',1)">&#9654;</button>
+      <button class="workflow-swipe-btn next"${nextDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',1)">${ICON_CHEVRON}</button>
     </div>
     ${indicator}
   </div>${rejectionChip}`;
