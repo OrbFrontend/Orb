@@ -141,8 +141,8 @@ ANALYZE_TOOL_SCHEMA = {
                     "type": "string",
                     "enum": ["first_person", "third_person"],
                     "description": (
-                        "first_person when the moment is narrated through a character's eyes (usually the user, 'you') "
-                        "-- that character is the viewer and is NOT listed below. third_person otherwise."
+                        "`first_person` when the moment is narrated through a character's eyes (usually the user, 'you') "
+                        "-- that character is the viewer and is NOT listed below; `third_person` otherwise."
                     ),
                 },
                 "anchors": {
@@ -332,10 +332,18 @@ def _analyze_ooc(supports_negative: bool = True) -> str:
     )
 
 
+# A nullable schema field comes back as the literal string "null" often enough
+# (the model writes the word instead of emitting JSON null) that an unguarded
+# read ships it: "setting and framing: ..., null, ..." into the structured scene
+# and "null" into the negative prompt. Treat the spelled-out empties as absent.
+_NULLISH = frozenset(("null", "none", "nil", "n/a", "undefined", "unknown"))
+
+
 def _bounded(value: Any, limit: int = 2_000) -> str:
     if not isinstance(value, str):
         return ""
-    return re.sub(r"\s+", " ", value).strip(" ,")[:limit].strip(" ,")
+    text = re.sub(r"\s+", " ", value).strip(" ,")[:limit].strip(" ,")
+    return "" if text.casefold() in _NULLISH else text
 
 
 def _join(parts: Sequence[Any]) -> str:
@@ -392,6 +400,25 @@ _COUNT_CHUNK_RE = re.compile(rf"{_COUNT_TOKEN}(?:\s+{_COUNT_TOKEN})*", re.IGNORE
 # the removal anyway. Dropping the chunk still beats drawing the item.
 _NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", re.IGNORECASE)
 _POV_CHUNK_RE = re.compile(r"pov", re.IGNORECASE)
+
+# A camera tag in the profile's fixed tags is an explicit user choice, but the
+# analyzer never sees it as one: that block is handed to it as appearance tags it
+# must not repeat, so a 'third_person' sitting in it loses to the POV rule in the
+# same tail. Parse it here and overwrite the analyzed viewpoint instead of asking
+# the prompt to resolve two instructions that read as unrelated.
+_VIEWPOINT_TAG_RE = re.compile(
+    r"\b(?:(?P<first>(?:first|1st)[ _-]?person|pov)|(?P<third>(?:third|3rd)[ _-]?person))\b",
+    re.IGNORECASE,
+)
+
+
+def _pinned_viewpoint(appearance: str) -> str | None:
+    """The viewpoint the fixed tags demand, or None when they name none."""
+    match = _VIEWPOINT_TAG_RE.search(_bounded(appearance))
+    if match is None:
+        return None
+    return "first_person" if match.group("first") else "third_person"
+
 
 # A saved appearance sheet is frontal: on a back shot it must not carry face-only
 # traits (eyes, makeup, mouth) that contradict a turned-away face. Drop any comma
@@ -623,7 +650,7 @@ async def compose_scene(
             instr += (
                 f"\n\nProfile owner: {owner}\nFixed tags already added - Do not repeat or contradict: {fixed}\n"
                 "Mark this visible character as `is_profile_owner: true`. Still fill `appearance` with their current "
-                "visible traits."
+                "visible traits. "
                 "Do not use the fixed appearance as an outfit."
             )
         analysis = await _forced_args(
@@ -636,6 +663,11 @@ async def compose_scene(
             max_tokens=2_048,
             reasoning_on=reasoning_on,
         )
+        # The fixed tags win over what the analyzer inferred: the user pinned the
+        # camera, the analyzer only guessed at it.
+        pinned = _pinned_viewpoint(appearance)
+        if pinned:
+            analysis["viewpoint"] = pinned
         # First-person view is the user looking at the profile owner: keep only the
         # owner so a stray background character does not get drawn into the shot.
         if _bounded(analysis.get("viewpoint")) == "first_person":
@@ -694,7 +726,6 @@ async def compose_scene(
     # keeps the rest of the sentence.
     scene = _strip_chunks(scene, _NEGATION_CHUNK_RE, whole=False)
     # No pov tag in any mode: a booru-trained composer writes one unprompted.
-    # ponytail: whole-chunk only, so prose clauses mentioning a point of view survive.
     scene = _strip_chunks(scene, _POV_CHUNK_RE)
     if not scene:
         # No excerpt fallback. When the forced call produces no scene, stop --

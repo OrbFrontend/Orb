@@ -153,6 +153,82 @@ def test_keep_profile_owner_no_op_when_owner_absent():
     assert analysis["characters"] == [{"name": "stranger", "sex": "girl"}]
 
 
+@pytest.mark.parametrize(
+    "appearance, expected",
+    [
+        ("3D, third_person", "third_person"),
+        ("3D, third-person", "third_person"),
+        ("3D, Third Person", "third_person"),
+        ("3D, 3rd person", "third_person"),
+        ("anime, first_person", "first_person"),
+        ("anime, 1st-person", "first_person"),
+        ("anime, pov", "first_person"),
+        ("blonde hair, 3D, personal trainer", None),  # 'person' alone is not a camera tag
+        ("", None),
+    ],
+)
+def test_pinned_viewpoint_reads_camera_tag_in_any_spelling(appearance, expected):
+    assert composer._pinned_viewpoint(appearance) == expected
+
+
+async def test_fixed_camera_tag_overrides_the_analyzed_viewpoint(monkeypatch):
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                # Analyzer read the second-person reply as first-person anyway.
+                "analyze_scene": {
+                    "viewpoint": "first_person",
+                    "characters": [{"name": "Lumine", "is_profile_owner": True, "sex": "girl", "action": "smiling"}],
+                },
+                "compose_image_prompt": {"scene": "1girl, smiling", "avoid": None},
+            }
+        ),
+    )
+    seen: list[str] = []
+    monkeypatch.setattr(composer, "_render_scene", lambda a: seen.append(a.get("viewpoint")) or "block")
+    await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        scene_analysis=True,
+        profile_owner_name="Lumine",
+        appearance="video game asset, 3D, third_person",
+    )
+    assert seen == ["third_person"]
+
+
+async def test_nullish_strings_never_reach_the_scene_or_the_negative(monkeypatch):
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                # Model wrote the word instead of emitting JSON null.
+                "analyze_scene": {
+                    "viewpoint": "third_person",
+                    "anchors": "null",
+                    "characters": [{"name": "Ashley", "sex": "girl", "action": "smiling", "outfit": "None"}],
+                    "setting": "garden",
+                    "framing": "null",
+                    "avoid": "null",
+                },
+                "compose_image_prompt": {"scene": "1girl, smiling", "avoid": "null"},
+            }
+        ),
+    )
+    seen: list[str] = []
+    monkeypatch.setattr(composer, "_render_scene", lambda a: seen.append(_render_scene(a)) or seen[-1])
+    scene, avoid, _ = await compose_scene(
+        client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, scene_analysis=True
+    )
+    assert avoid == ""
+    assert "null" not in seen[0].casefold() and "none" not in seen[0].casefold()
+    assert seen[0].splitlines()[-1] == "setting and framing: garden"
+
+
 async def test_no_negative_workflow_tells_model_to_leave_avoid_empty(monkeypatch):
     seen: list[str] = []
 
