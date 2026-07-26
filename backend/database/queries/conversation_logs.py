@@ -140,8 +140,6 @@ async def _wipeable(db) -> list[tuple[str, str, int]]:
     return out
 
 
-# ponytail: approximate -- sums text lengths only, ignoring row and page overhead.
-# A "is this worth cleaning?" hint for the UI, not accounting.
 def _reclaimable(cols: list[tuple[str, str, int]]) -> str:
     return " + ".join(f"MAX(COALESCE(length({c}), 0) - {keep}, 0)" for c, _, keep in cols)
 

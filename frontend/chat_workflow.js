@@ -401,8 +401,6 @@ function _rootSiblingIds(msg, rootId) {
 // Poll GET messages until the root gains a sibling id absent from `before` (the
 // one the backend is still writing), then refresh. Returns true if it landed or
 // the user navigated away (no failure chip owed either way), false on timeout.
-// ponytail: 200s ceiling covers image gen's 180s max render; other workflows
-// finish well within it. Raise it if a workflow can legitimately render longer.
 async function _recoverWorkflowSibling(convId, msgId, rootId, before) {
   const deadline = Date.now() + 200_000;
   while (Date.now() < deadline) {
@@ -493,8 +491,6 @@ function _scrollArtifactIntoView(msgId, rootId = null) {
       img.addEventListener("error", res, { once: true });
     });
   });
-  // ponytail: 2s cap -- scrolling on a stale height beats not scrolling at all if
-  // an image somehow never loads. Raise it if a slow load ever beats the cap.
   Promise.race([Promise.all(loaded), new Promise((res) => setTimeout(res, 2000))]).then(showWhenVisible);
 }
 

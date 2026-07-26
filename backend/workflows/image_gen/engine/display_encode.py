@@ -20,8 +20,6 @@ import io
 
 from PIL import Image
 
-# ponytail: WebP quality knob. q95 is visually indistinguishable from the source;
-# lower it if payloads still bite, raise toward lossless if bit-fidelity matters.
 _WEBP_QUALITY = 95
 
 

@@ -69,8 +69,7 @@ function savePrompt(el) {
 function rerollParams(_msgId, attId) {
   // Deliberately not cleared after use: the edit stays keyed to the attachment it was
   // made on, so a reroll that dies on the network doesn't eat the typed text and a
-  // second click just retries it. ponytail: the ceiling is a stale marker if you swipe
-  // back to an older sibling you had edited; clear on a matching sibling if it annoys.
+  // second click just retries it.
   const params = { ...(pendingEdits.get(attId) || {}) };
   if (cfg?.default_style) params.style_id = cfg.default_style; // the tools-panel picker
   return Object.keys(params).length ? params : null;
@@ -153,9 +152,7 @@ async function generate(msgId, button) {
 // Re-fetch the message until the backend's still-running render persists its
 // image_gen attachment, so a dropped SSE stream recovers on its own. Stops on a
 // second click (signal aborted), on navigating to another conversation, or after
-// the ceiling — whichever comes first. ponytail: 120s ceiling covers compose +
-// external ComfyUI render; past it the button restores and the old reload-to-see
-// behaviour still applies.
+// the ceiling — whichever comes first.
 async function pollForAttachment(msgId, signal, { timeoutMs = 120_000, intervalMs = 3_000 } = {}) {
   const convId = getActiveConvId();
   const deadline = Date.now() + timeoutMs;

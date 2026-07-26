@@ -82,7 +82,6 @@ def _card_fragment_entries(raw: Any) -> list[dict]:
         return []
     out: list[dict] = []
     seen: set[str] = set()
-    # ponytail: cap hostile cards at 50 fragments per type; raise if a legit card ever hits it
     for entry in raw[:50]:
         if not isinstance(entry, dict):
             continue

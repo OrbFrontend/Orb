@@ -395,8 +395,6 @@ _NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", 
 # A saved appearance sheet is frontal: on a back shot it must not carry face-only
 # traits (eyes, makeup, mouth) that contradict a turned-away face. Drop any comma
 # chunk naming one, only when the analyzer flags the face hidden.
-# ponytail: keyword list, comma-chunk granular -- a comma-less appearance line is
-# kept or dropped whole. Widen the list if a face trait leaks on a back shot.
 _FACE_CHUNK_RE = re.compile(
     r"\b(eyes?|eyeliner|eye ?shadow|eyelashes?|lashes|eyebrows?|mascara"
     r"|lips?|lipstick|mouth|teeth|fangs?|makeup)\b",
@@ -578,9 +576,6 @@ def _inject_profile_appearance(
         fixed = f"{owner} has these traits: {fixed}."
     # Seat the appearance after the pose body: the composer states the shot first,
     # the visible attributes follow.
-    # ponytail: appearance now trails the pose/setting body. If a long body pushes
-    # the sheet past CLIP's first ~77-token window and the character drifts, seat
-    # it right after count_lead again (swap body/fixed below).
     count_lead, body = _split_lead_count(scene)
     if normalized_format == "prose":
         prose_body = " ".join(part for part in (body, fixed) if part)

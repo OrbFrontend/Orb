@@ -89,7 +89,7 @@ GO_EMOTIONS: tuple[str, ...] = (
 _REPEAT_PENALTY = 1.1
 _FREQUENCY_PENALTY = 0.1
 _TOP_P = 0.8
-_TOP_K = 20
+_TOP_K = 5
 
 # Llama is a single, non-reentrant context; serialize every call through a
 # per-feature lock so two features never share one handle's thread of execution.

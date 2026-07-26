@@ -377,8 +377,6 @@ async def evict_older_than(cutoff: str | None) -> tuple[int, int]:
 
     Rows without usable recovery metadata are skipped, not destroyed. Today
     that is TTS audio, which stores no seed.
-    # ponytail: TTS is a handful of rows / negligible bytes. Add a hard-delete
-    # fallback for non-rehydratable artifacts only if audio actually grows.
     """
     async with get_db() as db:
         await db.execute("BEGIN IMMEDIATE")

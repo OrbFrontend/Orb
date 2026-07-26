@@ -36,11 +36,7 @@ export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr, pending 
   // Edited in place rather than through a modal: `change` fires once on blur-after-edit
   // and the facade dispatcher already carries it, so committing costs no extra plumbing.
   // Rows are guessed from length because a DOM-free builder cannot measure the column;
-  // `resize:vertical` is the escape hatch. ponytail: a repaint (a reply streaming in)
-  // drops text typed but not yet blurred, the same way it already closes this panel.
-  // readonly until the pencil next to the label unlocks it (widget.js editPrompt),
-  // so a stray click can't start an edit; a repaint re-locks, same as it re-locks
-  // a lost pending edit.
+  // `resize:vertical` is the escape hatch.
   const field = (name, label, value) =>
     `<textarea class="image-gen-edit" readonly aria-label="${label}" rows="${Math.min(10, Math.max(2, Math.ceil(value.length / 48)))}" data-wf-action="image_gen:savePrompt" data-wf-on="change" data-att-id="${escAttr(att?.id ?? "")}" data-field="${name}">${esc(value)}</textarea>`;
   const pencil = (name, label) =>

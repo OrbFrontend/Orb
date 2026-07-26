@@ -21,8 +21,7 @@ const FALLBACK_OUTPUT_CLASSES = ["SaveImage", "PreviewImage"];
 // Widget inputs that name the diffusion model a loader reads. Offered as a
 // "Model" slot so an imported graph's model can be overridden by the checkpoint
 // the user picked in Orb, instead of staying pinned to a filename from whatever
-// machine exported the PNG. ponytail: name heuristic covering the standard
-// loaders; add a name here if a loader uses a different widget.
+// machine exported the PNG.
 const MODEL_INPUTS = ["ckpt_name", "unet_name"];
 
 function parseGraphJson(text) {

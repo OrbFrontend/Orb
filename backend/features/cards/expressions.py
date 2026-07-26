@@ -86,8 +86,7 @@ async def fetch_embedded_expressions(card_dict: Mapping[str, object]) -> dict[st
                     imgs = extract_expressions_zip(resp.content)
                     if imgs:
                         return imgs
-            # Fallback: per-label image URLs. ponytail: sequential fetch — this
-            # only runs for the rare card lacking a compressed zip.
+            # Fallback: per-label image URLs.
             urls = pack.get("expressions")
             if not isinstance(urls, dict):
                 return {}
