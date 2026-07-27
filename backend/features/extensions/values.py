@@ -40,7 +40,7 @@ from .limits import (
     MAX_JSON_DEPTH,
     MAX_JSON_MEMBERS,
     MAX_JSON_STRING_BYTES,
-    MAX_TEMPLATE_CHARS,
+    MAX_RENDERED_TEMPLATE_CHARS,
 )
 
 
@@ -133,8 +133,8 @@ def render_template(text: str, namespaces: Mapping[str, Any]) -> str:
         return scalar_text(resolved, what=f"template substitution {path!r}")
 
     rendered = _TEMPLATE_HOLE_RE.sub(substitute, text)
-    if len(rendered) > MAX_TEMPLATE_CHARS:
-        raise FlowError(f"rendered template exceeds {MAX_TEMPLATE_CHARS} characters")
+    if len(rendered) > MAX_RENDERED_TEMPLATE_CHARS:
+        raise FlowError(f"rendered template exceeds {MAX_RENDERED_TEMPLATE_CHARS} characters")
     return rendered
 
 

@@ -120,6 +120,10 @@ MAX_IDENTIFIER_CHARS = 64
 MAX_LABEL_CHARS = 200
 MAX_DESCRIPTION_CHARS = 2000
 MAX_TEMPLATE_CHARS = 8192
+"""The declared ``$template`` literal. A *declaration* bound, like its
+neighbours here -- see ``MAX_RENDERED_TEMPLATE_CHARS`` for what one may render
+to, which is a different quantity with a different right answer."""
+
 MAX_TEMPLATE_SUBSTITUTIONS = 32
 MAX_REF_PATH_SEGMENTS = 8
 MAX_PERMISSIONS = 64
@@ -150,6 +154,17 @@ MAX_CTX_TEXT_BYTES = 64 * KIB
 
 MAX_CTX_CHARACTER_BYTES = 16 * KIB
 """Aggregate UTF-8 bytes of the allowlisted character projection."""
+
+MAX_RENDERED_TEMPLATE_CHARS = 128 * KIB
+"""What a ``$template`` may render to, once its holes are filled.
+
+Deliberately larger than ``MAX_TEMPLATE_CHARS``: a template's holes are filled
+from projections *the host itself* bounds, and a cap below their sum makes the
+host contradict itself -- ``ctx.character`` is offered at up to 16 KiB and then
+a flow interpolating it fails on a card the library accepted. This one clears
+the declared body plus every distinct projection at once (character, history,
+one full text field), so the failure it still catches is the one worth
+catching: a template that repeats a large hole until the prompt balloons."""
 
 # ── fragment-type resolution (section 9) ─────────────────────────────────────
 
