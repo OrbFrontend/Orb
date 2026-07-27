@@ -149,11 +149,11 @@ test("the status chip distinguishes the three state axes", () => {
   assert.ok(fine.allText().includes("on"));
 });
 
-test("an empty catalog still offers the install control", () => {
+test("an empty catalog still offers a way into the manager", () => {
   const host = render([]);
   const text = host.allText();
   assert.ok(text.includes("No extensions installed"));
-  assert.ok(text.some((t) => t.includes("Install Extension")));
+  assert.ok(text.some((t) => t.includes("Manage Extensions")));
 });
 
 /** Render the manager modal body against a pre-seeded root. */

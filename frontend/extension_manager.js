@@ -117,7 +117,6 @@ export function renderExtensionSidebar() {
   for (const item of S.extensionCatalog) {
     nodes.push(sidebarRow(item));
   }
-  nodes.push(button("+ Install Extension", () => triggerExtensionInstall(), "btn btn-block btn-sm"));
   nodes.push(button("Manage Extensions", () => showExtensionManagerModal(), "btn btn-block btn-sm"));
   replaceChildren(host, ...nodes);
 }
