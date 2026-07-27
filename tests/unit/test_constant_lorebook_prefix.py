@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from backend.features.lorebook import compute_lorebook_injection_block
 from backend.pipeline.context import PipelineContext, _build_prefixes
+from backend.workflows import current_snapshot
 
 _CONSTANT = {
     "id": 1,
@@ -58,6 +59,7 @@ def _ctx(*, agent_system_prompt=None) -> PipelineContext:
         active_persona=None,
         agent_client=None,
         agent_system_prompt=agent_system_prompt,
+        registry=current_snapshot(),
     )
 
 

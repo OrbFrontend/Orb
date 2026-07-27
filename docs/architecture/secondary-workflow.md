@@ -115,6 +115,8 @@ Live example: shipped TTS builds its `Workflow(...)` instance at `backend/workfl
 | `REROLL_GEN` | `"reroll_gen"` | Single-dispatch by workflow id | `POST .../workflow-attachments/{aid}/reroll-gen` and `.../{aid}/rehydrate` |
 | `QUERY` | `"query"` | Single-dispatch by workflow id | `POST .../workflows/{workflow_id}/query` |
 
+`POST_PIPELINE` subscriptions additionally declare a **stage** (`HookStage.TRANSFORM` or `HookStage.OBSERVE`, `contracts.py`). A transform sees the current draft and may replace it once, feeding its output to the next transform; an observer sees one final immutable draft and its `draft_replaced` is dropped by the bridge. Stage precedes priority and precedes source band in the resolved order, so every transform (built-in or community) runs before every observer. `TRANSFORM` is the default because it is the permissive value -- an existing hook that rewrites drafts keeps working, while a hook that only reads can declare `OBSERVE` and gain the guarantee that it sees the finished text. Shipped classification: `format_consistency` is a transform, `tts` is an observer.
+
 Single-dispatch hooks fire from their own HTTP routes, never from the turn pipeline. `QUERY` is the only one with no conversation in scope: it is the workflow's global config/discovery surface (readiness, capability probing, external-backend queries), ungated by enablement like the config routes so setup can precede enable (sec. 8.1). Note the name clash on `regenerate`: the message-level route `POST .../messages/{msg_id}/regenerate` reruns the three-pass pipeline via `handle_regenerate`, firing PRE_PIPELINE/POST_PIPELINE but no single-dispatch hook. The `REGENERATE` hook fires only from the attachment-level `POST .../workflow-attachments/{aid}/regenerate` route (`main.py`).
 
 ### 3.4 Registration sequence
@@ -148,20 +150,28 @@ finalize_registry()                                                    # step 3 
 ```
 
 - `register_workflow(w)` -- `registry.py`. Idempotent on `w.id`; re-registering the same id preserves the original insertion position, so manifest order stays stable across reloads (docstring `registry.py`). Static declaration validation runs before mutation: workflow-id grammar; unique, API-safe tool names; and equality between `ToolSpec.name`, `schema.function.name`, and `choice.function.name`. Invalid declarations raise `WorkflowDeclarationError`. Name ownership conflicts raise `ToolNameCollision` if a declared tool name is a built-in, or if a newly-claimed name (one not already owned by a prior registration of this id) collides with another workflow's tool. A rejected call leaves the registry, `TOOLS`, and `STANDALONE_TOOLS` untouched. On re-registration the new `tools` list is diffed against the prior one: names new to this registration are registered, dropped names are removed from `TOOLS`/`STANDALONE_TOOLS`, and names in both have schema/choice/standalone overwritten (`registry.py`).
-- `subscribe(workflow_id, hook_type, fn, *, priority=0)` -- `registry.py`. Appends a `Subscription` to `w.subscriptions`. Raises `LookupError` if id unknown, `ValueError` on duplicate hook for same id, `ValueError` on `REGENERATE`/`REROLL_GEN` without `produces_artifacts=True`.
+- `subscribe(workflow_id, hook_type, fn, *, priority=0, stage=HookStage.TRANSFORM)` -- `registry.py`. Appends a `Subscription` to `w.subscriptions`. `stage` applies to `POST_PIPELINE` only and is ignored elsewhere. Raises `LookupError` if id unknown, `ValueError` on duplicate hook for same id, `ValueError` on `REGENERATE`/`REROLL_GEN` without `produces_artifacts=True`.
 - `finalize_registry()` -- `registry.py`. Every `produces_artifacts=True` workflow MUST also have `REGENERATE` and `REROLL_GEN` bindings; missing either raises `WorkflowMandateError` at import time.
 
 ### 3.5 Lookups (`registry.py`)
 
-- `get_workflow(workflow_id) -> Workflow | None`.
-- `get_subscription(workflow_id, hook_type) -> Subscription | None`. Collapses "unknown id" and "unbound hook" to None.
-- `iter_subscriptions(hook_type) -> list[Subscription]`. Priority-ascending, registration-order tie-break (stable sort).
-- `list_workflows() -> list[Workflow]`. Registration order.
+Every lookup resolves against a **registry snapshot** -- an immutable, ordered view of the built-in base plus the community overlay. `current_snapshot()` captures one; the free functions below take an optional `snapshot=` and capture one themselves when it is omitted, which is correct for a single lookup at the top of a request and wrong inside a turn. A turn captures exactly one snapshot in `_load_pipeline_context` (`PipelineContext.registry`) and threads it through pre-hooks, `_run_pipeline`, and post-hooks, so an install landing mid-turn cannot pair an old pre-hook with a new post-hook.
+
+- `current_snapshot() -> RegistrySnapshot`. Fields: `generation`, `workflows` (read-only mapping, built-ins then community), `by_hook` (resolved order per hook type), `digests` (community id -> active content digest). Methods: `.get(id)`, `.list()`, `.subscriptions(hook_type)`, `.subscription(id, hook_type)`.
+- `get_workflow(workflow_id, *, snapshot=None) -> Workflow | None`.
+- `get_subscription(workflow_id, hook_type, *, snapshot=None) -> Subscription | None`. Collapses "unknown id" and "unbound hook" to None.
+- `iter_subscriptions(hook_type, *, snapshot=None) -> list[Subscription]`. Resolved execution order (see below).
+- `list_workflows(*, snapshot=None) -> list[Workflow]`. Built-ins in registration order, then community records.
 - `workflow_has_hook(w, hook_type) -> bool`.
+- `runtime_generation() -> int`, `bump_generation() -> int`, `publish_community_overlay(records) -> int`.
+
+**Resolved order** within one hook type: stage band (`TRANSFORM` then `OBSERVE`, `POST_PIPELINE` only), then source band (built-in, then community), then priority ascending. Built-ins tie-break on registration order; community entries tie-break on extension id, so ordering is independent of installation time. The two source bands are sorted separately and concatenated -- their tie-breakers are different types and a single composite key would only be well-ordered by accident.
+
+**Trust tiers.** `Workflow.source` is `WorkflowSource.BUILTIN` or `COMMUNITY`. `register_workflow` accepts built-ins only; community records enter through `publish_community_overlay`, which rejects tool declarations, built-in id collisions, reserved ids (`macros`), and any unavailable record that still carries subscriptions. `Workflow.frontend_kind` is *derived* from `source`, never stored, so no field exists that could move a community record into the band `workflow_loader.js` dynamically `import()`s.
 
 ### 3.6 Manifest route
 
-`GET /api/workflows` (`main.py`). Returns a list; each entry `{id, display_name, config_schema, config_defaults}`. Frontend fetches once at boot via `loadWorkflowManifest` (`chat.js`) into `S.workflowManifest`.
+`GET /api/workflows` (`api/routes/workflows.py`). Returns a list; each entry `{id, display_name, config_schema, config_defaults, source, frontend_kind, load_status, diagnostic}`, plus `extension_api` for community records only. `loadWorkflowModules` imports `/static/workflows/<id>/index.js` for `frontend_kind == "trusted_module"` entries and nothing else (`frontend/extension_policy.js` owns the predicate, positively matched so an unrecognised kind fails closed). Frontend fetches once at boot via `loadWorkflowManifest` (`chat.js`) into `S.workflowManifest`.
 
 ### 3.7 Enablement (per-workflow on/off)
 

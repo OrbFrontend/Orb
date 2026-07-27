@@ -180,6 +180,10 @@ class InteractiveFragmentCreate(BaseModel):
     injection_label: str
     sort_order: int = 0
     direction_note_timing: Literal["pre_writer", "post_turn"] = "post_turn"
+    # Per-instance configuration for an extension-defined field_type. Left as a
+    # bare dict here: its real shape is the installed type's own declared
+    # instance schema, which this layer cannot know and must not half-check.
+    type_config: dict = {}
 
 
 class InteractiveFragmentUpdate(BaseModel):
@@ -191,6 +195,7 @@ class InteractiveFragmentUpdate(BaseModel):
     injection_label: str | None = None
     sort_order: int | None = None
     direction_note_timing: Literal["pre_writer", "post_turn"] | None = None
+    type_config: dict | None = None
 
 
 class WorldCreate(BaseModel):

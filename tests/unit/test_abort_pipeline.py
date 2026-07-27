@@ -19,6 +19,7 @@ import pytest
 from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.orchestrator import _run_pipeline
 from backend.pipeline.passes.director import DirectorResult
+from backend.workflows import current_snapshot
 
 _DIRECTOR_STATE = {"active_moods": []}
 _PREFIX = [{"role": "system", "content": "You are an assistant."}]
@@ -38,6 +39,7 @@ def _pipeline_kwargs(enabled_tools: dict) -> dict:
         "turn_scratch": {},
         "kv_tracker": _KVCacheTracker(),
         "schema_overrides": {},
+        "registry": current_snapshot(),
     }
 
 

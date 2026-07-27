@@ -396,6 +396,12 @@ class InteractiveFragmentRow(TypedDict):
     sort_order: int
     # 'pre_writer' | 'post_turn'; which recording step fills the note. Read only for direction_note fragments.
     direction_note_timing: str
+    # Raw JSON text as stored. Per-instance configuration for an
+    # extension-defined ``field_type`` (``<extension-id>:<local-type-id>``);
+    # ``'{}'`` for every core type. Typed as the stored string rather than the
+    # decoded shape because ``SELECT *`` does not decode it -- the queries that
+    # promise a dict decode at their own boundary.
+    type_config: str
 
 
 class MoodFragmentRow(TypedDict):
@@ -542,3 +548,61 @@ class DocumentRow(DocumentListRow):
 
     content: str
     generated_spans: list
+
+
+class ExtensionPackageRow(TypedDict):
+    """A row from ``extension_packages`` (``SELECT *``).
+
+    The three state axes stay separate on purpose. ``enabled`` is the user's
+    switch, ``load_status`` is whether the active revision can run, and
+    ``approved_permissions`` is what they consented to; collapsing any two into
+    one column is how "your extension is disabled" starts being shown for
+    "this package needs a newer Orb".
+
+    ``approved_permissions`` is the raw JSON text as stored -- ``SELECT *`` does
+    not decode it.
+    """
+
+    id: str
+    source_kind: str  # 'git' | 'archive'
+    source_url: str
+    requested_ref: str
+    active_digest: str
+    previous_digest: str | None
+    approved_permissions: str
+    enabled: int
+    load_status: str  # 'available' | 'incompatible' | 'invalid' | 'missing_content'
+    load_error: str
+    installed_at: str
+    updated_at: str
+
+
+class ExtensionRevisionRow(TypedDict):
+    """A row from ``extension_revisions`` (``SELECT *``).
+
+    ``manifest`` is the canonical JSON text the digest was taken over, stored
+    verbatim so a rollback recompiles the *same* bytes rather than re-fetching
+    a ref that may have moved. ``commit_id`` is None for archive installs.
+    """
+
+    extension_id: str
+    content_digest: str
+    manifest: str
+    extension_api: int
+    version: str
+    commit_id: str | None
+    contract_fingerprint: str
+    first_seen_at: str
+
+
+class ExtensionSecretRow(TypedDict):
+    """A row from ``extension_secrets`` (``SELECT *``).
+
+    Only the storage layer ever sees ``secret_value``. Every API projection
+    reports presence and ``updated_at`` and nothing else.
+    """
+
+    extension_id: str
+    name: str
+    secret_value: str
+    updated_at: str

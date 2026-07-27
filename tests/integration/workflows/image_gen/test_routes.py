@@ -18,6 +18,7 @@ from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.workflow_bridge import _run_post_pipeline
 from backend.workflows import (
     HookType,
+    current_snapshot,
     get_workflow,
     set_workflow_character_state,
     set_workflow_config,
@@ -345,6 +346,7 @@ async def test_completing_a_turn_produces_no_image_and_no_image_inference(client
             client=LLMClient("http://localhost:9999"),
             kv_tracker=_KVCacheTracker(),
             schema_overrides={},
+            registry=current_snapshot(),
         )
     ]
 

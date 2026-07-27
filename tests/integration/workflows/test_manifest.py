@@ -55,8 +55,17 @@ async def test_registered_workflow_appears_with_all_fields(client):
             "display_name": "Scene CG",
             "config_schema": {"type": "object"},
             "config_defaults": {"style": "noir"},
+            # A registered workflow is a built-in, and only a built-in is a
+            # trusted module -- the loader imports on exactly this field.
+            "source": "builtin",
+            "frontend_kind": "trusted_module",
+            "load_status": "available",
+            "diagnostic": "",
         }
     ]
+    # extension_api is a community-only field and must be absent, not null: a
+    # built-in has no package compatibility boundary to report.
+    assert "extension_api" not in body[0]
 
 
 async def test_manifest_follows_registration_order(client):

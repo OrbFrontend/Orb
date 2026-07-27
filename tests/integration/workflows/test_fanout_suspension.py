@@ -15,6 +15,7 @@ from backend.pipeline.workflow_bridge import (
     _PostPipelineResult,
     _run_post_pipeline,
 )
+from backend.workflows import current_snapshot
 
 from ._fixtures import make_workflow, register_for_test
 
@@ -41,6 +42,7 @@ async def _pre_events(settings) -> list[dict]:
         kv_tracker=_KVCacheTracker(),
         schema_overrides={},
         accumulators=accumulators,
+        registry=current_snapshot(),
     ):
         events.append(ev)
     return events
@@ -63,6 +65,7 @@ async def _post_event_names(settings, *, draft="draft", history=None) -> list[st
         client=None,
         kv_tracker=_KVCacheTracker(),
         schema_overrides={},
+        registry=current_snapshot(),
     ):
         if not isinstance(ev, _PostPipelineResult):
             names.append(ev.get("event"))

@@ -339,6 +339,75 @@ class HookType(Enum):
     QUERY = "query"
 
 
+class HookStage(Enum):
+    """Which post-pipeline phase a POST_PIPELINE subscription runs in.
+
+    ``TRANSFORM`` may replace the draft; each successful transformer feeds the
+    next. ``OBSERVE`` sees one final immutable draft and cannot replace it --
+    the bridge drops a ``draft_replaced`` yielded from an observer rather than
+    trusting the hook to know its own stage.
+
+    Stage precedes source band in the ordering, so every community transform
+    runs before every trusted observer. Built-ins are classified deliberately:
+    the deterministic markup normalizer is a transform, consumers such as TTS
+    are observers. TRANSFORM is the default because it is the *permissive*
+    value: an existing trusted hook that replaces drafts keeps working, and a
+    workflow that only reads is free to declare OBSERVE and gain the guarantee
+    that it sees the finished text.
+
+    Ignored on every other hook type, which has no phases.
+    """
+
+    TRANSFORM = "transform"
+    OBSERVE = "observe"
+
+
+class WorkflowSource(Enum):
+    """The trust tier a registry record belongs to.
+
+    ``BUILTIN`` records are Python callables plus same-origin ES modules that
+    ship with Orb and receive normal code review. ``COMMUNITY`` records are
+    compiled from an installed declarative package: their hooks are generic
+    host adapters over package data, and nothing about them is ever imported,
+    evaluated, or interpolated into a module path.
+    """
+
+    BUILTIN = "builtin"
+    COMMUNITY = "community"
+
+
+class FrontendKind(Enum):
+    """How the frontend is allowed to load a workflow's UI.
+
+    ``TRUSTED_MODULE`` entries -- and only these -- reach
+    ``import('/static/workflows/<id>/index.js')``. ``DECLARATIVE`` entries are
+    handed to the host component/command renderer as data. The value is derived
+    from :class:`WorkflowSource` rather than declared, so there is no field a
+    package (or a bug in the publish path) could set to move itself into the
+    trusted band.
+    """
+
+    TRUSTED_MODULE = "trusted_module"
+    DECLARATIVE = "declarative"
+
+
+class LoadStatus(Enum):
+    """Whether a community record's active revision can currently run.
+
+    ``AVAILABLE`` publishes entry points. The other three keep the package
+    installed, inspectable, and configurable, with a sanitized diagnostic and
+    no hooks, commands, or placements -- ``installed``, ``enabled``, and
+    ``available`` are three independent axes and collapsing them into one
+    boolean is how "your extension vanished" replaces "your extension needs a
+    newer Orb". Always ``AVAILABLE`` for built-ins.
+    """
+
+    AVAILABLE = "available"
+    INCOMPATIBLE = "incompatible"
+    INVALID = "invalid"
+    MISSING_CONTENT = "missing_content"
+
+
 PreHook = Callable[[PreCtx], AsyncIterator[dict]]
 PostHook = Callable[[PostCtx], AsyncIterator[dict]]
 # An on-demand hook returns either a plain JSON object (the API renders it as a

@@ -7,6 +7,12 @@ attachment artifacts, per-message state), and rejects malformed or
 underscore-prefixed events so one bad hook can neither crash a turn nor
 impersonate an internal event.
 
+Both entry points take the turn's captured ``RegistrySnapshot`` as a required
+argument rather than reading the global registry pointer themselves. That is
+the whole point of the snapshot: a turn resolves its hook set once, so an
+install landing between the pre- and post-hook phases cannot pair an old
+pre-hook with a new post-hook.
+
 Depends only downward (``workflows``, ``inference``, ``core``); imports no
 pipeline sibling, so both the pre-pipeline setup path and the post-pipeline
 orchestrator path can safely import it.
@@ -27,12 +33,12 @@ from ..workflows import (
     EV_ENABLE_TOOLS,
     EV_SET_MESSAGE_STATE,
     EV_SYSTEM_PROMPT,
+    HookStage,
     HookType,
     PostCtx,
     PreCtx,
+    RegistrySnapshot,
     _readonly,
-    get_workflow,
-    iter_subscriptions,
     public_event_error,
 )
 from ..workflows.enablement import effective_workflow_enabled
@@ -87,17 +93,26 @@ async def _run_post_pipeline(
     client: LLMClient,
     kv_tracker: _KVCacheTracker,
     schema_overrides: Mapping[str, dict],
+    registry: RegistrySnapshot,
 ) -> AsyncIterator[dict | _PostPipelineResult]:
     """Run every POST_PIPELINE workflow hook over the finished draft.
 
     Streams pass-through SSE events and yields one final
-    :class:`_PostPipelineResult` when all hooks have run. Each hook may replace
-    the draft once, attach artifacts, or set per-message state. Hook failures
-    are logged and skipped so one bad hook cannot crash the turn.
+    :class:`_PostPipelineResult` when all hooks have run. Hook failures are
+    logged and skipped so one bad hook cannot crash the turn -- and a failure
+    discards only that hook's invocation, never an earlier hook's successful
+    transform.
+
+    Execution runs in two phases, in the order *registry* resolved:
+    ``transform`` subscriptions (each feeding its output to the next), then
+    ``observe`` subscriptions (all seeing the same final draft). An observer's
+    ``draft_replaced`` is dropped rather than applied; a hook does not get to
+    decide its own stage at runtime, because the ordering guarantee the other
+    hooks rely on was fixed when the snapshot was resolved.
     """
     staged_attachments: list[dict] = []
     staged_message_state: dict[str, dict] = {}
-    for sub in iter_subscriptions(HookType.POST_PIPELINE):
+    for sub in registry.subscriptions(HookType.POST_PIPELINE):
         if not effective_workflow_enabled(sub.workflow_id, settings):
             logger.info("workflow %r post-pipeline hook suspended (disabled)", sub.workflow_id)
             continue
@@ -131,6 +146,13 @@ async def _run_post_pipeline(
                 async for ev in sub.callable(post_ctx):
                     t = ev.get("type") if isinstance(ev, dict) else None
                     if t == EV_DRAFT_REPLACED:
+                        if sub.stage is HookStage.OBSERVE:
+                            logger.warning(
+                                "post_pipeline hook %r yielded draft_replaced from the observe stage; ignoring "
+                                "(an observer sees the final draft and cannot rewrite it)",
+                                sub.workflow_id,
+                            )
+                            continue
                         if replaced_this_hook:
                             logger.warning(
                                 "post_pipeline hook %r yielded a second draft_replaced; ignoring",
@@ -156,7 +178,7 @@ async def _run_post_pipeline(
                         continue
                     if t == EV_ATTACH_ARTIFACT:
                         # Only workflows with produces_artifacts=True may persist attachments.
-                        w = get_workflow(sub.workflow_id)
+                        w = registry.get(sub.workflow_id)
                         if not (w and w.produces_artifacts):
                             logger.warning(
                                 "post_pipeline hook %r yielded attach_artifact but "
@@ -308,6 +330,7 @@ async def _iterate_pre_pipeline_hooks(
     kv_tracker,
     schema_overrides: Mapping[str, dict],
     accumulators: dict,
+    registry: RegistrySnapshot,
 ) -> AsyncIterator[dict]:
     """Run every PRE_PIPELINE workflow hook before the pipeline starts.
 
@@ -319,7 +342,7 @@ async def _iterate_pre_pipeline_hooks(
     *accumulators* must be pre-populated with
     ``{"merged_enabled_tools": <dict>, "extras": []}``.
     """
-    for sub in iter_subscriptions(HookType.PRE_PIPELINE):
+    for sub in registry.subscriptions(HookType.PRE_PIPELINE):
         if not effective_workflow_enabled(sub.workflow_id, settings):
             logger.info("workflow %r pre-pipeline hook suspended (disabled)", sub.workflow_id)
             continue

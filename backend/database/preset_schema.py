@@ -7,6 +7,7 @@ only the handful of facts no ``PRAGMA`` can reveal:
 
     which domain a table belongs to    -> DOMAIN_ROOTS
     which tables to ignore entirely     -> EXCLUDED_TABLES
+    which tables never leave this machine -> LOCAL_ONLY_TABLES
     which columns are secret/personal   -> SECRET_COLUMNS  (tripwire: SENSITIVE_*)
     product rules layered on top         -> IMPLIED_DOMAINS, PRESERVED_COLUMNS
 
@@ -68,6 +69,26 @@ DOMAIN_ROOTS: dict[str, str] = {
 #     present (empty) in DBs upgraded under older builds whose init_db recreated it
 EXCLUDED_TABLES: frozenset[str] = frozenset({"orb_preset_meta", "schema_migrations", "message_attachments"})
 
+# Touch when: you add a table holding *live user data that must not travel between
+# machines*. This is deliberately NOT EXCLUDED_TABLES: excluded tables are
+# bookkeeping the engine may ignore entirely, and parking real data there is the
+# mistake the excluded-table tripwire exists to catch. Local-only tables are real
+# data with a different portability rule:
+#
+#   * stripped from every partial/shareable preset and never merged on import
+#   * retained by a full local snapshot (a whole-file clone), so a local rollback
+#     also rolls back the state they hold
+#   * their secret columns still participate in the ordinary key-stripping path
+#
+# Current entries are the community-extension tables. Installing an extension is a
+# per-machine trust decision -- a user approved *this* package, from *this* source,
+# with *these* permissions and secrets. A preset that could carry an installed
+# extension to someone else's Orb would move all three of those decisions with it,
+# which is the one thing the whole consent flow exists to prevent. The
+# content-addressed package files live outside SQLite anyway, so a preset carrying
+# only the metadata would describe an extension the receiving machine cannot load.
+LOCAL_ONLY_TABLES: frozenset[str] = frozenset({"extension_packages", "extension_revisions", "extension_secrets"})
+
 # Touch when: a migration adds a column holding a key, the user's identity, or their
 # prompts (the coverage test will fail and point you here); drop an entry only when
 # its column leaves the schema. Map ``(table, column) -> the value to blank it to``.
@@ -84,6 +105,10 @@ SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("settings", "agent_shared_system_prompt"): "",
     ("endpoints", "api_key"): "",
     ("endpoints", "proxy"): "",
+    # A local-only table's rows never reach a shareable preset at all, but the
+    # column is still declared so the sensitive-column tripwire stays satisfied
+    # by an explicit decision rather than by the table happening to be invisible.
+    ("extension_secrets", "secret_value"): "",
 }
 
 # Touch when: exporting one domain only makes sense alongside another (a product

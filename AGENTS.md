@@ -14,6 +14,8 @@ Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams out
 
 - **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
+- **Registry snapshots:** Workflow lookups resolve against an immutable `RegistrySnapshot` (built-in base + community overlay). A turn captures **one** in `_load_pipeline_context` and threads it everywhere; never re-read the global registry mid-turn.
+- **Community extensions:** Untrusted declarative packages, a separate trust tier from built-in workflows. Design + phasing: [docs/architecture/community-extensions.md](docs/architecture/community-extensions.md).
 - **SSE wire contract:** [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
 
 ## Layer Stack
@@ -39,7 +41,7 @@ Dependency order (top to bottom — each layer may only import layers below it):
 | `analysis/` | Pure prose-quality detection: `audit.py` + detectors; shared by editor + workflows |
 | `workflows/` | Plugin registry + shipped workflows (TTS, image generation, format_consistency) |
 | `pipeline/` | Director→Writer→Editor turn engine (`entrypoints`, `orchestrator`, `context`, `config`, `persistence`, `passes/`) |
-| `features/` | Self-contained slices: `cards`, `lorebook`, `summarization`, `presets`, `documents` |
+| `features/` | Self-contained slices: `cards`, `lorebook`, `summarization`, `presets`, `documents`, `extensions` |
 | `api/` | HTTP layer: FastAPI app factory, routes, Pydantic schemas |
 
 **The one-way rule:** lower layers never import up. When a lower layer needs higher-layer *behavior*, use dependency inversion — the lower layer declares a hook, the higher layer registers an implementation. Example: `database/queries/messages.py` owns `register_workflow_attachment_persister`; `workflows/attachment_cache.py` fills it in.
@@ -85,7 +87,7 @@ features/<name>/
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
 | `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields, macro_choices) |
-| `interactive_fragments` | Dynamic Director parameters; `field_type` = string/array/progressive/feedback/direction_note |
+| `interactive_fragments` | Dynamic Director parameters; `field_type` = string/array/progressive/feedback/direction_note, or `<extension-id>:<type-id>` for an extension-contributed type; `type_config` (JSON) holds that type's per-instance config |
 | `mood_fragments` | Named mood presets with prompt/negative_prompt |
 | `phrase_bank` | Banned phrase variants for editor audit |
 | `conversation_logs` | Per-turn Director audit trail |
@@ -94,6 +96,7 @@ features/<name>/
 | `documents` | Free-form writing mode documents |
 | `user_attachments` | User-uploaded images on messages |
 | `workflow_attachments` | LRU-3 byte-budget artifact cache for secondary workflows |
+| `extension_packages` / `extension_revisions` / `extension_secrets` | Installed community extensions: source + grants + load status, per-digest manifests, write-only secrets. **`LOCAL_ONLY_TABLES`** — stripped from shareable presets, kept in full local snapshots |
 
 **Important:** SQLite has no boolean — flag columns are `int` (0/1). Always update `schema.py` + `models.py` + `api/schemas.py` (SettingsUpdate) in lockstep when adding columns.
 
@@ -122,11 +125,11 @@ Controlled by `settings.agent_same_as_writer` (default `true`).
 
 ## Preset Engine
 
-`features/presets/engine.py` exports/imports/snapshots the DB as `.db` files. Schema-driven (introspects `PRAGMA`): tables classified as `singleton` / `stable` / `surrogate`; FK graph auto-derives insert order. Policy lives in `database/preset_schema.py` — update it when adding a new entity root or secret column. Drift is caught by `tests/integration/test_preset_schema_coverage.py`.
+`features/presets/engine.py` exports/imports/snapshots the DB as `.db` files. Schema-driven (introspects `PRAGMA`): tables classified as `singleton` / `stable` / `surrogate`; FK graph auto-derives insert order. Policy lives in `database/preset_schema.py` — update it when adding a new entity root, secret column, or local-only table. `LOCAL_ONLY_TABLES` is for live user data that must not travel between machines (never `EXCLUDED_TABLES`, which is bookkeeping): stripped from shareable presets, retained by full local snapshots. Drift is caught by `tests/integration/test_preset_schema_coverage.py`.
 
 ## Frontend Architecture
 
-Vanilla ES modules, no build step. State in `state.js` (global `S`, all keys declared). Streaming via `sse.js`. All chat generation routes through `runStreamRequest()` in `chat_stream.js`. Plugin modules in `frontend/workflows/**` import only `workflow_api.js`. Plugin buttons use `registerAction(wid, name, fn)` + `data-wf-action="wid:name"` — never `window.*` or inline `on*`.
+Vanilla ES modules, no build step. State in `state.js` (global `S`, all keys declared). Streaming via `sse.js`. All chat generation routes through `runStreamRequest()` in `chat_stream.js`. Plugin modules in `frontend/workflows/**` import only `workflow_api.js`. `workflow_loader.js` dynamically imports a manifest entry only when `extension_policy.js` says it is a `trusted_module`; community entries are declarative data and never reach `import()`. Plugin buttons use `registerAction(wid, name, fn)` + `data-wf-action="wid:name"` — never `window.*` or inline `on*`.
 
 Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint.sh`): layer import direction, ABI snapshot, plugin-import rule, ratchets for inline handlers and underscore cross-module imports.
 
@@ -163,7 +166,7 @@ Drop `api/routes/<feature>.py` with `router = APIRouter()`, append to `ROUTERS` 
 3. Read from `settings` (not `enabled_tools`) in the pipeline
 
 ### Add a secondary workflow
-See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) — new folder + `register_workflow`/`subscribe` in `workflows/__init__.py`.
+See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) — new folder + `register_workflow`/`subscribe` in `workflows/__init__.py`. A `POST_PIPELINE` binding must also pick its `stage=`: `TRANSFORM` if it rewrites the draft, `OBSERVE` if it only consumes the final text.
 
 ### Add a theme
 Create `frontend/themes/your_theme.css` using CSS custom properties on `[data-theme="your_theme"]`. Auto-listed by `GET /api/themes`.

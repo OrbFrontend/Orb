@@ -153,6 +153,20 @@ export const S = {
 
   workflowManifest: [], // fetched from /api/workflows at boot
 
+  // ── Community extensions ──────────────────────────────────────────────────
+  // Declarative packages (frontend_kind "declarative" in workflowManifest).
+  // Their commands and views are data, never modules: nothing here is ever
+  // interpolated into import(), innerHTML, an inline handler, or a
+  // workflow_registry.js callback array.
+  extensionCatalog: [], // [{id, name, version, enabled, load_status, diagnostic,
+  //                          permissions, commands, placements, views}], from the catalog route
+  // Monotonic counter returned by every extension lifecycle mutation. A catalog
+  // or view response carrying a lower generation is stale — a newer one has
+  // already replaced the declarative model it was computed against — and is
+  // discarded rather than merged, which is what keeps a slow response from
+  // resurrecting a command the user just uninstalled.
+  extensionRuntimeGeneration: 0,
+
   // Flat list of workflow-attachment rejection records. Each entry:
   //   {message_id (number), originating_attachment_id (number|null),
   //    filename, workflow_id, mime, reason}

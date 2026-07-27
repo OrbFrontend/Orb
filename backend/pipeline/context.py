@@ -50,6 +50,7 @@ from ..inference import (
     client_from_settings,
     separate_agent_lane_configured,
 )
+from ..workflows import RegistrySnapshot, current_snapshot
 from .config import _build_writer_tools_blob
 from .predicates import agent_enabled, resolve_persona_id
 from .state import LorebookTurn
@@ -85,6 +86,11 @@ class PipelineContext:
     active_persona: UserPersonaRow | None
     agent_client: LLMClient | None
     agent_system_prompt: str | None
+    # Captured once, before any extension-sensitive context is loaded, and
+    # threaded through pre-hooks, fragment resolution, post-hooks, and
+    # persistence. An install landing mid-turn changes the next turn, never
+    # this one; nothing downstream re-reads the global registry pointer.
+    registry: RegistrySnapshot
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -98,6 +104,9 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     Returns a :class:`PipelineContext`, or ``None`` if the conversation is missing.
     """
     abort_token = abort_token or AbortToken()
+    # First, before any fragment, card, or workflow-sensitive read: everything
+    # below resolves against this one generation.
+    registry = current_snapshot()
     settings = await db.get_settings()
     conv = await db.get_conversation(conversation_id)
     if not conv:
@@ -148,6 +157,7 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         active_persona=active_persona,
         agent_client=agent_client,
         agent_system_prompt=agent_system_prompt,
+        registry=registry,
     )
 
 
@@ -347,6 +357,7 @@ async def _prepare_turn(
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
         accumulators=accumulators,
+        registry=ctx.registry,
     ):
         yield ev
 

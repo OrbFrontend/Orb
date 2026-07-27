@@ -22,6 +22,7 @@ from backend.database import (
 from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.orchestrator import _run_pipeline
 from backend.pipeline.workflow_bridge import _iterate_pre_pipeline_hooks
+from backend.workflows import current_snapshot
 
 from ._fixtures import make_workflow, register_for_test
 
@@ -42,6 +43,7 @@ def _pipeline_kwargs() -> dict:
         "turn_scratch": {},
         "kv_tracker": _KVCacheTracker(),
         "schema_overrides": {},
+        "registry": current_snapshot(),
     }
 
 
@@ -70,6 +72,7 @@ async def test_pre_pipeline_ctx_carries_readonly_card_snapshot():
                 kv_tracker=_KVCacheTracker(),
                 schema_overrides={},
                 accumulators={"merged_enabled_tools": {}, "extras": []},
+                registry=current_snapshot(),
             )
         )
 

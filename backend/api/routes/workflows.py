@@ -39,10 +39,10 @@ from ...workflows import (
     Subscription,
     WorkflowEventStream,
     _readonly,
+    current_snapshot,
     get_subscription,
     get_workflow,
     get_workflow_config,
-    list_workflows,
     set_workflow_config,
 )
 from ...workflows.attachment_cache import (
@@ -89,15 +89,38 @@ def _gate_workflow_sub(
 
 @router.get("/api/workflows")
 async def api_list_workflows():
-    """Manifest the frontend reads once at boot to populate Secondary tabs and buttons."""
+    """Manifest the frontend reads at boot to populate Secondary tabs and buttons.
+
+    ``source`` and ``frontend_kind`` are the load gate, not decoration: the
+    loader dynamically ``import()``s ``/static/workflows/<id>/index.js`` for
+    ``trusted_module`` entries only, and a community record is data handed to
+    the host renderer. ``frontend_kind`` is derived from the registry record's
+    tier rather than stored, so no install path can mint an entry that reaches
+    ``import()``.
+
+    ``load_status`` and ``diagnostic`` appear so a disabled, incompatible, or
+    invalid community package stays *visible* with an explanation instead of
+    vanishing from the manifest -- ``installed``, ``enabled``, and ``available``
+    are three separate things and the UI has to be able to tell them apart.
+
+    The response stays a bare array: it is read at boot by
+    ``loadWorkflowModules`` and by every ``S.workflowManifest`` consumer, and
+    the extension catalog (with its runtime generation) is a separate resource
+    rather than a wrapper bolted onto this one.
+    """
     return [
         {
             "id": w.id,
             "display_name": w.display_name,
             "config_schema": w.config_schema,
             "config_defaults": w.config_defaults,
+            "source": w.source.value,
+            "frontend_kind": w.frontend_kind.value,
+            "load_status": w.load_status.value,
+            "diagnostic": w.diagnostic,
+            **({"extension_api": w.extension_api} if w.extension_api is not None else {}),
         }
-        for w in list_workflows()
+        for w in current_snapshot().list()
     ]
 
 

@@ -1,0 +1,150 @@
+"""Frozen v1 contract models for community extension packages.
+
+This package is the *contract*, not the runtime: strict Pydantic models plus
+the static tables (capabilities, operations, components, effects) that describe
+what a v1 package may say. Nothing here reads a file, runs a flow, touches the
+database, or registers anything. That separation is what lets the compiler, the
+installer, the author-side validator, and the tests all agree on one definition
+of "valid package" without importing an executor.
+
+Import from here rather than from the submodules; the split between
+``manifest``, ``flow``, ``components``, ``schema_subset``, ``capabilities``,
+``effects``, and ``common`` is an implementation detail of how the models are
+organized, not a stable surface.
+"""
+
+from __future__ import annotations
+
+from .capabilities import (
+    ALL_CONTEXTS,
+    EXTERNAL_EFFECT_OPS,
+    HOOK_CONTEXTS,
+    IMPURE_CONTEXTS,
+    OPERATION_NAMES,
+    OPERATION_SPECS,
+    PURE_CONTEXTS,
+    Capability,
+    OpContext,
+    OperationSpec,
+    Quota,
+)
+from .common import (
+    EXTENSION_ID_PATTERN,
+    VALUE_ROOTS,
+    ExtensionId,
+    ExtModel,
+    Label,
+    LocalId,
+    Predicate,
+    StepId,
+    Value,
+    template_paths,
+    validate_ref_path,
+    validate_template,
+)
+from .components import (
+    COMPONENT_NAMES,
+    Component,
+    View,
+    iter_components,
+    referenced_actions,
+    referenced_assets,
+    used_components,
+)
+from .effects import EFFECT_RESOURCES, Effect, EffectEnvelope
+from .flow import (
+    Flow,
+    Step,
+    check_context,
+    declared_operations,
+    derive_capabilities,
+    iter_steps,
+)
+from .manifest import (
+    EXTENSION_API_VERSION,
+    ICON_NAMES,
+    UI_SLOTS,
+    ActionBinding,
+    ArtifactFlows,
+    Command,
+    Contributions,
+    ExtensionManifest,
+    FragmentTypeDescriptor,
+    Hooks,
+    Permission,
+    Placement,
+    PostHookBinding,
+    PreHookBinding,
+    Requires,
+    SecretDeclaration,
+    ViewBinding,
+    namespaced_fragment_type,
+    permission_key,
+    split_fragment_type,
+)
+from .schema_subset import PackageSchema, SchemaError, parse_schema
+
+__all__ = [
+    "ALL_CONTEXTS",
+    "COMPONENT_NAMES",
+    "EFFECT_RESOURCES",
+    "EXTENSION_API_VERSION",
+    "EXTENSION_ID_PATTERN",
+    "EXTERNAL_EFFECT_OPS",
+    "HOOK_CONTEXTS",
+    "ICON_NAMES",
+    "IMPURE_CONTEXTS",
+    "OPERATION_NAMES",
+    "OPERATION_SPECS",
+    "PURE_CONTEXTS",
+    "UI_SLOTS",
+    "VALUE_ROOTS",
+    "ActionBinding",
+    "ArtifactFlows",
+    "Capability",
+    "Command",
+    "Component",
+    "Contributions",
+    "Effect",
+    "EffectEnvelope",
+    "ExtModel",
+    "ExtensionId",
+    "ExtensionManifest",
+    "Flow",
+    "FragmentTypeDescriptor",
+    "Hooks",
+    "Label",
+    "LocalId",
+    "OpContext",
+    "OperationSpec",
+    "PackageSchema",
+    "Permission",
+    "Placement",
+    "PostHookBinding",
+    "PreHookBinding",
+    "Predicate",
+    "Quota",
+    "Requires",
+    "SchemaError",
+    "SecretDeclaration",
+    "Step",
+    "StepId",
+    "Value",
+    "View",
+    "ViewBinding",
+    "check_context",
+    "declared_operations",
+    "derive_capabilities",
+    "iter_components",
+    "iter_steps",
+    "namespaced_fragment_type",
+    "parse_schema",
+    "permission_key",
+    "referenced_actions",
+    "referenced_assets",
+    "split_fragment_type",
+    "template_paths",
+    "used_components",
+    "validate_ref_path",
+    "validate_template",
+]

@@ -19,6 +19,7 @@ from typing import Any
 from ..core import ChatMessage, Macros
 from ..database.models import PhraseGroup
 from ..inference import LLMClient, _KVCacheTracker
+from ..workflows import RegistrySnapshot
 from .config import _resolve_pipeline_config, _split_interactive_fragments
 from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
@@ -82,6 +83,7 @@ async def _run_pipeline(
     turn_scratch: dict,
     kv_tracker: _KVCacheTracker,
     schema_overrides: Mapping[str, dict],
+    registry: RegistrySnapshot,
     history: Sequence[Mapping[str, Any]] | None = None,
     lorebook: LorebookTurn | None = None,
 ) -> AsyncIterator[dict]:
@@ -227,6 +229,7 @@ async def _run_pipeline(
         client=client,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
+        registry=registry,
     ):
         if isinstance(ev, _PostPipelineResult):
             post = ev

@@ -1,10 +1,30 @@
 """Workflow registry, registration entry point, and per-workflow storage.
 
-The registry is a process-local mapping of workflow ids to ``Workflow``
-records. Iteration order matches registration order: the dict preserves
-insertion order, and reassignment to an existing key keeps the original
-position. Hooks are attached separately through ``subscribe`` and live
-on the owner record's ``subscriptions`` list.
+The registry has two bands with different lifetimes.
+
+The **built-in base** is the process-local mapping of ids to ``Workflow``
+records populated at import time by ``backend/workflows/__init__.py``.
+Iteration order matches registration order: the dict preserves insertion
+order, and reassignment to an existing key keeps the original position.
+Hooks are attached separately through ``subscribe`` and live on the owner
+record's ``subscriptions`` list.
+
+The **community overlay** is a copy-on-write tuple of records compiled from
+installed declarative packages, replaced wholesale by
+``publish_community_overlay``. Community records never enter the base dict,
+never reach ``register_tool``, and never claim a tool name -- ``Workflow``
+validation rejects a community record that declares tools at all.
+
+Readers do not consult either band directly. They capture a
+:class:`RegistrySnapshot` (``current_snapshot()``) and resolve against it.
+A turn captures exactly one snapshot before loading extension-sensitive
+context and threads it through pre-hooks, fragment resolution, post-hooks,
+and persistence, so an install that lands mid-turn cannot mix an old
+pre-hook with a new post-hook. Snapshot resolution is a pure function of
+(base, published), and a publish swaps one ``_Published`` reference carrying
+both the overlay and its generation, so publishing never leaves a reader
+looking at a half-updated registry or at records wearing the wrong
+generation.
 
 Storage wrappers (``get_workflow_state`` etc.) are thin awaiting wrappers
 over ``backend.database`` so the toolkit has a single namespace for both
@@ -15,9 +35,11 @@ exception that adds behavior: it falls back to the workflow's
 
 from __future__ import annotations
 
+import itertools
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any
 
 from ..database import (
@@ -50,7 +72,14 @@ from ..inference import (
     TOOLS,
     register_tool,
 )
-from .contracts import HookType, ToolSpec
+from .contracts import (
+    FrontendKind,
+    HookStage,
+    HookType,
+    LoadStatus,
+    ToolSpec,
+    WorkflowSource,
+)
 
 
 @dataclass
@@ -69,6 +98,15 @@ class Workflow:
     and echo back a shape the workflow's own hooks then silently repair or drop
     on read -- leaving a settings panel showing entries the backend ignores.
     Optional: a workflow with no normalizer keeps the raw round-trip.
+
+    ``source`` splits the two trust tiers. Everything below it describes a
+    community record and stays at its default for a built-in: ``extension_api``
+    (the package's declared compatibility boundary), ``content_digest`` (which
+    revision this record was compiled from), and ``load_status`` /
+    ``diagnostic`` (why an installed package publishes no entry points).
+    ``frontend_kind`` is derived from ``source`` rather than stored, so no
+    field exists that could put a community record into the band the frontend
+    dynamically ``import()``s.
     """
 
     id: str
@@ -79,6 +117,16 @@ class Workflow:
     produces_artifacts: bool = False
     subscriptions: list[Subscription] = field(default_factory=list)
     config_normalizer: Callable[[Any], dict] | None = None
+    source: WorkflowSource = WorkflowSource.BUILTIN
+    extension_api: int | None = None
+    content_digest: str | None = None
+    load_status: LoadStatus = LoadStatus.AVAILABLE
+    diagnostic: str = ""
+
+    @property
+    def frontend_kind(self) -> FrontendKind:
+        """Derived, never declared: only a built-in is a trusted module."""
+        return FrontendKind.TRUSTED_MODULE if self.source is WorkflowSource.BUILTIN else FrontendKind.DECLARATIVE
 
 
 @dataclass(frozen=True)
@@ -88,12 +136,18 @@ class Subscription:
     ``priority`` only matters for fan-out slots (``PRE_PIPELINE``,
     ``POST_PIPELINE``); single-dispatch slots are resolved by workflow id
     and ignore it.
+
+    ``stage`` applies to ``POST_PIPELINE`` only and is ignored elsewhere;
+    ``source`` mirrors the owning record's tier so ordering can band without
+    a second lookup.
     """
 
     hook_type: HookType
     callable: Callable
     priority: int = 0
     workflow_id: str = ""
+    stage: HookStage = HookStage.TRANSFORM
+    source: WorkflowSource = WorkflowSource.BUILTIN
 
 
 class ToolNameCollision(Exception):
@@ -115,8 +169,30 @@ class WorkflowDeclarationError(ValueError):
 _WORKFLOW_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
+_COMMUNITY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+"""The lowercase fragment/card grammar, reused for community extension ids.
+
+Deliberately stricter than ``_WORKFLOW_ID_RE``, which admits uppercase for the
+built-ins. A community id is also a state-slot key, a namespaced fragment-type
+prefix, and a content-store path component, so ``scene-meter`` and
+``Scene-Meter`` must not be two installable packages: on a case-folding
+filesystem they are one, and on Linux they are two, and the difference would
+decide whose conversation state one of them reads. Matches
+``features/extensions/contracts/common.EXTENSION_ID_PATTERN``, which the
+manifest parser enforces on the other side of the same boundary.
+"""
+
+RESERVED_WORKFLOW_IDS: frozenset[str] = frozenset({"macros"})
+"""Ids a community package may not claim.
+
+``macros`` is the reserved per-message state slot; a package owning it would
+namespace its state onto Orb's own key. Built-in ids are reserved implicitly by
+being present in the base.
+"""
+
 
 _WORKFLOWS_BY_ID: dict[str, Workflow] = {}
+"""The built-in base. Populated at import time; never holds a community record."""
 
 
 def _declared_function_name(payload: object) -> object:
@@ -148,6 +224,11 @@ def register_workflow(w: Workflow) -> None:
     if not isinstance(w.id, str) or _WORKFLOW_ID_RE.fullmatch(w.id) is None:
         raise WorkflowDeclarationError(
             f"workflow id {w.id!r} must be 1-64 ASCII letters, digits, underscores, or hyphens and start with a letter or digit"
+        )
+    if w.source is not WorkflowSource.BUILTIN:
+        raise WorkflowDeclarationError(
+            f"workflow {w.id!r} declares source={w.source.value!r}; community records enter through "
+            f"publish_community_overlay, not register_workflow"
         )
 
     seen_tool_names: set[str] = set()
@@ -202,42 +283,56 @@ def subscribe(
     fn: Callable,
     *,
     priority: int = 0,
+    stage: HookStage = HookStage.TRANSFORM,
 ) -> None:
     record = _WORKFLOWS_BY_ID.get(workflow_id)
     if record is None:
         raise LookupError(f"subscribe: workflow {workflow_id!r} not registered")
+    _bind_subscription(record, hook_type, fn, priority=priority, stage=stage)
+
+
+def _bind_subscription(
+    record: Workflow,
+    hook_type: HookType,
+    fn: Callable,
+    *,
+    priority: int,
+    stage: HookStage,
+) -> None:
+    """Append one validated subscription to *record*.
+
+    Shared by ``subscribe`` (built-in base) and the community overlay builder,
+    so both tiers enforce the same one-binding-per-hook rule and the same
+    artifact mandate. The overlay cannot reach ``subscribe`` itself because its
+    records are deliberately absent from the base dict.
+    """
     if any(s.hook_type is hook_type for s in record.subscriptions):
-        raise ValueError(f"workflow {workflow_id!r} already has a {hook_type.value} subscription")
+        raise ValueError(f"workflow {record.id!r} already has a {hook_type.value} subscription")
     if hook_type in (HookType.REGENERATE, HookType.REROLL_GEN) and not record.produces_artifacts:
-        raise ValueError(f"workflow {workflow_id!r} cannot subscribe to {hook_type.value} without produces_artifacts=True")
-    record.subscriptions.append(Subscription(hook_type, fn, priority, workflow_id))
-
-
-def iter_subscriptions(hook_type: HookType) -> list[Subscription]:
-    """Return subscriptions of ``hook_type`` sorted by priority ascending.
-
-    Tie-break is registration order: ``dict`` insertion order plus
-    Python's stable sort preserves it without an explicit secondary key.
-    """
-    subs = [s for w in _WORKFLOWS_BY_ID.values() for s in w.subscriptions if s.hook_type is hook_type]
-    subs.sort(key=lambda s: s.priority)
-    return subs
-
-
-def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription | None:
-    """Return the workflow's subscription for ``hook_type``, or None.
-
-    Collapses "unregistered" and "no binding" into one None -- the routes
-    that use this (regenerate, reroll_gen) treat both as 404 anyway.
-    """
-    record = _WORKFLOWS_BY_ID.get(workflow_id)
-    if record is None:
-        return None
-    return next((s for s in record.subscriptions if s.hook_type is hook_type), None)
+        raise ValueError(f"workflow {record.id!r} cannot subscribe to {hook_type.value} without produces_artifacts=True")
+    record.subscriptions.append(Subscription(hook_type, fn, priority, record.id, stage, record.source))
 
 
 def workflow_has_hook(w: Workflow, hook_type: HookType) -> bool:
     return any(s.hook_type is hook_type for s in w.subscriptions)
+
+
+def _assert_artifact_mandate(workflows: Iterable[Workflow]) -> None:
+    for w in workflows:
+        if not w.produces_artifacts:
+            continue
+        missing = [
+            name
+            for name, hook in (
+                ("regenerate", HookType.REGENERATE),
+                ("reroll_gen", HookType.REROLL_GEN),
+            )
+            if not workflow_has_hook(w, hook)
+        ]
+        if missing:
+            raise WorkflowMandateError(
+                f"workflow {w.id!r} declares produces_artifacts=True but lacks subscriptions: {', '.join(missing)}"
+            )
 
 
 def finalize_registry() -> None:
@@ -247,30 +342,243 @@ def finalize_registry() -> None:
     Invoke at the bottom of any module that completes a workflow's wiring
     -- this is the only hook that fails import on a partially-bound
     artifact workflow rather than deferring the crash to the first regen
-    click.
+    click. The same validation runs again before every community overlay
+    publish, so an installed package cannot smuggle in the half-bound state
+    the import-time check exists to prevent.
     """
-    for w in _WORKFLOWS_BY_ID.values():
-        if not w.produces_artifacts:
-            continue
-        missing: list[str] = []
-        if not workflow_has_hook(w, HookType.REGENERATE):
-            missing.append("regenerate")
-        if not workflow_has_hook(w, HookType.REROLL_GEN):
-            missing.append("reroll_gen")
-        if missing:
-            raise WorkflowMandateError(
-                f"workflow {w.id!r} declares produces_artifacts=True but lacks subscriptions: {', '.join(missing)}"
+    _assert_artifact_mandate(_WORKFLOWS_BY_ID.values())
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Immutable snapshots: built-in base + community overlay
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@dataclass(frozen=True, slots=True)
+class RegistrySnapshot:
+    """One resolved, ordered view of the registry at a point in time.
+
+    Readers capture a snapshot once and resolve everything against it. The
+    resolved record set and the per-hook ordering cannot change underneath an
+    in-flight turn, which is the guarantee the design calls for: an update
+    cannot mix an old pre-hook with a new post-hook, or an old fragment schema
+    with a new reducer.
+
+    ``generation`` increases on every lifecycle mutation (install, update,
+    rollback, enablement change, permission change, uninstall). The frontend
+    uses it to discard stale catalog and view responses; callers use it to
+    assert that two reads came from the same registry.
+
+    ``digests`` maps each community id to the content digest its record was
+    compiled from -- the reference that keeps content garbage collection from
+    deleting a directory an in-flight invocation still describes.
+    """
+
+    generation: int
+    workflows: Mapping[str, Workflow]
+    by_hook: Mapping[HookType, tuple[Subscription, ...]]
+    digests: Mapping[str, str]
+
+    def get(self, workflow_id: str) -> Workflow | None:
+        return self.workflows.get(workflow_id)
+
+    def list(self) -> list[Workflow]:
+        """Records in manifest order: built-ins first, then community ids."""
+        return list(self.workflows.values())
+
+    def subscriptions(self, hook_type: HookType) -> tuple[Subscription, ...]:
+        return self.by_hook.get(hook_type, ())
+
+    def subscription(self, workflow_id: str, hook_type: HookType) -> Subscription | None:
+        record = self.workflows.get(workflow_id)
+        if record is None:
+            return None
+        return next((s for s in record.subscriptions if s.hook_type is hook_type), None)
+
+
+@dataclass(frozen=True, slots=True)
+class _Published:
+    """The community half of the registry, as one indivisible value.
+
+    Generation and overlay live in the same object rather than in two module
+    globals because they are one fact. Two globals can only be written one at a
+    time, and a reader landing between the writes would build a snapshot
+    labelled with the new generation but carrying the old records -- a stale
+    record set wearing a fresh label, which is precisely what the generation
+    exists to let callers detect.
+    """
+
+    generation: int
+    overlay: tuple[Workflow, ...] = ()
+
+
+_GENERATION_COUNTER = itertools.count(1)
+_PUBLISHED = _Published(generation=next(_GENERATION_COUNTER))
+
+
+def _ordered_for_hook(
+    base: Mapping[str, Workflow],
+    overlay: Sequence[Workflow],
+    hook_type: HookType,
+) -> tuple[Subscription, ...]:
+    """Resolve one hook slot's execution order.
+
+    Stage precedes source band. Within a band, built-ins keep their declared
+    priority and, on a tie, their registration order; community entries sort by
+    priority then extension id. Community ordering is deliberately independent
+    of installation time -- two users with the same set of packages must get
+    the same turn.
+
+    The two bands are sorted separately and concatenated rather than sorted by
+    one composite key, because their tie-breakers are different types and a
+    single key would only be well-ordered by accident.
+    """
+    stages: tuple[HookStage | None, ...] = (
+        (HookStage.TRANSFORM, HookStage.OBSERVE) if hook_type is HookType.POST_PIPELINE else (None,)
+    )
+    insertion = {wid: index for index, wid in enumerate(base)}
+    ordered: list[Subscription] = []
+    for stage in stages:
+
+        def matches(sub: Subscription, stage: HookStage | None = stage) -> bool:
+            return sub.hook_type is hook_type and (stage is None or sub.stage is stage)
+
+        builtin = [s for w in base.values() for s in w.subscriptions if matches(s)]
+        builtin.sort(key=lambda s: (s.priority, insertion.get(s.workflow_id, 0)))
+        community = [s for w in overlay for s in w.subscriptions if matches(s)]
+        community.sort(key=lambda s: (s.priority, s.workflow_id))
+        ordered.extend(builtin)
+        ordered.extend(community)
+    return tuple(ordered)
+
+
+def current_snapshot() -> RegistrySnapshot:
+    """Capture the registry as it stands right now.
+
+    Call this **once** per turn, request, or lifecycle operation and thread the
+    result through everything that follows. Re-reading it mid-turn is the bug
+    the snapshot exists to prevent: two reads can straddle a publish and
+    disagree about which revision the turn is running.
+
+    Resolution is a pure function of the base dict and one ``_Published``
+    reference, both read once here, so a concurrent publish either lands
+    entirely before this call or entirely after it. Reading the generation off
+    that same reference -- not off a second global -- is what makes "entirely"
+    true of the label as well as the records.
+    """
+    base = _WORKFLOWS_BY_ID
+    published = _PUBLISHED
+    overlay = published.overlay
+    workflows: dict[str, Workflow] = dict(base)
+    for record in overlay:
+        workflows[record.id] = record
+    return RegistrySnapshot(
+        generation=published.generation,
+        workflows=MappingProxyType(workflows),
+        by_hook=MappingProxyType({hook: _ordered_for_hook(base, overlay, hook) for hook in HookType}),
+        digests=MappingProxyType({r.id: r.content_digest for r in overlay if r.content_digest}),
+    )
+
+
+def runtime_generation() -> int:
+    """The current runtime generation, without building a snapshot."""
+    return _PUBLISHED.generation
+
+
+def publish_community_overlay(records: Sequence[Workflow]) -> int:
+    """Replace the whole community overlay and return the new generation.
+
+    Wholesale replacement, not incremental patching: a lifecycle mutation
+    recompiles every installed package's record set and swaps one immutable
+    tuple in. That is what makes "install/update/rollback publish content, DB
+    metadata, grants, enablement, and runtime generation as one observed
+    transition" true -- there is no window in which half the overlay is new.
+
+    Validation runs entirely before the swap, so a rejected publish leaves the
+    prior overlay, its commands, and its fragment descriptors active.
+    """
+    seen: set[str] = set()
+    for record in records:
+        if record.source is not WorkflowSource.COMMUNITY:
+            raise WorkflowDeclarationError(f"overlay record {record.id!r} must declare source=COMMUNITY")
+        if not isinstance(record.id, str) or _COMMUNITY_ID_RE.fullmatch(record.id) is None:
+            raise WorkflowDeclarationError(
+                f"community workflow id {record.id!r} does not match the lowercase extension id grammar"
             )
+        if record.id in RESERVED_WORKFLOW_IDS:
+            raise WorkflowDeclarationError(f"community workflow id {record.id!r} is reserved")
+        if record.id in _WORKFLOWS_BY_ID:
+            raise WorkflowDeclarationError(f"community workflow id {record.id!r} collides with a built-in workflow")
+        if record.id in seen:
+            raise WorkflowDeclarationError(f"duplicate community workflow id {record.id!r}")
+        # Community packages do not add tools to Director, Writer, or Editor.
+        # Enabling an ordinary extension must not change the main tool blob, so
+        # the declaration is rejected here rather than filtered downstream.
+        if record.tools:
+            raise WorkflowDeclarationError(
+                f"community workflow {record.id!r} declares tools; extension flows make their own bounded "
+                f"model calls and never enter the shared tool registry"
+            )
+        # "Publishes no entry points" has to cover produces_artifacts too, not
+        # just subscriptions. It is an entry-point declaration -- it is what puts
+        # regenerate/reroll buttons on an attachment -- and leaving it set on an
+        # unavailable record would trip the artifact mandate below, failing the
+        # *whole* overlay swap over one broken package. Startup must isolate a
+        # bad package, not let it block every other extension and the built-ins.
+        if record.load_status is not LoadStatus.AVAILABLE and (record.subscriptions or record.produces_artifacts):
+            raise WorkflowDeclarationError(
+                f"community workflow {record.id!r} is {record.load_status.value} but published entry points; "
+                f"an unavailable record must carry no subscriptions and produces_artifacts=False"
+            )
+        seen.add(record.id)
+    _assert_artifact_mandate(records)
+
+    global _PUBLISHED
+    _PUBLISHED = _Published(generation=next(_GENERATION_COUNTER), overlay=tuple(records))
+    return _PUBLISHED.generation
 
 
-def list_workflows() -> list[Workflow]:
-    """Return a shallow copy of the registry in registration order."""
-    return list(_WORKFLOWS_BY_ID.values())
+def bump_generation() -> int:
+    """Advance the runtime generation without changing published records.
+
+    Enablement and permission changes do not recompile anything, but they do
+    change what the frontend should be showing, and a stale catalog response
+    that arrives after one of them must still be discardable.
+    """
+    global _PUBLISHED
+    _PUBLISHED = _Published(generation=next(_GENERATION_COUNTER), overlay=_PUBLISHED.overlay)
+    return _PUBLISHED.generation
 
 
-def get_workflow(workflow_id: str) -> Workflow | None:
+# ── snapshot-aware resolvers ────────────────────────────────────────────────
+# Each takes an explicit snapshot. Passing None captures one, which is correct
+# for a single lookup at the top of a request but wrong inside a turn -- the
+# turn already holds one and must use it.
+
+
+def iter_subscriptions(hook_type: HookType, *, snapshot: RegistrySnapshot | None = None) -> list[Subscription]:
+    """Return subscriptions of ``hook_type`` in resolved execution order."""
+    return list((snapshot or current_snapshot()).subscriptions(hook_type))
+
+
+def get_subscription(workflow_id: str, hook_type: HookType, *, snapshot: RegistrySnapshot | None = None) -> Subscription | None:
+    """Return the workflow's subscription for ``hook_type``, or None.
+
+    Collapses "unregistered" and "no binding" into one None -- the routes
+    that use this (regenerate, reroll_gen) treat both as 404 anyway.
+    """
+    return (snapshot or current_snapshot()).subscription(workflow_id, hook_type)
+
+
+def list_workflows(*, snapshot: RegistrySnapshot | None = None) -> list[Workflow]:
+    """Return the resolved record list: built-ins in registration order,
+    then community records."""
+    return (snapshot or current_snapshot()).list()
+
+
+def get_workflow(workflow_id: str, *, snapshot: RegistrySnapshot | None = None) -> Workflow | None:
     """Look up a workflow by id, or None if not registered."""
-    return _WORKFLOWS_BY_ID.get(workflow_id)
+    return (snapshot or current_snapshot()).get(workflow_id)
 
 
 async def get_workflow_state(conv_id: str, workflow_id: str) -> dict | None:
@@ -317,7 +625,7 @@ async def get_workflow_config(workflow_id: str) -> dict:
     raw = await _db_get_workflow_config(workflow_id)
     if raw:
         return raw
-    w = _WORKFLOWS_BY_ID.get(workflow_id)
+    w = get_workflow(workflow_id)
     if w is not None:
         return dict(w.config_defaults)
     return {}

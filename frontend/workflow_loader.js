@@ -1,5 +1,13 @@
+import { isTrustedModuleEntry } from "./extension_policy.js";
 import { renderToolsPanel } from "./settings.js";
 import { S } from "./state.js";
+
+// This loop is the only place a workflow id becomes a module path, so it is the
+// only place the trust gate has to hold. `isTrustedModuleEntry` admits shipped,
+// code-reviewed modules under /static/workflows/ and nothing else; community
+// extensions are `"declarative"` and reach the host component/command renderer
+// as data. Their id must never reach `import()` — that would turn a
+// package-chosen string into a same-origin module fetch.
 
 // Imports run sequentially (await in the loop, not Promise.all) so each
 // module's top-level registry pushes land in manifest order; the renderer
@@ -8,7 +16,7 @@ import { S } from "./state.js";
 export async function loadWorkflowModules() {
   let loaded = false;
   for (const w of S.workflowManifest) {
-    if (!w || typeof w.id !== "string") continue;
+    if (!isTrustedModuleEntry(w)) continue;
     try {
       await import(`/static/workflows/${w.id}/index.js`);
       loaded = true;

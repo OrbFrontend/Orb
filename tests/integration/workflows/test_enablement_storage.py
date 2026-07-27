@@ -61,4 +61,18 @@ async def test_manifest_lists_disabled_workflow_with_no_enabled_field(client):
     body = (await client.get("/api/workflows")).json()
     tts = next((w for w in body if w["id"] == "tts"), None)
     assert tts is not None, "a disabled workflow must stay in the manifest"
-    assert set(tts.keys()) == {"id", "display_name", "config_schema", "config_defaults"}
+    # Enablement is settings state, never a manifest field: the manifest
+    # describes what exists and how it loads, and the toggle route owns
+    # whether it runs. `load_status` is the *other* axis (can the active
+    # revision run at all) and is always "available" for a built-in.
+    assert set(tts.keys()) == {
+        "id",
+        "display_name",
+        "config_schema",
+        "config_defaults",
+        "source",
+        "frontend_kind",
+        "load_status",
+        "diagnostic",
+    }
+    assert tts["load_status"] == "available"

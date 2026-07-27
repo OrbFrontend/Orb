@@ -27,6 +27,7 @@ from backend.workflows import (
     HookType,
     PostCtx,
     RegenCtx,
+    current_snapshot,
     get_workflow,
     set_workflow_character_state,
     set_workflow_config,
@@ -144,6 +145,7 @@ async def test_run_pipeline_autogenerates_attachment_end_to_end(client, fake_ada
                 turn_scratch={},
                 kv_tracker=_KVCacheTracker(),
                 schema_overrides={},
+                registry=current_snapshot(),
             )
         ]
 

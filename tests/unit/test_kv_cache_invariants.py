@@ -59,6 +59,7 @@ from backend.inference.kv_tracker import (
 )
 from backend.pipeline.orchestrator import _run_pipeline
 from backend.pipeline.passes.editor.editor import editor_pass
+from backend.workflows import current_snapshot
 
 
 def _wire_tools(tools: Any) -> str:
@@ -340,6 +341,7 @@ async def _run_turn(
         turn_scratch={},
         kv_tracker=tracker,
         schema_overrides=schema_overrides,
+        registry=current_snapshot(),
         history=prefix[1:],
     )
     async for _ in gen:

@@ -143,7 +143,8 @@ CREATE TABLE IF NOT EXISTS interactive_fragments (
     enabled BOOLEAN NOT NULL DEFAULT 1,
     injection_label TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
-    direction_note_timing TEXT NOT NULL DEFAULT 'post_turn'
+    direction_note_timing TEXT NOT NULL DEFAULT 'post_turn',
+    type_config TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS conversation_logs (
@@ -278,6 +279,55 @@ CREATE TABLE IF NOT EXISTS documents (
     generated_spans TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+-- Community extensions. These three tables are LOCAL_ONLY (see
+-- database/preset_schema.py): they ride along in a full local snapshot so a
+-- rollback also rolls back installation metadata, and are stripped from every
+-- shareable preset. Installing an extension is a per-machine trust decision,
+-- so a preset must never be able to carry one to another user's Orb.
+CREATE TABLE IF NOT EXISTS extension_packages (
+    id TEXT PRIMARY KEY,
+    source_kind TEXT NOT NULL CHECK (source_kind IN ('git', 'archive')),
+    source_url TEXT NOT NULL DEFAULT '',
+    requested_ref TEXT NOT NULL DEFAULT '',
+    active_digest TEXT NOT NULL,
+    previous_digest TEXT DEFAULT NULL,
+    approved_permissions TEXT NOT NULL DEFAULT '[]',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    load_status TEXT NOT NULL DEFAULT 'available'
+        CHECK (load_status IN ('available', 'incompatible', 'invalid', 'missing_content')),
+    load_error TEXT NOT NULL DEFAULT '',
+    installed_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- One row per content digest Orb has compiled for a package. Keeping the
+-- manifest and resolved commit here (rather than only two digest strings on
+-- the package row) is what lets rollback recompile the prior revision and show
+-- an honest permission diff instead of guessing.
+CREATE TABLE IF NOT EXISTS extension_revisions (
+    extension_id TEXT NOT NULL REFERENCES extension_packages(id) ON DELETE CASCADE,
+    content_digest TEXT NOT NULL,
+    manifest TEXT NOT NULL,
+    extension_api INTEGER NOT NULL,
+    version TEXT NOT NULL DEFAULT '',
+    commit_id TEXT DEFAULT NULL,
+    contract_fingerprint TEXT NOT NULL DEFAULT '',
+    first_seen_at TEXT NOT NULL,
+    PRIMARY KEY (extension_id, content_digest)
+);
+
+-- Write-only from the API's perspective: reads return presence metadata, never
+-- the value. At-rest storage is Orb's ordinary local SQLite posture -- the
+-- security property here is non-disclosure to package logic and to frontend
+-- payloads, not encryption Orb does not provide.
+CREATE TABLE IF NOT EXISTS extension_secrets (
+    extension_id TEXT NOT NULL REFERENCES extension_packages(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    secret_value TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (extension_id, name)
 );
 
 """

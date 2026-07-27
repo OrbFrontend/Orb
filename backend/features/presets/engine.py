@@ -142,7 +142,11 @@ def _build_schema_model(conn: sqlite3.Connection) -> _Schema:
     """
     rows = conn.execute("SELECT name, sql FROM sqlite_master WHERE type = 'table'").fetchall()
     ddl = {name: (sql or "") for name, sql in rows}
-    names = [n for n in ddl if n not in ps.EXCLUDED_TABLES and not n.startswith("sqlite_")]
+    # Local-only tables are invisible to the merge model for the same reason
+    # excluded ones are -- neither is ever exported or merged -- but they are
+    # checked separately (``_local_only_columns``) rather than being allowed to
+    # drift unnoticed, because unlike excluded tables they hold real user data.
+    names = [n for n in ddl if n not in ps.EXCLUDED_TABLES and n not in ps.LOCAL_ONLY_TABLES and not n.startswith("sqlite_")]
 
     tables: dict[str, _Table] = {}
     for name in names:
@@ -239,6 +243,21 @@ def _topo_order(tables: dict[str, _Table]) -> tuple[list[str], set[tuple[str, st
     return order, deferred
 
 
+def _local_only_columns(conn: sqlite3.Connection) -> dict[str, list[str]]:
+    """Column lists for the local-only tables that exist in *conn*.
+
+    These are deliberately outside the merge model, so this is the only place
+    that can notice one has been renamed, dropped, or grown a column since the
+    canonical schema declared it.
+    """
+    present = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        if row[0] in ps.LOCAL_ONLY_TABLES
+    }
+    return {name: [r[1] for r in conn.execute(f"PRAGMA table_info({name})").fetchall()] for name in sorted(present)}
+
+
 def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
     """Return human-readable reasons the live schema is not fully covered by the
     declared preset policy -- empty when everything is accounted for.
@@ -249,7 +268,21 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
     schema changes, instead of silently dropping data or aborting an import later.
     """
     schema = _build_schema_model(conn)
+    local_only = _local_only_columns(conn)
     problems: list[str] = []
+
+    # A local-only table must be exactly that: present, not claiming a domain,
+    # not also excluded, and not pointed at by anything the engine *does*
+    # export -- an exported row whose FK parent is stripped would import as a
+    # dangling reference.
+    overlap = sorted(ps.LOCAL_ONLY_TABLES & ps.EXCLUDED_TABLES)
+    if overlap:
+        problems.append(f"table(s) {overlap} are in both LOCAL_ONLY_TABLES and EXCLUDED_TABLES; pick one")
+    for name in sorted(ps.LOCAL_ONLY_TABLES & set(ps.DOMAIN_ROOTS)):
+        problems.append(f"LOCAL_ONLY_TABLES entry {name!r} also claims a domain in DOMAIN_ROOTS; a local-only table has none")
+    for name in sorted(ps.LOCAL_ONLY_TABLES - set(local_only)):
+        problems.append(f"LOCAL_ONLY_TABLES entry {name!r} is not an existing table; fix the name or drop the entry")
+
     for name, t in schema.tables.items():
         if schema.domain_of(name) is None:
             problems.append(
@@ -257,11 +290,27 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
                 f"a domain in DOMAIN_ROOTS or add {name!r} to EXCLUDED_TABLES"
             )
         for fk in t.fks:
-            if fk.parent not in schema.tables:
+            if fk.parent in ps.LOCAL_ONLY_TABLES:
+                problems.append(
+                    f"{name}.{fk.from_col} references local-only table {fk.parent!r}; exported rows would "
+                    f"import with a dangling reference. Make {name!r} local-only too, or drop the FK."
+                )
+            elif fk.parent not in schema.tables:
                 problems.append(
                     f"{name}.{fk.from_col} references unclassified parent {fk.parent!r} (excluded or unknown table)"
                 )
         for col in t.cols:
+            if ps.is_sensitive_column(col) and (name, col) not in ps.SECRET_COLUMNS:
+                problems.append(
+                    f"column {name}.{col} looks secret but is not in SECRET_COLUMNS; add it (with its scrub value) or rename it"
+                )
+
+    # Local-only tables are outside the merge model, so the loop above cannot
+    # see their columns. They still need the sensitive-column check: "invisible
+    # to export" is a property of today's policy, not a reason to stop
+    # declaring what is secret.
+    for name, cols in local_only.items():
+        for col in cols:
             if ps.is_sensitive_column(col) and (name, col) not in ps.SECRET_COLUMNS:
                 problems.append(
                     f"column {name}.{col} looks secret but is not in SECRET_COLUMNS; add it (with its scrub value) or rename it"
@@ -294,7 +343,8 @@ def schema_coverage_problems(conn: sqlite3.Connection) -> list[str]:
                 f"map to a domain, children inherit their root's"
             )
     for table, col in ps.SECRET_COLUMNS:
-        if table not in schema.tables or col not in schema.tables[table].cols:
+        known = schema.tables[table].cols if table in schema.tables else local_only.get(table, [])
+        if col not in known:
             problems.append(f"SECRET_COLUMNS entry ({table!r}, {col!r}) does not exist in the schema; drop it or fix the name")
     for table, cols in ps.PRESERVED_COLUMNS.items():
         for col in cols:
@@ -328,13 +378,16 @@ def schema_equivalence_problems(conn: sqlite3.Connection) -> list[str]:
     classification, or FK-edge set, plus any difference in the deferred-edge set.
     """
     live = _build_schema_model(conn)
-    ref = sqlite3.connect(":memory:")
+    ref_conn = sqlite3.connect(":memory:")
     try:
-        ref.executescript(CREATE_TABLES_SQL)
-        canon = _build_schema_model(ref)
+        ref_conn.executescript(CREATE_TABLES_SQL)
+        canon = _build_schema_model(ref_conn)
+        return _equivalence_problems(conn, ref_conn, live, canon)
     finally:
-        ref.close()
+        ref_conn.close()
 
+
+def _equivalence_problems(conn, ref_conn, live: _Schema, canon: _Schema) -> list[str]:
     problems: list[str] = []
     live_names, canon_names = set(live.tables), set(canon.tables)
     for name in sorted(canon_names - live_names):
@@ -371,6 +424,25 @@ def schema_equivalence_problems(conn: sqlite3.Connection) -> list[str]:
             problems.append(
                 f"{name}.{from_col}: live has FK {parent}({to_col}) ON DELETE {on_delete} absent from the canonical schema"
             )
+
+    # Local-only tables sit outside the merge model, so the per-table loop
+    # above never sees them. Compare their column sets directly: a migration
+    # that adds an extension column on upgrade but forgets ``schema.py`` would
+    # otherwise diverge silently on every existing install.
+    live_local, canon_local = _local_only_columns(conn), _local_only_columns(ref_conn)
+    for name in sorted(set(canon_local) | set(live_local)):
+        if name not in live_local:
+            problems.append(f"local-only table {name!r} is in the canonical schema but missing from the live DB")
+            continue
+        if name not in canon_local:
+            problems.append(f"local-only table {name!r} is in the live DB but not the canonical schema (CREATE_TABLES_SQL)")
+            continue
+        missing = set(canon_local[name]) - set(live_local[name])
+        extra = set(live_local[name]) - set(canon_local[name])
+        if missing:
+            problems.append(f"{name}: live is missing column(s) {sorted(missing)} present in the canonical schema")
+        if extra:
+            problems.append(f"{name}: live has extra column(s) {sorted(extra)} absent from the canonical schema")
 
     only_canon = canon.deferred - live.deferred
     only_live = live.deferred - canon.deferred
@@ -567,7 +639,9 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
         if domain == "configs" and schema.tables[root].kind != "singleton":
             conn.execute(f"DELETE FROM {root}")
     for (table, col), blank in ps.SECRET_COLUMNS.items():
-        if schema.tables[table].kind == "singleton":
+        # A local-only table is absent from the model: its rows are deleted
+        # outright by build_preset, so there is nothing left here to blank.
+        if table in schema.tables and schema.tables[table].kind == "singleton":
             conn.execute(f"UPDATE {table} SET {col} = ?", (blank,))
 
 
@@ -614,6 +688,16 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                     f"its data would silently never be backed up. Give its root a domain in "
                     f"DOMAIN_ROOTS, or confirm it must stay excluded."
                 )
+        # Local-only rows never leave this machine, whatever domains were
+        # selected. Deleted before the domain pruning below (and unconditionally,
+        # since they belong to no domain) so no later step can observe them.
+        # ``extension_secrets`` and ``extension_revisions`` cascade from the
+        # package row; they are deleted explicitly anyway so a future local-only
+        # table without an ownership edge is not silently left behind.
+        for table in sorted(ps.LOCAL_ONLY_TABLES, reverse=True):
+            if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                c.execute(f"DELETE FROM {table}")  # nosec B608 — table name from the LOCAL_ONLY_TABLES literal
+
         # Prune each unselected domain by deleting its root tables: with FK on, a
         # CASCADE prunes the owned children and a SET NULL clears soft pointers, so
         # no per-child delete is hand-coded. configs is special (it scrubs the
