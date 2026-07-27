@@ -407,11 +407,29 @@ async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_wo
     return entry
 
 
+# A V3 entry may open with decorator lines (`@@depth 4`, `@@@fallback`, …).
+_DECORATOR_PREAMBLE = re.compile(r"\A\s*(?:@@[^\n]*\n?)+")
+
+
+def _strip_decorators(content: str) -> str:
+    """Drop the V3 decorator preamble from an entry's content.
+
+    ponytail: decorators are dropped, not interpreted — Orb's lorebook engine has
+    no depth/role/position axis to map them onto, and the spec says an
+    unrecognised decorator SHOULD be ignored. They must still be removed, or
+    `@@depth 4` leaks into the prompt as literal text.
+    """
+    stripped = _DECORATOR_PREAMBLE.sub("", content)
+    return stripped.lstrip("\n") if stripped != content else content
+
+
+def _str_list(value: Any) -> list[str]:
+    return [str(k) for k in value if k] if isinstance(value, list) else []
+
+
 def _normalise_lorebook_entry(item: dict) -> dict:
-    keywords = item.get("keys") or item.get("key") or []
-    if not isinstance(keywords, list):
-        keywords = []
-    keywords = [str(k) for k in keywords if k]
+    keywords = _str_list(item.get("keys") or item.get("key") or [])
+    secondary_keys = _str_list(item.get("secondary_keys") or item.get("keysecondary") or [])
     name = item.get("name") or item.get("comment") or ""
     if "disable" in item:
         enabled = not item["disable"]
@@ -422,20 +440,31 @@ def _normalise_lorebook_entry(item: dict) -> dict:
     constant = bool(item.get("constant", False))
     return {
         "name": str(name),
-        "content": str(item.get("content") or ""),
+        "content": _strip_decorators(str(item.get("content") or "")),
         "keywords": keywords,
         "enabled": enabled,
         "priority": priority,
+        # `priority` keeps its own fallback chain above (rewriting it would
+        # reshuffle already-imported V2 books); sort_order carries the spec field.
+        "sort_order": int(item.get("insertion_order") or 0),
         "case_insensitive": not bool(case_sensitive),
         "constant": constant,
+        "use_regex": bool(item.get("use_regex", False)),
+        # Cards in the wild set `selective` on every entry while leaving
+        # secondary_keys empty; honouring that literally would make the whole
+        # book match nothing, so an unbacked flag stores as false.
+        "selective": bool(item.get("selective")) and bool(secondary_keys),
+        "secondary_keys": secondary_keys,
     }
 
 
 def lorebook_to_book(world_name: str, entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """Serialise lorebook entry rows as a Tavern V2 ``character_book`` dict.
+    """Serialise lorebook entry rows as a Tavern ``character_book`` dict.
 
     Export counterpart of :func:`_normalise_lorebook_entry` — keep the two
-    field mappings in sync.
+    field mappings in sync. The V3-only keys are additive, and readers that
+    ignore unknown entry fields (Orb's own parser included) still see a valid
+    V2 book.
     """
     return {
         "name": world_name,
@@ -452,6 +481,9 @@ def lorebook_to_book(world_name: str, entries: Sequence[Mapping[str, Any]]) -> d
                 "name": e["name"],
                 "priority": e["priority"],
                 "id": e["id"],
+                "use_regex": bool(e.get("use_regex", False)),
+                "selective": bool(e.get("selective", False)),
+                "secondary_keys": e.get("secondary_keys") or [],
             }
             for e in entries
         ],
