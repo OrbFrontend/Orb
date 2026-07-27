@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Orb is an **agentic AI roleplay/writing frontend**: Python/FastAPI backend, vanilla JS frontend. Orchestrates a multi-pass LLM pipeline (Director → Writer → Editor). Characters are PNG cards (V2 spec). Conversations are branching message trees with lorebooks, mood/interactive fragments, and personas.
+Orb is an **agentic AI roleplay/writing frontend**: Python/FastAPI backend, vanilla JS frontend. Orchestrates a multi-pass LLM pipeline (Director → Writer → Editor). Characters are PNG cards (V3 spec, with V2/V1 fallback). Conversations are branching message trees with lorebooks, mood/interactive fragments, and personas.
 
 **Stack:** Python 3.11+, FastAPI, aiosqlite, SQLite, vanilla JS (no framework), uvicorn
 
@@ -81,7 +81,7 @@ features/<name>/
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
 | `conversations` | Chat sessions; `active_leaf_id` selects branch leaf; `macro_seed` pins {{random}} on checkpoint/compress copies |
 | `messages` | Message tree (`parent_id`); `role`, `content`, `progressive_fields`, `workflow_state` |
-| `character_cards` | V2-spec characters; `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (V2 extensions JSON; card-embedded fragments at `orb.fragments`, merged ephemerally in `_load_pipeline_context`) |
+| `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`) |
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
 | `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields, macro_choices) |
@@ -137,7 +137,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Messages:** `/send` (SSE), `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
 - **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`
 - **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`
-- **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone V2 `character_book` JSON)
+- **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys)
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments
 - **Image generation:** external-ComfyUI readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types); generation uses the conversation-scoped workflow trigger

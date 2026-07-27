@@ -19,7 +19,8 @@ const _entries = {}; // worldId -> entry[]
 let _entrySearch = ""; // substring filter over entry names and content
 let _selectedEntryId = null;
 let _dirty = false;
-let _draft = {
+
+const _emptyDraft = () => ({
   name: "",
   content: "",
   keywords: [],
@@ -27,7 +28,25 @@ let _draft = {
   case_insensitive: true,
   constant: false,
   enabled: true,
-};
+  use_regex: false,
+  selective: false,
+  secondary_keys: [],
+});
+
+const _draftFromEntry = (e) => ({
+  name: e.name,
+  content: e.content || "",
+  keywords: [...(e.keywords || [])],
+  priority: e.priority ?? 100,
+  case_insensitive: boolFlag(e.case_insensitive),
+  constant: boolFlag(e.constant),
+  enabled: boolFlag(e.enabled),
+  use_regex: boolFlag(e.use_regex),
+  selective: boolFlag(e.selective),
+  secondary_keys: [...(e.secondary_keys || [])],
+});
+
+let _draft = _emptyDraft();
 
 // The keyword chip editor. Reads/writes the live `_draft.keywords`, marks the
 // entry dirty on any change, and disables (Constant entries take no keywords).
@@ -42,6 +61,19 @@ const _keywordChips = createChipInput({
   },
   onChange: _markDirty,
   isDisabled: () => _draft.constant,
+});
+
+// Secondary keys (V3 `selective`): a primary keyword must hit *and* one of these.
+// Only rendered while Selective is on.
+const _secondaryChips = createChipInput({
+  wrapId: "lb-sec-chip-wrap",
+  inputId: "lb-sec-chip-text",
+  placeholder: "Add secondary keyword…",
+  getItems: () => _draft.secondary_keys,
+  setItems: (v) => {
+    _draft.secondary_keys = v;
+  },
+  onChange: _markDirty,
 });
 
 // ── Worlds API
@@ -322,15 +354,7 @@ export async function openLorebook(worldId) {
   _selectedEntryId = null;
   _entrySearch = "";
   _dirty = false;
-  _draft = {
-    name: "",
-    content: "",
-    keywords: [],
-    priority: 100,
-    case_insensitive: true,
-    constant: false,
-    enabled: true,
-  };
+  _draft = _emptyDraft();
   renderWorldsSidebar();
   try {
     await _loadEntries(worldId);
@@ -446,8 +470,21 @@ function renderLorebookDrawer() {
   // Bound in JS rather than inline on*= — the frontend layer check ratchets those.
   const exportBtn = drawer.querySelector(".lb-export-btn");
   if (exportBtn) exportBtn.onclick = lbExportJson;
+  const regexCb = $("lb-use-regex");
+  if (regexCb) regexCb.onchange = (e) => lbDraftChange("use_regex", e.target.checked);
+  const selectiveCb = $("lb-selective");
+  if (selectiveCb) selectiveCb.onchange = (e) => lbToggleSelective(e.target.checked);
 
-  if (_selectedEntryId) _keywordChips.render();
+  if (_selectedEntryId) {
+    const kwWrap = $("lb-chip-wrap");
+    if (kwWrap && !_draft.constant) kwWrap.onclick = () => $("lb-chip-text")?.focus();
+    _keywordChips.render();
+    if (_draft.selective && !_draft.constant) {
+      const secWrap = $("lb-sec-chip-wrap");
+      if (secWrap) secWrap.onclick = () => $("lb-sec-chip-text")?.focus();
+      _secondaryChips.render();
+    }
+  }
 }
 
 function _buildEditorHtml() {
@@ -467,13 +504,23 @@ function _buildEditorHtml() {
       </div>
       <div class="lb-editor-keywords${_draft.constant ? " lb-keywords-disabled" : ""}">
         <div class="lb-field-label">Trigger Keywords</div>
-        <div class="lb-chip-wrap" id="lb-chip-wrap" onclick="${_draft.constant ? "" : "document.getElementById('lb-chip-text')?.focus()"}"></div>
+        <div class="lb-chip-wrap" id="lb-chip-wrap"></div>
         <div class="lb-keyword-footer">
           <label class="lb-case-check">
             <input type="checkbox" id="lb-case-insensitive" ${_draft.case_insensitive ? "checked" : ""}
                    ${_draft.constant ? "disabled" : ""}
                    onchange="lbDraftChange('case_insensitive', this.checked)">
             <span>Case-insensitive</span>
+          </label>
+          <label class="lb-case-check" title="Treat each keyword as a regular expression">
+            <input type="checkbox" id="lb-use-regex" ${_draft.use_regex ? "checked" : ""}
+                   ${_draft.constant ? "disabled" : ""}>
+            <span>Regex</span>
+          </label>
+          <label class="lb-case-check" title="Also require one of the secondary keywords to match">
+            <input type="checkbox" id="lb-selective" ${_draft.selective ? "checked" : ""}
+                   ${_draft.constant ? "disabled" : ""}>
+            <span>Selective</span>
           </label>
           <label class="lb-case-check" title="Always inject this entry, regardless of keywords">
             <input type="checkbox" id="lb-constant" ${_draft.constant ? "checked" : ""}
@@ -483,6 +530,17 @@ function _buildEditorHtml() {
           <span class="lb-keyword-hint">${_draft.constant ? "Always injected" : "Enter or , to add · Backspace to remove"}</span>
         </div>
       </div>
+      ${
+        _draft.selective && !_draft.constant
+          ? `<div class="lb-editor-keywords">
+        <div class="lb-field-label">Secondary Keywords</div>
+        <div class="lb-chip-wrap" id="lb-sec-chip-wrap"></div>
+        <div class="lb-keyword-footer">
+          <span class="lb-keyword-hint">One of these must also match</span>
+        </div>
+      </div>`
+          : ""
+      }
       <div class="lb-editor-content">
         <div class="lb-field-label">Injected Content</div>
         <textarea id="lb-content" class="lb-content-textarea"
@@ -540,6 +598,14 @@ export function lbDraftChange(field, value) {
 
 export function lbToggleConstant(checked) {
   _draft.constant = checked;
+  _markDirty();
+  renderLorebookDrawer();
+}
+
+// Re-renders because the secondary-keyword chip field only exists while on.
+// Bound in renderLorebookDrawer, so it needs no window bridge.
+function lbToggleSelective(checked) {
+  _draft.selective = checked;
   _markDirty();
   renderLorebookDrawer();
 }
@@ -604,17 +670,7 @@ function _doSelectEntry(entryId) {
   _selectedEntryId = entryId;
   _dirty = false;
   const entry = _getEntry(entryId);
-  if (entry) {
-    _draft = {
-      name: entry.name,
-      content: entry.content || "",
-      keywords: [...(entry.keywords || [])],
-      priority: entry.priority ?? 100,
-      case_insensitive: boolFlag(entry.case_insensitive),
-      constant: boolFlag(entry.constant),
-      enabled: boolFlag(entry.enabled),
-    };
-  }
+  if (entry) _draft = _draftFromEntry(entry);
   renderLorebookDrawer();
 }
 
@@ -645,6 +701,9 @@ export async function lbSaveEntry() {
       keywords: _draft.keywords,
       case_insensitive: _draft.case_insensitive,
       constant: _draft.constant,
+      use_regex: _draft.use_regex,
+      selective: _draft.selective,
+      secondary_keys: _draft.secondary_keys,
       priority: _draft.priority,
       enabled: _draft.enabled,
     });
@@ -661,17 +720,7 @@ export async function lbSaveEntry() {
 // ── Discard
 export function lbDiscardChanges() {
   const entry = _getEntry(_selectedEntryId);
-  if (entry) {
-    _draft = {
-      name: entry.name,
-      content: entry.content || "",
-      keywords: [...(entry.keywords || [])],
-      priority: entry.priority ?? 100,
-      case_insensitive: boolFlag(entry.case_insensitive),
-      constant: boolFlag(entry.constant),
-      enabled: boolFlag(entry.enabled),
-    };
-  }
+  if (entry) _draft = _draftFromEntry(entry);
   _dirty = false;
   renderLorebookDrawer();
 }

@@ -17,6 +17,7 @@ so the two named entry points below (:func:`compute_lorebook_injection_block`,
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -93,20 +94,51 @@ def build_lorebook_catalog(entries: Sequence[Mapping[str, Any]]) -> str:
 # ── Activation sources + selection ────────────────────────────────────────────
 
 
+def _any_keyword_hit(
+    keywords: Sequence[str],
+    scan_text: str,
+    lowered: str,
+    *,
+    use_regex: bool,
+    case_insensitive: bool,
+) -> bool:
+    """True when any of *keywords* hits *scan_text* (substring, or regex under V3's ``use_regex``)."""
+    flags = re.IGNORECASE if case_insensitive else 0
+    for kw in keywords:
+        if use_regex:
+            # ponytail: `re` caches compiled patterns internally — no manual cache
+            # for a ~55-entry scan. A literal key that happens to be valid regex
+            # (`C++`, `(H)`) is *reinterpreted*, which is what a spec-compliant
+            # reader does; the except only nets syntactically invalid patterns
+            # (`*star`), which degrade to the substring path below.
+            try:
+                if re.search(kw, scan_text, flags):
+                    return True
+                continue
+            except re.error:
+                pass
+        if (kw.lower() if case_insensitive else kw) in (lowered if case_insensitive else scan_text):
+            return True
+    return False
+
+
 def select_keyword_entries(
     messages: Sequence[Mapping[str, Any]],
     entries: Sequence[Mapping[str, Any]],
     scan_depth: int = LOREBOOK_SCAN_DEPTH,
 ) -> list[Mapping[str, Any]]:
-    """Select lorebook entries by keyword/substring scan.
+    """Select lorebook entries by keyword scan.
 
     A pure keyword source: entries are selected when any keyword appears
-    (substring match) in the ``scan_depth`` most recent messages. Constant
-    entries are not this source's concern — they ride the system prefix.
-    Returns matched entries in input order.
+    (substring match, or a regex match when the entry sets ``use_regex``) in the
+    ``scan_depth`` most recent messages. A ``selective`` entry additionally
+    requires one of its ``secondary_keys`` to hit. Constant entries are not this
+    source's concern — they ride the system prefix. Returns matched entries in
+    input order.
     """
     scan_parts = [m.get("content") or "" for m in messages[-scan_depth:] if m.get("content")]
     scan_text = " ".join(scan_parts)
+    lowered = scan_text.lower()
     matched: list[Mapping[str, Any]] = []
 
     for entry in entries:
@@ -114,18 +146,23 @@ def select_keyword_entries(
         if not keywords or not scan_text:
             continue
 
-        case_insensitive = entry.get("case_insensitive", True)
-        text = scan_text.lower() if case_insensitive else scan_text
+        rx = bool(entry.get("use_regex"))
+        ci = bool(entry.get("case_insensitive", True))
+        if not _any_keyword_hit(keywords, scan_text, lowered, use_regex=rx, case_insensitive=ci):
+            continue
 
-        found = False
-        for kw in keywords:
-            kw_text = kw.lower() if case_insensitive else kw
-            if kw_text in text:
-                found = True
-                break
+        # The importer only sets `selective` when secondary_keys is non-empty
+        # (blanket-selective cards would otherwise match nothing), so the
+        # emptiness check here is belt-and-braces for hand-edited rows.
+        secondary = entry.get("secondary_keys") or []
+        if (
+            entry.get("selective")
+            and secondary
+            and not _any_keyword_hit(secondary, scan_text, lowered, use_regex=rx, case_insensitive=ci)
+        ):
+            continue
 
-        if found:
-            matched.append(entry)
+        matched.append(entry)
 
     return matched
 

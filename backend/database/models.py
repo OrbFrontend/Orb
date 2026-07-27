@@ -340,8 +340,9 @@ class WorldRow(TypedDict):
 
 
 class LorebookEntryRow(TypedDict):
-    """A row from ``lorebook_entries``. ``keywords`` is the JSON-*decoded* list
-    (every reader runs it through _parse_lorebook_entry / an inline decode)."""
+    """A row from ``lorebook_entries``. ``keywords`` and ``secondary_keys`` are
+    the JSON-*decoded* lists (every reader runs the row through
+    _parse_lorebook_entry / an inline decode)."""
 
     id: int
     world_id: str
@@ -350,6 +351,9 @@ class LorebookEntryRow(TypedDict):
     keywords: list
     case_insensitive: int
     constant: int
+    use_regex: int
+    selective: int
+    secondary_keys: list
     priority: int
     enabled: int
     sort_order: int
