@@ -9,11 +9,16 @@ export const api = {
     }
     return r.json();
   },
-  get(p) {
-    return this._req(p);
+  get(p, opts = {}) {
+    return this._req(p, opts);
   },
-  post(p, b) {
-    return this._req(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
+  post(p, b, opts = {}) {
+    return this._req(p, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(b),
+      ...opts,
+    });
   },
   put(p, b) {
     return this._req(p, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });

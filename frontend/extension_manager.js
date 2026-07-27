@@ -235,12 +235,14 @@ function cardDetail(item) {
   const telemetry = telemetrySection(item);
   if (telemetry) body.appendChild(telemetry);
 
-  const row = el("div", { cls: "btn-row", style: "gap:6px;flex-wrap:wrap;margin-top:10px" }, [
+  const row = el("div", { cls: "btn-row ext-footer" }, [
     button(item.enabled ? "Disable" : "Enable", () => setEnabled(item.id, !item.enabled)),
     button("Update from file…", () => triggerExtensionUpdate(item.id)),
     item.can_rollback ? button("Roll back", () => startRollback(item.id)) : null,
-    button("Uninstall", () => uninstall(item.id), "btn btn-sm btn-danger"),
-    button("Purge data…", () => startPurge(item.id), "btn btn-sm btn-danger"),
+    el("div", { cls: "ext-footer-danger" }, [
+      button("Uninstall", () => uninstall(item.id), "btn btn-sm btn-danger"),
+      button("Purge data…", () => startPurge(item.id), "btn btn-sm btn-danger"),
+    ]),
   ]);
   body.appendChild(row);
   return body;
@@ -257,7 +259,7 @@ function permissionList(item) {
     wrap.appendChild(el("div", { cls: "empty-hint", text: "This extension requests no permissions." }));
     return wrap;
   }
-  wrap.appendChild(el("div", { cls: "ext-field", text: "Permissions" }));
+  wrap.appendChild(el("div", { cls: "ext-section-title", text: "Permissions" }));
   const boxes = [];
   for (const permission of item.permissions) {
     const box = document.createElement("input");
@@ -265,17 +267,15 @@ function permissionList(item) {
     box.checked = !!permission.granted;
     box._permissionValue = permission.value;
     boxes.push(box);
-    const label = el("label", { cls: `ext-permission${permission.emphasis === "high" ? " ext-permission-loud" : ""}` });
-    label.appendChild(box);
-    label.appendChild(el("span", { text: permission.description }));
-    label.appendChild(el("span", { cls: "ext-permission-detail", text: permissionDetail(permission) }));
-    wrap.appendChild(label);
+    wrap.appendChild(permissionRow(permission, box));
   }
   wrap.appendChild(
-    button("Save permissions", async () => {
-      const approved = boxes.filter((b) => b.checked).map((b) => b._permissionValue);
-      await run(() => api.put(`/extensions/${encodeURIComponent(item.id)}/permissions`, { permissions: approved }));
-    }),
+    el("div", { cls: "ext-actions" }, [
+      button("Save permissions", async () => {
+        const approved = boxes.filter((b) => b.checked).map((b) => b._permissionValue);
+        await run(() => api.put(`/extensions/${encodeURIComponent(item.id)}/permissions`, { permissions: approved }));
+      }),
+    ]),
   );
   return wrap;
 }
@@ -290,7 +290,7 @@ function permissionList(item) {
  * because it owns the panel.
  */
 function configSection(item) {
-  const wrap = el("div", { cls: "ext-config" }, [el("div", { cls: "ext-field", text: "Settings" })]);
+  const wrap = el("div", { cls: "ext-config" }, [el("div", { cls: "ext-section-title", text: "Settings" })]);
   const host = el("div", { cls: "xc-view" });
   wrap.appendChild(host);
   void mountView(host, item.id, item.config_view, { instanceId: "manager-config" });
@@ -318,6 +318,23 @@ function telemetrySection(item) {
   return el("div", { cls: "ext-telemetry", text: parts.join(" · ") });
 }
 
+/**
+ * One consent line: an optional checkbox, the sentence, and its detail.
+ *
+ * The detail goes *inside* the sentence span. As a sibling of it, the row's
+ * flex layout made it a third column, so `(lane: agent)` sat right-aligned
+ * beside the wrapped sentence instead of reading as part of it — which is what
+ * `permissionDetail`'s leading space was always for.
+ */
+function permissionRow(permission, box) {
+  const label = el("label", { cls: `ext-permission${permission.emphasis === "high" ? " ext-permission-loud" : ""}` });
+  if (box) label.appendChild(box);
+  const sentence = el("span", { text: permission.description });
+  sentence.appendChild(el("span", { cls: "ext-permission-detail", text: permissionDetail(permission) }));
+  label.appendChild(sentence);
+  return label;
+}
+
 function permissionDetail(permission) {
   const parts = Object.entries(permission.parameters || {}).map(
     ([key, value]) => `${key}: ${[].concat(value).join(", ")}`,
@@ -329,7 +346,7 @@ function orphanedSection() {
   const orphans = S.extensionOrphanedData || [];
   if (orphans.length === 0) return null;
   const wrap = el("div", { cls: "ext-orphans" }, [
-    el("div", { cls: "ext-field", text: "Data left behind by uninstalled extensions" }),
+    el("div", { cls: "ext-section-title", text: "Data left behind by uninstalled extensions" }),
   ]);
   for (const orphan of orphans) {
     wrap.appendChild(
@@ -499,20 +516,17 @@ function showConsentModal(inspection, extensionId = null) {
 
 function permissionSection(title, rows, boxes, selectable) {
   if (!rows?.length) return null;
-  const wrap = el("div", { cls: "ext-permissions" }, [el("div", { cls: "ext-field", text: title })]);
+  const wrap = el("div", { cls: "ext-permissions" }, [el("div", { cls: "ext-section-title", text: title })]);
   for (const permission of rows) {
-    const label = el("label", { cls: `ext-permission${permission.emphasis === "high" ? " ext-permission-loud" : ""}` });
+    let box = null;
     if (selectable && boxes) {
-      const box = document.createElement("input");
+      box = document.createElement("input");
       box.type = "checkbox";
       box.checked = true;
       box._permissionValue = permission.value;
       boxes.push(box);
-      label.appendChild(box);
     }
-    label.appendChild(el("span", { text: permission.description }));
-    label.appendChild(el("span", { cls: "ext-permission-detail", text: permissionDetail(permission) }));
-    wrap.appendChild(label);
+    wrap.appendChild(permissionRow(permission, box));
   }
   return wrap;
 }

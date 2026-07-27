@@ -181,6 +181,11 @@ class TextareaComponent(_Node):
     bind: BindPath
     label: Label
     rows: Annotated[int, Field(ge=2, le=24)] = 4
+    # A list-shaped setting -- a vocabulary, an allow list -- is edited as one
+    # line per member and stored as an array, so the flow reading it gets the
+    # array the list operations require. Closed enumeration, host-implemented:
+    # the package declares which shape it wants, never how the split happens.
+    value_kind: Literal["text", "lines"] = "text"
 
 
 class NumberInputComponent(_Node):

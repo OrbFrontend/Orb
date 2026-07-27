@@ -434,13 +434,23 @@ const COMPONENTS = {
     const field = document.createElement("textarea");
     field.className = "xc-input";
     field.rows = node.rows || 4;
+    // `lines` edits an array as one member per line. The split is host-owned so
+    // the draft holds the stored shape rather than its rendering: a flow reading
+    // this key gets an array, which is what the list operations require.
+    const lines = node.value_kind === "lines";
     return bindControl(
       node,
       scope,
       field,
-      () => field.value,
+      () =>
+        lines
+          ? field.value
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+          : field.value,
       (v) => {
-        field.value = v == null ? "" : String(v);
+        field.value = lines ? (Array.isArray(v) ? v.join("\n") : "") : v == null ? "" : String(v);
       },
     );
   },

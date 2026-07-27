@@ -279,6 +279,23 @@ test("the save bar groups the draft by scope", async () => {
   assert.deepEqual(saved, { config: { name: "typed" }, conversation: { on: true } });
 });
 
+test("a lines textarea shows an array one per line and saves it back as an array", async () => {
+  let saved = null;
+  const host = render(
+    tree({ component: "textarea", bind: "config.vocabulary", label: "Vocabulary", value_kind: "lines" }),
+    { config: { vocabulary: ["noir", "detective"] }, onSaveState: async (updates) => (saved = updates) },
+  );
+  const field = host.find((n) => n.tagName === "TEXTAREA");
+  assert.equal(field.value, "noir\ndetective", "the stored array renders one member per line");
+
+  field.value = "noir\n  detective  \n\nheist\n";
+  for (const fn of field.listeners.input || []) fn();
+  const button = host.find((n) => n.className?.includes("xc-button"));
+  for (const fn of button.listeners.click || []) await fn();
+  // Trimmed, blanks dropped: the flow reading this key runs list.join over it.
+  assert.deepEqual(saved, { config: { vocabulary: ["noir", "detective", "heist"] } });
+});
+
 test("a view with no bound controls gets no save bar", () => {
   const host = render(tree({ component: "text", value: "read only" }));
   assert.equal(host.find((n) => n.className?.includes("xc-save-bar")), null);

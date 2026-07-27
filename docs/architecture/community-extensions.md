@@ -1118,6 +1118,15 @@ draft until submit. Submission runs a host-generated state action under normal
 permission, schema, size, lock, and transaction checks. Merely rendering a view
 never writes state.
 
+A control's binding also declares the *shape* it stores, not just the key:
+`textarea` takes `value_kind` (`text`, the default, or `lines`), and under
+`lines` the host splits the box into a trimmed array of non-empty members and
+renders a stored array back one per line. Without it a list-shaped setting has
+no honest binding — the box would save a string while the flow reading the same
+key runs `list.join` over it, which is a silent misconfiguration the user cannot
+see from the form. The split is host-owned and the enumeration is closed; a
+package declares which shape it wants and never how the conversion happens.
+
 The renderer keys local ephemeral state by
 `(extension_id, active_digest, view_id, instance_id)` and drops it when the
 digest/view disappears. Hot reload reconstructs declarative commands and views

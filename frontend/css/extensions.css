@@ -8,12 +8,13 @@
    should be: a class derived from package data would be the one channel by
    which an extension could influence how Orb renders itself. */
 
+/* No max-height and no overflow: `.modal` is already a 85vh scroll container,
+   and a second one nested inside it squeezed the open card's permissions,
+   settings, and buttons into a ~300px window with its own scrollbar. */
 .ext-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 60vh;
-  overflow-y: auto;
 }
 
 .ext-card {
@@ -58,6 +59,18 @@
   margin-top: 6px;
 }
 
+/* Section headings inside a detail panel. `.ext-field` is body metadata, so
+   using it for "Permissions" and "Settings" left the panel with no hierarchy —
+   every line looked equally important. */
+.ext-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
 /* A digest is 64 hex characters the user may need to compare by eye. */
 .ext-digest {
   font-family: var(--font-mono);
@@ -84,21 +97,52 @@
   color: var(--text-secondary);
 }
 
+/* Same band treatment as `.ext-config` below it, so a detail panel reads as a
+   stack of titled sections rather than one section that happens to have a rule
+   above it. */
 .ext-permissions {
-  margin-top: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
+/* forms.css styles every bare `<label>` as a small-caps field label. A consent
+   line is a sentence that happens to carry a checkbox, so it opts back out —
+   otherwise the whole grant list renders in letter-spaced ALL CAPS. */
 .ext-permission {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   font-size: 12px;
+  font-weight: 400;
   color: var(--text-secondary);
   line-height: 1.4;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-bottom: 0;
   cursor: pointer;
+  /* Every row reserves the emphasis gutter, so marking one loud tints a border
+     that is already there instead of indenting it out of the checkbox column. */
+  padding-left: 10px;
+  border-left: 2px solid transparent;
+}
+
+.ext-permission input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+/* Right-aligned like every other commit control in the app. Left in the
+   `.ext-permissions` flex column a button is stretched edge to edge by
+   `align-items: stretch` and reads as a text field, not a button. */
+.ext-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 /* Token cost, sending conversation data off the machine, and reading branches
@@ -106,12 +150,26 @@
 .ext-permission-loud {
   color: var(--text-primary);
   font-weight: 500;
-  border-left: 2px solid var(--accent);
-  padding-left: 8px;
+  border-left-color: var(--accent);
 }
 
 .ext-permission-detail {
   color: var(--text-muted);
+}
+
+/* The third band, and the one place a misclick is unrecoverable: uninstall and
+   purge are pushed to the far edge so they are never adjacent to "Disable". */
+.ext-footer {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ext-footer-danger {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .ext-orphans {
@@ -171,8 +229,8 @@
 }
 
 .ext-config {
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
 }
 
@@ -367,10 +425,15 @@
   font-weight: 600;
 }
 
+/* `align-self`/`min-width` so a field fills its row whichever way the
+   surrounding layout flexes; without them a bound control collapses to the
+   intrinsic width of its widget (a textarea to its `cols`). */
 .xc-labelled {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  align-self: stretch;
+  min-width: 0;
+  gap: 4px;
   font-size: 12px;
 }
 .xc-label {
@@ -378,6 +441,7 @@
 }
 .xc-input {
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   background: var(--bg-input, var(--bg-surface));
   border: 1px solid var(--border);
@@ -386,6 +450,11 @@
   padding: 5px 8px;
   font-size: 12px;
   font-family: inherit;
+}
+textarea.xc-input {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.5;
 }
 .xc-toggle {
   width: auto;

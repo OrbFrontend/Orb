@@ -71,7 +71,19 @@ globalThis.clearTimeout = () => {};
 const requests = [];
 let responder = async () => ({});
 globalThis.fetch = async (path, init) => {
-  requests.push({ path, method: init?.method || "GET", body: init?.body ? JSON.parse(init.body) : null });
+  // Recorded before the abort check, so a request the loop should never have
+  // attempted is still visible to a test that asserts it was not attempted.
+  requests.push({
+    path,
+    method: init?.method || "GET",
+    body: init?.body ? JSON.parse(init.body) : null,
+    signal: init?.signal ?? null,
+  });
+  if (init?.signal?.aborted) {
+    const abort = new Error("aborted");
+    abort.name = "AbortError";
+    throw abort;
+  }
   const payload = await responder(path, init);
   return { ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) };
 };
@@ -309,6 +321,39 @@ test("a generation bump mid-sweep stops the loop and dispatches nothing after it
   assert.equal(dispatched, 2, "the third card must not be dispatched after the generation moved");
   const status = host.children.flatMap((n) => [n, ...n.children]).find((n) => n.className?.includes("xc-sweep-status"));
   assert.ok(status.textContent.includes("2"), `the completed count should be reported, got: ${status.textContent}`);
+});
+
+test("closing the view stops the sweep and aborts what it still has in flight", async () => {
+  reset();
+  S.extensionCatalog = [entry()];
+  commands.initExtensionCommands({});
+  let dispose = null;
+  let dispatched = 0;
+  responder = async (path) => {
+    if (path.includes("/views/")) {
+      return { runtime_generation: 0, id: "w", view: sweepView(), data: {}, config: {}, state: {}, errors: {} };
+    }
+    if (path.includes("/resources/library.cards")) {
+      return { cards: [{ id: "a", state: {} }, { id: "b", state: {} }, { id: "c", state: {} }], next_cursor: null };
+    }
+    dispatched += 1;
+    // The user dismisses the workspace while the first card is in flight. Every
+    // dismissal path lands in the same disposal `closeModal` invokes.
+    dispose();
+    return { runtime_generation: 0, effects: [], toasts: [] };
+  };
+  const host = new FakeElement("div");
+  dispose = await commands.mountView(host, "pkg", "w");
+  const button = host.children.flatMap((n) => [n, ...n.children]).find((n) => n.tagName === "BUTTON");
+  for (const fn of button.listeners.click || []) await fn();
+
+  assert.equal(dispatched, 1, "no card may be dispatched after the view was closed");
+  const dispatchRequests = requests.filter((r) => r.path.includes("/actions/classify"));
+  // One attempt, not two-with-the-second-thrown-away: the loop stops at the
+  // card boundary rather than firing a request it would immediately discard.
+  assert.equal(dispatchRequests.length, 1);
+  assert.ok(dispatchRequests[0].signal, "an action from a sweep carries the view's abort signal");
+  assert.equal(dispatchRequests[0].signal.aborted, true, "closing the view aborts the request in flight");
 });
 
 test("a sweep sends back only cursors the server issued", async () => {

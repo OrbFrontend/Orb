@@ -191,6 +191,36 @@ test("the expanded card renders hostile package fields as text", () => {
   }
 });
 
+test("a permission's parameters read as part of its sentence, not as a column", () => {
+  // The row is a flex line of [checkbox, sentence]. Appending the detail as a
+  // third child made it a third *column*, so `(lane: agent)` was right-aligned
+  // beside the wrapped sentence rather than following it.
+  const root = renderManager([
+    catalogEntry({
+      permissions: [
+        {
+          value: { capability: "model.call", lane: "agent" },
+          capability: "model.call",
+          parameters: { lane: "agent" },
+          description: "Make its own model calls.",
+          granted: true,
+        },
+      ],
+    }),
+  ]);
+  const rows = [];
+  const walk = (node) => {
+    if (node.className?.includes("ext-permission ") || node.className === "ext-permission") rows.push(node);
+    for (const child of node.children) walk(child);
+  };
+  walk(root);
+  const row = rows.find((r) => r.allText().some((t) => t.includes("Make its own model calls")));
+  assert.ok(row, "the grant row was not rendered");
+  const detailOwner = row.children.find((c) => c.children.some((g) => g.className === "ext-permission-detail"));
+  assert.ok(detailOwner, "the detail must be nested inside the sentence span");
+  assert.equal(detailOwner.textContent, "Make its own model calls.");
+});
+
 test("orphaned data from an uninstalled extension is listed so it stays purgeable", () => {
   // Uninstall preserves namespaced state on purpose; if the manager did not
   // list it, that data would be neither visible nor purgeable.

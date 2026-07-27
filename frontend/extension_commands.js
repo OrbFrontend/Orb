@@ -28,7 +28,7 @@
 
 import { api } from "./api.js";
 import { disposeStaleDrafts, evaluatePredicate, iconGlyph, renderView } from "./extension_renderer.js";
-import { closeModal, showModal } from "./modal.js";
+import { closeModal, setModalCloseCallback, showModal } from "./modal.js";
 import { effectiveWorkflowEnabled, notify, S } from "./state.js";
 import { broadcastExtensionMutation } from "./tabLock.js";
 import { $, toast } from "./utils.js";
@@ -252,7 +252,11 @@ async function runCommand(command) {
  * it" from "the package asked for this card", and the two cost different
  * grants. Folding them into `input` would erase that distinction on the wire.
  */
-export async function dispatchAction(extensionId, action, { input = {}, slot = null, card_id = null } = {}) {
+export async function dispatchAction(
+  extensionId,
+  action,
+  { input = {}, slot = null, card_id = null, signal = null } = {},
+) {
   const body = { conversation_id: S.activeConvId || null, input };
   if (slot) body.slot = slot;
   if (card_id) body.card_id = card_id;
@@ -261,8 +265,13 @@ export async function dispatchAction(extensionId, action, { input = {}, slot = n
     envelope = await api.post(
       `/extensions/${encodeURIComponent(extensionId)}/actions/${encodeURIComponent(action)}`,
       body,
+      signal ? { signal } : {},
     );
   } catch (e) {
+    // An abort is the user closing the surface that started this, not a
+    // failure: the request drops, the server's disconnect watcher aborts the
+    // model call, and there is nothing to report.
+    if (e?.name === "AbortError") return null;
     toast(errorText(e), true);
     return null;
   }
@@ -371,7 +380,7 @@ export async function applyEffects(envelope) {
  * is a revoked grant or an unreachable lane, and grinding through 200 more
  * failures would bury that.
  */
-async function runLibrarySweep(extensionId, action, unclassifiedKey, report) {
+async function runLibrarySweep(extensionId, action, unclassifiedKey, report, signal) {
   const startGeneration = S.extensionRuntimeGeneration;
   let cursor = null;
   let done = 0;
@@ -379,19 +388,25 @@ async function runLibrarySweep(extensionId, action, unclassifiedKey, report) {
     let page;
     try {
       const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-      page = await api.get(`/extensions/${encodeURIComponent(extensionId)}/resources/library.cards${query}`);
+      page = await api.get(`/extensions/${encodeURIComponent(extensionId)}/resources/library.cards${query}`, {
+        signal,
+      });
     } catch (e) {
-      toast(errorText(e), true);
+      if (e?.name !== "AbortError") toast(errorText(e), true);
       return done;
     }
     for (const card of page.cards || []) {
+      // Closing the view aborts its signal. Checked here as well as passed to
+      // each request so the loop stops at the card boundary rather than firing
+      // one more invocation it would immediately throw away.
+      if (signal?.aborted) return done;
       if (S.extensionRuntimeGeneration !== startGeneration) {
         toast(`Stopped after ${done} card(s): the extension changed while the sweep was running.`, true);
         return done;
       }
       if (unclassifiedKey && card.state?.[unclassifiedKey]) continue;
       report(`${card.name || card.id}…`);
-      const envelope = await dispatchAction(extensionId, action, { input: { card_id: card.id } });
+      const envelope = await dispatchAction(extensionId, action, { input: { card_id: card.id }, signal });
       if (!envelope) return done; // the error has already been surfaced
       done += 1;
     }
@@ -418,6 +433,10 @@ function viewKey(extensionId, viewId) {
  */
 export async function mountView(container, extensionId, viewId, { instanceId = "0" } = {}) {
   const key = viewKey(extensionId, viewId);
+  // One controller per mount, aborted when the view goes away. Work a view
+  // started is work the view owns: a sweep that outlived the modal it was
+  // launched from keeps calling the model for a surface nobody is looking at.
+  const controller = new AbortController();
   const load = async () => {
     let payload;
     try {
@@ -448,7 +467,8 @@ export async function mountView(container, extensionId, viewId, { instanceId = "
         // making it declare that separately would be a footgun with no upside.
         if (envelope) await load();
       },
-      onSweep: (action, unclassifiedKey, report) => runLibrarySweep(extensionId, action, unclassifiedKey, report),
+      onSweep: (action, unclassifiedKey, report) =>
+        runLibrarySweep(extensionId, action, unclassifiedKey, report, controller.signal),
       onSaveState: async (updates) => {
         try {
           const envelope = await api.put(`/extensions/${encodeURIComponent(extensionId)}/state`, {
@@ -464,9 +484,15 @@ export async function mountView(container, extensionId, viewId, { instanceId = "
       },
     });
   };
-  _openViews.set(key, { container, load });
+  _openViews.set(key, { container, load, controller });
   await load();
-  return () => _openViews.delete(key);
+  return () => disposeView(key);
+}
+
+/** Drop one mounted view and abort whatever it still has in flight. */
+function disposeView(key) {
+  _openViews.get(key)?.controller.abort();
+  _openViews.delete(key);
 }
 
 function digestFor(extensionId) {
@@ -484,6 +510,9 @@ export function openWorkspace(extensionId, viewId) {
   $("xc-workspace-title").textContent = entry?.name || extensionId;
   const body = $("xc-workspace-body");
   void mountView(body, extensionId, viewId, { instanceId: "workspace" });
+  // Every dismissal path — the Close button, Escape, a backdrop click — lands
+  // in `closeModal`, so the disposal hangs off that rather than off one button.
+  setModalCloseCallback(() => disposeView(viewKey(extensionId, viewId)));
 }
 
 export function closeWorkspace() {
@@ -508,7 +537,7 @@ export function disposeStaleViews() {
       void mounted.load();
     } else {
       mounted.container.replaceChildren();
-      _openViews.delete(key);
+      disposeView(key);
     }
   }
 }
