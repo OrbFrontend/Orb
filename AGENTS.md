@@ -15,7 +15,7 @@ Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams out
 - **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
 - **Registry snapshots:** Workflow lookups resolve against an immutable `RegistrySnapshot` (built-in base + community overlay). A turn captures **one** in `_load_pipeline_context` and threads it everywhere; never re-read the global registry mid-turn.
-- **Community extensions:** Untrusted declarative packages, a separate trust tier from built-in workflows. Design + phasing: [docs/architecture/community-extensions.md](docs/architecture/community-extensions.md).
+- **Community extensions:** Untrusted declarative packages, a separate trust tier from built-in workflows. `.orbext` archives are compiled to immutable records, stored content-addressed under `data/extensions/objects/<digest>/`, and published as the registry's community overlay; they publish no executable entry point yet. Design + phasing: [docs/architecture/community-extensions.md](docs/architecture/community-extensions.md).
 - **SSE wire contract:** [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
 
 ## Layer Stack
@@ -73,6 +73,7 @@ features/<name>/
 | `frontend/chat.js` | Barrel re-exporting `chat_core/stream/messages/inspector/workflow/conversations` |
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
 | `frontend/workflow_api.js` | Plugin facade ABI v2 — the only import for `frontend/workflows/**` |
+| `frontend/extension_manager.js` | Orb-owned community-extension manager. DOM creation + `textContent` only — package strings never become markup, handlers, or attributes |
 
 ## Database Schema (summary)
 
@@ -143,6 +144,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys)
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments
+- **Extensions:** `/api/extensions` (catalog + orphaned data), `/{id}` detail, two-phase `inspect-file` → `install`, `inspect-update` → `update`, `inspect-rollback` → `rollback`, `/{id}/enabled`, `PUT /{id}/permissions`, `DELETE /{id}` (uninstall preserves namespaced data), `POST /{id}/purge-data` (preview, then confirm with the preview's token). Lifecycle responses use the fixed effect envelope `{data, effects, runtime_generation}`
 - **Image generation:** external-ComfyUI readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types); generation uses the conversation-scoped workflow trigger
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`
 - **Direction notes:** CRUD under `/api/conversations/{cid}/direction-notes`
@@ -164,6 +166,9 @@ Drop `api/routes/<feature>.py` with `router = APIRouter()`, append to `ROUTERS` 
 1. Add `INTEGER NOT NULL DEFAULT 0` column to `database/schema.py`, `seeds.py`, and a numbered migration
 2. Add to `allowed` list in `database/queries/settings.py` and `SettingsUpdate` in `api/schemas.py`
 3. Read from `settings` (not `enabled_tools`) in the pipeline
+
+### Install a community extension (dev loop)
+Zip the package directory (`zip -r pkg.orbext my-extension/` — one wrapping directory is stripped), then use the Extensions sidebar section, or `POST /api/extensions/inspect-file` followed by `POST /api/extensions/install` with the returned token and the exact permission `value` objects the inspection listed. The compiler derives the real requirement set from the flows/views; `requires.operations`, `requires.components`, and `permissions` must *cover* it or the package is rejected.
 
 ### Add a secondary workflow
 See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) — new folder + `register_workflow`/`subscribe` in `workflows/__init__.py`. A `POST_PIPELINE` binding must also pick its `stage=`: `TRANSFORM` if it rewrites the draft, `OBSERVE` if it only consumes the final text.

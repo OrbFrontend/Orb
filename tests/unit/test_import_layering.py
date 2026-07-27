@@ -31,7 +31,15 @@ ALLOWED: dict[str, set[str]] = {
     "inference": {"core"},
     "analysis": {"database"},
     "workflows": {"core", "database", "inference", "analysis"},
-    "features": {"core", "database", "inference", "analysis"},
+    # ``features`` sits above ``workflows`` in the documented stack (see the
+    # module docstring and AGENTS.md), so this edge is downward. It stayed off
+    # the list until a slice needed it: ``features/extensions`` compiles
+    # community packages into registry records and publishes them as the
+    # community overlay, which is the dependency-inversion direction the design
+    # calls for -- the lower layer owns the registry, the higher one fills it.
+    # The reverse edge stays forbidden: ``workflows`` must not import
+    # ``features``, or a built-in workflow could reach into a feature slice.
+    "features": {"core", "database", "inference", "analysis", "workflows"},
     "pipeline": {"core", "database", "inference", "analysis", "workflows", "features"},
     "api": {"core", "database", "inference", "analysis", "workflows", "features", "pipeline"},
     # ``main.py`` / ``__init__.py`` sitting directly in ``backend/`` -- the

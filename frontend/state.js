@@ -166,6 +166,11 @@ export const S = {
   // discarded rather than merged, which is what keeps a slow response from
   // resurrecting a command the user just uninstalled.
   extensionRuntimeGeneration: 0,
+  // [{id, records}] — namespaced state, attachments, and fragment instances
+  // still stored under an extension id that is not installed. Normal uninstall
+  // preserves that data on purpose, so without listing it the data would be
+  // neither visible nor purgeable.
+  extensionOrphanedData: [],
 
   // Flat list of workflow-attachment rejection records. Each entry:
   //   {message_id (number), originating_attachment_id (number|null),

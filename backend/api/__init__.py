@@ -25,6 +25,8 @@ from fastapi.staticfiles import StaticFiles
 
 from ..database import DB_PATH, init_db
 from ..database.migrations import run_pending, stamp_all
+from ..features.extensions import reconcile as reconcile_extensions
+from ..features.extensions.staging import clear as clear_extension_staging
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from .deps import FRONTEND_DIR
 from .routes import ROUTERS
@@ -79,7 +81,24 @@ async def lifespan(app: FastAPI):
             "will be refused until this is fixed:\n  - " + "\n  - ".join(problems)
         )
     logger.info("Database initialized")
+    # Community extensions load only after the database exists, so this runs
+    # here rather than at import time like the built-in registry. Each installed
+    # revision compiles independently: a package whose content is missing, whose
+    # manifest no longer validates, or which needs a newer Orb is marked with a
+    # sanitized diagnostic and skipped, while every other package and all the
+    # built-ins still load. A bad package must not be able to stop Orb booting,
+    # so the whole reconciliation is contained -- a failure here leaves an empty
+    # community overlay and a logged error, not a dead app.
+    try:
+        generation = await reconcile_extensions()
+        logger.info("Community extensions reconciled (runtime generation %d)", generation)
+    except Exception:
+        logger.exception("Community extension reconciliation failed; continuing with no community extensions")
     yield
+    # Staged inspections are in-memory and deliberately do not survive a
+    # restart: a staging token asserts "a human just looked at this", which is
+    # not a claim that outlives the process the user was watching.
+    clear_extension_staging()
 
 
 def build_app() -> FastAPI:

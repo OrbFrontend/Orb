@@ -102,3 +102,31 @@ async def maintenance_lock():
     lock = _maintenance_locks.setdefault(loop, asyncio.Lock())
     async with lock:
         yield
+
+
+_extension_lifecycle_locks: dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def extension_lifecycle_lock():
+    """Serialize community-extension lifecycle mutations.
+
+    Install, update, rollback, enablement, permission change, uninstall, and
+    purge each make content durable, commit metadata, and publish a new runtime
+    overlay -- three steps that must not interleave with another mutation's.
+    Two concurrent installs without this lock could publish overlays computed
+    from different views of ``extension_packages``, leaving the registry
+    describing a package set that never existed in the database.
+
+    It is deliberately *not* held by readers. A turn captures its registry
+    snapshot and keeps it; publishing swaps one immutable reference, so a
+    lifecycle mutation blocks only other mutations, never generation.
+
+    Keyed by running event loop for the same reason as ``workflow_config_lock``
+    (a ``Lock`` binds to the loop of its first acquire; pytest-asyncio hands
+    each test a fresh loop).
+    """
+    loop = asyncio.get_running_loop()
+    lock = _extension_lifecycle_locks.setdefault(loop, asyncio.Lock())
+    async with lock:
+        yield

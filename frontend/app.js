@@ -79,6 +79,7 @@ import {
   setDocProbs,
   toggleDocumentMode,
 } from "./document.js";
+import { initExtensionManager, loadExtensionCatalog } from "./extension_manager.js";
 import {
   addAltGreeting,
   clearExpressions,
@@ -533,6 +534,17 @@ async function initAll() {
     await loadWorkflowModules();
   } catch (e) {
     console.error("Failed to load workflow modules:", e);
+  }
+
+  // Extensions load last and never gate anything: the catalog is metadata for
+  // an Orb-owned panel, and community entries are declarative data that the
+  // loader above has already refused to import(). A failure here costs the
+  // Extensions sidebar, not the app.
+  initExtensionManager();
+  try {
+    await loadExtensionCatalog();
+  } catch (e) {
+    console.error("Failed to load extension catalog:", e);
   }
 }
 

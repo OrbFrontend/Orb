@@ -82,6 +82,7 @@ LAYERS = {
     "settings_personas.js": 5,
     "presets.js": 5,
     "direction_notes_panel.js": 5,
+    "extension_manager.js": 5,
     "mobile.js": 5,
     # L6 shell / plugin facade.
     "app.js": 6,

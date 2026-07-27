@@ -525,3 +525,38 @@ class PresetExportRequest(BaseModel):
     domains: list[str]
     strip_keys: bool = True
     label: str = ""
+
+
+class ExtensionInstallRequest(BaseModel):
+    """Apply a staged install.
+
+    ``token`` is the opaque staging token from the matching inspect call; it,
+    not this body, decides *which* package installs. ``permissions`` echoes back
+    the exact normalized permission values the user approved -- the server keeps
+    only entries the active manifest actually requests, so the frontend can
+    never widen a grant by reconstructing one from a display string.
+    """
+
+    token: str
+    permissions: list[dict] = Field(default_factory=list)
+    enabled: bool = True
+
+
+class ExtensionUpdateRequest(BaseModel):
+    """Apply a staged update or rollback. Same token/echo contract as install."""
+
+    token: str
+    permissions: list[dict] = Field(default_factory=list)
+
+
+class ExtensionPermissionsUpdate(BaseModel):
+    # Required (no default): a body lacking "permissions" is a 422, never an
+    # accidental revoke-everything.
+    permissions: list[dict]
+
+
+class ExtensionPurgeRequest(BaseModel):
+    """Two-phase purge. Omit ``token`` for the count preview; send the token the
+    preview returned to actually delete."""
+
+    token: str | None = None

@@ -9,12 +9,32 @@ const PEER_TIMEOUT_MS = 5000;
 
 let broadcastChannel = null;
 let onWorkflowMutationCallback = null;
+let onExtensionMutationCallback = null;
 const peers = new Map();
 let heartbeatTimer = null;
 
 // Payload shape is {convId, msgId}; the listener decides whether to refetch.
 export function setWorkflowMutationCallback(callback) {
   onWorkflowMutationCallback = callback;
+}
+
+// Payload shape is {generation}; the listener refetches rather than merging it.
+// Deliberately a separate channel from WORKFLOW_MUTATION: that one means "an
+// attachment on a message changed", this one means "the installed extension set
+// changed". Overloading one message would make every workflow attachment update
+// refetch the whole extension catalog.
+export function setExtensionMutationCallback(callback) {
+  onExtensionMutationCallback = callback;
+}
+
+export function broadcastExtensionMutation(payload) {
+  if (!broadcastChannel) return;
+  broadcastChannel.postMessage({
+    type: "EXTENSION_MUTATION",
+    tabId: TAB_ID,
+    timestamp: Date.now(),
+    payload,
+  });
 }
 
 // Self-echo is filtered at the receiver via the TAB_ID check in onmessage, not here.
@@ -112,6 +132,17 @@ export function initTabLock() {
             onWorkflowMutationCallback(event.data.payload);
           } catch (err) {
             console.warn("workflow mutation handler threw", err);
+          }
+        }
+        break;
+
+      case "EXTENSION_MUTATION":
+        recordPeer(tabId);
+        if (onExtensionMutationCallback) {
+          try {
+            onExtensionMutationCallback(event.data.payload);
+          } catch (err) {
+            console.warn("extension mutation handler threw", err);
           }
         }
         break;

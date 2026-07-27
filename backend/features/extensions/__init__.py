@@ -17,7 +17,7 @@ which is why the package limits, the strict parser, and the hostile-package
 test corpus in ``tests/unit/extensions/`` are load-bearing rather than
 decorative.
 
-Present contents (Phase 0 -- contracts and seams only, no executor):
+Contents (Phases 0-1 -- contracts, package lifecycle, no executor):
 
 * :mod:`.contracts` -- frozen v1 models for manifest, permissions, flows,
   values, schemas, components, effects, and fragment-type descriptors.
@@ -26,13 +26,28 @@ Present contents (Phase 0 -- contracts and seams only, no executor):
 * :mod:`.digest` -- canonical JSON encoding and the shared content digest.
 * :mod:`.paths` -- package-path normalization and collision rules.
 * :mod:`.limits` / :mod:`.errors` -- the bounds and the failure vocabulary.
+* :mod:`.sources` -- bounded archive and content-store readers, which offer no
+  enumeration, so only manifest-referenced files can ever be read.
+* :mod:`.assets` -- the media allowlist and leading-byte check.
+* :mod:`.compiler` -- reference-graph validation, requirement derivation, and
+  the immutable compiled record.
+* :mod:`.content_store` -- the digest-addressed store, its durability order,
+  and garbage collection.
+* :mod:`.staging` -- opaque, expiring, single-use consent tokens.
+* :mod:`.runtime` -- compiling installed revisions and publishing them as one
+  community overlay.
+* :mod:`.lifecycle` -- inspect/install/update/rollback/enable/permissions/
+  uninstall/purge plus startup reconciliation.
+* :mod:`.catalog` -- the host-owned projections the extension manager renders.
 
-Deliberately absent until their phase lands: the package reader (archive/Git),
-the compiler, the interpreter, the capability-filtered context projection, the
-host HTTP client, and the registry publisher. The design note is explicit that
-the first PR should establish contracts and seams *without* a permissive
-placeholder executor -- a temporary "run arbitrary operation" switch is
-difficult to tighten once packages exist that depend on it.
+Deliberately absent until their phase lands: the flow interpreter, the
+capability-filtered context projection, the host HTTP client and secrets
+substitution, the component renderer, the Git reader, and fragment-type
+contribution. Phase 1 publishes community records with **no subscriptions** --
+an installed package contributes catalog metadata and nothing executable. The
+design note is explicit that no permissive placeholder executor should stand in
+for the real one: a temporary "run arbitrary operation" switch is difficult to
+tighten once packages exist that depend on it.
 
 Full design: ``docs/architecture/community-extensions.md``.
 """
@@ -48,9 +63,18 @@ from .errors import (
     PackageValidationError,
 )
 from .json_loader import load_json
+from .lifecycle import (
+    LifecycleConflict,
+    LifecycleError,
+    collect_content_garbage,
+    reconcile,
+)
 from .paths import assert_no_case_collisions, normalize_package_path
+from .runtime import current_state
 
 __all__ = [
+    "LifecycleConflict",
+    "LifecycleError",
     "PackageContent",
     "PackageError",
     "PackageIncompatible",
@@ -59,7 +83,10 @@ __all__ = [
     "PackageValidationError",
     "assert_no_case_collisions",
     "canonical_json_bytes",
+    "collect_content_garbage",
     "content_digest",
+    "current_state",
     "load_json",
     "normalize_package_path",
+    "reconcile",
 ]

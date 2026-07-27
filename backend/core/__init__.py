@@ -18,6 +18,7 @@ from .llm_types import (
     WireMessage,
 )
 from .locks import (
+    extension_lifecycle_lock,
     maintenance_lock,
     workflow_character_state_lock,
     workflow_config_lock,
@@ -38,6 +39,7 @@ __all__ = [
     "ContentPart",
     "WireMessage",
     # locks — process-level asyncio locks
+    "extension_lifecycle_lock",
     "maintenance_lock",
     "workflow_character_state_lock",
     "workflow_config_lock",

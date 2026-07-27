@@ -1,0 +1,149 @@
+/* extensions.css — the Orb-owned extension manager: sidebar rows, catalog
+   cards, consent screens, and purge previews.
+
+   Every class here is applied by extension_manager.js to elements it created
+   itself. No package string ever reaches a class name, an inline style, or a
+   custom property — a package supplies text, and text lands in textContent.
+   That is why there is no `.ext-<something-from-a-manifest>` rule and never
+   should be: a class derived from package data would be the one channel by
+   which an extension could influence how Orb renders itself. */
+
+.ext-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.ext-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  padding: 10px 12px;
+}
+
+.ext-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ext-card-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.ext-card-author,
+.ext-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ext-card-desc {
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.ext-card-detail {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.ext-field {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+/* A digest is 64 hex characters the user may need to compare by eye. */
+.ext-digest {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  word-break: break-all;
+}
+
+/* Sanitized server-side diagnostics: why a package publishes nothing, or what
+   installing it would give access to. Warning-toned, never hidden. */
+.ext-diagnostic {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--red);
+  background: var(--bg-elevated);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.ext-blocked {
+  margin: 4px 0 0 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ext-permissions {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ext-permission {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+/* Token cost, sending conversation data off the machine, and reading branches
+   the user is not on must not scroll past as one more checkbox line. */
+.ext-permission-loud {
+  color: var(--text-primary);
+  font-weight: 500;
+  border-left: 2px solid var(--accent);
+  padding-left: 8px;
+}
+
+.ext-permission-detail {
+  color: var(--text-muted);
+}
+
+.ext-orphans {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.empty-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.chip {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.chip-ok {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.chip-warn {
+  color: var(--red);
+  border-color: var(--red);
+}

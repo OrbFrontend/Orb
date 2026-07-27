@@ -577,6 +577,12 @@ class ExtensionPackageRow(TypedDict):
     updated_at: str
 
 
+class ExtensionPackageRuntimeRow(ExtensionPackageRow):
+    """An installed package joined to its active revision's consent contract."""
+
+    active_contract_fingerprint: str | None
+
+
 class ExtensionRevisionRow(TypedDict):
     """A row from ``extension_revisions`` (``SELECT *``).
 
