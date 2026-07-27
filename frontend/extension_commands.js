@@ -214,8 +214,19 @@ function slotButton(extensionId, command, { slot, input, cardId }) {
   button.type = "button";
   button.className = "btn btn-sm xc-slot-btn";
   button.title = command.label;
-  const icon = command.icon ? iconGlyph(command.icon) : "";
-  button.textContent = icon ? `${icon} ${command.label}` : command.label;
+  const glyph = command.icon ? iconGlyph(command.icon) : "";
+  if (glyph) {
+    // Its own span, like the burger menu's icon. A glyph that falls back to the
+    // emoji font inflates whatever line box it shares, so leaving it in the
+    // label's text node pushes the label off the button's vertical centre.
+    const icon = document.createElement("span");
+    icon.className = "xc-slot-icon";
+    icon.textContent = glyph;
+    button.appendChild(icon);
+  }
+  const label = document.createElement("span");
+  label.textContent = command.label;
+  button.appendChild(label);
   button.addEventListener("click", (event) => {
     // The library card is itself clickable ("open this character"), so a slot
     // button inside it must not also select the card.

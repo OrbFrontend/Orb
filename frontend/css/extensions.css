@@ -486,6 +486,37 @@ textarea.xc-input {
 .xc-slot-btn {
   margin-left: 4px;
 }
+.xc-slot-icon {
+  flex: 0 0 auto;
+  line-height: 1;
+}
+
+/* Panel slots stack; inline slots (message toolbar, library card) do not. Every
+   child stretches to the panel's content width, so a button, a view mount, or
+   whatever a future placement puts here lines up with the host's own cards
+   without the slot knowing what it holds. */
+[data-ext-slot="tools"],
+[data-ext-slot="inspector"] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+[data-ext-slot="tools"] > .xc-slot-btn,
+[data-ext-slot="inspector"] > .xc-slot-btn {
+  margin-left: 0;
+}
+
+/* No placements, no demarcation — the label would otherwise announce an empty
+   section on every install-free setup. */
+#tools-ext-section:not(:has([data-ext-slot="tools"] > *)) {
+  display: none;
+}
+/* Beats `.tools-divider:first-child`, which tightens the *list's* leading
+   divider — this one separates two sections and wants the full gap. */
+#tools-ext-section .tools-divider {
+  margin-top: 16px;
+}
 
 .xc-progress,
 .xc-meter {

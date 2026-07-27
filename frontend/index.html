@@ -222,7 +222,15 @@ Write a haiku about the sea.&lt;|im_end|&gt;
         <div style="font-size: 10px; color: var(--text-muted); text-align: center;">Manage banned/overused phrases</div>
       </div>
     </div>
-    <div id="tools-pane-secondary" class="hidden"><div id="tools-list-secondary"></div><div data-ext-slot="tools"></div></div>
+    <div id="tools-pane-secondary" class="hidden">
+      <div id="tools-list-secondary"></div>
+      <!-- Community extensions live below their own demarcation, and the whole
+           section hides itself while the slot is empty (see extensions.css). -->
+      <div id="tools-ext-section">
+        <div class="tools-divider"><span>Extensions</span></div>
+        <div data-ext-slot="tools"></div>
+      </div>
+    </div>
     <!-- Doc-mode pane: shown/hidden by mode CSS (document.css), rendered by document_audit.js. -->
     <div id="tools-pane-doc"></div>
   </div></div>
