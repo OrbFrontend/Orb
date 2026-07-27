@@ -480,6 +480,10 @@ const _charTagChips = createChipInput({
   setItems: (v) => {
     _pendingTags = v;
   },
+  // Matches backend/core/tags.py, which the PUT this modal submits to runs the
+  // list through. Case-sensitive entry here would let the user add "Noir"
+  // beside "noir" and then watch the server silently drop one of them.
+  caseInsensitive: true,
 });
 
 export async function showCharEditModal(idOrData) {

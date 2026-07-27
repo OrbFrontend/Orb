@@ -14,6 +14,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+from ..core.personas import resolve_persona_id as _resolve_persona_id
+
 if TYPE_CHECKING:
     from ..inference import LLMClient
 
@@ -75,13 +77,7 @@ def direction_note_to_writer(settings: Mapping[str, Any]) -> bool:
     return (settings.get("direction_notes_inject", "off") or "off") in ("writer", "both")
 
 
-def resolve_persona_id(
-    conv: Mapping[str, Any],
-    card: Mapping[str, Any] | None,
-    settings: Mapping[str, Any],
-) -> int | None:
-    """Return the effective persona id for a turn.
-
-    Priority: conversation pin → character-card pin → global active persona.
-    """
-    return conv.get("persona_lock_id") or (card.get("persona_lock_id") if card else None) or settings.get("active_persona_id")
+# Moved down to ``core/personas.py`` when the extension persona resource needed
+# the same priority rule from below the ``pipeline/`` layer. Re-exported here so
+# every existing import keeps working and there is still one definition.
+resolve_persona_id = _resolve_persona_id

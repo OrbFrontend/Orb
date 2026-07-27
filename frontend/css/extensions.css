@@ -147,3 +147,400 @@
   color: var(--red);
   border-color: var(--red);
 }
+
+/* ── Manager additions: consent banner, telemetry, config panel ───────────── */
+
+/* Host-authored copy only. The banner text is derived server-side from the
+   normalized grant set; no package string reaches it. */
+.ext-banner {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--warning, #b8860b);
+  background: color-mix(in srgb, var(--warning, #b8860b) 12%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ext-telemetry {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ext-config {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Rendered community components (`xc-` prefix) ─────────────────────────────
+
+   Every class below is applied by extension_renderer.js to an element it
+   created, from a closed token table. There is deliberately no rule whose name
+   could be derived from package data — a class built from a manifest string
+   would be the one channel through which an extension could influence how Orb
+   renders itself. */
+
+.xc-view {
+  display: block;
+}
+
+.xc-workspace {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.xc-stack {
+  display: flex;
+  gap: 8px;
+}
+.xc-stack.xc-col {
+  flex-direction: column;
+}
+.xc-stack.xc-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.xc-stack.xc-sm {
+  gap: 4px;
+}
+.xc-stack.xc-lg {
+  gap: 14px;
+}
+.xc-align-start {
+  align-items: flex-start;
+}
+.xc-align-center {
+  align-items: center;
+}
+.xc-align-end {
+  align-items: flex-end;
+}
+
+.xc-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--xc-columns, 2), minmax(0, 1fr));
+  gap: 10px;
+}
+.xc-grid.xc-compact {
+  gap: 6px;
+}
+.xc-span-2 {
+  grid-column: span 2;
+}
+.xc-span-3 {
+  grid-column: span 3;
+}
+.xc-span-4 {
+  grid-column: span 4;
+}
+.xc-span-5 {
+  grid-column: span 5;
+}
+.xc-span-6 {
+  grid-column: span 6;
+}
+
+.xc-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--bg-surface);
+}
+.xc-card-title {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+.xc-divider {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
+}
+
+.xc-tab-strip {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.xc-tab {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.xc-tab.active {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.xc-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.xc-text.xc-sm {
+  font-size: 11px;
+}
+.xc-text.xc-lg {
+  font-size: 15px;
+}
+.xc-tone-muted {
+  color: var(--text-muted);
+}
+.xc-tone-accent {
+  color: var(--accent);
+}
+.xc-tone-success {
+  color: var(--success, #4caf50);
+}
+.xc-tone-warning {
+  color: var(--warning, #b8860b);
+}
+.xc-tone-danger {
+  color: var(--danger, #d9534f);
+}
+
+.xc-markdown {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.xc-md-p {
+  margin: 0 0 6px;
+}
+.xc-md-list {
+  margin: 0 0 6px 16px;
+  padding: 0;
+}
+
+.xc-badge {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+
+.xc-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.xc-list-item {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+/* Wide tables scroll inside their own box; the panel must never scroll sideways. */
+.xc-table-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.xc-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+}
+.xc-table th,
+.xc-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+}
+.xc-table.xc-compact th,
+.xc-table.xc-compact td {
+  padding: 2px 6px;
+}
+.xc-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.xc-labelled {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+.xc-label {
+  color: var(--text-muted);
+}
+.xc-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-input, var(--bg-surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.xc-toggle {
+  width: auto;
+  align-self: flex-start;
+}
+
+.xc-button {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.xc-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.xc-button.xc-tone-accent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.xc-save-bar {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+.xc-slot-btn {
+  margin-left: 4px;
+}
+
+.xc-progress,
+.xc-meter {
+  width: 100%;
+  height: 10px;
+}
+
+.xc-empty,
+.xc-error {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.xc-error {
+  border-style: solid;
+  border-color: var(--danger, #d9534f);
+}
+.xc-empty-title,
+.xc-error-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.xc-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+}
+.xc-image.xc-sm {
+  max-width: 120px;
+}
+.xc-image.xc-lg {
+  max-width: 100%;
+}
+.xc-audio,
+.xc-video {
+  max-width: 100%;
+}
+
+/* The host computes tree depth and draws the indent; the package supplies rows. */
+.xc-tree {
+  font-size: 12px;
+}
+.xc-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: calc(var(--xc-depth, 0) * 14px);
+  border-radius: var(--radius);
+}
+.xc-tree-row.xc-tree-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.xc-tree-toggle,
+.xc-tree-spacer {
+  width: 16px;
+  flex: 0 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+.xc-tree-spacer {
+  cursor: default;
+}
+.xc-tree-node {
+  flex: 1;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  padding: 2px 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.xc-tree-node:disabled {
+  cursor: default;
+}
+.xc-tree-role {
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+.xc-tree-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xc-tree-count {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.char-browser-card-actions,
+.char-browser-list-item .char-browser-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.char-browser-card-actions:empty {
+  display: none;
+}
+
+.xc-sweep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+.xc-sweep-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

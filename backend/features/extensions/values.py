@@ -201,14 +201,20 @@ def evaluate_predicate(node: Mapping[str, Any], namespaces: Mapping[str, Any]) -
     left = resolve_value(operand[0], namespaces)
     right = resolve_value(operand[1], namespaces)
     if op == "eq":
-        return _equal(left, right)
+        return values_equal(left, right)
     if op == "ne":
-        return not _equal(left, right)
+        return not values_equal(left, right)
     return _ordered(op, left, right)
 
 
-def _equal(left: Any, right: Any) -> bool:
-    """Type-strict equality. ``MISSING`` equals only ``MISSING``."""
+def values_equal(left: Any, right: Any) -> bool:
+    """Type-strict equality. ``MISSING`` equals only ``MISSING``.
+
+    Public because ``list.intersect`` needs membership to mean exactly what
+    ``eq`` means. Two equality notions in one language -- one for predicates and
+    one for set operations -- would disagree on ``1`` versus ``True`` the first
+    time a model returned the wrong one.
+    """
     if left is MISSING or right is MISSING:
         return left is right
     if isinstance(left, bool) != isinstance(right, bool):

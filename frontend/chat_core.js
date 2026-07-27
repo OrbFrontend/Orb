@@ -9,6 +9,7 @@ import {
   _renderWorkflowArtifacts,
   _renderWorkflowRejection,
 } from "./chat_workflow.js";
+import { renderPanelSlots } from "./extension_commands.js";
 import { preserveScrollDistance } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { requestSendPermission } from "./tabLock.js";
@@ -377,7 +378,14 @@ export function renderMessages(forceBottom = false) {
           <button onclick="event.stopPropagation();switchBranch(${m.next_branch_id})" ${!m.next_branch_id ? "disabled" : ""}>▶</button>
         </span>`
                   : "";
-              const toolbar = isEditing ? "" : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}</div>`;
+              // Two empty host containers per message. Extensions never insert
+              // DOM nodes and never name a selector; the host declares where a
+              // slot lives and extension_commands.js fills it after the render.
+              const extSlots = m.id ? `<span data-ext-slot="message.toolbar" data-ext-msg-id="${m.id}"></span>` : "";
+              const extAfter = m.id ? `<div data-ext-slot="message.after" data-ext-msg-id="${m.id}"></div>` : "";
+              const toolbar = isEditing
+                ? ""
+                : `<div class="msg-toolbar">${buildMsgToolbar(m, childByParent)}${extSlots}</div>`;
               const taId = m.id ? `edit-textarea-${m.id}` : `edit-textarea-pending`;
               const editActions = isForkEditing
                 ? `<button class="btn btn-sm" onclick="cancelForkEdit()">Cancel</button>
@@ -402,7 +410,7 @@ export function renderMessages(forceBottom = false) {
               const rejectionHtml = _renderWorkflowRejection(m);
               return `<div class="message ${m.role}" data-msg-id="${m.id}">
         <div class="msg-role">${m.role === "user" ? "You" : esc(getCharName())} ${branchHtml}</div>
-        ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${toolbar}
+        ${body}${attachmentsHtml}${workflowArtifactsHtml}${rejectionHtml}${toolbar}${extAfter}
       </div>`;
             })
             .join("");
@@ -426,6 +434,11 @@ export function renderMessages(forceBottom = false) {
   if (!S.isStreaming) updateContextCounter();
   _refreshWorkflowViewportObserver();
   _segmentRenderedMessages(renderedMsgs);
+  // Fill the per-message extension slots after the HTML string render. Doing it
+  // here rather than inside the template is what keeps package content out of
+  // an interpolated string: the containers are empty in the markup and their
+  // contents are built as DOM nodes.
+  renderPanelSlots(ct);
 }
 
 // Wraps body words in addressable `.seg` spans and marks the clickable ones for

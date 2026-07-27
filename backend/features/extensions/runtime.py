@@ -52,6 +52,7 @@ from .compiler import (
     Requirement,
     compile_package,
     derive_flow_requirements,
+    derive_view_runtime_requirements,
     expand_permissions,
 )
 from .contracts import referenced_actions
@@ -242,7 +243,9 @@ def blocked_entry_points(compiled: CompiledPackage, granted: frozenset[Requireme
         view = compiled.views.get(binding.source)
         if view is None:
             continue
-        if any(not covered(manifest.actions[a].flow) for a in referenced_actions(view) if a in manifest.actions):
+        if derive_view_runtime_requirements(view) - granted or any(
+            not covered(manifest.actions[a].flow) for a in referenced_actions(view) if a in manifest.actions
+        ):
             yield f"view {view_id!r}"
     for placement in manifest.placements:
         if ("ui.contribute", placement.slot) not in granted:

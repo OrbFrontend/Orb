@@ -82,14 +82,25 @@ string could escape the content store.
 _SEGMENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 _INDEX_RE = re.compile(r"^(0|[1-9][0-9]{0,3})$")
 
-VALUE_ROOTS = frozenset({"ctx", "input", "host", "steps", "fragment"})
+VALUE_ROOTS = frozenset({"ctx", "input", "host", "steps", "fragment", "data", "config", "state", "item"})
 """Namespaces a ``$ref`` may address.
 
-``ctx`` is the capability-filtered invocation context, ``input`` the validated
-action input, ``host`` the invocation metadata projection, ``steps`` the output
-of an *earlier* named step, and ``fragment`` the reducer's
-config/previous/director projection. There is deliberately no root for
-settings, endpoints, the database, or another extension.
+Flow namespaces: ``ctx`` is the capability-filtered invocation context,
+``input`` the validated action input, ``host`` the invocation metadata
+projection, ``steps`` the output of an *earlier* named step, and ``fragment``
+the reducer's config/previous/director projection.
+
+View namespaces: ``data`` holds one entry per declared view source, ``config``
+and ``state`` this extension's own slots, and ``item`` the current row while a
+list or table renders its children.
+
+The two sets share one root vocabulary rather than splitting the value grammar
+in two, so a ``$ref`` means the same thing wherever it appears. A namespace
+that is not bound in the current position resolves to the missing sentinel --
+the same answer an absent key gives -- rather than to a second kind of error.
+
+There is deliberately no root for settings, endpoints, the database, or another
+extension.
 """
 
 

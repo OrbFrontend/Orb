@@ -1,10 +1,23 @@
 """Process-level asyncio locks crossed by more than one backend module.
 
-Locks confined to a single module (workflow-attachment root, conversation
-stream) live alongside that module; this file holds only the locks that
-are taken from both ``backend.api`` routes and the pipeline hook loops in
-``backend.pipeline.workflow_bridge``, so they need a neutral home to avoid a circular
-import.
+Locks confined to a single module (the workflow-attachment root lock) live
+alongside that module; this file holds the locks that are taken from more than
+one layer -- ``backend.api`` routes, the pipeline hook loops in
+``backend.pipeline.workflow_bridge``, and the community-extension interpreter in
+``backend.features.extensions`` -- so they need a neutral home to avoid a
+circular import.
+
+The canonical acquisition order, when a caller needs more than one:
+
+    conversation stream -> workflow config -> conversation state
+    -> character state -> message state
+
+``conversation_stream_lock`` sits at the top because the pipeline takes it
+before any workflow lock, and an extension action that activates a branch must
+match that order or the two deadlock against each other. It is also why a flow
+containing branch activation may not contain a model or HTTP call: a slow
+external round trip inside the stream lock is exactly that deadlock's shape,
+stretched out long enough to notice.
 
 ``workflow_state_lock(cid, workflow_id)`` is acquired around each
 pre/post pipeline hook callable's full lifetime, including the
@@ -45,7 +58,58 @@ the second test would acquire a Lock bound to a dead loop and crash.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+
+# Per-conversation serialization for the streaming pipeline. The five chat
+# streaming routes refuse a second POST against a held lock with an in-band
+# SSE error event; /edit, /delete, and /switch-branch share the same lock but
+# block on the stream instead of erroring, since they have no SSE channel for
+# an "already running" reply and the user expects them to take effect rather
+# than fail. The lock prevents doubled-LLM cost on concurrent /send, FK cascade
+# on mid-stream /delete, terminal set_active_leaf clobber of a mid-stream
+# /switch-branch, and pre-edit-prefix vs post-edit-DB skew on mid-stream /edit.
+#
+# It lives here rather than in ``api/deps.py`` because the community-extension
+# operation ``conversation.branch.activate`` must hold the *same* lock as the
+# built-in switch-branch route, and ``features/extensions/`` sits below ``api/``
+# in the layer stack. ``api/deps.py`` imports these names back rather than
+# owning them.
+#
+# Patch seam: tests reach ``_conversation_stream_locks`` by canonical module
+# path -- now ``backend.core.locks``, not ``backend.api.deps``.
+_conversation_stream_locks: dict[str, asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def conversation_stream_lock(cid: str):
+    """Hold the per-conversation stream lock, queuing behind a running turn."""
+    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
+    async with lock:
+        yield
+
+
+@asynccontextmanager
+async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
+    """Try-acquire the conversation stream lock without ever queuing.
+
+    Yields ``True`` holding the lock when no pipeline stream is running on
+    *cid*, ``False`` without it when one is. locked()/acquire() are atomic
+    across coroutines (no await between), so the check cannot lose the lock to a
+    stream and then block behind it. Lets read paths do stream-consistent side
+    writes (greeting re-rolls) that must never wait out a running stream and
+    must never interleave with its prompt-building reads.
+    """
+    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
+    if lock.locked():
+        yield False
+        return
+    await lock.acquire()
+    try:
+        yield True
+    finally:
+        lock.release()
+
 
 _workflow_state_locks: dict[tuple[str, str], asyncio.Lock] = {}
 

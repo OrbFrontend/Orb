@@ -43,6 +43,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequenc
 from dataclasses import dataclass, field
 from typing import Any
 
+from ...core import normalize_tags
 from ...inference import IsolatedCallError, isolated_structured, isolated_text
 from .contracts import (
     OPERATION_SPECS,
@@ -57,9 +58,11 @@ from .digest import canonical_json_bytes
 from .errors import FlowCancelled, FlowError
 from .limits import (
     MAX_ACTION_RESULT_BYTES,
+    MAX_CARD_TAG_WRITES_PER_INVOCATION,
     MAX_CONTEXT_BLOCK_BYTES,
     MAX_DRAFT_BYTES,
     MAX_FLOW_STEPS_EXECUTED,
+    MAX_LIST_OPERATION_MEMBERS,
     MAX_MODEL_CALLS_PER_INVOCATION,
     MAX_MODEL_OUTPUT_BYTES,
     MAX_MODEL_OUTPUT_TOKENS,
@@ -73,6 +76,7 @@ from .values import (
     resolve_path,
     resolve_value,
     scalar_text,
+    values_equal,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,16 +95,15 @@ intermediate value can never be the step that smuggles past a final quota:
 concatenating two values that each pass this bound still has to pass it again.
 """
 
-UNIMPLEMENTED_OPS: frozenset[str] = frozenset({"http.request", "artifact.emit", "conversation.branch.activate"})
+UNIMPLEMENTED_OPS: frozenset[str] = frozenset({"http.request", "artifact.emit"})
 """Operations this build parses and consents to, but cannot yet execute.
 
 Network and artifact bytes arrive with the pinned-address HTTP client and the
-artifact recovery contract; branch activation arrives with the shared
-conversation-stream lock and the tree resource. Until then an entry point that
-reaches one of them is *blocked* with a diagnostic rather than published and
-failed halfway through -- the same treatment an under-granted entry point gets.
-The interpreter also refuses them defensively, so a publishing bug cannot turn
-into a half-executed flow.
+artifact recovery contract. Until then an entry point that reaches one of them
+is *blocked* with a diagnostic rather than published and failed halfway through
+-- the same treatment an under-granted entry point gets. The interpreter also
+refuses them defensively, so a publishing bug cannot turn into a half-executed
+flow.
 """
 
 
@@ -119,6 +122,17 @@ class StagedEffects:
     state: dict[str, dict[str, Any]] = field(default_factory=dict)
     context_blocks: list[dict[str, Any]] = field(default_factory=list)
     draft: str | None = None
+    card_tags: tuple[str, list[str]] | None = None
+    """``(card_id, normalized tags)`` staged by ``card.tags.set``.
+
+    A tuple rather than a list of writes because a flow may stage at most one:
+    the card is fixed by the invocation's context, so a second write would
+    either be to the same card (making the first dead) or to a card the flow
+    was never handed."""
+    branch_activation: int | None = None
+    """The message id whose branch this invocation wants active. At most one:
+    two activations in one flow would make the final active branch depend on
+    step order rather than on anything the user chose."""
     toasts: list[dict[str, str]] = field(default_factory=list)
     invalidations: list[str] = field(default_factory=list)
 
@@ -170,6 +184,13 @@ class HostServices:
     lanes: Mapping[str, ModelLane] = field(default_factory=dict)
     is_cancelled: Callable[[], bool] = lambda: False
     context_block_error: Callable[[list[dict[str, Any]]], str | None] | None = None
+    owns_message: Callable[[int], Awaitable[bool]] | None = None
+    """Whether a message id belongs to this invocation's conversation.
+
+    Branch activation checks this while it *stages*, not only when it commits,
+    so selecting a foreign message fails the flow before any other effect is
+    written. The commit path re-checks atomically anyway; this is the check
+    that makes the failure clean rather than partial."""
 
 
 @dataclass(slots=True)
@@ -491,6 +512,50 @@ def _op_json_merge(step: Any, inv: Invocation, ns: dict[str, Any]) -> dict:
     return assert_json_bounds(merged, what="the json.merge result")
 
 
+def _scalar_list(value: Any, ns: dict[str, Any], what: str) -> list[Any]:
+    """Resolve a value into a bounded array of JSON scalars.
+
+    Both list operations take arrays that a *model* or a user's config produced,
+    so the shape check is a runtime one. Rejecting a container member rather
+    than stringifying it keeps ``list.join`` from being the place ``[object]``
+    enters a prompt.
+    """
+    resolved = resolve_value(value, ns)
+    if not isinstance(resolved, list):
+        raise FlowError(f"{what} is not an array")
+    if len(resolved) > MAX_LIST_OPERATION_MEMBERS:
+        raise FlowError(f"{what} has more than {MAX_LIST_OPERATION_MEMBERS} members")
+    for item in resolved:
+        if item is MISSING or isinstance(item, (dict, list)):
+            raise FlowError(f"{what} must contain only scalars")
+    return resolved
+
+
+def _op_list_intersect(step: Any, inv: Invocation, ns: dict[str, Any]) -> list[Any]:
+    """Members of ``value`` that also appear in ``allowed``, deduplicated.
+
+    Order comes from ``value`` so the result reads as "what the model chose,
+    minus what it invented" rather than as a re-sorted vocabulary. Membership
+    uses the same type-strict equality predicates use, so ``1`` never matches
+    ``True`` and ``"1"`` never matches ``1``.
+    """
+    values = _scalar_list(step.value, ns, "list.intersect value")
+    allowed = _scalar_list(step.allowed, ns, "list.intersect allowed")
+    result: list[Any] = []
+    for item in values:
+        if any(values_equal(item, candidate) for candidate in allowed) and not any(values_equal(item, kept) for kept in result):
+            result.append(item)
+    return result
+
+
+def _op_list_join(step: Any, inv: Invocation, ns: dict[str, Any]) -> str:
+    items = _scalar_list(step.value, ns, "list.join value")
+    joined = step.separator.join(scalar_text(item, what="list.join member") for item in items)
+    if len(joined.encode("utf-8")) > MAX_VALUE_BYTES:
+        raise FlowError(f"list.join result is over the {MAX_VALUE_BYTES} byte value limit")
+    return joined
+
+
 def _op_math_add(step: Any, inv: Invocation, ns: dict[str, Any]) -> float | int:
     return _finite(_number(step.a, ns, "math.add a") + _number(step.b, ns, "math.add b"))
 
@@ -599,6 +664,53 @@ def _op_draft_replace(step: Any, inv: Invocation, ns: dict[str, Any]) -> None:
     inv.effects.draft = draft
 
 
+def _op_card_tags_set(step: Any, inv: Invocation, ns: dict[str, Any]) -> None:
+    """Stage a replacement tag list for the card in the invocation's context.
+
+    Both grants are checked, not just the write: ``card.tags.write`` alone
+    would be a permission whose target the package cannot see, and the consent
+    line ("the character a command is run against") would describe a scope the
+    grant did not actually have.
+
+    The tags are normalized here by the *host* normalizer -- the same one the
+    character API runs -- so what a flow stages is already what would be
+    stored, and the commit boundary is re-validating a decided value rather
+    than deciding it late.
+    """
+    inv.require(Capability.CARD_TAGS_WRITE)
+    inv.require(Capability.CONTEXT_CHARACTER_READ)
+    inv.charge(Quota.CARD_TAGS, MAX_CARD_TAG_WRITES_PER_INVOCATION, "card tag writes")
+    card_id = resolve_path({"ctx": inv.ctx}, "ctx.character.id")
+    if not isinstance(card_id, str) or not card_id:
+        raise FlowError("card.tags.set needs a character in the invocation's context")
+    tags = _scalar_list(step.tags, ns, "card.tags.set tags")
+    if any(not isinstance(tag, str) for tag in tags):
+        raise FlowError("card.tags.set tags must all be strings")
+    inv.effects.card_tags = (card_id, normalize_tags(tags))
+
+
+async def _op_branch_activate(step: Any, inv: Invocation, ns: dict[str, Any]) -> None:
+    """Stage a switch of the conversation's active branch.
+
+    The message must belong to this invocation's conversation -- the same rule
+    every other write follows: a write proves its target is in the invocation's
+    scope. The activation itself is staged, because it is an Orb mutation and
+    Orb mutations do not happen where they appear; the caller commits it under
+    the conversation stream lock through the exact helper the built-in
+    switch-branch route uses.
+    """
+    inv.require(Capability.CONVERSATION_BRANCH_ACTIVATE)
+    inv.charge(Quota.BRANCH_ACTIVATE, 1, "branch activations")
+    message_id = resolve_value(step.message_id, ns)
+    if isinstance(message_id, bool) or not isinstance(message_id, int):
+        raise FlowError("conversation.branch.activate needs an integer message id")
+    if inv.host.owns_message is None:
+        raise FlowError("branch activation is not available in this invocation")
+    if not await inv.host.owns_message(message_id):
+        raise FlowError("the selected message is not part of this conversation")
+    inv.effects.branch_activation = message_id
+
+
 def _op_ui_toast(step: Any, inv: Invocation, ns: dict[str, Any]) -> None:
     inv.effects.toasts.append({"text": _text(step.text, ns, "ui.toast text")[:200], "tone": step.tone})
 
@@ -617,6 +729,8 @@ _HANDLERS: dict[str, Any] = {
     "text.replace_literal": _op_text_replace,
     "json.pick": _op_json_pick,
     "json.merge": _op_json_merge,
+    "list.intersect": _op_list_intersect,
+    "list.join": _op_list_join,
     "math.add": _op_math_add,
     "math.subtract": _op_math_subtract,
     "math.negate": _op_math_negate,
@@ -627,6 +741,8 @@ _HANDLERS: dict[str, Any] = {
     "model.structured": _op_model_structured,
     "context.append": _op_context_append,
     "draft.replace": _op_draft_replace,
+    "card.tags.set": _op_card_tags_set,
+    "conversation.branch.activate": _op_branch_activate,
     "ui.toast": _op_ui_toast,
     "ui.invalidate": _op_ui_invalidate,
 }

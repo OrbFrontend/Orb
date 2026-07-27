@@ -53,6 +53,7 @@ export {
   toggleReasoningPass,
 } from "./chat_inspector.js";
 export {
+  applyBranchSwitchRefresh,
   cancelEdit,
   cancelEditPending,
   cancelForkEdit,

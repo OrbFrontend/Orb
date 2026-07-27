@@ -72,6 +72,43 @@ MAX_CONTEXT_BYTES_PER_TARGET = 32 * KIB
 MAX_DRAFT_BYTES = 1 * MIB
 MAX_ACTION_RESULT_BYTES = 1 * MIB
 
+MAX_LIST_OPERATION_MEMBERS = 256
+"""Members of either input array to ``list.intersect`` / ``list.join``.
+
+Both operations are single bounded folds with no per-element package logic, so
+this is a memory bound rather than a work bound -- but it is also what keeps
+them from being mistaken for the seed of a collection library."""
+
+MAX_CARD_TAG_WRITES_PER_INVOCATION = 1
+"""``card.tags.set`` calls per invocation. One card per invocation, by design:
+library-wide reach comes from a user driving a host-rendered loop, never from
+a single flow widening its own blast radius."""
+
+# ── host resources (sections 8 and 20) ───────────────────────────────────────
+# Every resource is bounded by both an item count and an encoded-byte budget.
+# The tree fails past its budget because a partial graph looks complete; every
+# other resource paginates, because a single-response cap would either truncate
+# a sweep into reporting success over cards it never saw, or lock a large
+# library out of the feature permanently.
+
+MAX_TREE_NODES = 2000
+"""Nodes in one conversation-tree projection before ``resource_too_large``."""
+
+MAX_TREE_PREVIEW_CHARS = 120
+"""One node's preview, when ``conversation.tree.previews`` is granted."""
+
+MAX_RESOURCE_BYTES = 512 * KIB
+"""Encoded size of one host-resource response."""
+
+MAX_RESOURCE_PAGE_ITEMS = 100
+"""Items in one page of a cursor-paginated host resource."""
+
+MAX_CTX_PERSONA_BYTES = 8 * KIB
+"""Aggregate UTF-8 bytes of the active-persona projection."""
+
+MAX_RESOURCE_TEXT_BYTES = 4 * KIB
+"""One variable-length text field inside a paginated resource item."""
+
 # ── declaration-shape limits ─────────────────────────────────────────────────
 # Bounds on the *declaration* rather than on runtime values. A package that
 # declares 10,000 steps is rejected at parse time; the step budget above is
@@ -95,6 +132,7 @@ MAX_SECRETS = 8
 MAX_FRAGMENT_TYPES = 16
 MAX_COMPONENT_NODES = 256
 MAX_COMPONENT_DEPTH = 12
+MAX_VIEW_DATA_SOURCES = 8
 
 # ── capability-filtered context projection (section 6) ───────────────────────
 # Every variable-length projection has both an item count and an aggregate

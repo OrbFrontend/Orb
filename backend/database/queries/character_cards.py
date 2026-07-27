@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import aiosqlite
 
-from ...core import has_inline_macros, resolve_inline
+from ...core import has_inline_macros, normalize_tags, resolve_inline
 from ..connection import _build_set_clause, get_db
 from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
 
@@ -39,6 +39,71 @@ async def list_character_cards() -> list[CharacterCardRow]:
             d["has_expressions"] = bool(d["has_expressions"])
             result.append(cast(CharacterCardRow, d))
         return result
+
+
+async def list_library_cards(
+    extension_id: str,
+    *,
+    after_rowid: int,
+    snapshot_rowid: int | None,
+    snapshot_created_at: str | None,
+    limit: int,
+) -> tuple[list[dict[str, Any]], int, str]:
+    """One snapshot-bounded page for the extension library resource.
+
+    An allowlisted projection built for this caller, not a row contract passed
+    through: ``description`` in particular is absent, because a classifier
+    reads it through ``ctx.character`` during an action under
+    ``context.character.read``, not here under the enumeration grant.
+
+    ``state`` is *only* ``extension_id``'s own slot. It is what makes "cards not
+    yet classified" computable in a view without one invocation per card, and
+    projecting another extension's namespace would turn the enumeration grant
+    into a cross-package read.
+
+    The first page captures the current maximum SQLite rowid as a high-water
+    mark. Later pages carry it in the authenticated cursor and read only rows at
+    or below it, so cards inserted during a sweep wait for its next run instead
+    of appearing nondeterministically based on how their public UUID sorts.
+    Deleting a row can remove that row from the remaining snapshot, but cannot
+    shift or duplicate any survivor as ``LIMIT/OFFSET`` pagination would.
+
+    ``cursor_rowid`` is adapter-private and never projected into the response.
+    """
+    async with get_db() as db:
+        if snapshot_rowid is None:
+            cursor = await db.execute("SELECT COALESCE(MAX(rowid), 0) FROM character_cards")
+            boundary = await cursor.fetchone()
+            snapshot_rowid = int(boundary[0]) if boundary is not None else 0
+            snapshot_created_at = datetime.now(UTC).isoformat()
+        assert snapshot_created_at is not None
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT rowid AS cursor_rowid, id, name, tags, json_extract(workflow_state, '$.' || ?) AS slot "
+                "FROM character_cards WHERE rowid > ? AND rowid <= ? AND created_at <= ? ORDER BY rowid LIMIT ?",
+                (extension_id, after_rowid, snapshot_rowid, snapshot_created_at, limit),
+            )
+        )
+    page: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            tags = json.loads(row["tags"]) if row["tags"] else []
+        except (TypeError, ValueError):
+            tags = []
+        try:
+            slot = json.loads(row["slot"]) if row["slot"] else {}
+        except (TypeError, ValueError):
+            slot = {}
+        page.append(
+            {
+                "cursor_rowid": int(row["cursor_rowid"]),
+                "id": row["id"],
+                "name": row["name"],
+                "tags": tags if isinstance(tags, list) else [],
+                "state": slot if isinstance(slot, dict) else {},
+            }
+        )
+    return page, snapshot_rowid, snapshot_created_at
 
 
 async def get_character_card(card_id: str, include_avatar: bool = False) -> CharacterCardRow | None:
@@ -286,8 +351,13 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         sets, vals = _build_set_clause(allowed, data)
         # JSON fields
         if "tags" in data:
+            # The one write path for tags, so the one place they are normalized.
+            # The character API and the extension ``card.tags.set`` operation
+            # both land here, which is what makes their stored results
+            # byte-identical for the same input list. Import deliberately does
+            # not pass through here -- an imported card keeps its author's tags.
             sets.append("tags = ?")
-            vals.append(json.dumps(data["tags"]))
+            vals.append(json.dumps(normalize_tags(data["tags"])))
         if "alternate_greetings" in data:
             sets.append("alternate_greetings = ?")
             vals.append(json.dumps(data["alternate_greetings"]))

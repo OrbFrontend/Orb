@@ -17,12 +17,14 @@ module's job is to never hand it anything that would be wasted there.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ...workflows.enablement import effective_workflow_enabled
 from ...workflows.registry import list_workflows
+from . import telemetry
 from .compiler import CompiledPackage, grant_key
-from .contracts import Capability
+from .contracts import CONFIG_VIEW_ID, Capability
 from .lifecycle import Inspection
 from .runtime import InstalledExtension, RuntimeState
 
@@ -35,11 +37,16 @@ CAPABILITY_COPY: dict[str, str] = {
     Capability.CONTEXT_DRAFT_READ.value: "Read the reply Orb wrote, before you see it.",
     Capability.CONTEXT_HISTORY_READ.value: "Read a recent window of this conversation's messages.",
     Capability.CONTEXT_CHARACTER_READ.value: "Read the active character's text fields.",
+    Capability.CONTEXT_PERSONA_READ.value: "Read your persona's name and description — your own self-description.",
     Capability.CONVERSATION_TREE_READ.value: "Read the structure of every branch in this conversation.",
     Capability.CONVERSATION_TREE_PREVIEWS.value: "Also read text previews from branches you are not currently on.",
     Capability.CONVERSATION_BRANCH_ACTIVATE.value: "Switch which branch of the conversation is active.",
+    Capability.LIBRARY_CARDS_READ.value: "List your characters and read each one it is run against.",
+    Capability.LOREBOOK_READ.value: "Read this character's lorebook, including entries no message has triggered.",
+    Capability.DIRECTION_NOTES_READ.value: "Read the direction notes on this branch.",
     Capability.PROMPT_CONTEXT_APPEND.value: "Add its own text to the prompt sent to the model each turn.",
     Capability.DRAFT_REPLACE.value: "Rewrite the reply before it reaches you.",
+    Capability.CARD_TAGS_WRITE.value: "Change the tags on the character a command is run against.",
     Capability.MODEL_CALL.value: "Make its own model calls. This consumes tokens and may cost money.",
     Capability.STATE_READ.value: "Read data it has previously stored.",
     Capability.STATE_WRITE.value: "Store data of its own.",
@@ -50,14 +57,64 @@ CAPABILITY_COPY: dict[str, str] = {
 }
 
 _LOUD_CAPABILITIES = frozenset(
-    {Capability.MODEL_CALL.value, Capability.NETWORK_REQUEST.value, Capability.CONVERSATION_TREE_PREVIEWS.value}
+    {
+        Capability.MODEL_CALL.value,
+        Capability.NETWORK_REQUEST.value,
+        Capability.CONVERSATION_TREE_PREVIEWS.value,
+        # Enumeration is what makes a package library-wide -- the write it
+        # enables is single-card. Reach is granted once, visibly, by the
+        # capability that enumerates.
+        Capability.LIBRARY_CARDS_READ.value,
+        # The user's own self-description, and the strongest trigger for the
+        # combination banner below.
+        Capability.CONTEXT_PERSONA_READ.value,
+        # Untriggered lorebook entries are content the model may never have
+        # seen, which makes this a stronger read than the history window.
+        Capability.LOREBOOK_READ.value,
+    }
 )
-"""Grants the manager must not let scroll past as one more checkbox line.
+"""Grants the manager must not let scroll past as one more checkbox line."""
 
-Token cost, sending conversation data off the machine, and reading branches the
-user is not on are the three the design calls out as needing to be conspicuous
-and separately granted.
+_DATA_READING_CAPABILITIES = frozenset(
+    {
+        Capability.CONTEXT_INPUT_READ.value,
+        Capability.CONTEXT_DRAFT_READ.value,
+        Capability.CONTEXT_HISTORY_READ.value,
+        Capability.CONTEXT_CHARACTER_READ.value,
+        Capability.CONTEXT_PERSONA_READ.value,
+        Capability.CONVERSATION_TREE_READ.value,
+        Capability.CONVERSATION_TREE_PREVIEWS.value,
+        Capability.LIBRARY_CARDS_READ.value,
+        Capability.LOREBOOK_READ.value,
+        Capability.DIRECTION_NOTES_READ.value,
+        Capability.STATE_READ.value,
+    }
+)
+"""Grants that let a package see conversation, character, lorebook, persona, or
+history data -- one half of the combination the banner exists for."""
+
+COMBINATION_BANNER = (
+    "This extension can send data it reads — your conversations, characters, "
+    "lorebook, or persona — to the external servers it is allowed to contact."
+)
+"""Host-authored, never package-influenced.
+
+Reading is not the new risk; reading *combined with* network access is. Without
+this line the user has to compose two innocuous-looking grants in their head,
+which is exactly the inference a consent screen should not require.
 """
+
+
+def combination_warning(entries: Sequence[Mapping[str, Any]]) -> str | None:
+    """The banner text when a grant set both reads data and reaches the network.
+
+    Derived server-side from the *normalized* grant set, so no package string
+    influences whether it appears or what it says.
+    """
+    capabilities = {str(entry.get("capability", "")) for entry in entries}
+    if Capability.NETWORK_REQUEST.value not in capabilities:
+        return None
+    return COMBINATION_BANNER if capabilities & _DATA_READING_CAPABILITIES else None
 
 
 def permission_view(entry: dict[str, Any], *, granted: bool) -> dict[str, Any]:
@@ -96,6 +153,39 @@ def _is_weak_origin(parameters: dict[str, Any]) -> bool:
     return host in ("localhost", "127.0.0.1", "::1") or host.startswith(("10.", "192.168.", "169.254.", "172.16."))
 
 
+def _published_placements(entry: InstalledExtension) -> list[Any]:
+    """Placements the current grant set can actually publish.
+
+    A manifest placement is only a request. Runtime permission revocation can
+    block its slot, its target action, or its target view independently, and
+    the catalog is the publication boundary the frontend consumes. Returning a
+    blocked placement would leave a dead command visible; for
+    ``library.card_actions`` it would be worse, because that placement is the
+    proof that lets a host-supplied card id avoid the enumeration grant.
+    """
+    compiled = entry.compiled
+    if compiled is None:
+        return []
+    manifest = compiled.manifest
+    commands = {command.id: command for command in manifest.commands}
+    published: list[Any] = []
+    for placement in manifest.placements:
+        if (Capability.UI_CONTRIBUTE.value, placement.slot) not in entry.granted:
+            continue
+        if placement.view is not None and f"view {placement.view!r}" in entry.blocked:
+            continue
+        if placement.command is not None:
+            command = commands.get(placement.command)
+            if command is None:
+                continue
+            if command.action is not None and f"action {command.action!r}" in entry.blocked:
+                continue
+            if command.opens is not None and f"view {command.opens!r}" in entry.blocked:
+                continue
+        published.append(placement)
+    return published
+
+
 def catalog_entry(entry: InstalledExtension, settings: Any) -> dict[str, Any]:
     """One installed package as the manager list renders it."""
     manifest = entry.compiled.manifest if entry.compiled else None
@@ -121,6 +211,28 @@ def catalog_entry(entry: InstalledExtension, settings: Any) -> dict[str, Any]:
         "blocked_entry_points": list(entry.blocked),
         "permissions": [permission_view(value, granted=grant_key(value) in granted_values) for value in requested],
         "can_rollback": bool(entry.row["previous_digest"]),
+        # Derived from what is *approved*, not from what is requested: revoking
+        # the network grant must clear the banner on the detail panel, or the
+        # warning stops describing the package the user actually has.
+        "combination_warning": combination_warning([v for v in requested if grant_key(v) in granted_values]),
+        "telemetry": telemetry.summary(entry.id),
+        "placements": [{"slot": p.slot, "view": p.view, "command": p.command} for p in _published_placements(entry)],
+        "commands": [
+            {
+                "id": c.id,
+                "label": c.label,
+                "icon": c.icon,
+                "opens": c.opens,
+                "action": c.action,
+                "when": c.when,
+            }
+            for c in (manifest.commands if manifest else [])
+        ],
+        "config_view": (
+            CONFIG_VIEW_ID
+            if manifest and CONFIG_VIEW_ID in manifest.views and f"view {CONFIG_VIEW_ID!r}" not in entry.blocked
+            else None
+        ),
     }
 
 
@@ -128,10 +240,9 @@ def detail_entry(entry: InstalledExtension, settings: Any, *, secret_names: list
     """The catalog row plus everything the detail pane adds.
 
     Commands, views, placements, and contributions are listed as *data* --
-    labels and slot names the host renderer will place. No component tree
-    crosses this boundary in Phase 1: there is no renderer yet, and shipping the
-    tree early would invite a frontend that reads it before the safe renderer
-    exists.
+    labels and slot names the host renderer will place. Component trees cross
+    only the dedicated view route, where live grants and runtime requirements
+    are checked before the host renderer receives them.
     """
     view = catalog_entry(entry, settings)
     manifest = entry.compiled.manifest if entry.compiled else None
@@ -142,11 +253,7 @@ def detail_entry(entry: InstalledExtension, settings: Any, *, secret_names: list
                 "operations": sorted(manifest.requires.operations) if manifest else [],
                 "components": sorted(manifest.requires.components) if manifest else [],
             },
-            "commands": [{"id": c.id, "label": c.label, "icon": c.icon} for c in (manifest.commands if manifest else [])],
             "views": sorted((manifest.views if manifest else {}).keys()),
-            "placements": [
-                {"slot": p.slot, "view": p.view, "command": p.command} for p in (manifest.placements if manifest else [])
-            ],
             "fragment_types": [
                 {"id": f.id, "label": f.label, "namespaced_id": f"{entry.id}:{f.id}"}
                 for f in (manifest.contributions.fragment_types if manifest else [])
@@ -193,6 +300,7 @@ def inspection_view(inspection: Inspection) -> dict[str, Any]:
         "active_digest": inspection.staged.observed_active_digest or None,
         "permissions": [permission_view(value, granted=False) for value in requested],
         "permission_diff": {"added": added, "unchanged": unchanged, "removed": removed},
+        "combination_warning": combination_warning(requested),
         "origins": manifest.origins(),
         "secrets": [{"name": s.name, "label": s.label, "description": s.description} for s in manifest.secrets],
         "requires": {

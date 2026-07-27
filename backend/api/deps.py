@@ -7,8 +7,12 @@ files share. It lives in exactly one module so the shared mutable registries
 are split across files -- importing a name binds the one canonical object.
 
 Patch seam (mirrors the ``DB_PATH`` trap in ``database/connection.py``):
-``_workflow_root_locks`` / ``_conversation_stream_locks`` are patched in tests
-via ``backend.api.deps`` -- the canonical module, not a facade re-export.
+``_workflow_root_locks`` is patched in tests via ``backend.api.deps`` -- the
+canonical module, not a facade re-export. ``_conversation_stream_locks`` used
+to live here too; it moved to ``backend.core.locks`` when the extension
+branch-activation operation needed the same lock from below the ``api/`` layer,
+so that is now its canonical patch path. It is imported here so this module's
+own use of the dict binds the one object rather than a copy.
 """
 
 from __future__ import annotations
@@ -25,6 +29,10 @@ from typing import Any, cast
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from ..core.locks import (
+    _conversation_stream_locks,
+    conversation_stream_lock,
+)
 from ..database import (
     get_conversation,
     get_lorebook_entry,
@@ -111,46 +119,13 @@ async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIt
             return
 
 
-# Per-conversation serialization for the streaming pipeline. The five chat
-# streaming routes refuse a second POST against a held lock with an in-band
-# SSE error event; /edit, /delete, and /switch-branch share the same lock
-# but block on the stream instead of erroring, since they have no SSE
-# channel for an "already running" reply and the user expects them to take
-# effect rather than fail. The lock prevents doubled-LLM cost on concurrent
-# /send, FK cascade on mid-stream /delete, terminal set_active_leaf clobber
-# of a mid-stream /switch-branch, and pre-edit-prefix vs post-edit-DB skew on
-# mid-stream /edit. Dict growth shape matches _workflow_root_locks.
-_conversation_stream_locks: dict[str, asyncio.Lock] = {}
-
-
-@asynccontextmanager
-async def _conversation_stream_lock(cid: str):
-    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
-    async with lock:
-        yield
-
-
-@asynccontextmanager
-async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
-    """Try-acquire the conversation stream lock without ever queuing.
-
-    Yields ``True`` holding the lock when no pipeline stream is running on
-    *cid*, ``False`` without it when one is. locked()/acquire() are atomic
-    across coroutines (no await between — see the note in ``_sse_stream``), so
-    the check cannot lose the lock to a stream and then block behind it. Lets
-    read paths do stream-consistent side writes (greeting re-rolls) that must
-    never wait out a running stream and must never interleave with its
-    prompt-building reads.
-    """
-    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
-    if lock.locked():
-        yield False
-        return
-    await lock.acquire()
-    try:
-        yield True
-    finally:
-        lock.release()
+# The per-conversation stream lock moved down to ``core/locks.py`` so the
+# community-extension branch-activation operation can hold the *same* lock as
+# /switch-branch without ``features/extensions/`` importing this ``api/`` module.
+# Re-bound here (not re-implemented) so every existing call site keeps its name
+# and there is still exactly one lock dict in the process. Tests that patch the
+# dict now patch ``backend.core.locks._conversation_stream_locks``.
+_conversation_stream_lock = conversation_stream_lock
 
 
 # Per-conversation abort token for the active LLM generation. Set when streaming

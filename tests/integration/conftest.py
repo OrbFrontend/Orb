@@ -31,9 +31,10 @@ def _reset_module_locks():
     """Clear the process-global asyncio.Lock dicts between tests.
 
     Several lock caches key ``asyncio.Lock`` objects by id/key tuples:
-    ``backend.api.deps._workflow_root_locks`` (root_id) and
-    ``_conversation_stream_locks`` (conversation id), plus
-    ``backend.core.locks._workflow_state_locks`` and
+    ``backend.api.deps._workflow_root_locks`` (root_id), plus
+    ``backend.core.locks._conversation_stream_locks`` (conversation id; it is
+    re-exported through ``deps`` as the *same object*, so clearing either name
+    clears the one dict), ``_workflow_state_locks``, and
     ``_workflow_character_state_locks`` (both ``(key, workflow_id)`` tuples)
     which the orchestrator and ``/trigger`` route acquire. Each test gets a
     fresh temp DB, so autoincrement ids restart at 1 and those keys collide

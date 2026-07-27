@@ -30,11 +30,16 @@ class Capability(StrEnum):
     CONTEXT_DRAFT_READ = "context.draft.read"
     CONTEXT_HISTORY_READ = "context.history.read"
     CONTEXT_CHARACTER_READ = "context.character.read"
+    CONTEXT_PERSONA_READ = "context.persona.read"
     CONVERSATION_TREE_READ = "conversation.tree.read"
     CONVERSATION_TREE_PREVIEWS = "conversation.tree.previews"
     CONVERSATION_BRANCH_ACTIVATE = "conversation.branch.activate"
+    LIBRARY_CARDS_READ = "library.cards.read"
+    LOREBOOK_READ = "lorebook.read"
+    DIRECTION_NOTES_READ = "direction_notes.read"
     PROMPT_CONTEXT_APPEND = "prompt.context.append"
     DRAFT_REPLACE = "draft.replace"
+    CARD_TAGS_WRITE = "card.tags.write"
     MODEL_CALL = "model.call"
     STATE_READ = "state.read"
     STATE_WRITE = "state.write"
@@ -77,6 +82,7 @@ class Quota(StrEnum):
     DRAFT_REPLACE = "draft_replacements"
     BRANCH_ACTIVATE = "branch_activations"
     ARTIFACT = "artifacts"
+    CARD_TAGS = "card_tag_writes"
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +118,13 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
     "text.replace_literal": _spec(None, PURE_CONTEXTS, output=True),
     "json.pick": _spec(None, PURE_CONTEXTS, output=True),
     "json.merge": _spec(None, PURE_CONTEXTS, output=True),
+    # The only two list operations in v1, and deliberately not the seed of a
+    # collection library: both are single bounded set/fold operations over a
+    # capped array, with no per-element package logic. `map`/`filter`/`reduce`
+    # stay excluded because they would evaluate package-supplied work per
+    # element, which is the unbounded iteration the flow language excludes.
+    "list.intersect": _spec(None, PURE_CONTEXTS, output=True),
+    "list.join": _spec(None, PURE_CONTEXTS, output=True),
     "math.add": _spec(None, PURE_CONTEXTS, output=True),
     "math.subtract": _spec(None, PURE_CONTEXTS, output=True),
     "math.negate": _spec(None, PURE_CONTEXTS, output=True),
@@ -150,6 +163,16 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
         quota=Quota.ARTIFACT,
         staged=True,
     ),
+    # Action-only, and it takes no card identifier: it writes the card already
+    # in the invocation's context. A per-turn hook silently rewriting library
+    # metadata shared across every conversation is not a behavior a user can
+    # supervise, and a card argument would make the grant library-wide.
+    "card.tags.set": _spec(
+        Capability.CARD_TAGS_WRITE,
+        frozenset({OpContext.ACTION}),
+        quota=Quota.CARD_TAGS,
+        staged=True,
+    ),
     "conversation.branch.activate": _spec(
         Capability.CONVERSATION_BRANCH_ACTIVATE,
         frozenset({OpContext.ACTION}),
@@ -162,6 +185,36 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
 }
 
 OPERATION_NAMES: frozenset[str] = frozenset(OPERATION_SPECS)
+
+CAPABILITY_PREREQUISITES: dict[Capability, frozenset[Capability]] = {
+    # A tag write lands on ``ctx.character`` and nowhere else, so without the
+    # projection that puts a card there it has no target at all. Refusing it at
+    # parse time rather than at run time keeps the consent line honest: "can
+    # change the tags on the character a command is run against" is only true
+    # if the package can also see that character.
+    Capability.CARD_TAGS_WRITE: frozenset({Capability.CONTEXT_CHARACTER_READ}),
+    # Previews are strictly more than structure; asking for the stronger grant
+    # without the weaker one is a manifest that does not describe itself.
+    Capability.CONVERSATION_TREE_PREVIEWS: frozenset({Capability.CONVERSATION_TREE_READ}),
+}
+"""Grants that are meaningless -- or dishonestly scoped -- without another.
+
+Checked against the manifest's *requests* at parse time and against the live
+grant set at publish time, so revoking a prerequisite blocks the dependent
+entry point rather than leaving an operation that can never succeed.
+"""
+
+
+def missing_prerequisites(capabilities: frozenset[Capability] | set[Capability]) -> list[tuple[Capability, Capability]]:
+    """Every ``(capability, unmet prerequisite)`` pair in *capabilities*."""
+    return sorted(
+        (capability, prerequisite)
+        for capability, required in CAPABILITY_PREREQUISITES.items()
+        if capability in capabilities
+        for prerequisite in required
+        if prerequisite not in capabilities
+    )
+
 
 EXTERNAL_EFFECT_OPS: frozenset[str] = frozenset({"model.text", "model.structured", "http.request"})
 """Operations whose side effects leave Orb and cannot be rolled back.

@@ -1,6 +1,16 @@
 # Community Extensions v1 — Architecture Handoff
 
-Status: **Phases 0-2 implemented; Phases 3-6 not started**
+Status: **Phases 0-3 implemented (including all of section 20's v1.x
+expansions); Phases 4-6 not started**
+
+Section 20 records the approved v1.x additive expansions — new resources,
+grants, one operation, one slot, and host telemetry — with their security
+posture and a normative implementation order. It amends section 17's Phase 3
+step 7: `list.join` replaces the scalar-array template rendering rule, which
+was specified but never implemented. That amendment has landed: templates
+remain scalar-only in `values.py`, `list.join` is the way to render a list, and
+`tests/unit/extensions/test_phase3_operations.py` asserts that interpolating an
+array still fails as a plain scalar violation.
 
 Landed (see section 17 for the phase definitions):
 
@@ -96,22 +106,53 @@ Landed (see section 17 for the phase definitions):
 - The Scene Meter fixture (`tests/extension_packages.py`) plus interpreter unit
   tests and turn/action integration tests.
 
+**Phase 3 — host UI, resources, and the two reference packages**
+
+- Shared character-tag normalization (`core/tags.py`): trim, clip on a
+  character boundary, drop empties, dedupe case-insensitively, cap per-tag
+  bytes and per-card count. `update_character_card` is the one write path, so
+  the character API and `card.tags.set` store byte-identical lists; the chip
+  widget was changed to match the casing rule, and import is deliberately left
+  unnormalized. It landed first, as section 17 requires.
+- `list.intersect` and `list.join` (closed separator set), plus `card.tags.set`
+  — action-only, no card argument, both grants checked, host-normalized, and
+  committed through the ordinary card update path.
+- `conversation.branch.activate`, with `_conversation_stream_lock` /
+  `stream_idle_lock` relocated to `core/locks.py` (`api/deps.py` imports them
+  back) and `switch_to_branch` rewritten as one transaction-aware operation.
+  The adapter takes the stream lock *outside* the state locks, matching the
+  pipeline's order.
+- Host resources (`resources.py`): `conversation.tree` (fails past its budget
+  rather than truncating), and the cursor-paginated `library.cards`,
+  `lorebook.entries`, and `direction.notes`, plus the bounded singleton
+  `persona`. Cursors are authenticated, MAC'd, and bound to the resource that
+  issued them; packages treat them as opaque protocol tokens.
+- The `character.card` effect, `ctx.character` resolution from validated action
+  input behind both `context.character.read` and `library.cards.read`, and the
+  `library.card_actions` slot, whose host-supplied card id needs no enumeration
+  grant and is checked against the compiled placements.
+- The routes the earlier phases deferred: `GET /{id}/views/{view}`,
+  `GET /{id}/resources/{resource}`, `GET /{id}/assets/{path}`, and the
+  host-generated `PUT /{id}/state` a bound form submits through.
+- `frontend/extension_renderer.js` (DOM creation and `textContent` throughout,
+  tokenized styling, media by reference, node-built Markdown) and
+  `frontend/extension_commands.js` (the host command model shared with the
+  built-in burger menus, slot placement, workspace lifecycle, the fixed
+  effect-to-refetch mapping with `character.card` debouncing, and the
+  renderer-driven library sweep).
+- Section 20 in full: `list.join`, invocation telemetry, the consent
+  combination banner, the `views.config` convention with its config-scope
+  restriction, the three read resources, and the `library.card_actions` slot.
+- Conversation Map and Tag Librarian as reference packages
+  (`tests/extension_packages.py`), with `test_host_surfaces.py`,
+  `test_phase3_operations.py`, `extension_renderer.test.mjs`, and
+  `extension_commands.test.mjs`.
+
 Deliberately absent, per the note at the end of section 16: there is still no
-host HTTP client or secret substitution, no artifact emission, no branch
-activation, no component renderer, no Git reader, no host resources, no card
-write, and no fragment-type contribution — and no permissive placeholder stands
-in for any of them.
-
-Section 8's Tag Librarian and the contract it needs (`list.intersect`,
-`card.tags.set`, `card.tags.write`, `library.cards.read`, the paginated
-`library.cards` resource, scalar-array template rendering, `ctx.character` from
-action input, the `character.card` effect) are **specified but not
-implemented**; they are Phase 3 scope. Nothing in `OPERATION_SPECS` or the
-`Capability` enum has been widened for them yet.
-
-Phase 3 also owes a debt the rest of this document assumes and the codebase does
-not yet have: **first-party character-tag normalization**. Section 5 explains
-why `card.tags.set` cannot simply reuse it — there is nothing to reuse.
+host HTTP client or secret substitution, no artifact emission, no Git reader,
+and no fragment-type contribution — and no permissive placeholder stands in for
+any of them. `http.request` and `artifact.emit` remain in `UNIMPLEMENTED_OPS`,
+so an entry point reaching one is blocked with a diagnostic.
 
 Two route names extend section 12's family. `POST
 /api/extensions/{id}/inspect-rollback` exists because rollback is an inspected
@@ -119,9 +160,20 @@ operation with a real permission diff (restoring a revision must not restore a
 capability since revoked), and it deserves the same two-request shape as
 update rather than an implicit mode on `/rollback`. `POST
 /api/extensions/inspect` (Git) is deferred with the rest of the Dulwich work to
-Phase 4; `PUT /{id}/secrets` and the `/views`, `/resources`, and `/assets`
-routes are deferred to the phases that add the renderer and host resources
-which validate what they would serve.
+Phase 4, as is `PUT /{id}/secrets`.
+
+One route is additive to that family and not in section 12's list:
+`PUT /api/extensions/{id}/state`. Section 7 says a bound form's submission
+"runs a host-generated state action"; this is that action's transport. It
+carries no package-authored intent — the host groups the draft by declared bind
+scope — and it goes through the same grant check, slot cap, lock order, and
+transaction a flow's `state.set` uses.
+
+The `library-sweep` component is likewise additive, and for the reason section 8
+gives: the sweep loop belongs in the host renderer, so it needs a declaration a
+package can place. It takes an action id, a label, and the state key that marks
+a card done; the page size, cursor walk, concurrency, stop condition, and
+progress display are all Orb's.
 
 Audience: the engineer implementing Orb's community extension system. This
 document is an implementation handoff for v1: trust boundary, required host
@@ -639,22 +691,17 @@ Templates perform path substitution only. They have no filters, property
 access beyond the validated path resolver, calls, loops, includes, or
 expressions.
 
-A path resolving to an array of scalars interpolates as its members joined by
-`", "`. This is still substitution with a fixed host-owned rendering, not a
-filter the package selects — there is no alternate separator and no format
-argument. It is here because any feature driven by a user-managed list needs
-that list in a prompt, and the alternative was a `list.join` operation whose
-only purpose would be to feed a template. Arrays of containers, and containers
-generally, remain non-interpolable.
-
-The separator is frozen at contract-freeze time and there is no workaround: a
-package that wants one member per line cannot get it, because the flow language
-has no iteration and templates take no arguments. That is an accepted ceiling,
-not an oversight. If a real package is blocked by it, the fix is a `list.join`
-operation taking a separator from a closed host-owned set — which would also
-retire this special case and return templates to pure path substitution. Do not
-fix it by giving the template a format argument; that is where a filter language
-starts.
+Templates are pure path substitution over scalars. Arrays — and containers
+generally — never interpolate. An earlier draft of this section made an
+exception for arrays of scalars (rendered joined by a frozen `", "`), because
+any feature driven by a user-managed list needs that list in a prompt. That
+exception was specified but never implemented, and it is now withdrawn in
+favor of the `list.join` operation (section 20), which takes its separator
+from a closed host-owned set and ships in Phase 3 step 7 — before any
+published package could depend on the frozen rendering. This keeps the
+template contract at exactly one rule with no special cases. Do not reintroduce
+the exception, and do not fix a formatting need by giving the template a format
+argument; that is where a filter language starts.
 
 `when` uses a structured predicate AST with `eq`, `ne`, `lt`, `lte`, `gt`,
 `gte`, `exists`, `and`, `or`, and `not`. Predicate depth is capped at 8.
@@ -753,26 +800,12 @@ The host — not the package — normalizes the result: trim, drop empties,
 deduplicate case-insensitively, and enforce the per-tag length and per-card
 count caps.
 
-> **Server-side, this normalization does not exist and cannot be reused.**
-> `CharacterCardUpdate.tags` is an unconstrained `list[str] | None`
-> (`api/schemas.py`) and `update_character_card` writes `json.dumps(...)`
-> straight through (`database/queries/character_cards.py`). The only rules
-> today live in the frontend chip widget (`chips.js`), which trims, drops
-> empties, and dedupes **case-sensitively** on entry — and which the import
-> path and any direct API call bypass entirely. There are no length or count
-> rules anywhere.
->
-> Two consequences. Phase 3 must *create* the helper rather than call one, and
-> it must settle a conflict: this section specifies case-insensitive dedupe
-> while the chip widget is case-sensitive. Pick one for both paths.
->
-> The reason to route the character route through it too is not only the
-> symmetry rule. Tag filtering matches exact strings — `computeTopTags` counts
-> by string and the filter is `tags.includes(tag)` (`library_browser.js`) — so
-> a human-entered `"Noir"` and an extension-written `"noir"` become two filter
-> chips over different subsets of the library. An extension that normalizes
-> against a host that does not would manufacture the exact disorder Tag
-> Librarian is installed to remove.
+This normalization now lives in `core/tags.py`. The character API and
+`card.tags.set` both reach it through `update_character_card`; the chip widget
+uses the same case-insensitive, first-spelling-wins rule. Import deliberately
+bypasses the helper so stored/exported author data remains faithful, while
+extension read projections apply the same caps ephemerally so an old imported
+tag list cannot exceed a resource or context budget.
 
 Given that shared normalizer, `card.tags.set` calls the ordinary card update
 path rather than writing the column directly.
@@ -1066,13 +1099,19 @@ View data comes from:
 
 - A declared host resource.
 - The extension's config or state projection.
-- A named flow action's JSON return.
 
 Buttons dispatch named actions. Host controls such as tabs and disclosure
 panels may update ephemeral renderer state without a backend round trip.
 Action inputs are validated by a declared local schema. Action results use the
 fixed host effect envelope from Section 2; packages do not provide fetch URLs,
 HTTP methods, refetch callbacks, or DOM targets.
+
+Opening or refreshing a view never runs an action implicitly. A former draft
+included an action-shaped data source, but no safe semantics were implemented:
+an on-load action could silently incur model cost or mutate state, and retaining
+an action result for a proposal/confirmation UI needs a separately designed
+ephemeral result lifecycle. The unimplemented source was removed rather than
+published as a no-op.
 
 Form controls bind only to declared config/state paths and keep an ephemeral
 draft until submit. Submission runs a host-generated state action under normal
@@ -1312,9 +1351,12 @@ projected, and no card field outside this shape is — in particular not
 action, under `context.character.read`, and not here.
 
 The page is bounded by both a card count and an encoded-response budget, and
-`next_cursor` is an opaque host-owned token — a package never constructs one,
-and never sees an offset, a row id, or a sort key. `null` means the listing is
-complete.
+`next_cursor` is an authenticated host-owned token — a package treats it as
+opaque and cannot construct or mutate one. The first page captures a rowid
+high-water mark; later pages remain below it, so cards inserted during a sweep
+wait for the next run instead of appearing according to how a random public id
+sorts. A deletion may remove that card from the remainder, but cannot shift or
+duplicate any surviving row. `null` means the listing is complete.
 
 Paginate rather than failing past a budget. A single-response cap would have to
 either truncate, which makes a sweep report success over cards it never saw, or
@@ -1323,11 +1365,13 @@ feature with no recourse. Neither is acceptable, and the design already has the
 answer: the renderer loops cards, so it loops pages the same way. The
 `next_cursor` walk is the same "keep the loop in the renderer" move applied one
 level up, and the "resume from the remainder" story already requires refetching
-between runs.
+between runs. Page assembly stops before adding an item that would cross the
+encoded-byte limit; the cursor resumes from the last item actually emitted,
+not the last one fetched from SQLite.
 
 Requesting it needs `library.cards.read` (section 6); `context.character.read`
 alone must not enumerate cards. Serve it from
-`GET /api/extensions/{id}/resources/library-cards` as a database projection
+`GET /api/extensions/{id}/resources/library.cards` as a database projection
 plus a host-resource adapter, exactly as with the tree — never by handing a
 flow a query primitive.
 
@@ -1357,11 +1401,17 @@ operation — note that `card.tags.set` below takes only `tags`.
       "path": "vocabulary"
     },
     {
+      "id": "vocabulary_text",
+      "op": "list.join",
+      "value": { "$ref": "steps.vocabulary" },
+      "separator": ", "
+    },
+    {
       "id": "proposed",
       "op": "model.structured",
       "lane": "agent",
       "prompt": {
-        "$template": "Choose every tag that applies to this character. Use only tags from the allowed list. Return an empty array if none apply.\n\nAllowed tags: {{steps.vocabulary}}\n\nName: {{ctx.character.name}}\n\n{{ctx.character.description}}"
+        "$template": "Choose every tag that applies to this character. Use only tags from the allowed list. Return an empty array if none apply.\n\nAllowed tags: {{steps.vocabulary_text}}\n\nName: {{ctx.character.name}}\n\n{{ctx.character.description}}"
       },
       "output_schema": {
         "type": "object",
@@ -2137,7 +2187,7 @@ feature.
 |---|---|
 | `backend/features/extensions/` (new) | Strict manifest/flow/component/schema models; duplicate-key JSON loader; package reference walker/compiler; immutable compiled records; interpreter and effect staging; capability/context projection; package/CAS/staging lifecycle; safe archive/Git readers; mediated HTTP/secrets; host resources; startup reconciliation. Split these by responsibility rather than one extension manager module. |
 | `backend/core/locks.py` | Expose the conversation stream lock through a downward-safe owner or add an equivalent core lock service; add any message/extension lifecycle locks needed by transaction commits. Preserve current lock ordering and document it to prevent stream/workflow/character deadlocks. |
-| `backend/database/` | Add package/revision/secret tables, `interactive_fragments.type_config`, migrations, models, facades, and transaction-aware queries. Add an attachment-free full-tree projection and atomic branch activation. Add a cursor-paginated library-card projection (id/name/tags plus one extension's own namespaced slot) with an opaque host-owned cursor. Add character-tag normalization (trim, drop empties, dedupe, per-tag length and per-card count caps) as a shared helper — **no server-side equivalent exists**; `CharacterCardUpdate.tags` and `update_character_card` pass tag lists through unvalidated, and the only current rules are in the `chips.js` widget, which import and direct API calls bypass — and route both the character API and `card.tags.set` through it. Match the widget's dedupe casing or change the widget; do not backfill existing rows, and leave card import unnormalized so exported PNGs keep author fidelity. Add bounded namespaced-state and purge helpers. Update `schema.py`, fresh bootstrap/stamping, seeds where applicable, and preset policy together. |
+| `backend/database/` | Add package/revision/secret tables, `interactive_fragments.type_config`, migrations, models, facades, and transaction-aware queries. Add an attachment-free full-tree projection and atomic branch activation. Add a snapshot-bounded, cursor-paginated library-card projection (id/name/tags plus one extension's own namespaced slot) with an authenticated host-owned cursor and adaptive byte-sized pages. Add shared character-tag normalization (trim, drop empties, case-insensitive dedupe, per-tag length and per-card count caps), route both the character API and `card.tags.set` through it, and make the chip widget match. Do not backfill existing rows, and leave card import unnormalized so exported PNGs keep author fidelity; bound extension read projections independently. Add bounded namespaced-state and purge helpers. Update `schema.py`, fresh bootstrap/stamping, seeds where applicable, and preset policy together. |
 | `backend/workflows/contracts.py` / `registry.py` / `enablement.py` | Add source/frontend kind, hook stage, immutable built-in-base + community-overlay snapshots, generation, snapshot-aware lookup/iteration, scoped community replacement, and artifact declaration validation. Do not route community tool declarations through `register_tool`. |
 | `backend/pipeline/entrypoints.py`, `context.py`, `state.py` | Capture/thread the runtime snapshot; resolve extension fragment providers before building schema; carry Director/Writer context-block collections and extension diagnostics; keep one writer content value for Editor replay. |
 | `backend/pipeline/workflow_bridge.py` / `orchestrator.py` | Adapt trusted contexts to `ExtensionCtx`; run staged declarative hooks in explicit transform/observe phases; consume only fixed control effects; commit post-message state/artifacts with the assistant result; preserve failure isolation and cancellation. |
@@ -2226,7 +2276,8 @@ ordering/failure isolation and permission revocation are integration-tested.
 6. Add shared character-tag normalization and route the existing character API
    through it. This lands first: it is a first-party behavior change, and every
    later step in this phase depends on it existing.
-7. Add `list.intersect`, the scalar-array template rendering rule, the
+7. Add `list.intersect`, `list.join` with its closed separator set (section
+   20 — this replaces the withdrawn scalar-array template rendering rule), the
    cursor-paginated `library.cards` resource behind `library.cards.read`,
    `card.tags.set` writing `ctx.character` with no card argument, the
    `character.card` effect with frontend debouncing, and `ctx.character`
@@ -2234,6 +2285,14 @@ ordering/failure isolation and permission revocation are integration-tested.
    `context.character.read` and `library.cards.read`.
 8. Ship Tag Librarian as the second reference package, with the sweep loop and
    the cursor walk in the renderer rather than the flow.
+
+Ordering note: steps 1–3 are not independently shippable. A view cannot render
+before fixed effect handling and generation-keyed disposal exist, and both the
+branch action (step 4) and the sweep (step 8) consume the effect path — so
+renderer, effect handling, and generation plumbing land as one slice, and the
+two reference packages are the parallelizable tail. Step 6 still lands first,
+as stated. The v1.x expansions in section 20 interleave with this phase; the
+order list there is normative for them.
 
 Exit gate: renderer XSS/property fuzz tests pass and selecting a tree node has
 the same lock, state refresh, and cross-tab behavior as `switchBranch()`. A
@@ -2419,9 +2478,10 @@ Reference extensions:
 
 ### Library tag standardization
 
-- Walking the library resource to a `null` cursor returns every card exactly
-  once, with no duplicate and no omission across page boundaries, including
-  when a card is added or deleted mid-walk.
+- Walking the library resource to a `null` cursor returns every surviving card
+  below the first page's high-water mark exactly once. Cards added mid-walk
+  wait for the next run; deleting an unvisited card removes only that card and
+  never shifts or duplicates a survivor.
 - A cursor is opaque: a package-supplied or mutated cursor is rejected rather
   than resolving to an offset, and no page exceeds either its card-count or
   encoded-byte budget.
@@ -2444,6 +2504,10 @@ Reference extensions:
   and the remaining cards listed as unclassified on the next run.
 - Revoking `card.tags.write` fails the next `card.tags.set` mid-sweep without
   reverting earlier cards.
+- Revoking the sweep's character-state read removes the view/placement instead
+  of treating every absent bookkeeping value as "unclassified"; revoking a
+  `library.card_actions` slot removes it from the catalog and the action route
+  refuses the host-card shortcut.
 - A `runtime_generation` bump mid-sweep stops the loop; no action is dispatched
   after it, and the workspace reports the completed count rather than silently
   discarding envelopes for writes that committed.
@@ -2495,3 +2559,226 @@ Reference extensions:
 
 These may be added only as new, separately threat-modeled capabilities. They
 must not be smuggled through permissive v1 fields.
+
+---
+
+## 20. v1.x additive expansions
+
+Everything here is approved surface growth that rides the existing
+vocabularies: new entries in `OPERATION_SPECS`, the `Capability` enum,
+`UI_SLOTS`, and the host-resource catalog, feature-detected through
+`requires.operations` / `requires.components` so an older Orb rejects a
+package that needs them with a diagnostic rather than misbehaving. Nothing in
+this section changes the trust model, the quota model, the flow language, or
+the hook stages, and nothing requires an `extension_api` bump. Each item
+states its security posture and whether it needs first-party refactoring. The
+order list at the end is normative.
+
+Writing-mode documents are deliberately not part of v1.x; any document-mode
+surface is a separate design with its own threat model.
+
+### The resource admission rule
+
+Section 13 has a four-condition rule for first-party writes. Reads get their
+own, generalized from the two Phase 3 resources (conversation tree, library
+cards), which already satisfy it. A new host resource is admissible when all
+five hold:
+
+1. It is an allowlisted field projection built for the extension surface,
+   never a row contract or API response passed through.
+2. It is bounded by both an item count and an encoded-byte budget, and
+   paginated with an opaque host-owned cursor when the underlying set is
+   unbounded.
+3. Its scope is fixed by the invocation's own context unless a separate
+   enumeration grant conspicuously covers wider reach.
+4. It is served as a database projection plus a host-resource adapter, never
+   a query primitive handed to a flow.
+5. Its consent line names what it reads in user terms — and when the projected
+   data can reach a model call or network origin, the manager surfaces that
+   combination (see the consent combination banner below).
+
+Condition 5 exists because the three resources below project data that is
+prompt-adjacent but was never extension-readable before. Reading is not the
+new risk; reading *combined with* `network.request` is, and consent must say
+so rather than leaving the user to compose two innocuous-looking grants in
+their head.
+
+### `list.join`
+
+A pure operation joining an array of at most 256 scalars into one string,
+with `separator` drawn from a closed host-owned set: `", "`, `"; "`, `" "`,
+`"\n"`, `"\n- "`. An unknown separator fails compilation. The result is
+subject to the existing template/value caps, and the operation is available
+in all contexts including reducers, so a fragment type can format a list for
+its writer context.
+
+This is the fix section 5 already prescribed, landed proactively: the
+scalar-array template interpolation rule is withdrawn before any published
+package can depend on its frozen rendering, returning templates to pure
+scalar path substitution with no special cases. Like `list.intersect`, this
+is a single bounded host-owned operation with no per-element package logic —
+it does not open the door section 19 keeps closed on `map`/`filter`/`reduce`.
+
+No capability required (pure). No core refactor.
+
+### Config view convention
+
+A package may declare `views.config`. The Orb-owned extension manager renders
+it in the package's detail panel; no slot, placement, or `ui.contribute`
+grant is involved, because the surface is the manager itself, which the user
+opens deliberately. This closes a real gap: extensions have config state and
+form components but nowhere host-standard to surface settings, and without
+this every package would burn its one workspace command on a settings page.
+
+Hardening: a config view may bind form controls only to the `config` state
+scope — declaring conversation/message/character bindings in it fails
+compilation. Rendering never writes state; submission runs the normal
+host-generated state action under the usual permission, schema, size, lock,
+and transaction checks (section 7 unchanged).
+
+No core refactor. Requires the Phase 3 renderer.
+
+### Consent combination banner
+
+A manager behavior, not a package surface: whenever the approved grant set
+contains `network.request` together with any grant that reads conversation,
+character, lorebook, persona, or history data, the consent diff and the
+package detail panel show one fixed host-authored banner stating that data
+the package can read can be sent to its named origins. The banner is derived
+from the normalized grant set server-side; package strings never influence
+it. This makes the section 11 warning structural instead of something a
+careful reader infers.
+
+No core refactor. Frontend manager + one derived flag in inspection results.
+
+### Read resources: lorebook, direction notes, persona
+
+Three clones of the conversation-tree/library-cards pattern — database
+projection plus host-resource adapter, each behind its own grant:
+
+| Capability | Meaning |
+|---|---|
+| `lorebook.read` | Read the lorebook entries of the world bound to the invocation's conversation. |
+| `direction_notes.read` | Read the active branch's direction notes. |
+| `context.persona.read` | Read the active persona's name and description. |
+
+**Lorebook.** Scope is the world bound to the invocation's conversation card;
+there is no world enumeration grant in v1.x — that would be a
+`library.cards.read`-shaped reach grant and waits for a package that needs
+it. Projected fields: entry id, keys, `secondary_keys`, `selective`,
+`use_regex`, enabled, insertion order, and content bounded per-entry and in
+aggregate; paginated with the standard opaque cursor. Note the hazard the
+banner exists for: untriggered entries are content the model may never have
+seen, so this is stronger than `context.history.read` when combined with
+network access. Writes are refused permanently: lorebook content reaches the
+prompt and fails section 13 condition 3. A "lorebook health" package writes
+its findings into its own state and views; the user applies fixes in Orb's
+editor. Enables the most-requested community shape (coverage auditors,
+keyword-conflict detectors) at read-only risk.
+
+**Direction notes.** Active-branch notes only: id, content, author kind,
+timestamps, bounded and cursor-paginated. Write refused for the same
+condition-3 reason — notes are injected into prompts.
+
+**Persona.** Name and description of the active persona only, byte-capped.
+This is the user's self-description, so the grant is conspicuous on its own
+line in consent, and it is the strongest trigger for the combination banner.
+Never writable. Section 6's character projection continues to exclude persona
+data; this separate grant is the only path to it.
+
+No core refactor for any of the three: each is a new bounded query plus an
+adapter registration.
+
+Lorebook and direction-note walks use monotonically increasing database ids as
+their mutation boundary: entries added after the current position may appear
+later in the same walk, deleted entries disappear, and surviving entries never
+shift or repeat. This is intentionally different from a library sweep, whose
+potentially expensive per-card model work needs the first-page high-water
+snapshot described in section 17. Every paginated adapter stops page assembly
+before either the item-count or encoded-byte ceiling and resumes after the
+last item actually emitted.
+
+### `library.card_actions` slot
+
+A new `UI_SLOTS` entry: command placements rendered per card in the library
+browser. When the user invokes one, the host resolves the clicked card into
+`ctx.character` and rebinds the `character` state scope to it — the same
+resolution section 6 specifies for action input, with one deliberate
+difference: `library.cards.read` is **not** required, because the card
+identifier is host-supplied from a user click, never package input. The
+package's reach is still exactly one user-chosen card per invocation, so
+consent remains "the character a command is run against" and the section 6
+reach rule is preserved, not excepted. `ui.contribute` for the slot and
+`context.character.read` are still required; `card.tags.set` additionally
+requires `card.tags.write` as always.
+
+This gives single-card tools (re-tag this card, analyze this card) a home
+where the cards are, without the library-wide enumeration grant.
+
+**Core refactor required:** `library_browser.js` must adopt the host command
+model that Phase 3 step 2 builds for the burger menus. Do not build a second
+placement mechanism for the library; the slot waits until that model exists.
+
+### Invocation telemetry
+
+Host-owned observability: per invocation, record wall time, model-call and
+HTTP counts, and outcome; aggregate per extension; surface in the manager's
+diagnostics alongside load status. This answers "which extension slows my
+turns" — the first scaling pressure point, since each pre-hook may spend two
+serial model calls before the Writer starts — and produces the observed data
+a future per-turn aggregate pre-hook budget would be set against. That budget
+is deliberately not enforced now, matching section 8's rule that limits are
+widened or added against measurements, not guesses.
+
+Hardening: telemetry is never projected into `ExtensionCtx` or any package-
+visible surface — flows get no timing channel. Sanitized like all
+diagnostics.
+
+No core refactor: minor plumbing in `adapters.py`/`execution.py` plus a
+catalog field.
+
+### Implementation order (normative)
+
+1. **`list.join` + withdrawal of array interpolation** — contract-adjacent,
+   so it lands first, with or before Phase 3 step 7 (which is amended to ship
+   it). Nothing depends on it; everything is simpler after it.
+2. **Invocation telemetry** — independent of the renderer; land it while
+   Phase 3 step 1 is in progress so the reference packages are measured from
+   day one.
+3. **Consent combination banner** — with the Phase 3 manager work; it must be
+   in place before any read resource beyond the tree ships.
+4. **Config view convention** — immediately after Phase 3 step 1 (renderer
+   core); it is the cheapest complete use of the renderer and a good first
+   integration test for form scope restrictions.
+5. **Read resources (lorebook, direction notes, persona)** — after Phase 3
+   step 4 establishes the resource adapter pattern; they are clones of it.
+   Persona ships last of the three, after the banner is verified.
+6. **`library.card_actions` slot** — after Phase 3 step 2's command model
+   lands, naturally paired with step 8 (Tag Librarian) since both touch the
+   library browser.
+
+### Acceptance tests
+
+- `list.join` rejects a separator outside the closed set at compilation, an
+  array over 256 members or containing non-scalars at runtime, and a template
+  interpolating an array fails as a plain scalar violation — no join
+  rendering exists in `values.py`.
+- A config view declaring a non-config binding fails compilation; rendering a
+  config view performs no state write; submission enforces the 256 KiB slot
+  cap.
+- The combination banner appears for every grant set containing
+  `network.request` plus any data-reading grant, in both the install consent
+  diff and the detail panel, and never renders package-provided text.
+- Each read resource: 403 without its grant; projects only allowlisted fields;
+  respects count and byte budgets; a cursor walk has a documented mutation
+  boundary and never duplicates or shifts surviving items; a package-supplied
+  or mutated cursor is rejected.
+- `lorebook.read` resolves only the world bound to the invocation's
+  conversation; an action with no conversation binding fails rather than
+  falling back to any world.
+- A `library.card_actions` invocation resolves `ctx.character` to the clicked
+  card without `library.cards.read`, scopes `character` state writes to that
+  card, and a package cannot dispatch the same action with its own card
+  identifier absent the section 6 dual grants.
+- Telemetry values appear in the catalog diagnostics and never in
+  `ExtensionCtx`, flow-visible errors, or any package-readable surface.

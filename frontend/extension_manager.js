@@ -21,14 +21,15 @@
 //     UI never reconstructs a permission from the label it displayed, so
 //     rewording a consent line cannot widen a grant.
 //
-// Phase 1 renders catalog metadata only. Package views and commands are
-// declarative data the host renderer will own (Phase 3); nothing in this module
-// interprets a component tree.
+// This module still renders no component tree itself. A package's `config` view
+// is mounted through extension_commands.js -> extension_renderer.js, the one
+// path that draws package UI; the manager's own controls stay Orb-authored DOM.
 
 import { api } from "./api.js";
+import { applyEffects, disposeStaleViews, mountView, renderCommandSlots } from "./extension_commands.js";
 import { closeModal, showModal } from "./modal.js";
 import { S } from "./state.js";
-import { broadcastExtensionMutation, setExtensionMutationCallback } from "./tabLock.js";
+import { setExtensionMutationCallback } from "./tabLock.js";
 import { $, toast } from "./utils.js";
 
 // ── DOM helpers ─────────────────────────────────────────────────────────────
@@ -83,30 +84,12 @@ export async function loadExtensionCatalog() {
   S.extensionCatalog = body.extensions || [];
   S.extensionOrphanedData = body.orphaned_data || [];
   renderExtensionSidebar();
+  // Wholesale replacement, then disposal: commands are rebuilt from the new
+  // catalog and anything keyed to a revision that is gone (an open view, a form
+  // draft) is dropped rather than left describing a package the user removed.
+  renderCommandSlots();
+  disposeStaleViews();
   if ($("ext-manager-root")) renderManagerBody();
-}
-
-/**
- * Apply a lifecycle response's fixed effect envelope.
- *
- * The frontend owns the effect-to-refetch mapping; the server sends a closed
- * vocabulary of resource names. An effect this build does not recognise is
- * dropped and logged rather than dispatched, so a newer server degrades to "no
- * repaint" instead of reaching an unintended handler.
- */
-async function applyEffects(envelope) {
-  if (typeof envelope?.runtime_generation === "number") {
-    S.extensionRuntimeGeneration = Math.max(S.extensionRuntimeGeneration, envelope.runtime_generation);
-  }
-  for (const effect of envelope?.effects || []) {
-    if (effect?.resource !== "extension.catalog") {
-      console.warn("unknown extension effect dropped:", effect?.resource);
-      continue;
-    }
-    await loadExtensionCatalog();
-    await refreshWorkflowManifest();
-  }
-  broadcastExtensionMutation({ generation: S.extensionRuntimeGeneration });
 }
 
 /**
@@ -241,7 +224,17 @@ function cardDetail(item) {
     body.appendChild(blocked);
   }
 
+  // The banner is derived server-side from the *approved* grant set, so it
+  // says "this package can do this now", not "this package asked for this".
+  if (item.combination_warning) {
+    body.appendChild(el("div", { cls: "ext-banner", text: item.combination_warning }));
+  }
+
   body.appendChild(permissionList(item));
+
+  if (item.config_view) body.appendChild(configSection(item));
+  const telemetry = telemetrySection(item);
+  if (telemetry) body.appendChild(telemetry);
 
   const row = el("div", { cls: "btn-row", style: "gap:6px;flex-wrap:wrap;margin-top:10px" }, [
     button(item.enabled ? "Disable" : "Enable", () => setEnabled(item.id, !item.enabled)),
@@ -286,6 +279,44 @@ function permissionList(item) {
     }),
   );
   return wrap;
+}
+
+/**
+ * The package's `config` view, rendered inside its detail panel.
+ *
+ * A convention rather than a slot: no placement and no `ui.contribute` grant is
+ * involved, because the surface is this manager, which the user opened
+ * deliberately. The tree still goes through the same host renderer every other
+ * view uses — the manager does not gain a second, laxer drawing path just
+ * because it owns the panel.
+ */
+function configSection(item) {
+  const wrap = el("div", { cls: "ext-config" }, [el("div", { cls: "ext-field", text: "Settings" })]);
+  const host = el("div", { cls: "xc-view" });
+  wrap.appendChild(host);
+  void mountView(host, item.id, item.config_view, { instanceId: "manager-config" });
+  return wrap;
+}
+
+/**
+ * Host-owned invocation counters, beside load status where they belong.
+ *
+ * These answer "which extension slows my turns" and never reach the package:
+ * nothing here is projected into a flow's context, a view's data, or an error a
+ * package can read.
+ */
+function telemetrySection(item) {
+  const stats = item.telemetry;
+  if (!stats?.invocations) return null;
+  const parts = [
+    `${stats.invocations} run(s)`,
+    `avg ${stats.average_ms} ms`,
+    `max ${stats.max_ms} ms`,
+    `${stats.model_calls} model call(s)`,
+  ];
+  if (stats.errors) parts.push(`${stats.errors} error(s)`);
+  if (stats.cancellations) parts.push(`${stats.cancellations} cancelled`);
+  return el("div", { cls: "ext-telemetry", text: parts.join(" · ") });
 }
 
 function permissionDetail(permission) {
@@ -405,6 +436,10 @@ function showConsentModal(inspection, extensionId = null) {
           "Purge the data first if this is a different publisher.",
       }),
     );
+  }
+
+  if (inspection.combination_warning) {
+    nodes.push(el("div", { cls: "ext-banner", text: inspection.combination_warning }));
   }
 
   const boxes = [];
@@ -535,11 +570,19 @@ async function startPurge(extensionId) {
   );
 }
 
-/** Run one lifecycle call, apply its effects, and surface its error. */
+/**
+ * Run one lifecycle call, apply its effects, and surface its error.
+ *
+ * The effect envelope goes through the *shared* handler in
+ * extension_commands.js rather than a manager-local copy: an `extension.catalog`
+ * effect from an install and one from an action have to mean the same thing, and
+ * two mappings would eventually disagree about what a resource name refetches.
+ */
 async function run(request) {
   try {
     const envelope = await request();
     await applyEffects(envelope);
+    await refreshWorkflowManifest();
     return envelope;
   } catch (e) {
     toast(errorText(e), true);

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from .capabilities import (
     ALL_CONTEXTS,
+    CAPABILITY_PREREQUISITES,
     EXTERNAL_EFFECT_OPS,
     HOOK_CONTEXTS,
     IMPURE_CONTEXTS,
@@ -27,6 +28,7 @@ from .capabilities import (
     OpContext,
     OperationSpec,
     Quota,
+    missing_prerequisites,
 )
 from .common import (
     EXTENSION_ID_PATTERN,
@@ -44,8 +46,11 @@ from .common import (
 )
 from .components import (
     COMPONENT_NAMES,
+    RESOURCE_CAPABILITIES,
     Component,
+    StateSource,
     View,
+    ViewSource,
     iter_components,
     referenced_actions,
     referenced_assets,
@@ -61,6 +66,7 @@ from .flow import (
     iter_steps,
 )
 from .manifest import (
+    CONFIG_VIEW_ID,
     EXTENSION_API_VERSION,
     ICON_NAMES,
     UI_SLOTS,
@@ -86,7 +92,10 @@ from .schema_subset import PackageSchema, SchemaError, parse_schema
 
 __all__ = [
     "ALL_CONTEXTS",
+    "CAPABILITY_PREREQUISITES",
     "COMPONENT_NAMES",
+    "RESOURCE_CAPABILITIES",
+    "CONFIG_VIEW_ID",
     "EFFECT_RESOURCES",
     "EXTENSION_API_VERSION",
     "EXTENSION_ID_PATTERN",
@@ -127,17 +136,20 @@ __all__ = [
     "Requires",
     "SchemaError",
     "SecretDeclaration",
+    "StateSource",
     "Step",
     "StepId",
     "Toast",
     "Value",
     "View",
     "ViewBinding",
+    "ViewSource",
     "check_context",
     "declared_operations",
     "derive_capabilities",
     "iter_components",
     "iter_steps",
+    "missing_prerequisites",
     "namespaced_fragment_type",
     "parse_schema",
     "permission_key",

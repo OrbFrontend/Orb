@@ -133,6 +133,36 @@ class JsonMergeStep(_Step):
     values: list[Value] = Field(min_length=2, max_length=MAX_JSON_MEMBERS)
 
 
+class ListIntersectStep(_Step):
+    """Members of ``value`` that also appear in ``allowed``, in ``value`` order.
+
+    It exists because a package-declared ``output_schema`` compiles at install
+    time and therefore cannot carry an ``enum`` drawn from runtime config: an
+    extension whose behavior is governed by a user-managed vocabulary has no
+    other way to constrain a model result to that vocabulary. Without it, a
+    classifier would launder invented values into first-party data under the
+    user's own list.
+    """
+
+    op: Literal["list.intersect"]
+    value: Value
+    allowed: Value
+
+
+class ListJoinStep(_Step):
+    """Join an array of scalars with a separator from a closed host-owned set.
+
+    The separator is an enumeration rather than a string because a free-form
+    separator is one argument away from a format language, and the whole point
+    of withdrawing the old scalar-array template rule was to keep templates at
+    exactly one rule with no special cases.
+    """
+
+    op: Literal["list.join"]
+    value: Value
+    separator: Literal[", ", "; ", " ", "\n", "\n- "] = ", "
+
+
 class MathAddStep(_Step):
     op: Literal["math.add"]
     a: Value
@@ -243,6 +273,25 @@ class ArtifactEmitStep(_Step):
     annotation: Value | None = None
 
 
+class CardTagsSetStep(_Step):
+    """Replace the tag list of the card already in the invocation's context.
+
+    There is deliberately no ``card_id`` field. The operation's blast radius is
+    one card *by construction* rather than by quota: a flow cannot read card A
+    and write card B, because the only card it can write is the one the host
+    resolved into ``ctx.character``. ``extra="forbid"`` means a package that
+    declares a card argument fails compilation rather than having the field
+    quietly ignored.
+
+    The host -- not the package -- normalizes the result through the same
+    helper the character API uses, so the two produce byte-identical stored
+    tags for the same input list.
+    """
+
+    op: Literal["card.tags.set"]
+    tags: Value
+
+
 class BranchActivateStep(_Step):
     op: Literal["conversation.branch.activate"]
     message_id: Value
@@ -272,6 +321,8 @@ Step = Annotated[
     | TextReplaceLiteralStep
     | JsonPickStep
     | JsonMergeStep
+    | ListIntersectStep
+    | ListJoinStep
     | MathAddStep
     | MathSubtractStep
     | MathNegateStep
@@ -286,6 +337,7 @@ Step = Annotated[
     | ContextAppendStep
     | DraftReplaceStep
     | ArtifactEmitStep
+    | CardTagsSetStep
     | BranchActivateStep
     | UiStatusStep
     | UiToastStep

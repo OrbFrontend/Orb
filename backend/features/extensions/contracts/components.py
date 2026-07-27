@@ -31,7 +31,7 @@ from typing import Annotated, Any, Literal, get_args
 
 from pydantic import AfterValidator, Field
 
-from ..limits import MAX_COMPONENT_DEPTH, MAX_COMPONENT_NODES
+from ..limits import MAX_COMPONENT_DEPTH, MAX_COMPONENT_NODES, MAX_VIEW_DATA_SOURCES
 from .common import ExtModel, Label, LocalId, PackagePath, Predicate, Value
 
 Tone = Literal["default", "muted", "accent", "success", "warning", "danger"]
@@ -290,6 +290,34 @@ class VideoComponent(_Node):
 # ── structured views ─────────────────────────────────────────────────────────
 
 
+class LibrarySweepComponent(_Node):
+    """A host-driven loop: one invocation of ``action`` per card in the library.
+
+    The loop lives here, in the host, rather than in the flow language -- which
+    is the whole reason a library-wide feature fits inside a 128-step, 2-model-
+    call per-invocation budget. Each dispatch classifies one card and commits
+    independently, so a sweep interrupted at card 87 leaves 86 written and 214
+    untouched, and the next run resumes from the remainder. There is no partial
+    commit to reconcile because there was never one transaction.
+
+    The package supplies an action id and a label. It does not supply the page
+    size, the cursor, the concurrency, the stop condition, or the progress
+    display: those are the parts that make an O(n) loop safe, and a package that
+    could choose them could choose badly.
+    """
+
+    component: Literal["library-sweep"]
+    action: LocalId
+    label: Label
+    unclassified_key: LocalId | None = None
+    """When set, a card whose own state slot has this key truthy is skipped.
+
+    How "cards not yet classified" is computed without an invocation per card:
+    the library resource already projects the extension's own slot, so the host
+    filters against it before dispatching anything.
+    """
+
+
 class TreeComponent(_Node):
     component: Literal["tree"]
     nodes: Value
@@ -338,6 +366,7 @@ Component = Annotated[
     | ImageComponent
     | AudioComponent
     | VideoComponent
+    | LibrarySweepComponent
     | TreeComponent
     | ConversationTreeComponent,
     Field(discriminator="component"),
@@ -358,10 +387,54 @@ TabItem.model_rebuild()
 TabsComponent.model_rebuild()
 
 
+# ── view data sources ────────────────────────────────────────────────────────
+# A view names *what* it reads, never *how*. There is no URL, no query, no
+# method, and no field selection: the host owns the projection, the bounds, and
+# the grant check, and the package gets whatever that projection contains under
+# a name of its choosing in the ``data`` namespace.
+
+
+class ResourceSource_(ExtModel):
+    """A named host resource, served as a bounded, allowlisted projection."""
+
+    kind: Literal["resource"]
+    resource: Literal["conversation.tree", "library.cards", "lorebook.entries", "direction.notes", "persona"]
+    previews: bool = False
+    """Only meaningful for ``conversation.tree``. Requests inactive-branch text
+    previews, which are a separate conspicuous grant -- the server still derives
+    inclusion from the live grant, so asking without it yields no previews
+    rather than an error."""
+
+
+class StateSource(ExtModel):
+    """This extension's own namespaced slot in one scope."""
+
+    kind: Literal["state"]
+    scope: Literal["config", "conversation", "message", "character"]
+
+
+ViewSource = Annotated[ResourceSource_ | StateSource, Field(discriminator="kind")]
+
+RESOURCE_CAPABILITIES: dict[str, str] = {
+    "conversation.tree": "conversation.tree.read",
+    "library.cards": "library.cards.read",
+    "lorebook.entries": "lorebook.read",
+    "direction.notes": "direction_notes.read",
+    "persona": "context.persona.read",
+}
+"""Which grant each host resource consumes.
+
+One table, read by the compiler when deriving a view's requirements and by the
+resource route when refusing an ungranted request. Two tables would eventually
+disagree, and the direction they disagreed in would decide whether an ungranted
+projection was served."""
+
+
 class View(ExtModel):
     """One declarative view: a component tree plus the data it reads."""
 
     view_version: Literal[1]
+    data: dict[LocalId, ViewSource] = Field(default_factory=dict, max_length=MAX_VIEW_DATA_SOURCES)
     root: Component
 
     def node_count(self) -> int:

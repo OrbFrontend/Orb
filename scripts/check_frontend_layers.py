@@ -57,6 +57,11 @@ LAYERS = {
     "workflow_text_effects.js": 4,
     "workflow_text_interaction.js": 4,
     "workflow_loader.js": 4,
+    # The community component renderer: pure DOM construction over validated
+    # JSON, importing nothing above itself. Deliberately L4 rather than a
+    # feature, so a feature module cannot be pulled in to "just add one thing"
+    # to how package content is drawn.
+    "extension_renderer.js": 4,
     "default_widget.js": 4,
     "document_editor.js": 4,
     "document_probs.js": 4,
@@ -82,6 +87,7 @@ LAYERS = {
     "settings_personas.js": 5,
     "presets.js": 5,
     "direction_notes_panel.js": 5,
+    "extension_commands.js": 5,
     "extension_manager.js": 5,
     "mobile.js": 5,
     # L6 shell / plugin facade.
@@ -101,8 +107,8 @@ ALLOWED_UPWARD: set[tuple[str, str]] = {
 }
 
 # ── 2. Ratchets (may only decrease) ──────────────────────────────────────────
-MAX_INLINE_ON = 265  # inline on*= handlers across frontend/ (js + index.html)
-MAX_UNDERSCORE_IMPORTS = 10  # underscore-prefixed names imported cross-module
+MAX_INLINE_ON = 256  # inline on*= handlers across frontend/ (js + index.html)
+MAX_UNDERSCORE_IMPORTS = 9  # underscore-prefixed names imported cross-module
 
 # ── 4. Frozen ABI ────────────────────────────────────────────────────────────
 # workflow_api.js's complete export surface (ABI v2, additive-only). A rename or

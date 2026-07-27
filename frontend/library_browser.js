@@ -4,6 +4,7 @@
 // re-exported from library.js. Reads the shared avatar cache-bust map and the
 // character-edit modal from library.js.
 import { api } from "./api.js";
+import { renderPanelSlots } from "./extension_commands.js";
 import { _avatarBust, showCharEditModal } from "./library.js";
 import { setModalCloseCallback, showModal } from "./modal.js";
 import { S } from "./state.js";
@@ -290,7 +291,17 @@ function renderCharBrowserItems() {
   // a filter hides most cards.
   container.style.minHeight = `${container.offsetHeight}px`;
 
+  renderPanelSlots(container);
   applyBrowserFilter();
+}
+
+// An empty host container per card. The library browser adopts the same command
+// model the composer burger uses rather than growing a second placement
+// mechanism, and the card id it carries is *host-supplied from a user click* —
+// which is why invoking one of these needs no `library.cards.read`, unlike an
+// action that names a card in its own input.
+function cardActionsSlot(cardId) {
+  return `<div class="char-browser-card-actions" data-ext-slot="library.card_actions" data-ext-card-id="${escAttr(cardId)}"></div>`;
 }
 
 // Match-data attributes shared by the grid card and the list item, read by
@@ -306,6 +317,7 @@ function renderCharBrowserCard(c) {
     <div class="char-browser-card" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">
       <div class="char-browser-avatar">${av}</div>
       <div class="char-browser-card-name">${esc(c.name)}</div>
+      ${cardActionsSlot(c.id)}
     </div>`;
 }
 
@@ -321,6 +333,7 @@ function renderCharBrowserListItem(c) {
         <div class="char-browser-list-name">${esc(c.name)}</div>
         ${tags}
       </div>
+      ${cardActionsSlot(c.id)}
     </div>`;
 }
 

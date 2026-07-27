@@ -568,6 +568,37 @@ class ExtensionActionRequest(BaseModel):
 
     conversation_id: str | None = None
     input: dict = Field(default_factory=dict)
+    slot: str | None = None
+    card_id: str | None = None
+    """A host-supplied card, valid only alongside ``slot``.
+
+    This is the ``library.card_actions`` path: the user clicked a command on a
+    specific card in the library browser, so the identifier came from that
+    click, not from package input. The route proves the extension actually
+    places a command in that slot before honouring it, which is what keeps the
+    relaxed grant check (no ``library.cards.read``) tied to a placement the
+    user consented to rather than to a field the client can set.
+
+    A package that wants to name a card *itself* declares ``card_id`` in the
+    action's input schema instead, and pays for it with both grants."""
+
+
+class ExtensionStateWrite(BaseModel):
+    """Save a rendered view's bound form draft.
+
+    ``updates`` is ``{scope: {key: value}}`` -- the *host* grouped it from the
+    declared bind paths, so a client cannot name a scope a view never bound.
+    The server re-checks the grant, the entity, and the slot cap regardless.
+    """
+
+    updates: dict[str, dict] = Field(default_factory=dict)
+    conversation_id: str | None = None
+
+
+class ExtensionViewQuery(BaseModel):
+    """Which conversation a rendered view's data sources resolve against."""
+
+    conversation_id: str | None = None
 
 
 class ExtensionPurgeRequest(BaseModel):

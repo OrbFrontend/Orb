@@ -40,12 +40,15 @@ from pydantic import ValidationError
 
 from .assets import assert_bytes_match, asset_media_type
 from .contracts import (
+    CONFIG_VIEW_ID,
     EXTENSION_API_VERSION,
+    RESOURCE_CAPABILITIES,
     Capability,
     Component,
     ExtensionManifest,
     Flow,
     OpContext,
+    StateSource,
     View,
     check_context,
     declared_operations,
@@ -132,6 +135,7 @@ def compile_package(source: PackageSource) -> CompiledPackage:
 
     _assert_flow_contexts(manifest, flows)
     _assert_view_actions(manifest, views)
+    _assert_config_view_scope(manifest, views)
     requirements = _derive_requirements(manifest, flows, views)
     _assert_declarations_cover(manifest, requirements)
 
@@ -270,6 +274,36 @@ def _assert_view_actions(manifest: ExtensionManifest, views: Mapping[str, View])
                 raise PackageValidationError(f"{path}: dispatches undeclared action {name!r}")
 
 
+def _assert_config_view_scope(manifest: ExtensionManifest, views: Mapping[str, View]) -> None:
+    """A config view may bind only the ``config`` scope.
+
+    The manager renders this view in the package's detail panel with no slot,
+    no placement, and no ``ui.contribute`` grant, because the surface is the
+    manager itself. That exemption is only defensible while the view is a
+    *settings* form: a config view that could bind conversation or character
+    state would be a placement-free write into per-entity data, reachable from
+    a panel the user opened to read a description.
+    """
+    binding = manifest.views.get(CONFIG_VIEW_ID)
+    if binding is None:
+        return
+    view = views.get(binding.source)
+    if view is None:
+        return
+    for node in iter_components(view.root):
+        bind = getattr(node, "bind", None)
+        if isinstance(bind, str) and not bind.startswith("config."):
+            raise PackageValidationError(
+                f"{binding.source}: the '{CONFIG_VIEW_ID}' view binds {bind!r}; a config view may bind only 'config.<key>'"
+            )
+    for name, source in sorted(view.data.items()):
+        if isinstance(source, StateSource) and source.scope != "config":
+            raise PackageValidationError(
+                f"{binding.source}: the '{CONFIG_VIEW_ID}' view reads {source.scope!r} state through {name!r}; "
+                f"a config view may read only 'config' state"
+            )
+
+
 # ── requirement derivation ──────────────────────────────────────────────────
 
 # Which capability a read of a ``ctx.*`` path consumes. Identity fields
@@ -305,8 +339,19 @@ def _derive_requirements(
 
     for view in views.values():
         components |= used_components(view)
-        for node in iter_components(view.root):
-            permissions |= _component_permissions(node)
+        permissions |= _view_source_permissions(view)
+        permissions |= derive_view_runtime_requirements(view)
+
+    # An action whose validated input declares a card identifier resolves that
+    # card into ``ctx.character`` and rebinds the ``character`` state scope to
+    # it. That is the only place package input selects an entity, so it is
+    # gated by two grants rather than one: enumeration is not the only way to
+    # reach a card, and ``context.character.read`` alone must never leave the
+    # current conversation.
+    for binding in manifest.actions.values():
+        if _declares_card_input(binding.input_schema):
+            permissions.add((Capability.CONTEXT_CHARACTER_READ.value, None))
+            permissions.add((Capability.LIBRARY_CARDS_READ.value, None))
 
     # Placements and contributions are manifest-level reaches. The manifest
     # validator already proved each has its matching declaration; including
@@ -314,6 +359,12 @@ def _derive_requirements(
     # grant the package uses rather than only the ones a flow happens to touch.
     for placement in manifest.placements:
         permissions.add((Capability.UI_CONTRIBUTE.value, placement.slot))
+        if placement.slot == LIBRARY_CARD_ACTIONS_SLOT:
+            # The host resolves the clicked card into ``ctx.character``, so the
+            # projection grant is required -- but not ``library.cards.read``:
+            # the identifier is host-supplied from a user click, never package
+            # input, so the reach is still exactly one user-chosen card.
+            permissions.add((Capability.CONTEXT_CHARACTER_READ.value, None))
     if manifest.contributions.fragment_types:
         permissions.add((Capability.FRAGMENT_TYPE_CONTRIBUTE.value, None))
     if manifest.produces_artifacts:
@@ -344,6 +395,15 @@ def _step_permissions(step: Any) -> set[Requirement]:
         return {(Capability.PROMPT_CONTEXT_APPEND.value, target) for target in step.targets}
     if op == "draft.replace":
         return {(Capability.DRAFT_REPLACE.value, None)}
+    if op == "card.tags.set":
+        # Both, not just the write. The operation targets ``ctx.character``, so
+        # the projection that puts a card there is part of what it needs -- and
+        # deriving only the write would let a package request a grant whose
+        # consent line describes a card it could not read.
+        return {
+            (Capability.CARD_TAGS_WRITE.value, None),
+            (Capability.CONTEXT_CHARACTER_READ.value, None),
+        }
     if op == "artifact.emit":
         return {(Capability.ARTIFACT_WRITE.value, None)}
     if op == "conversation.branch.activate":
@@ -420,7 +480,74 @@ def _context_requirement(path: str) -> Requirement | None:
     return (capability.value, None) if capability is not None else None
 
 
+CARD_INPUT_PROPERTY = "card_id"
+"""The reserved action-input property that names a character card.
+
+A fixed name rather than a per-package convention: the host has to recognise
+"this action operates on a card the user picked" before it validates the input,
+because that recognition is what decides which grants the invocation needs."""
+
+LIBRARY_CARD_ACTIONS_SLOT = "library.card_actions"
+
+
+def _declares_card_input(schema: Mapping[str, Any] | None) -> bool:
+    if not isinstance(schema, Mapping):
+        return False
+    properties = schema.get("properties")
+    return isinstance(properties, Mapping) and CARD_INPUT_PROPERTY in properties
+
+
+def _view_source_permissions(view: View) -> set[Requirement]:
+    """The grants a view's declared data sources consume.
+
+    A view inherits the requirements of every host resource it reads, which is
+    what makes "a partially granted package publishes only the entry points it
+    can honor" true of views and not just of flows.
+    """
+    permissions: set[Requirement] = set()
+    for source in view.data.values():
+        if isinstance(source, StateSource):
+            permissions.add((Capability.STATE_READ.value, source.scope))
+        else:
+            permissions.add((RESOURCE_CAPABILITIES[source.resource], None))
+            if source.resource == "conversation.tree" and source.previews:
+                permissions.add((Capability.CONVERSATION_TREE_PREVIEWS.value, None))
+    return permissions
+
+
+def _view_path_requirement(path: str) -> Requirement | None:
+    """A config/state path inside a view consumes the matching read grant.
+
+    Displaying a stored value is a read even when no form control binds it, so
+    a view that only *shows* its conversation state still derives the grant.
+    """
+    segments = path.split(".")
+    if segments[0] == "config" and len(segments) >= 2:
+        return (Capability.STATE_READ.value, "config")
+    if segments[0] == "state" and len(segments) >= 3:
+        return (Capability.STATE_READ.value, segments[1])
+    return None
+
+
 def _component_permissions(node: Component) -> set[Requirement]:
+    if getattr(node, "component", None) == "library-sweep":
+        # The sweep enumerates the library to find its cards, and resolves each
+        # one into ``ctx.character`` before dispatching. Deriving both grants
+        # from the *component* is what keeps a package from placing a sweep and
+        # only asking for the write.
+        permissions: set[Requirement] = {
+            (Capability.LIBRARY_CARDS_READ.value, None),
+            (Capability.CONTEXT_CHARACTER_READ.value, None),
+        }
+        # A named bookkeeping key changes the loop from "visit every card" to
+        # "skip cards this extension already completed". Without this read
+        # grant the resource deliberately omits every card's state; treating
+        # absence as false would silently turn a resumable paid sweep into a
+        # full rewrite after permission revocation.
+        if getattr(node, "unclassified_key", None) is not None:
+            permissions.add((Capability.STATE_READ.value, "character"))
+        return permissions
+
     """A bound form control reaches this extension's own config or state.
 
     Rendering a bound control implies reading the value; submitting implies
@@ -434,6 +561,25 @@ def _component_permissions(node: Component) -> set[Requirement]:
     segments = bind.split(".")
     scope = "config" if segments[0] == "config" else segments[1]
     return {(Capability.STATE_READ.value, scope), (Capability.STATE_WRITE.value, scope)}
+
+
+def derive_view_runtime_requirements(view: View) -> frozenset[Requirement]:
+    """Grants required for the view tree itself to behave as declared.
+
+    Host-resource sources may fail independently and render a per-source error,
+    but a component whose behavior depends on a grant must not remain live
+    after that grant is revoked. In particular, ``library-sweep`` without its
+    character-state read would reinterpret "already done" as "not done" and
+    repeat paid writes across the whole library.
+    """
+    permissions: set[Requirement] = set()
+    for node in iter_components(view.root):
+        permissions |= _component_permissions(node)
+        for path in _paths_in(node.model_dump(mode="json")):
+            requirement = _view_path_requirement(path)
+            if requirement is not None:
+                permissions.add(requirement)
+    return frozenset(permissions)
 
 
 # ── declaration coverage ────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { initAudioPlayer } from "./audio_transport.js";
 import {
+  applyBranchSwitchRefresh,
   applyCompression,
   cancelCompression,
   cancelEdit,
@@ -56,6 +57,7 @@ import {
   addUserDirectionNote,
   deleteDirectionNote,
   editDirectionNote,
+  renderDirectionNotesPanel,
   saveDirectionNote,
   saveUserDirectionNote,
   toggleDirectionNotesPanel,
@@ -79,6 +81,12 @@ import {
   setDocProbs,
   toggleDocumentMode,
 } from "./document.js";
+import {
+  initExtensionCommands,
+  renderCommandSlots,
+  renderComposerMenu,
+  renderMobileActionsMenu,
+} from "./extension_commands.js";
 import { initExtensionManager, loadExtensionCatalog } from "./extension_manager.js";
 import {
   addAltGreeting,
@@ -204,6 +212,7 @@ import {
   toggleWorkflowEnabled,
   toggleWorkflowsGlobal,
 } from "./settings.js";
+import { personaMenuLabel } from "./settings_personas.js";
 import { scoreSlop } from "./slop_score.js";
 import { S } from "./state.js";
 import { initTabLock } from "./tabLock.js";
@@ -219,7 +228,42 @@ function toggleSection(header) {
 window.toggleSection = toggleSection;
 
 // ── Burger menu
+//
+// The item list is a host command model rather than fixed markup: Orb's own
+// entries and the enabled extensions' `composer.menu` placements render through
+// one path in extension_commands.js. The shell supplies the built-ins here
+// because it already imports every feature they call; extension_commands.js
+// must not reach up into the chat layer to find them.
+//
+// `visible` and function labels exist so an entry that used to be toggled by
+// someone reaching into the DOM (the dormant Notes button, the live persona
+// label) is now just part of the model.
+const BUILTIN_COMMANDS = {
+  "composer.menu": [
+    { id: "new-conversation", glyph: "✚", label: "New conversation", run: () => newConvForChar(S.activeCharId) },
+    { id: "conversations", glyph: "📋", label: "Conversations", run: () => showConvHistoryModal() },
+    { id: "compress", glyph: "📦", label: "Compress History", run: () => showCompressModal() },
+    { id: "checkpoint", glyph: "🔖", label: "Create Checkpoint", run: () => createCheckpoint() },
+    { id: "attach-image", glyph: "🖼️", label: "Attach Image", run: () => triggerAttachImage() },
+  ],
+  "mobile.chat_actions": [
+    { id: "user", glyph: "👤", label: () => personaMenuLabel(), run: () => showUserModal() },
+    { id: "workflow", glyph: "✨", label: "Workflow", run: () => toggleToolsPanel() },
+    { id: "inspector", glyph: "🔍", label: "Inspector", run: () => toggleInspector() },
+    {
+      id: "direction-notes",
+      glyph: "📝",
+      label: "Notes",
+      visible: () => S.directionNotesRecord || S.directionNotesInject !== "off",
+      run: () => toggleDirectionNotesPanel(),
+    },
+  ],
+};
+
 function toggleBurger() {
+  // Repaint on open rather than on every catalog change: the model is cheap to
+  // build and this way a stale menu is impossible by construction.
+  renderComposerMenu();
   $("burger-dropdown").classList.toggle("open");
 }
 function closeBurger() {
@@ -475,7 +519,7 @@ if (!S.activeConvId) {
 
 // Load data independently to prevent failures from blocking other loads
 async function initAll() {
-  initMobileUi({ closeBurger });
+  initMobileUi({ closeBurger, renderMobileActions: renderMobileActionsMenu });
 
   try {
     await loadSettings();
@@ -540,12 +584,37 @@ async function initAll() {
   // an Orb-owned panel, and community entries are declarative data that the
   // loader above has already refused to import(). A failure here costs the
   // Extensions sidebar, not the app.
+  // The shell owns this wiring because it is the only module that may import
+  // both the chat feature layer (for the refetches an effect maps to) and the
+  // extension layer. extension_commands.js receives callables, so it never
+  // needs an upward import of its own.
+  initExtensionCommands({
+    builtins: BUILTIN_COMMANDS,
+    refetch: {
+      // A branch activation lands the frontend exactly where the built-in
+      // switch-branch button does — same refetch, same Inspector cleanup —
+      // because both go through the one helper chat_messages.js exports.
+      conversation: async () => {
+        await applyBranchSwitchRefresh(null, { refetchMessages: true });
+      },
+      directionNotes: async () => {
+        await renderDirectionNotesPanel();
+      },
+      characters: () => {
+        void loadCharacters();
+      },
+      catalog: async () => {
+        await loadExtensionCatalog();
+      },
+    },
+  });
   initExtensionManager();
   try {
     await loadExtensionCatalog();
   } catch (e) {
     console.error("Failed to load extension catalog:", e);
   }
+  renderCommandSlots();
 }
 
 // Start initialization

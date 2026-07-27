@@ -15,7 +15,7 @@ Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams out
 - **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
 - **Registry snapshots:** Workflow lookups resolve against an immutable `RegistrySnapshot` (built-in base + community overlay). A turn captures **one** in `_load_pipeline_context` and threads it everywhere; never re-read the global registry mid-turn.
-- **Community extensions:** Untrusted declarative packages, a separate trust tier from built-in workflows. `.orbext` archives are compiled to immutable records, stored content-addressed under `data/extensions/objects/<digest>/`, and published as the registry's community overlay; they publish no executable entry point yet. Design + phasing: [docs/architecture/community-extensions.md](docs/architecture/community-extensions.md).
+- **Community extensions:** Untrusted declarative packages, a separate trust tier from built-in workflows. `.orbext` archives are compiled to immutable records, stored content-addressed under `data/extensions/objects/<digest>/`, and published as the registry's community overlay. Compiled flows run through a bounded interpreter with a staged effect transaction; compiled views render through a host-owned component renderer that only ever writes `textContent`. Design + phasing: [docs/architecture/community-extensions.md](docs/architecture/community-extensions.md).
 - **SSE wire contract:** [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
 
 ## Layer Stack
@@ -35,7 +35,7 @@ Dependency order (top to bottom — each layer may only import layers below it):
 
 | Layer | Purpose |
 |-------|---------|
-| `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `utils` |
+| `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `personas`, `tags`, `utils` |
 | `database/` | aiosqlite foundation: schema, migrations, queries, models (TypedDicts) |
 | `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`) |
 | `analysis/` | Pure prose-quality detection: `audit.py` + detectors; shared by editor + workflows |
@@ -74,6 +74,8 @@ features/<name>/
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
 | `frontend/workflow_api.js` | Plugin facade ABI v2 — the only import for `frontend/workflows/**` |
 | `frontend/extension_manager.js` | Orb-owned community-extension manager. DOM creation + `textContent` only — package strings never become markup, handlers, or attributes |
+| `frontend/extension_renderer.js` | THE renderer for community component trees. Tokenized styling, media by reference, node-built Markdown; no package string reaches markup, a class, a URL, or a handler |
+| `frontend/extension_commands.js` | Host command model (built-in band + community band), slot placement, workspace/view lifecycle, the fixed effect→refetch map, and the renderer-driven library sweep |
 
 ## Database Schema (summary)
 
@@ -84,7 +86,7 @@ features/<name>/
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
 | `conversations` | Chat sessions; `active_leaf_id` selects branch leaf; `macro_seed` pins {{random}} on checkpoint/compress copies |
 | `messages` | Message tree (`parent_id`); `role`, `content`, `progressive_fields`, `workflow_state` |
-| `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`) |
+| `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`). **`tags` is normalized on every update** by `core/tags.py` (trim, clip, drop empties, case-insensitive dedupe, per-tag and per-card caps) — `update_character_card` is the single write path, shared by the character API and the extension `card.tags.set`. Import is deliberately *not* normalized, and existing rows are never backfilled |
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
 | `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields, macro_choices) |
@@ -132,6 +134,8 @@ Controlled by `settings.agent_same_as_writer` (default `true`).
 
 Vanilla ES modules, no build step. State in `state.js` (global `S`, all keys declared). Streaming via `sse.js`. All chat generation routes through `runStreamRequest()` in `chat_stream.js`. Plugin modules in `frontend/workflows/**` import only `workflow_api.js`. `workflow_loader.js` dynamically imports a manifest entry only when `extension_policy.js` says it is a `trusted_module`; community entries are declarative data and never reach `import()`. Plugin buttons use `registerAction(wid, name, fn)` + `data-wf-action="wid:name"` — never `window.*` or inline `on*`.
 
+**Menus and extension slots are a host command model.** The composer burger and the mobile action menu render from `extension_commands.js`: `app.js` supplies the built-in entries (with optional `visible`/function-`label`), and enabled extension placements form a second band ordered by extension id. Other slots are empty `[data-ext-slot="<slot>"]` containers the host puts in its own markup (`index.html`, the per-message template in `chat_core.js`, the library card in `library_browser.js`); `renderPanelSlots(root)` fills them. Extensions never insert DOM nodes and never name a selector.
+
 Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint.sh`): layer import direction, ABI snapshot, plugin-import rule, ratchets for inline handlers and underscore cross-module imports.
 
 ## API Endpoints (quick reference)
@@ -144,7 +148,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys)
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments
-- **Extensions:** `/api/extensions` (catalog + orphaned data), `/{id}` detail, two-phase `inspect-file` → `install`, `inspect-update` → `update`, `inspect-rollback` → `rollback`, `/{id}/enabled`, `PUT /{id}/permissions`, `DELETE /{id}` (uninstall preserves namespaced data), `POST /{id}/purge-data` (preview, then confirm with the preview's token). Lifecycle responses use the fixed effect envelope `{data, effects, runtime_generation}`
+- **Extensions:** `/api/extensions` (catalog + orphaned data), `/{id}` detail, two-phase `inspect-file` → `install`, `inspect-update` → `update`, `inspect-rollback` → `rollback`, `/{id}/enabled`, `PUT /{id}/permissions`, `DELETE /{id}` (uninstall preserves namespaced data), `POST /{id}/purge-data` (preview, then confirm with the preview's token). Content routes: `POST /{id}/actions/{action}`, `GET /{id}/views/{view}`, `GET /{id}/resources/{resource}` (`conversation.tree`, `library.cards`, `lorebook.entries`, `direction.notes`, `persona` — each behind its own grant, opaque cursors), `GET /{id}/assets/{path}` (exact compiled asset key, never a path join), `PUT /{id}/state` (host-generated write for a bound form). Every response uses the fixed effect envelope `{data, effects, runtime_generation}`
 - **Image generation:** external-ComfyUI readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types); generation uses the conversation-scoped workflow trigger
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`
 - **Direction notes:** CRUD under `/api/conversations/{cid}/direction-notes`

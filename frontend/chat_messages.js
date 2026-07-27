@@ -141,6 +141,29 @@ export async function deleteMessage(msgId) {
   });
 }
 
+/**
+ * The repaint half of a branch switch: refetch director state, redraw, move the
+ * Inspector to the selected message, and refresh the notes panel if it is open.
+ *
+ * Extracted because a community `conversation.branch.activate` action performs
+ * the *same* mutation through the same locked helper and must land the frontend
+ * in the same place. Two copies of this sequence would drift, and the drift
+ * would show up as "the extension's tree works, but the Inspector is stale".
+ *
+ * `refetchMessages` is true when the caller has not already replaced
+ * `S.messages` — the built-in route returns the new path in its response, an
+ * extension effect does not.
+ */
+export async function applyBranchSwitchRefresh(msgId, { refetchMessages = false } = {}) {
+  if (!S.activeConvId) return;
+  if (refetchMessages) setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+  S.lastDirectorData = null;
+  S.directorState = await api.get(convUrl(S.activeConvId, "director"));
+  renderMessages();
+  if (msgId) await inspectMessage(msgId);
+  if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
+}
+
 export async function switchBranch(msgId) {
   if (!msgId || S.isStreaming) return;
   // Branch switching mutates active_leaf_id server-side, so it's tab-locked too.
@@ -156,12 +179,7 @@ export async function switchBranch(msgId) {
     const scrollTop = ct ? ct.scrollTop : 0;
 
     setMessages(await api.post(convUrl(S.activeConvId, "messages", msgId, "switch-branch"), {}));
-    S.lastDirectorData = null;
-    // Re-fetch director state so moods are correct for this branch
-    S.directorState = await api.get(convUrl(S.activeConvId, "director"));
-    renderMessages();
-    await inspectMessage(msgId);
-    if (isUtilityPanelOpen("direction-notes-panel")) await renderDirectionNotesPanel();
+    await applyBranchSwitchRefresh(msgId);
 
     if (anchorMsgId && anchorOffset !== null) {
       const newAnchorEl = ct.querySelector(`[data-msg-id="${anchorMsgId}"]`);

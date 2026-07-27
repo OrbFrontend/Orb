@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ...core.locks import stream_idle_lock
 from ...core.macros import Macros, resolve_inline
 from ...database import (
     delete_message_with_descendants,
@@ -33,7 +34,6 @@ from ..deps import (
     _conversation_stream_lock,
     _pipeline_sse_response,
     require_conversation,
-    stream_idle_lock,
 )
 from ..schemas import (
     AutocompleteInput,

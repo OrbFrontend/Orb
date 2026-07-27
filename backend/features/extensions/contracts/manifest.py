@@ -39,7 +39,7 @@ from ..limits import (
     MAX_SECRETS,
     MAX_VIEWS,
 )
-from .capabilities import OPERATION_NAMES, Capability
+from .capabilities import OPERATION_NAMES, Capability, missing_prerequisites
 from .common import (
     ExtensionId,
     ExtModel,
@@ -64,8 +64,28 @@ UI_SLOTS: frozenset[str] = frozenset(
         "message.after",
         "artifact.body",
         "workspace",
+        # Rendered per card in the library browser. The host resolves the
+        # clicked card into ``ctx.character`` and rebinds the ``character``
+        # state scope to it -- the same resolution an action input's card
+        # identifier gets, minus ``library.cards.read``, because the identifier
+        # is host-supplied from a user click and never package input. Reach
+        # stays exactly one user-chosen card per invocation.
+        "library.card_actions",
     }
 )
+
+CONFIG_VIEW_ID = "config"
+"""The view id the Orb-owned manager renders in a package's detail panel.
+
+A convention, not a slot: no placement and no ``ui.contribute`` grant is
+involved, because the surface is the manager itself, which the user opens
+deliberately. It closes a real gap -- extensions have config state and form
+components but nowhere host-standard to surface settings -- without every
+package burning its one workspace command on a settings page.
+
+Hardening lives in the compiler: a config view may bind form controls only to
+the ``config`` state scope.
+"""
 
 ICON_NAMES: frozenset[str] = frozenset(
     {
@@ -173,10 +193,15 @@ class SimplePermission(_Permission):
         "context.draft.read",
         "context.history.read",
         "context.character.read",
+        "context.persona.read",
         "conversation.tree.read",
         "conversation.tree.previews",
         "conversation.branch.activate",
+        "library.cards.read",
+        "lorebook.read",
+        "direction_notes.read",
         "draft.replace",
+        "card.tags.write",
         "artifact.write",
         "fragment_type.contribute",
     ]
@@ -460,6 +485,7 @@ class ExtensionManifest(ExtModel):
     @model_validator(mode="after")
     def _intra_manifest_references(self):
         _assert_unique_permissions(self.permissions)
+        _assert_capability_prerequisites(self.permissions)
         _assert_origin_budget(self.permissions)
         _assert_unique_secrets(self.secrets)
         _assert_unique_commands(self.commands)
@@ -515,6 +541,12 @@ def _assert_unique_permissions(permissions: list) -> None:
         if key in seen:
             raise ValueError(f"duplicate permission request {key[0]!r}")
         seen.add(key)
+
+
+def _assert_capability_prerequisites(permissions: list) -> None:
+    requested = {Capability(p.capability) for p in permissions}
+    for capability, prerequisite in missing_prerequisites(requested):
+        raise ValueError(f"permission {capability.value!r} also requires {prerequisite.value!r}")
 
 
 def _assert_origin_budget(permissions: list) -> None:

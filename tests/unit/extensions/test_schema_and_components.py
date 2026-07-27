@@ -185,6 +185,18 @@ def test_component_catalog_is_derived_from_the_union():
     assert {"stack", "markdown", "conversation-tree", "meter"} <= COMPONENT_NAMES
 
 
+def test_a_view_cannot_run_an_action_implicitly_as_a_data_source():
+    """Opening a view must never incur a model call or mutation on its own."""
+    with pytest.raises(ValidationError):
+        View.model_validate(
+            {
+                "view_version": 1,
+                "data": {"result": {"kind": "action", "action": "rewrite"}},
+                "root": {"component": "text", "value": {"$ref": "data.result"}},
+            }
+        )
+
+
 def test_unknown_component_is_rejected():
     with pytest.raises(ValidationError):
         view({"component": "iframe", "src": "https://evil.invalid"})

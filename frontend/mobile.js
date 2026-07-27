@@ -57,6 +57,7 @@ let _mobileBackArmed = false;
 let _handlingMobilePop = false;
 let _initialized = false;
 let _closeBurger = () => {};
+let _renderMobileActions = () => {};
 
 // ── DOM/state helpers
 function getElement(id) {
@@ -111,6 +112,10 @@ export function closeMobileHeaderActions() {
 
 export function toggleMobileHeaderActions() {
   if (!isMobileSidebarViewport()) return;
+  // Repaint before opening: the menu is a host command model whose entries can
+  // change between opens (the persona label, the dormant Notes entry, an
+  // extension the user just installed in another tab).
+  _renderMobileActions();
   setElementOpen(IDS.mobileActionsMenu, !isElementOpen(IDS.mobileActionsMenu));
   _closeBurger();
   armMobileBackIfNeeded();
@@ -330,6 +335,7 @@ export function initMobileUi(deps) {
   if (_initialized) return;
   _initialized = true;
   _closeBurger = deps.closeBurger;
+  _renderMobileActions = deps.renderMobileActions || (() => {});
   trackVisualViewport();
 
   document.addEventListener("click", handleDocumentClick);

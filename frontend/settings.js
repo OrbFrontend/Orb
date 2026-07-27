@@ -406,10 +406,12 @@ export async function setDirectionNotesInject(val) {
 // with both off the feature is dormant, so hide the entry points and close the panel.
 function updateDirectionNotesButton() {
   const on = S.directionNotesRecord || S.directionNotesInject !== "off";
-  for (const id of ["direction-notes-panel-btn", "mobile-direction-notes-btn"]) {
-    const el = $(id);
-    if (el) el.classList.toggle("hidden", !on);
-  }
+  // The desktop button is fixed markup and toggles a class; the mobile entry is
+  // part of the host command model and gates on the same condition through its
+  // own `visible` predicate (see BUILTIN_COMMANDS in app.js), so there is
+  // nothing to hide here for it.
+  const el = $("direction-notes-panel-btn");
+  if (el) el.classList.toggle("hidden", !on);
   if (!on && isUtilityPanelOpen("direction-notes-panel")) {
     closeUtilityPanel("direction-notes-panel", "direction-notes-panel-btn");
   }

@@ -1,5 +1,4 @@
-"""Community-extension lifecycle routes: inspect, install, update, rollback,
-enable, permissions, uninstall, and purge.
+"""Community-extension routes: lifecycle, on-demand actions, and read surfaces.
 
 Every mutating route follows the same shape, and the shape is the point:
 
@@ -16,9 +15,10 @@ Every mutating route follows the same shape, and the shape is the point:
 * **No package-selected routing.** There is no route whose path, method, or
   handler a package influences. ``/actions/{action}`` looks its argument up in
   the compiled manifest's declared action map; a package supplies an id, never
-  a URL, a method, or a handler. The ``/views``, ``/resources``, and ``/assets``
-  routes are still absent -- they serve package-derived *content*, and belong
-  with the renderer and host resources that validate it.
+  a URL, a method, or a handler. ``/views/{view}`` resolves against the declared
+  view map, ``/resources/{resource}`` against a fixed host adapter table, and
+  ``/assets/{path}`` against the compiled asset map -- never by joining a
+  request path onto a directory.
 
 Errors map by kind rather than by string matching: a malformed package is a
 400, a package that is not installed is a 404, and anything that changed
@@ -32,18 +32,26 @@ import logging
 from contextlib import suppress
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Request, Response, UploadFile
 
 from ...database import (
     get_character_card,
     get_conversation,
     get_messages,
     get_settings,
+    get_workflow_character_state,
+    get_workflow_config,
+    get_workflow_state,
     list_extension_secret_names,
     namespaced_state_owners,
 )
-from ...features.extensions import adapters, catalog, lifecycle, staging
-from ...features.extensions.contracts import EffectEnvelope
+from ...features.extensions import adapters, catalog, lifecycle, resources, staging
+from ...features.extensions.compiler import (
+    CARD_INPUT_PROPERTY,
+    LIBRARY_CARD_ACTIONS_SLOT,
+    derive_view_runtime_requirements,
+)
+from ...features.extensions.contracts import Capability, EffectEnvelope
 from ...features.extensions.errors import FlowError, PackageError, PackageIncompatible
 from ...features.extensions.interpreter import ModelLane
 from ...features.extensions.limits import MAX_SOURCE_BYTES
@@ -56,6 +64,7 @@ from ..schemas import (
     ExtensionInstallRequest,
     ExtensionPermissionsUpdate,
     ExtensionPurgeRequest,
+    ExtensionStateWrite,
     ExtensionUpdateRequest,
 )
 
@@ -354,8 +363,10 @@ async def api_run_extension_action(
     if conversation_id and conv is None:
         raise HTTPException(status_code=404, detail="conversation not found")
 
-    character_id = conv.get("character_card_id") if conv else None
+    character_id = await _resolve_action_card(entry, action, body, conv)
     card = await get_character_card(character_id) if character_id else None
+    if character_id and card is None:
+        raise HTTPException(status_code=404, detail="character card not found")
     history = await get_messages(conversation_id) if conversation_id else []
     abort_token = AbortToken()
     client = client_from_settings(settings, abort_token=abort_token)
@@ -370,6 +381,7 @@ async def api_run_extension_action(
     try:
         envelope = await adapters.run_action(
             extension_id=extension_id,
+            action_name=action,
             flow=flow,
             action_input=body.input,
             input_schema=binding.input_schema,
@@ -397,6 +409,78 @@ async def api_run_extension_action(
     return envelope
 
 
+async def _resolve_action_card(entry, action: str, body: ExtensionActionRequest, conv) -> str | None:
+    """Decide which character card this invocation is bound to.
+
+    Three paths, and they are three because the *source* of the identifier
+    decides which grants it costs:
+
+    * **A hook-shaped action.** No card identifier anywhere; ``ctx.character``
+      is the conversation's card, exactly as in a hook.
+    * **A ``library.card_actions`` click.** The host supplies the card because
+      the user clicked a command on it. The extension must actually place a
+      command in that slot -- proved here against the compiled manifest, not
+      taken from the request -- so the relaxed check is tied to a placement the
+      user consented to. ``library.cards.read`` is not required: the package
+      never named the card.
+    * **Package input declaring ``card_id``.** The package chooses the card, so
+      it needs both ``context.character.read`` and ``library.cards.read``.
+      Enumeration is not the only way to reach a card, and an extension holding
+      an id from its own state would otherwise read any card in the library
+      under a grant whose consent text says "the character in this
+      conversation".
+
+    Resolving a card also rebinds the ``character`` state scope to it, which is
+    intended -- a per-card record belongs on the card it describes -- and is why
+    the second path is gated by two grants rather than one.
+    """
+    granted = entry.granted
+
+    def require(capability: Capability, parameter: str | None = None) -> None:
+        if (capability.value, parameter) not in granted:
+            detail = capability.value if parameter is None else f"{capability.value} for {parameter}"
+            raise HTTPException(status_code=403, detail=f"this extension has not been granted {detail!r}")
+
+    if body.slot is not None:
+        if body.slot != LIBRARY_CARD_ACTIONS_SLOT:
+            raise HTTPException(status_code=400, detail=f"unknown action slot {body.slot!r}")
+        manifest = entry.compiled.manifest
+        commands = {c.id: c for c in manifest.commands}
+        placed = any(
+            placement.slot == LIBRARY_CARD_ACTIONS_SLOT
+            and placement.command is not None
+            and commands.get(placement.command) is not None
+            and commands[placement.command].action == action
+            for placement in manifest.placements
+        )
+        if not placed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"extension {entry.id!r} places no {LIBRARY_CARD_ACTIONS_SLOT!r} command for action {action!r}",
+            )
+        if not body.card_id:
+            raise HTTPException(status_code=422, detail="a library card action needs a card")
+        # The placement is the authority for treating this identifier as
+        # host-supplied. A static manifest declaration is not enough after the
+        # user revokes the live slot grant.
+        require(Capability.UI_CONTRIBUTE, LIBRARY_CARD_ACTIONS_SLOT)
+        require(Capability.CONTEXT_CHARACTER_READ)
+        return body.card_id
+
+    if body.card_id is not None:
+        # Only the slot path may supply one out of band. Accepting it here would
+        # be the dual-grant check's bypass, spelled as a convenience.
+        raise HTTPException(status_code=422, detail="'card_id' is only accepted with a UI slot that supplies it")
+
+    declared = body.input.get(CARD_INPUT_PROPERTY)
+    if isinstance(declared, str) and declared:
+        require(Capability.CONTEXT_CHARACTER_READ)
+        require(Capability.LIBRARY_CARDS_READ)
+        return declared
+
+    return conv.get("character_card_id") if conv else None
+
+
 def _resolve_action(entry, action: str, settings):
     """Resolve a publishable action binding, or raise the right refusal.
 
@@ -419,6 +503,213 @@ def _resolve_action(entry, action: str, settings):
     if flow is None:
         raise HTTPException(status_code=409, detail="the action's flow is missing from the compiled revision")
     return binding, flow
+
+
+# ── views, resources, assets ────────────────────────────────────────────────
+
+
+def _available(entry, settings):
+    """The three runtime gates a content route shares, as distinct refusals."""
+    if entry.compiled is None or entry.load_status is not LoadStatus.AVAILABLE:
+        raise HTTPException(status_code=409, detail=entry.diagnostic or "this extension is not available")
+    if not effective_workflow_enabled(entry.id, settings):
+        raise HTTPException(status_code=409, detail="this extension is disabled")
+    return entry.compiled
+
+
+@router.get("/{extension_id}/views/{view_id}")
+async def api_get_extension_view(extension_id: str, view_id: str, conversation_id: str | None = None):
+    """Serve one compiled view: its component tree plus its resolved data.
+
+    The *compiled* tree, from the immutable revision record -- never a package
+    file reopened at request time. The renderer receives host-validated JSON
+    whose every string it will place with ``textContent``, and whose data came
+    from host resource adapters that checked their own grants.
+
+    A data source the current grants do not cover yields an ``error`` entry for
+    that source rather than failing the whole view: a partially granted package
+    should render the parts it may, with the rest saying why.
+    """
+    entry = await _require_installed(extension_id)
+    settings = await get_settings()
+    compiled = _available(entry, settings)
+    binding = compiled.manifest.views.get(view_id)
+    if binding is None:
+        raise HTTPException(status_code=404, detail=f"extension {extension_id!r} declares no view {view_id!r}")
+    if f"view {view_id!r}" in entry.blocked:
+        raise HTTPException(status_code=403, detail=f"view {view_id!r} is not published: {entry.diagnostic}")
+    view = compiled.views.get(binding.source)
+    if view is None:
+        raise HTTPException(status_code=409, detail="the view is missing from the compiled revision")
+
+    data, errors = await _view_data(entry, view, conversation_id)
+    runtime_requirements = derive_view_runtime_requirements(view)
+    state = await _view_state(entry, view, conversation_id, runtime_requirements)
+    needs_config = (Capability.STATE_READ.value, "config") in runtime_requirements or any(
+        source.kind == "state" and source.scope == "config" for _, source in resources.data_sources_for_view(view)
+    )
+    config: dict[str, Any] = {}
+    if needs_config and (Capability.STATE_READ.value, "config") in entry.granted:
+        config = await get_workflow_config(extension_id) or {}
+    return {
+        "runtime_generation": current_state().generation,
+        "id": view_id,
+        "label": binding.label,
+        "view": view.model_dump(mode="json"),
+        "data": data,
+        "errors": errors,
+        "config": config,
+        "state": state,
+    }
+
+
+async def _view_data(entry, view, conversation_id: str | None) -> tuple[dict[str, Any], dict[str, str]]:
+    data: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    for name, source in resources.data_sources_for_view(view):
+        if source.kind == "state":
+            requirement = (Capability.STATE_READ.value, source.scope)
+            if requirement not in entry.granted:
+                errors[name] = f"this extension has not been granted {Capability.STATE_READ.value!r} for {source.scope!r}"
+            continue  # granted state sources are projected below
+        try:
+            data[name] = await resources.resolve_resource(
+                resources.ResourceRequest(
+                    extension_id=entry.id,
+                    resource=source.resource,
+                    granted=entry.granted,
+                    conversation_id=conversation_id,
+                )
+            )
+        except resources.ResourceError as exc:
+            errors[name] = str(exc)
+    return data, errors
+
+
+async def _view_state(entry, view, conversation_id: str | None, runtime_requirements) -> dict[str, Any]:
+    """The extension's own slots, for the scopes this view declares.
+
+    Only the declared ones: rendering a view that reads nothing must not
+    project state the package never asked for, and a scope with no entity in
+    this request is absent rather than empty.
+    """
+    extension_id = entry.id
+    scopes = {
+        parameter
+        for capability, parameter in runtime_requirements
+        if capability == Capability.STATE_READ.value and parameter not in (None, "config")
+    }
+    for _, source in resources.data_sources_for_view(view):
+        if source.kind == "state" and source.scope != "config":
+            scopes.add(source.scope)
+
+    state: dict[str, Any] = {}
+    for scope in sorted(scopes):
+        if (Capability.STATE_READ.value, scope) not in entry.granted:
+            continue
+        if scope == "conversation" and conversation_id:
+            state["conversation"] = await get_workflow_state(conversation_id, extension_id) or {}
+        elif scope == "character" and conversation_id:
+            conv = await get_conversation(conversation_id)
+            card_id = conv.get("character_card_id") if conv else None
+            if card_id:
+                state["character"] = await get_workflow_character_state(card_id, extension_id) or {}
+    return state
+
+
+@router.put("/{extension_id}/state")
+async def api_write_extension_state(extension_id: str, body: ExtensionStateWrite):
+    """Save a bound form's draft into this extension's own namespaced slots.
+
+    Host-generated, which is the point: a view's form controls bind to declared
+    paths, and *Orb* turns the resulting draft into a write. A package cannot
+    render its own save button that stores state, because storing state is not
+    something a component does.
+
+    Every ordinary check still applies -- the scope must be granted, the values
+    must fit the per-scope slot cap, the write happens under the same locks and
+    inside the same transaction any flow's ``state.set`` would use. The only
+    thing that differs is who authored the intent.
+    """
+    entry = await _require_installed(extension_id)
+    settings = await get_settings()
+    _available(entry, settings)
+    try:
+        generation = await adapters.write_view_state(
+            entry,
+            body.updates,
+            conversation_id=body.conversation_id,
+        )
+    except FlowError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from None
+    return _envelope(generation, {"saved": sorted(body.updates)})
+
+
+@router.get("/{extension_id}/resources/{resource:path}")
+async def api_get_extension_resource(
+    extension_id: str,
+    resource: str,
+    conversation_id: str | None = None,
+    cursor: str | None = None,
+):
+    """Serve one named host resource under the extension's current grants.
+
+    A named resource, never a query: the path segment indexes a fixed adapter
+    table, and every field, bound, and page size belongs to that adapter. There
+    is no parameter through which a package selects columns, filters rows, or
+    widens a page.
+    """
+    entry = await _require_installed(extension_id)
+    settings = await get_settings()
+    _available(entry, settings)
+    try:
+        payload = await resources.resolve_resource(
+            resources.ResourceRequest(
+                extension_id=extension_id,
+                resource=resource,
+                granted=entry.granted,
+                conversation_id=conversation_id,
+                cursor=cursor,
+            )
+        )
+    except resources.ResourceError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+    return {"runtime_generation": current_state().generation, **payload}
+
+
+@router.get("/{extension_id}/assets/{path:path}")
+async def api_get_extension_asset(extension_id: str, path: str):
+    """Serve one validated package asset from its digest-owned content.
+
+    The request path is looked up in the compiled asset map; it is never joined
+    onto a directory. An asset that is not in that map does not exist as far as
+    this route is concerned, whatever the filesystem holds -- which is what
+    makes traversal, symlinks, and case collisions non-events here rather than
+    things to defend against a second time.
+    """
+    entry = await _require_installed(extension_id)
+    settings = await get_settings()
+    compiled = _available(entry, settings)
+    media_type = compiled.asset_types.get(path)
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="no such asset")
+    content = compiled.files.get(path)
+    if content is None:
+        raise HTTPException(status_code=404, detail="no such asset")
+    return Response(
+        content=content.canonical_bytes(),
+        media_type=media_type,
+        headers={
+            # Sniffed and allowlisted at compile time; nosniff stops the browser
+            # from second-guessing that decision, and the digest in the cache key
+            # is why a long max-age is safe -- content is immutable per revision.
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": f'inline; filename="{path.rsplit("/", 1)[-1]}"',
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
 
 
 @router.post("/{extension_id}/purge-data")

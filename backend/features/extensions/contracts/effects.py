@@ -46,6 +46,20 @@ class DirectionNotesEffect(ExtModel):
     conversation_id: str
 
 
+class CharacterCardEffect(ExtModel):
+    """One character card changed -- currently only its tag list.
+
+    Emitted once per invocation, which for a renderer-driven library sweep
+    means once per card. That is deliberate: an effect describes what *one
+    invocation* did, and coalescing 300 of them into a bounded number of
+    refetches is the frontend's business. Asking the host to emit fewer would
+    make the envelope lie about what happened.
+    """
+
+    resource: Literal["character.card"]
+    card_id: str
+
+
 class ExtensionViewEffect(ExtModel):
     """One extension view should refetch its data and repaint."""
 
@@ -68,7 +82,7 @@ class Toast(ExtModel):
 
 
 Effect = Annotated[
-    MessagesEffect | DirectorEffect | DirectionNotesEffect | ExtensionViewEffect | ExtensionCatalogEffect,
+    MessagesEffect | DirectorEffect | DirectionNotesEffect | CharacterCardEffect | ExtensionViewEffect | ExtensionCatalogEffect,
     Field(discriminator="resource"),
 ]
 

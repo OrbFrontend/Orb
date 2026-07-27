@@ -110,12 +110,8 @@
         <button class="btn btn-sm" id="inspector-toggle" onclick="toggleInspector()">🔍 Inspector</button>
         <button class="btn btn-sm hidden" id="direction-notes-panel-btn" onclick="toggleDirectionNotesPanel()" title="Direction Notes">📝 Notes</button>
         <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions">⋯</button>
-        <div id="mobile-chat-actions-menu">
-          <div class="burger-menu-item" id="mobile-user-profile-btn" onclick="closeMobileHeaderActions();showUserModal()">👤 User</div>
-          <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">✨ Workflow</div>
-          <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleInspector()">🔍 Inspector</div>
-          <div class="burger-menu-item hidden" id="mobile-direction-notes-btn" onclick="closeMobileHeaderActions();toggleDirectionNotesPanel()">📝 Notes</div>
-        </div>
+        <!-- Same host command model as the composer burger; see #burger-dropdown. -->
+        <div id="mobile-chat-actions-menu"></div>
       </div>
     </div>
         <div id="chat-messages"><div class="empty-state"><div class="icon">📜</div><div>Select a character to begin</div></div></div>
@@ -126,13 +122,12 @@
       <span class="gen-text-secondary" id="gen-text-secondary"></span>
     </div>
     <div id="chat-input-area">
-      <div id="burger-dropdown">
-        <div class="burger-menu-item" onclick="closeBurger();newConvForChar(S.activeCharId)"><span class="burger-icon">✚</span>New conversation</div>
-        <div class="burger-menu-item" onclick="closeBurger();showConvHistoryModal()"><span class="burger-icon">📋</span>Conversations</div>
-        <div class="burger-menu-item" onclick="closeBurger();showCompressModal()"><span class="burger-icon">📦</span>Compress History</div>
-        <div class="burger-menu-item" onclick="closeBurger();createCheckpoint()"><span class="burger-icon">🔖</span>Create Checkpoint</div>
-        <div class="burger-menu-item" onclick="closeBurger();triggerAttachImage()"><span class="burger-icon">🖼️</span>Attach Image</div>
-      </div>
+      <!-- Rendered by extension_commands.js from the host command model: Orb's
+           own entries first, then enabled extension placements for this slot.
+           Empty here on purpose — a static item list and a rendered one would
+           double up, and the rendered one is the only path an extension can
+           reach. -->
+      <div id="burger-dropdown"></div>
       <input type="file" id="attach-image-input" accept="image/*" multiple style="display:none">
       <div id="attachment-preview" class="attachment-preview"></div>
       <button id="chat-ghost-chip" type="button" aria-label="Insert suggestion" hidden></button>
@@ -227,7 +222,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
         <div style="font-size: 10px; color: var(--text-muted); text-align: center;">Manage banned/overused phrases</div>
       </div>
     </div>
-    <div id="tools-pane-secondary" class="hidden"><div id="tools-list-secondary"></div></div>
+    <div id="tools-pane-secondary" class="hidden"><div id="tools-list-secondary"></div><div data-ext-slot="tools"></div></div>
     <!-- Doc-mode pane: shown/hidden by mode CSS (document.css), rendered by document_audit.js. -->
     <div id="tools-pane-doc"></div>
   </div></div>
@@ -238,7 +233,7 @@ Write a haiku about the sea.&lt;|im_end|&gt;
       <button type="button" class="tab-button" id="inspector-tab-secondary" onclick="setInspectorTab('secondary')">Secondary</button>
     </div>
     <div id="inspector-content"><div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div></div>
-    <div id="inspector-secondary-content" class="hidden"></div>
+    <div id="inspector-secondary-content" class="hidden"><div data-ext-slot="inspector"></div></div>
   </div></div>
   <div id="direction-notes-panel"><div class="inspector-inner">
     <div class="inspector-title">Direction Notes</div>

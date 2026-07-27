@@ -751,7 +751,7 @@ async def test_detail_lists_entry_points_as_data_not_as_a_component_tree(client)
     assert body["hooks"]["post_pipeline"]["stage"] == "observe"
     assert body["requires"]["operations"] == ["model.structured", "state.set", "ui.invalidate"]
     assert body["secrets"] == []
-    # Phase 1 ships no renderer, so no component tree crosses the boundary.
+    # The detail surface lists entry points; trees cross only the view route.
     assert "root" not in json.dumps(body)
 
 
@@ -760,20 +760,37 @@ async def test_detail_for_an_unknown_extension_is_a_404(client):
 
 
 async def test_a_flow_file_is_never_served_or_reachable_as_a_route(client):
-    """There is no route whose path a package influences.
+    """No route serves a package *file*, and none has a path a package chooses.
 
-    Phase 1 ships none of the asset/view/action/resource routes -- the ones
-    that serve package-derived content belong with the runtime that validates
-    it -- so a package file has no URL at all.
+    Phase 3 added the view, resource, and asset routes, so this no longer means
+    "there is no URL". It means the narrower and more durable thing: the asset
+    route resolves an exact compiled asset key and a flow is not one, the view
+    route serves a compiled tree rather than bytes, an undeclared action is a
+    404, and nothing is mounted under ``/static``.
     """
     await install(client, full_package())
     for path in (
         "/api/extensions/scene-meter/assets/flows/score-scene.json",
-        "/api/extensions/scene-meter/views/inspector",
+        "/api/extensions/scene-meter/assets/../orb-extension.json",
         "/api/extensions/scene-meter/actions/anything",
         "/static/extensions/scene-meter/flows/score-scene.json",
     ):
         assert (await client.get(path)).status_code in (404, 405), path
+
+
+async def test_the_view_route_serves_a_compiled_tree_not_package_bytes(client):
+    """The view route returns host-validated JSON, never the file as stored.
+
+    The distinction matters: a route that streamed the declared source file
+    would make every future component field a place where unvalidated package
+    content reaches the renderer. What crosses the wire is the *parsed* model.
+    """
+    await install(client, full_package())
+    body = (await client.get("/api/extensions/scene-meter/views/inspector")).json()
+    assert body["id"] == "inspector"
+    assert body["view"]["view_version"] == 1
+    assert body["view"]["root"]["component"] in {"stack", "card", "meter", "text"}
+    assert "$schema" not in json.dumps(body["view"])
 
 
 async def test_scoring_flow_fixture_is_actually_referenced(client):

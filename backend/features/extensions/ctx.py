@@ -29,6 +29,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from ...core import normalize_tags
 from .contracts import Capability
 from .limits import (
     MAX_CTX_CHARACTER_BYTES,
@@ -51,7 +52,8 @@ An allowlist, not a denylist: ``avatar_b64``, ``avatar_mime``, ``extensions``
 are excluded by not being named here, so a card gaining a column does not
 silently gain a projected field. Avatar bytes and raw card extensions need
 their own future capabilities; persona data is not card data and is absent from
-every projection.
+every projection. The current tag list is appended separately because it is a
+bounded array rather than a text field.
 """
 
 
@@ -111,6 +113,14 @@ def _character(card: Mapping[str, Any]) -> dict[str, Any]:
             break
         used += size
         projected[field] = text
+    tags: list[str] = []
+    for tag in normalize_tags(card.get("tags")):
+        size = len(tag.encode("utf-8"))
+        if used + size > MAX_CTX_CHARACTER_BYTES:
+            break
+        used += size
+        tags.append(tag)
+    projected["tags"] = tags
     return projected
 
 

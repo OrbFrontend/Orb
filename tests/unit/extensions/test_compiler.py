@@ -134,6 +134,39 @@ def test_a_grant_on_one_scope_does_not_cover_another():
         compile_bytes(orbext({"orb-extension.json": declared, "flows/go.json": flow}))
 
 
+def test_a_resumable_library_sweep_derives_character_state_read():
+    flow = {"flow_version": 1, "steps": [{"op": "return", "value": None}]}
+    sweep = {
+        "view_version": 1,
+        "data": {"library": {"kind": "resource", "resource": "library.cards"}},
+        "root": {
+            "component": "library-sweep",
+            "action": "classify",
+            "label": "Classify",
+            "unclassified_key": "done",
+        },
+    }
+    declared = manifest(
+        requires={"operations": ["return"], "components": ["library-sweep"]},
+        permissions=[
+            {"capability": "context.character.read"},
+            {"capability": "library.cards.read"},
+        ],
+        actions={"classify": {"flow": "flows/classify.json"}},
+        views={"workspace": {"source": "ui/workspace.json"}},
+    )
+    with pytest.raises(PackageValidationError, match=r"state\.read.*character"):
+        compile_bytes(
+            orbext(
+                {
+                    "orb-extension.json": declared,
+                    "flows/classify.json": flow,
+                    "ui/workspace.json": sweep,
+                }
+            )
+        )
+
+
 def test_rejects_an_operation_missing_from_requires():
     declared = full_manifest(requires={"operations": ["model.structured", "state.set"], "components": ["card", "meter"]})
     with pytest.raises(PackageValidationError, match="ui.invalidate"):

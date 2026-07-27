@@ -36,15 +36,20 @@ from contextlib import AsyncExitStack
 from typing import Any
 
 from ...core import (
+    conversation_stream_lock,
     workflow_character_state_lock,
     workflow_config_lock,
     workflow_state_lock,
 )
 from ...database import (
     commit_extension_state,
+    get_conversation,
+    get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
     get_workflow_state,
+    switch_to_branch,
+    update_character_card,
 )
 from ...inference import agent_lane_from_settings
 from ...workflows.contracts import (
@@ -56,7 +61,7 @@ from ...workflows.contracts import (
     PostCtx,
     PreCtx,
 )
-from . import execution
+from . import execution, telemetry
 from .contracts import (
     Capability,
     EffectEnvelope,
@@ -66,6 +71,7 @@ from .contracts import (
     parse_schema,
 )
 from .ctx import build_ctx
+from .digest import canonical_json_bytes
 from .errors import FlowCancelled, FlowError
 from .interpreter import (
     DELETED,
@@ -77,6 +83,7 @@ from .interpreter import (
     run_flow,
     unimplemented_operations,
 )
+from .limits import MAX_STATE_BYTES_PER_SCOPE
 from .values import assert_json_bounds
 
 logger = logging.getLogger(__name__)
@@ -107,6 +114,19 @@ def flow_scopes(flow: Flow) -> frozenset[str]:
     acquisition order sufficient to prevent deadlock.
     """
     return frozenset(step.scope for step in iter_steps(flow.steps) if step.op.startswith("state."))
+
+
+def flow_activates_branch(flow: Flow) -> bool:
+    """Whether *flow* needs the conversation stream lock.
+
+    Only branch activation does. A library-scoped action deliberately takes no
+    stream lock: the invocation has no conversation to serialize against, and
+    acquiring one per card would put a 300-deep queue in front of any live
+    turn. The two are easy to conflate as "actions that write outside their own
+    namespace", which is why the distinction is a named predicate rather than
+    an inline check.
+    """
+    return any(step.op == "conversation.branch.activate" for step in iter_steps(flow.steps))
 
 
 # ── state access ─────────────────────────────────────────────────────────────
@@ -208,20 +228,45 @@ async def _commit_state(
 # ── shared invocation driver ─────────────────────────────────────────────────
 
 
+def _effects_list(extension_id: str, effects: StagedEffects, conversation_id: str | None) -> list[dict[str, Any]]:
+    """The closed-vocabulary effect list one committed invocation produced.
+
+    One effect per thing the invocation *did*, not per repaint the frontend
+    should perform. A renderer-driven sweep therefore emits one
+    ``character.card`` per card and the frontend debounces; asking the host to
+    emit fewer would make the envelope describe the UI's intentions rather than
+    the invocation's writes.
+    """
+    listed: list[dict[str, Any]] = []
+    if effects.card_tags is not None:
+        listed.append({"resource": "character.card", "card_id": effects.card_tags[0]})
+    if effects.branch_activation is not None and conversation_id:
+        # The same three the built-in switch-branch button invalidates, so the
+        # extension path repaints identically rather than approximately.
+        listed.extend(
+            [
+                {"resource": "conversation.messages", "conversation_id": conversation_id},
+                {"resource": "conversation.director", "conversation_id": conversation_id},
+                {"resource": "conversation.direction_notes", "conversation_id": conversation_id},
+            ]
+        )
+    listed.extend({"resource": "extension.view", "extension_id": extension_id, "view": view} for view in effects.invalidations)
+    return listed
+
+
 def _effect_payload(
     extension_id: str,
     effects: StagedEffects,
     generation: int,
     *,
     data: Any = None,
+    conversation_id: str | None = None,
 ) -> dict[str, Any]:
-    """Translate staged UI effects into the fixed host envelope."""
+    """Translate staged effects into the fixed host envelope."""
     envelope = EffectEnvelope.model_validate(
         {
             "data": data,
-            "effects": [
-                {"resource": "extension.view", "extension_id": extension_id, "view": view} for view in effects.invalidations
-            ],
+            "effects": _effects_list(extension_id, effects, conversation_id),
             "toasts": effects.toasts,
             "runtime_generation": generation,
         }
@@ -241,6 +286,11 @@ def _validate_staged_effects(invocation: Invocation, result: FlowResult) -> None
             invocation.require(Capability.PROMPT_CONTEXT_APPEND, target)
     if effects.draft is not None:
         invocation.require(Capability.DRAFT_REPLACE)
+    if effects.card_tags is not None:
+        invocation.require(Capability.CARD_TAGS_WRITE)
+        invocation.require(Capability.CONTEXT_CHARACTER_READ)
+    if effects.branch_activation is not None:
+        invocation.require(Capability.CONVERSATION_BRANCH_ACTIVATE)
     if effects.invalidations:
         invocation.require(Capability.UI_CONTRIBUTE)
     if invocation.host.context_block_error is not None:
@@ -248,7 +298,49 @@ def _validate_staged_effects(invocation: Invocation, result: FlowResult) -> None
         if reason is not None:
             raise FlowError(reason)
     # Validate the exact public shape before any state reaches the database.
-    _effect_payload(invocation.extension_id, effects, 0, data=result.value)
+    _effect_payload(
+        invocation.extension_id,
+        effects,
+        0,
+        data=result.value,
+        conversation_id=str(invocation.metadata.get("conversation_id") or "") or None,
+    )
+
+
+async def _commit_card_tags(effects: StagedEffects) -> None:
+    """Write the staged tag list through the ordinary card update path.
+
+    Through ``update_character_card`` rather than straight into the column,
+    because that is where the shared normalizer runs -- the same one the
+    character API goes through. Writing the column directly would be the second
+    tag-writing path, and the whole reason ``card.tags.set`` is admissible is
+    that there is only one.
+
+    Committed *before* the namespaced state write. If the pair cannot both
+    land, the survivable half is "tags written, not yet recorded as
+    classified": the next sweep re-classifies that card. The reverse leaves a
+    card marked done that never got its tags, which no later run would revisit.
+    """
+    if effects.card_tags is None:
+        return
+    card_id, tags = effects.card_tags
+    if await update_character_card(card_id, {"tags": tags}) is None:
+        raise FlowError("the character card this action targets no longer exists")
+
+
+async def _commit_branch(effects: StagedEffects, conversation_id: str | None) -> None:
+    """Activate the staged branch through the same helper /switch-branch uses.
+
+    Called while the conversation stream lock is still held, so it serializes
+    against a running turn exactly as the built-in button does. The ownership
+    re-check inside ``switch_to_branch`` is redundant under that lock and kept
+    anyway: it is the storage-level guarantee, and a lock is a process-level
+    one.
+    """
+    if effects.branch_activation is None:
+        return
+    if not conversation_id or not await switch_to_branch(conversation_id, effects.branch_activation):
+        raise FlowError("the selected message is not part of this conversation")
 
 
 async def _invoke(
@@ -256,6 +348,7 @@ async def _invoke(
     flow: Flow,
     invocation: Invocation,
     access: _StateAccess,
+    entry_point: str = "flow",
 ) -> AsyncIterator[dict | FlowResult]:
     """Run one flow under its locks and commit iff it returns successfully.
 
@@ -264,12 +357,22 @@ async def _invoke(
     uncommitted: the failure path is "do nothing", not "undo what was done",
     which is why a flow that stages a state write and then gets an invalid model
     response leaves the prior state untouched.
+
+    The stream lock, when the flow activates a branch, is acquired *outside*
+    the state locks. That is the pipeline's own order (stream, then workflow
+    locks); taking them the other way round is the deadlock the flow parser
+    already refuses to let a model call sit inside.
     """
+    conversation_id = access.conversation_id
+    timer = telemetry.InvocationTimer(invocation.extension_id, entry_point)
+    outcome: telemetry.Outcome = "error"
     try:
         async with execution.track_invocation(invocation.extension_id):
             scopes = access.available(invocation.scopes_in_scope)
             invocation.scopes_in_scope = scopes
             async with AsyncExitStack() as stack:
+                if flow_activates_branch(flow) and conversation_id:
+                    await stack.enter_async_context(conversation_stream_lock(conversation_id))
                 await _locks(stack, access, scopes)
                 result: FlowResult | None = None
                 async for event in run_flow(flow, invocation):
@@ -278,15 +381,24 @@ async def _invoke(
                     else:
                         yield event
                 assert result is not None
+                _validate_staged_effects(invocation, result)
+                await _commit_card_tags(result.effects)
                 await _commit_state(
                     access,
                     result.effects,
                     invocation.state_snapshots,
                     lambda: _validate_staged_effects(invocation, result),
                 )
+                await _commit_branch(result.effects, conversation_id)
+                outcome = "ok"
                 yield result
     except execution.InvocationBlocked as exc:
         raise FlowError(str(exc)) from None
+    except FlowCancelled:
+        outcome = "cancelled"
+        raise
+    finally:
+        timer.finish(outcome, invocation.quotas)
 
 
 # ── hook adapters ────────────────────────────────────────────────────────────
@@ -302,12 +414,19 @@ def _services(
 ) -> HostServices:
     from .runtime import live_grants
 
+    async def owns_message(message_id: int) -> bool:
+        if not access.conversation_id:
+            return False
+        message = await get_message_by_id(message_id)
+        return bool(message and message["conversation_id"] == access.conversation_id)
+
     return HostServices(
         grants=lambda: live_grants(extension_id),
         read_state=access.read,
         lanes=lanes,
         is_cancelled=is_cancelled,
         context_block_error=context_block_error,
+        owns_message=owns_message,
     )
 
 
@@ -459,7 +578,7 @@ async def _drive(
     """
     emitted_status = False
     try:
-        async for event in _invoke(flow=flow, invocation=invocation, access=access):
+        async for event in _invoke(flow=flow, invocation=invocation, access=access, entry_point=hook_name):
             if isinstance(event, FlowResult):
                 for control in _result_events(extension_id, event, generation):
                     yield control
@@ -511,6 +630,7 @@ def _result_events(extension_id: str, result: FlowResult, generation: int):
 async def run_action(
     *,
     extension_id: str,
+    action_name: str,
     flow: Flow,
     action_input: Mapping[str, Any],
     input_schema: Mapping[str, Any] | None,
@@ -529,6 +649,13 @@ async def run_action(
     4xx. Status lines have nowhere to stream on a plain JSON response and are
     dropped, which is why ``ui.status`` is progress rather than a return
     channel.
+
+    ``character_id`` is whatever the *route* resolved -- the conversation's card
+    for an ordinary action, or the card a validated ``card_id`` named for a
+    library-scoped one. Resolving it there rather than here is what makes the
+    dual-grant check a precondition of the invocation instead of a rule the
+    invocation has to remember: this function receives a card that was already
+    permitted.
     """
     assert_json_bounds(dict(action_input), what="action input")
     if input_schema is not None:
@@ -556,11 +683,89 @@ async def run_action(
     )
 
     result: FlowResult | None = None
-    async for event in _invoke(flow=flow, invocation=invocation, access=access):
+    async for event in _invoke(flow=flow, invocation=invocation, access=access, entry_point=f"action {action_name}"):
         if isinstance(event, FlowResult):
             result = event
     assert result is not None
-    return _effect_payload(extension_id, result.effects, generation, data=result.value)
+    return _effect_payload(extension_id, result.effects, generation, data=result.value, conversation_id=conversation_id)
+
+
+# ── host-generated state writes ──────────────────────────────────────────────
+
+
+async def write_view_state(
+    entry: Any,
+    updates: Mapping[str, Mapping[str, Any]],
+    *,
+    conversation_id: str | None,
+) -> int:
+    """Commit a bound form's draft into the extension's own slots.
+
+    Shares the invocation transaction's machinery rather than reimplementing
+    it: the same ``_StateAccess``, the same lock order, the same
+    ``commit_extension_state`` with its in-transaction validation hook, and the
+    same per-scope size cap. What it does *not* share is a flow -- there is no
+    package code in this path at all, which is why a config view can save
+    settings without the package declaring an action.
+
+    Raises :class:`PermissionError` for an ungranted scope and
+    :class:`~.errors.FlowError` for anything else, both of which the route maps
+    to a status.
+    """
+    from .runtime import live_grants
+
+    granted = live_grants(entry.id)
+    conv = await get_conversation(conversation_id) if conversation_id else None
+    character_id = conv.get("character_card_id") if conv else None
+    access = _StateAccess(entry.id, conversation_id=conversation_id, character_id=character_id)
+
+    merged: dict[str, dict[str, Any]] = {}
+    current: dict[str, Mapping[str, Any]] = {}
+    async with AsyncExitStack() as stack:
+        await _locks(stack, access, frozenset(updates) & set(LOCKED_SCOPES))
+        for scope, values in updates.items():
+            if scope not in LOCKED_SCOPES:
+                raise FlowError(f"a view cannot write {scope!r} state")
+            if (Capability.STATE_WRITE.value, scope) not in granted:
+                raise PermissionError(f"this extension has not been granted state.write on {scope!r}")
+            if scope not in access.available(frozenset({scope})):
+                raise FlowError(f"there is no {scope} in scope for this view")
+            stored = dict(await access.read(scope))
+            current[scope] = stored
+            stored.update(assert_json_bounds(dict(values), what=f"the {scope} state written by this view"))
+            _assert_slot_bytes(stored, scope)
+            merged[scope] = stored
+        await commit_extension_state(
+            entry.id,
+            merged,
+            conversation_id=access.conversation_id,
+            character_id=access.character_id,
+            validate=lambda: _assert_still_granted(entry.id, merged),
+        )
+    from .runtime import current_state
+
+    return current_state().generation
+
+
+def _assert_slot_bytes(slot: Mapping[str, Any], scope: str) -> None:
+    size = len(canonical_json_bytes(dict(slot)))
+    if size > MAX_STATE_BYTES_PER_SCOPE:
+        raise FlowError(f"the extension's {scope} state is {size} bytes, over the {MAX_STATE_BYTES_PER_SCOPE} byte limit")
+
+
+def _assert_still_granted(extension_id: str, updates: Mapping[str, Any]) -> None:
+    """Re-check grants inside the write transaction, as a flow commit does.
+
+    A concurrent permission revocation must not slip between the check above
+    and these writes; ``commit_extension_state`` runs this after
+    ``BEGIN IMMEDIATE``, so it cannot.
+    """
+    from .runtime import live_grants
+
+    granted = live_grants(extension_id)
+    for scope in updates:
+        if (Capability.STATE_WRITE.value, scope) not in granted:
+            raise PermissionError(f"this extension has not been granted state.write on {scope!r}")
 
 
 # ── publishing ───────────────────────────────────────────────────────────────

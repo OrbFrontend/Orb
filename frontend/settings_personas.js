@@ -24,9 +24,16 @@ const CONV_LOCK_ICON = "💬";
 const CHAR_LOCK_ICON = "💏";
 
 // ── User Profile
-export function updateUserBtn() {
-  // Show the persona generation will actually use: conv pin → char pin →
-  // global default, matching backend resolve_persona_id.
+
+// The label the profile button and the mobile menu entry both show: the persona
+// generation will actually use (conv pin → char pin → global default, matching
+// backend resolve_persona_id), prefixed by a glyph naming which pin won.
+//
+// A function rather than a DOM write because the mobile menu is now a host
+// command model that renders on open; its entry asks for the current label
+// instead of someone remembering to push a new one into an element that may
+// not exist yet.
+export function personaMenuLabel() {
   const personaId = effectivePersonaId();
   let displayName = "User";
   if (personaId && S.personas.length) {
@@ -42,10 +49,11 @@ export function updateUserBtn() {
         : card?.persona_lock_id
           ? CHAR_LOCK_ICON
           : PERSONA_ICON;
-  const label = `${glyph} ${displayName}`;
-  $("user-profile-btn").textContent = label;
-  const mobileBtn = $("mobile-user-profile-btn");
-  if (mobileBtn) mobileBtn.textContent = label;
+  return `${glyph} ${displayName}`;
+}
+
+export function updateUserBtn() {
+  $("user-profile-btn").textContent = personaMenuLabel();
 }
 
 // The active conversation / character card a persona lock would attach to.

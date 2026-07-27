@@ -385,13 +385,121 @@ async def get_deepest_descendant(cid: str, message_id: int) -> int:
 
 
 async def switch_to_branch(cid: str, message_id: int) -> bool:
-    """Set active leaf to the deepest descendant of message_id. Returns False if not found."""
-    msg = await get_message_by_id(message_id)
-    if not msg or msg["conversation_id"] != cid:
-        return False
-    leaf_id = await get_deepest_descendant(cid, message_id)
-    await set_active_leaf(cid, leaf_id)
-    return True
+    """Point *cid*'s active leaf at the deepest descendant of *message_id*.
+
+    Returns ``False`` when the message does not exist or belongs to another
+    conversation -- ownership is checked here rather than by the caller, so
+    every path into branch activation (the switch-branch route and the
+    community ``conversation.branch.activate`` operation) gets the same refusal
+    for a foreign message id.
+
+    One transaction, not three. This used to be an ownership read, a descendant
+    walk, and an update on three independent connections; the walk could
+    observe a child inserted after the ownership check, and the update could
+    land on a leaf the walk no longer described. Callers hold
+    ``conversation_stream_lock`` on top of this, which serializes it against a
+    running turn -- but the lock is a process-level guarantee and this is the
+    storage-level one, and the extension path needs both to match the built-in
+    route exactly.
+    """
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            owned = list(
+                await db.execute_fetchall(
+                    "SELECT id FROM messages WHERE id = ? AND conversation_id = ?",
+                    (message_id, cid),
+                )
+            )
+            if not owned:
+                await db.rollback()
+                return False
+            leaf_id = message_id
+            while True:
+                rows = list(
+                    await db.execute_fetchall(
+                        "SELECT id FROM messages WHERE conversation_id = ? AND parent_id = ? ORDER BY id DESC LIMIT 1",
+                        (cid, leaf_id),
+                    )
+                )
+                if not rows:
+                    break
+                leaf_id = rows[0]["id"]
+            await db.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (leaf_id, cid))
+            await db.commit()
+            return True
+        except BaseException:
+            await db.rollback()
+            raise
+
+
+async def get_conversation_tree(cid: str, *, max_nodes: int, preview_chars: int = 0) -> dict[str, Any] | None:
+    """An attachment-free projection of every message node in *cid*.
+
+    ``GET /api/conversations/{cid}/messages`` returns only the active
+    root-to-leaf path, so a branch map cannot be reconstructed from it. This is
+    the whole graph, in one query, with an explicit allowlist of node fields --
+    no attachments, workflow state, progressive fields, logs, reasoning, or
+    full content.
+
+    ``preview_chars`` of 0 omits ``preview`` entirely rather than sending an
+    empty string: the caller derives it from a grant, and an empty-string field
+    would make "not permitted" and "this message is blank" the same value.
+
+    Returns ``None`` for a conversation that does not exist, and raises
+    :class:`ValueError` past *max_nodes* -- never a truncated graph, because a
+    partial tree looks complete to whoever draws it.
+    """
+    async with get_db() as db:
+        conv = list(await db.execute_fetchall("SELECT active_leaf_id FROM conversations WHERE id = ?", (cid,)))
+        if not conv:
+            return None
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT id, parent_id, role, turn_index, created_at, "
+                "(SELECT COUNT(*) FROM messages c WHERE c.parent_id = m.id) AS child_count, "
+                "substr(content, 1, ?) AS preview "
+                "FROM messages m WHERE conversation_id = ? ORDER BY id",
+                (max(preview_chars, 1), cid),
+            )
+        )
+        if len(rows) > max_nodes:
+            raise ValueError(f"conversation has {len(rows)} nodes, over the {max_nodes} node resource budget")
+
+        parents: dict[int, int | None] = {}
+        nodes: list[dict[str, Any]] = []
+        for row in rows:
+            parents[row["id"]] = row["parent_id"]
+            node: dict[str, Any] = {
+                "id": row["id"],
+                "parent_id": row["parent_id"],
+                "role": row["role"],
+                "turn_index": row["turn_index"],
+                "created_at": row["created_at"],
+                "child_count": row["child_count"],
+            }
+            if preview_chars:
+                node["preview"] = row["preview"] or ""
+            nodes.append(node)
+
+        # Walked from the recorded leaf rather than recomputed, so the path this
+        # returns is the one the pipeline and the message route agree is active.
+        active_leaf_id = conv[0]["active_leaf_id"]
+        active_path: list[int] = []
+        cursor = active_leaf_id if active_leaf_id in parents else None
+        seen: set[int] = set()
+        while cursor is not None and cursor not in seen:
+            seen.add(cursor)
+            active_path.append(cursor)
+            cursor = parents.get(cursor)
+        active_path.reverse()
+
+        return {
+            "conversation_id": cid,
+            "active_leaf_id": active_leaf_id,
+            "active_path": active_path,
+            "nodes": nodes,
+        }
 
 
 async def get_workflow_message_state(message_id: int, workflow_id: str) -> dict | None:

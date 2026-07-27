@@ -21,7 +21,15 @@ export function createChipInput({
   setItems,
   onChange,
   isDisabled,
+  caseInsensitive = false,
 }) {
+  // Whether "Noir" counts as already present when "noir" is in the list. Opt-in
+  // because it has to agree with whatever the *server* does with the same list,
+  // and only character tags have a server-side normalizer (backend/core/tags.py,
+  // which dedupes case-insensitively). Lorebook keywords keep the historical
+  // case-sensitive behaviour: nothing normalizes them on write.
+  const sameAs = caseInsensitive ? (a, b) => a.toLowerCase() === b.toLowerCase() : (a, b) => a === b;
+
   function commit(next) {
     setItems(next);
     onChange?.();
@@ -35,7 +43,7 @@ export function createChipInput({
   function addValue(raw) {
     const val = raw.replace(/,$/, "").trim();
     const items = getItems();
-    if (!val || items.includes(val)) return false;
+    if (!val || items.some((item) => sameAs(item, val))) return false;
     commit([...items, val]);
     return true;
   }

@@ -227,3 +227,268 @@ def full_package(**overrides: Any) -> bytes:
             "ui/inspector.json": meter_view(),
         }
     )
+
+
+# ── Conversation Map: the branch-tree reference package ─────────────────────
+# The reason the conversation-tree resource, the shared branch action, and the
+# `conversation-tree` component exist. It reads a core structure the API does
+# not otherwise expose and mutates core state through a locked host action --
+# a seam no other package exercises.
+
+
+def conversation_map_manifest(**overrides: Any) -> dict[str, Any]:
+    base = manifest(
+        id="conversation-map",
+        name="Conversation Map",
+        description="A GitLens-like map of every branch in the conversation.",
+        requires={
+            "operations": ["conversation.branch.activate"],
+            "components": ["card", "conversation-tree"],
+        },
+        permissions=[
+            {"capability": "conversation.tree.read"},
+            {"capability": "conversation.tree.previews"},
+            {"capability": "conversation.branch.activate"},
+            {"capability": "ui.contribute", "slot": "composer.menu"},
+            {"capability": "ui.contribute", "slot": "workspace"},
+        ],
+        actions={
+            "select": {
+                "flow": "flows/select-branch.json",
+                "label": "Go to this message",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"message_id": {"type": "integer", "minimum": 1}},
+                    "required": ["message_id"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        views={"map": {"source": "ui/map.json", "label": "Conversation Map"}},
+        commands=[
+            {
+                "id": "open-map",
+                "label": "Conversation Map",
+                "icon": "git-branch",
+                "opens": "map",
+                "when": {"exists": {"$ref": "host.active_conversation_id"}},
+            }
+        ],
+        placements=[
+            {"slot": "composer.menu", "command": "open-map"},
+            {"slot": "workspace", "view": "map"},
+        ],
+    )
+    base.update(overrides)
+    return base
+
+
+def select_branch_flow() -> dict[str, Any]:
+    """One operation. Everything hard about branch activation is host-side.
+
+    No model call and no HTTP request, which the flow parser enforces rather
+    than trusts: activation holds the conversation stream lock, and an external
+    round trip inside that window is the deadlock shape.
+    """
+    return {
+        "flow_version": 1,
+        "steps": [{"op": "conversation.branch.activate", "message_id": {"$ref": "input.message_id"}}],
+    }
+
+
+def conversation_map_view() -> dict[str, Any]:
+    return {
+        "view_version": 1,
+        "data": {"tree": {"kind": "resource", "resource": "conversation.tree", "previews": True}},
+        "root": {
+            "component": "card",
+            "title": "Branches",
+            "children": [
+                {
+                    "component": "conversation-tree",
+                    "nodes": {"$ref": "data.tree.nodes"},
+                    "active_path": {"$ref": "data.tree.active_path"},
+                    "select_action": "select",
+                    "show_previews": True,
+                    "empty_label": "This conversation has no messages yet.",
+                }
+            ],
+        },
+    }
+
+
+def conversation_map_package(**overrides: Any) -> bytes:
+    return orbext(
+        {
+            "orb-extension.json": conversation_map_manifest(**overrides),
+            "flows/select-branch.json": select_branch_flow(),
+            "ui/map.json": conversation_map_view(),
+        }
+    )
+
+
+# ── Tag Librarian: the library-sweep reference package ──────────────────────
+# The reason `list.join`, `list.intersect`, the paginated library resource,
+# `card.tags.set`, and action-input card resolution exist. Its loop lives in
+# the renderer, not in the flow: one action per card, each inside the ordinary
+# per-invocation budget and each committing independently.
+
+CLASSIFY_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"card_id": {"type": "string", "maxLength": 64}},
+    "required": ["card_id"],
+    "additionalProperties": False,
+}
+
+
+def classify_flow() -> dict[str, Any]:
+    """Classify one card against the user's vocabulary and write its tags.
+
+    ``list.intersect`` is not decoration: a model asked to pick from a list will
+    occasionally return something adjacent to it, and ``output_schema`` cannot
+    express "one of the user's current tags" because schemas compile at install
+    time while the vocabulary is runtime config. Without that step the package
+    would launder invented tags into the library under the user's own
+    vocabulary -- the exact mess it is installed to clean up.
+    """
+    return {
+        "flow_version": 1,
+        "steps": [
+            {"id": "vocabulary", "op": "state.get", "scope": "config", "path": "vocabulary"},
+            {"id": "vocabulary_text", "op": "list.join", "value": {"$ref": "steps.vocabulary"}, "separator": ", "},
+            {
+                "id": "proposed",
+                "op": "model.structured",
+                "lane": "agent",
+                "prompt": {
+                    "$template": (
+                        "Choose every tag that applies to this character. Use only tags from the allowed list. "
+                        "Return an empty array if none apply.\n\n"
+                        "Allowed tags: {{steps.vocabulary_text}}\n\n"
+                        "Name: {{ctx.character.name}}\n\n{{ctx.character.description}}"
+                    )
+                },
+                "output_schema": {
+                    "type": "object",
+                    "properties": {"tags": {"type": "array", "items": {"type": "string"}, "maxItems": 32}},
+                    "required": ["tags"],
+                    "additionalProperties": False,
+                },
+            },
+            {
+                "id": "allowed",
+                "op": "list.intersect",
+                "value": {"$ref": "steps.proposed.tags"},
+                "allowed": {"$ref": "steps.vocabulary"},
+            },
+            {"op": "card.tags.set", "tags": {"$ref": "steps.allowed"}},
+            {"op": "state.set", "scope": "character", "path": "tagged", "value": True},
+            {"op": "return", "value": {"$ref": "steps.allowed"}},
+        ],
+    }
+
+
+def tag_librarian_manifest(**overrides: Any) -> dict[str, Any]:
+    base = manifest(
+        id="tag-librarian",
+        name="Tag Librarian",
+        description="Classifies your characters against a tag vocabulary you maintain.",
+        requires={
+            "operations": [
+                "state.get",
+                "state.set",
+                "list.join",
+                "list.intersect",
+                "model.structured",
+                "card.tags.set",
+                "return",
+            ],
+            "components": ["card", "library-sweep", "stack", "table", "text", "textarea"],
+        },
+        permissions=[
+            {"capability": "context.character.read"},
+            {"capability": "library.cards.read"},
+            {"capability": "model.call", "lane": "agent"},
+            {"capability": "state.read", "scope": "config"},
+            {"capability": "state.write", "scope": "config"},
+            {"capability": "state.read", "scope": "character"},
+            {"capability": "state.write", "scope": "character"},
+            {"capability": "card.tags.write"},
+            {"capability": "ui.contribute", "slot": "tools"},
+            {"capability": "ui.contribute", "slot": "workspace"},
+        ],
+        actions={"classify": {"flow": "flows/classify.json", "label": "Classify card", "input_schema": CLASSIFY_INPUT_SCHEMA}},
+        views={
+            "workspace": {"source": "ui/workspace.json", "label": "Tag Librarian"},
+            "config": {"source": "ui/config.json", "label": "Vocabulary"},
+        },
+        commands=[{"id": "open-librarian", "label": "Tag Librarian", "icon": "tag", "opens": "workspace"}],
+        placements=[
+            {"slot": "tools", "command": "open-librarian"},
+            {"slot": "workspace", "view": "workspace"},
+        ],
+    )
+    base.update(overrides)
+    return base
+
+
+def tag_librarian_workspace_view() -> dict[str, Any]:
+    return {
+        "view_version": 1,
+        "data": {"library": {"kind": "resource", "resource": "library.cards"}},
+        "root": {
+            "component": "card",
+            "title": "Library",
+            "children": [
+                {
+                    "component": "table",
+                    "columns": [
+                        {"key": "name", "label": "Character"},
+                        {"key": "tags", "label": "Tags"},
+                    ],
+                    "rows": {"$ref": "data.library.cards"},
+                    "empty_label": "No characters yet.",
+                },
+                # The loop lives in the host renderer. The package names an
+                # action and the bookkeeping key that marks a card done; the
+                # page size, cursor walk, concurrency, stop condition, and
+                # progress display are all Orb's.
+                {
+                    "component": "library-sweep",
+                    "action": "classify",
+                    "label": "Classify unclassified cards",
+                    "unclassified_key": "tagged",
+                },
+            ],
+        },
+    }
+
+
+def tag_librarian_config_view() -> dict[str, Any]:
+    """The `config` view convention: rendered in the manager's detail panel.
+
+    Binds only ``config.*``. A config view that bound conversation or character
+    state would be a placement-free write into per-entity data reachable from a
+    panel the user opened to read a description, so the compiler refuses it.
+    """
+    return {
+        "view_version": 1,
+        "root": {
+            "component": "stack",
+            "children": [
+                {"component": "text", "value": "One tag per line. Cards are classified against this list only."},
+                {"component": "textarea", "bind": "config.vocabulary_text", "label": "Vocabulary", "rows": 6},
+            ],
+        },
+    }
+
+
+def tag_librarian_package(**overrides: Any) -> bytes:
+    return orbext(
+        {
+            "orb-extension.json": tag_librarian_manifest(**overrides),
+            "flows/classify.json": classify_flow(),
+            "ui/workspace.json": tag_librarian_workspace_view(),
+            "ui/config.json": tag_librarian_config_view(),
+        }
+    )
