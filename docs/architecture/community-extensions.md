@@ -98,8 +98,20 @@ Landed (see section 17 for the phase definitions):
 
 Deliberately absent, per the note at the end of section 16: there is still no
 host HTTP client or secret substitution, no artifact emission, no branch
-activation, no component renderer, no Git reader, and no fragment-type
-contribution — and no permissive placeholder stands in for any of them.
+activation, no component renderer, no Git reader, no host resources, no card
+write, and no fragment-type contribution — and no permissive placeholder stands
+in for any of them.
+
+Section 8's Tag Librarian and the contract it needs (`list.intersect`,
+`card.tags.set`, `card.tags.write`, `library.cards.read`, the paginated
+`library.cards` resource, scalar-array template rendering, `ctx.character` from
+action input, the `character.card` effect) are **specified but not
+implemented**; they are Phase 3 scope. Nothing in `OPERATION_SPECS` or the
+`Capability` enum has been widened for them yet.
+
+Phase 3 also owes a debt the rest of this document assumes and the codebase does
+not yet have: **first-party character-tag normalization**. Section 5 explains
+why `card.tags.set` cannot simply reuse it — there is nothing to reuse.
 
 Two route names extend section 12's family. `POST
 /api/extensions/{id}/inspect-rollback` exists because rollback is an inspected
@@ -389,8 +401,11 @@ Interpreter output is translated to a small host envelope:
 ```
 
 The frontend owns the effect-to-refetch mapping for messages, Director state,
-direction notes, extension views, and the extension catalog. The same fixed
-effects drive local repaint and cross-tab broadcast. Unknown effects are dropped
+direction notes, character cards, extension views, and the extension catalog.
+The same fixed effects drive local repaint and cross-tab broadcast. Coalescing
+is the frontend's business too: a host-rendered loop can produce one effect per
+iteration (section 8), and the mapping debounces rather than asking the host to
+emit fewer — an effect describes what one invocation did. Unknown effects are dropped
 and logged; package strings never become event names, DOM selectors, function
 names, or module paths. `toasts` is a bounded list of host-rendered
 `{text, tone}` notifications produced by `ui.toast`; it is data in the same
@@ -624,6 +639,23 @@ Templates perform path substitution only. They have no filters, property
 access beyond the validated path resolver, calls, loops, includes, or
 expressions.
 
+A path resolving to an array of scalars interpolates as its members joined by
+`", "`. This is still substitution with a fixed host-owned rendering, not a
+filter the package selects — there is no alternate separator and no format
+argument. It is here because any feature driven by a user-managed list needs
+that list in a prompt, and the alternative was a `list.join` operation whose
+only purpose would be to feed a template. Arrays of containers, and containers
+generally, remain non-interpolable.
+
+The separator is frozen at contract-freeze time and there is no workaround: a
+package that wants one member per line cannot get it, because the flow language
+has no iteration and templates take no arguments. That is an accepted ceiling,
+not an oversight. If a real package is blocked by it, the fix is a `list.join`
+operation taking a separator from a closed host-owned set — which would also
+retire this special case and return templates to pure path substitution. Do not
+fix it by giving the template a format argument; that is where a filter language
+starts.
+
 `when` uses a structured predicate AST with `eq`, `ne`, `lt`, `lte`, `gt`,
 `gte`, `exists`, `and`, `or`, and `not`. Predicate depth is capped at 8.
 
@@ -646,6 +678,7 @@ Data and deterministic transforms:
 - `state.get`, `state.set`, `state.delete`
 - `text.concat`, `text.replace_literal`
 - `json.pick`, `json.merge`
+- `list.intersect`
 - `math.add`, `math.subtract`, `math.negate`, `math.clamp`
 - `random.integer`, `random.choice`
 - `if`, `return`
@@ -656,6 +689,7 @@ Host capabilities:
 - `http.request`
 - `context.append`
 - `draft.replace`
+- `card.tags.set`
 - `artifact.emit`
 - `ui.status`, `ui.toast`, `ui.invalidate`
 
@@ -681,6 +715,16 @@ corresponding entity to exist in the invocation context. A post-turn write to
 the not-yet-created assistant message is staged into the pipeline result and
 committed with that message.
 
+`list.intersect` returns the members of one bounded string array that also
+appear in another, in first-array order, deduplicated. It exists because a
+package-declared `output_schema` is compiled at install time and therefore
+cannot carry an `enum` drawn from runtime config: an extension whose behavior
+is governed by a user-managed vocabulary has no other way to constrain a model
+result to that vocabulary. It is deliberately the only list operation in v1 and
+is not a general `map`/`filter` — both arrays are capped at 256 members and the
+operation performs no per-element evaluation, so it does not reintroduce the
+unbounded iteration section 5 excludes.
+
 `model.text` and `model.structured` use the selected configured lane's
 transport, credentials, model, and ordinary model parameters, but **not** its
 Orb system prompt, conversation prefix, attachments, cached tools, or
@@ -689,15 +733,64 @@ the flow-produced prompt. Conversation/card data reaches that prompt only
 through granted `ExtensionCtx` fields. `model.structured` validates the decoded
 value against the compiled local schema; it does not register a function tool.
 
+`card.tags.set` replaces the `tags` list of **the card already in the
+invocation's context** — `ctx.character`, and only that card. It takes no card
+identifier. A flow cannot read card A and write card B, so the operation's
+blast radius is one card by construction rather than by quota, and it needs
+`context.character.read` to do anything at all.
+
+This is the same rule section 10 applies to `artifact.emit`, which must prove
+its target message belongs to the action's conversation: **every write proves
+its target is in the invocation's scope.** Library-wide reach comes from a user
+driving a host-rendered loop across cards they can already see (section 8), not
+from a grant that widens the write.
+
+It is action-only. A card is shared across every conversation that uses it, so
+a per-turn hook silently rewriting library metadata is not a behavior a user can
+reasonably supervise.
+
+The host — not the package — normalizes the result: trim, drop empties,
+deduplicate case-insensitively, and enforce the per-tag length and per-card
+count caps.
+
+> **Server-side, this normalization does not exist and cannot be reused.**
+> `CharacterCardUpdate.tags` is an unconstrained `list[str] | None`
+> (`api/schemas.py`) and `update_character_card` writes `json.dumps(...)`
+> straight through (`database/queries/character_cards.py`). The only rules
+> today live in the frontend chip widget (`chips.js`), which trims, drops
+> empties, and dedupes **case-sensitively** on entry — and which the import
+> path and any direct API call bypass entirely. There are no length or count
+> rules anywhere.
+>
+> Two consequences. Phase 3 must *create* the helper rather than call one, and
+> it must settle a conflict: this section specifies case-insensitive dedupe
+> while the chip widget is case-sensitive. Pick one for both paths.
+>
+> The reason to route the character route through it too is not only the
+> symmetry rule. Tag filtering matches exact strings — `computeTopTags` counts
+> by string and the filter is `tags.includes(tag)` (`library_browser.js`) — so
+> a human-entered `"Noir"` and an extension-written `"noir"` become two filter
+> chips over different subsets of the library. An extension that normalizes
+> against a host that does not would manufacture the exact disorder Tag
+> Librarian is installed to remove.
+
+Given that shared normalizer, `card.tags.set` calls the ordinary card update
+path rather than writing the column directly.
+
+Unlike every other write in this document, `card.tags.set` lands in a
+first-party column. See "Writes that leave the namespace" in section 13 for
+what that costs.
+
 `random.integer` and `random.choice` use a host-owned per-invocation PRNG, never
 module-global randomness. The seed and flow revision are recorded in artifact
 recovery metadata. Regenerate reuses the seed; reroll receives a new seed.
 Ordinary hook/action invocations derive a stable seed from host invocation
 identity plus extension ID, flow ID, and content digest.
 
-`context.append`, `draft.replace`, `artifact.emit`, branch activation, and all
-state/UI effects are staged until successful return. A flow may stage at most
-one draft replacement and one branch activation. Multiple state writes to the
+`context.append`, `draft.replace`, `artifact.emit`, `card.tags.set`, branch
+activation, and all state/UI effects are staged until successful return. A flow
+may stage at most one draft replacement, one branch activation, and one card
+tag write. Multiple state writes to the
 same path are folded in program order before the final slot-size check.
 
 For an in-turn post hook, effects tied to the pending assistant message
@@ -715,6 +808,8 @@ Per flow invocation:
 
 - At most 128 executed steps and nesting depth 8.
 - At most 2 model calls and 4 HTTP requests.
+- At most 1 card tag write, of at most 32 tags of 64 UTF-8 bytes each.
+- At most 256 members per `list.intersect` input array.
 - Model output request capped at 4,096 tokens and 1 MiB after decoding.
 - HTTP request body capped at 1 MiB; timeout 30 seconds; at most 3 redirects;
   decompressed response capped at 5 MiB.
@@ -781,9 +876,11 @@ Initial permission vocabulary:
 | `context.character.read` | Read an allowlisted character projection; avatar bytes and raw extensions require separate future capabilities. |
 | `conversation.tree.read` | Read all message-node metadata in the active conversation. |
 | `conversation.tree.previews` | Also read bounded content previews from inactive branches. |
+| `library.cards.read` | Enumerate the card library (id/name/tags plus this extension's own slot), and resolve a card named by validated action input into `ctx.character`. |
 | `conversation.branch.activate` | Change the active branch through Orb's locked host action. |
 | `prompt.context.append` | Add a per-turn trailing context block for Director, Writer, or both. |
 | `draft.replace` | Replace a post-pipeline draft once. |
+| `card.tags.write` | Replace the tag list of the one character card in the invocation's context. Requires `context.character.read`. |
 | `model.call` | Make a flow-owned call on the declared Writer or Agent lane. |
 | `state.read` / `state.write` | Access only this extension's config/conversation/message/character slot. |
 | `artifact.write` | Emit workflow attachments under the existing artifact contract. |
@@ -795,11 +892,49 @@ Model-call consent must state that the extension can incur token cost. Reading
 inactive branches and sending any conversation data to a network origin are
 separate, conspicuous grants.
 
+`card.tags.write` is the first grant that writes a first-party column, but it is
+**not** a grant whose blast radius exceeds the current invocation. It writes
+`ctx.character` and nothing else, so it inherits that projection's scoping:
+consent reads "can change the tags on the character a command is run against",
+and it is refused outright without `context.character.read`.
+
+An earlier draft of this document gave the operation a `card_id` argument drawn
+from action input, which made the grant library-wide and required a conspicuous
+"all of your characters" consent band. That was avoidable — the only package
+that wants it (section 8) already resolves `ctx.character` from the same card —
+and it would have carried a permanent exception to the scope rule into v2. It is
+recorded here so it is not reintroduced.
+
 History contains role and bounded text only: no attachments, workflow state,
 progressive fields, logs, reasoning, or inactive messages. Character context is
-an explicit allowlist of textual card fields; it excludes avatar bytes, raw card
-extensions, endpoint settings, and persona data. Every variable-length
-projection has both an item count and aggregate UTF-8 byte cap.
+an explicit allowlist of textual card fields plus the card's current `tags`
+list; it excludes avatar bytes, raw card extensions, endpoint settings, and
+persona data. Every variable-length projection has both an item count and
+aggregate UTF-8 byte cap.
+
+In a hook, `ctx.character` is the card bound to the turn's conversation. An
+action has no such binding — a library-scoped action operates on a card the
+user picked, not on the card of whatever chat happens to be open. So when an
+action's validated input schema declares a card identifier, the host resolves
+that card and populates `ctx.character` from it, using the same allowlist as
+the hook path. The package names a card; it never names the *fields*, and it
+cannot reach a card by any route that skips the projection.
+
+That resolution requires **both** `context.character.read` and
+`library.cards.read`. Enumeration is not the only way to reach a card: an
+extension that already holds an id — from its own state, from a previous run,
+from something the user pasted — would otherwise read any card in the library
+under a grant whose consent text says "the character in this conversation".
+`context.character.read` alone therefore never leaves the current conversation,
+whether by listing cards or by naming one.
+
+Resolving `ctx.character` from action input also rebinds the `character` state
+scope: `state.get`/`state.set` with `scope: "character"` address the resolved
+card's namespaced slot, not the open conversation's card. This is the intended
+behavior — a per-card record must live on the card it describes — but it means
+one package-supplied identifier moves both the read projection and a write
+target. It is the only place in v1 where package input selects an entity, which
+is why it is gated by two grants rather than one.
 
 ### Prompt placement and KV cache
 
@@ -959,16 +1094,26 @@ onto a directory.
 
 ---
 
-## 8. Reference use case: conversation map
+## 8. Reference use cases
 
-### Desired behavior
+The two packages in this section are not illustrations chosen after the fact.
+Each one was the reason a host resource, operation, or grant below exists, and
+each exercises a seam no other part of the design forces: Conversation Map
+needs to read a core structure the API does not expose and mutate core state
+through a locked host action; Tag Librarian needs a user-driven loop to span the
+library while every individual invocation stays scoped to one card, and needs to
+write a first-party column.
+
+### Conversation map
+
+#### Desired behavior
 
 An extension adds **Conversation Map** to `composer.menu`. It opens a GitLens-like
 tree showing every message branch, highlights the active path, collapses
 subtrees, shows optional short previews, and activates a branch when the user
 selects a node.
 
-### Missing core resource
+#### Missing core resource
 
 `GET /api/conversations/{cid}/messages` currently returns only the active
 root-to-leaf path. Each active node receives sibling count/index and previous/
@@ -1019,7 +1164,7 @@ The generic renderer, not the package, computes layout and draws connectors.
 `conversation-tree` receives nodes, active path, collapse state, and a named
 select action.
 
-### Branch activation
+#### Branch activation
 
 The host operation `conversation.branch.activate` must call the same core
 behavior as the existing switch-branch route:
@@ -1063,6 +1208,219 @@ path behaviorally identical to the built-in branch buttons.
 
 Optional node labels/bookmarks belong in the extension's message state,
 namespaced by its extension ID. They do not alter the conversation schema.
+
+### Library tag standardization
+
+#### Desired behavior
+
+Card tags arrive however the card's author left them: absent, idiosyncratic, or
+in someone else's vocabulary. A user who wants a library they can actually
+filter maintains **their own** tag vocabulary and wants cards classified
+against it.
+
+**Tag Librarian** adds a workspace command to the `tools` slot. The workspace
+shows the user's vocabulary in an editable form, lists the cards not yet
+classified, and offers a Run button. Running classifies each listed card
+against the vocabulary and writes the resulting tags. It is on-demand only —
+there is no trigger on import and no background pass. Re-running later picks up
+whatever has arrived since, because classification is recorded per card.
+
+#### Why this does not fit one invocation
+
+Every other package in this document does its work inside a single invocation
+bound to a single conversation. This one is bounded by neither, and it collides
+with three limits at once:
+
+- **Scope.** Every projection in section 6 is invocation-scoped. `ctx.character`
+  is the card of the current conversation; nothing enumerates a library.
+- **Quotas.** A flow gets 128 steps and 2 model calls. A 300-card library needs
+  300 model calls.
+- **Duration.** Section 19 defers background services, so there is nowhere to
+  put a long-running sweep even if the quotas allowed one.
+
+The resolution is to leave all three limits alone and **move the loop out of
+the flow language into the host renderer**. The workspace dispatches one action
+per card, sequentially. Each invocation classifies one card with one model call
+and one tag write, well inside the existing per-invocation budget, and commits
+independently.
+
+That last property is worth stating plainly, because it inverts the usual
+batch-job tradeoff: a sweep interrupted at card 87 leaves 86 correctly
+classified cards and 214 untouched ones, and the next run resumes from there.
+There is no partial commit to reconcile, because there was never one
+transaction. Cancellation is the user closing the workspace; the in-flight
+action is cancelled by the existing action-request path and every prior card is
+already durable.
+
+No new execution model, no new hook stage, and no relaxation of section 5.
+
+##### What an O(n) invocation loop needs that a single invocation did not
+
+Sequential per-card actions are a new *shape* even though every individual
+invocation is ordinary. Three things follow from the loop rather than from any
+one action, and none of them is visible when reading section 2 alone:
+
+- **Effects must coalesce.** Each invocation stages a `character.card` effect,
+  so a 300-card sweep produces 300 invalidations, 300 library refetches, and 300
+  cross-tab broadcasts. The frontend debounces `character.card` refetches; the
+  host still emits one effect per invocation, because the effect describes what
+  that invocation did and coalescing is a rendering concern.
+- **A runtime-generation change halts the sweep.** `runtime_generation` rides on
+  every envelope and the manager discards responses below the generation it has
+  already seen (`extension_manager.js`). Left alone, an update or disable at
+  card 87 would leave the server committing writes whose envelopes the frontend
+  throws away — work with no feedback and no record in the view. The workspace
+  stops the loop when the generation advances, reporting cards completed so far.
+  Permission revocation is different and already covered: it fails the next
+  `card.tags.set` server-side, which surfaces as an ordinary action error.
+- **Library actions take no conversation lock.** The invocation has no
+  conversation, so there is nothing to serialize against; taking the stream lock
+  per card would put 300 sequential acquisitions in front of any live turn. This
+  is stated because `conversation.branch.activate` does take that lock, and the
+  two are easy to conflate as "actions that write outside their own namespace".
+
+Concurrency stays at one in flight. That is a deliberate floor, not a
+measurement: each card costs a model call on a user-configured lane, and the
+design has no rate-limit model for those lanes. Widening it is a change to make
+against an observed limit, with a bound the user can see.
+
+#### Missing core resource
+
+Nothing exposes the library to an extension. Add a bounded projection,
+following the same rules as the conversation-tree resource:
+
+```json
+{
+  "cards": [
+    {
+      "id": "card-1",
+      "name": "Mara",
+      "tags": ["noir", "detective"],
+      "state": { "tagged": true }
+    }
+  ],
+  "next_cursor": "opaque-host-token-or-null"
+}
+```
+
+`state` is the extension's **own** namespaced
+`character_cards.workflow_state[extension_id]` slot and appears only with
+`state.read`. It is what makes "cards not yet classified" computable in the
+view without an invocation per card. No other extension's namespace is ever
+projected, and no card field outside this shape is — in particular not
+`description`, which the classifier reads through `ctx.character` during the
+action, under `context.character.read`, and not here.
+
+The page is bounded by both a card count and an encoded-response budget, and
+`next_cursor` is an opaque host-owned token — a package never constructs one,
+and never sees an offset, a row id, or a sort key. `null` means the listing is
+complete.
+
+Paginate rather than failing past a budget. A single-response cap would have to
+either truncate, which makes a sweep report success over cards it never saw, or
+return `resource_too_large`, which permanently locks a large library out of the
+feature with no recourse. Neither is acceptable, and the design already has the
+answer: the renderer loops cards, so it loops pages the same way. The
+`next_cursor` walk is the same "keep the loop in the renderer" move applied one
+level up, and the "resume from the remainder" story already requires refetching
+between runs.
+
+Requesting it needs `library.cards.read` (section 6); `context.character.read`
+alone must not enumerate cards. Serve it from
+`GET /api/extensions/{id}/resources/library-cards` as a database projection
+plus a host-resource adapter, exactly as with the tree — never by handing a
+flow a query primitive.
+
+#### The classify action
+
+The vocabulary lives in the extension's config slot, bound to a form control
+per section 7, so editing it is an ordinary host-generated state action under
+normal permission and size checks. The per-card record lives in that card's
+character-scope state, written by the same invocation that classifies it, so
+there is no separate bookkeeping pass that could disagree with what was
+actually written.
+
+The action's input schema declares `card_id`. That identifier does three things
+at once, all host-side: it resolves `ctx.character` for the classifier prompt,
+it selects the `character` state scope for the final bookkeeping write, and it
+fixes the single card `card.tags.set` may write. The flow never passes it to an
+operation — note that `card.tags.set` below takes only `tags`.
+
+```json
+{
+  "flow_version": 1,
+  "steps": [
+    {
+      "id": "vocabulary",
+      "op": "state.get",
+      "scope": "config",
+      "path": "vocabulary"
+    },
+    {
+      "id": "proposed",
+      "op": "model.structured",
+      "lane": "agent",
+      "prompt": {
+        "$template": "Choose every tag that applies to this character. Use only tags from the allowed list. Return an empty array if none apply.\n\nAllowed tags: {{steps.vocabulary}}\n\nName: {{ctx.character.name}}\n\n{{ctx.character.description}}"
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 32
+          }
+        },
+        "required": ["tags"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "allowed",
+      "op": "list.intersect",
+      "value": { "$ref": "steps.proposed.tags" },
+      "allowed": { "$ref": "steps.vocabulary" }
+    },
+    {
+      "op": "card.tags.set",
+      "tags": { "$ref": "steps.allowed" }
+    },
+    {
+      "op": "state.set",
+      "scope": "character",
+      "path": "tagged",
+      "value": true
+    }
+  ]
+}
+```
+
+The `list.intersect` step is not decoration. A model asked to pick from a list
+will occasionally return something adjacent to it, and `output_schema` cannot
+express "one of the user's current tags" because schemas compile at install
+time while the vocabulary is runtime config. Without that step the extension
+would launder invented tags into the library under the user's own vocabulary —
+which is precisely the mess it was installed to clean up.
+
+#### Consent
+
+Tag Librarian requests `context.character.read`, `library.cards.read`,
+`model.call`, `state.read`, `state.write`, `ui.contribute`, and
+`card.tags.write`.
+
+`library.cards.read` is the grant that carries the weight here, and it is worth
+being clear about why it is the enumeration grant rather than the write grant.
+`card.tags.write` only ever touches the card an invocation was handed, so on its
+own it is a single-card permission. What makes this package library-wide is that
+it can *see* the library and resolve any card in it — so that is what consent
+describes: "list your characters and read each one it is run against." The write
+is bounded; the reach is the listing.
+
+That split is the point of the section 6 rule. Reach is granted once, visibly,
+by the capability that enumerates; writes stay scoped to whatever the invocation
+already holds. A future package that wants to write some other card field adds a
+narrow scoped operation, not another library-wide grant.
 
 ---
 
@@ -1567,6 +1925,61 @@ extension-ID grammar. Preview and destructive writes use the same selection
 helper; apply compares the selected-row fingerprint inside `BEGIN IMMEDIATE`
 before deleting.
 
+### Writes that leave the namespace
+
+Every state location above is namespaced by extension ID, which is what makes
+the lifecycle story coherent: uninstall leaves inert data, purge finds it by
+namespace and removes it, and a package's writes are invisible to Orb until the
+package is reinstalled.
+
+`card.tags.set` is the one v1 operation that breaks all three properties. It
+writes `character_cards.tags`, a first-party column, and the consequences must
+be stated rather than discovered:
+
+- **Uninstall does not revert it.** The tags stay on the cards.
+- **Purge cannot find it.** Purge selects by namespace; these rows have none.
+  There is no "undo this extension's tag writes" operation and v1 does not add
+  one — reconstructing prior tag lists would mean journaling every write, which
+  is a larger persistence commitment than the feature earns.
+- **It leaves the machine.** `tags` round-trips into exported character PNGs
+  (`features/cards/parsing.py`) and travels in shareable character presets, so
+  an extension write can reach other people's libraries. No other extension
+  write can.
+
+Three things bound the damage, and none should be overstated. The operation
+writes only `ctx.character`, so one invocation dirties one card and a user who
+wants many cards written has to drive the loop themselves. The host normalizes
+and caps what gets written, so the worst case is wrong tags rather than
+malformed or unbounded ones. And `tags` reaches no prompt anywhere in the
+pipeline — it is library metadata for filtering and display only — so a bad
+write degrades organization, never generation.
+
+#### The rule for admitting the next one
+
+"It does not reach the prompt" is a necessary condition, not the criterion, and
+using it alone would be a mistake this document has already half-made: the
+bullet above establishes that `tags` **leaves the machine**, which is a wider
+consequence than reaching a local prompt. Prompt-reachability bounds how badly a
+write can corrupt *generation*; it says nothing about what the write propagates
+to other people.
+
+A first-party write is admissible when all four hold:
+
+1. Its target is fixed by the invocation's own context, never by a package-
+   supplied identifier that a grant does not separately cover.
+2. A host-owned normalizer, shared with the first-party path, decides the final
+   stored value.
+3. A bad write degrades organization or presentation, not generation.
+4. Its propagation is understood and written down — where it exports to, which
+   presets carry it, whose machine it can reach.
+
+`card.tags.set` clears all four, the fourth only because this section states it.
+A capability to write a card field that reaches the prompt fails (3) and is a
+different threat model needing its own review. A capability that reaches a card
+the invocation was not handed fails (1) — an earlier draft of this design did
+exactly that, and section 6 records why it was withdrawn. Neither is an extra
+entry in an allowlist.
+
 ### Presets
 
 The current preset coverage policy requires every table to belong to a domain
@@ -1724,7 +2137,7 @@ feature.
 |---|---|
 | `backend/features/extensions/` (new) | Strict manifest/flow/component/schema models; duplicate-key JSON loader; package reference walker/compiler; immutable compiled records; interpreter and effect staging; capability/context projection; package/CAS/staging lifecycle; safe archive/Git readers; mediated HTTP/secrets; host resources; startup reconciliation. Split these by responsibility rather than one extension manager module. |
 | `backend/core/locks.py` | Expose the conversation stream lock through a downward-safe owner or add an equivalent core lock service; add any message/extension lifecycle locks needed by transaction commits. Preserve current lock ordering and document it to prevent stream/workflow/character deadlocks. |
-| `backend/database/` | Add package/revision/secret tables, `interactive_fragments.type_config`, migrations, models, facades, and transaction-aware queries. Add an attachment-free full-tree projection and atomic branch activation. Add bounded namespaced-state and purge helpers. Update `schema.py`, fresh bootstrap/stamping, seeds where applicable, and preset policy together. |
+| `backend/database/` | Add package/revision/secret tables, `interactive_fragments.type_config`, migrations, models, facades, and transaction-aware queries. Add an attachment-free full-tree projection and atomic branch activation. Add a cursor-paginated library-card projection (id/name/tags plus one extension's own namespaced slot) with an opaque host-owned cursor. Add character-tag normalization (trim, drop empties, dedupe, per-tag length and per-card count caps) as a shared helper — **no server-side equivalent exists**; `CharacterCardUpdate.tags` and `update_character_card` pass tag lists through unvalidated, and the only current rules are in the `chips.js` widget, which import and direct API calls bypass — and route both the character API and `card.tags.set` through it. Match the widget's dedupe casing or change the widget; do not backfill existing rows, and leave card import unnormalized so exported PNGs keep author fidelity. Add bounded namespaced-state and purge helpers. Update `schema.py`, fresh bootstrap/stamping, seeds where applicable, and preset policy together. |
 | `backend/workflows/contracts.py` / `registry.py` / `enablement.py` | Add source/frontend kind, hook stage, immutable built-in-base + community-overlay snapshots, generation, snapshot-aware lookup/iteration, scoped community replacement, and artifact declaration validation. Do not route community tool declarations through `register_tool`. |
 | `backend/pipeline/entrypoints.py`, `context.py`, `state.py` | Capture/thread the runtime snapshot; resolve extension fragment providers before building schema; carry Director/Writer context-block collections and extension diagnostics; keep one writer content value for Editor replay. |
 | `backend/pipeline/workflow_bridge.py` / `orchestrator.py` | Adapt trusted contexts to `ExtensionCtx`; run staged declarative hooks in explicit transform/observe phases; consume only fixed control effects; commit post-message state/artifacts with the assistant result; preserve failure isolation and cancellation. |
@@ -1810,9 +2223,23 @@ ordering/failure isolation and permission revocation are integration-tested.
 4. Add the full-tree database projection/resource adapter, atomic shared branch
    action, and `conversation-tree`.
 5. Ship Conversation Map as the first complete reference package.
+6. Add shared character-tag normalization and route the existing character API
+   through it. This lands first: it is a first-party behavior change, and every
+   later step in this phase depends on it existing.
+7. Add `list.intersect`, the scalar-array template rendering rule, the
+   cursor-paginated `library.cards` resource behind `library.cards.read`,
+   `card.tags.set` writing `ctx.character` with no card argument, the
+   `character.card` effect with frontend debouncing, and `ctx.character`
+   resolution from validated action input gated on both
+   `context.character.read` and `library.cards.read`.
+8. Ship Tag Librarian as the second reference package, with the sweep loop and
+   the cursor walk in the renderer rather than the flow.
 
 Exit gate: renderer XSS/property fuzz tests pass and selecting a tree node has
-the same lock, state refresh, and cross-tab behavior as `switchBranch()`.
+the same lock, state refresh, and cross-tab behavior as `switchBranch()`. A
+sweep cancelled midway leaves every completed card written, no card partially
+written, and the next run resuming from the remainder. A tag list the character
+API accepts and one `card.tags.set` accepts normalize identically.
 
 ### Phase 4 — Network, secrets, Git, and artifacts
 
@@ -1868,7 +2295,9 @@ Reference extensions:
 1. Conversation Map — command placement, full-tree resource, workspace, branch
    action.
 2. Scene Meter — structured model call, state, inspector meter.
-3. API Artifact — origin consent, secret header, byte response, regeneration
+3. Tag Librarian — library resource, user-managed vocabulary, renderer-driven
+   sweep, first-party card write.
+4. API Artifact — origin consent, secret header, byte response, regeneration
    and reroll.
 
 ---
@@ -1988,6 +2417,43 @@ Reference extensions:
   prompt operations and obey the aggregate per-turn budget.
 - Card fragment caps, ID precedence, and untrusted normalization still hold.
 
+### Library tag standardization
+
+- Walking the library resource to a `null` cursor returns every card exactly
+  once, with no duplicate and no omission across page boundaries, including
+  when a card is added or deleted mid-walk.
+- A cursor is opaque: a package-supplied or mutated cursor is rejected rather
+  than resolving to an offset, and no page exceeds either its card-count or
+  encoded-byte budget.
+- It projects only the requesting extension's namespaced slot, never another
+  extension's, and no card field outside the declared shape.
+- Enumeration requires `library.cards.read`; `context.character.read` alone
+  returns 403 from the resource route **and** fails an action whose input
+  declares a card identifier.
+- Resolving `ctx.character` from action input also scopes `character` state
+  writes to that card, and a card id naming a nonexistent card fails the
+  invocation rather than falling back to the open conversation's card.
+- `card.tags.set` accepts no card argument: a flow declaring one fails
+  compilation, and the operation writes `ctx.character` and no other row.
+- The character API and `card.tags.set` produce byte-identical stored tags for
+  the same input list — untrimmed, empty, duplicate-by-case, over-long, and
+  over-count cases included.
+- `list.intersect` drops model output absent from the current vocabulary, and
+  changing the vocabulary between runs changes what a later run writes.
+- A sweep cancelled at card N leaves cards 1..N-1 written, card N untouched,
+  and the remaining cards listed as unclassified on the next run.
+- Revoking `card.tags.write` fails the next `card.tags.set` mid-sweep without
+  reverting earlier cards.
+- A `runtime_generation` bump mid-sweep stops the loop; no action is dispatched
+  after it, and the workspace reports the completed count rather than silently
+  discarding envelopes for writes that committed.
+- A sweep emits one `character.card` effect per card and the frontend performs
+  a bounded number of library refetches, not one per card.
+- A library-scoped action acquires no conversation stream lock: a sweep and a
+  live turn in an open conversation make progress concurrently.
+- Uninstall leaves written tags in place; purge does not remove them; the
+  manager does not claim either would.
+
 ### Compatibility
 
 - Existing first-party workflow, artifact, frontend-layer, SSE, fresh-install,
@@ -2011,6 +2477,18 @@ Reference extensions:
 - SSH/private Git authentication, submodules, or LFS.
 - Wildcard network permissions.
 - General regular expressions.
+- General list iteration (`map`, `filter`, `reduce`) or any operation that
+  evaluates per element. `list.intersect` is a single bounded set operation and
+  must not become the seed of a collection library.
+- First-party writes that fail any part of the four-condition rule in section
+  13 — in particular writes to card fields that reach the prompt, and any write
+  whose target is named by package-supplied input that no grant separately
+  covers.
+- Any operation taking a card, conversation, or message identifier that the
+  invocation was not already handed. `card.tags.set` deliberately takes no
+  argument naming its target.
+- Automatic or import-time triggers for library-wide work. A sweep is something
+  the user starts.
 - Arbitrary database tables, migrations, SQL, filesystem paths, or raw HTTP
   routes.
 - Automatic update installation.
