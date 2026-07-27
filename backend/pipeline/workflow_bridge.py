@@ -149,7 +149,7 @@ async def _run_post_pipeline(
     staged_attachments: list[dict] = []
     staged_message_state: dict[str, dict] = {}
     for sub in registry.subscriptions(HookType.POST_PIPELINE):
-        if not effective_workflow_enabled(sub.workflow_id, settings):
+        if not effective_workflow_enabled(sub.workflow_id, settings, sub.source):
             logger.info("workflow %r post-pipeline hook suspended (disabled)", sub.workflow_id)
             continue
         replaced_this_hook = False
@@ -426,7 +426,7 @@ async def _iterate_pre_pipeline_hooks(
     ``{"merged_enabled_tools": <dict>, "extras": [], "context_blocks": []}``.
     """
     for sub in registry.subscriptions(HookType.PRE_PIPELINE):
-        if not effective_workflow_enabled(sub.workflow_id, settings):
+        if not effective_workflow_enabled(sub.workflow_id, settings, sub.source):
             logger.info("workflow %r pre-pipeline hook suspended (disabled)", sub.workflow_id)
             continue
         # Lock held for the hook's full lifetime to keep workflow_state RMW atomic.

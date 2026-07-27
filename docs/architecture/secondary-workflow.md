@@ -179,10 +179,12 @@ Every registered workflow can be switched off without code changes. Two `setting
 
 | Column | Type | Default | Meaning |
 |---|---|---|---|
-| `workflows_globally_enabled` | INTEGER | `1` | Master switch for the whole subsystem. |
-| `workflow_enabled` | TEXT (JSON `{wid: bool}`) | `'{}'` | Per-workflow override; a missing key means enabled. |
+| `workflows_globally_enabled` | INTEGER | `1` | Master switch over the **built-in tier only**. |
+| `workflow_enabled` | TEXT (JSON `{wid: bool}`) | `'{}'` | Per-record override, keyed by workflow id and extension id alike; a missing key means enabled. |
 
-`get_settings` decodes `workflow_enabled` to a dict. Effective state is the pure predicate `effective_workflow_enabled(workflow_id, settings)` (`backend/workflows/enablement.py`): `global_on AND local_on`, each defaulting to enabled when its value is absent. A non-dict `workflow_enabled` coerces to `{}` (degrade-to-enabled) rather than raising -- the predicate runs once per subscription per turn, so a decode regression must never crash the turn.
+`get_settings` decodes `workflow_enabled` to a dict. Effective state is the pure predicate `effective_workflow_enabled(workflow_id, settings, source)` (`backend/workflows/enablement.py`): `local_on` always, `AND global_on` for a `BUILTIN` record. A non-dict `workflow_enabled` coerces to `{}` (degrade-to-enabled) rather than raising -- the predicate runs once per subscription per turn, so a decode regression must never crash the turn.
+
+`source` defaults to `BUILTIN`, so every built-in gate stays a two-argument call; a community gate must pass `WorkflowSource.COMMUNITY` (statically, at the extension routes and the catalog) or `sub.source` (at a mixed-band hook site, where it mirrors the owning record's tier). **A community record is not under the master** -- an extension is installed, listed, and toggled in the Extensions sidebar and answers to nothing else, so turning off turn-time workflows never silently removes a user's extension panels and buttons.
 
 Control:
 
@@ -195,7 +197,7 @@ Enforcement -- each site reads the per-turn / per-request `settings` snapshot it
 - `_resolve_pipeline_config` strips a disabled workflow's tool names from the per-turn tool blob via `disabled_workflow_tool_names(settings)` (`backend/pipeline/config.py`) -- a no-op today, since no disabled workflow declares tools.
 - The routes that fire a workflow hook -- `/trigger` (ON_DEMAND), `/regenerate` (REGENERATE), `/reroll-gen` and `/rehydrate` (REROLL_GEN) -- return 404 when the owning workflow is disabled, checked before the route takes its lock and before the hook runs (sec. 8.1). The hookless consumption routes (`/activate`, `/delete`, `access`) and the manifest / config / enabled routes are never gated, so a disabled workflow's existing artifacts stay viewable and re-enabling restores full function.
 
-Frontend mirror: `effectiveWorkflowEnabled(wid)` (`state.js`) applies the same truth table off `S.settings`; the four production registries are filtered by it at their read sites (sec. 11.3), and the Secondary tab renders a master switch plus one per-workflow checkbox (sec. 14.5). Both columns are in `PRESERVED_COLUMNS` (`backend/database/preset_schema.py`), so applying a configs preset never silently re-enables a locally-disabled workflow.
+Frontend mirror: `effectiveWorkflowEnabled(wid, source)` (`state.js`) applies the same truth table off `S.settings`, with `source` the manifest's `"builtin"` / `"community"` string and the same built-in default; the four production registries are filtered by it at their read sites (sec. 11.3), and the Secondary tab renders a master switch plus one per-workflow checkbox (sec. 14.5). Both columns are in `PRESERVED_COLUMNS` (`backend/database/preset_schema.py`), so applying a configs preset never silently re-enables a locally-disabled workflow.
 
 ---
 
@@ -508,6 +510,10 @@ Handler `api_get_workflow_config`. No locks. DB: `get_workflow_config(wid)`, the
 
 Handler `api_set_workflow_enabled`. Body model `WorkflowEnabledUpdate`: `{"enabled": bool}`, REQUIRED -- a body missing the key is FastAPI 422 before the handler. No lock (the per-key `set_workflow_enabled` write is atomic). DB: `set_workflow_enabled(wid, enabled)` then `get_settings()`. Response: `{"workflow_enabled": <full decoded {wid: bool} map>}`. 404 if unregistered. Ungated -- this is the control that re-enables a suspended workflow. Per-workflow on/off contract: sec. 3.7.
 
+A `COMMUNITY`-source workflow is an installed extension, so the handler delegates to `lifecycle.set_enabled(wid, enabled)` instead (409 on `LifecycleError`), which additionally updates the `extension_packages.enabled` mirror and blocks/unblocks new invocations.
+
+One route, two callers, and exactly one control per workflow. The Secondary panel lists Orb's own workflows only (`buildWorkflowToggleRows` filters `source !== "community"`) and calls it via `toggleWorkflowEnabled`; an extension is listed once, in the Extensions sidebar, whose row toggle calls the same route from `extension_manager.js` and then refetches the catalog the sidebar and command slots render from. The extension manager modal carries no enablement button at all -- a second switch is what let the sidebar show "on" for a package the panel had already switched off.
+
 #### POST `/api/workflows/{wid}/query`
 
 Handler `api_query_workflow`. Body: raw `dict` (default `{}`). The conversation-less counterpart to `/trigger`: single-dispatch by workflow id for a workflow's global config/discovery surface. 404 if the workflow is unregistered or has no `QUERY` subscription; **never** enablement-gated (setup precedes enable -- sec. 3.7, 8.1). No lock (the contract is read-only). Builds `QueryCtx(settings=<snapshot>)` -- no conversation, no client -- and returns `await sub.callable(query_ctx, body)` verbatim (the query contract is a dict). The handler reports its own failures in-band as `{"error": ...}` and the route stays 200; an *unexpected* raise becomes a 500, mirroring `/trigger`. Shipped handlers, both action-routers on `body["action"]` that report failures in-band: `image_gen`'s `query` (`status` / `styles` / `test` / `models` / `node_types`), each answering from the saved config or by probing the external ComfyUI server; and `tts`'s `query` (`list_backends` / `list_voices` / `list_models` / `preview`), answering from the static backend registry or by probing the TTS backend named in the request's unsaved profile.
@@ -672,7 +678,7 @@ Validator-emitted reasons come from each gate in `validate_workflow_attachment_s
 | `workflow_message_state` | `messages.workflow_state` JSON | (mid, wid) | `workflow_state_lock(cid, wid)` of the owning conversation; no message-specific lock | toolkit get/set; orchestrator persist-time apply of post-pipeline `set_message_state` |
 | `workflow_config` | `settings.workflow_config[$.<wid>]` JSON | wid only (global) | `workflow_config_lock()` (single global) | toolkit get/set; HTTP PUT/GET |
 | `workflow_attachments` | `workflow_attachments` table | mid-anchored; root-keyed | `_workflow_root_lock(root_id)` serializes the mutating routes on a root group | cache helpers; six attachment routes (five take the lock; the access route does not) |
-| workflow enablement | `settings.workflows_globally_enabled` + `settings.workflow_enabled` JSON | global master + per `wid` | none (atomic per-key `json_set`) | `effective_workflow_enabled` (sec. 3.7); PRE/POST fan-out, hook-firing route gates, frontend `effectiveWorkflowEnabled` |
+| workflow enablement | `settings.workflows_globally_enabled` + `settings.workflow_enabled` JSON | built-in-tier master + per `wid` | none (atomic per-key `json_set`) | `effective_workflow_enabled` (sec. 3.7); PRE/POST fan-out, hook-firing route gates, frontend `effectiveWorkflowEnabled` |
 
 POST_PIPELINE hooks commit `workflow_message_state` for the in-flight assistant message by yielding `set_message_state`; the orchestrator writes the slot in `_persist_result` once the new `mid` exists (sec 7.4, 7.7). The toolkit `set_workflow_message_state` setter still only addresses already-persisted `mid`s, since the assistant `mid` is assigned during `_persist_result`, after the POST loop.
 

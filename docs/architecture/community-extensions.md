@@ -242,8 +242,9 @@ An extension has three independent state axes:
 1. **Installed revision** — package metadata and an active content digest exist.
 2. **Load status** — the active revision is `available`, `incompatible`,
    `invalid`, or `missing_content`.
-3. **Enablement** — the existing global workflow master switch and
-   `settings.workflow_enabled[extension_id]` both permit invocation.
+3. **Enablement** — `settings.workflow_enabled[extension_id]` permits
+   invocation. This is the *only* enablement gate: the Secondary Workflows
+   master switch covers the built-in tier and does not reach an extension.
 
 Permission grants are stored separately from all three. The effective runtime
 state is:
@@ -251,7 +252,6 @@ state is:
 ```text
 installed
   AND load_status == available
-  AND globally enabled
   AND enabled for this extension
   AND the entry point's required grants are currently approved
 ```
@@ -1846,7 +1846,7 @@ POST   /api/extensions/inspect-file
 POST   /api/extensions/install
 GET    /api/extensions
 GET    /api/extensions/{id}
-POST   /api/extensions/{id}/enabled
+POST   /api/extensions/{id}/enabled          (API only -- the UI toggles via /api/workflows/{id}/enabled)
 POST   /api/extensions/{id}/inspect-update
 POST   /api/extensions/{id}/update
 POST   /api/extensions/{id}/inspect-rollback

@@ -29,7 +29,7 @@ import { api } from "./api.js";
 import { applyEffects, disposeStaleViews, mountView, renderCommandSlots } from "./extension_commands.js";
 import { closeModal, showModal } from "./modal.js";
 import { S } from "./state.js";
-import { setExtensionMutationCallback } from "./tabLock.js";
+import { broadcastExtensionMutation, setExtensionMutationCallback } from "./tabLock.js";
 import { $, toast } from "./utils.js";
 
 // ── DOM helpers ─────────────────────────────────────────────────────────────
@@ -126,15 +126,76 @@ function sidebarRow(item) {
     text: item.name || item.id,
     style: "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis",
   });
-  const row = el("div", { cls: "fragment-item" }, [name, statusChip(item)]);
+  const row = el("div", { cls: "fragment-item" }, [name, statusChip(item), enableToggle(item)]);
   row.style.cursor = "pointer";
   row.addEventListener("click", () => showExtensionManagerModal(item.id));
   return row;
 }
 
 /**
+ * The one on/off control for an installed extension, in the one place an
+ * extension is listed. Same markup as a mood fragment's toggle so the sidebar
+ * reads as a single kind of list.
+ *
+ * Built with nodes rather than the fragments' inline-handler template: this
+ * module's invariant is that no package-authored string reaches an attribute,
+ * and the id in `onchange="...('<id>')"` would be exactly that.
+ *
+ * Never disabled from elsewhere: this checkbox is the whole truth about whether
+ * the extension runs. The Secondary master used to gate it too, which meant a
+ * row could read "on" while nothing worked, with the reason in another panel.
+ */
+function enableToggle(item) {
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = Boolean(item.enabled);
+  box.addEventListener("change", () => void setEnabled(item.id, box.checked));
+
+  const label = el("label", { cls: "tog" }, [box, el("span", { cls: "tog-slider" })]);
+  const wrap = el("div", { cls: "frag-toggle-wrapper" }, [label]);
+  // The row opens the manager on click; the toggle is not that click.
+  wrap.addEventListener("click", (e) => e.stopPropagation());
+  return wrap;
+}
+
+/**
+ * Flip one extension, then resync everything that renders off the catalog.
+ *
+ * The same route `settings.js` uses for a built-in workflow -- the server sends
+ * a community id down the extension lifecycle, so this is one write path, not
+ * two. It is called from here rather than by importing `toggleWorkflowEnabled`
+ * because that module reaches the whole app: pulling it in would drag chat,
+ * panels, and the model settings into a module whose isolation is the point (and
+ * into the test that guards it).
+ *
+ * No Secondary-panel repaint is needed -- an extension is not listed there any
+ * more. `loadExtensionCatalog` covers the rest, including message-level slots:
+ * `renderCommandSlots` rebuilds every `[data-ext-slot]` host from the extensions
+ * that are still enabled, so a disabled package's placements clear with it.
+ */
+async function setEnabled(extensionId, enabled) {
+  try {
+    const res = await api.post(`/workflows/${encodeURIComponent(extensionId)}/enabled`, { enabled });
+    if (res && typeof res.workflow_enabled === "object") S.settings.workflow_enabled = res.workflow_enabled;
+  } catch (e) {
+    toast(errorText(e), true);
+  }
+  // Refetched either way: on success it carries the new state, and on failure it
+  // restores the checkbox from the server's unchanged view rather than leaving
+  // the click showing a flip that did not happen.
+  await loadExtensionCatalog();
+  broadcastExtensionMutation({ generation: S.extensionRuntimeGeneration });
+}
+
+/**
  * `installed`, `enabled`, and `available` are three independent axes, so the
  * chip names which one is off rather than collapsing them into "broken".
+ *
+ * Enablement is *not* one of the axes it reports: the row's own toggle owns and
+ * displays that, right next to it. A chip restating it is a second element for
+ * one fact, and the two drift the moment either renders stale. What is left is
+ * the state no toggle can show -- this package cannot run, or can only partly
+ * run, whatever the switch says.
  */
 function statusChip(item) {
   if (item.load_status !== "available") {
@@ -144,11 +205,10 @@ function statusChip(item) {
       title: item.diagnostic || "",
     });
   }
-  if (!item.enabled) return el("span", { cls: "chip", text: "disabled" });
   if (item.blocked_entry_points?.length) {
     return el("span", { cls: "chip chip-warn", text: "limited", title: item.diagnostic || "" });
   }
-  return el("span", { cls: "chip chip-ok", text: "on" });
+  return null;
 }
 
 // ── manager modal ───────────────────────────────────────────────────────────
@@ -199,6 +259,7 @@ function managerCard(item) {
   });
 
   const card = el("div", { cls: "ext-card" }, [header]);
+  if (!item.enabled) card.style.opacity = "0.5";
   if (item.description) card.appendChild(el("div", { cls: "ext-card-desc", text: item.description }));
   if (item.diagnostic) card.appendChild(el("div", { cls: "ext-diagnostic", text: item.diagnostic }));
   if (open) card.appendChild(cardDetail(item));
@@ -235,8 +296,9 @@ function cardDetail(item) {
   const telemetry = telemetrySection(item);
   if (telemetry) body.appendChild(telemetry);
 
+  // No Enable/Disable button here on purpose: the sidebar row's toggle is the
+  // one enablement control. The dimming above is a readout, not a second switch.
   const row = el("div", { cls: "btn-row ext-footer" }, [
-    button(item.enabled ? "Disable" : "Enable", () => setEnabled(item.id, !item.enabled)),
     button("Update from file…", () => triggerExtensionUpdate(item.id)),
     item.can_rollback ? button("Roll back", () => startRollback(item.id)) : null,
     el("div", { cls: "ext-footer-danger" }, [
@@ -532,10 +594,6 @@ function permissionSection(title, rows, boxes, selectable) {
 }
 
 // ── other lifecycle actions ─────────────────────────────────────────────────
-
-async function setEnabled(extensionId, enabled) {
-  await run(() => api.post(`/extensions/${encodeURIComponent(extensionId)}/enabled`, { enabled }));
-}
 
 async function uninstall(extensionId) {
   const ok = await run(() => api.del(`/extensions/${encodeURIComponent(extensionId)}`));

@@ -26,6 +26,7 @@ from backend.features.extensions.interpreter import (
     run_flow,
 )
 from backend.features.extensions.limits import (
+    MAX_CTX_CHARACTER_BYTES,
     MAX_FLOW_STEPS_DECLARED,
     MAX_FLOW_STEPS_EXECUTED,
     MAX_JSON_STRING_BYTES,
@@ -138,6 +139,26 @@ def test_a_template_substitutes_scalars_and_refuses_gaps():
         render_template("{{ctx.missing}}", namespaces)
     with pytest.raises(FlowError):
         render_template("{{ctx.obj}}", namespaces)
+
+
+def test_a_template_renders_a_projection_the_host_itself_offers():
+    """The rendered cap clears the projections, so a long card is not a failure.
+
+    A character projection is bounded at ``MAX_CTX_CHARACTER_BYTES``. A render
+    cap below that would reject a card the library accepted and the host handed
+    to the flow -- the host contradicting itself, surfaced to the user as an
+    unactionable error about a limit no card editor mentions.
+    """
+    description = "x" * MAX_CTX_CHARACTER_BYTES
+    rendered = render_template("Name: {{ctx.character.description}}", {"ctx": {"character": {"description": description}}})
+    assert len(rendered) == MAX_CTX_CHARACTER_BYTES + 6
+
+    # Still bounded: repeating a large hole until the prompt balloons fails.
+    with pytest.raises(FlowError):
+        render_template(
+            "{{ctx.character.description}}" * 32,
+            {"ctx": {"character": {"description": "y" * MAX_CTX_CHARACTER_BYTES}}},
+        )
 
 
 async def test_the_missing_sentinel_cannot_be_returned():

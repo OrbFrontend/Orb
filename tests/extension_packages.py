@@ -477,7 +477,18 @@ def tag_librarian_config_view() -> dict[str, Any]:
             "component": "stack",
             "children": [
                 {"component": "text", "value": "One tag per line. Cards are classified against this list only."},
-                {"component": "textarea", "bind": "config.vocabulary_text", "label": "Vocabulary", "rows": 6},
+                # The flow reads this key with `list.join` and `list.intersect`,
+                # so it has to be stored as an array. `value_kind: lines` is what
+                # makes the box the user types in and the key the flow reads the
+                # same slot -- a textarea bound to a second, text-shaped key
+                # would save fine and classify nothing.
+                {
+                    "component": "textarea",
+                    "bind": "config.vocabulary",
+                    "label": "Vocabulary",
+                    "rows": 6,
+                    "value_kind": "lines",
+                },
             ],
         },
     }

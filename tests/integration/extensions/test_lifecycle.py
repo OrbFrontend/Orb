@@ -17,7 +17,7 @@ import sqlite3
 
 import pytest
 
-from backend.features.extensions import content_store, staging
+from backend.features.extensions import content_store, execution, staging
 from backend.features.extensions.runtime import current_state
 from tests.extension_packages import (
     full_manifest,
@@ -232,6 +232,26 @@ async def test_enablement_toggle_rolls_back_both_mirrors_on_failure(client, db):
     settings = await (await db.execute("SELECT workflow_enabled FROM settings WHERE id = 1")).fetchone()
     assert package["enabled"] == 0
     assert json.loads(settings["workflow_enabled"])["scene-meter"] is False
+
+
+async def test_the_workflow_toggle_is_the_extension_toggle(client, db):
+    """The Secondary-workflows toggle is the only enablement control in the UI.
+
+    So its route must take the full lifecycle path for a community workflow --
+    the settings write alone would leave the package row's mirror stale and skip
+    the invocation block. Asserting the mirror is asserting that delegation.
+    """
+    await install(client, metadata_package())
+
+    assert (await client.post("/api/workflows/scene-meter/enabled", json={"enabled": False})).status_code == 200
+
+    row = await (await db.execute("SELECT enabled FROM extension_packages WHERE id = 'scene-meter'")).fetchone()
+    assert row["enabled"] == 0
+    assert (await entry(client, "scene-meter"))["enabled"] is False
+    assert "scene-meter" in execution._blocked
+
+    await client.post("/api/workflows/scene-meter/enabled", json={"enabled": True})
+    assert "scene-meter" not in execution._blocked
 
 
 async def test_enabling_an_unknown_extension_is_a_404(client):

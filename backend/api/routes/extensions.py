@@ -57,7 +57,7 @@ from ...features.extensions.interpreter import ModelLane
 from ...features.extensions.limits import MAX_SOURCE_BYTES
 from ...features.extensions.runtime import current_state
 from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
-from ...workflows.contracts import LoadStatus
+from ...workflows.contracts import LoadStatus, WorkflowSource
 from ...workflows.enablement import effective_workflow_enabled
 from ..schemas import (
     ExtensionActionRequest,
@@ -492,7 +492,7 @@ def _resolve_action(entry, action: str, settings):
     """
     if entry.compiled is None or entry.load_status is not LoadStatus.AVAILABLE:
         raise HTTPException(status_code=409, detail=entry.diagnostic or "this extension is not available")
-    if not effective_workflow_enabled(entry.id, settings):
+    if not effective_workflow_enabled(entry.id, settings, WorkflowSource.COMMUNITY):
         raise HTTPException(status_code=409, detail="this extension is disabled")
     binding = entry.compiled.manifest.actions.get(action)
     if binding is None:
@@ -512,7 +512,7 @@ def _available(entry, settings):
     """The three runtime gates a content route shares, as distinct refusals."""
     if entry.compiled is None or entry.load_status is not LoadStatus.AVAILABLE:
         raise HTTPException(status_code=409, detail=entry.diagnostic or "this extension is not available")
-    if not effective_workflow_enabled(entry.id, settings):
+    if not effective_workflow_enabled(entry.id, settings, WorkflowSource.COMMUNITY):
         raise HTTPException(status_code=409, detail="this extension is disabled")
     return entry.compiled
 

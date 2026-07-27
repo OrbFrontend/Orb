@@ -108,6 +108,15 @@ function catalogEntry(over = {}) {
   };
 }
 
+/** The first `<input>` in a rendered sidebar — each row has exactly one. */
+function toggleOf(host) {
+  const find = (node) =>
+    node.tagName === "INPUT" ? node : node.children.reduce((hit, c) => hit ?? find(c), undefined);
+  const box = find(host);
+  assert.ok(box, "the row should render a toggle");
+  return box;
+}
+
 function render(entries, orphans = []) {
   innerHTMLWrites.length = 0;
   byId.clear();
@@ -135,18 +144,46 @@ test("no package string becomes an event-handler attribute", () => {
   }
 });
 
-test("the status chip distinguishes the three state axes", () => {
-  const off = render([catalogEntry({ enabled: false })]);
-  assert.ok(off.allText().includes("disabled"));
-
+test("the status chip reports only what the toggle cannot show", () => {
   const broken = render([catalogEntry({ load_status: "missing_content", diagnostic: "gone" })]);
   assert.ok(broken.allText().includes("missing content"));
 
   const limited = render([catalogEntry({ blocked_entry_points: ["hook post_pipeline"] })]);
   assert.ok(limited.allText().includes("limited"));
 
+  // Enablement is the row's own toggle to display. A chip repeating it is a
+  // second element for one fact, and the two drift when either renders stale --
+  // the sidebar said "on" for an extension whose toggle was already off.
+  const off = render([catalogEntry({ enabled: false })]);
+  assert.ok(!off.allText().includes("disabled"), "off state must not become a chip");
+  assert.equal(toggleOf(off).checked, false, "off state is shown by the row's toggle");
+
   const fine = render([catalogEntry()]);
-  assert.ok(fine.allText().includes("on"));
+  assert.ok(!fine.allText().includes("on"), "a healthy enabled row carries no chip at all");
+  assert.equal(toggleOf(fine).checked, true);
+});
+
+test("the row toggle is the one on/off control, and nothing else gates it", () => {
+  S.settings = {};
+  const host = render([catalogEntry()]);
+  const box = toggleOf(host);
+  assert.equal(box.type, "checkbox");
+  assert.equal(box.disabled, undefined);
+
+  // No package string may reach an attribute, so the toggle must carry a real
+  // listener rather than the inline `onchange="fn('<id>')"` the mood fragments
+  // use -- the id in that string is package-authored.
+  assert.ok(box.listeners.change?.length, "the toggle wires a listener, not an attribute");
+  for (const [name] of host.allAttributes()) assert.ok(!/^on/i.test(name));
+
+  // The Secondary master is a built-in-tier switch: an extension row stays live
+  // and checked while it is off, rather than greying out for a reason that is
+  // only visible in another panel.
+  S.settings = { workflows_globally_enabled: false };
+  const ungated = render([catalogEntry()]);
+  assert.equal(toggleOf(ungated).disabled, undefined);
+  assert.equal(toggleOf(ungated).checked, true);
+  S.settings = {};
 });
 
 test("an empty catalog still offers a way into the manager", () => {

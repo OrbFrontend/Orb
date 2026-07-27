@@ -29,6 +29,7 @@ from ...database import (
     set_workflow_enabled,
 )
 from ...database.models import ConversationRow
+from ...features.extensions import lifecycle
 from ...inference import agent_lane_from_settings, client_from_settings
 from ...workflows import (
     HookType,
@@ -38,6 +39,7 @@ from ...workflows import (
     RerollGenCtx,
     Subscription,
     WorkflowEventStream,
+    WorkflowSource,
     _readonly,
     current_snapshot,
     get_subscription,
@@ -80,7 +82,7 @@ def _gate_workflow_sub(
     disambiguates server-side. Gating before the lock means a disabled-workflow
     request never contends for the same lock the live consumption routes hold.
     """
-    if sub is None or not effective_workflow_enabled(wid, settings):
+    if sub is None or not effective_workflow_enabled(wid, settings, sub.source):
         if sub is not None:
             logger.info("workflow %r %s suspended (disabled)", scrub_log(wid), action)
         raise HTTPException(status_code=404, detail=detail)
@@ -196,10 +198,23 @@ async def api_set_workflow_enabled(workflow_id: str, data: WorkflowEnabledUpdate
     dedicated per-key route rather than PUT /settings because the latter does a
     full-column overwrite that would clobber a concurrent tab's flip of another
     workflow (the per-key json_set in set_workflow_enabled does not).
+
+    A community workflow is an installed extension, so the flip goes through
+    ``lifecycle.set_enabled``: the settings write alone would leave the package
+    row's mirror stale and skip the invocation block that stops a callable an
+    older snapshot still holds. This is the *only* enablement control -- the
+    extension manager deliberately has none.
     """
-    if get_workflow(workflow_id) is None:
+    workflow = get_workflow(workflow_id)
+    if workflow is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
-    await set_workflow_enabled(workflow_id, data.enabled)
+    if workflow.source is WorkflowSource.COMMUNITY:
+        try:
+            await lifecycle.set_enabled(workflow_id, data.enabled)
+        except lifecycle.LifecycleError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+    else:
+        await set_workflow_enabled(workflow_id, data.enabled)
     settings = await get_settings()
     logger.info("workflow %r enabled=%s", scrub_log(workflow_id), data.enabled)
     return {"workflow_enabled": settings.get("workflow_enabled", {})}

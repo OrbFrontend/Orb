@@ -1,8 +1,10 @@
 """Unit tests for the pure workflow-enablement predicates.
 
-``effective_workflow_enabled`` is the ``global AND local`` truth table with
-both sides defaulting to on when absent, plus a defensive coercion that turns a
-stray non-dict ``workflow_enabled`` into "enabled" rather than raising.
+``effective_workflow_enabled`` is the ``global AND local`` truth table for a
+built-in and the ``local``-only table for a community record (the master is a
+built-in-tier switch), with every side defaulting to on when absent, plus a
+defensive coercion that turns a stray non-dict ``workflow_enabled`` into
+"enabled" rather than raising.
 ``disabled_workflow_tool_names`` projects the registry to the tool names owned
 by currently-disabled workflows; it reads ``list_workflows`` (monkeypatched here
 so the test owns the registry view without touching process-global state).
@@ -11,6 +13,7 @@ so the test owns the registry view without touching process-global state).
 from __future__ import annotations
 
 from backend.workflows import ToolSpec, Workflow, enablement
+from backend.workflows.contracts import WorkflowSource
 from backend.workflows.enablement import (
     disabled_workflow_tool_names,
     effective_workflow_enabled,
@@ -27,6 +30,21 @@ def test_truth_table_global_and_local():
     assert effective_workflow_enabled("w", local_off) is False
     assert effective_workflow_enabled("w", global_off) is False
     assert effective_workflow_enabled("w", both_off) is False
+
+
+def test_community_records_ignore_the_master():
+    # The extension tier is decoupled: its own flag is the only gate, so the
+    # master going off must leave an installed extension running.
+    global_off = {"workflows_globally_enabled": 0, "workflow_enabled": {"ext": True}}
+    local_off = {"workflows_globally_enabled": 1, "workflow_enabled": {"ext": False}}
+
+    assert effective_workflow_enabled("ext", global_off, WorkflowSource.COMMUNITY) is True
+    assert effective_workflow_enabled("ext", {"workflows_globally_enabled": 0}, WorkflowSource.COMMUNITY) is True
+    assert effective_workflow_enabled("ext", local_off, WorkflowSource.COMMUNITY) is False
+    # Same settings, built-in tier: the master still applies. The default source
+    # is BUILTIN, so a gate that forgets the argument stays under the master.
+    assert effective_workflow_enabled("ext", global_off, WorkflowSource.BUILTIN) is False
+    assert effective_workflow_enabled("ext", global_off) is False
 
 
 def test_missing_values_default_to_enabled():

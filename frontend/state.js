@@ -183,19 +183,23 @@ export const S = {
   rejectedWorkflowAtts: [],
 };
 
-// Mirrors the backend truth table (backend/workflows/enablement.py): a workflow
-// is effective only when the global master and its per-workflow flag are both on,
-// each defaulting to on when its value is missing. Reads S.settings directly (the
-// single source), so a toggle takes effect at the next render with no refetch, and
-// it is safe before loadSettings populates S.settings (defaults to enabled). The
-// typeof guard mirrors the backend's defensive coercion: a malformed
-// workflow_enabled degrades to enabled rather than throwing at every gate.
-export function effectiveWorkflowEnabled(wid) {
-  const g = S.settings?.workflows_globally_enabled;
-  const globalOn = g === undefined ? true : Boolean(g);
+// Mirrors the backend truth table (backend/workflows/enablement.py): the per-id
+// flag always applies, and the global master applies to built-ins only -- an
+// extension is toggled in the Extensions sidebar and answers to nothing else.
+// Pass the record's own source ("community" for an extension), matching the
+// manifest's `source` string. Each value defaults to on when missing.
+//
+// Reads S.settings directly (the single source), so a toggle takes effect at the
+// next render with no refetch, and it is safe before loadSettings populates
+// S.settings (defaults to enabled). The typeof guard mirrors the backend's
+// defensive coercion: a malformed workflow_enabled degrades to enabled rather
+// than throwing at every gate.
+export function effectiveWorkflowEnabled(wid, source = "builtin") {
   const map = (S.settings && typeof S.settings.workflow_enabled === "object" && S.settings.workflow_enabled) || {};
-  const localOn = wid in map ? Boolean(map[wid]) : true;
-  return globalOn && localOn;
+  if (wid in map && !map[wid]) return false;
+  if (source === "community") return true;
+  const g = S.settings?.workflows_globally_enabled;
+  return g === undefined ? true : Boolean(g);
 }
 
 // The 8 workflow registrars live in workflow_registry.js now; re-exported here so

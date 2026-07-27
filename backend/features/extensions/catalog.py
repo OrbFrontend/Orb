@@ -20,6 +20,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from ...workflows.contracts import WorkflowSource
 from ...workflows.enablement import effective_workflow_enabled
 from ...workflows.registry import list_workflows
 from . import telemetry
@@ -205,7 +206,7 @@ def catalog_entry(entry: InstalledExtension, settings: Any) -> dict[str, Any]:
         "previous_digest": entry.row["previous_digest"],
         "installed_at": entry.row["installed_at"],
         "updated_at": entry.row["updated_at"],
-        "enabled": effective_workflow_enabled(entry.id, settings),
+        "enabled": effective_workflow_enabled(entry.id, settings, WorkflowSource.COMMUNITY),
         "load_status": entry.load_status.value,
         "diagnostic": entry.diagnostic,
         "blocked_entry_points": list(entry.blocked),

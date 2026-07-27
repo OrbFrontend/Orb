@@ -474,6 +474,9 @@ export async function saveLengthGuardConfig() {
 // only that key), never the full-column settings PUT, so two tabs flipping different
 // workflows cannot clobber each other.
 
+// Built-ins only. Extensions are a separate tier with their own per-package
+// toggle in the Extensions sidebar, so nothing here has to tell that sidebar
+// anything -- flipping this leaves every installed extension exactly as it was.
 export async function toggleWorkflowsGlobal(on) {
   await persistSettings({ workflows_globally_enabled: on });
   renderToolsPanel();
@@ -503,8 +506,15 @@ export async function toggleWorkflowEnabled(wid, on) {
 // column). A workflow that ships a config panel folds it into the same card (one
 // entry, not a separate toggle and settings card) -- the registered renderer returns
 // the card body (description + any controls), shown only while the workflow is on.
+//
+// Orb's own workflows only. A community workflow is an installed extension and
+// is listed -- with its toggle -- in the Extensions sidebar instead, so that an
+// extension appears in exactly one place. Nothing is lost by leaving here: an
+// extension's config lives in its manager card's `config_view`, never in a
+// tools-panel renderer (only trusted frontend modules can register one).
 function buildWorkflowToggleRows() {
-  if (!S.workflowManifest.length) return "";
+  const builtins = S.workflowManifest.filter((w) => w.source !== "community");
+  if (!builtins.length) return "";
   const g = S.settings?.workflows_globally_enabled;
   const globalOn = g === undefined ? true : Boolean(g);
 
@@ -516,12 +526,12 @@ function buildWorkflowToggleRows() {
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Turns all the workflows below on or off at once.</div>
+    <div class="tool-card-desc">Turns the workflows below on or off at once. Extensions have their own toggles.</div>
   </div>`;
 
   const panels = new Map(S.workflowToolsPanelRenderers.map(({ workflowId, render }) => [workflowId, render]));
 
-  const workflowRows = S.workflowManifest
+  const workflowRows = builtins
     .map((w) => {
       const effOn = effectiveWorkflowEnabled(w.id);
       let body = "";

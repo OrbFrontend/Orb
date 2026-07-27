@@ -85,7 +85,9 @@ function enabledExtensions() {
   // all three plus a grant for its slot, which the server already applied by
   // listing the placement at all only when it published.
   return [...(S.extensionCatalog || [])]
-    .filter((entry) => entry.load_status === "available" && entry.enabled && effectiveWorkflowEnabled(entry.id))
+    .filter(
+      (entry) => entry.load_status === "available" && entry.enabled && effectiveWorkflowEnabled(entry.id, "community"),
+    )
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
