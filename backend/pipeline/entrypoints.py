@@ -186,6 +186,7 @@ async def _generate_reply(
         turn_scratch=setup.turn_scratch,
         kv_tracker=setup.kv_tracker,
         schema_overrides=setup.schema_overrides,
+        extension_context=setup.extension_context,
         registry=ctx.registry,
         history=history,
     )

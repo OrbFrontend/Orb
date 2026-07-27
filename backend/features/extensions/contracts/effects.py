@@ -60,6 +60,13 @@ class ExtensionCatalogEffect(ExtModel):
     resource: Literal["extension.catalog"]
 
 
+class Toast(ExtModel):
+    """One host-rendered notification staged by ``ui.toast``."""
+
+    text: str = Field(min_length=1, max_length=200)
+    tone: Literal["info", "success", "warning", "error"] = "info"
+
+
 Effect = Annotated[
     MessagesEffect | DirectorEffect | DirectionNotesEffect | ExtensionViewEffect | ExtensionCatalogEffect,
     Field(discriminator="resource"),
@@ -75,4 +82,5 @@ class EffectEnvelope(ExtModel):
 
     data: Any = None
     effects: list[Effect] = Field(default_factory=list, max_length=32)
+    toasts: list[Toast] = Field(default_factory=list, max_length=128)
     runtime_generation: int = Field(ge=0)

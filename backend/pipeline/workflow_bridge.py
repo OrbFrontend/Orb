@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -29,6 +30,7 @@ from ..core import ChatMessage, workflow_character_state_lock, workflow_state_lo
 from ..inference import TOOLS, LLMClient, _KVCacheTracker
 from ..workflows import (
     EV_ATTACH_ARTIFACT,
+    EV_CONTEXT_BLOCK,
     EV_DRAFT_REPLACED,
     EV_ENABLE_TOOLS,
     EV_SET_MESSAGE_STATE,
@@ -38,12 +40,46 @@ from ..workflows import (
     PostCtx,
     PreCtx,
     RegistrySnapshot,
+    Subscription,
+    WorkflowSource,
     _readonly,
     public_event_error,
 )
 from ..workflows.enablement import effective_workflow_enabled
 
 logger = logging.getLogger(__name__)
+
+MAX_CONTEXT_BLOCK_BYTES = 8 * 1024
+MAX_CONTEXT_BYTES_PER_TARGET = 32 * 1024
+"""Per-block and per-target-per-turn budgets for extension context blocks.
+
+Restated here rather than imported from ``features/extensions`` because the
+pipeline sits *below* that slice in the layer stack and must not import it. The
+interpreter enforces the per-block bound at the moment a flow stages one; this
+module enforces the combined bound, which only the pipeline can see because
+only it knows every extension contributing to the same turn.
+"""
+
+
+@asynccontextmanager
+async def _hook_locks(sub: Subscription, conversation_id: str | None, character_id: str | None):
+    """Hold the workflow state locks for a trusted hook; hold nothing for a community one.
+
+    Trusted Python hooks read and write their state slots through the toolkit at
+    arbitrary points inside the callable, so the bridge has to serialize their
+    whole lifetime. A community adapter derives its own lock plan from the
+    compiled flow and acquires exactly the scopes that flow touches -- and
+    ``asyncio.Lock`` is not reentrant, so taking the same lock around the
+    adapter would deadlock it against itself the moment it read its own state.
+    """
+    if sub.source is WorkflowSource.COMMUNITY:
+        yield
+        return
+    async with (
+        workflow_state_lock(conversation_id or "", sub.workflow_id),
+        workflow_character_state_lock(character_id or "", sub.workflow_id),
+    ):
+        yield
 
 
 def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict | None:
@@ -121,11 +157,8 @@ async def _run_post_pipeline(
         # /trigger calls and any other in-flight pipeline that reaches this
         # hook on the same conversation. Different workflows on the same
         # conversation keep distinct lock keys, so they still run in parallel.
-        # Serialize same-(cid, wid) writers; different workflows run in parallel.
-        async with (
-            workflow_state_lock(conversation_id or "", sub.workflow_id),
-            workflow_character_state_lock(character_id or "", sub.workflow_id),
-        ):
+        # A community adapter is exempt and locks itself -- see _hook_locks.
+        async with _hook_locks(sub, conversation_id, character_id):
             try:
                 post_ctx = PostCtx(
                     conversation_id=conversation_id or "",
@@ -142,6 +175,7 @@ async def _run_post_pipeline(
                     schema_overrides=_readonly(schema_overrides),
                     character_id=character_id,
                     character=_readonly(card),
+                    runtime_generation=registry.generation,
                 )
                 async for ev in sub.callable(post_ctx):
                     t = ev.get("type") if isinstance(ev, dict) else None
@@ -315,6 +349,54 @@ def _stage_workflow_attachment(att: object, workflow_id: str) -> dict | None:
     return out
 
 
+def _context_blocks_error(blocks: list[dict[str, Any]], collected: list[dict]) -> str | None:
+    """Validate a candidate invocation's complete context effect set.
+
+    Community adapters call this before committing their other effects. The
+    bridge calls the same function defensively when consuming each emitted
+    block, so the pre-commit and publication boundaries cannot drift.
+    """
+    pending = list(collected)
+    for block in blocks:
+        targets = block.get("targets")
+        label = block.get("label")
+        text = block.get("text")
+        if not isinstance(text, str) or not text.strip() or not isinstance(label, str):
+            return "context block is malformed"
+        if (
+            not isinstance(targets, (list, tuple))
+            or not targets
+            or any(target not in ("director", "writer") for target in targets)
+        ):
+            return "context block has invalid targets"
+        size = len(text.encode("utf-8"))
+        if size > MAX_CONTEXT_BLOCK_BYTES:
+            return f"context block exceeds the {MAX_CONTEXT_BLOCK_BYTES} byte limit"
+        for target in targets:
+            used = sum(len(item["text"].encode("utf-8")) for item in pending if target in item["targets"])
+            if used + size > MAX_CONTEXT_BYTES_PER_TARGET:
+                return f"context blocks exceed the {MAX_CONTEXT_BYTES_PER_TARGET} byte {target} turn budget"
+        pending.append({"targets": list(targets), "label": label, "text": text})
+    return None
+
+
+def _accumulate_context_block(ev: Mapping[str, Any], workflow_id: str, collected: list[dict]) -> None:
+    """Validate one ``context_block`` yield and fold it into the turn's collection."""
+    candidate = dict(ev)
+    reason = _context_blocks_error([candidate], collected)
+    if reason is not None:
+        logger.warning("pre_pipeline hook %r yielded a rejected context_block: %s", workflow_id, reason)
+        return
+    collected.append(
+        {
+            "extension_id": workflow_id,
+            "targets": list(candidate["targets"]),
+            "label": candidate["label"],
+            "text": candidate["text"],
+        }
+    )
+
+
 async def _iterate_pre_pipeline_hooks(
     *,
     conversation_id: str,
@@ -336,21 +418,19 @@ async def _iterate_pre_pipeline_hooks(
 
     Yields pass-through SSE events and mutates *accumulators* in place:
     ``enable_tools`` yields fold extra tools into the merged map;
-    ``system_prompt`` yields append blocks to the extras list. Hook failures
+    ``system_prompt`` yields append blocks to the extras list; ``context_block``
+    yields append to the per-turn trailing-context collection. Hook failures
     are logged and skipped.
 
     *accumulators* must be pre-populated with
-    ``{"merged_enabled_tools": <dict>, "extras": []}``.
+    ``{"merged_enabled_tools": <dict>, "extras": [], "context_blocks": []}``.
     """
     for sub in registry.subscriptions(HookType.PRE_PIPELINE):
         if not effective_workflow_enabled(sub.workflow_id, settings):
             logger.info("workflow %r pre-pipeline hook suspended (disabled)", sub.workflow_id)
             continue
         # Lock held for the hook's full lifetime to keep workflow_state RMW atomic.
-        async with (
-            workflow_state_lock(conversation_id, sub.workflow_id),
-            workflow_character_state_lock(character_id or "", sub.workflow_id),
-        ):
+        async with _hook_locks(sub, conversation_id, character_id):
             try:
                 pre_ctx = PreCtx(
                     conversation_id=conversation_id,
@@ -365,6 +445,8 @@ async def _iterate_pre_pipeline_hooks(
                     schema_overrides=_readonly(schema_overrides),
                     character_id=character_id,
                     character=_readonly(card),
+                    runtime_generation=registry.generation,
+                    context_block_error=lambda blocks: _context_blocks_error(blocks, accumulators["context_blocks"]),
                 )
                 async for ev in sub.callable(pre_ctx):
                     t = ev.get("type") if isinstance(ev, dict) else None
@@ -408,6 +490,9 @@ async def _iterate_pre_pipeline_hooks(
                             )
                             continue
                         accumulators["extras"].append(block)
+                        continue
+                    if t == EV_CONTEXT_BLOCK:
+                        _accumulate_context_block(ev, sub.workflow_id, accumulators["context_blocks"])
                         continue
                     # Unknown control event ("type" present but unmatched): drop it
                     # instead of leaking it through as a stray SSE event.

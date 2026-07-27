@@ -96,6 +96,23 @@ MAX_FRAGMENT_TYPES = 16
 MAX_COMPONENT_NODES = 256
 MAX_COMPONENT_DEPTH = 12
 
+# ── capability-filtered context projection (section 6) ───────────────────────
+# Every variable-length projection has both an item count and an aggregate
+# UTF-8 byte cap. One without the other is not a bound: 10,000 one-byte
+# messages and one 10 MiB message are the same failure in different shapes.
+
+MAX_CTX_HISTORY_MESSAGES = 20
+"""Messages in the bounded active-path history window."""
+
+MAX_CTX_HISTORY_BYTES = 32 * KIB
+"""Aggregate UTF-8 bytes of the history projection."""
+
+MAX_CTX_TEXT_BYTES = 64 * KIB
+"""One projected text field (draft, input, a single history message body)."""
+
+MAX_CTX_CHARACTER_BYTES = 16 * KIB
+"""Aggregate UTF-8 bytes of the allowlisted character projection."""
+
 # ── fragment-type resolution (section 9) ─────────────────────────────────────
 
 MAX_EXTENSION_FRAGMENT_INSTANCES_PER_TURN = 50

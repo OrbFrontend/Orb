@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -50,6 +51,86 @@ _STATE_SLOTS: tuple[tuple[str, str, str], ...] = (
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+async def commit_extension_state(
+    extension_id: str,
+    updates: Mapping[str, Mapping[str, Any]],
+    *,
+    conversation_id: str | None,
+    character_id: str | None,
+    validate: Callable[[], None] | None = None,
+) -> None:
+    """Commit every database-backed extension state scope atomically.
+
+    ``validate`` is a synchronous dependency-inversion hook run after
+    ``BEGIN IMMEDIATE`` and immediately before the first write. The community
+    runtime uses it to re-check live grants and its complete staged effect set
+    without making ``database/`` import the feature layer. A concurrent
+    permission mutation cannot pass its own write transaction between this
+    check and these updates.
+    """
+    unknown = set(updates) - {"config", "conversation", "character"}
+    if unknown:
+        raise ValueError(f"unsupported extension state scope(s): {sorted(unknown)}")
+
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            if validate is not None:
+                validate()
+            if "config" in updates:
+                payload = dict(updates["config"])
+                if payload:
+                    await db.execute(
+                        "UPDATE settings "
+                        "SET workflow_config = json_set(COALESCE(workflow_config, '{}'), '$.' || ?, json(?)) "
+                        "WHERE id = 1",
+                        (extension_id, json.dumps(payload)),
+                    )
+                else:
+                    await db.execute(
+                        "UPDATE settings "
+                        "SET workflow_config = json_remove(COALESCE(workflow_config, '{}'), '$.' || ?) "
+                        "WHERE id = 1",
+                        (extension_id,),
+                    )
+            if "conversation" in updates and conversation_id is not None:
+                payload = dict(updates["conversation"])
+                if payload:
+                    await db.execute(
+                        "UPDATE conversations "
+                        "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
+                        "WHERE id = ?",
+                        (extension_id, json.dumps(payload), conversation_id),
+                    )
+                else:
+                    await db.execute(
+                        "UPDATE conversations "
+                        "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
+                        "WHERE id = ?",
+                        (extension_id, conversation_id),
+                    )
+            if "character" in updates and character_id is not None:
+                payload = dict(updates["character"])
+                if payload:
+                    await db.execute(
+                        "UPDATE character_cards "
+                        "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
+                        "WHERE id = ?",
+                        (extension_id, json.dumps(payload), character_id),
+                    )
+                else:
+                    await db.execute(
+                        "UPDATE character_cards "
+                        "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
+                        "WHERE id = ?",
+                        (extension_id, character_id),
+                    )
+            await db.commit()
+        except BaseException:
+            await db.rollback()
+            raise
 
 
 # ── packages ────────────────────────────────────────────────────────────────

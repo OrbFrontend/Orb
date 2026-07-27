@@ -47,6 +47,42 @@ class ModelLane:
     base: CachedBase
 
 
+@dataclass(frozen=True, slots=True)
+class ExtensionContext:
+    """This turn's community-extension context, rendered per prompt target.
+
+    Two pre-rendered strings rather than a list of blocks, because the passes
+    that consume them must not be able to reorder, filter, or re-attribute what
+    an extension contributed -- they concatenate a string into a trailing
+    message and nothing else.
+
+    Trailing, never prefixed. Extension context is dynamic by nature, and a
+    dynamic block in the cached system prefix would invalidate the whole
+    conversation's KV cache every turn it changed. These land beside the
+    lorebook and Scene Direction blocks, where the bytes were going to differ
+    each turn anyway.
+    """
+
+    director: str = ""
+    writer: str = ""
+
+    @classmethod
+    def from_blocks(cls, blocks: Sequence[Mapping[str, Any]]) -> ExtensionContext:
+        """Render collected blocks into one string per target.
+
+        Sorted by extension id, then label: two users with the same set of
+        packages get byte-identical prompts regardless of the order they
+        installed them in.
+        """
+        ordered = sorted(blocks, key=lambda b: (b.get("extension_id", ""), b.get("label", "")))
+
+        def render(target: str) -> str:
+            sections = [f"**{b['label']}**\n{b['text']}" for b in ordered if target in b.get("targets", ())]
+            return "\n\n".join(sections)
+
+        return cls(director=render("director"), writer=render("writer"))
+
+
 @dataclass(slots=True)
 class _PipelineConfig:
     """Resolved per-turn flags, lanes, and prefixes for ``_run_pipeline``."""

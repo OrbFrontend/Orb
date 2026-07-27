@@ -39,7 +39,7 @@ from .lorebook_select import LorebookSelectResult, lorebook_select_step
 
 if TYPE_CHECKING:
     from ....core import Macros
-    from ...state import LorebookTurn, TurnState, _PipelineConfig
+    from ...state import ExtensionContext, LorebookTurn, TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +140,7 @@ async def director_pass(
     lorebook_block: str = "",
     progressive_state: dict | None = None,
     direction_notes_block: str = "",
+    extension_block: str = "",
 ) -> AsyncIterator[dict]:
     """Yield reasoning chunks during each tool call, then a single done dict.
 
@@ -180,6 +181,11 @@ async def director_pass(
     # direction notes in view.
     lorebook_prefix = ("___\n\n" + lorebook_block + "\n\n") if lorebook_block else ""
     notes_prefix = ("___\n\n" + direction_notes_block + "\n\n") if direction_notes_block else ""
+    # Community-extension context rides the same trailing fence, last of the
+    # three and still ahead of the tool instruction, so the director reads it as
+    # additional scene context rather than as part of what it is being asked to
+    # do. Nothing about it touches the cached prefix or the tools blob.
+    extension_prefix = ("___\n\n" + extension_block + "\n\n") if extension_block else ""
 
     t0 = time.monotonic()
     for name in tool_names:
@@ -209,7 +215,7 @@ async def director_pass(
                     decided_fields=decided,
                     progressive_prior=(progressive_state or {}).get(stage["id"]) if stage else None,
                 )
-                step_tail = lorebook_prefix + notes_prefix + step_tail
+                step_tail = lorebook_prefix + notes_prefix + extension_prefix + step_tail
                 content = build_multimodal_content(step_tail, attachments)
                 trailing = [{"role": "user", "content": content}]
                 resp = {}
@@ -273,7 +279,7 @@ async def director_pass(
             progressive_state=progressive_state,
             tool_schema=tool_schema,
         )
-        tail = lorebook_prefix + (notes_prefix if name == "direct_scene" else "") + tool_tail
+        tail = lorebook_prefix + (notes_prefix if name == "direct_scene" else "") + extension_prefix + tool_tail
         content = build_multimodal_content(tail, attachments)
         trailing: list[ChatMessage] = [{"role": "user", "content": content}]
         resp: dict = {}
@@ -350,6 +356,7 @@ async def director_stage(
     kv_tracker: _KVCacheTracker,
     lorebook: LorebookTurn,
     macros: Macros,
+    extension_context: ExtensionContext | None = None,
 ) -> AsyncIterator[dict]:
     """Input-prep + director pass + all post-processing for the director stage.
 
@@ -391,6 +398,7 @@ async def director_stage(
             lorebook_block=lorebook.block,
             progressive_state=prior_progressive,
             direction_notes_block=notes_block if direction_note_to_director(settings) else "",
+            extension_block=extension_context.director if extension_context else "",
         ):
             if event["type"] == "reasoning":
                 state.reasoning_director += event["delta"]

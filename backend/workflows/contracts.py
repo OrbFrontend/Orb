@@ -54,9 +54,20 @@ def _readonly(obj: Any) -> Any:
 # string literals. The string values are the stable wire shape.
 EV_ENABLE_TOOLS = "enable_tools"  # pre-pipeline
 EV_SYSTEM_PROMPT = "system_prompt"  # pre-pipeline
+EV_CONTEXT_BLOCK = "context_block"  # pre-pipeline
 EV_DRAFT_REPLACED = "draft_replaced"  # post-pipeline
 EV_ATTACH_ARTIFACT = "attach_artifact"  # post-pipeline
 EV_SET_MESSAGE_STATE = "set_message_state"  # post-pipeline
+
+# ``context_block`` is the community tier's counterpart to ``system_prompt``,
+# and the difference is a KV-cache decision rather than a stylistic one. A
+# ``system_prompt`` block lands in the cached prefix, so every turn that adds or
+# changes one invalidates the whole conversation's cached history. Dynamic
+# extension context therefore rides the *trailing* message instead, beside
+# lorebook and Scene Direction data, where changing it every turn costs nothing.
+# Payload: ``{"targets": ["director" | "writer", ...], "label": str,
+# "text": str}``, with ``extension_id`` attached by the adapter so the pipeline
+# can order blocks deterministically rather than by installation time.
 
 
 @dataclass
@@ -119,6 +130,8 @@ class PreCtx:
     schema_overrides: MappingProxyType
     character_id: str | None = None
     character: MappingProxyType | None = None
+    runtime_generation: int = 0
+    context_block_error: Callable[[list[dict[str, Any]]], str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +173,7 @@ class PostCtx:
     schema_overrides: MappingProxyType
     character_id: str | None = None
     character: MappingProxyType | None = None
+    runtime_generation: int = 0
 
 
 @dataclass(frozen=True)

@@ -20,7 +20,7 @@ from ...inference import CachedBase, LLMClient, _KVCacheTracker, reasoning_cfg
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
-    from ..state import TurnState, _PipelineConfig
+    from ..state import ExtensionContext, TurnState, _PipelineConfig
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ def build_writer_content(
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard: LengthGuard | None,
     text_mode: bool = False,
+    extension_block: str = "",
 ) -> str | list[ContentPart]:
     """Build the writer's user-message content (string or multimodal list).
 
@@ -47,6 +48,11 @@ def build_writer_content(
         tail += "___\n\n" + lorebook_block + "\n\n"
     if inj_block:
         tail += "___\n\n" + inj_block + "\n\n"
+    # Community-extension context sits with the other per-turn trailing blocks,
+    # ahead of the effective user message. Built once here like everything else
+    # in this tail, so the editor's verbatim replay extends the same KV prefix.
+    if extension_block:
+        tail += "___\n\n" + extension_block + "\n\n"
     if enabled_tools and not text_mode:
         tail += "**Do not use tool or function calls this turn.**\n\n"
     tail += writer_nudge(length_guard)
@@ -103,6 +109,7 @@ async def writer_stage(
     settings: Mapping[str, Any],
     attachments: Sequence[Mapping[str, Any]],
     kv_tracker: _KVCacheTracker,
+    extension_context: ExtensionContext | None = None,
 ) -> AsyncIterator[dict]:
     """Input-prep + writer pass + event translation.
 
@@ -119,6 +126,7 @@ async def writer_stage(
         attachments,
         cfg.length_guard,
         cfg.writer_text_mode,
+        extension_block=extension_context.writer if extension_context else "",
     )
     writer_t0 = time.monotonic()
     async for item in writer_pass(

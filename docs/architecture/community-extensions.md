@@ -1,6 +1,6 @@
 # Community Extensions v1 — Architecture Handoff
 
-Status: **Phases 0-1 implemented; Phases 2-6 not started**
+Status: **Phases 0-2 implemented; Phases 3-6 not started**
 
 Landed (see section 17 for the phase definitions):
 
@@ -57,22 +57,59 @@ Landed (see section 17 for the phase definitions):
   catalog refresh (`EXTENSION_MUTATION` on the tab-lock channel). Built with
   DOM creation and `textContent` throughout, with no inline handlers.
 
-Deliberately absent, per the note at the end of section 16: there is still no
-interpreter, no `ExtensionCtx`, no host HTTP client or secret substitution, no
-component renderer, no Git reader, and no fragment-type contribution. Phase 1
-publishes community records with **no subscriptions** -- an installed package
-contributes catalog metadata and nothing executable -- and no permissive
-placeholder executor stands in for the real one.
+**Phase 2 — flow runtime and turn integration**
 
-Two Phase 1 route names extend section 12's family. `POST
+- Runtime value resolution (`values.py`): the validated path resolver, template
+  substitution, the structured predicate evaluator, and the `MISSING` sentinel
+  that keeps "absent" distinct from a stored `null`. Comparisons are
+  type-strict and total: an incomparable pair is `false`, never an exception
+  escaping a `when` guard.
+- The capability-filtered `ExtensionCtx` (`ctx.py`), *constructed* from the
+  approved grant set rather than filtered down from `PreCtx`/`PostCtx`, with
+  per-field and aggregate byte caps on every variable-length projection.
+- The interpreter (`interpreter.py`): the pure/data operations, per-invocation
+  quotas, the host-owned seeded PRNG, cancellation, sanitized `FlowError`
+  messages, the live pre-operation grant re-check, and the staged effect
+  record. `http.request`, `artifact.emit`, and `conversation.branch.activate`
+  parse and consent normally but are listed in `UNIMPLEMENTED_OPS`, so an entry
+  point reaching one is blocked with a diagnostic instead of failing halfway.
+- The adapters (`adapters.py`): compiled flows bound as `pre_pipeline` /
+  `post_pipeline` subscriptions and named actions, deriving their own lock plan
+  from the flow's state scopes, revalidating the complete effect set at the
+  commit boundary, and committing every database-backed scope through one
+  SQLite transaction under those locks.
+  `pipeline/workflow_bridge.py` no longer wraps a community subscription in the
+  workflow state locks — `asyncio.Lock` is not reentrant, and the adapter takes
+  them itself.
+- Invocation lifecycle coordination (`execution.py`): disable/uninstall/purge
+  block starts retained by older registry snapshots, purge drains active
+  invocations before deletion, and shutdown cancels/drains all remaining work.
+- Prefix-free model calls (`inference/isolated.py`): a host safety preamble plus
+  the flow's prompt and nothing else. Structured output ships an ephemeral tool
+  schema forced through `tool_choice`, built per call and never entering
+  `TOOLS` or any pass's `CachedBase`.
+- The `context_block` control event, the pipeline's per-target collection with
+  the 8 KiB / 32 KiB budgets, and `ExtensionContext` threaded into the Director
+  and Writer *trailing* messages beside the lorebook and Scene Direction blocks.
+- `POST /api/extensions/{id}/actions/{action}`, resolving an exact compiled
+  binding from the manifest's declared action map.
+- The Scene Meter fixture (`tests/extension_packages.py`) plus interpreter unit
+  tests and turn/action integration tests.
+
+Deliberately absent, per the note at the end of section 16: there is still no
+host HTTP client or secret substitution, no artifact emission, no branch
+activation, no component renderer, no Git reader, and no fragment-type
+contribution — and no permissive placeholder stands in for any of them.
+
+Two route names extend section 12's family. `POST
 /api/extensions/{id}/inspect-rollback` exists because rollback is an inspected
 operation with a real permission diff (restoring a revision must not restore a
 capability since revoked), and it deserves the same two-request shape as
 update rather than an implicit mode on `/rollback`. `POST
 /api/extensions/inspect` (Git) is deferred with the rest of the Dulwich work to
-Phase 4; `PUT /{id}/secrets` and the `/actions`, `/views`, `/resources`, and
-`/assets` routes are deferred to the phases that add the runtime which
-validates what they would serve.
+Phase 4; `PUT /{id}/secrets` and the `/views`, `/resources`, and `/assets`
+routes are deferred to the phases that add the renderer and host resources
+which validate what they would serve.
 
 Audience: the engineer implementing Orb's community extension system. This
 document is an implementation handoff for v1: trust boundary, required host
@@ -346,6 +383,7 @@ Interpreter output is translated to a small host envelope:
       "view": "inspector"
     }
   ],
+  "toasts": [],
   "runtime_generation": 12
 }
 ```
@@ -354,7 +392,9 @@ The frontend owns the effect-to-refetch mapping for messages, Director state,
 direction notes, extension views, and the extension catalog. The same fixed
 effects drive local repaint and cross-tab broadcast. Unknown effects are dropped
 and logged; package strings never become event names, DOM selectors, function
-names, or module paths.
+names, or module paths. `toasts` is a bounded list of host-rendered
+`{text, tone}` notifications produced by `ui.toast`; it is data in the same
+validated envelope, not a package-selected event or callback.
 
 ---
 

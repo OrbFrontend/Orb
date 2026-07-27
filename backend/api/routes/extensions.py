@@ -14,9 +14,11 @@ Every mutating route follows the same shape, and the shape is the point:
   effect-to-refetch mapping, so a package string never becomes an event name, a
   DOM selector, or a fetch URL.
 * **No package-selected routing.** There is no route whose path, method, or
-  handler a package influences. Phase 1 deliberately ships none of the
-  ``/actions``, ``/views``, ``/resources``, or ``/assets`` routes: those serve
-  package-derived content and belong with the runtime that validates it.
+  handler a package influences. ``/actions/{action}`` looks its argument up in
+  the compiled manifest's declared action map; a package supplies an id, never
+  a URL, a method, or a handler. The ``/views``, ``/resources``, and ``/assets``
+  routes are still absent -- they serve package-derived *content*, and belong
+  with the renderer and host resources that validate it.
 
 Errors map by kind rather than by string matching: a malformed package is a
 400, a package that is not installed is a 404, and anything that changed
@@ -25,21 +27,32 @@ between inspection and application is a 409 telling the user to inspect again.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextlib import suppress
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 
 from ...database import (
+    get_character_card,
+    get_conversation,
+    get_messages,
     get_settings,
     list_extension_secret_names,
     namespaced_state_owners,
 )
-from ...features.extensions import catalog, lifecycle, staging
-from ...features.extensions.errors import PackageError, PackageIncompatible
+from ...features.extensions import adapters, catalog, lifecycle, staging
+from ...features.extensions.contracts import EffectEnvelope
+from ...features.extensions.errors import FlowError, PackageError, PackageIncompatible
+from ...features.extensions.interpreter import ModelLane
 from ...features.extensions.limits import MAX_SOURCE_BYTES
 from ...features.extensions.runtime import current_state
+from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
+from ...workflows.contracts import LoadStatus
+from ...workflows.enablement import effective_workflow_enabled
 from ..schemas import (
+    ExtensionActionRequest,
     ExtensionInstallRequest,
     ExtensionPermissionsUpdate,
     ExtensionPurgeRequest,
@@ -60,7 +73,13 @@ def _envelope(generation: int, data: Any = None) -> dict[str, Any]:
     response computed against a catalog the client has already replaced can be
     discarded rather than merged.
     """
-    return {"data": data, "effects": [{"resource": "extension.catalog"}], "runtime_generation": generation}
+    return EffectEnvelope.model_validate(
+        {
+            "data": data,
+            "effects": [{"resource": "extension.catalog"}],
+            "runtime_generation": generation,
+        }
+    ).model_dump(mode="json")
 
 
 async def _read_upload(file: UploadFile) -> bytes:
@@ -75,6 +94,23 @@ async def _read_upload(file: UploadFile) -> bytes:
     if not data:
         raise HTTPException(status_code=400, detail="no package archive was uploaded")
     return data
+
+
+async def _watch_action_disconnect(
+    request: Request,
+    abort_token: AbortToken,
+    *,
+    poll_seconds: float = 0.25,
+) -> None:
+    """Abort an on-demand action when its owning HTTP connection disappears."""
+    try:
+        while not abort_token.is_aborted:
+            if await request.is_disconnected():
+                abort_token.abort()
+                return
+            await asyncio.sleep(poll_seconds)
+    except asyncio.CancelledError:
+        pass
 
 
 def _package_error(exc: PackageError) -> HTTPException:
@@ -283,6 +319,106 @@ async def api_uninstall_extension(extension_id: str):
     except lifecycle.LifecycleError as exc:
         raise _lifecycle_error(exc) from None
     return _envelope(generation)
+
+
+# ── on-demand actions ───────────────────────────────────────────────────────
+
+
+@router.post("/{extension_id}/actions/{action}")
+async def api_run_extension_action(
+    extension_id: str,
+    action: str,
+    body: ExtensionActionRequest,
+    request: Request,
+):
+    """Run one declared action and return the fixed host effect envelope.
+
+    The route resolves an *exact* compiled binding: ``action`` indexes the
+    manifest's declared actions and nothing else. There is no path a package
+    influences, no handler it names, and no URL it supplies -- a view's button
+    dispatches an action id, and this is where that id is looked up.
+
+    A disconnect watcher aborts the shared model token and the interpreter
+    checks that token at every step and again at the commit boundary.
+    """
+    runtime = current_state()
+    entry = runtime.get(extension_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"extension {extension_id!r} is not installed")
+    generation = runtime.generation
+    settings = await get_settings()
+    binding, flow = _resolve_action(entry, action, settings)
+
+    conversation_id = body.conversation_id
+    conv = await get_conversation(conversation_id) if conversation_id else None
+    if conversation_id and conv is None:
+        raise HTTPException(status_code=404, detail="conversation not found")
+
+    character_id = conv.get("character_card_id") if conv else None
+    card = await get_character_card(character_id) if character_id else None
+    history = await get_messages(conversation_id) if conversation_id else []
+    abort_token = AbortToken()
+    client = client_from_settings(settings, abort_token=abort_token)
+    agent_client, agent_model = agent_lane_from_settings(
+        settings,
+        writer_client=client,
+        abort_token=abort_token,
+    )
+
+    watcher = asyncio.create_task(_watch_action_disconnect(request, abort_token))
+
+    try:
+        envelope = await adapters.run_action(
+            extension_id=extension_id,
+            flow=flow,
+            action_input=body.input,
+            input_schema=binding.input_schema,
+            output_schema=binding.output_schema,
+            conversation_id=conversation_id,
+            character_id=character_id,
+            lanes={
+                "writer": ModelLane(client=client, model=settings["model_name"]),
+                "agent": ModelLane(client=agent_client, model=agent_model),
+            },
+            is_cancelled=lambda: abort_token.is_aborted,
+            ctx_fields={
+                "card": card,
+                "history": history,
+                "last_user_message": next((m["content"] for m in reversed(history) if m["role"] == "user"), ""),
+            },
+            generation=generation,
+        )
+    except FlowError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    finally:
+        watcher.cancel()
+        with suppress(asyncio.CancelledError):
+            await watcher
+    return envelope
+
+
+def _resolve_action(entry, action: str, settings):
+    """Resolve a publishable action binding, or raise the right refusal.
+
+    Every gate the runtime state machine defines, in order: available, enabled,
+    declared, and not blocked. They are distinct answers on purpose -- "this
+    package needs a newer Orb", "you turned it off", "no such action", and "you
+    revoked the permission it needs" are four different things for a user to do
+    something about.
+    """
+    if entry.compiled is None or entry.load_status is not LoadStatus.AVAILABLE:
+        raise HTTPException(status_code=409, detail=entry.diagnostic or "this extension is not available")
+    if not effective_workflow_enabled(entry.id, settings):
+        raise HTTPException(status_code=409, detail="this extension is disabled")
+    binding = entry.compiled.manifest.actions.get(action)
+    if binding is None:
+        raise HTTPException(status_code=404, detail=f"extension {entry.id!r} declares no action {action!r}")
+    if f"action {action!r}" in entry.blocked:
+        raise HTTPException(status_code=403, detail=f"action {action!r} is not published: {entry.diagnostic}")
+    flow = entry.compiled.flows.get(binding.flow)
+    if flow is None:
+        raise HTTPException(status_code=409, detail="the action's flow is missing from the compiled revision")
+    return binding, flow
 
 
 @router.post("/{extension_id}/purge-data")

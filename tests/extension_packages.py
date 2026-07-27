@@ -67,6 +67,41 @@ def scoring_flow() -> dict[str, Any]:
     }
 
 
+def reset_flow() -> dict[str, Any]:
+    """An action flow: clamp the requested value into range and store it.
+
+    Deliberately pure -- no model, no network -- so a test can assert the
+    action transaction (validate input, lock, stage, commit, envelope) without
+    a completion in the middle of it.
+    """
+    return {
+        "flow_version": 1,
+        "steps": [
+            {"id": "clamped", "op": "math.clamp", "value": {"$ref": "input.tension"}, "minimum": 0, "maximum": 100},
+            {"op": "state.set", "scope": "conversation", "path": "tension", "value": {"$ref": "steps.clamped"}},
+            {"op": "ui.invalidate", "view": "inspector"},
+            {"op": "return", "value": {"tension": {"$ref": "steps.clamped"}}},
+        ],
+    }
+
+
+def context_flow() -> dict[str, Any]:
+    """A pre-pipeline flow: read stored tension and add it to both prompts."""
+    return {
+        "flow_version": 1,
+        "steps": [
+            {"id": "tension", "op": "state.get", "scope": "conversation", "path": "tension"},
+            {
+                "op": "context.append",
+                "when": {"exists": {"$ref": "steps.tension"}},
+                "targets": ["director", "writer"],
+                "label": "Scene tension",
+                "text": {"$template": "Current scene tension is {{steps.tension}} out of 100."},
+            },
+        ],
+    }
+
+
 def meter_view() -> dict[str, Any]:
     return {
         "view_version": 1,
@@ -98,6 +133,69 @@ def full_manifest(**overrides: Any) -> dict[str, Any]:
     )
     base.update(overrides)
     return base
+
+
+RESET_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"tension": {"type": "integer", "minimum": -1000, "maximum": 1000}},
+    "required": ["tension"],
+    "additionalProperties": False,
+}
+
+
+def scene_meter_manifest(**overrides: Any) -> dict[str, Any]:
+    """The Scene Meter reference package: a hook, an action, and a view.
+
+    The Phase 2 fixture. Unlike :func:`full_manifest` it exercises the whole
+    executable surface -- a pre-pipeline context block, a post-pipeline
+    structured model call writing conversation state, and a named action a
+    button dispatches -- so a test can assert real invocation behavior rather
+    than only what the compiler derived.
+    """
+    base = manifest(
+        requires={
+            "operations": [
+                "state.get",
+                "state.set",
+                "context.append",
+                "model.structured",
+                "math.clamp",
+                "ui.invalidate",
+                "return",
+            ],
+            "components": ["card", "meter"],
+        },
+        permissions=[
+            {"capability": "context.draft.read"},
+            {"capability": "model.call", "lane": "agent"},
+            {"capability": "state.read", "scope": "conversation"},
+            {"capability": "state.write", "scope": "conversation"},
+            {"capability": "prompt.context.append", "targets": ["director", "writer"]},
+            {"capability": "ui.contribute", "slot": "inspector"},
+        ],
+        hooks={
+            "pre_pipeline": {"flow": "flows/inject-tension.json"},
+            "post_pipeline": {"flow": "flows/score-scene.json", "stage": "observe"},
+        },
+        actions={"reset": {"flow": "flows/reset.json", "label": "Reset tension", "input_schema": RESET_INPUT_SCHEMA}},
+        views={"inspector": {"source": "ui/inspector.json"}},
+        placements=[{"slot": "inspector", "view": "inspector"}],
+    )
+    base.update(overrides)
+    return base
+
+
+def scene_meter_package(**overrides: Any) -> bytes:
+    """The Scene Meter reference package as one archive."""
+    return orbext(
+        {
+            "orb-extension.json": scene_meter_manifest(**overrides),
+            "flows/inject-tension.json": context_flow(),
+            "flows/score-scene.json": scoring_flow(),
+            "flows/reset.json": reset_flow(),
+            "ui/inspector.json": meter_view(),
+        }
+    )
 
 
 def orbext(files: dict[str, Any], *, root: str = "") -> bytes:

@@ -17,7 +17,7 @@ which is why the package limits, the strict parser, and the hostile-package
 test corpus in ``tests/unit/extensions/`` are load-bearing rather than
 decorative.
 
-Contents (Phases 0-1 -- contracts, package lifecycle, no executor):
+Contents (Phases 0-2 -- contracts, package lifecycle, flow runtime):
 
 * :mod:`.contracts` -- frozen v1 models for manifest, permissions, flows,
   values, schemas, components, effects, and fragment-type descriptors.
@@ -39,15 +39,27 @@ Contents (Phases 0-1 -- contracts, package lifecycle, no executor):
 * :mod:`.lifecycle` -- inspect/install/update/rollback/enable/permissions/
   uninstall/purge plus startup reconciliation.
 * :mod:`.catalog` -- the host-owned projections the extension manager renders.
+* :mod:`.values` -- runtime resolution of ``$ref``, ``$template``, and the
+  predicate AST, plus the ``MISSING`` sentinel that keeps "absent" and
+  ``null`` distinct.
+* :mod:`.ctx` -- the capability-filtered ``ExtensionCtx`` projection, built
+  field by field from grants rather than filtered down from a trusted context.
+* :mod:`.interpreter` -- bounded execution with quotas, deterministic
+  randomness, cancellation, and the staged effect transaction.
+* :mod:`.adapters` -- compiled flows bound as workflow subscriptions and named
+  actions, owning their own lock plan and committing staged effects.
+* :mod:`.execution` -- process-local invocation gating and drain/cancel
+  coordination for disable, purge, and shutdown.
 
-Deliberately absent until their phase lands: the flow interpreter, the
-capability-filtered context projection, the host HTTP client and secrets
-substitution, the component renderer, the Git reader, and fragment-type
-contribution. Phase 1 publishes community records with **no subscriptions** --
-an installed package contributes catalog metadata and nothing executable. The
-design note is explicit that no permissive placeholder executor should stand in
-for the real one: a temporary "run arbitrary operation" switch is difficult to
-tighten once packages exist that depend on it.
+Deliberately absent until their phase lands: the host HTTP client and secrets
+substitution, artifact emission, branch activation, the component renderer, the
+Git reader, and fragment-type contribution. Those operations parse and appear
+in the consent diff, but an entry point that reaches one is *blocked* with a
+diagnostic rather than published -- see
+:data:`.interpreter.UNIMPLEMENTED_OPS`. The design note is explicit that no
+permissive placeholder executor should stand in for the real one: a temporary
+"run arbitrary operation" switch is difficult to tighten once packages exist
+that depend on it.
 
 Full design: ``docs/architecture/community-extensions.md``.
 """

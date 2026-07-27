@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from backend.features.extensions.contracts import (
     Capability,
+    EffectEnvelope,
     Flow,
     OpContext,
     check_context,
@@ -84,6 +85,26 @@ def test_unknown_step_field_is_rejected():
 def test_empty_flow_is_rejected():
     with pytest.raises(ValidationError):
         Flow.model_validate({"flow_version": 1, "steps": []})
+
+
+def test_effect_envelope_has_a_typed_toast_channel():
+    envelope = EffectEnvelope.model_validate(
+        {
+            "data": None,
+            "effects": [],
+            "toasts": [{"text": "Saved", "tone": "success"}],
+            "runtime_generation": 3,
+        }
+    )
+    assert envelope.toasts[0].text == "Saved"
+    with pytest.raises(ValidationError):
+        EffectEnvelope.model_validate(
+            {
+                "effects": [],
+                "toasts": [{"text": "Nope", "tone": "javascript"}],
+                "runtime_generation": 3,
+            }
+        )
 
 
 # ── values ───────────────────────────────────────────────────────────────────

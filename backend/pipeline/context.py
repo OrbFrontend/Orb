@@ -19,7 +19,7 @@ patching ``backend.inference.client.LLMClient``.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
@@ -53,7 +53,7 @@ from ..inference import (
 from ..workflows import RegistrySnapshot, current_snapshot
 from .config import _build_writer_tools_blob
 from .predicates import agent_enabled, resolve_persona_id
-from .state import LorebookTurn
+from .state import ExtensionContext, LorebookTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
 
 
@@ -276,6 +276,10 @@ class _TurnSetup:
     turn_scratch: dict
     kv_tracker: _KVCacheTracker
     schema_overrides: Mapping[str, dict]
+    # Trailing per-target context contributed by community extensions this turn.
+    # Empty for every turn with no enabled extension hook, which is what keeps
+    # the prompt bytes of an extension-free install unchanged.
+    extension_context: ExtensionContext = field(default_factory=ExtensionContext)
 
 
 async def _prepare_turn(
@@ -340,6 +344,7 @@ async def _prepare_turn(
     accumulators = {
         "merged_enabled_tools": dict(enabled_tools_pre_merge),
         "extras": [],
+        "context_blocks": [],
     }
 
     # Pre-pipeline hooks may extend the tool map or append system blocks.
@@ -376,4 +381,5 @@ async def _prepare_turn(
         turn_scratch=turn_scratch,
         kv_tracker=kv_tracker,
         schema_overrides=schema_overrides,
+        extension_context=ExtensionContext.from_blocks(accumulators["context_blocks"]),
     )

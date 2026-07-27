@@ -48,6 +48,30 @@ class PackageValidationError(PackageError, ValueError):
     """
 
 
+class FlowError(Exception):
+    """One flow invocation failed. Not a ``PackageError``: the package is fine.
+
+    Raised by the interpreter for a quota, a type mismatch, a revoked grant, a
+    schema violation, or a cancelled turn. The distinction from
+    :class:`PackageError` is operational, not cosmetic -- a package that fails
+    an invocation stays installed and available, whereas a package that fails
+    to *compile* does not publish entry points at all.
+
+    Messages are sanitized the same way: a limit, an operation name, a step id,
+    or a schema location, never a resolved value, a model response, or a secret.
+    A hook failure is logged and discarded; an explicit action returns this
+    string to the user.
+    """
+
+
+class FlowCancelled(FlowError):
+    """The owning turn, request, or client connection went away.
+
+    Separate so the caller can distinguish "stop, nothing is wrong" from a real
+    failure: a cancelled hook is not worth a diagnostic on the package.
+    """
+
+
 class PackageIncompatible(PackageError):
     """The package is well-formed but this Orb build cannot run it.
 

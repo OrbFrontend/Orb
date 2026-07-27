@@ -19,6 +19,7 @@ from .client import (
     separate_agent_lane_configured,
 )
 from .endpoint_profiles import ModelProfile, is_forced_tool_choice, profile_for
+from .isolated import IsolatedCallError, isolated_structured, isolated_text
 from .kv_tracker import _KVCacheTracker
 from .lorebook import compute_constant_lorebook_block
 from .prompt_builder import (
@@ -73,6 +74,10 @@ __all__ = [
     # cached_call / kv_tracker
     "CachedBase",
     "_KVCacheTracker",
+    # isolated — prefix-free calls (community extension flows)
+    "IsolatedCallError",
+    "isolated_structured",
+    "isolated_text",
     # text_completion
     "has_image_parts",
     # lorebook — full surface via .lorebook / features.lorebook facade

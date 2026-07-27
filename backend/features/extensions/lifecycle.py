@@ -55,7 +55,7 @@ from ...database import (
     set_extension_permissions,
 )
 from ...workflows.registry import RESERVED_WORKFLOW_IDS, get_workflow
-from . import content_store, staging
+from . import content_store, execution, staging
 from .compiler import CompiledPackage, compile_package, grant_key
 from .contracts import EXTENSION_ID_PATTERN
 from .errors import PackageError, PackageValidationError
@@ -236,7 +236,12 @@ async def apply_install(
             load_status=status,
             load_error=error,
         )
-        return await _republish(compiled.extension_id)
+        generation = await _republish(compiled.extension_id)
+        if enabled:
+            await execution.allow_new_invocations(compiled.extension_id)
+        else:
+            await execution.block_new_invocations(compiled.extension_id)
+        return generation
 
 
 async def apply_update(*, extension_id: str, token: str, approved: list[dict[str, Any]]) -> int:
@@ -282,10 +287,22 @@ async def set_enabled(extension_id: str, enabled: bool) -> int:
     -- a catalog response that arrives after a disable must be discardable.
     """
     async with extension_lifecycle_lock():
-        if await get_extension_package(extension_id) is None:
+        row = await get_extension_package(extension_id)
+        if row is None:
             raise LifecycleError(f"extension {extension_id!r} is not installed")
-        await set_extension_enabled_flag(extension_id, enabled)
-        return await _republish(extension_id)
+        was_enabled = bool(row["enabled"])
+        if not enabled:
+            await execution.block_new_invocations(extension_id)
+        try:
+            await set_extension_enabled_flag(extension_id, enabled)
+        except Exception:
+            if not enabled and was_enabled:
+                await execution.allow_new_invocations(extension_id)
+            raise
+        generation = await _republish(extension_id)
+        if enabled:
+            await execution.allow_new_invocations(extension_id)
+        return generation
 
 
 async def set_permissions(extension_id: str, approved: list[dict[str, Any]]) -> int:
@@ -317,9 +334,16 @@ async def uninstall(extension_id: str) -> int:
     so it stays reachable.
     """
     async with extension_lifecycle_lock():
-        if await get_extension_package(extension_id) is None:
+        row = await get_extension_package(extension_id)
+        if row is None:
             raise LifecycleError(f"extension {extension_id!r} is not installed")
-        await delete_extension_package(extension_id)
+        await execution.block_new_invocations(extension_id)
+        try:
+            await delete_extension_package(extension_id)
+        except Exception:
+            if bool(row["enabled"]):
+                await execution.allow_new_invocations(extension_id)
+            raise
         return await _republish(extension_id)
 
 
@@ -355,9 +379,13 @@ async def apply_purge(extension_id: str, token: str) -> tuple[int, dict[str, int
     if not isinstance(expected_fingerprint, str):
         raise LifecycleConflict("the purge preview is no longer valid; preview the purge again")
     async with extension_lifecycle_lock():
+        # The gate is independent of the registry snapshot: an old turn may
+        # still hold a callable that was captured before the disabled overlay.
+        await execution.block_new_invocations(extension_id)
         if await get_extension_package(extension_id) is not None:
             await set_extension_enabled_flag(extension_id, False)
             await _republish(extension_id)
+        await execution.drain_invocations(extension_id)
         removed = await purge_extension_data(extension_id, expected_fingerprint=expected_fingerprint)
         if removed is None:
             raise LifecycleConflict("stored extension data changed since preview; preview the purge again")

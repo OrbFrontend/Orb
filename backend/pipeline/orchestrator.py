@@ -25,7 +25,7 @@ from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
 from .passes.writer import writer_stage
 from .predicates import direction_note_recording_active
-from .state import LorebookTurn, TurnState
+from .state import ExtensionContext, LorebookTurn, TurnState
 from .workflow_bridge import _PostPipelineResult, _run_post_pipeline
 
 logger = logging.getLogger(__name__)
@@ -84,6 +84,7 @@ async def _run_pipeline(
     kv_tracker: _KVCacheTracker,
     schema_overrides: Mapping[str, dict],
     registry: RegistrySnapshot,
+    extension_context: ExtensionContext | None = None,
     history: Sequence[Mapping[str, Any]] | None = None,
     lorebook: LorebookTurn | None = None,
 ) -> AsyncIterator[dict]:
@@ -103,6 +104,8 @@ async def _run_pipeline(
         attachments = []
     if lorebook is None:
         lorebook = LorebookTurn(entries=(), messages=(), agentic=False)
+    if extension_context is None:
+        extension_context = ExtensionContext()
 
     user_message = macros.resolve_message(user_message)
 
@@ -151,6 +154,7 @@ async def _run_pipeline(
         kv_tracker=kv_tracker,
         lorebook=lorebook,
         macros=macros,
+        extension_context=extension_context,
     ):
         yield ev
 
@@ -189,6 +193,7 @@ async def _run_pipeline(
         settings=settings,
         attachments=attachments,
         kv_tracker=kv_tracker,
+        extension_context=extension_context,
     ):
         yield ev
 

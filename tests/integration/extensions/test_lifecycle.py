@@ -175,20 +175,24 @@ async def test_an_installed_package_is_declarative_in_the_workflow_manifest(clie
     assert "scene-meter" not in trusted
 
 
-async def test_an_installed_package_publishes_no_hooks_in_phase_one(client):
-    """Phase 1 has no interpreter, so an available record carries no callable.
+async def test_an_installed_package_publishes_its_hook_but_never_tools(client):
+    """An available, fully granted package binds its hook to a host adapter.
 
-    Binding a hook before the runtime that would run it exists is the failure
-    this asserts against -- it would be discovered as a crash mid-turn.
+    The adapter is the point: the record gains a callable, but it is a generic
+    interpreter closure over compiled JSON, not package code. ``tools`` stays
+    empty because enabling an ordinary extension must not change the main model
+    tool blob, and ``produces_artifacts`` stays False until the phase that can
+    honor the regenerate/reroll contract.
     """
     await install(client, full_package())
     record = current_state().get("scene-meter")
     assert record is not None and record.load_status.value == "available"
+    assert record.blocked == ()
     from backend.workflows.registry import current_snapshot
 
     workflow = current_snapshot().get("scene-meter")
     assert workflow is not None
-    assert workflow.subscriptions == []
+    assert [(s.hook_type.value, s.stage.value) for s in workflow.subscriptions] == [("post_pipeline", "observe")]
     assert workflow.produces_artifacts is False
     assert workflow.tools == []
 

@@ -21,12 +21,10 @@ Grants are a fourth, independent fact. A package may be installed, available,
 and enabled and still publish nothing, because the entry point's derived
 requirement set is not covered by what the user approved.
 
-Phase 1 publishes records with **no subscriptions**: there is no interpreter
-yet, so an installed package contributes catalog metadata and nothing
-executable. The registry's own validation enforces that shape for anything not
-``available``; this module keeps it true for available records too, so no
-lifecycle path can accidentally bind a hook before the runtime that would run
-it exists.
+Phase 2 binds only compiled, available, enabled, and fully granted declarative
+flows through the constrained interpreter. Unavailable or under-granted entry
+points contribute catalog metadata and diagnostics but no executable binding,
+so no lifecycle path can publish work the runtime cannot honor end to end.
 """
 
 from __future__ import annotations
@@ -42,11 +40,13 @@ from ...database.models import ExtensionPackageRuntimeRow
 from ...workflows.contracts import LoadStatus, WorkflowSource
 from ...workflows.registry import (
     Workflow,
+    _bind_subscription,
     current_snapshot,
     publish_community_overlay,
     runtime_generation,
 )
 from . import content_store
+from .adapters import hook_bindings
 from .compiler import (
     CompiledPackage,
     Requirement,
@@ -56,6 +56,7 @@ from .compiler import (
 )
 from .contracts import referenced_actions
 from .errors import PackageError, PackageIncompatible
+from .interpreter import unimplemented_operations
 from .sources import StoredSource
 
 logger = logging.getLogger(__name__)
@@ -217,8 +218,18 @@ def blocked_entry_points(compiled: CompiledPackage, granted: frozenset[Requireme
     manifest = compiled.manifest
 
     def covered(path: str) -> bool:
+        """Publishable: grants cover it *and* this build can execute it.
+
+        Both conditions produce the same outcome for the same reason -- an
+        entry point Orb cannot honor end to end must not be published and then
+        fail partway through ordinary use. A flow reaching an operation a later
+        phase implements is blocked exactly like an under-granted one, and both
+        say so in the package's diagnostic.
+        """
         flow = compiled.flows.get(path)
-        return flow is not None and derive_flow_requirements(flow) <= granted
+        if flow is None or unimplemented_operations(flow):
+            return False
+        return derive_flow_requirements(flow) <= granted
 
     if manifest.hooks.pre_pipeline and not covered(manifest.hooks.pre_pipeline.flow):
         yield "hook pre_pipeline"
@@ -276,13 +287,14 @@ def pinned_digests() -> set[str]:
 def _record(entry: InstalledExtension) -> Workflow:
     """Project one installed package into its community registry record.
 
-    ``subscriptions`` stays empty and ``produces_artifacts`` stays False for
-    every record: Phase 1 has no interpreter, so there is no callable to bind.
-    Declaring the artifact contract without the flows to honor it would trip the
-    registry's artifact mandate and fail the whole overlay swap over a package
-    that merely *says* it produces artifacts.
+    Available packages bind their unblocked hooks to generic interpreter
+    adapters here. ``produces_artifacts`` stays False for every record until the
+    phase that implements ``artifact.emit``: declaring the contract without the
+    flows to honor it would trip the registry's artifact mandate and fail the
+    *whole* overlay swap over one package that merely says it produces
+    artifacts, which is exactly the isolation startup must preserve.
     """
-    return Workflow(
+    record = Workflow(
         id=entry.id,
         display_name=entry.display_name,
         source=WorkflowSource.COMMUNITY,
@@ -291,6 +303,22 @@ def _record(entry: InstalledExtension) -> Workflow:
         load_status=entry.load_status,
         diagnostic=entry.diagnostic,
     )
+    if entry.compiled is not None and entry.load_status is LoadStatus.AVAILABLE:
+        for hook_type, callable_, stage in hook_bindings(entry.compiled.manifest, entry.compiled.flows, entry.blocked):
+            _bind_subscription(record, hook_type, callable_, priority=0, stage=stage)
+    return record
+
+
+def live_grants(extension_id: str) -> frozenset[Requirement]:
+    """The currently approved requirement set for *extension_id*.
+
+    Read from the published catalog on every call, never captured. This is the
+    live grant view a privileged operation checks immediately before it runs, so
+    revoking a permission stops the next operation of a flow that is already
+    executing. An unknown or uninstalled id has no grants, which fails closed.
+    """
+    entry = _STATE.packages.get(extension_id)
+    return entry.granted if entry is not None else frozenset()
 
 
 def _decode_grants(row: ExtensionPackageRuntimeRow) -> list[dict[str, Any]]:

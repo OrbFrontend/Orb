@@ -555,6 +555,21 @@ class ExtensionPermissionsUpdate(BaseModel):
     permissions: list[dict]
 
 
+class ExtensionActionRequest(BaseModel):
+    """Dispatch one named action declared by an installed extension.
+
+    ``input`` is validated against the action's own declared input schema by the
+    interpreter, not here: the schema lives in the compiled package and the
+    route has no business knowing its shape. ``conversation_id`` decides which
+    conversation is in scope -- a package cannot name one from inside its flow,
+    so state writes and context reads are pinned to whatever the user is
+    actually looking at.
+    """
+
+    conversation_id: str | None = None
+    input: dict = Field(default_factory=dict)
+
+
 class ExtensionPurgeRequest(BaseModel):
     """Two-phase purge. Omit ``token`` for the count preview; send the token the
     preview returned to actually delete."""

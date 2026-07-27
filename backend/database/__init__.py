@@ -77,6 +77,7 @@ from .queries.endpoints import (
 )
 from .queries.extensions import (
     activate_extension_revision,
+    commit_extension_state,
     delete_extension_package,
     delete_extension_secret,
     extension_data_preview,
@@ -198,6 +199,7 @@ __all__ = [
     "create_document",
     "create_user_persona",
     "create_world",
+    "commit_extension_state",
     "delete_character_card",
     "delete_character_expressions",
     "delete_conversation",
