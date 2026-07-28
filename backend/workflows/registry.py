@@ -36,12 +36,19 @@ exception that adds behavior: it falls back to the workflow's
 from __future__ import annotations
 
 import itertools
+import json
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
+from ..core import (
+    MAX_WRITER_TOOL_BLOB_BYTES,
+    MAX_WRITER_TOOLS_PUBLISHED,
+    WriterToolKey,
+    wire_name,
+)
 from ..database import (
     get_workflow_character_state as _db_get_workflow_character_state,
 )
@@ -79,6 +86,7 @@ from .contracts import (
     LoadStatus,
     ToolSpec,
     WorkflowSource,
+    WriterToolBinding,
 )
 from .fragment_types import BUILTIN_FRAGMENT_TYPES, FragmentTypeDefinition
 
@@ -124,6 +132,24 @@ class Workflow:
     load_status: LoadStatus = LoadStatus.AVAILABLE
     diagnostic: str = ""
     fragment_types: tuple[FragmentTypeDefinition, ...] = ()
+    writer_tool_selected: bool = False
+    """Whether the user selected this package as the active Writer resolver.
+
+    Carried on the record rather than read from the database mid-turn, so
+    availability *and* activation are decided by one captured generation. A turn
+    that resolves its resolver from a snapshot cannot have the selection change
+    underneath it, and cannot send one package's schema while invoking
+    another's."""
+
+    writer_tool: WriterToolBinding | None = None
+    """The record's contributed Writer tool, if it has one.
+
+    A separate field from ``tools`` because it is a separate mechanism: this one
+    never reaches ``register_tool``, never claims a name in the mutable
+    inference registry, and is resolved only through a captured snapshot. The
+    built-in band leaves it ``None`` -- Orb ships no Writer tool of its own, and
+    "no Writer tools" is an empty snapshot mapping rather than a module global
+    anything could append to."""
 
     @property
     def frontend_kind(self) -> FrontendKind:
@@ -198,10 +224,10 @@ _WORKFLOWS_BY_ID: dict[str, Workflow] = {}
 
 
 def _declared_function_name(payload: object) -> object:
-    if not isinstance(payload, dict):
+    if not isinstance(payload, Mapping):
         return None
     function = payload.get("function")
-    return function.get("name") if isinstance(function, dict) else None
+    return function.get("name") if isinstance(function, Mapping) else None
 
 
 def register_workflow(w: Workflow) -> None:
@@ -337,6 +363,78 @@ def _assert_artifact_mandate(workflows: Iterable[Workflow]) -> None:
             )
 
 
+def _assert_writer_tool_bindings(records: Iterable[Workflow]) -> None:
+    """Validate every Writer-tool binding before the overlay swaps.
+
+    Five properties, all checked here because the snapshot is the last place
+    they are all visible at once:
+
+    * the binding, its schema, its digest, and its extension id belong to **one**
+      compiled revision -- a spec whose digest disagrees with its record is a
+      binding that could execute a different revision than the schema described;
+    * the wire name is the one Orb derives, not one a package chose;
+    * names are globally unique, so a provider-returned name resolves to exactly
+      one binding;
+    * the count and the aggregate encoded blob fit the host caps.
+
+    Entirely before the swap, like every other publish check, so a rejected
+    overlay leaves the prior Writer tool active rather than none.
+    """
+    seen: dict[str, str] = {}
+    selected: list[str] = []
+    total_bytes = 0
+    for record in records:
+        binding = record.writer_tool
+        if binding is None:
+            if record.writer_tool_selected:
+                raise WorkflowDeclarationError(
+                    f"community workflow {record.id!r} is selected as the Writer resolver but publishes no binding"
+                )
+            continue
+        if record.writer_tool_selected:
+            selected.append(record.id)
+        spec = binding.spec
+        if spec.key.owner_id != record.id:
+            raise WorkflowDeclarationError(
+                f"Writer tool {spec.wire_name!r} is owned by {spec.key.owner_id!r} but published by workflow {record.id!r}"
+            )
+        expected = wire_name(WriterToolKey(owner_id=record.id, local_id=spec.key.local_id))
+        if spec.wire_name != expected:
+            raise WorkflowDeclarationError(
+                f"Writer tool for workflow {record.id!r} publishes wire name {spec.wire_name!r}, expected {expected!r}"
+            )
+        if spec.content_digest != record.content_digest:
+            raise WorkflowDeclarationError(
+                f"Writer tool {spec.wire_name!r} does not belong to workflow {record.id!r}'s compiled revision"
+            )
+        declared = _declared_function_name(spec.schema)
+        if declared != spec.wire_name:
+            raise WorkflowDeclarationError(
+                f"Writer tool {spec.wire_name!r} carries a schema whose function name is {declared!r}"
+            )
+        if spec.wire_name in seen:
+            raise WorkflowDeclarationError(
+                f"Writer tool name {spec.wire_name!r} is claimed by both {seen[spec.wire_name]!r} and {record.id!r}"
+            )
+        seen[spec.wire_name] = record.id
+        total_bytes += len(
+            json.dumps(spec.provider_schema(), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        )
+    if len(selected) > 1:
+        raise WorkflowDeclarationError(
+            f"{len(selected)} extensions claim the active Writer resolver ({', '.join(sorted(selected))}); "
+            f"the selection is exclusive"
+        )
+    if len(seen) > MAX_WRITER_TOOLS_PUBLISHED:
+        raise WorkflowDeclarationError(
+            f"{len(seen)} Writer tools exceeds the limit of {MAX_WRITER_TOOLS_PUBLISHED} per registry snapshot"
+        )
+    if total_bytes > MAX_WRITER_TOOL_BLOB_BYTES:
+        raise WorkflowDeclarationError(
+            f"published Writer tool schemas total {total_bytes} bytes, over the {MAX_WRITER_TOOL_BLOB_BYTES} byte limit"
+        )
+
+
 def finalize_registry() -> None:
     """Validate that every ``produces_artifacts=True`` workflow has both
     ``REGENERATE`` and ``REROLL_GEN`` subscriptions.
@@ -381,9 +479,37 @@ class RegistrySnapshot:
     by_hook: Mapping[HookType, tuple[Subscription, ...]]
     digests: Mapping[str, str]
     fragment_types: Mapping[str, FragmentTypeDefinition]
+    active_writer_tool: str | None = None
+    """The wire name of the one selected resolver, or ``None``.
+
+    Availability is not activation: :attr:`writer_tools` holds every eligible
+    contribution, and this names the single one a turn may actually send and
+    invoke. Both come from the same captured generation, so "the schema I sent"
+    and "the binding I ran" cannot disagree."""
+
+    writer_tools: Mapping[str, WriterToolBinding] = field(default_factory=lambda: MappingProxyType({}))
+    """Every eligible Writer-tool binding, keyed by its derived wire name.
+
+    Insertion order is deterministic (extension id, then local tool id), so two
+    users with the same packages assemble the same tool blob regardless of
+    install order -- the same rule the hook bands follow, and for the same
+    reason: prompt bytes must not depend on history.
+
+    Availability, not activation. Every eligible contribution is here; at most
+    one of them enters a turn's tool blob, and which one is a local selection
+    the pipeline resolves against this mapping."""
 
     def get(self, workflow_id: str) -> Workflow | None:
         return self.workflows.get(workflow_id)
+
+    def writer_tool(self, wire: str | None) -> WriterToolBinding | None:
+        """Resolve a provider-returned name through the captured mapping only.
+
+        Never a global lookup: a turn may execute exactly the binding it
+        published a schema for, and going through the snapshot is what makes a
+        name from a newer or older revision resolve to nothing rather than to
+        the wrong flow."""
+        return self.writer_tools.get(wire) if wire else None
 
     def list(self) -> list[Workflow]:
         """Records in manifest order: built-ins first, then community ids."""
@@ -479,15 +605,23 @@ def current_snapshot() -> RegistrySnapshot:
     for record in overlay:
         workflows[record.id] = record
     fragment_types = dict(BUILTIN_FRAGMENT_TYPES)
+    writer_tools: dict[str, WriterToolBinding] = {}
+    active_writer_tool: str | None = None
     for record in sorted(overlay, key=lambda item: item.id):
         for descriptor in sorted(record.fragment_types, key=lambda item: item.local_id):
             fragment_types[descriptor.type_id] = descriptor
+        if record.writer_tool is not None:
+            writer_tools[record.writer_tool.wire_name] = record.writer_tool
+            if record.writer_tool_selected:
+                active_writer_tool = record.writer_tool.wire_name
     return RegistrySnapshot(
         generation=published.generation,
         workflows=MappingProxyType(workflows),
         by_hook=MappingProxyType({hook: _ordered_for_hook(base, overlay, hook) for hook in HookType}),
         digests=MappingProxyType({r.id: r.content_digest for r in overlay if r.content_digest}),
         fragment_types=MappingProxyType(fragment_types),
+        active_writer_tool=active_writer_tool,
+        writer_tools=MappingProxyType(writer_tools),
     )
 
 
@@ -538,11 +672,11 @@ def publish_community_overlay(records: Sequence[Workflow]) -> int:
         # *whole* overlay swap over one broken package. Startup must isolate a
         # bad package, not let it block every other extension and the built-ins.
         if record.load_status is not LoadStatus.AVAILABLE and (
-            record.subscriptions or record.produces_artifacts or record.fragment_types
+            record.subscriptions or record.produces_artifacts or record.fragment_types or record.writer_tool
         ):
             raise WorkflowDeclarationError(
                 f"community workflow {record.id!r} is {record.load_status.value} but published entry points; "
-                f"an unavailable record must carry no subscriptions, fragment types, or artifact production"
+                f"an unavailable record must carry no subscriptions, fragment types, Writer tool, or artifact production"
             )
         for descriptor in record.fragment_types:
             expected = f"{record.id}:{descriptor.local_id}"
@@ -559,6 +693,7 @@ def publish_community_overlay(records: Sequence[Workflow]) -> int:
             seen_fragment_types.add(descriptor.type_id)
         seen.add(record.id)
     _assert_artifact_mandate(records)
+    _assert_writer_tool_bindings(records)
 
     global _PUBLISHED
     _PUBLISHED = _Published(generation=next(_GENERATION_COUNTER), overlay=tuple(records))

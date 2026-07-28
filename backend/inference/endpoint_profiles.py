@@ -241,6 +241,40 @@ def _is_tool_choice_unsupported(status: int, text: str) -> bool:
     return "tool_choice" in low and "no endpoints found" in low
 
 
+def writer_tool_incompatibility(endpoint_url: str, model: str, completion_mode: str) -> str:
+    """Why this (endpoint, model) cannot host a Writer tool, or ``""``.
+
+    A transport capability question, separate from single-model/dual-model
+    selection. A Writer tool needs a chat transport that returns standard
+    structured ``tool_calls`` with replayable ids and that honors
+    ``tool_choice`` -- an optional call is a *protocol*, not a nudge, and none
+    of the content-encoded fallbacks (Hermes tags, Gemma tokens, bare JSON in
+    the body) can be distinguished from prose the Writer already streamed to
+    the user.
+
+    Native text completion is the clear case: it does not render optional tools
+    into the prompt at all and only synthesizes a call when the caller forces
+    one schema, so ``tool_choice="auto"`` plus an instruction is not a
+    structured optional-call protocol there.
+
+    The session-learned case is the subtler one. Once a provider has been seen
+    to reject ``tool_choice`` outright, Orb drops the parameter up front -- and
+    a Writer turn that cannot say ``"none"`` cannot bound the model to one call.
+    Host validation still refuses a second or unselected call, but advertising a
+    tool whose call budget the transport will not enforce spends prompt bytes
+    to buy an argument.
+
+    Returning a *reason* rather than a boolean is deliberate: the manager and
+    the turn inspector both show it, and "incompatible" with no explanation is
+    the diagnostic users file bugs about.
+    """
+    if completion_mode == "text":
+        return "this endpoint runs in text-completion mode, which cannot return structured tool calls"
+    if (endpoint_url, model) in _TOOL_CHOICE_UNSUPPORTED:
+        return "this endpoint rejected tool_choice earlier in this session, so a Writer tool call cannot be bounded"
+    return ""
+
+
 def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]:
     """Apply the matching profile and any session-learned workarounds to *body* in place.
 

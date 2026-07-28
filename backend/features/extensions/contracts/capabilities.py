@@ -76,6 +76,7 @@ class Capability(StrEnum):
     NETWORK_REQUEST = "network.request"
     UI_CONTRIBUTE = "ui.contribute"
     FRAGMENT_TYPE_CONTRIBUTE = "fragment_type.contribute"
+    WRITER_TOOL_CONTRIBUTE = "writer.tool.contribute"
 
 
 class GrantKind(StrEnum):
@@ -393,6 +394,19 @@ CAPABILITY_SPECS: Mapping[Capability, CapabilitySpec] = {
         copy="Add new interactive-fragment types you can use in characters.",
         kind=GrantKind.CONTRIBUTE,
     ),
+    # The only grant in the vocabulary that puts package-authored text into the
+    # main pipeline's prompt *and* lets a package answer the Writer mid-reply.
+    # Loud for both halves: the description ships every turn the tool is active
+    # whether or not a call happens, and the result lands in the transcript the
+    # Writer is continuing from.
+    Capability.WRITER_TOOL_CONTRIBUTE: CapabilitySpec(
+        copy=(
+            "Add a callable tool and its instructions to the Writer. Its result can directly influence the reply "
+            "even though the extension cannot write the reply itself."
+        ),
+        kind=GrantKind.CONTRIBUTE,
+        sensitivity=Sensitivity.HIGH,
+    ),
 }
 
 _MISSING_SPECS = set(Capability) - set(CAPABILITY_SPECS)
@@ -614,6 +628,14 @@ class OpContext(StrEnum):
     rebuilt, so a recovery flow names no target message -- and it must not
     activate a branch or rewrite a card's tags on the way, which is a guarantee
     worth having from the allowlist rather than from a reviewer.
+
+    ``WRITER_TOOL`` is the API 2 Writer contribution, and it is deliberately not
+    ``ACTION``. An action runs against a finished conversation with a user
+    watching it; a Writer tool runs *inside* an unfinished model turn, where
+    there is no assistant row to attach to, no draft to replace (the Writer owns
+    the prose), no UI surface listening for a toast, and no user click to
+    justify a first-party mutation. Reusing ``ACTION`` would admit every one of
+    those by accident.
     """
 
     PRE_PIPELINE = "pre_pipeline"
@@ -622,12 +644,24 @@ class OpContext(StrEnum):
     ACTION = "action"
     RECOVERY = "recovery"
     REDUCER = "reducer"
+    WRITER_TOOL = "writer_tool"
 
 
 HOOK_CONTEXTS = frozenset({OpContext.PRE_PIPELINE, OpContext.POST_TRANSFORM, OpContext.POST_OBSERVE})
 IMPURE_CONTEXTS = frozenset(HOOK_CONTEXTS | {OpContext.ACTION, OpContext.RECOVERY})
+"""Contexts with a user-facing surface and a persistable target.
+
+The UI operations key off this set rather than off "may cause side effects",
+which is why adding ``WRITER_TOOL`` to it would have been wrong: a Writer tool
+does cause side effects, but it has no toast to raise and no view to
+invalidate. Its progress is the host's fixed status channel."""
+
+EXTERNAL_CONTEXTS = frozenset(IMPURE_CONTEXTS | {OpContext.WRITER_TOOL})
+"""Contexts that may read and write namespaced state and call out to a model or
+an HTTP origin. ``REDUCER`` is excluded because a reducer is a pure function."""
+
 ALL_CONTEXTS = frozenset(OpContext)
-PURE_CONTEXTS = frozenset(IMPURE_CONTEXTS | {OpContext.REDUCER})
+PURE_CONTEXTS = frozenset(EXTERNAL_CONTEXTS | {OpContext.REDUCER})
 
 
 class Quota(StrEnum):
@@ -685,17 +719,17 @@ def _spec(
 
 OPERATION_SPECS: dict[str, OperationSpec] = {
     # ── data and deterministic transforms ────────────────────────────────────
-    "state.get": _spec(Capability.STATE_READ, IMPURE_CONTEXTS, output=True, parameter_field="scope"),
+    "state.get": _spec(Capability.STATE_READ, EXTERNAL_CONTEXTS, output=True, parameter_field="scope"),
     "state.set": _spec(
         Capability.STATE_WRITE,
-        IMPURE_CONTEXTS,
+        EXTERNAL_CONTEXTS,
         quota=Quota.STATE_WRITE,
         staged=True,
         parameter_field="scope",
     ),
     "state.delete": _spec(
         Capability.STATE_WRITE,
-        IMPURE_CONTEXTS,
+        EXTERNAL_CONTEXTS,
         quota=Quota.STATE_WRITE,
         staged=True,
         parameter_field="scope",
@@ -718,28 +752,28 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
     # Randomness is host-owned and per-invocation seeded, so it is deterministic
     # for a given invocation but not for a reducer, which must replay identically
     # when a branch is rewound.
-    "random.integer": _spec(None, IMPURE_CONTEXTS, output=True),
-    "random.choice": _spec(None, IMPURE_CONTEXTS, output=True),
+    "random.integer": _spec(None, EXTERNAL_CONTEXTS, output=True),
+    "random.choice": _spec(None, EXTERNAL_CONTEXTS, output=True),
     "if": _spec(None, PURE_CONTEXTS),
     "return": _spec(None, PURE_CONTEXTS),
     # ── host capabilities ────────────────────────────────────────────────────
     "model.text": _spec(
         Capability.MODEL_CALL,
-        IMPURE_CONTEXTS,
+        EXTERNAL_CONTEXTS,
         output=True,
         quota=Quota.MODEL_CALL,
         parameter_field="lane",
     ),
     "model.structured": _spec(
         Capability.MODEL_CALL,
-        IMPURE_CONTEXTS,
+        EXTERNAL_CONTEXTS,
         output=True,
         quota=Quota.MODEL_CALL,
         parameter_field="lane",
     ),
     "http.request": _spec(
         Capability.NETWORK_REQUEST,
-        IMPURE_CONTEXTS,
+        EXTERNAL_CONTEXTS,
         output=True,
         quota=Quota.HTTP_REQUEST,
         parameter_field="url",

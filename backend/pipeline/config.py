@@ -13,6 +13,7 @@ why the dependency-free predicates live in ``predicates.py`` rather than here.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -23,7 +24,9 @@ from ..inference import (
     LLMClient,
     build_direction_note_tool,
     enabled_schemas,
+    writer_tool_incompatibility,
 )
+from ..workflows import RegistrySnapshot
 from ..workflows.enablement import disabled_workflow_tool_names
 from .passes.director import build_direct_scene_override
 from .passes.editor import _feedback_active, build_feedback_override
@@ -33,7 +36,9 @@ from .passes.editor.length_guard import (
     resolve_length_guard,
 )
 from .predicates import agent_enabled, direction_note_recording_active, is_dual_model
-from .state import ModelLane, _PipelineConfig
+from .state import ModelLane, WriterToolPolicy, _PipelineConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_pipeline_config(
@@ -47,12 +52,13 @@ def _resolve_pipeline_config(
     prefix: list[ChatMessage],
     phrase_bank: list[PhraseGroup] | None,
     schema_overrides: Mapping[str, dict],
+    registry: RegistrySnapshot | None = None,
 ) -> _PipelineConfig:
     """Build the immutable per-turn config.
 
-    Resolves feature flags (audit, length guard, per-pass reasoning), builds the
-    writer and agent lanes, and returns a :class:`_PipelineConfig`. Called once
-    per turn by ``_run_pipeline``.
+    Resolves feature flags (audit, length guard, per-pass reasoning), the
+    per-lane tool schema sets, the one active Writer tool, and the writer and
+    agent lanes. Called once per turn by ``_run_pipeline``.
     """
     # Drop a disabled workflow's tools from the per-turn blob at the single
     # chokepoint that builds it, covering both the standing enabled_tools map and
@@ -76,15 +82,28 @@ def _resolve_pipeline_config(
     length_guard: LengthGuard | None = resolve_length_guard(settings, agent_on)
     enabled_tools = apply_length_guard_tools(enabled_tools, length_guard)
 
-    # In dual-model mode the writer's KV cache is disjoint; skip tool schemas there.
     dual_model = is_dual_model(agent_client)
-    writer_enabled_tools = {} if dual_model else enabled_tools
+    writer_text_mode = getattr(client, "completion_mode", "chat") == "text"
 
+    agent_tool_schemas = tuple(enabled_schemas(enabled_tools, schema_overrides))
+    # Resolved from the captured snapshot, never from the live registry, and
+    # deliberately *not* gated on ``agent_on``: agent enablement decides which
+    # Director/Editor tools exist, and letting it also decide Writer
+    # eligibility would mean turning the Director off silently removed a tool
+    # the user selected for the Writer.
+    policy = _resolve_writer_tool_policy(settings, registry, text_mode=writer_text_mode)
+    writer_tool_schemas = (policy.binding.spec.provider_schema(),) if policy.binding is not None else ()
+
+    # Single model: one deterministic union, one ``CachedBase``, one object.
+    # Dual model: each lane sees only its own schemas -- the Writer never
+    # receives agent-only tools it is barred from calling, and the agent never
+    # receives a Writer tool absent from its own transcripts.
+    writer_tools = writer_tool_schemas if dual_model else _union_tool_schemas(agent_tool_schemas, writer_tool_schemas)
     writer_lane = ModelLane(
         client=client,
         base=CachedBase(
             prefix=tuple(prefix),
-            tools=tuple(enabled_schemas(writer_enabled_tools, schema_overrides)),
+            tools=writer_tools,
             model=settings["model_name"],
             resolve=macros.resolve_prompt_messages,
         ),
@@ -95,7 +114,7 @@ def _resolve_pipeline_config(
             client=agent_client,
             base=CachedBase(
                 prefix=tuple(agent_prefix or prefix),
-                tools=tuple(enabled_schemas(enabled_tools, schema_overrides)),
+                tools=agent_tool_schemas,
                 model=settings.get("agent_model_name", settings["model_name"]),
                 resolve=macros.resolve_prompt_messages,
             ),
@@ -116,11 +135,95 @@ def _resolve_pipeline_config(
         audit_enabled=audit_enabled,
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard is not None,
-        writer_enabled_tools=writer_enabled_tools,
-        writer_text_mode=getattr(client, "completion_mode", "chat") == "text",
+        agent_tool_schemas=agent_tool_schemas,
+        writer_tool_schemas=writer_tool_schemas,
+        writer_tool_policy=policy,
+        writer_text_mode=writer_text_mode,
         writer_lane=writer_lane,
         agent_lane=agent_lane,
     )
+
+
+def _union_tool_schemas(agent: Sequence[dict], writer: Sequence[dict]) -> tuple[dict, ...]:
+    """The single-model blob: agent schemas first, then Writer schemas.
+
+    Order is fixed rather than sorted, and that is the point. Agent schemas keep
+    their registry order so an install with no Writer tool produces exactly the
+    bytes it produced before this feature existed; a selected Writer schema is
+    appended, so selecting one perturbs the tail of the blob rather than
+    reshuffling the whole prefix. A collision is impossible by construction --
+    the derived Writer namespace is prefixed -- but it is checked rather than
+    assumed, because the failure mode is a provider silently binding one name to
+    two schemas.
+    """
+    names = {entry["function"]["name"] for entry in agent if isinstance(entry.get("function"), dict)}
+    merged = list(agent)
+    for entry in writer:
+        name = entry.get("function", {}).get("name")
+        if name in names:
+            logger.error("Writer tool %r collides with an agent tool name; dropping it from this turn's blob", name)
+            continue
+        names.add(name)
+        merged.append(entry)
+    return tuple(merged)
+
+
+def _resolve_writer_tool_policy(
+    settings: Mapping[str, Any],
+    registry: RegistrySnapshot | None,
+    *,
+    text_mode: bool,
+) -> WriterToolPolicy:
+    """Resolve the one active Writer tool for this turn, or none.
+
+    Three independent conditions, and each produces a *different* outcome:
+
+    * no selection, or a selection that is no longer eligible -- nothing is
+      active and there is nothing to say, because the manager already explains
+      why beside the package;
+    * an eligible selection on an endpoint that cannot host it -- nothing is
+      active and a diagnostic is recorded for the host surfaces that explain why
+      the selected tool did not appear;
+    * an eligible selection on a capable endpoint -- the binding, its bounded
+      description, and a schema-derived parameter summary.
+
+    The endpoint case necessarily produces a different tool blob from a capable
+    endpoint's. That is accepted: the model/endpoint identity already separates
+    those cache lineages, and advertising a tool that cannot execute safely
+    would spend a turn to refuse it.
+    """
+    binding = registry.writer_tool(registry.active_writer_tool) if registry is not None else None
+    if binding is None:
+        return WriterToolPolicy()
+    diagnostic = writer_tool_incompatibility(
+        settings.get("endpoint_url", "") or "",
+        settings.get("model_name", "") or "",
+        "text" if text_mode else (settings.get("completion_mode", "chat") or "chat"),
+    )
+    if diagnostic:
+        return WriterToolPolicy(diagnostic=diagnostic)
+    function = binding.spec.schema.get("function", {})
+    return WriterToolPolicy(
+        binding=binding,
+        description=str(function.get("description", "")),
+        parameter_summary=_parameter_summary(function.get("parameters")),
+    )
+
+
+def _parameter_summary(parameters: Any) -> str:
+    """A one-line ``name (required)`` list derived from the compiled schema.
+
+    Derived rather than package-authored: the model already receives the schema
+    itself, and the OOC block's job is to make the *call decision* legible, not
+    to give a package a second, unbounded place to put prose in the prompt.
+    """
+    if not isinstance(parameters, Mapping):
+        return ""
+    properties = parameters.get("properties")
+    if not isinstance(properties, Mapping) or not properties:
+        return ""
+    required = set(parameters.get("required") or ())
+    return ", ".join(f"{name}{' (required)' if name in required else ''}" for name in properties)
 
 
 def _split_interactive_fragments(

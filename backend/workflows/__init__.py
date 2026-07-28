@@ -51,6 +51,8 @@ from .contracts import (
     ToolSpec,
     WorkflowEventStream,
     WorkflowSource,
+    WriterToolBinding,
+    WriterToolRequest,
     _readonly,
     public_event_error,
 )
@@ -154,6 +156,8 @@ __all__ = [
     "WorkflowEventStream",
     "WorkflowMandateError",
     "WorkflowSource",
+    "WriterToolBinding",
+    "WriterToolRequest",
     "_readonly",
     "bump_generation",
     "current_snapshot",

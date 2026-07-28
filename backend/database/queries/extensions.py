@@ -469,6 +469,44 @@ async def set_extension_enabled_flag(extension_id: str, enabled: bool) -> None:
         await db.commit()
 
 
+async def set_active_writer_resolver(extension_id: str, active: bool) -> bool:
+    """Select or deselect one package as the active Writer resolver.
+
+    Selection clears every row and then sets the chosen one inside one
+    ``BEGIN IMMEDIATE``. Deselection updates only *extension_id*: a stale client
+    unchecking A after another client selected B must not clear B.
+
+    Returns False without writing when *extension_id* is not installed, which
+    lets the route answer 404 without changing the existing choice.
+    """
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            if active:
+                rows = list(await db.execute_fetchall("SELECT 1 FROM extension_packages WHERE id = ?", (extension_id,)))
+                if not rows:
+                    await db.rollback()
+                    return False
+                await db.execute("UPDATE extension_packages SET writer_tool_active = 0 WHERE writer_tool_active != 0")
+                await db.execute(
+                    "UPDATE extension_packages SET writer_tool_active = 1, updated_at = ? WHERE id = ?",
+                    (_now(), extension_id),
+                )
+            else:
+                cursor = await db.execute(
+                    "UPDATE extension_packages SET writer_tool_active = 0, updated_at = ? WHERE id = ?",
+                    (_now(), extension_id),
+                )
+                if cursor.rowcount == 0:
+                    await db.rollback()
+                    return False
+            await db.commit()
+        except BaseException:
+            await db.rollback()
+            raise
+    return True
+
+
 async def delete_extension_package(extension_id: str) -> None:
     """Remove registration, revisions, and secrets. Namespaced data survives.
 

@@ -18,7 +18,12 @@ from .client import (
     reasoning_cfg,
     separate_agent_lane_configured,
 )
-from .endpoint_profiles import ModelProfile, is_forced_tool_choice, profile_for
+from .endpoint_profiles import (
+    ModelProfile,
+    is_forced_tool_choice,
+    profile_for,
+    writer_tool_incompatibility,
+)
 from .isolated import IsolatedCallError, isolated_structured, isolated_text
 from .kv_tracker import _KVCacheTracker
 from .lorebook import compute_constant_lorebook_block
@@ -71,6 +76,7 @@ __all__ = [
     "ModelProfile",
     "is_forced_tool_choice",
     "profile_for",
+    "writer_tool_incompatibility",
     # cached_call / kv_tracker
     "CachedBase",
     "_KVCacheTracker",

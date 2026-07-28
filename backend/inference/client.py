@@ -229,6 +229,7 @@ class LLMClient:
         model: str,
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
+        label: str = "",
         **params,
     ) -> AsyncIterator[dict]:
         """Stream a completion. Yields deltas then a final assembled message.
@@ -250,6 +251,12 @@ class LLMClient:
                 — assembled message (content and/or tool_calls) and the
                   provider usage object (``None`` when the server omits it).
         """
+        # *label* names the calling pass. It is transport-inert -- never sent in
+        # a body, never part of the KV-cached bytes -- and exists because
+        # ``tool_choice`` alone stopped identifying the caller once the Writer
+        # gained an ``"auto"`` of its own: the Editor's ``"auto"`` and the
+        # Writer's are the same wire value with different meanings.
+        _ = label
         # Transport choice and chat-only param scrubbing happen once, outside the
         # retry loop; each attempt re-opens a fresh stream from the same inputs.
         if self.completion_mode == "text" and not text_completion.has_image_parts(messages):

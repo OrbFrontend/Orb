@@ -13,6 +13,7 @@ public entry points in ``entrypoints``. ``_run_pipeline`` is called by
 from __future__ import annotations
 
 import logging
+import secrets
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
@@ -25,7 +26,7 @@ from .fragment_types import fragment_type_instance, resolve_fragment_instances
 from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
 from .passes.writer import writer_stage
-from .predicates import direction_note_recording_active
+from .predicates import direction_note_recording_active, is_dual_model
 from .state import ExtensionContext, LorebookTurn, TurnState
 from .workflow_bridge import _PostPipelineResult, _run_post_pipeline
 
@@ -90,6 +91,7 @@ async def _run_pipeline(
     inert_fragment_ids: Sequence[str] = (),
     history: Sequence[Mapping[str, Any]] | None = None,
     lorebook: LorebookTurn | None = None,
+    writer_tool_turn_seed: str | None = None,
 ) -> AsyncIterator[dict]:
     """Run the director → writer → editor passes for one turn.
 
@@ -109,6 +111,8 @@ async def _run_pipeline(
         lorebook = LorebookTurn(entries=(), messages=(), agentic=False)
     if extension_context is None:
         extension_context = ExtensionContext()
+    if writer_tool_turn_seed is None:
+        writer_tool_turn_seed = secrets.token_hex(16)
 
     user_message = macros.resolve_message(user_message)
 
@@ -139,6 +143,7 @@ async def _run_pipeline(
         prefix=prefix,
         phrase_bank=phrase_bank,
         schema_overrides=schema_overrides,
+        registry=registry,
     )
 
     # feedback fragments are handled post-writer and direction-note fragments by the
@@ -215,6 +220,11 @@ async def _run_pipeline(
         attachments=attachments,
         kv_tracker=kv_tracker,
         extension_context=extension_context,
+        conversation_id=conversation_id,
+        character_id=character_id,
+        card=card,
+        history=history,
+        turn_seed=writer_tool_turn_seed,
     ):
         yield ev
 
@@ -233,6 +243,7 @@ async def _run_pipeline(
         feedback_fragments=feedback_fragments,
         editor_audit_msgs=editor_audit_msgs,
         kv_tracker=kv_tracker,
+        dual_model=is_dual_model(agent_client),
     ):
         yield ev
 
@@ -283,7 +294,12 @@ async def _run_pipeline(
                 active_notes=director.get("direction_notes") or [],
                 placement="post_turn",
                 reply_text=state.resp_text,
-                writer_user_msg=state.writer_content,
+                # Replays the Writer's own transcript in single-model mode, so
+                # the note step extends the exact bytes the Writer just used.
+                # In dual-model mode this is the normalized user/draft pair --
+                # the agent base does not declare the Writer's tool, and there
+                # is no Writer-lane cache on that server to extend.
+                replay=state.writer_replay(state.resp_text, dual_model=is_dual_model(agent_client)),
                 kv_tracker=kv_tracker,
                 reasoning_on=cfg.editor_reasoning_on,
                 reasoning_prefill=cfg.editor_reasoning_prefill,

@@ -59,6 +59,7 @@ A typical `/send` turn with reasoning on (Director + Writer), an Editor pass, an
 | 3 | `reasoning` | BE→FE | `{ "pass": "director", "delta": "…" }` | Appends thinking tokens to the named pass's buffer; lights its dot. |
 | 4 | `director_done` | BE→FE | `{ "tool_calls": [...], ... }` | Stores director data for the inspector; advances dot to Writer. |
 | 5 | `token` (×N) | BE→FE | bare text `delta` | The visible reply. First token reveals the bubble + phase → **generating**; each one is appended and re-rendered. |
+| 5b | `writer_tool_status` | BE→FE | `{ "running": true, "label": "Resolve outcome" }` | *Optional.* The Writer paused mid-reply to run the one selected community resolver. One fixed host-owned channel — the package chooses neither the event name nor the payload keys, and no tool argument, draft, result, or error text crosses it. `running: false` clears the pill on ordinary completion/failure; `afterStream()` clears it on abort, disconnect, or exception because an async generator cannot yield safely from a `finally` unwinding `GeneratorExit`. Ordinary `token` events resume after it. |
 | 6 | `writer_done` | BE→FE | `{ "editor_will_run": true }` | Authoritative end-of-writer marker; phase → **refining** if an editor pass follows. |
 | 7 | `writer_rewrite` | BE→FE | `{ "refined_text": "…" }` | *Optional.* Editor's patched prose; FE diffs vs. the draft and swaps the bubble. |
 | 8 | `editor_done` | BE→FE | `{ "tool_calls": [...] }` | Merges editor tool calls into the inspector. |
@@ -101,6 +102,8 @@ This is plain request/response — the stream is over.
 Secondary workflows `yield` their own SSE events (e.g. `phase_status` for a "Synthesizing…" pill, `tts_autoplay`, `workflow_attachments_rejected`, or custom ones). The orchestrator passes hook-emitted events straight through the stream. On the frontend, the `switch`'s `default` branch looks the event name up in `S.workflowEventHandlers` and dispatches there — so a workflow can add new events **without editing the core switch**. See [Secondary Workflows](secondary-workflow.md).
 
 To prevent collisions, the orchestrator drops any hook attempt to emit a reserved internal event name (the underscore-prefixed ones).
+
+**Community extensions do not extend the protocol at all.** They ride three fixed host-owned events — `extension_status` and `extension_effects` for hooks and actions, and `writer_tool_status` for a Writer-tool pause — whose payloads carry a closed vocabulary. A package contributes the *data* of an effect, never a name, so no package string becomes an event name, a DOM selector, a callback, or a module path. That is the whole difference between the two tiers here: a trusted workflow is code Orb reviewed and may name its own events; a community package is data, and the host names everything.
 
 ---
 

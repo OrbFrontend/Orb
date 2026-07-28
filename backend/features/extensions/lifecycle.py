@@ -50,10 +50,12 @@ from ...database import (
     list_extension_packages,
     purge_extension_data,
     referenced_digests,
+    set_active_writer_resolver,
     set_extension_enabled_flag,
     set_extension_load_status,
     set_extension_permissions,
 )
+from ...workflows.contracts import LoadStatus
 from ...workflows.registry import RESERVED_WORKFLOW_IDS, get_workflow
 from . import content_store, execution, git_source, staging
 from .compiler import CompiledPackage, compile_package, grant_key
@@ -402,6 +404,54 @@ async def set_permissions(extension_id: str, approved: list[dict[str, Any]]) -> 
         grants = _normalized_grants(approved, installed.compiled)
         await set_extension_permissions(extension_id, grants)
         return await _republish(extension_id)
+
+
+async def set_writer_tool_active(extension_id: str, active: bool) -> int:
+    """Select or clear the one active Writer resolver, then republish.
+
+    Selecting is refused unless the contribution is currently *usable* --
+    installed, available, enabled, granted, and unblocked. Storing a preference
+    for something that cannot run would put a control in the manager whose only
+    observable effect is a diagnostic, and the user would have no way to tell
+    "selected but ineligible" from "the feature is broken". Deselecting is
+    always permitted, including for a package that has since become
+    ineligible, or a revoked grant would strand the selection.
+
+    The write clears the previous selection in the same transaction, so there
+    is no instant at which two packages both claim the resolver, and the
+    republish advances the generation -- the selected schema is part of the
+    Writer's tool blob, so a stale catalog response after this must be
+    discardable exactly as it is after an enable.
+    """
+    async with extension_lifecycle_lock():
+        installed = current_state().get(extension_id)
+        if installed is None or await get_extension_package(extension_id) is None:
+            raise LifecycleError(f"extension {extension_id!r} is not installed")
+        if active:
+            reason = writer_tool_ineligibility(installed)
+            if reason is not None:
+                raise LifecycleError(reason)
+        if not await set_active_writer_resolver(extension_id, active):
+            raise LifecycleError(f"extension {extension_id!r} is not installed")
+        return await _republish(extension_id)
+
+
+def writer_tool_ineligibility(installed) -> str | None:
+    """Why this package cannot be the active resolver right now, or ``None``.
+
+    One predicate, read by the activation route and by the catalog projection,
+    so the manager never offers a control the route would refuse.
+    """
+    compiled = installed.compiled
+    if compiled is None or compiled.manifest.writer_tool is None:
+        return "this extension does not contribute a Writer tool"
+    if installed.load_status is not LoadStatus.AVAILABLE:
+        return "this extension's active revision cannot run on this Orb build"
+    if not bool(installed.row["enabled"]):
+        return "enable the extension before selecting it as the Writer resolver"
+    if "writer tool" in installed.blocked:
+        return "grant the permissions its Writer tool needs before selecting it"
+    return None
 
 
 async def uninstall(extension_id: str) -> int:

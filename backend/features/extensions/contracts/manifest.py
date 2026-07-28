@@ -1,4 +1,4 @@
-"""``orb-extension.json`` -- the installed contract, frozen for ``extension_api: 1``.
+"""``orb-extension.json`` -- the installed contract, versioned by ``extension_api``.
 
 The manifest declares identity, requirements, requested permissions, entry
 points, UI placements, and domain contributions. What it does **not** do is
@@ -18,16 +18,31 @@ the compiler, which has it.
 version constant, so there is deliberately no ``minimum_orb_version`` field: a
 field whose value cannot be evaluated reliably is worse than no field, because
 authors would set it and believe it did something.
+
+**Widening the version literal is not the same as widening the contract.**
+:data:`SUPPORTED_EXTENSION_APIS` says which versions this build implements, and
+:data:`CONTRIBUTION_MIN_API` says which version each contribution slot was
+introduced in. A v1 manifest carrying a v2 contribution is *rejected* -- v1
+still means exactly what it meant, and a package cannot acquire semantics its
+author never declared by being parsed on a newer Orb.
+
+The compiler reads the raw ``extension_api`` integer **before** strict parsing,
+so a package from a future API is reported as incompatible ("update Orb")
+rather than malformed ("this package is broken"). That ordering is the whole
+reason API 2 exists as a version bump: every model here forbids extra fields,
+so without it a v1-only build would call a v2 manifest broken.
 """
 
 from __future__ import annotations
 
 import ipaddress
 import re
-from typing import Annotated, Literal
+from collections.abc import Mapping
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field, model_validator
 
+from ....core import WriterToolError, WriterToolKey, wire_name
 from ..limits import (
     MAX_ACTIONS,
     MAX_COMMANDS,
@@ -38,6 +53,7 @@ from ..limits import (
     MAX_PLACEMENTS,
     MAX_SECRETS,
     MAX_VIEWS,
+    MAX_WRITER_TOOL_DESCRIPTION_CHARS,
 )
 from .capabilities import (
     CAPABILITY_SPECS,
@@ -58,9 +74,11 @@ from .common import (
     validate_template,
 )
 from .components import COMPONENT_NAMES
-from .schema_subset import parse_schema
+from .schema_subset import PackageSchema, parse_schema
 
 EXTENSION_API_VERSION = 1
+"""The frozen v1 contract. Kept as its own name because "v1" is a thing the
+architecture talks about, not merely the smallest supported number."""
 
 UI_SLOTS: frozenset[str] = parameter_values(Capability.UI_CONTRIBUTE)
 """The named slots a package may place into.
@@ -462,8 +480,135 @@ class FragmentTypeDescriptor(ExtModel):
         return self
 
 
+WriterToolDescription = Annotated[str, Field(min_length=1, max_length=MAX_WRITER_TOOL_DESCRIPTION_CHARS)]
+
+MAX_WRITER_TOOL_SCHEMA_PROPERTIES = 8
+"""Top-level properties of a Writer tool's input schema.
+
+Tighter than the general subset's 64. The tool asks the Writer to describe one
+situation, and a form with fifty fields is a sign the package is trying to
+extract the draft, the conversation, or the entity graph through arguments the
+host would otherwise have to supply."""
+
+MAX_WRITER_TOOL_SCHEMA_DEPTH = 4
+"""Nesting of either Writer-tool schema. Deep argument trees cost prompt bytes
+on every turn the tool is active and buy nothing a flat request cannot say."""
+
+RESERVED_WRITER_TOOL_INPUT_PROPERTIES: frozenset[str] = frozenset(
+    {
+        "draft",
+        "conversation_id",
+        "conversation",
+        "character_id",
+        "card_id",
+        "message_id",
+        "extension_id",
+        "turn_id",
+        "history",
+        "persona",
+    }
+)
+"""Input property names a Writer tool may not declare.
+
+The host supplies draft and entity identity; a model argument must never be
+able to redirect the invocation to another conversation, card, message,
+package, or flow. Refusing the *names* at parse time is what makes that
+statement checkable by reading the manifest, rather than a promise about how
+carefully the adapter ignores unexpected keys. ``draft`` is listed for the
+narrower reason that a package must not be able to make the model re-emit the
+prose Orb already has -- that would double the turn's cost and let a truncated
+echo become the resolver's view of the scene."""
+
+
+class WriterToolDescriptor(ExtModel):
+    """The one Writer tool an API 2 package may contribute.
+
+    ``description`` is required and bounded, because it is *model input*: it
+    ships in the Writer's tool blob every turn the tool is active and can steer
+    generation even when no call ever happens. That is why the grant behind this
+    contribution is conspicuous, and why the copy the user consents to has to
+    mention influence rather than only invocation.
+
+    There is no provider-facing name field. Orb derives one from the extension
+    id and this ``id`` (see :func:`~backend.core.writer_tools.wire_name`), so a
+    package cannot claim a built-in tool's name, shadow another package's tool,
+    or ship a string that reaches a provider as something other than an
+    identifier.
+    """
+
+    id: LocalId
+    label: Label
+    description: WriterToolDescription
+    flow: PackagePath
+    input_schema: dict
+    output_schema: dict
+
+    @model_validator(mode="after")
+    def _schemas_are_bounded_objects(self):
+        for name in ("input_schema", "output_schema"):
+            what = f"writer_tool {self.id!r} {name}"
+            parsed = parse_schema(getattr(self, name), what=what)
+            if parsed.schema.get("type") != "object":
+                raise ValueError(f"{what} must declare an object")
+            _assert_writer_schema_bounds(parsed, what=what)
+        properties = parse_schema(self.input_schema, what="input_schema").schema.get("properties", {})
+        if len(properties) > MAX_WRITER_TOOL_SCHEMA_PROPERTIES:
+            raise ValueError(
+                f"writer_tool {self.id!r} input_schema declares {len(properties)} properties, "
+                f"limit is {MAX_WRITER_TOOL_SCHEMA_PROPERTIES}"
+            )
+        reserved = sorted(set(properties) & RESERVED_WRITER_TOOL_INPUT_PROPERTIES)
+        if reserved:
+            raise ValueError(
+                f"writer_tool {self.id!r} input_schema declares host-supplied propert(ies) {reserved}; "
+                f"the draft and every entity identity come from Orb, never from the model's arguments"
+            )
+        return self
+
+
+def _assert_writer_schema_bounds(parsed: PackageSchema, *, what: str, depth: int = 0) -> None:
+    """Walk a normalized Writer-tool schema for depth and description bounds.
+
+    Descriptions are checked at every level, not only at the root: a package
+    that split 20 KiB of instructions across forty property descriptions would
+    otherwise put exactly as much prompt text in front of the model as one long
+    tool description it is not allowed to write.
+    """
+    _walk_writer_schema(parsed.schema, what=what, depth=depth)
+
+
+def _walk_writer_schema(schema: Mapping[str, Any], *, what: str, depth: int) -> None:
+    if depth > MAX_WRITER_TOOL_SCHEMA_DEPTH:
+        raise ValueError(f"{what} nests deeper than {MAX_WRITER_TOOL_SCHEMA_DEPTH}")
+    description = schema.get("description")
+    if isinstance(description, str) and len(description) > MAX_WRITER_TOOL_DESCRIPTION_CHARS:
+        raise ValueError(f"{what} has a {len(description)}-character description, limit is {MAX_WRITER_TOOL_DESCRIPTION_CHARS}")
+    for sub in (schema.get("properties") or {}).values():
+        _walk_writer_schema(sub, what=what, depth=depth + 1)
+    items = schema.get("items")
+    if isinstance(items, Mapping):
+        _walk_writer_schema(items, what=what, depth=depth + 1)
+
+
 class Contributions(ExtModel):
+    """Every domain contribution slot, across every supported API version.
+
+    One model rather than one per version, with :data:`CONTRIBUTION_MIN_API`
+    saying when each slot became legal. The alternative -- a subclass per
+    version overriding the field -- makes "which version am I" a type question
+    that every consumer of a manifest has to answer, and buys nothing: the
+    rejection a v1 package needs is "``writer_tool`` requires extension_api 2",
+    which is a better error than "extra fields not permitted" and is the same
+    refusal.
+
+    ``writer_tool`` holds one tool, not a list. The user selects a single active
+    Writer resolver, so a package offering three would ship two schemas that can
+    never be sent; one per package keeps "availability is not activation" a
+    statement about packages rather than about a package's internal menu.
+    """
+
     fragment_types: list[FragmentTypeDescriptor] = Field(default_factory=list, max_length=MAX_FRAGMENT_TYPES)
+    writer_tool: WriterToolDescriptor | None = None
 
 
 class Requires(ExtModel):
@@ -486,9 +631,15 @@ class Requires(ExtModel):
 
 
 class ExtensionManifest(ExtModel):
-    """The complete v1 manifest."""
+    """The complete manifest, for any supported API version.
 
-    extension_api: Literal[1]
+    ``extension_api`` is a plain integer bounded by
+    :data:`SUPPORTED_EXTENSION_APIS` rather than a per-version literal, and
+    :func:`_assert_version_contract` is what keeps each version's *meaning*
+    frozen: a slot introduced in a later API is refused on an earlier one.
+    """
+
+    extension_api: int
     id: ExtensionId
     name: Label
     version: Version
@@ -513,6 +664,7 @@ class ExtensionManifest(ExtModel):
 
     @model_validator(mode="after")
     def _intra_manifest_references(self):
+        _assert_version_contract(self)
         _assert_unique_permissions(self.permissions)
         _assert_capability_prerequisites(self)
         _assert_origin_budget(self.permissions)
@@ -523,9 +675,28 @@ class ExtensionManifest(ExtModel):
         _assert_slot_consent(self)
         _assert_artifact_mandate(self)
         _assert_fragment_type_consent(self)
+        _assert_writer_tool_consent(self)
         return self
 
     # ── derived views the compiler and installer both read ───────────────────
+
+    @property
+    def writer_tool(self) -> WriterToolDescriptor | None:
+        """The declared Writer tool, or ``None``.
+
+        An accessor rather than four reaches through ``contributions``: the
+        compiler, the runtime, the catalog, and the tests all ask the same
+        question, and a v1 manifest answers ``None`` because
+        :func:`_assert_version_contract` refused to let it answer anything else.
+        """
+        return self.contributions.writer_tool
+
+    def writer_tool_wire_name(self) -> str | None:
+        """The derived provider-facing name of this manifest's Writer tool."""
+        declared = self.writer_tool
+        if declared is None:
+            return None
+        return wire_name(WriterToolKey(owner_id=self.id, local_id=declared.id))
 
     def granted(self) -> set[tuple[str, ...]]:
         return {permission_key(p) for p in self.permissions}
@@ -563,6 +734,8 @@ class ExtensionManifest(ExtModel):
         if self.artifact_flows is not None:
             paths.update({self.artifact_flows.regenerate, self.artifact_flows.reroll_gen})
         paths.update(descriptor.reduce_flow for descriptor in self.contributions.fragment_types)
+        if self.writer_tool is not None:
+            paths.add(self.writer_tool.flow)
         return paths
 
     def referenced_view_paths(self) -> set[str]:
@@ -578,6 +751,46 @@ class ExtensionManifest(ExtModel):
         parsed that view; the manifest alone cannot see them.
         """
         return self.referenced_flow_paths() | self.referenced_view_paths()
+
+
+SUPPORTED_EXTENSION_APIS: frozenset[int] = frozenset({1, 2})
+"""Every API version this build implements.
+
+The compiler checks the raw ``extension_api`` integer against this set *before*
+strict parsing, so an unknown version is
+:class:`~..errors.PackageIncompatible` ("update Orb") rather than
+:class:`~..errors.PackageValidationError` ("this package is broken")."""
+
+MAX_EXTENSION_API_VERSION = max(SUPPORTED_EXTENSION_APIS)
+
+CONTRIBUTION_MIN_API: Mapping[str, int] = {"writer_tool": 2}
+"""The API version each ``contributions`` slot became legal in.
+
+This is what "v1 still means v1" reduces to. One model carries every slot, and
+a package may only use the ones its declared version introduced -- so a v1
+manifest cannot acquire a Writer tool by being parsed on a build that
+understands them. Adding an API 3 slot is one entry here, not a new model
+class every consumer of a manifest would have to discriminate on."""
+
+
+def _assert_version_contract(manifest: ExtensionManifest) -> None:
+    """Refuse a contribution the manifest's declared API version predates.
+
+    The version is checked here too, not only in the compiler: the compiler's
+    raw-integer check exists to distinguish incompatible from invalid *before*
+    parsing, and a model that would validate a version this build cannot honor
+    would leave that distinction depending on the caller.
+    """
+    if manifest.extension_api not in SUPPORTED_EXTENSION_APIS:
+        raise ValueError(
+            f"extension_api {manifest.extension_api} is not implemented by this Orb build "
+            f"(supported: {sorted(SUPPORTED_EXTENSION_APIS)})"
+        )
+    for slot, minimum in CONTRIBUTION_MIN_API.items():
+        if getattr(manifest.contributions, slot, None) is not None and manifest.extension_api < minimum:
+            raise ValueError(
+                f"contributions.{slot!r} requires extension_api {minimum}; this manifest declares {manifest.extension_api}"
+            )
 
 
 def _assert_unique_permissions(permissions: list) -> None:
@@ -658,6 +871,26 @@ def _assert_artifact_mandate(manifest: ExtensionManifest) -> None:
             raise ValueError("produces_artifacts=true requires the 'artifact.write' permission")
     elif manifest.artifact_flows is not None:
         raise ValueError("'artifact_flows' is only meaningful with produces_artifacts=true")
+
+
+def _assert_writer_tool_consent(manifest: ExtensionManifest) -> None:
+    """A Writer tool needs its own grant, and a name a provider will accept.
+
+    The name check runs here rather than at publish time because it depends on
+    both ids together: either alone satisfies the id grammar, and only their
+    combination can overflow the strictest provider's length limit. Failing at
+    parse time means the author sees it, instead of a user seeing a
+    contribution that installs and then never appears in a turn.
+    """
+    declared = manifest.writer_tool
+    if declared is None:
+        return
+    if Capability.WRITER_TOOL_CONTRIBUTE not in manifest.capabilities():
+        raise ValueError("contributing a Writer tool requires the 'writer.tool.contribute' permission")
+    try:
+        wire_name(WriterToolKey(owner_id=manifest.id, local_id=declared.id))
+    except WriterToolError as exc:
+        raise ValueError(str(exc)) from None
 
 
 def _assert_fragment_type_consent(manifest: ExtensionManifest) -> None:

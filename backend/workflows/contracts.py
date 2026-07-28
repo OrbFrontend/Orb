@@ -16,11 +16,13 @@ and ``frozenset.add``, ``TypeError`` from tuple item assignment.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
 from typing import Any
+
+from ..core import WriterToolInvocation, WriterToolResult, WriterToolSpec
 
 
 def _readonly(obj: Any) -> Any:
@@ -68,6 +70,67 @@ EV_SET_MESSAGE_STATE = "set_message_state"  # post-pipeline
 # Payload: ``{"targets": ["director" | "writer", ...], "label": str,
 # "text": str}``, with ``extension_id`` attached by the adapter so the pipeline
 # can order blocks deterministically rather than by installation time.
+
+
+@dataclass(frozen=True)
+class WriterToolRequest:
+    """One Writer-tool call, plus the host services the executor may use.
+
+    The same split ``FragmentReduceRequest`` uses, and for the same reason:
+    :class:`~backend.core.writer_tools.WriterToolInvocation` is the *model-facing*
+    identity (which tool, which call, which arguments, and the draft Orb
+    supplies), while everything here is the turn's own machinery. A community
+    executor receives a capability-filtered projection built from these; it
+    never sees this object, so there is no field on it a package could reach.
+
+    ``client`` is the Writer lane's LLM client, shared abort token included, so
+    a flow-owned model call is cancelled by the same stop that cancels the turn.
+    ``settings`` is the turn's settings mapping -- the executor projects a lane
+    out of it and hands the package nothing else from it.
+    """
+
+    invocation: WriterToolInvocation
+    settings: Mapping[str, Any]
+    client: Any
+    is_cancelled: Callable[[], bool]
+    character_id: str | None = None
+    card: Mapping[str, Any] | None = None
+    history: tuple = ()
+    last_user_message: str = ""
+    runtime_generation: int = 0
+
+
+@dataclass(frozen=True)
+class WriterToolBinding:
+    """One contributed Writer tool: its immutable spec plus how to run it.
+
+    Deliberately not a :class:`ToolSpec`. A ``ToolSpec`` claims a name in the
+    mutable inference ``TOOLS`` registry and is handled by whichever pipeline
+    pass recognises it; a Writer-tool binding never enters that registry, is
+    resolved only through the captured snapshot, and carries its own executor.
+    Collapsing the two would put a community-authored name one
+    ``register_tool`` call away from the Director's blob.
+
+    ``invoke`` is an async callable the owning layer built over an already
+    compiled revision. The pipeline calls it without knowing what a package,
+    a flow, or a grant is -- which is what keeps ``pipeline/`` from importing
+    the extension feature sideways to run a tool it captured.
+    """
+
+    spec: WriterToolSpec
+    invoke: Callable[[WriterToolRequest], Awaitable[WriterToolResult]]
+
+    @property
+    def wire_name(self) -> str:
+        return self.spec.wire_name
+
+    @property
+    def owner_id(self) -> str:
+        return self.spec.key.owner_id
+
+    @property
+    def label(self) -> str:
+        return self.spec.label
 
 
 @dataclass

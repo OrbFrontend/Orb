@@ -42,6 +42,13 @@ class _Aggregate:
     max_ms: float = 0.0
     model_calls: int = 0
     http_requests: int = 0
+    writer_tool_invocations: int = 0
+    writer_tool_input_bytes: int = 0
+    writer_tool_output_bytes: int = 0
+    max_writer_tool_input_bytes: int = 0
+    max_writer_tool_output_bytes: int = 0
+    last_writer_tool_input_bytes: int | None = None
+    last_writer_tool_output_bytes: int | None = None
     last_outcome: Outcome | None = None
     last_entry_point: str = ""
 
@@ -54,6 +61,13 @@ class _Aggregate:
             "max_ms": round(self.max_ms, 1),
             "model_calls": self.model_calls,
             "http_requests": self.http_requests,
+            "writer_tool_invocations": self.writer_tool_invocations,
+            "writer_tool_input_bytes": self.writer_tool_input_bytes,
+            "writer_tool_output_bytes": self.writer_tool_output_bytes,
+            "max_writer_tool_input_bytes": self.max_writer_tool_input_bytes,
+            "max_writer_tool_output_bytes": self.max_writer_tool_output_bytes,
+            "last_writer_tool_input_bytes": self.last_writer_tool_input_bytes,
+            "last_writer_tool_output_bytes": self.last_writer_tool_output_bytes,
             "last_outcome": self.last_outcome,
             "last_entry_point": self.last_entry_point,
         }
@@ -75,13 +89,22 @@ class InvocationTimer:
     entry_point: str
     started: float = field(default_factory=time.perf_counter)
 
-    def finish(self, outcome: Outcome, quotas: Mapping[str, int] | None = None) -> None:
+    def finish(
+        self,
+        outcome: Outcome,
+        quotas: Mapping[str, int] | None = None,
+        *,
+        input_bytes: int | None = None,
+        output_bytes: int | None = None,
+    ) -> None:
         record(
             self.extension_id,
             entry_point=self.entry_point,
             outcome=outcome,
             duration_ms=(time.perf_counter() - self.started) * 1000.0,
             quotas=quotas or {},
+            input_bytes=input_bytes,
+            output_bytes=output_bytes,
         )
 
 
@@ -92,6 +115,8 @@ def record(
     outcome: Outcome,
     duration_ms: float,
     quotas: Mapping[str, int],
+    input_bytes: int | None = None,
+    output_bytes: int | None = None,
 ) -> None:
     aggregate = _AGGREGATES.get(extension_id)
     if aggregate is None:
@@ -103,6 +128,15 @@ def record(
     aggregate.max_ms = max(aggregate.max_ms, duration_ms)
     aggregate.model_calls += int(quotas.get("model_calls", 0))
     aggregate.http_requests += int(quotas.get("http_requests", 0))
+    if input_bytes is not None:
+        aggregate.writer_tool_invocations += 1
+        aggregate.writer_tool_input_bytes += input_bytes
+        aggregate.max_writer_tool_input_bytes = max(aggregate.max_writer_tool_input_bytes, input_bytes)
+        aggregate.last_writer_tool_input_bytes = input_bytes
+    if output_bytes is not None:
+        aggregate.writer_tool_output_bytes += output_bytes
+        aggregate.max_writer_tool_output_bytes = max(aggregate.max_writer_tool_output_bytes, output_bytes)
+        aggregate.last_writer_tool_output_bytes = output_bytes
     aggregate.last_outcome = outcome
     aggregate.last_entry_point = entry_point
     if outcome == "error":

@@ -103,6 +103,41 @@ Small because it is *parameters*, not payload: enough to say which prompt,
 model, or endpoint produced the bytes, and not enough to smuggle the bytes back
 in beside them."""
 
+MAX_WRITER_TOOL_ARGUMENT_BYTES = 16 * KIB
+"""The model's encoded arguments to one Writer-tool call.
+
+Small on purpose. The tool input carries a *semantic request* -- what the
+character is attempting and what is at stake -- while the draft, the
+conversation, and every entity identity come from the host. A budget large
+enough to hold a draft would invite a package to ask for one."""
+
+MAX_WRITER_TOOL_RESULT_BYTES = 8 * KIB
+"""One Writer-tool result, encoded, before it reaches the model.
+
+Deliberately far below ``MAX_ACTION_RESULT_BYTES``: an action's return value is
+read by the host renderer, but this one is spliced into an unfinished model turn
+where every byte is context the Writer pays for and cannot decline."""
+
+MAX_WRITER_TOOL_SCHEMA_BYTES = 4 * KIB
+"""One contributed Writer-tool schema entry, canonically encoded.
+
+Charged against the *tool blob*, which in single-model mode is part of the
+prefix every pass shares. A schema is prompt bytes the user did not write, so
+it is bounded like prompt bytes rather than like a declaration."""
+
+# The aggregate blob budget and the published-binding count are snapshot-level
+# caps enforced by ``workflows/registry.py``, which cannot import this module.
+# They live beside the ABI in ``core/writer_tools.py`` instead --
+# ``MAX_WRITER_TOOL_BLOB_BYTES`` and ``MAX_WRITER_TOOLS_PUBLISHED``.
+
+MAX_WRITER_TOOL_DESCRIPTION_CHARS = 600
+"""The package-authored tool description, and each property description.
+
+Bounded package-authored *model input*: it influences generation on every turn
+the tool is active, whether or not a call happens. ``MAX_DESCRIPTION_CHARS``
+(2000) is the bound on catalog copy a user reads once; this is the bound on
+text a model reads every turn, and they are not the same quantity."""
+
 MAX_CARD_TAG_WRITES_PER_INVOCATION = 1
 """``card.tags.set`` calls per invocation. One card per invocation, by design:
 library-wide reach comes from a user driving a host-rendered loop, never from

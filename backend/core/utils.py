@@ -54,14 +54,25 @@ def extract_hyperparams(settings: Mapping[str, Any], *, defaults: Mapping[str, A
     return params
 
 
-def build_multimodal_content(text: str, attachments: Sequence[Mapping[str, Any]] | None = None) -> str | list[ContentPart]:
+def build_multimodal_content(
+    text: str,
+    attachments: Sequence[Mapping[str, Any]] | None = None,
+    trailing_text: str = "",
+) -> str | list[ContentPart]:
     """Wrap *text* (and optional image attachments) into a multimodal content list.
 
     Returns a plain string when there are no attachments, or a list of content
     parts suitable for vision-capable LLM endpoints.
+
+    *trailing_text* is appended as a final text part **after** the images. It
+    exists for content that has to be the semantic tail of the message: a
+    policy block placed before the images would be separated from the model's
+    turn boundary by every attachment, and "the last thing you read" is the
+    property such a block is relying on. With no attachments it simply
+    concatenates, which is the same tail in the degenerate case.
     """
     if not attachments:
-        return text
+        return text + trailing_text
     parts: list[ContentPart] = [{"type": "text", "text": text}]
     for att in attachments:
         mime = att.get("mime_type", att.get("mime", "image/jpeg"))
@@ -70,4 +81,6 @@ def build_multimodal_content(text: str, attachments: Sequence[Mapping[str, Any]]
             continue
         url = f"data:{mime};base64,{b64}"
         parts.append({"type": "image_url", "image_url": {"url": url}})
+    if trailing_text:
+        parts.append({"type": "text", "text": trailing_text})
     return parts

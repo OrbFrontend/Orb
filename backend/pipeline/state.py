@@ -18,14 +18,16 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..core import ContentPart, Macros
+from ..core import ContentPart, Macros, WireMessage
 from ..features.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
     LOREBOOK_SCAN_DEPTH,
     compute_lorebook_block,
 )
 from ..inference import CachedBase, LLMClient
+from ..workflows import WriterToolBinding
 from .passes.editor.length_guard import LengthGuard
+from .replay import CANONICAL_DRAFT_BLOCK, WriterReplay
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +85,47 @@ class ExtensionContext:
         return cls(director=render("director"), writer=render("writer"))
 
 
+@dataclass(frozen=True, slots=True)
+class WriterToolPolicy:
+    """What this turn lets the Writer call, and what it is told about it.
+
+    Separate from the binding because the two answer different questions and
+    have different authorities. The *policy* is prompt text: guidance that
+    improves tool choice, especially in single-model mode where the shared base
+    also carries the agent's schemas. The *binding* is the captured allowlist,
+    and it is what the host validates every returned call against. A model that
+    ignores the prompt still cannot reach anything the binding does not name.
+
+    ``binding`` is ``None`` on every turn with no eligible selected resolver,
+    which is every turn on an install with no v2 package -- and that case has to
+    produce byte-identical request shapes to the ones Orb sent before Writer
+    tools existed.
+    """
+
+    binding: WriterToolBinding | None = None
+    description: str = ""
+    parameter_summary: str = ""
+    diagnostic: str = ""
+    """Why an otherwise-selected resolver is not active this turn.
+
+    Endpoint incompatibility, mostly. Kept as host diagnostic state rather than
+    failing the turn: a Writer tool that cannot run safely on the configured
+    endpoint means the turn takes the ordinary no-tools path, not that the user
+    loses their reply."""
+
+    @property
+    def wire_name(self) -> str:
+        return self.binding.wire_name if self.binding is not None else ""
+
+    @property
+    def label(self) -> str:
+        return self.binding.label if self.binding is not None else ""
+
+    @property
+    def active(self) -> bool:
+        return self.binding is not None
+
+
 @dataclass(slots=True)
 class _PipelineConfig:
     """Resolved per-turn flags, lanes, and prefixes for ``_run_pipeline``."""
@@ -100,7 +143,15 @@ class _PipelineConfig:
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
-    writer_enabled_tools: Mapping[str, bool]
+    # The two lanes' schema sets, kept apart because they answer two questions
+    # that used to be conflated. ``agent_tool_schemas`` is "which agent tools
+    # belong in the blob"; ``writer_tool_schemas`` is "what the Writer may
+    # invoke". In dual-model mode the second used to be empty *because every
+    # existing tool was an agent tool*, which was an optimization for the
+    # registry of the day rather than a permanent invariant.
+    agent_tool_schemas: tuple[dict, ...]
+    writer_tool_schemas: tuple[dict, ...]
+    writer_tool_policy: WriterToolPolicy
     # True when the writer endpoint is in text-completion mode: suppress the
     # no-tools nudge (meaningless without a rendered tool harness). The shared
     # tool blob is untouched — director/editor keep their schemas.
@@ -202,6 +253,13 @@ class TurnState:
     # --- writer / editor outputs ---
     resp_text: str = ""
     writer_content: str | list[ContentPart] = ""
+    # The Writer's own message transcript for this turn, kept only long enough
+    # to replay downstream. Ephemeral by design: it holds a tool call and a tool
+    # result, and persisting those would make hidden protocol messages part of
+    # the conversation the next turn loads. ``_RESULT_FIELDS`` deliberately
+    # omits it, so it never reaches the ``_result`` event or persistence.
+    writer_trace: list[WireMessage] = field(default_factory=list)
+    writer_tool_used: bool = False
     reasoning_director: str = ""
     reasoning_writer: str = ""
     reasoning_editor: str = ""
@@ -218,6 +276,27 @@ class TurnState:
         Shallow copy on purpose: ``staged_attachments`` carries raw artifact bytes.
         """
         return {name: getattr(self, name) for name in _RESULT_FIELDS}
+
+    def writer_replay(self, draft: str, *, dual_model: bool) -> WriterReplay:
+        """The messages a downstream agent-lane call should replay.
+
+        Returns the pre-Writer-tool shape whenever it is the right one, which is
+        every turn without a tool call and every dual-model turn. That is not a
+        fallback: in dual-model mode the agent base does not declare the Writer's
+        tool, so a historical call to it would be a message the agent model was
+        never told about -- and there is no Writer-lane cache on that server to
+        extend by replaying it.
+        """
+        if dual_model or not self.writer_tool_used or not self.writer_trace:
+            normalized: tuple[WireMessage, ...] = (
+                {"role": "user", "content": self.writer_content},
+                {"role": "assistant", "content": draft},
+            )
+            return WriterReplay(messages=normalized)
+        return WriterReplay(
+            messages=tuple(self.writer_trace),
+            canonical_draft_block=CANONICAL_DRAFT_BLOCK.format(draft=draft),
+        )
 
     def as_director_output(self) -> dict:
         """Return the director-output subset seeding ``PostCtx.director_output``.

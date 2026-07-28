@@ -64,7 +64,12 @@ from ...features.extensions.errors import FlowError, PackageError, PackageIncomp
 from ...features.extensions.interpreter import ModelLane
 from ...features.extensions.limits import MAX_SOURCE_BYTES
 from ...features.extensions.runtime import current_state
-from ...inference import AbortToken, agent_lane_from_settings, client_from_settings
+from ...inference import (
+    AbortToken,
+    agent_lane_from_settings,
+    client_from_settings,
+    writer_tool_incompatibility,
+)
 from ...workflows.contracts import LoadStatus, WorkflowSource
 from ...workflows.enablement import effective_workflow_enabled
 from ..schemas import (
@@ -178,13 +183,34 @@ async def api_list_extensions():
     settings = await get_settings()
     owners = await namespaced_state_owners()
     configured = await list_configured_secret_names()
+    endpoint_diagnostic = _writer_endpoint_diagnostic(settings)
     return {
         "runtime_generation": state.generation,
         "extensions": [
-            catalog.catalog_entry(entry, settings, configured_secrets=configured.get(entry.id, {})) for entry in state.list()
+            catalog.catalog_entry(
+                entry,
+                settings,
+                configured_secrets=configured.get(entry.id, {}),
+                endpoint_diagnostic=endpoint_diagnostic,
+            )
+            for entry in state.list()
         ],
         "orphaned_data": catalog.orphaned_data(owners, state),
     }
+
+
+def _writer_endpoint_diagnostic(settings) -> str:
+    """Why the configured Writer endpoint cannot host a Writer tool, or ``""``.
+
+    Resolved per request rather than stored on the package: it is a fact about
+    the *endpoint*, and changing endpoints must change the answer without
+    touching a single installed extension.
+    """
+    return writer_tool_incompatibility(
+        settings.get("endpoint_url", "") or "",
+        settings.get("model_name", "") or "",
+        settings.get("completion_mode", "chat") or "chat",
+    )
 
 
 @router.get("/{extension_id}")
@@ -196,7 +222,12 @@ async def api_get_extension(extension_id: str):
     ]
     return {
         "runtime_generation": current_state().generation,
-        **catalog.detail_entry(entry, settings, secret_names=declared),
+        **catalog.detail_entry(
+            entry,
+            settings,
+            secret_names=declared,
+            endpoint_diagnostic=_writer_endpoint_diagnostic(settings),
+        ),
     }
 
 
@@ -360,6 +391,27 @@ async def api_set_extension_enabled(extension_id: str, body: Annotated[dict, Bod
     except lifecycle.LifecycleError as exc:
         raise _lifecycle_error(exc) from None
     return _envelope(generation, {"enabled": enabled})
+
+
+@router.put("/{extension_id}/writer-tool-active")
+async def api_set_writer_tool_active(extension_id: str, body: Annotated[dict, Body(...)]):
+    """Select or clear this package as the one active Writer resolver.
+
+    A host-owned control with no package input beyond the id in the path: an
+    extension cannot select itself, and it cannot select or deselect another.
+    The lifecycle lock serializes it against installs and permission changes,
+    the write clears the prior selection in the same transaction, and the
+    republish advances the generation because the selected schema is part of
+    the Writer's tool blob.
+    """
+    active = body.get("active")
+    if not isinstance(active, bool):
+        raise HTTPException(status_code=422, detail="'active' must be a boolean")
+    try:
+        generation = await lifecycle.set_writer_tool_active(extension_id, active)
+    except lifecycle.LifecycleError as exc:
+        raise _lifecycle_error(exc) from None
+    return _envelope(generation, {"active": active})
 
 
 @router.put("/{extension_id}/permissions")

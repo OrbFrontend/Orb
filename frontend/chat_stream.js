@@ -56,6 +56,11 @@ import {
   toast,
 } from "./utils.js";
 
+// The status-pill channel the Writer-tool resolver occupies. A fixed host key,
+// deliberately outside the `workflow:<id>` grammar: no package names it, and it
+// is not per-extension, because at most one resolver is active at a time.
+const WRITER_TOOL_CHANNEL = "writer-tool";
+
 // ── Streaming transport
 // The SSE parser and `streamPost` now live in sse.js (the app-wide single path);
 // this module keeps only the chat-specific stop call. `stopConversation` bypasses
@@ -539,6 +544,22 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
           const label = typeof d.label === "string" ? d.label : "";
           if (d.state === "done" || !label.trim()) clearWorkflowPhase(channel);
           else setWorkflowPhase(channel, label);
+        }
+      } catch (_) {}
+      break;
+    }
+    case "writer_tool_status": {
+      // The Writer paused to let its one selected extension resolver run. One
+      // fixed host-owned channel: the package chooses neither the event name
+      // nor the channel key, and the payload carries no argument, draft,
+      // result, or error text — only whether it is running and the tool's own
+      // label, which lands in textContent like every other package string.
+      try {
+        const d = JSON.parse(data);
+        if (d.running && typeof d.label === "string" && d.label.trim()) {
+          setWorkflowPhase(WRITER_TOOL_CHANNEL, `Resolving with ${d.label}`);
+        } else {
+          clearWorkflowPhase(WRITER_TOOL_CHANNEL);
         }
       } catch (_) {}
       break;

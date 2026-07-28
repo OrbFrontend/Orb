@@ -24,7 +24,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ....core import ChatMessage, ContentPart, extract_hyperparams
+from ....core import ContentPart, WireMessage, extract_hyperparams
 from ....inference import (
     GIVE_FEEDBACK_CHOICE,
     CachedBase,
@@ -34,6 +34,7 @@ from ....inference import (
     parse_tool_calls,
     reasoning_cfg,
 )
+from ...replay import WriterReplay
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ async def feedback_step(
     feedback_fragments: Sequence[Mapping[str, Any]],
     *,
     writer_user_msg: str | list[ContentPart],
+    replay: WriterReplay | None = None,
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -109,12 +111,21 @@ async def feedback_step(
         reasoning_on=reasoning_on,
         tool_schema=tool_schema,
     )
-    # Replay writer_user_msg + reply (as the editor does) so the feedback call
+    # Replay the writer exchange (as the editor does) so the feedback call
     # continues the warm writer/editor stack; only `request` is new bytes.
-    trailing: list[ChatMessage] = [
-        {"role": "user", "content": writer_user_msg},
-        {"role": "assistant", "content": reply_text},
-        {"role": "user", "content": request},
+    # *replay* carries the sanitized Writer trace when the Writer used its tool
+    # in single-model mode; otherwise it is the same two messages this built
+    # before, rebuilt here so callers without a trace need not construct one.
+    if replay is None:
+        replay = WriterReplay(
+            messages=(
+                {"role": "user", "content": writer_user_msg},
+                {"role": "assistant", "content": reply_text},
+            )
+        )
+    trailing: list[WireMessage] = [
+        *replay.messages,
+        {"role": "user", "content": replay.canonical_draft_block + request},
     ]
 
     hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.4, "max_tokens": 2048})

@@ -397,9 +397,22 @@ def test_rejects_an_asset_whose_bytes_contradict_its_extension():
 
 def test_a_future_extension_api_is_incompatible_not_invalid():
     """The distinction decides the user's next step: update Orb, or report a
-    bug to the author."""
-    with pytest.raises(PackageIncompatible, match="extension_api 2"):
-        compile_bytes(metadata_package(extension_api=2))
+    bug to the author.
+
+    Checked against the raw integer before any strict parsing, which is the
+    whole reason the versioned dispatch exists: every field of a future
+    manifest would otherwise look unknown, and ``extra="forbid"`` would report
+    "malformed package" for "package from a newer Orb"."""
+    with pytest.raises(PackageIncompatible, match="extension_api 3"):
+        compile_bytes(metadata_package(extension_api=3))
+
+
+def test_extension_api_2_is_supported():
+    """API 2 is implemented, so a v2 manifest compiles rather than reporting
+    that this build is too old."""
+    compiled = compile_bytes(metadata_package(extension_api=2))
+    assert compiled.manifest.extension_api == 2
+    assert compiled.writer_tool is None
 
 
 def test_an_unknown_declared_requirement_compiles_but_is_unavailable():

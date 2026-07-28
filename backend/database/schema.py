@@ -299,6 +299,16 @@ CREATE TABLE IF NOT EXISTS extension_packages (
     load_status TEXT NOT NULL DEFAULT 'available'
         CHECK (load_status IN ('available', 'incompatible', 'invalid', 'missing_content')),
     load_error TEXT NOT NULL DEFAULT '',
+    -- Local-only selection of the one active Writer resolver. At most one row
+    -- may carry a 1; the write path clears every other row in the same
+    -- transaction, so "which resolver is active" is never a question two rows
+    -- can answer differently. It is a *preference*, not an eligibility fact:
+    -- disabling or revoking makes it inactive immediately while the value
+    -- survives, so re-enabling restores what the user chose. Uninstall drops
+    -- it with the row, so a later package claiming the same id is not silently
+    -- activated. The whole table is LOCAL_ONLY, so it never travels in a
+    -- shareable preset either.
+    writer_tool_active INTEGER NOT NULL DEFAULT 0,
     installed_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

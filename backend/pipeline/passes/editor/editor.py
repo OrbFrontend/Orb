@@ -43,6 +43,7 @@ from ....inference import (
     parse_tool_calls,
     reasoning_cfg,
 )
+from ...replay import WriterReplay
 from .length_guard import LengthGuard, evaluate_length_guard
 
 logger = logging.getLogger(__name__)
@@ -196,6 +197,7 @@ async def editor_pass(
     reasoning_prefill: str = "",
     audit_context_msgs: list[str] | None = None,
     writer_user_msg: str | list[ContentPart] | None = None,
+    replay: WriterReplay | None = None,
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
 ) -> AsyncIterator[dict]:
     """Run the ReAct edit loop, then the optional feedback sub-step.
@@ -228,6 +230,7 @@ async def editor_pass(
         reasoning_prefill=reasoning_prefill,
         audit_context_msgs=audit_context_msgs,
         writer_user_msg=writer_user_msg,
+        replay=replay,
     ):
         if ev["type"] == "reasoning":
             yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
@@ -242,15 +245,21 @@ async def editor_pass(
 
     feedback_values: dict = {}
     if feedback_fragments and final_text and not client.is_aborted:
+        replay_user_msg = writer_user_msg if writer_user_msg is not None else effective_msg
         async for ev in feedback_step(
             client,
             base,
             final_text,
             settings,
             feedback_fragments,
-            # Same value the edit loop replays, so feedback extends the writer's
-            # KV-cached prefix instead of forking off the bare base.prefix.
-            writer_user_msg=(writer_user_msg if writer_user_msg is not None else effective_msg),
+            # Same messages the edit loop replays, so feedback extends the
+            # writer's KV-cached prefix instead of forking off the bare
+            # base.prefix.
+            writer_user_msg=replay_user_msg,
+            # The edit loop may have replaced the Writer's draft. Preserve the
+            # transcript shape/cache lineage, but make the final edited text the
+            # authoritative assistant message or canonical draft block.
+            replay=replay.with_draft(replay_user_msg, final_text) if replay is not None else None,
             kv_tracker=kv_tracker,
             # Feedback shares the editor's reasoning toggle — it is a sub-step, not
             # a separately-configurable pass.
@@ -280,6 +289,7 @@ async def editor_stage(
     feedback_fragments: Sequence[Mapping[str, Any]],
     editor_audit_msgs: list[str] | None,
     kv_tracker: _KVCacheTracker,
+    dual_model: bool = False,
 ) -> AsyncIterator[dict]:
     """Gating + writer→editor boundary event + editor pass + event translation.
 
@@ -332,6 +342,12 @@ async def editor_stage(
             reasoning_prefill=cfg.editor_reasoning_prefill,
             audit_context_msgs=editor_audit_msgs,
             writer_user_msg=state.writer_content,
+            # Single-model: extend the Writer's own transcript, tool messages
+            # included, because the shared base already declares that tool.
+            # Dual-model: the normalized user/draft pair -- the agent base does
+            # not declare the Writer's tool, so a historical call to it would be
+            # a message that model was never told about.
+            replay=state.writer_replay(state.resp_text, dual_model=dual_model),
             feedback_fragments=feedback_fragments if feedback_needed else None,
         ):
             if event["type"] == "reasoning":
@@ -393,6 +409,8 @@ async def _run_edit_loop(
     writer_user_msg: str
     | list[ContentPart]
     | None = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
+    replay: WriterReplay
+    | None = None,  # the Writer's sanitized transcript, when one should be replayed instead of the normalized pair
 ) -> AsyncIterator[dict]:
     """ReAct-style edit loop with optional audit and/or length guard.
 
@@ -486,13 +504,17 @@ async def _run_edit_loop(
     # WireMessage buffer the ReAct loop mutates in place (assistant tool_calls,
     # tool-role results) and hands to base.complete() each iteration. Keeping the
     # bottom on the base means the loop can only ever change the top of the stack.
+    # *replay* is the Writer's sanitized transcript when the Writer used its
+    # tool in single-model mode; otherwise it is the normalized user/draft pair
+    # this always built. Its ``canonical_draft_block`` leads the request in the
+    # first case, because the assistant message immediately above may hold only
+    # the post-tool continuation and the edit loop matches patches against the
+    # *whole* draft.
+    if replay is None:
+        replay = WriterReplay.normalized(writer_user_msg if writer_user_msg is not None else effective_msg, draft)
     trailing: list[WireMessage] = [
-        {
-            "role": "user",
-            "content": (writer_user_msg if writer_user_msg is not None else effective_msg),
-        },
-        {"role": "assistant", "content": draft},
-        {"role": "user", "content": final_prompt},
+        *replay.messages,
+        {"role": "user", "content": replay.canonical_draft_block + final_prompt},
     ]
 
     # Text-mode endpoints support response prefill → per-finding patch calls
@@ -502,7 +524,11 @@ async def _run_edit_loop(
     # replay for the whole run — mixing structured appends with flat rewrites
     # would clobber the tail.
     use_prefill = getattr(client, "completion_mode", "chat") == "text" and not has_image_parts([*base.prefix, *trailing])
-    replay_structured = reasoning_on and not use_prefill
+    # A Writer-tool transcript is already structured tool use on a provider that
+    # can replay it. Keep later Editor iterations structured too: the flat
+    # ``[-2:]`` rewrite assumes a normalized user/assistant pair and would leave
+    # the pre-tool prose beside a second copy of the complete updated draft.
+    replay_structured = (reasoning_on or bool(replay.canonical_draft_block)) and not use_prefill
 
     current_draft = draft
     prev_issues = report.total_issues
@@ -920,8 +946,8 @@ def _append_iteration_context(
     """Append the assistant tool-call recap + tool-result turn for the next
     iteration, in structured tool-use format (role=tool) so the model sees its
     exact call and the remaining issues in the form it was trained on. Only the
-    reasoning/structured-replay path reaches this; non-reasoning modes re-send
-    the updated draft in place instead.
+    reasoning/structured-replay path reaches this; normalized non-reasoning
+    modes re-send the updated draft in place instead.
     """
     tool_response = ("\n".join(errors) + "\n\n" if errors else "") + report_text
     tool_calls = resp.get("tool_calls", [])

@@ -86,6 +86,8 @@ Authors construct one of these and never touch `subscriptions` -- that field is 
   produces_artifacts: bool                  # default False
   subscriptions: list[Subscription]         # default-factory []; framework-owned
   config_normalizer: Optional[Callable]     # default None; see below
+  writer_tool: Optional[WriterToolBinding]  # default None; community tier only
+  writer_tool_selected: bool                # default False; the user's local choice
 ```
 
 `config_schema` is manifest metadata for the settings form and enforces nothing. `config_normalizer` is the enforcement: a `(raw) -> dict` callable owning the workflow's strict normalization of its config slot, applied by both config routes (sec. 12.2). Declare it whenever a hook already normalizes on read -- otherwise the API persists and echoes a shape that read path silently repairs or drops, and the settings panel goes on showing entries the workflow ignores. Shipped examples are `backend/workflows/image_gen/config.py:normalize_config`, which bounds user-authored graphs and style entries, and `backend/workflows/tts/config.py:normalize_config`, which supplies the complete typed TTS config and clamps volume.
@@ -103,6 +105,20 @@ Live example: shipped TTS builds its `Workflow(...)` instance at `backend/workfl
   choice: dict         # pre-built tool_choice payload
   standalone: bool     # default True; keeps tool out of pipeline union
 ```
+
+### 3.2b `WriterToolBinding` (`contracts.py`)
+
+```
+@dataclass(frozen=True) class WriterToolBinding:
+  spec: WriterToolSpec                      # core ABI value: key, wire name, label, schema, digest
+  invoke: Callable[[WriterToolRequest], Awaitable[WriterToolResult]]
+```
+
+Deliberately **not** a `ToolSpec`, and the distinction is a trust boundary rather than a naming one. A `ToolSpec` claims a name in the mutable inference `TOOLS` registry and is handled by whichever pipeline pass recognises it. A `WriterToolBinding` never reaches `register_tool`, never claims a registry name, is resolved only through a captured `RegistrySnapshot`, and carries its own executor. Collapsing the two would put a community-authored name one `register_tool` call away from the Director's blob -- which is precisely what "community packages do not add tools to the main passes" forbids.
+
+Built-ins leave both fields at their defaults. Orb ships no Writer tool of its own, and "no Writer tools" is an empty snapshot mapping rather than a module global anything could append to.
+
+`spec` comes from `backend/core/writer_tools.py` -- the one place `workflows/`, `features/extensions/`, and `pipeline/` can all agree on a provider-facing name and a result encoding, since none of the three may import the other two in the direction that agreement needs. `WriterToolRequest` (also `contracts.py`) is the runtime half: the model-facing invocation plus the turn's settings, client, and cancellation predicate, mirroring the `FragmentReduceRequest` split.
 
 ### 3.3 `HookType` (`contracts.py`)
 
@@ -157,7 +173,9 @@ finalize_registry()                                                    # step 3 
 
 Every lookup resolves against a **registry snapshot** -- an immutable, ordered view of the built-in base plus the community overlay. `current_snapshot()` captures one; the free functions below take an optional `snapshot=` and capture one themselves when it is omitted, which is correct for a single lookup at the top of a request and wrong inside a turn. A turn captures exactly one snapshot in `_load_pipeline_context` (`PipelineContext.registry`) and threads it through pre-hooks, `_run_pipeline`, and post-hooks, so an install landing mid-turn cannot pair an old pre-hook with a new post-hook.
 
-- `current_snapshot() -> RegistrySnapshot`. Fields: `generation`, `workflows` (read-only mapping, built-ins then community), `by_hook` (resolved order per hook type), `digests` (community id -> active content digest). Methods: `.get(id)`, `.list()`, `.subscriptions(hook_type)`, `.subscription(id, hook_type)`.
+- `current_snapshot() -> RegistrySnapshot`. Fields: `generation`, `workflows` (read-only mapping, built-ins then community), `by_hook` (resolved order per hook type), `digests` (community id -> active content digest), `fragment_types` (built-in plus contributed descriptors), `writer_tools` (every eligible Writer-tool binding, keyed by derived wire name, in extension-id order), `active_writer_tool` (the wire name of the one selected resolver, or `None`). Methods: `.get(id)`, `.list()`, `.subscriptions(hook_type)`, `.subscription(id, hook_type)`, `.fragment_type(type_id)`, `.writer_tool(wire_name)`.
+
+  `writer_tools` and `active_writer_tool` are separate because availability is not activation: every eligible contribution is published, and exactly one of them may enter a turn's tool blob. Both come from the same captured generation, so "the schema I sent" and "the binding I ran" cannot disagree. `publish_community_overlay` validates the pair before the swap -- one selection at most, one owner per binding, a wire name Orb itself derived, a digest matching the record's compiled revision, globally unique names, and the count and aggregate encoded-blob caps from `core/writer_tools.py`.
 - `get_workflow(workflow_id, *, snapshot=None) -> Workflow | None`.
 - `get_subscription(workflow_id, hook_type, *, snapshot=None) -> Subscription | None`. Collapses "unknown id" and "unbound hook" to None.
 - `iter_subscriptions(hook_type, *, snapshot=None) -> list[Subscription]`. Resolved execution order (see below).

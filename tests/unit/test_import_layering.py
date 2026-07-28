@@ -63,6 +63,14 @@ CORE_MODULE_INVENTORY = frozenset(
         "personas",
         "tags",
         "utils",
+        # The Writer-tool ABI. Admitted because ``workflows`` (which carries the
+        # binding on a snapshot), ``features/extensions`` (which compiles the
+        # callable), and ``pipeline`` (which sends the schema and invokes the
+        # binding) must agree on one provider-facing name and one result
+        # encoding, and none of the three may import the other two in the
+        # direction that agreement needs. It holds values and pure invariants
+        # only: no registry, no grants, no manifest, no I/O.
+        "writer_tools",
     }
 )
 
@@ -75,6 +83,10 @@ CORE_ALLOWED_STDLIB = frozenset(
         "asyncio",
         "collections",
         "contextlib",
+        # Value declaration only. ``dataclasses`` builds ``__init__``/``__eq__``
+        # for a frozen record; it opens no file, spawns no process, and reads no
+        # environment, which is the distinction this allowlist draws.
+        "dataclasses",
         "datetime",
         "random",
         "re",

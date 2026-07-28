@@ -38,12 +38,14 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from ...core import WriterToolError, WriterToolSpec
 from .assets import assert_bytes_match, asset_media_type
 from .contracts import (
     CONFIG_VIEW_ID,
-    EXTENSION_API_VERSION,
+    MAX_EXTENSION_API_VERSION,
     OPERATION_SPECS,
     RESOURCE_CAPABILITIES,
+    SUPPORTED_EXTENSION_APIS,
     Capability,
     Component,
     ExtensionManifest,
@@ -71,6 +73,7 @@ from .errors import PackageIncompatible, PackageValidationError
 from .json_loader import load_json
 from .limits import MAX_ASSET_BYTES, MAX_MANIFEST_BYTES, MAX_REFERENCED_BYTES_TOTAL
 from .sources import MANIFEST_PATH, PackageSource
+from .writer_tools import build_writer_tool_spec
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +106,10 @@ class CompiledPackage:
     requirements: DerivedRequirements
     contract_fingerprint: str
     unavailable: tuple[str, ...] = ()
+    writer_tool: WriterToolSpec | None = None
+    """The compiled Writer-tool entry, built here so the schema the byte budget
+    was checked against is the same object a snapshot publishes and a turn
+    sends. ``None`` for every v1 package and every v2 package without one."""
 
     @property
     def extension_id(self) -> str:
@@ -121,8 +128,8 @@ def compile_package(source: PackageSource) -> CompiledPackage:
 
     Raises :class:`PackageIncompatible` for an ``extension_api`` this build does
     not implement -- checked against the raw JSON before the strict models,
-    because a manifest declaring API 2 is a package from the future, not a
-    malformed one, and the Pydantic ``Literal[1]`` cannot tell the difference.
+    because a manifest declaring a future API is a package from the future, not
+    a malformed one, and a per-version ``Literal`` cannot tell the difference.
     """
     manifest_bytes = source.read(MANIFEST_PATH, max_bytes=MAX_MANIFEST_BYTES)
     raw = load_json(manifest_bytes, what=MANIFEST_PATH, max_bytes=MAX_MANIFEST_BYTES)
@@ -142,17 +149,20 @@ def compile_package(source: PackageSource) -> CompiledPackage:
     requirements = _derive_requirements(manifest, flows, views)
     _assert_declarations_cover(manifest, requirements)
 
+    digest = content_digest(files)
+    writer_tool = _compile_writer_tool(manifest, digest)
     unavailable = tuple(manifest.requires.unknown())
     return CompiledPackage(
         manifest=manifest,
-        digest=content_digest(files),
+        digest=digest,
         files=files,
         flows=flows,
         views=views,
         asset_types=asset_types,
         requirements=requirements,
-        contract_fingerprint=_fingerprint(manifest, requirements),
+        contract_fingerprint=_fingerprint(manifest, requirements, writer_tool),
         unavailable=unavailable,
+        writer_tool=writer_tool,
     )
 
 
@@ -160,14 +170,24 @@ def compile_package(source: PackageSource) -> CompiledPackage:
 
 
 def _assert_api_version(raw: Any) -> None:
+    """Check the declared API version before any strict parsing happens.
+
+    Order is the whole point. Reading the raw integer first is what lets an
+    older Orb say "this package needs a newer build" about a manifest whose
+    every field it would otherwise reject as unknown -- the failure the version
+    bump exists to prevent. The model re-checks membership, so this is the
+    *classification* (incompatible, not invalid), not the only gate.
+    """
     if not isinstance(raw, dict):
         raise PackageValidationError(f"{MANIFEST_PATH} must contain a JSON object")
     declared = raw.get("extension_api")
     if not isinstance(declared, int) or isinstance(declared, bool):
         raise PackageValidationError(f"{MANIFEST_PATH}: 'extension_api' must be an integer")
-    if declared != EXTENSION_API_VERSION:
+    if declared not in SUPPORTED_EXTENSION_APIS:
         raise PackageIncompatible(
-            f"package declares extension_api {declared}; this Orb build implements extension_api {EXTENSION_API_VERSION}"
+            f"package declares extension_api {declared}; this Orb build implements extension_api "
+            f"{', '.join(str(v) for v in sorted(SUPPORTED_EXTENSION_APIS))} "
+            f"(newest {MAX_EXTENSION_API_VERSION})"
         )
 
 
@@ -176,6 +196,24 @@ def _parse_manifest(raw: Any) -> ExtensionManifest:
         return ExtensionManifest.model_validate(raw)
     except Exception as exc:
         raise PackageValidationError(f"{MANIFEST_PATH}: {_first_error(exc)}") from None
+
+
+def _compile_writer_tool(manifest: ExtensionManifest, digest: str) -> WriterToolSpec | None:
+    """Build the provider tool entry for a declared Writer contribution.
+
+    After the digest, because the spec carries it: a binding, its schema, its
+    package digest, and its extension id have to belong to one compiled
+    revision, and pinning the digest into the spec is what makes "a turn
+    invokes only the binding captured with the exact schema generation it sent"
+    a check rather than a convention.
+    """
+    declared = manifest.writer_tool
+    if declared is None:
+        return None
+    try:
+        return build_writer_tool_spec(extension_id=manifest.id, descriptor=declared, content_digest=digest)
+    except WriterToolError as exc:
+        raise PackageValidationError(str(exc)) from None
 
 
 def _load_flows(source: PackageSource, manifest: ExtensionManifest, files: dict[str, PackageContent]) -> dict[str, Flow]:
@@ -274,6 +312,8 @@ def _flow_contexts(manifest: ExtensionManifest) -> Iterator[tuple[str, OpContext
         yield manifest.artifact_flows.reroll_gen, OpContext.RECOVERY
     for descriptor in manifest.contributions.fragment_types:
         yield descriptor.reduce_flow, OpContext.REDUCER
+    if manifest.writer_tool is not None:
+        yield manifest.writer_tool.flow, OpContext.WRITER_TOOL
 
 
 def _assert_view_actions(manifest: ExtensionManifest, views: Mapping[str, View]) -> None:
@@ -460,6 +500,8 @@ def _derive_requirements(
             permissions.add((Capability.CONTEXT_READ.value, "character"))
     if manifest.contributions.fragment_types:
         permissions.add((Capability.FRAGMENT_TYPE_CONTRIBUTE.value, None))
+    if manifest.writer_tool is not None:
+        permissions.add((Capability.WRITER_TOOL_CONTRIBUTE.value, None))
     if manifest.produces_artifacts:
         permissions.add((Capability.ARTIFACT_WRITE.value, None))
 
@@ -763,15 +805,25 @@ def derive_flow_requirements(flow: Flow) -> set[Requirement]:
     return requirements
 
 
-def _fingerprint(manifest: ExtensionManifest, derived: DerivedRequirements) -> str:
+def _fingerprint(
+    manifest: ExtensionManifest,
+    derived: DerivedRequirements,
+    writer_tool: WriterToolSpec | None = None,
+) -> str:
     """A hash of what this build compiled the revision *into*.
 
     The content digest identifies the bytes; this identifies the meaning Orb
     assigned them. A stored fingerprint that no longer matches a recompile is
     how a contract change between Orb versions becomes visible instead of
     silently re-deriving different requirements under the same consent.
+
+    The Writer-tool entry is part of that meaning even though it adds no new
+    capability name. Its description and parameter descriptions are
+    package-authored *model input* shipped in every turn's tool blob, so
+    changing them changes what the user consented to -- an inspected update,
+    not a silent swap under an unchanged grant set.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "extension_api": manifest.extension_api,
         "permissions": sorted([capability, parameter or ""] for capability, parameter in derived.permissions),
         "operations": sorted(derived.operations),
@@ -779,6 +831,15 @@ def _fingerprint(manifest: ExtensionManifest, derived: DerivedRequirements) -> s
         "secrets": sorted(derived.secrets),
         "requested": sorted(permission_key(p) for p in manifest.permissions),
     }
+    if writer_tool is not None:
+        declared = manifest.writer_tool
+        assert declared is not None
+        payload["writer_tool"] = {
+            "wire_name": writer_tool.wire_name,
+            "label": writer_tool.label,
+            "schema": writer_tool.provider_schema(),
+            "output_schema": dict(parse_schema(declared.output_schema, what="writer_tool output_schema").schema),
+        }
     return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
 

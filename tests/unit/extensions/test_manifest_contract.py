@@ -61,9 +61,9 @@ def test_id_grammar_is_enforced(bad_id):
         manifest(id=bad_id)
 
 
-def test_unknown_extension_api_is_rejected():
+def test_an_unsupported_extension_api_is_rejected():
     with pytest.raises(ValidationError):
-        manifest(extension_api=2)
+        manifest(extension_api=3)
 
 
 def test_unknown_top_level_field_is_rejected():

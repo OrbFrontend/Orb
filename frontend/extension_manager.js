@@ -302,6 +302,9 @@ function cardDetail(item) {
 
   body.appendChild(permissionList(item));
 
+  const resolver = writerToolSection(item);
+  if (resolver) body.appendChild(resolver);
+
   const secrets = secretsSection(item);
   if (secrets) body.appendChild(secrets);
   if (item.config_view) body.appendChild(configSection(item));
@@ -355,6 +358,53 @@ function permissionList(item) {
     ]),
   );
   return wrap;
+}
+
+/**
+ * The single active-Writer-resolver control.
+ *
+ * Radio-style rather than a per-package checkbox, because at most one resolver
+ * is active across the whole install: turning this one on turns any other one
+ * off, in one server-side transaction. The control is host-owned — the package
+ * neither renders it nor knows it exists, and it cannot select itself.
+ *
+ * The label and the id are the only package strings here, and they land in
+ * `textContent` like every other one. The tool's *description* is deliberately
+ * absent: that text ships to the model, and the consent row for
+ * `writer.tool.contribute` is where the user is told so. Repeating the
+ * package's own wording beside the toggle would read as Orb vouching for it.
+ */
+function writerToolSection(item) {
+  const tool = item.writer_tool;
+  if (!tool) return null;
+  const wrap = el("div", { cls: "ext-writer-tool" }, [el("div", { cls: "ext-section-title", text: "Writer tool" })]);
+
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.className = "ext-writer-tool-toggle";
+  box.checked = !!tool.selected;
+  // Selecting something the server would refuse is not a state worth reaching:
+  // the same predicate drives this and the route, so the control is absent
+  // exactly when activation would fail. Deselecting stays available, or a
+  // revoked grant would strand the selection.
+  box.disabled = !tool.available && !tool.selected;
+  box.addEventListener("change", () => void setWriterToolActive(item.id, box.checked));
+
+  wrap.appendChild(
+    el("label", { cls: "ext-writer-tool-row" }, [
+      box,
+      el("span", { cls: "ext-writer-tool-label", text: `Use as Writer resolver — ${tool.label}` }),
+    ]),
+  );
+  if (tool.selected && !tool.active) {
+    wrap.appendChild(el("div", { cls: "ext-field", text: "Selected, but not running this turn." }));
+  }
+  if (tool.diagnostic) wrap.appendChild(el("div", { cls: "ext-diagnostic", text: tool.diagnostic }));
+  return wrap;
+}
+
+async function setWriterToolActive(extensionId, active) {
+  await run(() => api.put(`/extensions/${encodeURIComponent(extensionId)}/writer-tool-active`, { active }));
 }
 
 /**
@@ -440,6 +490,9 @@ function telemetrySection(item) {
     `max ${stats.max_ms} ms`,
     `${stats.model_calls} model call(s)`,
   ];
+  if (stats.writer_tool_invocations) {
+    parts.push(`Writer I/O ${stats.last_writer_tool_input_bytes ?? 0}/${stats.last_writer_tool_output_bytes ?? 0} B`);
+  }
   if (stats.errors) parts.push(`${stats.errors} error(s)`);
   if (stats.cancellations) parts.push(`${stats.cancellations} cancelled`);
   return el("div", { cls: "ext-telemetry", text: parts.join(" · ") });

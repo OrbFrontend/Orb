@@ -29,7 +29,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ....core import ChatMessage, ContentPart, extract_hyperparams
+from ....core import ContentPart, WireMessage, extract_hyperparams
 from ....inference import (
     RECORD_DIRECTION_NOTE_CHOICE,
     CachedBase,
@@ -39,6 +39,7 @@ from ....inference import (
     parse_tool_calls,
     reasoning_cfg,
 )
+from ...replay import WriterReplay
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ async def direction_note_step(
     inj_block: str | None = None,
     reply_text: str | None = None,
     writer_user_msg: str | list[ContentPart] | None = None,
+    replay: WriterReplay | None = None,
     kv_tracker=None,
     reasoning_on: bool = False,
     reasoning_prefill: str = "",
@@ -133,10 +135,22 @@ async def direction_note_step(
         )
         if placement == "post_turn":
             # Replay the writer exchange so each call extends the warm writer/editor prefix.
-            trailing: list[ChatMessage] = [
-                {"role": "user", "content": writer_user_msg or ""},
-                {"role": "assistant", "content": reply_text or ""},
-                {"role": "user", "content": request},
+            # *replay* carries the sanitized Writer trace when one exists; without it the
+            # normalized user/reply pair is rebuilt here, which is the same two messages.
+            if replay is None:
+                replay = WriterReplay(
+                    messages=(
+                        {"role": "user", "content": writer_user_msg or ""},
+                        {"role": "assistant", "content": reply_text or ""},
+                    )
+                )
+            # The canonical-draft block leads the request when a tool transcript
+            # is being replayed: the immediately preceding assistant message may
+            # then hold only the post-tool continuation, and a note step that
+            # reflected on that fragment would record half a turn.
+            trailing: list[WireMessage] = [
+                *replay.messages,
+                {"role": "user", "content": replay.canonical_draft_block + request},
             ]
         else:
             trailing = [{"role": "user", "content": request}]

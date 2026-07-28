@@ -37,6 +37,7 @@ from contextlib import AsyncExitStack
 from typing import Any
 
 from ...core import (
+    WriterToolResult,
     conversation_stream_lock,
     workflow_character_state_lock,
     workflow_config_lock,
@@ -66,6 +67,8 @@ from ...workflows.contracts import (
     PreCtx,
     RegenCtx,
     RerollGenCtx,
+    WriterToolBinding,
+    WriterToolRequest,
 )
 from ...workflows.fragment_types import (
     FragmentReduceRequest,
@@ -80,6 +83,7 @@ from .contracts import (
     EffectEnvelope,
     Flow,
     OpContext,
+    WriterToolDescriptor,
     iter_steps,
     parse_schema,
 )
@@ -96,9 +100,14 @@ from .interpreter import (
     run_flow,
     unimplemented_operations,
 )
-from .limits import MAX_STATE_BYTES_PER_SCOPE
+from .limits import (
+    MAX_STATE_BYTES_PER_SCOPE,
+    MAX_WRITER_TOOL_ARGUMENT_BYTES,
+    MAX_WRITER_TOOL_RESULT_BYTES,
+)
 from .network import HttpService, granted_origins
 from .values import assert_json_bounds, render_template
+from .writer_tools import writer_tool_input_schema, writer_tool_output_schema
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +318,165 @@ async def _run_fragment_reducer(
     assert result is not None
     request.budget.charge(value=result.value)
     return result.value
+
+
+# ── Writer tools ─────────────────────────────────────────────────────────────
+
+
+def writer_tool_binding(compiled: CompiledPackage, blocked: Sequence[str]) -> WriterToolBinding | None:
+    """Bind this revision's Writer tool, or publish nothing at all.
+
+    Nothing at all is the load-bearing case, exactly as with the artifact pair:
+    a blocked contribution must keep its *schema* out of the snapshot, not just
+    its executor. A published schema with no runnable flow would put a tool in
+    front of the model that Orb would then have to refuse -- spending prompt
+    bytes and a turn to say no.
+    """
+    declared = compiled.manifest.writer_tool
+    spec = compiled.writer_tool
+    if declared is None or spec is None or "writer tool" in blocked:
+        return None
+    flow = compiled.flows.get(declared.flow)
+    if flow is None:
+        return None
+    return WriterToolBinding(spec=spec, invoke=make_writer_tool(compiled, declared, flow))
+
+
+def make_writer_tool(
+    compiled: CompiledPackage,
+    declared: WriterToolDescriptor,
+    flow: Flow,
+) -> Callable[[WriterToolRequest], Awaitable[WriterToolResult]]:
+    """Bind a compiled flow as this extension's Writer-tool executor.
+
+    The executor runs inside an *unfinished* model turn, which is what shapes
+    everything unusual about it:
+
+    * the arguments are validated against the compiled input schema before any
+      step runs, so a hostile or malformed call costs nothing;
+    * ``ctx.draft`` is whatever prose the Writer has already streamed, supplied
+      by the host -- the model cannot describe a different draft, and the
+      package cannot ask it to;
+    * there is no message row, so ``message`` scope is unreachable (the
+      compiler already refused it) and no artifact may be attached;
+    * a successful invocation is its own state transaction. It commits when the
+      *flow* returns, not when the *turn* succeeds, so a namespaced write can
+      outlive a Writer abort. That is documented in the consent copy rather
+      than papered over: a model call and an HTTP request already could not be
+      rolled back, and pretending the state write can be would be the lie.
+    """
+    extension_id = compiled.extension_id
+    input_schema = writer_tool_input_schema(declared)
+    output_schema = writer_tool_output_schema(declared)
+    key = compiled.writer_tool.key if compiled.writer_tool is not None else None
+
+    async def invoke(request: WriterToolRequest) -> WriterToolResult:
+        call = request.invocation
+        granted = _granted(extension_id)
+        if (Capability.WRITER_TOOL_CONTRIBUTE.value, None) not in granted:
+            raise FlowError("permission writer.tool.contribute is not granted")
+
+        arguments = dict(call.arguments)
+        assert_json_bounds(arguments, what="the Writer tool's arguments")
+        argument_bytes = _assert_writer_argument_bytes(arguments)
+        reason = input_schema.validate(arguments)
+        if reason is not None:
+            raise FlowError(f"the Writer tool's arguments do not match its declared schema: {reason}")
+
+        access = _StateAccess(
+            extension_id,
+            conversation_id=call.conversation_id,
+            character_id=request.character_id,
+        )
+        invocation = Invocation(
+            extension_id=extension_id,
+            context=OpContext.WRITER_TOOL,
+            host=_services(
+                compiled,
+                access,
+                lanes=_writer_tool_lanes(request),
+                is_cancelled=request.is_cancelled,
+            ),
+            ctx=build_ctx(
+                extension_id=extension_id,
+                hook="writer_tool",
+                granted=granted,
+                conversation_id=call.conversation_id,
+                card=request.card,
+                history=request.history,
+                last_user_message=request.last_user_message,
+                draft=call.draft,
+            ),
+            action_input=arguments,
+            metadata={
+                "conversation_id": call.conversation_id,
+                "hook": "writer_tool",
+                "writer_tool": key.local_id if key is not None else declared.id,
+                "writer_tool_input_bytes": argument_bytes,
+            },
+            # Conversation, host-owned turn-attempt identity, revision, tool, and
+            # provider call id. The attempt seed makes regeneration fresh even
+            # when history/input are identical; the call id distinguishes calls
+            # within that attempt without being trusted as the attempt identity.
+            seed=f"writer_tool|{call.conversation_id or ''}|{call.turn_seed}|{compiled.digest}|{declared.id}|{call.call_id}",
+            scopes_in_scope=flow_scopes(flow),
+            output_schema=output_schema,
+        )
+
+        result: FlowResult | None = None
+        async for event in _invoke(
+            compiled=compiled,
+            flow=flow,
+            invocation=invocation,
+            access=access,
+            entry_point=f"writer tool {declared.id}",
+        ):
+            if isinstance(event, FlowResult):
+                result = event
+        assert result is not None
+        return WriterToolResult(value=result.value)
+
+    return invoke
+
+
+def _assert_writer_argument_bytes(arguments: Mapping[str, Any]) -> int:
+    size = len(canonical_json_bytes(dict(arguments)))
+    if size > MAX_WRITER_TOOL_ARGUMENT_BYTES:
+        raise FlowError(f"the Writer tool's arguments are {size} bytes, over the {MAX_WRITER_TOOL_ARGUMENT_BYTES} byte limit")
+    return size
+
+
+def _assert_encoded_writer_result(value: Any) -> int:
+    """Bound the result *before* it becomes part of the model's transcript.
+
+    Tighter than an action's return budget on purpose: this value is spliced
+    into an unfinished turn, where every byte is context the Writer pays for
+    and cannot decline.
+    """
+    size = len(canonical_json_bytes(value))
+    if size > MAX_WRITER_TOOL_RESULT_BYTES:
+        raise FlowError(f"the Writer tool's result is {size} bytes, over the {MAX_WRITER_TOOL_RESULT_BYTES} byte limit")
+    return size
+
+
+def _writer_tool_lanes(request: WriterToolRequest) -> dict[str, ModelLane]:
+    """The two lanes a Writer-tool flow's ``model.*`` operation may address.
+
+    The turn's own clients, so a flow-owned call inherits the endpoint,
+    credentials, model, and abort token the user configured -- and, as
+    everywhere else, no prefix and no tool blob. An isolated call assembles its
+    own request from the host safety preamble and the flow's prompt.
+    """
+    settings = request.settings
+    agent_client, agent_model = agent_lane_from_settings(
+        settings,
+        writer_client=request.client,
+        abort_token=getattr(request.client, "abort_token", None),
+    )
+    return {
+        "writer": ModelLane(client=request.client, model=settings["model_name"]),
+        "agent": ModelLane(client=agent_client, model=agent_model),
+    }
 
 
 def flow_scopes(flow: Flow) -> frozenset[str]:
@@ -673,6 +841,7 @@ async def _invoke(
     conversation_id = access.conversation_id
     timer = telemetry.InvocationTimer(invocation.extension_id, entry_point)
     outcome: telemetry.Outcome = "error"
+    writer_tool_output_bytes: int | None = None
     try:
         async with execution.track_invocation(invocation.extension_id):
             scopes = access.available(invocation.scopes_in_scope)
@@ -688,6 +857,11 @@ async def _invoke(
                     else:
                         yield event
                 assert result is not None
+                if invocation.context == OpContext.WRITER_TOOL:
+                    # Validate the transcript budget before committing staged
+                    # state. An over-budget result is a failed invocation, not a
+                    # successful state transaction followed by a transport error.
+                    writer_tool_output_bytes = _assert_encoded_writer_result(result.value)
                 _validate_staged_effects(invocation, result)
                 await _commit_staged(compiled, invocation, access, result)
                 outcome = "ok"
@@ -698,7 +872,12 @@ async def _invoke(
         outcome = "cancelled"
         raise
     finally:
-        timer.finish(outcome, invocation.quotas)
+        timer.finish(
+            outcome,
+            invocation.quotas,
+            input_bytes=invocation.metadata.get("writer_tool_input_bytes"),
+            output_bytes=writer_tool_output_bytes,
+        )
 
 
 # ── hook adapters ────────────────────────────────────────────────────────────

@@ -42,6 +42,25 @@ from .utils import (
     extract_hyperparams,
     scrub_log,
 )
+from .writer_tools import (
+    INVALID_ARGUMENTS,
+    MAX_WRITER_TOOL_BLOB_BYTES,
+    MAX_WRITER_TOOLS_PUBLISHED,
+    RESOLVER_UNAVAILABLE,
+    TOOL_NOT_AVAILABLE,
+    WRITER_TOOL_ERROR_CODES,
+    WRITER_TOOL_PREFIX,
+    WriterToolError,
+    WriterToolInvocation,
+    WriterToolKey,
+    WriterToolResult,
+    WriterToolSpec,
+    is_writer_tool_name,
+    valid_call_id,
+    wire_name,
+    writer_tool_error,
+    writer_tool_ok,
+)
 
 __all__ = [
     # llm_types — wire contracts
@@ -74,4 +93,22 @@ __all__ = [
     "estimate_tokens",
     "extract_hyperparams",
     "scrub_log",
+    # writer_tools — the Writer-tool ABI shared by workflows/features/pipeline
+    "INVALID_ARGUMENTS",
+    "MAX_WRITER_TOOLS_PUBLISHED",
+    "MAX_WRITER_TOOL_BLOB_BYTES",
+    "RESOLVER_UNAVAILABLE",
+    "TOOL_NOT_AVAILABLE",
+    "WRITER_TOOL_ERROR_CODES",
+    "WRITER_TOOL_PREFIX",
+    "WriterToolError",
+    "WriterToolInvocation",
+    "WriterToolKey",
+    "WriterToolResult",
+    "WriterToolSpec",
+    "is_writer_tool_name",
+    "valid_call_id",
+    "wire_name",
+    "writer_tool_error",
+    "writer_tool_ok",
 ]

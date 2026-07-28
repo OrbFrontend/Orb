@@ -574,6 +574,11 @@ class ExtensionPackageRow(TypedDict):
     enabled: int
     load_status: str  # 'available' | 'incompatible' | 'invalid' | 'missing_content'
     load_error: str
+    # The user's local "use this as the Writer resolver" preference. A fourth
+    # independent axis, not a derived one: it survives disable and permission
+    # revocation (which merely make it ineligible) and is dropped only by
+    # uninstall.
+    writer_tool_active: int
     installed_at: str
     updated_at: str
 

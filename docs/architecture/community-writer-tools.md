@@ -1,40 +1,40 @@
-# Community Writer Tools — Implementation Plan
+# Community Writer Tools
 
-Status: **planned; not implemented. Community-extension Phase 5's exit gate is
-met, so implementation may proceed in WT0→WT4 order.**
+Status: **implemented (WT0–WT4).** `extension_api: 2` is accepted, a v2 package
+may contribute one Writer tool, and a selected resolver runs inside the Writer's
+bounded ReAct loop. Section 19 records where the implementation reached a
+decision this plan had left open or had specified differently.
 
-Baseline: community-extension Phases 0–5 are implemented, including the network
-client, write-only secrets, `artifact.emit`, and bounded Git installation. This
-plan is an independent follow-on slice and does not reopen those phases.
+Baseline: community-extension Phases 0–5, including the network client,
+write-only secrets, `artifact.emit`, and bounded Git installation. This slice is
+an independent follow-on and did not reopen those phases.
 
 ### Sequencing against Phase 5
 
-Phase 5 (fragment-type contributions) is complete. The ordering argument lives in
-[Community Extensions](community-extensions.md) under "Sequencing against
-Community Writer Tools"; its resulting seams are now the baseline for this plan:
+Phase 5 (fragment-type contributions) landed first. The ordering argument lives
+in [Community Extensions](community-extensions.md) under "Sequencing against
+Community Writer Tools"; its seams were the baseline for this work:
 
-- **WT0 should land first.** Versioned
+- **WT0 landed first.** Versioned
   manifest dispatch, the core ABI values, `writer.tool.contribute`, and
   `OpContext.WRITER_TOOL` touch no pipeline code. WT0 is also the piece that
-  degrades with delay: it exists because v1 models use `extra="forbid"`, so a
+  degraded with delay: it exists because v1 models use `extra="forbid"`, so a
   host without it misreports a v2 package as malformed rather than as a package
   from a future API.
-- **WT1 is likewise pipeline-free** — registry binding, activation persistence,
-  the activation route, catalog projection, and the manager control — and may
-  land in the same window.
-- **WT2's Phase 5 dependency is satisfied.** Fragment schemas and prompt text
-  now arrive through pre-resolved snapshot bindings, and `TurnState` separates
-  raw Director fields from normalized/persisted fragment state. The per-lane
-  split in section 7 can build on that path.
+- **WT1 was likewise pipeline-free** — registry binding, activation persistence,
+  the activation route, catalog projection, and the manager control.
+- **WT2's Phase 5 dependency was satisfied.** Fragment schemas and prompt text
+  arrive through pre-resolved snapshot bindings, and `TurnState` separates raw
+  Director fields from normalized/persisted fragment state. The per-lane split
+  in section 7 built on that path.
 
 The `extension_api: 2` bump was a second reason for this order. Its
 compatibility story depends on API 1 naming one complete frozen contract, and
-API 1 is now complete because `fragment_type.contribute` has a runtime consumer.
+API 1 was complete once `fragment_type.contribute` had a runtime consumer.
 
 Originating use case: [Orb issue #121](https://github.com/OrbFrontend/Orb/issues/121).
 
-This document defines the implementation plan for a bounded Writer-only tool
-ABI. It amends the direction in
+This document defines a bounded Writer-only tool ABI. It amends the direction in
 [Community Extensions](community-extensions.md), whose frozen v1 contract does
 not allow community packages to add tools to any main pipeline pass.
 
@@ -335,6 +335,15 @@ Publication validates:
 - ordering is deterministic by extension ID and local tool ID;
 - the aggregate schema count and encoded-byte budget fit the host cap.
 
+The ordinary readable wire form is
+`orb_writer_<extension-id>--<local-tool-id>`. Because the shared ID grammar
+also permits `--` inside either ID, those uncommon keys use the reserved
+injective form
+`orb_writer__<extension-id-length>_<extension-id>_<local-tool-id>`. The leading
+underscore cannot begin an ordinary extension ID, and the explicit owner length
+makes the split unambiguous. Existing names without doubled hyphens retain their
+wire identity.
+
 Lifecycle replacement swaps Writer-tool bindings with the rest of the
 community overlay. A turn captures one generation and cannot execute a tool
 from a newer or older revision than the schema it sent.
@@ -514,8 +523,8 @@ continuation prose. Never issue a third model completion.
 
 ### Extension failure
 
-Timeout, cancellation, permission revocation, invalid output, and sanitized
-`FlowError` all produce a bounded result such as:
+Timeout, permission revocation, invalid output, and sanitized `FlowError` all
+produce a bounded result such as:
 
 ```json
 {
@@ -524,8 +533,9 @@ Timeout, cancellation, permission revocation, invalid output, and sanitized
 }
 ```
 
-The Writer receives no internal exception text. Unless the user cancelled the
-whole turn, Orb attempts the one no-tools continuation so the Writer can finish
+The Writer receives no internal exception text. User cancellation is the
+turn-level exception: Orb emits no tool result and starts no continuation.
+Otherwise Orb attempts the one no-tools continuation so the Writer can finish
 without inventing a successful resolution. A separate transport failure during
 that continuation keeps the pipeline's existing turn-failure semantics.
 
@@ -647,7 +657,7 @@ When the selected Writer resolver is incompatible with the active endpoint:
 - omit Writer schemas from that request rather than advertise a tool that
   cannot execute safely;
 - use the normal no-tools Writer path;
-- expose a host diagnostic in the extension manager and turn inspector;
+- expose a host diagnostic in the extension manager;
 - do not fail the user’s whole turn.
 
 This endpoint-dependent omission necessarily produces a different base tool
@@ -707,9 +717,13 @@ not choose the event name or channel key. The frontend may display:
 Resolving outcome with Outcome Resolver…
 ```
 
-The status is always cleared in `finally`. Do not send tool arguments, draft,
-results, or internal errors over SSE. Existing token streaming continues before
-and after the resolver pause.
+The status is cleared on the ordinary success and failure paths by the event
+that follows the invocation, and on abort, disconnect, and exception by the
+frontend's `afterStream()` sweep. Deliberately *not* by a backend `finally`: an
+async generator cannot yield while unwinding a `GeneratorExit`, so the cleanup
+that looked most reliable is the one that would raise on exactly the path it was
+written for. Do not send tool arguments, draft, results, or internal errors over
+SSE. Existing token streaming continues before and after the resolver pause.
 
 ### Telemetry
 
@@ -970,21 +984,143 @@ Exit gate:
 
 ---
 
-## 18. Documentation updates when implementation lands
+## 18. Documentation updated with the implementation
 
-Update these together with the implementation:
+All landed together with the code:
 
 - [Community Extensions](community-extensions.md): status, decision table,
   package contract, capability vocabulary, snapshot contents, operation
   contexts, concrete change map, compatibility, and deferred list.
-- [KV Cache Reuse](kv-cache.md): schema union, Writer transcript replay, and
-  accepted cross-turn cache fork.
-- [SSE Turn Stream](sse-stream.md): fixed Writer-tool status and the pause /
-  continuation sequence.
-- [Secondary Workflows](secondary-workflow.md): the dedicated Writer binding
-  carried by registry snapshots, distinct from trusted `ToolSpec`.
-- `AGENTS.md`: Writer-tool ABI ownership, lane assembly, activation, and
-  permission source of truth.
+- [KV Cache Reuse](kv-cache.md): the schema union in Invariant 3, the per-lane
+  restatement of Invariant 5, Writer transcript replay, and the accepted
+  cross-turn cache fork.
+- [SSE Turn Stream](sse-stream.md): the fixed `writer_tool_status` event and the
+  pause / continuation sequence.
+- [Secondary Workflows](secondary-workflow.md): `WriterToolBinding` on the
+  `Workflow` record and on registry snapshots, distinct from trusted `ToolSpec`.
+- `AGENTS.md`: Writer-tool ABI ownership, lane assembly, activation, the
+  `writer_tool_active` column, and the activation route.
 
-Until WT4 is complete, those documents must describe this feature as planned,
-not available.
+---
+
+## 19. Where the implementation decided differently
+
+Each of these is a decision this plan left open or specified in a shape the
+codebase rejected. They are recorded because the reasoning is not recoverable
+from the diff.
+
+### One manifest model with a version table, not one model per version
+
+Section 5 sketched `ExtensionManifestV1 | ExtensionManifestV2`, with a v1
+package rejecting `writer_tool` through `extra="forbid"`. Pydantic models are
+dataclass-like to a type checker, so narrowing `extension_api: int` to
+`Literal[1]` in a subclass -- and `Contributions` to `ContributionsV2` -- is an
+incompatible variable override, and this codebase holds Pyright at zero errors
+without suppressions.
+
+The shipped shape keeps every guarantee and drops the hierarchy. One
+`Contributions` model carries every slot; `SUPPORTED_EXTENSION_APIS` says which
+versions this build implements and `CONTRIBUTION_MIN_API` says which version
+each slot was introduced in. A v1 manifest declaring `writer_tool` is refused
+with *"contributions.'writer_tool' requires extension_api 2; this manifest
+declares 1"* rather than *"extra fields not permitted"* -- a better error for
+the same refusal. The compiler still reads the raw integer before strict
+parsing, which is the part that actually distinguishes "package from the
+future" from "malformed package". Adding an API 3 slot is one table entry
+rather than a new class every consumer of a manifest would have to
+discriminate on.
+
+### The invocation is split across two layers
+
+Section 4 put `WriterToolInvocation` in `core/` with `call_id`, `arguments`, and
+`draft`. It does hold exactly those (plus conversation id and turn seed) -- but
+an executor also needs the turn's LLM client, settings, and cancellation
+predicate, and none of those belong in `core/`.
+
+The split follows the precedent Phase 5 already set with fragment reducers:
+`core.WriterToolInvocation` is the *model-facing* identity, and
+`workflows.WriterToolRequest` wraps it with the host services, exactly as
+`FragmentReduceRequest` wraps a reducer's inputs with its budget and
+cancellation. A community executor receives a capability-filtered projection
+built from the request; it never sees the request object, so there is no field
+on it a package could reach.
+
+### `ui.status` is denied in a Writer-tool flow
+
+Section 10's denylist named "package-selected UI events, invalidations, or
+toasts" and did not mention `ui.status`. It is denied too, and for the same
+reason section 13 gives: the resolver's progress rides *one fixed host-owned
+status channel*, so a package that could also stream its own status text would
+be choosing what the user reads during the pause. `ui.status`, `ui.toast`, and
+`ui.invalidate` are all outside `EXTERNAL_CONTEXTS`, which is why that set
+exists separately from `IMPURE_CONTEXTS`.
+
+### Message-scoped state fails compilation, not execution
+
+Section 10 listed message state as unavailable "because no assistant message row
+exists yet", which reads as a runtime condition. It is a compile-time refusal in
+`check_context`: the row never exists for this entry point, so a package
+declaring the write is describing a target that cannot occur, and finding that
+out on the first live turn would mean a failed resolver in front of a user.
+
+### `WriterReplay` lives in `pipeline/replay.py`
+
+Section 11 implied the downstream-replay value would sit with `TurnState`.
+`state.py` imports the editor package for `LengthGuard`, and the editor,
+feedback, and direction-note steps all need the replay value -- putting it in
+`state.py` makes those three import a partially initialized module. It depends
+on nothing but `core`, so it sits below all of them in its own module.
+
+### Snapshot-level Writer-tool caps live in `core/`
+
+The per-schema byte budget is a package-declaration bound and lives with the
+other extension limits. The *aggregate* blob budget and the published-binding
+count are enforced by `workflows/registry.py` at the overlay swap, and that
+module cannot import the extension feature -- so those two constants sit beside
+the ABI in `core/writer_tools.py`. One definition each, enforced by the layer
+that owns the failure.
+
+### `complete()` carries a transport-inert pass label
+
+Section 9 assumed the Writer's `tool_choice="auto"` was self-identifying. It is
+not: the Editor sends the identical wire value when audit is on and no length
+guard fired, so `tool_choice` stopped being a discriminator the moment the
+Writer gained an `auto` of its own. `cached_complete` now forwards its `label`
+to `client.complete`, which never sends it in a body and never lets it into the
+cached bytes. Without it a test double -- and any future per-pass client
+behavior -- would have to guess which pass it was serving.
+
+### Two telemetry counters were deliberately not added
+
+Section 13 asked for "endpoint incompatibility skips" and "unexpected-call
+rejections" alongside the invocation counters. The invocation counters are
+there: a Writer-tool call goes through the same `InvocationTimer` every other
+entry point uses, so started/completed/failed/cancelled, wall time, and nested
+model/HTTP counts all land in the extension's aggregate.
+
+The other two do not, because both events happen in `pipeline/`, and
+`pipeline/` deliberately does not import `features/extensions` -- the binding
+indirection exists precisely so it never has to. Adding a cross-layer import for
+a counter would trade a structural guarantee for an observability nicety.
+Endpoint incompatibility is already surfaced where a user can act on it (the
+manager's `writer_tool.diagnostic`), and a rejected call is logged with its
+reason. If these counters become worth having, the honest way to get them is a
+host callback on the binding, not an import.
+
+Input and output encoded byte sizes do land in the shared invocation telemetry.
+They are recorded only after bounded encoding succeeds, contain sizes rather
+than values, and the output cap is checked before the flow's staged state
+transaction commits.
+
+### Unknown chat endpoints are admitted provisionally
+
+Section 12's capability matrix describes the transport a Writer tool requires,
+not a capability-discovery protocol. Native text mode and session-known
+`tool_choice` rejection are deterministically ineligible. An arbitrary
+OpenAI-compatible chat URL has no metadata with which Orb can distinguish a
+standard `tool_calls` implementation from a content-encoded template without
+issuing a model request, so unknown chat endpoints are admitted provisionally.
+If strict pre-admission becomes a requirement, it needs a persisted
+endpoint-capability declaration or a user-triggered probe; treating every
+unprofiled local/vLLM/llama.cpp endpoint as incompatible would reject valid
+deployments by default.

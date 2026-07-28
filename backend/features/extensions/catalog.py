@@ -32,7 +32,7 @@ from .contracts import (
     describe,
     reads_user_data,
 )
-from .lifecycle import Inspection
+from .lifecycle import Inspection, writer_tool_ineligibility
 from .runtime import InstalledExtension, RuntimeState
 
 COMBINATION_BANNER = (
@@ -178,11 +178,47 @@ def secret_rows(manifest: Any, configured: Mapping[str, str]) -> list[dict[str, 
     ]
 
 
+def writer_tool_view(entry: InstalledExtension, *, endpoint_diagnostic: str = "") -> dict[str, Any] | None:
+    """The manager's Writer-tool row, or ``None`` for a package without one.
+
+    Every field is host-derived. ``label`` is the only package string, and it
+    reaches the manager as plain text like every other one. The description --
+    which is the part that ships to the model -- is deliberately *not* here:
+    the consent row for ``writer.tool.contribute`` is where the user is told
+    the extension adds instructions to the Writer, and repeating the package's
+    own wording beside a toggle would read as Orb endorsing it.
+
+    ``available`` and ``active`` are separate because the design's central
+    distinction is that availability is not activation: every eligible
+    contribution exists, and exactly one of them is selected.
+    """
+    manifest = entry.compiled.manifest if entry.compiled else None
+    declared = manifest.writer_tool if manifest else None
+    if declared is None:
+        return None
+    reason = writer_tool_ineligibility(entry)
+    selected = bool(entry.row.get("writer_tool_active"))
+    return {
+        "id": declared.id,
+        "label": declared.label,
+        "available": reason is None,
+        # Selected *and* usable. A retained preference on a disabled or
+        # under-granted package reports False here and keeps ``selected`` true,
+        # so the manager can show "chosen, but not running" rather than
+        # silently unticking the user's choice.
+        "active": selected and reason is None and not endpoint_diagnostic,
+        "selected": selected,
+        "compatible_with_writer_endpoint": not endpoint_diagnostic,
+        "diagnostic": endpoint_diagnostic or reason or "",
+    }
+
+
 def catalog_entry(
     entry: InstalledExtension,
     settings: Any,
     *,
     configured_secrets: Mapping[str, str] | None = None,
+    endpoint_diagnostic: str = "",
 ) -> dict[str, Any]:
     """One installed package as the manager list renders it."""
     manifest = entry.compiled.manifest if entry.compiled else None
@@ -229,6 +265,7 @@ def catalog_entry(
             approved_origins,
         ),
         "telemetry": telemetry.summary(entry.id),
+        "writer_tool": writer_tool_view(entry, endpoint_diagnostic=endpoint_diagnostic),
         "placements": [{"slot": p.slot, "view": p.view, "command": p.command} for p in _published_placements(entry)],
         "commands": [
             {
@@ -249,7 +286,13 @@ def catalog_entry(
     }
 
 
-def detail_entry(entry: InstalledExtension, settings: Any, *, secret_names: list[dict[str, Any]]) -> dict[str, Any]:
+def detail_entry(
+    entry: InstalledExtension,
+    settings: Any,
+    *,
+    secret_names: list[dict[str, Any]],
+    endpoint_diagnostic: str = "",
+) -> dict[str, Any]:
     """The catalog row plus everything the detail pane adds.
 
     Commands, views, placements, and contributions are listed as *data* --
@@ -258,7 +301,7 @@ def detail_entry(entry: InstalledExtension, settings: Any, *, secret_names: list
     are checked before the host renderer receives them.
     """
     configured = {str(row["name"]): str(row.get("updated_at") or "") for row in secret_names}
-    view = catalog_entry(entry, settings, configured_secrets=configured)
+    view = catalog_entry(entry, settings, configured_secrets=configured, endpoint_diagnostic=endpoint_diagnostic)
     manifest = entry.compiled.manifest if entry.compiled else None
     view.update(
         {

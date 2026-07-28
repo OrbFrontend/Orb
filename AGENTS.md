@@ -15,7 +15,8 @@ Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams out
 - **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
 - **Registry snapshots:** Workflow and contributed fragment-type lookups resolve against an immutable `RegistrySnapshot` (built-in base + community overlay). A turn captures **one** in `_load_pipeline_context` and threads it everywhere; never re-read the global registry mid-turn.
-- **Community extensions:** Untrusted declarative packages, a separate trust tier from built-in workflows. `.orbext` archives and HTTPS Git URLs are compiled to immutable records, stored content-addressed under `data/extensions/objects/<digest>/`, and published as the registry's community overlay. Compiled flows run through a bounded interpreter with a staged effect transaction; compiled views render through a host-owned component renderer that only ever writes `textContent`. **The unit of permission is a `(capability, parameter)` grant, and every fact about one — consent copy, data class, emphasis, admissible parameter values, gated resource, prerequisites — lives in `CAPABILITY_SPECS` (`features/extensions/contracts/capabilities.py`); the consent table, loud/data-reading sets, resource map, prerequisite map, `UI_SLOTS`, and the `Permission` model's parameters are all derived from it. Add a grant there, not in six places.** Design + phasing: [docs/architecture/community-extensions.md](docs/architecture/community-extensions.md).
+- **Community extensions:** Untrusted declarative packages, a separate trust tier from built-in workflows. `.orbext` archives and HTTPS Git URLs are compiled to immutable records, stored content-addressed under `data/extensions/objects/<digest>/`, and published as the registry's community overlay. Compiled flows run through a bounded interpreter with a staged effect transaction; compiled views render through a host-owned component renderer that only ever writes `textContent`. **The unit of permission is a `(capability, parameter)` grant, and every fact about one — consent copy, data class, emphasis, admissible parameter values, gated resource, prerequisites — lives in `CAPABILITY_SPECS` (`features/extensions/contracts/capabilities.py`); the consent table, loud/data-reading sets, resource map, prerequisite map, `UI_SLOTS`, and the `Permission` model's parameters are all derived from it. Add a grant there, not in six places.** `extension_api` is versioned by a table, not a literal: `SUPPORTED_EXTENSION_APIS` says which versions this build implements and `CONTRIBUTION_MIN_API` says which version each `contributions` slot was introduced in, so a v1 manifest carrying a v2 slot is rejected rather than silently upgraded. Design + phasing: [docs/architecture/community-extensions.md](docs/architecture/community-extensions.md).
+- **Community Writer tools (API 2):** The one exception to "community packages never touch the main tool blob". A v2 package may contribute at most one Writer tool behind `writer.tool.contribute`; the user selects at most one *active resolver* across the whole install. Ownership is split three ways and stays split: `core/writer_tools.py` owns the ABI values and the derived provider-facing name (a package never declares one), `workflows/` carries the `WriterToolBinding` on a `RegistrySnapshot`, `features/extensions/` compiles the executor from a package flow, and `pipeline/` sends the schema and invokes the binding it captured — so `pipeline/` still never imports the extension feature. `_PipelineConfig` keeps `agent_tool_schemas` and `writer_tool_schemas` apart: single-model builds one deterministic union (agent order preserved, Writer schema appended), dual-model gives each lane only its own. The Writer runs a bounded ReAct loop — at most one successful call, then one continuation with `tool_choice="none"`, never a third completion — and only *standard structured* `tool_calls` count; content-encoded fallbacks are unsafe once prose has streamed. The tail OOC block is fixed host text with two bounded package-influenced holes, and it is the semantic tail even with attachments. Full plan and invariants: [docs/architecture/community-writer-tools.md](docs/architecture/community-writer-tools.md).
 - **Extension egress:** *All* outbound traffic a package causes — a flow's `http.request` and the Git installer's fetch — goes through `features/extensions/network.py`. It derives the canonical origin from the URL, checks it against the live grant set, validates every resolved address, and pins one for the connection while `Host` and TLS SNI keep the real hostname. Redirects are followed by Orb, revalidated per hop, and drop package headers when they cross origins. Secrets are substituted inside that module and nowhere else, and responses are scanned for them before becoming flow values. Never add a second HTTP path for package-influenced URLs.
 - **SSE wire contract:** [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
 
@@ -77,6 +78,14 @@ The current domain-specific admissions are deliberately narrow:
 - `tags.py` owns only the canonical normalization of an already-supplied
   character-tag list. Card CRUD, import, filtering, and extension operations
   stay outside `core/`.
+- `writer_tools.py` owns only the Writer-tool ABI values and the pure
+  invariants over them: the derived provider-facing name, call-id validity, and
+  the fixed result/error encoding. Admitted because `workflows/`,
+  `features/extensions/`, and `pipeline/` must agree on those exactly and none
+  of the three may import the other two in the direction that agreement needs.
+  Manifest parsing, grants, registry publication, and flow execution stay with
+  their owning layers; the built-in Writer-tool set is an empty snapshot
+  mapping, never a module-global list.
 
 **The one-way rule:** lower layers never import up. When a lower layer needs higher-layer *behavior*, use dependency inversion — the lower layer declares a hook, the higher layer registers an implementation. Example: `database/queries/messages.py` owns `register_workflow_attachment_persister`; `workflows/attachment_cache.py` fills it in.
 
@@ -98,9 +107,12 @@ features/<name>/
 | `backend/api/routes/__init__.py` | `ROUTERS` list — add a file here to register a router |
 | `backend/pipeline/entrypoints.py` | 5 public `handle_*` functions — top of the turn lifecycle |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
-| `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
+| `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `WriterToolPolicy`, `LorebookTurn` |
+| `backend/pipeline/replay.py` | `WriterReplay` — which messages a downstream agent call replays to reach the Writer's cache |
+| `backend/pipeline/passes/writer.py` | Writer content assembly, the tail OOC policy, and the bounded one-call Writer ReAct loop |
 | `backend/pipeline/fragment_types.py` | Per-turn fragment descriptor resolution, prior preparation, reduction, carry-forward, and Writer rendering |
-| `backend/inference/tool_registry.py` | All tool schemas + `TOOLS`/`PRE_WRITER_TOOLS`/`POST_WRITER_TOOLS` |
+| `backend/inference/tool_registry.py` | All tool schemas + `TOOLS`/`PRE_WRITER_TOOLS`/`POST_WRITER_TOOLS` (community Writer tools never enter it) |
+| `backend/core/writer_tools.py` | Writer-tool ABI: `WriterToolSpec`/`Invocation`/`Result`, derived wire names, fixed result codes |
 | `backend/workflows/fragment_types.py` | Built-in/contributed fragment-type runtime contracts and shared reducer budget |
 | `backend/database/models.py` | TypedDict row contracts (the model layer) |
 | `backend/database/schema.py` | `CREATE TABLES` — source of truth for columns |
@@ -135,7 +147,7 @@ features/<name>/
 | `documents` | Free-form writing mode documents |
 | `user_attachments` | User-uploaded images on messages |
 | `workflow_attachments` | LRU-3 byte-budget artifact cache for secondary workflows |
-| `extension_packages` / `extension_revisions` / `extension_secrets` | Installed community extensions: source + grants + load status, per-digest manifests, write-only secrets. **`LOCAL_ONLY_TABLES`** — stripped from shareable presets, kept in full local snapshots |
+| `extension_packages` / `extension_revisions` / `extension_secrets` | Installed community extensions: source + grants + load status, per-digest manifests, write-only secrets. `writer_tool_active` is the local at-most-one active-Writer-resolver selection (a *preference*: it survives disable and revocation, and is dropped only by uninstall). **`LOCAL_ONLY_TABLES`** — stripped from shareable presets, kept in full local snapshots |
 
 **Important:** SQLite has no boolean — flag columns are `int` (0/1). Always update `schema.py` + `models.py` + `api/schemas.py` (SettingsUpdate) in lockstep when adding columns.
 
@@ -149,7 +161,8 @@ Controlled by `settings.agent_same_as_writer` (default `true`).
 |-|--------------|------------|
 | Director/Editor endpoint | Writer's endpoint | `settings.agent_endpoint_id` |
 | Agent system prompt | Writer's system prompt | `settings.agent_shared_system_prompt` |
-| Writer tool schemas | Sent (for byte-parity) | Dropped |
+| Agent tool schemas on the writer | Sent (for byte-parity) | Dropped |
+| Community Writer tool schema | In the shared union | Writer lane only |
 | KV cache | One shared prefix | Two: writer server / agent server |
 
 ## Data Contracts (TypedDicts)
@@ -184,7 +197,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys)
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments
-- **Extensions:** `/api/extensions` (catalog + orphaned data), `/{id}` detail, two-phase `inspect-file` → `install` (local `.orbext`) and `inspect` → `install` (HTTPS Git URL), `inspect-update` / `inspect-update-git` → `update`, `inspect-rollback` → `rollback`, `/{id}/enabled`, `PUT /{id}/permissions`, `PUT /{id}/secrets` (write-only; reads return presence only), `DELETE /{id}` (uninstall preserves namespaced data), `POST /{id}/purge-data` (preview, then confirm with the preview's token). Content routes: `POST /{id}/actions/{action}`, `GET /{id}/views/{view}`, `GET /{id}/resources/{resource}` (`conversation.tree`, `library.cards`, `lorebook.entries`, `direction.notes`, `persona` — each behind its own grant, opaque cursors), `GET /{id}/assets/{path}` (exact compiled asset key, never a path join), `PUT /{id}/state` (host-generated write for a bound form). Every response uses the fixed effect envelope `{data, effects, runtime_generation}`
+- **Extensions:** `/api/extensions` (catalog + orphaned data), `/{id}` detail, two-phase `inspect-file` → `install` (local `.orbext`) and `inspect` → `install` (HTTPS Git URL), `inspect-update` / `inspect-update-git` → `update`, `inspect-rollback` → `rollback`, `/{id}/enabled`, `PUT /{id}/permissions`, `PUT /{id}/secrets` (write-only; reads return presence only), `PUT /{id}/writer-tool-active` (select/clear the one active Writer resolver; exclusive and transactional), `DELETE /{id}` (uninstall preserves namespaced data), `POST /{id}/purge-data` (preview, then confirm with the preview's token). Content routes: `POST /{id}/actions/{action}`, `GET /{id}/views/{view}`, `GET /{id}/resources/{resource}` (`conversation.tree`, `library.cards`, `lorebook.entries`, `direction.notes`, `persona` — each behind its own grant, opaque cursors), `GET /{id}/assets/{path}` (exact compiled asset key, never a path join), `PUT /{id}/state` (host-generated write for a bound form). Every response uses the fixed effect envelope `{data, effects, runtime_generation}`
 - **Image generation:** external-ComfyUI readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types); generation uses the conversation-scoped workflow trigger
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`
 - **Direction notes:** CRUD under `/api/conversations/{cid}/direction-notes`
@@ -209,6 +222,9 @@ Drop `api/routes/<feature>.py` with `router = APIRouter()`, append to `ROUTERS` 
 
 ### Install a community extension (dev loop)
 Zip the package directory (`zip -r pkg.orbext my-extension/` — one wrapping directory is stripped), then use the Extensions sidebar section, or `POST /api/extensions/inspect-file` followed by `POST /api/extensions/install` with the returned token and the exact permission `value` objects the inspection listed. `POST /api/extensions/inspect` takes `{url, ref, allow_local}` instead and does the same thing from a Git repository (`allow_local` is required for a repository on your own machine or LAN). The compiler derives the real requirement set from the flows/views; `requires.operations`, `requires.components`, and `permissions` must *cover* it or the package is rejected.
+
+### Contribute a Writer tool (extension API 2)
+Set `extension_api: 2`, request `writer.tool.contribute`, and declare one `contributions.writer_tool` with an `id`, `label`, `description`, `flow`, `input_schema`, and `output_schema`. Orb derives the provider-facing name (`orb_writer_<ext>--<tool>` normally; a reserved length-prefixed form when either ID contains `--`) — a package never declares one, and the input schema may not carry a host-supplied property (`draft`, `card_id`, `conversation_id`, …). The flow compiles under `OpContext.WRITER_TOOL`: pure operations, namespaced `state.*` for config/conversation/character, `model.*`, `http.request`, and `return`; everything else, including all three `ui.*` operations and message-scoped state, is refused at compile time. Installing publishes the binding; the user still has to pick it with `PUT /api/extensions/{id}/writer-tool-active` (at most one across the whole install). Test fixture: `outcome_resolver_package()` in `tests/extension_packages.py`.
 
 ### Add a secondary workflow
 See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) — new folder + `register_workflow`/`subscribe` in `workflows/__init__.py`. A `POST_PIPELINE` binding must also pick its `stage=`: `TRANSFORM` if it rewrites the draft, `OBSERVE` if it only consumes the final text.

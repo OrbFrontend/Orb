@@ -271,6 +271,28 @@
   border-top: 1px solid var(--border);
 }
 
+.ext-writer-tool {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.ext-writer-tool-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.ext-writer-tool-row input:disabled {
+  cursor: not-allowed;
+}
+
+.ext-writer-tool-label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
 /* ── Rendered community components (`xc-` prefix) ─────────────────────────────
 
    Every class below is applied by extension_renderer.js to an element it

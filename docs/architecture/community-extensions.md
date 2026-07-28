@@ -1,19 +1,21 @@
-# Community Extensions v1 — Architecture Handoff
+# Community Extensions — Architecture Handoff
 
 Status: **Phases 0-5 implemented (including all of section 20's v1.x
-expansions); Phase 6 not started**
+expansions); Phase 6 not started. `extension_api: 2` and its one Writer-tool
+contribution are implemented — see
+[Community Writer Tools](community-writer-tools.md).**
 
-The frozen v1 contract still has no community tools in the main pipeline.
-A bounded Writer-only tool ABI is now an accepted follow-on direction, planned
-separately in [Community Writer Tools](community-writer-tools.md). It is not
-implemented, is not part of Phases 0-3, and does not permit community Director
-or Editor tools.
+The frozen v1 contract has no community tools in the main pipeline, and that
+remains true of v1. API 2 adds exactly one narrow exception: a v2 package may
+contribute a single **Writer** tool, the user selects at most one active
+resolver across the whole install, and the selected schema joins the Writer's
+tool blob for that turn. Community Director and Editor tools remain out of
+scope, and no community name ever enters the mutable inference `TOOLS` registry.
 
 ### Sequencing against Community Writer Tools
 
-Phase 5's exit gate is now met. The Writer-tool plan may proceed in its own
-WT0→WT4 order; WT2-WT4 are no longer blocked on fragment contributions. Phase
-5 was serialized ahead of those pipeline phases for three reasons:
+Phase 5's exit gate was met and the Writer-tool slice then landed in WT0→WT4
+order. Phase 5 was serialized ahead of those pipeline phases for three reasons:
 
 1. **Phase 5 closed a granted capability that did nothing.**
    `fragment_type.contribute` parsed, consented, and compiled before a runtime
@@ -33,7 +35,7 @@ WT0→WT4 order; WT2-WT4 are no longer blocked on fragment contributions. Phase
    pre-resolved lookups. Reversed, WT2 splits per-lane schema assembly over
    hard-coded branches and the KV-parity matrix is written twice.
 
-WT0 was explicitly *not* serialized behind Phase 5 and remains the first
+WT0 was explicitly *not* serialized behind Phase 5 and was the first
 Writer-tool step. Versioned manifest dispatch, the core Writer-tool ABI values, the
 `writer.tool.contribute` spec entry, and `OpContext.WRITER_TOOL` touch no
 pipeline code; the fragment-type manifest contract in
@@ -46,7 +48,7 @@ pipeline-free and may land in the same window.
 
 WT2 onward had to remain serialized while Phase 5 was in flight. Both plans
 rewrite `pipeline/context.py`, `config.py`, `state.py`, and the Writer/Director
-passes; that overlap is now resolved by the snapshot-driven fragment path.
+passes; that overlap was resolved by the snapshot-driven fragment path.
 
 Section 20 records the approved v1.x additive expansions — new resources,
 grants, one operation, one slot, and host telemetry — with their security
@@ -350,7 +352,7 @@ Read these first:
 | Installation | HTTPS Git URL or local `.orbext` archive. Resolve and inspect before asking for permission consent. |
 | Git implementation | In-process Git protocol client; never execute the system `git` command. Inspect Git objects without checking out a worktree. |
 | Network | Host-mediated HTTP to exact manifest-declared origins after user consent. Public and local/private origins are separate grants. |
-| Model tools | Frozen v1 packages do **not** add tools to Director, Writer, or Editor. Extension flows may make their own bounded isolated model calls. A dedicated Writer-only API 2 contribution is accepted but not implemented; see [Community Writer Tools](community-writer-tools.md). Director/Editor tools and arbitrary shared-registry tools remain out of scope. |
+| Model tools | Frozen v1 packages do **not** add tools to Director, Writer, or Editor. Extension flows may make their own bounded isolated model calls. An API 2 package may contribute one **Writer** tool, of which at most one is user-selected and active per install; see [Community Writer Tools](community-writer-tools.md). Director/Editor tools and arbitrary shared-registry tools remain out of scope, and no community name enters the mutable inference `TOOLS` registry. |
 | Built-in workflows | Remain trusted Python plus same-origin JavaScript. They are a separate trust tier and do not need to migrate. |
 | Dependencies | No extension-to-extension dependencies in v1. |
 | Updates | Manual by default; atomic; permission expansion requires fresh consent; keep one prior revision for rollback. |
@@ -474,6 +476,10 @@ snapshot containing:
 - Compiled flows/actions/views/assets.
 - Approved permission metadata.
 - Extension-defined fragment descriptors.
+- Writer-tool bindings, keyed by their derived provider-facing name, plus the
+  wire name of the one *selected* resolver. Availability and activation are
+  separate fields of the same captured generation, so "the schema I sent" and
+  "the binding I ran" cannot disagree.
 - A runtime generation and active content digests.
 
 A turn captures exactly one snapshot **before** loading extension-sensitive
@@ -755,6 +761,18 @@ version constant, so v1 must not invent a `minimum_orb_version` field that
 cannot be evaluated reliably. `requires.operations` and
 `requires.components` provide precise feature detection; an unknown requirement
 leaves the extension installed but unavailable with a diagnostic.
+
+**Versions are a table, not a literal.** `SUPPORTED_EXTENSION_APIS` says which
+versions this build implements, and `CONTRIBUTION_MIN_API` says which version
+each `contributions` slot was introduced in — today, `writer_tool` requires 2. A
+v1 manifest that declares a v2 slot is *rejected*, so v1 still means exactly
+what it meant and a package cannot acquire semantics its author never declared
+by being parsed on a newer Orb. The compiler checks the raw `extension_api`
+integer **before** strict parsing, which is what lets an older build report
+"this package needs a newer Orb" instead of "this package is malformed" — every
+model here forbids extra fields, so without that ordering a future manifest
+looks broken rather than new. That ordering is the whole reason a contribution
+field warrants a version bump at all.
 
 ### Package limits
 
@@ -1100,6 +1118,7 @@ dialog without a sentence describing it.
 | `network.request` | `origin` | Use exact declared origins through the host client. |
 | `ui.contribute` | `slot` | Place commands/views into exact declared slots. |
 | `fragment_type.contribute` | — | Register namespaced fragment-type descriptors. |
+| `writer.tool.contribute` | — | Add a callable tool and its instructions to the Writer (API 2 only). Conspicuous on both halves: the description ships in the prompt every turn the tool is active, and the result lands in the transcript the Writer continues from. |
 
 Two rules follow from the parameter being part of the grant, and both are
 enforced rather than documented:
@@ -1199,15 +1218,16 @@ local schema, and never mutates a shared cached request object. It also does
 not inherit the pipeline prefix: that would leak history/card/persona data
 around the capability projection.
 
-The planned API 2 Writer-tool ABI is a deliberate exception with a separate
-contract, consent line, immutable snapshot binding, per-turn activation, and
-bounded Writer ReAct loop. It still does not register community names in
-`TOOLS`: the selected eligible Writer schema is assembled from the captured
-extension snapshot, and single-model passes receive one deterministic union
-for cache parity. The exact tail OOC policy narrows the Writer to that tool
-while host validation remains authoritative. See
-[Community Writer Tools](community-writer-tools.md). Until that plan is
-implemented, the v1 behavior above is the complete runtime behavior.
+The API 2 Writer-tool ABI is a deliberate exception with a separate contract,
+consent line, immutable snapshot binding, per-turn activation, and bounded
+Writer ReAct loop. It still does not register community names in `TOOLS`: the
+selected eligible Writer schema is assembled from the captured extension
+snapshot, and single-model passes receive one deterministic union for cache
+parity. The exact tail OOC policy narrows the Writer to that tool while host
+validation remains authoritative. See
+[Community Writer Tools](community-writer-tools.md). For a v1 package, and for
+a v2 package with no selected resolver, the behavior above is complete and the
+main tool blob is unchanged.
 
 ---
 
@@ -2575,6 +2595,17 @@ Two decisions this phase made that the earlier text did not anticipate:
   form. Adding a reserved `$` key to the value grammar would have been a change
   to every position a value can appear in, to solve a problem in one.
 
+`OpContext.WRITER_TOOL` (API 2) follows the same rule for the same reason. It is
+not `ACTION`: an action runs against a finished conversation with a user
+watching it, while a Writer tool runs *inside* an unfinished model turn, where
+there is no assistant row to attach to, no draft to replace (the Writer owns the
+prose), no UI surface listening for a toast, and no user click to justify a
+first-party mutation. Reusing `ACTION` would have admitted every one of those by
+accident. Its allowlist is the pure operations plus namespaced state, `model.*`,
+and `http.request`; `context.append`, `draft.replace`, `artifact.emit`,
+`card.tags.set`, branch activation, all three `ui.*` operations, and
+message-scoped state are refused at compile time.
+
 ### Phase 5 — Fragment-type contributions (implemented)
 
 This phase completed ahead of the Writer-tool plan's WT2-WT4; see "Sequencing
@@ -2812,8 +2843,18 @@ Reference extensions:
 - WASM or any general-purpose package code.
 - Extension-defined Director/Editor tools, arbitrary all-pass tools, or new
   model passes. The bounded Writer-only ABI in
-  [Community Writer Tools](community-writer-tools.md) is an accepted follow-on
-  and is no longer covered by this deferral.
+  [Community Writer Tools](community-writer-tools.md) has landed and is the one
+  exception; nothing else about this deferral moved. In particular: no
+  community name enters `TOOLS`, a package still cannot choose a pass, more
+  than one Writer tool is never active at once, and more than one successful
+  Writer-tool call never happens in a turn.
+- Native text-completion support for optional Writer-tool calls. A text-mode
+  endpoint does not render optional tools into the prompt and only synthesizes a
+  call when one schema is forced, so the turn takes the ordinary no-tools path
+  with a diagnostic rather than advertising a tool it cannot bound.
+- Writer tools on providers that encode calls in the content body (Hermes tags,
+  Gemma tokens, bare JSON). Those fallbacks cannot be told apart from prose the
+  Writer has already streamed to the user.
 - Background services, timers, daemons, or startup jobs.
 - Extension dependencies.
 - Arbitrary DOM/CSS, custom canvas code, iframe applications, or browser
@@ -3019,13 +3060,14 @@ placement mechanism for the library; the slot waits until that model exists.
 ### Invocation telemetry
 
 Host-owned observability: per invocation, record wall time, model-call and
-HTTP counts, and outcome; aggregate per extension; surface in the manager's
-diagnostics alongside load status. This answers "which extension slows my
-turns" — the first scaling pressure point, since each pre-hook may spend two
-serial model calls before the Writer starts — and produces the observed data
-a future per-turn aggregate pre-hook budget would be set against. That budget
-is deliberately not enforced now, matching section 8's rule that limits are
-widened or added against measurements, not guesses.
+HTTP counts, and outcome; Writer-tool invocations additionally record bounded
+input/output encoded byte sizes. Aggregate per extension and surface in the
+manager's diagnostics alongside load status. This answers "which extension
+slows my turns" — the first scaling pressure point, since each pre-hook may
+spend two serial model calls before the Writer starts — and produces the
+observed data a future per-turn aggregate pre-hook budget would be set against.
+That budget is deliberately not enforced now, matching section 8's rule that
+limits are widened or added against measurements, not guesses.
 
 Hardening: telemetry is never projected into `ExtensionCtx` or any package-
 visible surface — flows get no timing channel. Sanitized like all

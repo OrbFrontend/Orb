@@ -70,6 +70,23 @@ class PassGate:
         self.release = asyncio.Event()
 
 
+def _pass_from_call(tool_choice: Any, label: str) -> str:
+    """Route one ``complete()`` call to a queue.
+
+    *label* wins when the caller supplied one. It has to: the Writer gained a
+    ``tool_choice="auto"`` of its own when Writer tools landed, and the Editor's
+    ``"auto"`` is the identical wire value -- so ``tool_choice`` alone stopped
+    being a discriminator, and a mock that guessed would bind the Writer's
+    response to the Editor's queue.
+    """
+    if label in _LABELLED_PASSES:
+        return label
+    return _pass_from_tool_choice(tool_choice)
+
+
+_LABELLED_PASSES = frozenset({"director", "writer", "editor", "feedback", "direction_note"})
+
+
 def _pass_from_tool_choice(tool_choice: Any) -> str:
     # Writer omits tool_choice when no tools are enabled (passes None at the
     # kwarg default) and passes the literal "none" when tools are enabled
@@ -174,11 +191,23 @@ class FakeLLMClient:
         _validate_tool_calls(tool_calls)
         self._queues["director"].append({"tool_calls": tool_calls})
 
-    def enqueue_writer(self, text: str, probs: list[dict] | None = None) -> None:
-        # Optional *probs* is a list of normalized token-prob records
-        # ({"token","prob","top":[{"t","p"}]}); the mock interleaves them as
-        # token_probs chunks after the content delta (chat doc path with logprobs).
-        self._queues["writer"].append({"content": text, "probs": probs or []})
+    def enqueue_writer(self, text: str, probs: list[dict] | None = None, tool_calls: list[dict] | None = None) -> None:
+        """Queue one Writer completion.
+
+        Optional *probs* is a list of normalized token-prob records
+        (``{"token","prob","top":[{"t","p"}]}``); the mock interleaves them as
+        token_probs chunks after the content delta (chat doc path with logprobs).
+
+        Optional *tool_calls* is the standard ``message.tool_calls`` array a
+        provider returns when the Writer calls its one contributed tool. It is
+        deliberately only reachable through the terminal ``done`` message and
+        never through the content stream -- the Writer loop refuses
+        content-encoded calls, and a mock that emitted them as content would be
+        testing a path production rejects.
+        """
+        if tool_calls is not None:
+            _validate_tool_calls(tool_calls)
+        self._queues["writer"].append({"content": text, "probs": probs or [], "tool_calls": tool_calls or []})
 
     def enqueue_editor(self, decision: dict | None = None) -> None:
         """Queue an editor response. ``decision`` is the ``message`` dict
@@ -240,9 +269,10 @@ class FakeLLMClient:
         tools: list[dict] | None = None,
         tool_choice: dict | str | None = None,
         _endpoint: str = "",
+        label: str = "",
         **params,
     ) -> AsyncIterator[dict]:
-        pass_name = _pass_from_tool_choice(tool_choice)
+        pass_name = _pass_from_call(tool_choice, label)
         self.calls.append((pass_name, tool_choice))
         self.captured.append(
             {
@@ -279,7 +309,10 @@ class FakeLLMClient:
             if params.get("logprobs"):
                 for rec in payload.get("probs") or []:
                     yield {"type": "token_probs", **rec}
-            yield {"type": "done", "message": {"role": "assistant", "content": text}}
+            message: dict = {"role": "assistant", "content": text}
+            if payload.get("tool_calls"):
+                message["tool_calls"] = payload["tool_calls"]
+            yield {"type": "done", "message": message}
             return
 
         if pass_name == "editor":

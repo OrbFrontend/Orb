@@ -744,3 +744,144 @@ def api_artifact_package(**overrides: Any) -> bytes:
             "flows/recover.json": api_artifact_recovery_flow(),
         }
     )
+
+
+# ── Outcome Resolver: the API 2 Writer-tool reference package ────────────────
+# The reason `writer.tool.contribute`, `OpContext.WRITER_TOOL`, and the bounded
+# Writer ReAct loop exist. It is the only package that answers the Writer
+# *mid-reply*: the model pauses at an uncertain action, the resolver rolls
+# against a difficulty and records the outcome on the conversation, and the
+# Writer continues from exactly where it stopped.
+#
+# It deliberately exercises the whole profile rather than the minimum: host-
+# supplied `ctx.draft` it never asked the model to echo, deterministic
+# `random.integer` seeded from turn identity, namespaced conversation state
+# whose commit boundary is the *flow's* success rather than the turn's, and a
+# structured output schema the host validates before the Writer sees it.
+
+OUTCOME_RESOLVER_ID = "outcome-resolver"
+
+RESOLVE_INPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "What the character is attempting, in one sentence.",
+        },
+        "difficulty": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "How hard it is, from 1 (trivial) to 20 (near-impossible).",
+        },
+    },
+    "required": ["action", "difficulty"],
+    "additionalProperties": False,
+}
+
+RESOLVE_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "outcome": {"type": "string", "enum": ["success", "failure"]},
+        "roll": {"type": "integer", "minimum": 1, "maximum": 20},
+    },
+    "required": ["outcome", "roll"],
+    "additionalProperties": False,
+}
+
+
+def resolve_outcome_flow() -> dict[str, Any]:
+    """Roll, classify, record what the Writer had written, return the verdict.
+
+    The ``ctx.draft`` read is the point of the fixture, not decoration: the host
+    supplies the exact prose streamed before the call, and recording it in
+    conversation state is what lets a test assert that the model neither chose
+    nor echoed it.
+
+    The success/failure branch uses the idiom this language actually has. A
+    guarded step produces a value only when its predicate holds, and a following
+    step reads it with an explicit ``fallback`` -- there is no phi node, and a
+    step id may be defined once, so "one of two values" is expressed as "this
+    value, or that one if it never ran".
+
+    The state write is also what makes the transaction boundary observable: it
+    commits when *this flow* returns, which may be before the Writer's
+    continuation succeeds or the user aborts the turn.
+    """
+    return {
+        "flow_version": 1,
+        "steps": [
+            {"id": "roll", "op": "random.integer", "minimum": 1, "maximum": 20},
+            {
+                "id": "won",
+                "op": "text.concat",
+                "values": ["success"],
+                "when": {"gte": [{"$ref": "steps.roll"}, {"$ref": "input.difficulty"}]},
+            },
+            {
+                "id": "verdict",
+                "op": "text.concat",
+                "values": [{"$ref": "steps.won"}],
+                "on_error": "continue",
+                "fallback": "failure",
+            },
+            {
+                "op": "state.set",
+                "scope": "conversation",
+                "path": "last_roll",
+                "value": {"$template": "{{input.action}} -> {{steps.verdict}} ({{steps.roll}})"},
+            },
+            {
+                "op": "state.set",
+                "scope": "conversation",
+                "path": "draft_at_call",
+                "value": {"$ref": "ctx.draft"},
+            },
+            {
+                "op": "return",
+                "value": {"outcome": {"$ref": "steps.verdict"}, "roll": {"$ref": "steps.roll"}},
+            },
+        ],
+    }
+
+
+def outcome_resolver_manifest(**overrides: Any) -> dict[str, Any]:
+    base = manifest(
+        extension_api=2,
+        id=OUTCOME_RESOLVER_ID,
+        name="Outcome Resolver",
+        description="Resolves uncertain actions so the Writer does not decide them alone.",
+        requires={
+            "operations": ["random.integer", "text.concat", "state.set", "return"],
+            "components": [],
+        },
+        permissions=[
+            {"capability": "writer.tool.contribute"},
+            {"capability": "context.read", "field": "draft"},
+            {"capability": "state.write", "scope": "conversation"},
+        ],
+        contributions={
+            "writer_tool": {
+                "id": "resolve_outcome",
+                "label": "Resolve outcome",
+                "description": (
+                    "Resolve an uncertain action when success or failure should not be chosen by the Writer alone."
+                ),
+                "flow": "flows/resolve-outcome.json",
+                "input_schema": RESOLVE_INPUT_SCHEMA,
+                "output_schema": RESOLVE_OUTPUT_SCHEMA,
+            }
+        },
+    )
+    base.update(overrides)
+    return base
+
+
+def outcome_resolver_package(**overrides: Any) -> bytes:
+    return orbext(
+        {
+            "orb-extension.json": outcome_resolver_manifest(**overrides),
+            "flows/resolve-outcome.json": resolve_outcome_flow(),
+        }
+    )

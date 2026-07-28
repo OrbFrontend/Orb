@@ -63,6 +63,11 @@ async def cached_complete(
         model=model,
         tools=tools,
         tool_choice=tool_choice,
+        # Transport-inert. The pass name is already the tracker's key; passing
+        # it through means a client (or a test double) can tell the Editor's
+        # ``tool_choice="auto"`` from the Writer's, which are the same wire
+        # value with different meanings.
+        label=label,
         **params,
     ):
         if event["type"] == "done" and kv_tracker is not None:

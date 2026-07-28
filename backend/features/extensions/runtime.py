@@ -46,7 +46,12 @@ from ...workflows.registry import (
     runtime_generation,
 )
 from . import content_store
-from .adapters import fragment_type_bindings, hook_bindings, publishes_artifacts
+from .adapters import (
+    fragment_type_bindings,
+    hook_bindings,
+    publishes_artifacts,
+    writer_tool_binding,
+)
 from .compiler import (
     CompiledPackage,
     Requirement,
@@ -55,7 +60,7 @@ from .compiler import (
     derive_view_runtime_requirements,
     expand_permissions,
 )
-from .contracts import referenced_actions
+from .contracts import Capability, referenced_actions
 from .errors import PackageError, PackageIncompatible
 from .interpreter import unimplemented_operations
 from .sources import StoredSource
@@ -279,6 +284,15 @@ def blocked_entry_points(compiled: CompiledPackage, granted: frozenset[Requireme
         # record. If any reducer cannot execute end to end, publish none rather
         # than expose a partially live type set under one consent grant.
         yield "fragment type contributions"
+    writer_tool = manifest.writer_tool
+    if writer_tool is not None and (
+        (Capability.WRITER_TOOL_CONTRIBUTE.value, None) not in granted or not covered(writer_tool.flow)
+    ):
+        # Blocked means the schema never enters a snapshot, so the Writer is
+        # never offered a tool it cannot execute -- and an already-selected
+        # resolver whose grant was revoked stops being eligible on the next
+        # turn rather than failing mid-reply.
+        yield "writer tool"
 
 
 def publish(installed: Sequence[InstalledExtension]) -> int:
@@ -349,6 +363,19 @@ def _record(entry: InstalledExtension) -> Workflow:
             and entry.compiled.manifest.contributions.fragment_types
         ):
             record.fragment_types = fragment_type_bindings(entry.compiled)
+        # Gated on enablement like the fragment catalog, and unlike the hook
+        # subscriptions (which the pipeline filters per turn). A disabled
+        # package must not put its schema -- or its description -- into the
+        # Writer's tool blob, and the blob is assembled from the snapshot
+        # rather than filtered afterwards.
+        if bool(entry.row["enabled"]):
+            record.writer_tool = writer_tool_binding(entry.compiled, entry.blocked)
+            # The stored preference survives disable and revocation; it becomes
+            # a *selection* only when there is a binding to select. Publishing
+            # the flag without one is refused by the registry, which is what
+            # keeps "the schema I sent" and "the binding I ran" from ever
+            # naming different revisions.
+            record.writer_tool_selected = record.writer_tool is not None and bool(entry.row.get("writer_tool_active"))
     return record
 
 
