@@ -100,6 +100,7 @@ import {
   handleImportFile,
   importInternetChar,
   loadCharacters,
+  loadFragmentTypeCatalog,
   loadInteractiveFragments,
   loadMoodFragments,
   loadMoreInternet,
@@ -608,7 +609,7 @@ async function initAll() {
       },
     },
   });
-  initExtensionManager();
+  initExtensionManager({ refreshFragmentTypes: loadFragmentTypeCatalog });
   try {
     await loadExtensionCatalog();
   } catch (e) {

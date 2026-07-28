@@ -345,6 +345,7 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
             reasoning_writer=log.get("reasoning_writer") or "",
             reasoning_editor=log.get("reasoning_editor") or "",
             feedback=log.get("feedback") or {},
+            fragment_diagnostics=log.get("fragment_diagnostics") or [],
         )
 
     return await get_conversation(new_cid)
@@ -494,6 +495,7 @@ async def api_get_message_director_log(
             "reasoning_writer": "",
             "reasoning_editor": "",
             "feedback": {},
+            "fragment_diagnostics": [],
             "direction_notes": direction_notes,
         }
     return {
@@ -505,6 +507,7 @@ async def api_get_message_director_log(
         "reasoning_writer": log.get("reasoning_writer") or "",
         "reasoning_editor": log.get("reasoning_editor") or "",
         "feedback": log.get("feedback", {}) or {},
+        "fragment_diagnostics": log.get("fragment_diagnostics", []) or [],
         "direction_notes": direction_notes,
     }
 

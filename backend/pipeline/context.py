@@ -29,7 +29,6 @@ from ..database.models import (
     ActiveLorebookEntryRow,
     CharacterCardRow,
     ConversationRow,
-    InteractiveFragmentRow,
     MoodFragmentRow,
     PhraseGroup,
     SettingsRow,
@@ -52,6 +51,7 @@ from ..inference import (
 )
 from ..workflows import RegistrySnapshot, current_snapshot
 from .config import _build_writer_tools_blob
+from .fragment_types import resolve_fragment_instances
 from .predicates import agent_enabled, resolve_persona_id
 from .state import ExtensionContext, LorebookTurn
 from .workflow_bridge import _iterate_pre_pipeline_hooks
@@ -76,7 +76,7 @@ class PipelineContext:
     # (active moods, progressive fields, direction notes); not all keys are columns.
     director: dict[str, Any]
     mood_fragments: list[MoodFragmentRow]
-    interactive_fragments: list[InteractiveFragmentRow]
+    interactive_fragments: list[Mapping[str, Any]]
     phrase_bank: list[PhraseGroup]
     lorebook_entries: list[ActiveLorebookEntryRow]
     client: LLMClient
@@ -91,6 +91,8 @@ class PipelineContext:
     # persistence. An install landing mid-turn changes the next turn, never
     # this one; nothing downstream re-reads the global registry pointer.
     registry: RegistrySnapshot
+    fragment_diagnostics: tuple[dict[str, str], ...] = ()
+    inert_fragment_ids: tuple[str, ...] = ()
 
 
 async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToken | None = None) -> PipelineContext | None:
@@ -124,9 +126,15 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
     if director and director.get("active_moods"):
         enabled_ids = {f["id"] for f in mood_fragments}
         director["active_moods"] = [mood for mood in director["active_moods"] if mood in enabled_ids]
-    interactive_fragments = await db.get_interactive_fragments()
-    interactive_fragments = [df for df in interactive_fragments if df.get("enabled", True)]
-    interactive_fragments += [f for f in card_interactive if f["id"] not in {g["id"] for g in interactive_fragments}]
+    raw_interactive_fragments = await db.get_interactive_fragments()
+    merged_interactive: list[Mapping[str, Any]] = [
+        {**df, "_source": "global"} for df in raw_interactive_fragments if df.get("enabled", True)
+    ]
+    merged_interactive += [
+        {**f, "_source": "card"} for f in card_interactive if f["id"] not in {g["id"] for g in merged_interactive}
+    ]
+    fragment_resolution = resolve_fragment_instances(registry, merged_interactive)
+    interactive_fragments = list(fragment_resolution.fragments)
     phrase_bank = await db.get_phrase_bank()
     lorebook_entries = await db.get_active_lorebook_entries()
     client = client_from_settings(settings, abort_token=abort_token)
@@ -148,6 +156,8 @@ async def _load_pipeline_context(conversation_id: str, *, abort_token: AbortToke
         director=director,
         mood_fragments=mood_fragments,
         interactive_fragments=interactive_fragments,
+        fragment_diagnostics=fragment_resolution.diagnostics,
+        inert_fragment_ids=fragment_resolution.inert_fragment_ids,
         phrase_bank=phrase_bank,
         lorebook_entries=lorebook_entries,
         client=client,

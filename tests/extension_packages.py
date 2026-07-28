@@ -198,6 +198,136 @@ def scene_meter_package(**overrides: Any) -> bytes:
     )
 
 
+def fragment_meter_reduce_flow() -> dict[str, Any]:
+    """Pure Phase 5 reducer: add the bounded delta, clamp, and retain why."""
+    return {
+        "flow_version": 1,
+        "steps": [
+            {
+                "id": "advanced",
+                "op": "math.add",
+                "a": {"$ref": "fragment.previous.value"},
+                "b": {"$ref": "fragment.director.delta"},
+            },
+            {
+                "id": "clamped",
+                "op": "math.clamp",
+                "value": {"$ref": "steps.advanced"},
+                "minimum": {"$ref": "fragment.config.minimum"},
+                "maximum": {"$ref": "fragment.config.maximum"},
+            },
+            {
+                "op": "return",
+                "value": {
+                    "value": {"$ref": "steps.clamped"},
+                    "reason": {"$ref": "fragment.director.reason"},
+                },
+            },
+        ],
+    }
+
+
+def fragment_meter_config_view() -> dict[str, Any]:
+    return {
+        "view_version": 1,
+        "root": {
+            "component": "card",
+            "title": "Meter settings",
+            "children": [
+                {"component": "number-input", "bind": "config.minimum", "label": "Minimum"},
+                {"component": "number-input", "bind": "config.maximum", "label": "Maximum"},
+                {"component": "number-input", "bind": "config.initial", "label": "Initial value"},
+                {
+                    "component": "number-input",
+                    "bind": "config.max_delta",
+                    "label": "Maximum change per turn",
+                    "minimum": 1,
+                    "maximum": 100,
+                },
+            ],
+        },
+    }
+
+
+def fragment_meter_value_view() -> dict[str, Any]:
+    return {
+        "view_version": 1,
+        "root": {
+            "component": "meter",
+            "label": "Current value",
+            "value": {"$ref": "data.fragment.current.value"},
+            "minimum": {"$ref": "config.minimum"},
+            "maximum": {"$ref": "config.maximum"},
+        },
+    }
+
+
+def fragment_meter_manifest(**overrides: Any) -> dict[str, Any]:
+    """The Phase 5 reference package: one configured progressive type."""
+    base = manifest(
+        requires={
+            "operations": ["math.add", "math.clamp", "return"],
+            "components": ["card", "meter", "number-input"],
+        },
+        permissions=[{"capability": "fragment_type.contribute"}],
+        contributions={
+            "fragment_types": [
+                {
+                    "id": "meter",
+                    "label": "Meter",
+                    "description": "A bounded numeric state that changes by a Director-selected delta.",
+                    "storage": "assistant_progressive",
+                    "config_schema": {
+                        "type": "object",
+                        "properties": {
+                            "minimum": {"type": "integer", "default": 0},
+                            "maximum": {"type": "integer", "default": 100},
+                            "initial": {"type": "integer", "default": 50},
+                            "max_delta": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
+                        },
+                        "required": ["minimum", "maximum", "initial", "max_delta"],
+                        "additionalProperties": False,
+                    },
+                    "director_schema": {
+                        "type": "object",
+                        "properties": {
+                            "delta": {
+                                "type": "integer",
+                                "minimum": {"$neg_config": "max_delta"},
+                                "maximum": {"$config": "max_delta"},
+                            },
+                            "reason": {"type": "string", "maxLength": 160},
+                        },
+                        "required": ["delta", "reason"],
+                        "additionalProperties": False,
+                    },
+                    "prior_context": {"$template": "{{fragment.injection_label}} is currently {{fragment.previous.value}}."},
+                    "reduce_flow": "flows/reduce-meter.json",
+                    "writer_context": {
+                        "$template": "{{fragment.injection_label}}: {{fragment.previous.value}} → "
+                        "{{fragment.current.value}} ({{fragment.current.reason}})"
+                    },
+                    "config_view": "ui/meter-config.json",
+                    "value_view": "ui/meter-value.json",
+                }
+            ]
+        },
+    )
+    base.update(overrides)
+    return base
+
+
+def fragment_meter_package(**overrides: Any) -> bytes:
+    return orbext(
+        {
+            "orb-extension.json": fragment_meter_manifest(**overrides),
+            "flows/reduce-meter.json": fragment_meter_reduce_flow(),
+            "ui/meter-config.json": fragment_meter_config_view(),
+            "ui/meter-value.json": fragment_meter_value_view(),
+        }
+    )
+
+
 def orbext(files: dict[str, Any], *, root: str = "") -> bytes:
     """Zip *files* into ``.orbext`` bytes.
 

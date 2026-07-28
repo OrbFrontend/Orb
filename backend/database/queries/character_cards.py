@@ -154,6 +154,7 @@ _INTERACTIVE_FIELD_TYPES = {
     "feedback",
     "direction_note",
 }
+_NAMESPACED_FRAGMENT_TYPE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}:[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 def _card_fragment_entries(raw: Any) -> list[dict]:
@@ -180,6 +181,16 @@ def _card_fragment_entries(raw: Any) -> list[dict]:
 def _text(entry: Mapping[str, Any], key: str, default: str = "") -> str:
     v = entry.get(key, default)
     return v if isinstance(v, str) else default
+
+
+def _card_type_config(entry: Mapping[str, Any]) -> str:
+    raw = entry.get("type_config")
+    if not isinstance(raw, dict):
+        return "{}"
+    try:
+        return json.dumps(raw, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError):
+        return "{}"
 
 
 def card_embedded_fragments(
@@ -220,22 +231,35 @@ def card_embedded_fragments(
     for i, entry in enumerate(_card_fragment_entries(frags.get("interactive"))):
         field_type = _text(entry, "field_type", "string")
         timing = _text(entry, "direction_note_timing", "post_turn")
+        row: dict[str, Any] = {
+            "id": entry["id"],
+            "label": entry["label"],
+            "description": _text(entry, "description"),
+            # A syntactically namespaced type stays inert when its
+            # provider is absent. Only malformed legacy values fall
+            # back to string.
+            "field_type": (
+                field_type
+                if field_type in _INTERACTIVE_FIELD_TYPES or _NAMESPACED_FRAGMENT_TYPE.fullmatch(field_type)
+                else "string"
+            ),
+            "required": int(bool(entry.get("required"))),
+            "enabled": 1,
+            "injection_label": _text(entry, "injection_label") or entry["label"],
+            # Array order in the card is authoritative; the offset keeps
+            # card fragments after globals on any sort_order re-sort.
+            "sort_order": 10_000 + i,
+            "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
+        }
+        # Keep the legacy built-in row shape unchanged when a card omitted the
+        # new field, while preserving contributed configuration byte-for-byte
+        # through the ordinary row contract.
+        if "type_config" in entry or ":" in field_type:
+            row["type_config"] = _card_type_config(entry)
         interactive.append(
             cast(
                 InteractiveFragmentRow,
-                {
-                    "id": entry["id"],
-                    "label": entry["label"],
-                    "description": _text(entry, "description"),
-                    "field_type": field_type if field_type in _INTERACTIVE_FIELD_TYPES else "string",
-                    "required": int(bool(entry.get("required"))),
-                    "enabled": 1,
-                    "injection_label": _text(entry, "injection_label") or entry["label"],
-                    # Array order in the card is authoritative; the offset keeps
-                    # card fragments after globals on any sort_order re-sort.
-                    "sort_order": 10_000 + i,
-                    "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
-                },
+                row,
             )
         )
 

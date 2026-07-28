@@ -46,7 +46,7 @@ from ...workflows.registry import (
     runtime_generation,
 )
 from . import content_store
-from .adapters import hook_bindings, publishes_artifacts
+from .adapters import fragment_type_bindings, hook_bindings, publishes_artifacts
 from .compiler import (
     CompiledPackage,
     Requirement,
@@ -271,7 +271,13 @@ def blocked_entry_points(compiled: CompiledPackage, granted: frozenset[Requireme
     for placement in manifest.placements:
         if ("ui.contribute", placement.slot) not in granted:
             yield f"placement in slot {placement.slot!r}"
-    if manifest.contributions.fragment_types and ("fragment_type.contribute", None) not in granted:
+    if manifest.contributions.fragment_types and (
+        ("fragment_type.contribute", None) not in granted
+        or any(not covered(descriptor.reduce_flow) for descriptor in manifest.contributions.fragment_types)
+    ):
+        # Contributions publish as one descriptor catalog on the workflow
+        # record. If any reducer cannot execute end to end, publish none rather
+        # than expose a partially live type set under one consent grant.
         yield "fragment type contributions"
 
 
@@ -337,6 +343,12 @@ def _record(entry: InstalledExtension) -> Workflow:
     if entry.compiled is not None and entry.load_status is LoadStatus.AVAILABLE:
         for hook_type, callable_, stage in hook_bindings(entry.compiled, entry.blocked):
             _bind_subscription(record, hook_type, callable_, priority=0, stage=stage)
+        if (
+            bool(entry.row["enabled"])
+            and "fragment type contributions" not in entry.blocked
+            and entry.compiled.manifest.contributions.fragment_types
+        ):
+            record.fragment_types = fragment_type_bindings(entry.compiled)
     return record
 
 

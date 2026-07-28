@@ -57,6 +57,7 @@ from .contracts import (
     iter_components,
     iter_steps,
     parameter_values,
+    parse_schema,
     permission_key,
     referenced_actions,
     referenced_assets,
@@ -136,6 +137,7 @@ def compile_package(source: PackageSource) -> CompiledPackage:
     _assert_flow_contexts(manifest, flows)
     _assert_view_actions(manifest, views)
     _assert_config_view_scope(manifest, views)
+    _assert_fragment_view_profiles(manifest, views)
     _assert_artifact_declaration(manifest, flows)
     requirements = _derive_requirements(manifest, flows, views)
     _assert_declarations_cover(manifest, requirements)
@@ -331,6 +333,55 @@ def _assert_config_view_scope(manifest: ExtensionManifest, views: Mapping[str, V
             )
 
 
+def _assert_fragment_view_profiles(manifest: ExtensionManifest, views: Mapping[str, View]) -> None:
+    """Keep descriptor views inside the fragment lifecycle.
+
+    A config view edits the host-owned per-instance ``type_config`` object, not
+    extension state.  A value view is display-only.  Neither surface may
+    smuggle an action or resource read into a contribution that is consented as
+    a fragment type rather than as a placed UI.
+    """
+    for descriptor in manifest.contributions.fragment_types:
+        config_keys = set(parse_schema(descriptor.config_schema).schema.get("properties", {}))
+        if descriptor.config_view is not None:
+            view = views[descriptor.config_view]
+            if view.data:
+                raise PackageValidationError(f"{descriptor.config_view}: fragment config views may not declare data sources")
+            if referenced_actions(view):
+                raise PackageValidationError(f"{descriptor.config_view}: fragment config views may not dispatch actions")
+            for node in iter_components(view.root):
+                bind = getattr(node, "bind", None)
+                if isinstance(bind, str) and not bind.startswith("config."):
+                    raise PackageValidationError(
+                        f"{descriptor.config_view}: fragment config binding {bind!r} must address 'config.<key>'"
+                    )
+                if isinstance(bind, str) and bind.split(".", 1)[1] not in config_keys:
+                    raise PackageValidationError(
+                        f"{descriptor.config_view}: fragment config binding {bind!r} names an undeclared config key"
+                    )
+                for path in _paths_in(node.model_dump(mode="python")):
+                    segments = path.split(".")
+                    if len(segments) >= 2 and segments[0] == "config" and segments[1] not in config_keys:
+                        raise PackageValidationError(
+                            f"{descriptor.config_view}: fragment config reference {path!r} names an undeclared config key"
+                        )
+        if descriptor.value_view is not None:
+            view = views[descriptor.value_view]
+            if view.data:
+                raise PackageValidationError(f"{descriptor.value_view}: fragment value views may not declare data sources")
+            if referenced_actions(view):
+                raise PackageValidationError(f"{descriptor.value_view}: fragment value views may not dispatch actions")
+            if any(isinstance(getattr(node, "bind", None), str) for node in iter_components(view.root)):
+                raise PackageValidationError(f"{descriptor.value_view}: fragment value views are display-only")
+            for node in iter_components(view.root):
+                for path in _paths_in(node.model_dump(mode="python")):
+                    segments = path.split(".")
+                    if len(segments) >= 2 and segments[0] == "config" and segments[1] not in config_keys:
+                        raise PackageValidationError(
+                            f"{descriptor.value_view}: fragment config reference {path!r} names an undeclared config key"
+                        )
+
+
 # ── requirement derivation ──────────────────────────────────────────────────
 
 CTX_FIELDS: frozenset[str] = parameter_values(Capability.CONTEXT_READ)
@@ -366,10 +417,23 @@ def _derive_requirements(
                 if requirement is not None:
                     permissions.add(requirement)
 
-    for view in views.values():
+    placed_view_paths = {binding.source for binding in manifest.views.values()}
+    fragment_view_paths = {
+        path
+        for descriptor in manifest.contributions.fragment_types
+        for path in (descriptor.config_view, descriptor.value_view)
+        if path is not None
+    }
+    for path, view in views.items():
         components |= used_components(view)
-        permissions |= _view_source_permissions(view)
-        permissions |= derive_view_runtime_requirements(view)
+        # Fragment views receive their host-owned per-instance ``config`` and
+        # ``data.fragment`` namespaces from the fragment lifecycle. They do
+        # not read or write the extension's state slots, so ordinary view
+        # permission derivation would ask for authority they never exercise.
+        # A path also published as a normal view retains normal semantics.
+        if path not in fragment_view_paths or path in placed_view_paths:
+            permissions |= _view_source_permissions(view)
+            permissions |= derive_view_runtime_requirements(view)
 
     # An action whose validated input declares a card identifier resolves that
     # card into ``ctx.character`` and rebinds the ``character`` state scope to

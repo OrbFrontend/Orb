@@ -109,6 +109,25 @@ def test_unknown_enums_fall_back():
     assert interactive[0]["direction_note_timing"] == "post_turn"
 
 
+def test_namespaced_provider_and_type_config_are_preserved_without_installation():
+    _, interactive = card_embedded_fragments(
+        _card(
+            {
+                "interactive": [
+                    {
+                        "id": "trust",
+                        "label": "Trust",
+                        "field_type": "scene-meter:meter",
+                        "type_config": {"minimum": 0, "maximum": 100, "initial": 40, "max_delta": 10},
+                    }
+                ]
+            }
+        )
+    )
+    assert interactive[0]["field_type"] == "scene-meter:meter"
+    assert interactive[0]["type_config"] == '{"minimum":0,"maximum":100,"initial":40,"max_delta":10}'
+
+
 def test_duplicate_ids_first_wins():
     moods, _ = card_embedded_fragments(
         _card({"mood": [{"id": "a", "label": "First", "prompt_text": "p"}, {"id": "a", "label": "Second"}]})

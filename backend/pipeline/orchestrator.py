@@ -21,6 +21,7 @@ from ..database.models import PhraseGroup
 from ..inference import LLMClient, _KVCacheTracker
 from ..workflows import RegistrySnapshot
 from .config import _resolve_pipeline_config, _split_interactive_fragments
+from .fragment_types import fragment_type_instance, resolve_fragment_instances
 from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
 from .passes.writer import writer_stage
@@ -85,6 +86,8 @@ async def _run_pipeline(
     schema_overrides: Mapping[str, dict],
     registry: RegistrySnapshot,
     extension_context: ExtensionContext | None = None,
+    fragment_diagnostics: Sequence[Mapping[str, str]] | None = None,
+    inert_fragment_ids: Sequence[str] = (),
     history: Sequence[Mapping[str, Any]] | None = None,
     lorebook: LorebookTurn | None = None,
 ) -> AsyncIterator[dict]:
@@ -108,6 +111,22 @@ async def _run_pipeline(
         extension_context = ExtensionContext()
 
     user_message = macros.resolve_message(user_message)
+
+    # Production entry points pass the instances resolved while loading the
+    # turn context.  Direct pipeline callers (notably the public test harness)
+    # may still supply persisted rows, so resolve those once here as a
+    # compatibility boundary without re-reading the live registry.
+    if any(
+        fragment.get("field_type") not in ("feedback", "direction_note") and fragment_type_instance(fragment) is None
+        for fragment in interactive_fragments
+    ):
+        fragment_resolution = resolve_fragment_instances(registry, interactive_fragments)
+        interactive_fragments = fragment_resolution.fragments
+        fragment_diagnostics = (
+            *(fragment_diagnostics or ()),
+            *fragment_resolution.diagnostics,
+        )
+        inert_fragment_ids = (*inert_fragment_ids, *fragment_resolution.inert_fragment_ids)
 
     # Resolved once; cfg.enabled_tools is the length-guard-folded map.
     cfg = _resolve_pipeline_config(
@@ -140,6 +159,7 @@ async def _run_pipeline(
         effective_msg=user_message,
         active_moods=director["active_moods"],
         macro_choices=dict(director.get("macro_choices") or {}),
+        fragment_diagnostics=[dict(item) for item in (fragment_diagnostics or ())],
     )
 
     # --- Director pass (+ rewrite, style injection, agentic-lorebook block) ---
@@ -155,6 +175,7 @@ async def _run_pipeline(
         lorebook=lorebook,
         macros=macros,
         extension_context=extension_context,
+        inert_fragment_ids=inert_fragment_ids,
     ):
         yield ev
 

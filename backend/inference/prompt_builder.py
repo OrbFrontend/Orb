@@ -235,13 +235,15 @@ def build_director_tool_prompt(
     if tool_name == "direct_scene":
         # Scene context (progressive/interactive) before the mood options, mirroring
         # the per-fragment builder: settle the scene, then pick moods that fit it.
-        progressive_lines = [
-            f"* [{df['id']}] ({df['description']}): {(progressive_state or {}).get(df['id'])}"
-            for df in (interactive_fragments or [])
-            if df.get("field_type") == "progressive" and (progressive_state or {}).get(df["id"])
-        ]
-        if progressive_lines:
-            parts.append("Previous progressive fields - dynamically update these:\n" + "\n".join(progressive_lines))
+        prior_lines = []
+        for fragment in interactive_fragments or ():
+            line = str(fragment.get("prior_context") or "")
+            if not line and "prior_context" not in fragment and fragment["id"] in (progressive_state or {}):
+                line = f"* [{fragment['id']}] ({fragment['description']}): {(progressive_state or {})[fragment['id']]}"
+            if line:
+                prior_lines.append(line)
+        if prior_lines:
+            parts.append("Previous fragment state - dynamically update these:\n" + "\n".join(prior_lines))
         parts.append(_moods_options_block(active_moods, mood_fragments))
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
     # Close the [OOC: aside opened in DIRECTOR_PREAMBLE; the whole instruction is the aside.
@@ -291,9 +293,7 @@ def build_director_scene_step_prompt(
         parts.append(_moods_options_block(active_moods, mood_fragments))
     else:
         fid = target_fragment["id"]
-        hint = {"array": "list of strings", "progressive": "single value, evolves across turns"}.get(
-            target_fragment["field_type"], "single value"
-        )
+        hint = str(target_fragment.get("director_hint") or "single value")
         parts.append(
             f"Call ONLY direct_scene - {desc}\nFill ONLY the '{fid}' parameter. Leave moods and all other fields empty."
         )
@@ -301,8 +301,9 @@ def build_director_scene_step_prompt(
         prior = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
         if prior:
             parts.append("Decided so far this turn (build on these, do not contradict):\n" + "\n".join(prior))
-        if target_fragment["field_type"] == "progressive" and progressive_prior:
-            parts.append(f"Previous value (update it): {progressive_prior}")
+        prior_context = str(target_fragment.get("prior_context") or "")
+        if prior_context:
+            parts.append("Previous state (update it):\n" + prior_context)
 
     parts.append(f'User\'s next message (context):\n"""{user_message}"""')
     # Close the [OOC: aside opened in DIRECTOR_PREAMBLE; the whole instruction is the aside.
@@ -559,16 +560,15 @@ def build_style_injection(
 
     for df in sorted(interactive_fragments or [], key=lambda x: x.get("sort_order", 0)):
         val = (extra_fields or {}).get(df["id"])
-        if not val:
+        if val is None or val == "" or val == []:
             continue
-        label = df["injection_label"]
-        if df["field_type"] == "array" and isinstance(val, list):
-            parts.append(label + ":\n" + "\n".join(f"- {item}" for item in val))
-        elif df["field_type"] == "progressive":
-            old_val = (prior_progressive_state or {}).get(df["id"])
-            transition = f"{old_val} -> {val}" if old_val and old_val != val else str(val)
-            parts.append(f"{label} ({df['description']}): {transition}")
-        else:
-            parts.append(f"{label}: {val}")
+        rendered = str(df.get("writer_context") or "")
+        if not rendered and "writer_context" not in df:
+            # Standalone callers that did not cross the resolver retain a
+            # conservative scalar rendering; inference never interprets type
+            # ids. Runtime turns always use ``writer_context``.
+            rendered = f"{df['injection_label']}: {val}"
+        if rendered:
+            parts.append(rendered)
 
     return "\n\n".join(parts)

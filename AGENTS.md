@@ -14,7 +14,7 @@ Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams out
 
 - **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
-- **Registry snapshots:** Workflow lookups resolve against an immutable `RegistrySnapshot` (built-in base + community overlay). A turn captures **one** in `_load_pipeline_context` and threads it everywhere; never re-read the global registry mid-turn.
+- **Registry snapshots:** Workflow and contributed fragment-type lookups resolve against an immutable `RegistrySnapshot` (built-in base + community overlay). A turn captures **one** in `_load_pipeline_context` and threads it everywhere; never re-read the global registry mid-turn.
 - **Community extensions:** Untrusted declarative packages, a separate trust tier from built-in workflows. `.orbext` archives and HTTPS Git URLs are compiled to immutable records, stored content-addressed under `data/extensions/objects/<digest>/`, and published as the registry's community overlay. Compiled flows run through a bounded interpreter with a staged effect transaction; compiled views render through a host-owned component renderer that only ever writes `textContent`. **The unit of permission is a `(capability, parameter)` grant, and every fact about one — consent copy, data class, emphasis, admissible parameter values, gated resource, prerequisites — lives in `CAPABILITY_SPECS` (`features/extensions/contracts/capabilities.py`); the consent table, loud/data-reading sets, resource map, prerequisite map, `UI_SLOTS`, and the `Permission` model's parameters are all derived from it. Add a grant there, not in six places.** Design + phasing: [docs/architecture/community-extensions.md](docs/architecture/community-extensions.md).
 - **Extension egress:** *All* outbound traffic a package causes — a flow's `http.request` and the Git installer's fetch — goes through `features/extensions/network.py`. It derives the canonical origin from the URL, checks it against the live grant set, validates every resolved address, and pins one for the connection while `Host` and TLS SNI keep the real hostname. Redirects are followed by Orb, revalidated per hop, and drop package headers when they cross origins. Secrets are substituted inside that module and nowhere else, and responses are scanned for them before becoming flow values. Never add a second HTTP path for package-influenced URLs.
 - **SSE wire contract:** [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
@@ -99,7 +99,9 @@ features/<name>/
 | `backend/pipeline/entrypoints.py` | 5 public `handle_*` functions — top of the turn lifecycle |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
+| `backend/pipeline/fragment_types.py` | Per-turn fragment descriptor resolution, prior preparation, reduction, carry-forward, and Writer rendering |
 | `backend/inference/tool_registry.py` | All tool schemas + `TOOLS`/`PRE_WRITER_TOOLS`/`POST_WRITER_TOOLS` |
+| `backend/workflows/fragment_types.py` | Built-in/contributed fragment-type runtime contracts and shared reducer budget |
 | `backend/database/models.py` | TypedDict row contracts (the model layer) |
 | `backend/database/schema.py` | `CREATE TABLES` — source of truth for columns |
 | `backend/database/preset_schema.py` | Preset policy: `DOMAIN_ROOTS`, `SECRET_COLUMNS`, etc. |
@@ -108,7 +110,7 @@ features/<name>/
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
 | `frontend/workflow_api.js` | Plugin facade ABI v2 — the only import for `frontend/workflows/**` |
 | `frontend/extension_manager.js` | Orb-owned community-extension manager: install (file or Git), consent, permissions, write-only secrets, update, rollback, purge. DOM creation + `textContent` only — package strings never become markup, handlers, or attributes |
-| `frontend/extension_renderer.js` | THE renderer for community component trees. Tokenized styling, media by reference, node-built Markdown; no package string reaches markup, a class, a URL, or a handler |
+| `frontend/extension_renderer.js` | THE renderer for community component trees, including fragment config/value views. Tokenized styling, media by reference, node-built Markdown; no package string reaches markup, a class, a URL, or a handler |
 | `frontend/extension_commands.js` | Host command model (built-in band + community band), slot placement, workspace/view lifecycle, the fixed effect→refetch map, and the renderer-driven library sweep |
 
 ## Database Schema (summary)
@@ -127,7 +129,7 @@ features/<name>/
 | `interactive_fragments` | Dynamic Director parameters; `field_type` = string/array/progressive/feedback/direction_note, or `<extension-id>:<type-id>` for an extension-contributed type; `type_config` (JSON) holds that type's per-instance config |
 | `mood_fragments` | Named mood presets with prompt/negative_prompt |
 | `phrase_bank` | Banned phrase variants for editor audit |
-| `conversation_logs` | Per-turn Director audit trail |
+| `conversation_logs` | Per-turn Director audit trail, including persisted sanitized fragment diagnostics |
 | `direction_notes` | Persistent notes across a branch (Director or user-authored) |
 | `worlds` / `lorebook_entries` | Lorebook containers + keyword-triggered context entries |
 | `documents` | Free-form writing mode documents |
@@ -178,7 +180,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Conversations:** CRUD + `/summarize`, `/compress`, `/stop`, `/context-size`
 - **Messages:** `/send` (SSE), `/continue`, `/edit`, `/fork-edit`, `/regenerate`, `/super_regenerate`, `/magic_rewrite`, `/switch-branch`, DELETE
 - **Characters:** CRUD + `/import` (PNG), `/import-url`, `/browse`, `/export`, `/expressions`
-- **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`
+- **Fragments/Moods:** `/api/fragments`, `/api/interactive-fragments`, `/api/interactive-fragment-types` (captured host/contributed descriptor catalog)
 - **Worlds/Lorebook:** CRUD under `/api/worlds/{id}/entries` + `/import` + `/export` (standalone `character_book` JSON — V2 shape plus the additive V3 `use_regex`/`selective`/`secondary_keys` keys)
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments

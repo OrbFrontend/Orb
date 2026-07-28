@@ -160,7 +160,8 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
     reasoning_director TEXT,
     reasoning_writer TEXT,
     reasoning_editor TEXT,
-    feedback TEXT NOT NULL DEFAULT '{}'
+    feedback TEXT NOT NULL DEFAULT '{}',
+    fragment_diagnostics TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS phrase_bank (

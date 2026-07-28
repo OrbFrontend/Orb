@@ -107,8 +107,10 @@ function render(view, extra = {}) {
       instanceId: "0",
       digest: extra.digest || "d1",
       conversationId: extra.conversationId || null,
+      saveMode: extra.saveMode,
       onAction: extra.onAction || (async () => {}),
       onSaveState: extra.onSaveState || (async () => {}),
+      onDraftChange: extra.onDraftChange,
     },
   );
   return host;
@@ -298,6 +300,21 @@ test("a lines textarea shows an array one per line and saves it back as an array
 
 test("a view with no bound controls gets no save bar", () => {
   const host = render(tree({ component: "text", value: "read only" }));
+  assert.equal(host.find((n) => n.className?.includes("xc-save-bar")), null);
+});
+
+test("an externally saved bound view reports drafts without adding a save bar", () => {
+  const changed = [];
+  const host = render(tree({ component: "number-input", bind: "config.maximum", label: "Maximum" }), {
+    config: { maximum: 10 },
+    saveMode: "external",
+    onDraftChange: (path, value) => changed.push([path, value]),
+  });
+  const input = host.find((n) => n.tagName === "INPUT" && n.type === "number");
+  assert.equal(input.value, "10");
+  input.value = "25";
+  for (const fn of input.listeners.input || []) fn();
+  assert.deepEqual(changed, [["config.maximum", 25]]);
   assert.equal(host.find((n) => n.className?.includes("xc-save-bar")), null);
 });
 

@@ -80,6 +80,7 @@ from .contracts import (
     ToolSpec,
     WorkflowSource,
 )
+from .fragment_types import BUILTIN_FRAGMENT_TYPES, FragmentTypeDefinition
 
 
 @dataclass
@@ -122,6 +123,7 @@ class Workflow:
     content_digest: str | None = None
     load_status: LoadStatus = LoadStatus.AVAILABLE
     diagnostic: str = ""
+    fragment_types: tuple[FragmentTypeDefinition, ...] = ()
 
     @property
     def frontend_kind(self) -> FrontendKind:
@@ -378,6 +380,7 @@ class RegistrySnapshot:
     workflows: Mapping[str, Workflow]
     by_hook: Mapping[HookType, tuple[Subscription, ...]]
     digests: Mapping[str, str]
+    fragment_types: Mapping[str, FragmentTypeDefinition]
 
     def get(self, workflow_id: str) -> Workflow | None:
         return self.workflows.get(workflow_id)
@@ -394,6 +397,9 @@ class RegistrySnapshot:
         if record is None:
             return None
         return next((s for s in record.subscriptions if s.hook_type is hook_type), None)
+
+    def fragment_type(self, type_id: str) -> FragmentTypeDefinition | None:
+        return self.fragment_types.get(type_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,11 +478,16 @@ def current_snapshot() -> RegistrySnapshot:
     workflows: dict[str, Workflow] = dict(base)
     for record in overlay:
         workflows[record.id] = record
+    fragment_types = dict(BUILTIN_FRAGMENT_TYPES)
+    for record in sorted(overlay, key=lambda item: item.id):
+        for descriptor in sorted(record.fragment_types, key=lambda item: item.local_id):
+            fragment_types[descriptor.type_id] = descriptor
     return RegistrySnapshot(
         generation=published.generation,
         workflows=MappingProxyType(workflows),
         by_hook=MappingProxyType({hook: _ordered_for_hook(base, overlay, hook) for hook in HookType}),
         digests=MappingProxyType({r.id: r.content_digest for r in overlay if r.content_digest}),
+        fragment_types=MappingProxyType(fragment_types),
     )
 
 
@@ -498,6 +509,7 @@ def publish_community_overlay(records: Sequence[Workflow]) -> int:
     prior overlay, its commands, and its fragment descriptors active.
     """
     seen: set[str] = set()
+    seen_fragment_types: set[str] = set(BUILTIN_FRAGMENT_TYPES)
     for record in records:
         if record.source is not WorkflowSource.COMMUNITY:
             raise WorkflowDeclarationError(f"overlay record {record.id!r} must declare source=COMMUNITY")
@@ -525,11 +537,26 @@ def publish_community_overlay(records: Sequence[Workflow]) -> int:
         # unavailable record would trip the artifact mandate below, failing the
         # *whole* overlay swap over one broken package. Startup must isolate a
         # bad package, not let it block every other extension and the built-ins.
-        if record.load_status is not LoadStatus.AVAILABLE and (record.subscriptions or record.produces_artifacts):
+        if record.load_status is not LoadStatus.AVAILABLE and (
+            record.subscriptions or record.produces_artifacts or record.fragment_types
+        ):
             raise WorkflowDeclarationError(
                 f"community workflow {record.id!r} is {record.load_status.value} but published entry points; "
-                f"an unavailable record must carry no subscriptions and produces_artifacts=False"
+                f"an unavailable record must carry no subscriptions, fragment types, or artifact production"
             )
+        for descriptor in record.fragment_types:
+            expected = f"{record.id}:{descriptor.local_id}"
+            if descriptor.owner_id != record.id or descriptor.type_id != expected:
+                raise WorkflowDeclarationError(
+                    f"fragment type {descriptor.type_id!r} does not belong to community workflow {record.id!r}"
+                )
+            if descriptor.content_digest != record.content_digest:
+                raise WorkflowDeclarationError(
+                    f"fragment type {descriptor.type_id!r} does not belong to workflow {record.id!r}'s compiled revision"
+                )
+            if descriptor.type_id in seen_fragment_types:
+                raise WorkflowDeclarationError(f"duplicate fragment type id {descriptor.type_id!r}")
+            seen_fragment_types.add(descriptor.type_id)
         seen.add(record.id)
     _assert_artifact_mandate(records)
 

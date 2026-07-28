@@ -22,6 +22,11 @@ from backend.features.extensions.errors import (
 from backend.features.extensions.sources import ArchiveSource
 from tests.extension_packages import (
     PNG_BYTES,
+    fragment_meter_config_view,
+    fragment_meter_manifest,
+    fragment_meter_package,
+    fragment_meter_reduce_flow,
+    fragment_meter_value_view,
     full_manifest,
     full_package,
     manifest,
@@ -283,6 +288,50 @@ def test_rejects_a_view_dispatching_an_undeclared_action():
     )
     with pytest.raises(PackageValidationError, match="undeclared action"):
         compile_bytes(orbext({"orb-extension.json": declared, "ui/inspector.json": view}))
+
+
+# ── fragment contribution views ─────────────────────────────────────────────
+
+
+def _fragment_package(*, config_view=None, value_view=None) -> bytes:
+    return orbext(
+        {
+            "orb-extension.json": fragment_meter_manifest(),
+            "flows/reduce-meter.json": fragment_meter_reduce_flow(),
+            "ui/meter-config.json": config_view or fragment_meter_config_view(),
+            "ui/meter-value.json": value_view or fragment_meter_value_view(),
+        }
+    )
+
+
+def test_fragment_views_use_host_owned_data_without_state_permissions():
+    compiled = compile_bytes(fragment_meter_package())
+    assert compiled.requirements.permissions == frozenset({("fragment_type.contribute", None)})
+
+
+def test_fragment_config_view_cannot_bind_an_undeclared_config_key():
+    view = fragment_meter_config_view()
+    view["root"]["children"][0]["bind"] = "config.not_declared"
+    with pytest.raises(PackageValidationError, match="undeclared config key"):
+        compile_bytes(_fragment_package(config_view=view))
+
+
+def test_fragment_value_view_is_display_only():
+    view = fragment_meter_value_view()
+    view["root"] = {
+        "component": "number-input",
+        "bind": "config.initial",
+        "label": "Initial",
+    }
+    with pytest.raises(PackageValidationError, match="display-only"):
+        compile_bytes(_fragment_package(value_view=view))
+
+
+def test_fragment_views_cannot_read_extension_state():
+    view = fragment_meter_config_view()
+    view["data"] = {"saved": {"kind": "state", "scope": "config"}}
+    with pytest.raises(PackageValidationError, match="may not declare data sources"):
+        compile_bytes(_fragment_package(config_view=view))
 
 
 # ── assets ──────────────────────────────────────────────────────────────────

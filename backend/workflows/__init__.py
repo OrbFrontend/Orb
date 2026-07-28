@@ -58,6 +58,16 @@ from .format_consistency import format_consistency_workflow
 from .format_consistency.hooks import (
     post_pipeline as _fc_post_pipeline,
 )
+from .fragment_types import (
+    BUILTIN_FRAGMENT_TYPES,
+    MAX_EXTENSION_FRAGMENT_INSTANCES_PER_TURN,
+    MAX_FRAGMENT_CONTEXT_BYTES_PER_TARGET,
+    FragmentReducerBudget,
+    FragmentReduceRequest,
+    FragmentTypeDefinition,
+    FragmentTypeError,
+    FragmentTypeInstance,
+)
 from .image_gen import image_gen_workflow
 from .image_gen.hooks import on_demand as _image_gen_on_demand
 from .image_gen.hooks import query as _image_gen_query
@@ -117,6 +127,14 @@ __all__ = [
     "EV_SET_MESSAGE_STATE",
     "EV_SYSTEM_PROMPT",
     "FrontendKind",
+    "BUILTIN_FRAGMENT_TYPES",
+    "FragmentReduceRequest",
+    "FragmentReducerBudget",
+    "FragmentTypeDefinition",
+    "FragmentTypeError",
+    "FragmentTypeInstance",
+    "MAX_EXTENSION_FRAGMENT_INSTANCES_PER_TURN",
+    "MAX_FRAGMENT_CONTEXT_BYTES_PER_TARGET",
     "HookStage",
     "HookType",
     "LoadStatus",

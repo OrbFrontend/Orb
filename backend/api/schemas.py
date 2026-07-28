@@ -183,7 +183,7 @@ class InteractiveFragmentCreate(BaseModel):
     # Per-instance configuration for an extension-defined field_type. Left as a
     # bare dict here: its real shape is the installed type's own declared
     # instance schema, which this layer cannot know and must not half-check.
-    type_config: dict = {}
+    type_config: dict = Field(default_factory=dict)
 
 
 class InteractiveFragmentUpdate(BaseModel):

@@ -443,12 +443,15 @@ class FragmentTypeDescriptor(ExtModel):
         # blob, where a missing or non-numeric key would produce a schema the
         # model provider rejects for the whole turn.
         properties = config.schema.get("properties", {})
+        required = set(config.schema.get("required", ()))
         for key in sorted(director.config_keys):
             declared = properties.get(key)
             if declared is None:
                 raise ValueError(f"fragment_type {self.id!r} director_schema references undeclared config key {key!r}")
             if declared["type"] != "integer":
                 raise ValueError(f"fragment_type {self.id!r} config key {key!r} must be an integer to fill a numeric bound")
+            if key not in required:
+                raise ValueError(f"fragment_type {self.id!r} config key {key!r} must be required to fill a numeric bound")
         for name in ("prior_context", "writer_context"):
             template = getattr(self, name)
             if template is None:

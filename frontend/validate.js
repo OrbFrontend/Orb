@@ -347,6 +347,7 @@ export function validateMoodFragment(data) {
 }
 
 const FRAGMENT_FIELD_TYPES = ["string", "array", "progressive", "feedback", "direction_note"];
+const NAMESPACED_FRAGMENT_TYPE_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}:[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /**
  * Validate an interactive fragment.
@@ -383,8 +384,12 @@ export function validateInteractiveFragment(data) {
   const descLen = maxLength(description, MAX_FRAGMENT_DESCRIPTION, "Description");
   if (!descLen.valid) return descLen;
 
-  if (data.field_type !== undefined && !FRAGMENT_FIELD_TYPES.includes(data.field_type)) {
-    return { valid: false, error: `Field type must be one of: ${FRAGMENT_FIELD_TYPES.join(", ")}` };
+  if (
+    data.field_type !== undefined &&
+    !FRAGMENT_FIELD_TYPES.includes(data.field_type) &&
+    !NAMESPACED_FRAGMENT_TYPE_REGEX.test(data.field_type)
+  ) {
+    return { valid: false, error: "Field type is not a valid host or extension type" };
   }
 
   return { valid: true };

@@ -189,10 +189,3 @@ a flow interpolating it fails on a card the library accepted. This one clears
 the declared body plus every distinct projection at once (character, history,
 one full text field), so the failure it still catches is the one worth
 catching: a template that repeats a large hole until the prompt balloons."""
-
-# ── fragment-type resolution (section 9) ─────────────────────────────────────
-
-MAX_EXTENSION_FRAGMENT_INSTANCES_PER_TURN = 50
-"""Active extension-backed fragment instances resolved per turn, across global
-and card sources. Excess instances are diagnosed and skipped in deterministic
-fragment order rather than silently multiplying the Director schema."""

@@ -45,6 +45,7 @@ export {
 export {
   deleteInteractiveFragment,
   deleteMoodFragment,
+  loadFragmentTypeCatalog,
   loadInteractiveFragments,
   loadMoodFragments,
   renderInteractiveFragments,

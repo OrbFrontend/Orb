@@ -70,6 +70,7 @@ async def run(
     context: OpContext = OpContext.ACTION,
     action_input: dict | None = None,
     is_cancelled=lambda: False,
+    charge_step=lambda: None,
     output_schema=None,
 ) -> tuple[FlowResult, list[dict]]:
     """Execute *f* and return its result plus the progress events it yielded."""
@@ -81,7 +82,12 @@ async def run(
     invocation = Invocation(
         extension_id="scene-meter",
         context=context,
-        host=HostServices(grants=lambda: grants, read_state=read_state, is_cancelled=is_cancelled),
+        host=HostServices(
+            grants=lambda: grants,
+            read_state=read_state,
+            is_cancelled=is_cancelled,
+            charge_step=charge_step,
+        ),
         ctx=ctx or {},
         action_input=action_input or {},
         scopes_in_scope=frozenset({"conversation", "config"}),
@@ -373,6 +379,29 @@ async def test_the_declaration_bound_keeps_the_execution_bound_unreachable():
     assert result.value is None
     with pytest.raises(ValidationError):
         flow(*[{"op": "math.add", "a": 1, "b": 1} for _ in range(MAX_FLOW_STEPS_DECLARED + 1)])
+
+
+async def test_host_aggregate_budget_is_reserved_before_each_step_executes():
+    class SharedBudgetReached(Exception):
+        pass
+
+    reserved = 0
+
+    def charge_step():
+        nonlocal reserved
+        if reserved == 1:
+            raise SharedBudgetReached
+        reserved += 1
+
+    with pytest.raises(SharedBudgetReached):
+        await run(
+            flow(
+                {"op": "math.add", "a": 1, "b": 1},
+                {"op": "math.add", "a": 2, "b": 2},
+            ),
+            charge_step=charge_step,
+        )
+    assert reserved == 1
 
 
 # ── permissions ─────────────────────────────────────────────────────────────

@@ -45,6 +45,9 @@ class FakeElement {
   querySelector() {
     return null;
   }
+  querySelectorAll() {
+    return [];
+  }
   addEventListener(name, fn) {
     (this.listeners[name] ||= []).push(fn);
   }
@@ -63,6 +66,7 @@ const byId = new Map();
 globalThis.document = {
   createElement: (tag) => new FakeElement(tag),
   getElementById: (id) => byId.get(id) ?? null,
+  querySelectorAll: () => [],
   addEventListener() {},
   body: new FakeElement("body"),
 };
@@ -71,13 +75,14 @@ globalThis.document = {
 // exercised on every render -- a background refetch must never clobber the
 // model a newer generation already replaced.
 let lastFetchPath = null;
+let fetchResponder = async () => ({
+  ok: true,
+  json: async () => ({ runtime_generation: -1, extensions: [], orphaned_data: [] }),
+  text: async () => "",
+});
 globalThis.fetch = async (path) => {
   lastFetchPath = path;
-  return {
-    ok: true,
-    json: async () => ({ runtime_generation: -1, extensions: [], orphaned_data: [] }),
-    text: async () => "",
-  };
+  return fetchResponder(path);
 };
 
 const manager = await import("../../frontend/extension_manager.js");
@@ -291,4 +296,43 @@ test("the catalog state keys exist on S with safe defaults", () => {
   assert.ok(Array.isArray(S.extensionCatalog));
   assert.ok(Array.isArray(S.extensionOrphanedData));
   assert.equal(typeof S.extensionRuntimeGeneration, "number");
+});
+
+test("an enablement lifecycle change refreshes the fragment-type catalog", async () => {
+  let fragmentRefreshes = 0;
+  const requested = [];
+  fetchResponder = async (path) => {
+    requested.push(path);
+    let body = {};
+    if (path === "/api/extensions") {
+      body = { runtime_generation: 8, extensions: [catalogEntry({ enabled: false })], orphaned_data: [] };
+    } else if (path === "/api/workflows") {
+      body = [];
+    } else if (path.includes("/enabled")) {
+      body = { workflow_enabled: { "scene-meter": false } };
+    }
+    return { ok: true, json: async () => body, text: async () => "" };
+  };
+
+  manager.initExtensionManager({
+    refreshFragmentTypes: async () => {
+      fragmentRefreshes += 1;
+    },
+  });
+  const host = render([catalogEntry()]);
+  const toggle = toggleOf(host);
+  toggle.checked = false;
+  toggle.listeners.change[0]();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.ok(requested.includes("/api/workflows/scene-meter/enabled"));
+  assert.ok(requested.includes("/api/extensions"));
+  assert.ok(requested.includes("/api/workflows"));
+  assert.equal(fragmentRefreshes, 1);
+
+  fetchResponder = async () => ({
+    ok: true,
+    json: async () => ({ runtime_generation: -1, extensions: [], orphaned_data: [] }),
+    text: async () => "",
+  });
 });

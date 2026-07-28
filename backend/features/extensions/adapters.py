@@ -67,6 +67,12 @@ from ...workflows.contracts import (
     RegenCtx,
     RerollGenCtx,
 )
+from ...workflows.fragment_types import (
+    FragmentReduceRequest,
+    FragmentTypeDefinition,
+    FragmentTypeError,
+    FragmentTypeInstance,
+)
 from . import artifacts, execution, secrets, telemetry
 from .compiler import CompiledPackage
 from .contracts import (
@@ -92,7 +98,7 @@ from .interpreter import (
 )
 from .limits import MAX_STATE_BYTES_PER_SCOPE
 from .network import HttpService, granted_origins
-from .values import assert_json_bounds
+from .values import assert_json_bounds, render_template
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +118,197 @@ LOCKED_SCOPES: tuple[str, ...] = ("config", "conversation", "character")
 that does not exist yet, so it is staged into the pipeline result and committed
 with that row rather than locked here.
 """
+
+
+def fragment_type_bindings(compiled: CompiledPackage) -> tuple[FragmentTypeDefinition, ...]:
+    """Compile package fragment descriptors into workflow-owned bindings.
+
+    The returned definitions contain only immutable metadata and host callables
+    closed over this exact compiled revision.  The pipeline consumes those
+    callables through ``workflows/`` and never imports the extension feature.
+    """
+    bindings: list[FragmentTypeDefinition] = []
+    for declared in compiled.manifest.contributions.fragment_types:
+        config_schema = parse_schema(
+            declared.config_schema,
+            what=f"fragment_type {declared.id!r} config_schema",
+        )
+        director_template = parse_schema(
+            declared.director_schema,
+            allow_config_templates=True,
+            what=f"fragment_type {declared.id!r} director_schema",
+        )
+        flow = compiled.flows[declared.reduce_flow]
+        definition_ref: list[FragmentTypeDefinition] = []
+
+        def instantiate(
+            raw_config: Mapping[str, Any],
+            *,
+            _declared=declared,
+            _config_schema=config_schema,
+            _director_template=director_template,
+            _flow=flow,
+            _definition_ref=definition_ref,
+        ) -> FragmentTypeInstance:
+            config = dict(raw_config)
+            reason = _config_schema.validate(config)
+            if reason is not None:
+                raise FragmentTypeError(f"type configuration is invalid: {reason}")
+            resolved_schema = _resolve_fragment_schema(_director_template.schema, config)
+            concrete_schema = parse_schema(
+                resolved_schema,
+                what=f"fragment_type {_declared.id!r} resolved director_schema",
+            )
+
+            async def reduce_value(request: FragmentReduceRequest) -> Any:
+                return await _run_fragment_reducer(compiled, _flow, request)
+
+            def prior(fragment: Mapping[str, Any], previous: Any) -> str:
+                template = _declared.prior_context
+                if template is None or previous is None:
+                    return ""
+                return render_template(
+                    template["$template"],
+                    {"fragment": _fragment_template_namespace(fragment, config, previous=previous)},
+                )
+
+            def writer(fragment: Mapping[str, Any], previous: Any, current: Any) -> str:
+                template = _declared.writer_context
+                if template is None:
+                    return f"{fragment['injection_label']}: {canonical_json_bytes(current).decode('utf-8')}"
+                return render_template(
+                    template["$template"],
+                    {
+                        "fragment": _fragment_template_namespace(
+                            fragment,
+                            config,
+                            previous=previous,
+                            current=current,
+                        )
+                    },
+                )
+
+            # Frozen v1 seed convention: a validated top-level ``initial``
+            # config member becomes the normalized ``{"value": initial}``
+            # prior used by Meter-shaped progressive descriptors. Descriptors
+            # without that member simply have no seed and must wait for a
+            # Director/reducer result or a persisted branch value.
+            has_initial = "initial" in config
+            initial = {"value": config["initial"]} if has_initial else None
+            return FragmentTypeInstance(
+                definition=_definition_ref[0],
+                config=config,
+                director_schema=concrete_schema.schema,
+                validate_director=concrete_schema.validate,
+                reduce_value=reduce_value,
+                render_prior=prior,
+                render_writer=writer,
+                has_initial=has_initial,
+                initial_value=initial,
+            )
+
+        config_view = compiled.views.get(declared.config_view) if declared.config_view else None
+        value_view = compiled.views.get(declared.value_view) if declared.value_view else None
+        definition = FragmentTypeDefinition(
+            type_id=f"{compiled.extension_id}:{declared.id}",
+            local_id=declared.id,
+            label=declared.label,
+            description=declared.description or "",
+            storage=declared.storage,
+            config_schema=config_schema.schema,
+            instantiate=instantiate,
+            prompt_hint=f"structured {declared.label.lower()} value",
+            owner_id=compiled.extension_id,
+            content_digest=compiled.digest,
+            config_view=config_view.model_dump(mode="json") if config_view is not None else None,
+            value_view=value_view.model_dump(mode="json") if value_view is not None else None,
+        )
+        definition_ref.append(definition)
+        bindings.append(definition)
+    return tuple(bindings)
+
+
+def _resolve_fragment_schema(value: Any, config: Mapping[str, Any]) -> Any:
+    """Fill the descriptor's two numeric schema-template forms."""
+    if isinstance(value, dict):
+        if set(value) == {"$config"}:
+            return config[value["$config"]]
+        if set(value) == {"$neg_config"}:
+            return -config[value["$neg_config"]]
+        return {key: _resolve_fragment_schema(item, config) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_resolve_fragment_schema(item, config) for item in value]
+    return value
+
+
+def _fragment_template_namespace(
+    fragment: Mapping[str, Any],
+    config: Mapping[str, Any],
+    *,
+    previous: Any = None,
+    current: Any = None,
+    director: Any = None,
+) -> dict[str, Any]:
+    namespace = {
+        "id": fragment.get("id"),
+        "label": fragment.get("label"),
+        "description": fragment.get("description"),
+        "injection_label": fragment.get("injection_label"),
+        "config": dict(config),
+        "previous": previous,
+    }
+    if current is not None:
+        namespace["current"] = current
+    if director is not None:
+        namespace["director"] = director
+    return namespace
+
+
+async def _run_fragment_reducer(
+    compiled: CompiledPackage,
+    flow: Flow,
+    request: FragmentReduceRequest,
+) -> Any:
+    """Run one pure reducer with lifecycle coordination and live consent."""
+    from .runtime import live_grants
+
+    granted = live_grants(compiled.extension_id)
+    if (Capability.FRAGMENT_TYPE_CONTRIBUTE.value, None) not in granted:
+        raise FragmentTypeError("fragment type contribution permission is not granted")
+
+    async def no_state(_scope: str) -> Mapping[str, Any]:
+        raise FlowError("fragment reducers cannot read extension state")
+
+    invocation = Invocation(
+        extension_id=compiled.extension_id,
+        context=OpContext.REDUCER,
+        host=HostServices(
+            grants=lambda: live_grants(compiled.extension_id),
+            read_state=no_state,
+            is_cancelled=request.is_cancelled,
+            charge_step=request.budget.charge_step,
+        ),
+        fragment=_fragment_template_namespace(
+            request.fragment,
+            request.config,
+            previous=request.previous,
+            director=request.director,
+        ),
+    )
+    result: FlowResult | None = None
+    try:
+        async with execution.track_invocation(compiled.extension_id):
+            async for event in run_flow(flow, invocation):
+                if isinstance(event, FlowResult):
+                    result = event
+            if result is None:
+                raise FragmentTypeError("fragment reducer did not finish")
+            _validate_staged_effects(invocation, result)
+    except (execution.InvocationBlocked, FlowError) as exc:
+        raise FragmentTypeError(str(exc)) from None
+    assert result is not None
+    request.budget.charge(value=result.value)
+    return result.value
 
 
 def flow_scopes(flow: Flow) -> frozenset[str]:

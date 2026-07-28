@@ -187,6 +187,8 @@ async def _generate_reply(
         kv_tracker=setup.kv_tracker,
         schema_overrides=setup.schema_overrides,
         extension_context=setup.extension_context,
+        fragment_diagnostics=ctx.fragment_diagnostics,
+        inert_fragment_ids=ctx.inert_fragment_ids,
         registry=ctx.registry,
         history=history,
     )

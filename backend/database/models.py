@@ -452,9 +452,9 @@ class ConversationLogRow(TypedDict):
     -- get_director_log_for_message() additionally defaults the ``reasoning_*``
     keys to ``""``, but get_conversation_logs() leaves them as stored.
     ``feedback`` is the JSON-*decoded* dict (the editor feedback sub-step's
-    user-facing note); both readers decode it and ``setdefault`` it for
-    pre-feature rows, mirroring the reasoning fields. (Feedback shares the
-    editor's reasoning/latency, so it has no columns of its own for those.)
+    user-facing note), and ``fragment_diagnostics`` is the decoded list of
+    sanitized contributed-fragment failures. Both readers decode these values
+    and default pre-feature rows to their empty shapes.
     """
 
     id: int
@@ -470,6 +470,7 @@ class ConversationLogRow(TypedDict):
     reasoning_writer: str | None
     reasoning_editor: str | None
     feedback: dict
+    fragment_diagnostics: list[dict[str, str]]
 
 
 class CharacterCardRow(TypedDict, total=False):

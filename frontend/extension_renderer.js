@@ -223,9 +223,10 @@ export function clearDrafts() {
  *
  * `payload` is the server's `/views/{id}` response: the compiled tree plus its
  * resolved data, config, state, and per-source errors. `ctx` carries the
- * identity the renderer needs and the two host callbacks it may invoke —
- * `onAction(actionId, input)` and `onError(message)`. There is no third
- * callback a package can reach.
+ * identity the renderer needs and host callbacks such as
+ * `onAction(actionId, input)` and `onError(message)`. A host-owned embedding
+ * may also observe draft changes; no callback is selected or named by package
+ * data.
  */
 export function renderView(container, payload, ctx) {
   const namespaces = {
@@ -255,6 +256,7 @@ export function renderView(container, payload, ctx) {
  * locked, and committed server-side exactly like any other state write.
  */
 function saveBar(scope) {
+  if (scope.saveMode === "external") return null;
   if (!hasBoundControls(scope.payload.view?.root)) return null;
   const bar = el("div", "xc-save-bar");
   const button = el("button", "xc-button xc-tone-accent", "Save changes");
@@ -639,10 +641,14 @@ function bindControl(node, scope, field, read, write) {
   const path = node.bind;
   write(currentBound(path, scope));
   field.addEventListener("input", () => {
-    scope.draft[path] = read();
+    const value = read();
+    scope.draft[path] = value;
+    scope.onDraftChange?.(path, value);
   });
   field.addEventListener("change", () => {
-    scope.draft[path] = read();
+    const value = read();
+    scope.draft[path] = value;
+    scope.onDraftChange?.(path, value);
   });
   if (Object.hasOwn(scope.draft, path)) write(scope.draft[path]);
   return labelled(node.label, field);

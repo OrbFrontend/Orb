@@ -1,13 +1,52 @@
 # Community Extensions v1 — Architecture Handoff
 
-Status: **Phases 0-4 implemented (including all of section 20's v1.x
-expansions); Phases 5-6 not started**
+Status: **Phases 0-5 implemented (including all of section 20's v1.x
+expansions); Phase 6 not started**
 
 The frozen v1 contract still has no community tools in the main pipeline.
 A bounded Writer-only tool ABI is now an accepted follow-on direction, planned
 separately in [Community Writer Tools](community-writer-tools.md). It is not
 implemented, is not part of Phases 0-3, and does not permit community Director
 or Editor tools.
+
+### Sequencing against Community Writer Tools
+
+Phase 5's exit gate is now met. The Writer-tool plan may proceed in its own
+WT0→WT4 order; WT2-WT4 are no longer blocked on fragment contributions. Phase
+5 was serialized ahead of those pipeline phases for three reasons:
+
+1. **Phase 5 closed a granted capability that did nothing.**
+   `fragment_type.contribute` parsed, consented, and compiled before a runtime
+   consumer existed.
+2. **`extension_api: 2` could not arrive while API 1 was incomplete.** The
+   Writer-tool plan's compatibility story rests on API 1 naming one frozen
+   contract. Shipping v2 first makes API 1 permanently mean "v1 minus fragment
+   types," and every package published in the interval targets a contract with
+   a dead grant.
+3. **Risk and seam order.** A reducer is the strictest flow profile — no model,
+   network, state, UI, or first-party write — so Phase 5 added no external
+   surface. WT2 puts package-authored description text in every Writer prompt
+   and replaces the one-shot Writer pass with a bounded loop. Phase 5 also
+   performed the `TurnState`/schema refactor WT2 builds on: splitting "what
+   the Director said" from "what gets stored," and replacing the literal
+   `field_type` branches in `tool_registry.py` and `prompt_builder.py` with
+   pre-resolved lookups. Reversed, WT2 splits per-lane schema assembly over
+   hard-coded branches and the KV-parity matrix is written twice.
+
+WT0 was explicitly *not* serialized behind Phase 5 and remains the first
+Writer-tool step. Versioned manifest dispatch, the core Writer-tool ABI values, the
+`writer.tool.contribute` spec entry, and `OpContext.WRITER_TOOL` touch no
+pipeline code; the fragment-type manifest contract in
+`contracts/manifest.py` landed in Phase 0, so the two barely share lines. WT0
+is also the part that gets worse
+with delay: it exists because v1 models use `extra="forbid"`, so a host without
+it misreports a v2 package as malformed instead of as a future API. WT1
+(registry binding, activation persistence, route, manager control) is likewise
+pipeline-free and may land in the same window.
+
+WT2 onward had to remain serialized while Phase 5 was in flight. Both plans
+rewrite `pipeline/context.py`, `config.py`, `state.py`, and the Writer/Director
+passes; that overlap is now resolved by the snapshot-driven fragment path.
 
 Section 20 records the approved v1.x additive expansions — new resources,
 grants, one operation, one slot, and host telemetry — with their security
@@ -225,13 +264,35 @@ of consent rows and the same `permission_key()` tuples. Section 6 has the rule
 and its two corollaries; `tests/unit/extensions/test_capability_vocabulary.py`
 holds the derivations closed.
 
-Deliberately absent, per the note at the end of section 16: there is still no
-fragment-type contribution, and no permissive placeholder stands in for it.
-`UNIMPLEMENTED_OPS` is now empty — every operation the contract parses is
-executable — but the seam stays and is tested against a synthetic entry, because
-it is the right shape for the next operation whose contract ships ahead of its
-runtime, and a mechanism with nothing in it is the one that quietly stops
-working.
+Phase 5 closes the last deliberately absent v1 runtime surface:
+
+- `workflows/fragment_types.py` owns the descriptor runtime contract, the
+  built-in string/array/progressive definitions, and the shared reducer budget.
+  Community workflow records and immutable snapshots carry compiled
+  descriptors.
+- `pipeline/fragment_types.py` resolves instance config once against the
+  captured snapshot, prepares prior context, validates raw Director output,
+  reduces it, carries prior/initial state on failure, and pre-renders Writer
+  context. `TurnState.director_fields` keeps raw output separate from normalized
+  `extra_fields` and persisted `progressive_fields`. Unavailable progressive
+  providers stay out of schemas/prompts while their bounded stored values pass
+  through inertly until the provider returns.
+- The fragment API publishes the host type catalog and diagnoses unavailable
+  providers without rewriting stored rows. Global and card editors round-trip
+  `type_config`; imported namespaced types remain visible and inert until their
+  provider returns.
+- The Scene Meter reference contribution exercises config and value views,
+  dynamic schema bounds, a pure reducer, progressive persistence, live grant
+  revocation, and provider loss.
+- Reducer steps are charged against the shared 512-step allowance before each
+  interpreter operation executes; normalized results share 256 KiB, and
+  rendered prior/Writer fragment context is capped at 64 KiB UTF-8 per target.
+  Sanitized failures persist with the conversation log so Inspector history
+  matches the live turn, then follow the ordinary diagnostic-log cleanup policy.
+
+`UNIMPLEMENTED_OPS` remains empty — every operation the contract parses is
+executable — and its blocked-entry seam remains tested against a synthetic
+entry for future operations whose contract may precede their runtime.
 
 Three route names extend section 12's family. `POST
 /api/extensions/{id}/inspect-rollback` exists because rollback is an inspected
@@ -1770,27 +1831,25 @@ fill numeric JSON Schema keywords from validated integer fragment config. They
 are not general expressions. Resolve the template and validate the resulting
 schema before including it in the per-turn override map.
 
-`assistant_progressive` stores the reduced JSON value in the existing
-`messages.progressive_fields[fragment.id]` map. Refactor the progressive helper
-to ask the fragment-type registry whether a fragment uses this storage policy
-instead of hard-coding only `field_type == "progressive"`.
+The frozen v1 initial-state convention is deliberately narrow: when validated
+instance config contains a top-level `initial` member, the host seeds
+`fragment.previous` as `{"value": config.initial}`. A descriptor with no
+`initial` member has no host-created prior. This gives Meter a normalized first
+value without adding another expression form to the v1 descriptor contract.
 
-This is not a pure rename. Core progressive fragments today have the
-Director's output *be* the persisted value: `passes/director/progressive.py`'s
-`select()` filters `extra_fields` down to progressive ids, and that filtered
-dict is the next `progressive_fields` state with no transform in between. An
-extension-typed fragment breaks that identity on purpose — the Director's raw
-output (Meter's `{delta, reason}`) is reducer *input*, not the persisted
-value; the reducer's return is. `TurnState.extra_fields` and
-`progressive.select`/`branch_baseline` need to split into two stages instead
-of one filter: collect each fragment's raw Director output first (unchanged
-plumbing for core `string`/`array`/`progressive`, new plumbing for extension
-types), then run the reduce step (identity for core types, the compiled
-`reduce_flow` for extension types) before anything is treated as the turn's
-`progressive_fields` output. Persistence and branch-baseline rewind stay keyed
-on the post-reduce value either way, so regeneration/branching correctness is
-unaffected — only where the seam between "what the Director said" and "what
-gets stored" sits.
+`assistant_progressive` stores the reduced JSON value in the existing
+`messages.progressive_fields[fragment.id]` map. Descriptor-aware reduction owns
+the storage-policy decision; the Director-local progressive helper now owns
+only branch-baseline rewind.
+
+This is not a pure rename. Core progressive fragments have the Director's
+output *be* the persisted value, while an extension-typed fragment breaks that
+identity on purpose — the Director's raw output (Meter's `{delta, reason}`) is
+reducer *input*, not the persisted value; the reducer's return is.
+`TurnState.director_fields` therefore collects raw Director output first, then
+the reduce step (identity for core types, the compiled `reduce_flow` for
+extension types) produces `extra_fields` and `progressive_fields`. Persistence
+and branch-baseline rewind stay keyed on the post-reduce value either way.
 
 Reducer flows are a stricter flow profile: only reference/template,
 predicate, text/JSON/math, `if`, and `return` operations are allowed. They
@@ -1799,6 +1858,8 @@ mutate the draft/context. Each reducer receives validated
 `fragment.config`, `fragment.previous`, and `fragment.director`; its result is
 validated before use. All reducers share an additional per-turn step/byte
 budget so many fragment instances cannot multiply the ordinary per-flow quota.
+The host reserves each shared step before the interpreter executes it and
+refuses to dispatch later reducers after exhaustion.
 
 Resolution for one turn is:
 
@@ -1817,6 +1878,12 @@ If a Director value or reducer fails, carry forward the validated prior value
 (or validated configured initial value), record a sanitized diagnostic, and continue the
 turn. Carry-forward must still be persisted; otherwise the next branch baseline
 would silently lose the value.
+
+If the provider itself is absent or its stored config no longer validates, the
+fragment remains excluded from the model-facing schema and prompts. A bounded
+value already present under that fragment id is nevertheless copied into the
+next assistant node, so a disable/update/uninstall turn cannot erase branch
+state before a compatible provider revision returns.
 
 ### Reference type: Meter
 
@@ -2508,20 +2575,33 @@ Two decisions this phase made that the earlier text did not anticipate:
   form. Adding a reserved `$` key to the value grammar would have been a change
   to every position a value can appear in, to solve a problem in one.
 
-### Phase 5 — Fragment-type contributions
+### Phase 5 — Fragment-type contributions (implemented)
 
-1. Add the lower fragment-type catalog and normalize built-in
+This phase completed ahead of the Writer-tool plan's WT2-WT4; see "Sequencing
+against Community Writer Tools" at the top of this document.
+
+The package-facing half shipped earlier — descriptor parsing, consent,
+`OpContext.REDUCER` compilation, and `type_config` storage. Phase 5 completed
+the host-facing work:
+
+1. Added the lower fragment-type catalog and normalized built-in
    string/array/progressive behavior behind descriptors without changing
-   feedback/direction-note behavior.
-2. Add `type_config` CRUD/card transport/editor support and preserve unavailable
-   namespaced types.
-3. Compile schema templates and pure reducer profiles; integrate
-   validate/reduce/carry-forward/render/persist with one captured snapshot.
-4. Ship Meter as the reference contributed type and test regeneration,
+   feedback/direction-note behavior. Compiled descriptors are carried on the
+   workflow record and immutable `RegistrySnapshot`.
+2. Finished `type_config` editor support and preserved unavailable namespaced
+   types across the fragment editor, API, database rows, and card transport.
+3. Integrated validate/reduce/carry-forward/render/persist against one captured
+   snapshot. This is the `TurnState.extra_fields` split — collect each
+   fragment's raw Director output, then reduce — plus replacing the literal
+   `field_type` branches in `tool_registry.py:build_direct_scene_tool` and the
+   four in `prompt_builder.py` with pre-resolved schema/string lookups.
+4. Shipped Meter as the reference contributed type and tested regeneration,
    branching, configuration edits, provider loss, and card import.
 
 Exit gate: dynamic schemas are built once and byte-identical across all passes;
-missing/invalid providers never coerce or erase stored data.
+missing/invalid providers never coerce or erase stored data; and no granted
+`fragment_type.contribute` package can install into a state where its declared
+types are neither usable nor diagnosed.
 
 ### Phase 6 — Hardening and developer experience
 
@@ -2546,7 +2626,8 @@ Reference extensions:
 
 1. Conversation Map — command placement, full-tree resource, workspace, branch
    action.
-2. Scene Meter — structured model call, state, inspector meter.
+2. Scene Meter — hook/action coverage plus a bounded contributed Meter fragment
+   with config and inspector value views.
 3. Tag Librarian — library resource, user-managed vocabulary, renderer-driven
    sweep, first-party card write.
 4. API Artifact — origin consent, secret header, byte response, regeneration

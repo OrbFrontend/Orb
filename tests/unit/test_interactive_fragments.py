@@ -60,6 +60,7 @@ class TestBuildDirectSceneTool:
                 "label": "Repetitions",
                 "description": "Overused phrases.",
                 "field_type": "array",
+                "director_schema": {"type": "array", "items": {"type": "string"}},
                 "required": False,
                 "injection_label": "Avoid repeating",
             }
@@ -353,6 +354,7 @@ class TestBuildStyleInjection:
     def test_array_field_rendered_as_bullets(self):
         frags = self._make_frags()
         extra = {"detected_repetitions": ["overuse of sighs", "purple prose"]}
+        frags[2]["writer_context"] = "Avoid repeating:\n- overuse of sighs\n- purple prose"
         result = build_style_injection([], interactive_fragments=frags, extra_fields=extra)
         assert "Avoid repeating:" in result
         assert "- overuse of sighs" in result
@@ -374,6 +376,7 @@ class TestBuildStyleInjection:
             }
         ]
         extra = {"keywords": ["sword", "castle"]}
+        frags[0]["writer_context"] = "Keywords:\n- sword\n- castle"
         result = build_style_injection([], interactive_fragments=frags, extra_fields=extra)
         assert "Keywords:" in result
         assert "- sword" in result
@@ -495,6 +498,7 @@ class TestComputeStyleInjectionBlock:
                 "enabled": True,
             }
         ]
+        dir_frags[0]["writer_context"] = "Keywords:\n- castle\n- sword"
         result = compute_style_injection_block([], [], [], dir_frags, True, {"keywords": ["castle", "sword"]})
         assert "Keywords:" in result
         assert "- castle" in result

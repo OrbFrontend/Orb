@@ -19,6 +19,7 @@ export const S = {
   // ── Fragments · owner: library_fragments.js
   moodFragments: [],
   interactiveFragments: [],
+  fragmentTypes: [], // host catalog: core, dedicated, and available contributed descriptors
   // Ephemeral fragments from the active character's card (extensions.orb.fragments).
   // Written by chat_conversations.js on select/deselect; never persisted to the
   // global fragment tables. Read via the *FragmentsView selectors below.

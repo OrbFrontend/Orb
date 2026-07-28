@@ -125,8 +125,10 @@ _RESULT_FIELDS = (
     "effective_msg",
     "resp_text",
     "inj_block",
+    "director_fields",
     "extra_fields",
     "progressive_fields",
+    "fragment_diagnostics",
     "reasoning_director",
     "reasoning_writer",
     "reasoning_editor",
@@ -147,8 +149,10 @@ _DIRECTOR_OUTPUT_FIELDS = (
     "agent_raw",
     "calls",
     "latency",
+    "director_fields",
     "extra_fields",
     "progressive_fields",
+    "fragment_diagnostics",
 )
 
 
@@ -182,8 +186,12 @@ class TurnState:
     agent_raw: str = ""
     calls: list[dict] = field(default_factory=list)
     latency: int = 0
+    # Raw values returned by ``direct_scene``. They are validated/reduced before
+    # anything reaches ``extra_fields`` or persisted progressive state.
+    director_fields: dict = field(default_factory=dict)
     extra_fields: dict = field(default_factory=dict)
     progressive_fields: dict = field(default_factory=dict)
+    fragment_diagnostics: list[dict[str, str]] = field(default_factory=list)
     selected_lorebook_entries: list[str] = field(default_factory=list)
     inj_block: str = ""
     # Scene Direction before the direction-notes block is appended; read by the

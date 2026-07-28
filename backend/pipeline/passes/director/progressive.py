@@ -1,33 +1,15 @@
 """
 passes/director/progressive.py — Director-local owner of progressive-fragment logic.
 
-Progressive fragments (``field_type == "progressive"``) are director-controlled
-fields whose value evolves turn-over-turn. Their state is the sibling of
-``active_moods``: a *seed* from the prior turn, an *output* this turn, and a
-branch-aware reset. Both helpers here are pure.
-
-- :func:`select` is used symmetrically — to seed (filter ``director["progressive_fields"]``)
-  and to derive output (filter ``extra_fields``): keep only keys whose fragment
-  is progressive.
-- :func:`branch_baseline` resolves the reset value used when regenerating or
-  forking: the grandparent assistant message's progressive fields.
+Progressive fragments are director-controlled fields whose value evolves
+turn-over-turn. Descriptor-aware reduction now owns filtering and carry-forward;
+this module retains only the branch-aware reset used by regenerate and fork.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from typing import Any
-
-
-def select(values: Mapping[str, Any], interactive_fragments: Sequence[Mapping[str, Any]]) -> dict:
-    """Keep only entries whose fragment has ``field_type == "progressive"``.
-
-    Used both to seed prior progressive state (on ``director["progressive_fields"]``)
-    and to derive this turn's output (on ``extra_fields``) — the operation is the
-    same, so input and output stay symmetric.
-    """
-    progressive_ids = {f["id"] for f in interactive_fragments if f.get("field_type") == "progressive"}
-    return {k: v for k, v in values.items() if k in progressive_ids}
 
 
 def branch_baseline(history: Sequence[Mapping[str, Any]]) -> dict:

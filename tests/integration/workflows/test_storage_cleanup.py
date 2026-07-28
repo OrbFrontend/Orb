@@ -173,6 +173,7 @@ async def test_wipe_covers_every_column_not_whitelisted(client, db):
         "reasoning_writer",
         "reasoning_editor",
         "feedback",
+        "fragment_diagnostics",
     }
 
 

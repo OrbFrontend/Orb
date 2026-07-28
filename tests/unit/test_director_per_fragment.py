@@ -19,14 +19,26 @@ _FRAGMENTS = [
         "field_type": "string",
         "description": "what the user wants",
         "injection_label": "User intent",
+        "director_schema": {"type": "string"},
+        "director_hint": "single value",
         "sort_order": 1,
     },
-    {"id": "keywords", "field_type": "array", "description": "key nouns", "injection_label": "Keywords", "sort_order": 2},
+    {
+        "id": "keywords",
+        "field_type": "array",
+        "description": "key nouns",
+        "injection_label": "Keywords",
+        "director_schema": {"type": "array", "items": {"type": "string"}},
+        "director_hint": "list of strings",
+        "sort_order": 2,
+    },
     {
         "id": "next_event",
         "field_type": "string",
         "description": "what happens next",
         "injection_label": "Next event",
+        "director_schema": {"type": "string"},
+        "director_hint": "single value",
         "sort_order": 3,
     },
 ]
@@ -110,9 +122,17 @@ class TestStepPrompt:
         assert "Decided so far this turn" not in out
 
     def test_progressive_prior_line_only_when_progressive(self):
-        prog = {"id": "stat", "field_type": "progressive", "description": "hp", "injection_label": "HP", "sort_order": 1}
+        prog = {
+            "id": "stat",
+            "field_type": "progressive",
+            "description": "hp",
+            "injection_label": "HP",
+            "director_hint": "single value, evolves across turns",
+            "prior_context": "* [stat] (hp): 10",
+            "sort_order": 1,
+        }
         out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=prog, progressive_prior="10")
-        assert "Previous value (update it): 10" in out
+        assert "Previous state (update it):\n* [stat] (hp): 10" in out
         # Same prior on a non-progressive field renders no previous-value line.
         plain = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=_FRAGMENTS[0], progressive_prior="10")
         assert "Previous value" not in plain

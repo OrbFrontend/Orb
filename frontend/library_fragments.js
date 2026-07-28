@@ -2,6 +2,13 @@
 // CRUD + reorder. Split out of library.js; the public surface is re-exported
 // from library.js.
 import { api } from "./api.js";
+import { renderView } from "./extension_renderer.js";
+import {
+  parseStructuredConfigValue,
+  schemaConfigDefaults,
+  schemaDefaultValue,
+  setConfigDraftPath,
+} from "./fragment_type_config.js";
 import { closeModal, closeSubModal, confirmDelete, showModal, showSubModal } from "./modal.js";
 import { S } from "./state.js";
 import { $, boolFlag, esc, escAttr, escHandlerArg, toast } from "./utils.js";
@@ -146,12 +153,57 @@ export async function toggleMoodFragmentEnabled(id, newEnabled) {
 // ── Interactive Fragments (unchanged)
 export async function loadInteractiveFragments() {
   try {
-    S.interactiveFragments = await api.get("/interactive-fragments");
+    const [fragments] = await Promise.all([
+      api.get("/interactive-fragments"),
+      loadFragmentTypeCatalog({ render: false }),
+    ]);
+    S.interactiveFragments = fragments;
     renderInteractiveFragments();
   } catch (error) {
     console.error("Failed to load interactive fragments:", error);
     throw error;
   }
+}
+
+export async function loadFragmentTypeCatalog({ render = true } = {}) {
+  let catalog;
+  try {
+    catalog = await api.get("/interactive-fragment-types");
+  } catch (error) {
+    console.error("Failed to load interactive fragment types:", error);
+    return false;
+  }
+  if (catalog.runtime_generation < S.extensionRuntimeGeneration) return false;
+  S.extensionRuntimeGeneration = catalog.runtime_generation;
+  S.fragmentTypes = Array.isArray(catalog.types) ? catalog.types : [];
+  if (render) {
+    renderInteractiveFragments();
+    const select = document.getElementById("interactive-frag-type");
+    if (select) {
+      const selectedType = select._fragmentTypeId || "string";
+      _fragmentTypeConfigInvalid = new Set();
+      _mountFragmentTypeSelect(selectedType);
+      _mountFragmentTypeConfig(_fragmentType(selectedType), _fragmentTypeConfigDraft);
+      updateInteractiveFragmentExample(selectedType);
+    }
+  }
+  return true;
+}
+
+function _fragmentType(typeId) {
+  return (S.fragmentTypes || []).find((entry) => entry.id === typeId) || null;
+}
+
+function _fragmentTypeAvailable(fragment) {
+  if (fragment?.type_available === false) return false;
+  return Boolean(_fragmentType(fragment?.field_type));
+}
+
+function _fragmentTypeLabel(typeId) {
+  const descriptor = _fragmentType(typeId);
+  if (descriptor) return descriptor.label || typeId;
+  const owner = String(typeId || "").includes(":") ? String(typeId).split(":", 1)[0] : String(typeId || "");
+  return `Unavailable — ${owner || "unknown provider"}`;
 }
 
 export function renderInteractiveFragments() {
@@ -183,7 +235,9 @@ export function renderInteractiveFragments() {
           ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>`
           : f.field_type === "direction_note"
             ? ` <span class="frag-type-badge" title="Direction-note fragment">D</span>`
-            : "";
+            : !_fragmentTypeAvailable(f)
+              ? ` <span class="frag-type-badge" title="${escAttr(f.type_diagnostic || "Fragment type unavailable")}">!</span>`
+              : "";
       // Feedback and direction-note fragments are gated by their own feature switch;
       // grey them out (and explain why on hover) when that switch is off.
       const feedbackDisabled = f.field_type === "feedback" && !S.feedbackEnabled;
@@ -193,7 +247,9 @@ export function renderInteractiveFragments() {
         ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
         : directionNoteDisabled
           ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
-          : f.description;
+          : !_fragmentTypeAvailable(f)
+            ? f.type_diagnostic || `Fragment type ${f.field_type} is unavailable`
+            : f.description;
       return `
     <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" draggable="true" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
       <div class="frag-drag-handle" onclick="event.stopPropagation()">⋮⋮</div>
@@ -368,6 +424,245 @@ export function updateInteractiveFragmentExample(fieldType) {
   if (timingRow) timingRow.style.display = fieldType === "direction_note" ? "" : "none";
 }
 
+let _fragmentTypeConfigDraft = {};
+let _fragmentTypeEditorInstance = "new";
+let _fragmentTypeEditorNonce = 0;
+let _fragmentTypeConfigInvalid = new Set();
+
+function _mountFragmentTypeSelect(selectedType) {
+  const select = document.getElementById("interactive-frag-type");
+  if (!select) return;
+  const descriptors = [...(S.fragmentTypes || [])];
+  if (!descriptors.some((entry) => entry.id === selectedType)) {
+    descriptors.push({ id: selectedType, label: _fragmentTypeLabel(selectedType), unavailable: true });
+  }
+  select.replaceChildren();
+  descriptors.forEach((descriptor, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = descriptor.label || descriptor.id;
+    option.disabled = Boolean(descriptor.unavailable);
+    option.selected = descriptor.id === selectedType;
+    select.appendChild(option);
+  });
+  select._fragmentTypeDescriptors = descriptors;
+  select._fragmentTypeId = selectedType;
+  if (select._fragmentTypeChangeHandler) {
+    select.removeEventListener?.("change", select._fragmentTypeChangeHandler);
+  }
+  select._fragmentTypeChangeHandler = () => {
+    const descriptor = descriptors[Number(select.value)];
+    if (!descriptor) return;
+    select._fragmentTypeId = descriptor.id;
+    _fragmentTypeConfigDraft = schemaConfigDefaults(descriptor.config_schema);
+    _fragmentTypeConfigInvalid = new Set();
+    updateInteractiveFragmentExample(descriptor.id);
+    _mountFragmentTypeConfig(descriptor, _fragmentTypeConfigDraft);
+  };
+  select.addEventListener("change", select._fragmentTypeChangeHandler);
+}
+
+function _setConfigValue(key, property, field) {
+  let value;
+  if (Array.isArray(property.enum)) {
+    value = property.enum[Number(field.value)];
+  } else if (property.type === "boolean") value = field.checked;
+  else if (property.type === "integer" || property.type === "number") {
+    if (field.value === "") {
+      delete _fragmentTypeConfigDraft[key];
+      return;
+    }
+    value = Number(field.value);
+  } else if (property.type === "array" && property.items?.type === "string") {
+    value = field.value
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } else if (property.type === "array" || property.type === "object") {
+    const parsed = parseStructuredConfigValue(field.value);
+    if (!parsed.ok) {
+      _fragmentTypeConfigInvalid.add(key);
+      field.setCustomValidity?.("Enter valid JSON");
+      return;
+    }
+    value = parsed.value;
+    _fragmentTypeConfigInvalid.delete(key);
+    field.setCustomValidity?.("");
+  } else value = field.value;
+  _fragmentTypeConfigDraft[key] = value;
+}
+
+function _mountGenericTypeConfig(host, descriptor) {
+  const schema = descriptor?.config_schema || {};
+  const properties = Object.entries(schema.properties || {});
+  if (!properties.length) {
+    host.replaceChildren();
+    return;
+  }
+  const title = document.createElement("div");
+  title.className = "frag-divider";
+  title.textContent = `${descriptor.label || descriptor.id} configuration`;
+  const required = new Set(schema.required || []);
+  const fields = properties.map(([key, property]) => {
+    const wrap = document.createElement("label");
+    wrap.className = "field";
+    const label = document.createElement("span");
+    label.textContent = property.description || key;
+    if (required.has(key) && !Object.hasOwn(_fragmentTypeConfigDraft, key)) {
+      _fragmentTypeConfigDraft[key] = schemaDefaultValue(property);
+    }
+    const included = required.has(key) || Object.hasOwn(_fragmentTypeConfigDraft, key);
+    let field;
+    if (Array.isArray(property.enum)) {
+      field = document.createElement("select");
+      property.enum.forEach((member, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = String(member);
+        field.appendChild(option);
+      });
+      field.value = String(
+        Math.max(
+          0,
+          property.enum.findIndex((member) => Object.is(member, _fragmentTypeConfigDraft[key])),
+        ),
+      );
+    } else if (property.type === "boolean") {
+      field = document.createElement("input");
+      field.type = "checkbox";
+      field.checked = Boolean(_fragmentTypeConfigDraft[key]);
+    } else if (property.type === "integer" || property.type === "number") {
+      field = document.createElement("input");
+      field.type = "number";
+      field.step = property.type === "integer" ? "1" : "any";
+      if (property.minimum !== undefined) field.min = String(property.minimum);
+      if (property.maximum !== undefined) field.max = String(property.maximum);
+      field.value = _fragmentTypeConfigDraft[key] ?? "";
+    } else if (property.type === "array" && property.items?.type === "string") {
+      field = document.createElement("textarea");
+      field.rows = 3;
+      field.value = Array.isArray(_fragmentTypeConfigDraft[key]) ? _fragmentTypeConfigDraft[key].join("\n") : "";
+    } else if (property.type === "array" || property.type === "object") {
+      field = document.createElement("textarea");
+      field.rows = 4;
+      field.value = JSON.stringify(
+        Object.hasOwn(_fragmentTypeConfigDraft, key) ? _fragmentTypeConfigDraft[key] : schemaDefaultValue(property),
+        null,
+        2,
+      );
+    } else {
+      field = document.createElement("input");
+      field.type = "text";
+      field.value = _fragmentTypeConfigDraft[key] ?? "";
+    }
+    field.className = "xc-input";
+    const fixed = Object.hasOwn(property, "const");
+    field.disabled = !included || fixed;
+    if (!fixed) {
+      field.addEventListener("input", () => _setConfigValue(key, property, field));
+      field.addEventListener("change", () => _setConfigValue(key, property, field));
+    }
+    if (!required.has(key)) {
+      const include = document.createElement("input");
+      include.type = "checkbox";
+      include.checked = included;
+      const includeLabel = document.createElement("span");
+      includeLabel.textContent = "Include";
+      include.addEventListener("change", () => {
+        if (include.checked) {
+          _fragmentTypeConfigDraft[key] = schemaDefaultValue(property);
+          field.disabled = fixed;
+          _setConfigFieldDisplay(field, property, _fragmentTypeConfigDraft[key]);
+        } else {
+          delete _fragmentTypeConfigDraft[key];
+          _fragmentTypeConfigInvalid.delete(key);
+          field.setCustomValidity?.("");
+          field.disabled = true;
+        }
+      });
+      wrap.append(label, include, includeLabel, field);
+      return wrap;
+    }
+    wrap.append(label, field);
+    return wrap;
+  });
+  host.replaceChildren(title, ...fields);
+}
+
+function _setConfigFieldDisplay(field, property, value) {
+  if (Array.isArray(property.enum)) {
+    field.value = String(
+      Math.max(
+        0,
+        property.enum.findIndex((member) => Object.is(member, value)),
+      ),
+    );
+  } else if (property.type === "boolean") {
+    field.checked = Boolean(value);
+  } else if (property.type === "array" && property.items?.type === "string") {
+    field.value = Array.isArray(value) ? value.join("\n") : "";
+  } else if (property.type === "array" || property.type === "object") {
+    field.value = JSON.stringify(value, null, 2);
+  } else {
+    field.value = value ?? "";
+  }
+}
+
+function _mountFragmentTypeConfig(descriptor, config) {
+  const host = document.getElementById("interactive-frag-type-config");
+  if (!host) return;
+  if (!descriptor || descriptor.kind === "core" || descriptor.kind === "dedicated") {
+    host.replaceChildren();
+    return;
+  }
+  if (!descriptor.config_view) {
+    _mountGenericTypeConfig(host, descriptor);
+    return;
+  }
+  renderView(
+    host,
+    {
+      view: descriptor.config_view,
+      config,
+      data: { fragment: { config } },
+      state: {},
+      errors: {},
+    },
+    {
+      extensionId: descriptor.owner_id,
+      viewId: `fragment-config:${descriptor.local_id}`,
+      instanceId: _fragmentTypeEditorInstance,
+      digest: descriptor.content_digest || "",
+      saveMode: "external",
+      onAction: async () => {},
+      onSaveState: async () => {},
+      onDraftChange: (path, value) => {
+        const [root, ...segments] = String(path).split(".");
+        if (root === "config" && segments.length) {
+          setConfigDraftPath(_fragmentTypeConfigDraft, segments, value);
+        }
+      },
+    },
+  );
+}
+
+function _initializeFragmentTypeEditor(d) {
+  // A cancelled modal must not replay the renderer's old ephemeral draft on a
+  // later open while `_fragmentTypeConfigDraft` has reset to persisted data.
+  _fragmentTypeEditorNonce += 1;
+  _fragmentTypeEditorInstance = `${d.id || "new"}:${_fragmentTypeEditorNonce}`;
+  const persisted =
+    d.type_config && typeof d.type_config === "object" && !Array.isArray(d.type_config)
+      ? structuredClone(d.type_config)
+      : {};
+  const descriptor = _fragmentType(d.field_type);
+  _fragmentTypeConfigDraft = d.id ? persisted : { ...schemaConfigDefaults(descriptor?.config_schema), ...persisted };
+  _fragmentTypeConfigInvalid = new Set();
+  _mountFragmentTypeSelect(d.field_type);
+  _mountFragmentTypeConfig(descriptor, _fragmentTypeConfigDraft);
+  updateInteractiveFragmentExample(d.field_type);
+}
+
 // Shared field markup for the global modal and the card-scoped sub-modal (same
 // element ids — the two are never open at once).
 function _interactiveFragFormHtml(d, isEdit) {
@@ -383,13 +678,7 @@ function _interactiveFragFormHtml(d, isEdit) {
       <div class="field"><label>Injection Label <span id="interactive-frag-inj-hint" style="font-size:10px;color:var(--text-muted)">(${esc(ex.inj_hint)})</span></label>
         <input id="interactive-frag-inj-label" value="${escAttr(d.injection_label)}" placeholder="${escAttr(ex.injection_label)}"></div>
       <div class="field"><label>Field Type</label>
-        <select id="interactive-frag-type" onchange="updateInteractiveFragmentExample(this.value)">
-          <option value="string" ${d.field_type === "string" ? "selected" : ""}>single</option>
-          <option value="array" ${d.field_type === "array" ? "selected" : ""}>list</option>
-          <option value="progressive" ${d.field_type === "progressive" ? "selected" : ""}>progressive</option>
-          <option value="feedback" ${d.field_type === "feedback" ? "selected" : ""}>feedback (note to you)</option>
-          <option value="direction_note" ${d.field_type === "direction_note" ? "selected" : ""}>direction note (persists)</option>
-        </select>
+        <select id="interactive-frag-type"></select>
       </div>
     </div>
     <div class="field" id="interactive-frag-timing-row" style="${d.field_type === "direction_note" ? "" : "display:none"}">
@@ -407,7 +696,8 @@ function _interactiveFragFormHtml(d, isEdit) {
           <input type="checkbox" id="interactive-frag-required" ${d.required ? "checked" : ""}> Required
         </label>
       </div>
-    </div>`;
+    </div>
+    <div id="interactive-frag-type-config"></div>`;
 }
 
 function _readInteractiveFragForm() {
@@ -415,11 +705,19 @@ function _readInteractiveFragForm() {
     id: document.getElementById("interactive-frag-id").value.trim(),
     label: document.getElementById("interactive-frag-label").value.trim(),
     description: document.getElementById("interactive-frag-desc").value.trim(),
-    field_type: document.getElementById("interactive-frag-type").value,
+    field_type: document.getElementById("interactive-frag-type")._fragmentTypeId || "string",
     required: document.getElementById("interactive-frag-required").checked,
     injection_label: document.getElementById("interactive-frag-inj-label").value.trim(),
     direction_note_timing: document.getElementById("interactive-frag-timing-select").value,
+    type_config: structuredClone(_fragmentTypeConfigDraft),
   };
+}
+
+function _fragmentTypeConfigIsValid() {
+  if (!_fragmentTypeConfigInvalid.size) return true;
+  document.querySelector?.("#interactive-frag-type-config :invalid")?.reportValidity?.();
+  toast("Fix the invalid fragment configuration before saving", true);
+  return false;
 }
 
 export function showInteractiveFragmentModal(fragId = null) {
@@ -434,6 +732,7 @@ export function showInteractiveFragmentModal(fragId = null) {
     injection_label: "",
     sort_order: 0,
     direction_note_timing: "post_turn",
+    type_config: {},
   };
 
   showModal(`
@@ -445,9 +744,11 @@ export function showInteractiveFragmentModal(fragId = null) {
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn btn-accent" onclick="saveInteractiveFragment(${isEdit})">${isEdit ? "Save" : "Create"}</button>
     </div>`);
+  _initializeFragmentTypeEditor(d);
 }
 
 export async function saveInteractiveFragment(isEdit) {
+  if (!_fragmentTypeConfigIsValid()) return;
   const d = _readInteractiveFragForm();
   const validation = validate.validateInteractiveFragment(d);
   if (!validation.valid) {
@@ -505,7 +806,9 @@ function _interactiveTypeBadge(f) {
     ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>`
     : f.field_type === "direction_note"
       ? ` <span class="frag-type-badge" title="Direction-note fragment">D</span>`
-      : "";
+      : !_fragmentTypeAvailable(f)
+        ? ` <span class="frag-type-badge" title="Fragment type unavailable">!</span>`
+        : "";
 }
 
 function _cardMoodSidepanelHtml() {
@@ -527,7 +830,9 @@ function _cardInteractiveSidepanelHtml() {
         ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
         : directionNoteDisabled
           ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
-          : f.description || "";
+          : !_fragmentTypeAvailable(f)
+            ? `Fragment type ${f.field_type} is unavailable`
+            : f.description || "";
       return `<span${featureDisabled ? ' class="frag-feature-disabled"' : ""} title="${escAttr(itemTitle)}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
     })
     .join("");
@@ -602,6 +907,7 @@ function _wireCardFragModal(type, isEdit, fragId) {
     });
   }
   $("card-frag-save").addEventListener("click", () => {
+    if (type === "interactive" && !_fragmentTypeConfigIsValid()) return;
     const d = type === "mood" ? _readMoodFragForm() : _readInteractiveFragForm();
     const validation = type === "mood" ? validate.validateMoodFragment(d) : validate.validateInteractiveFragment(d);
     if (!validation.valid) {
@@ -649,6 +955,7 @@ export function showCardInteractiveFragmentModal(fragId = null) {
     required: false,
     injection_label: "",
     direction_note_timing: "post_turn",
+    type_config: {},
   };
   showSubModal(`
     <h2>${isEdit ? "Edit" : "New"} Character Interactive Fragment</h2>
@@ -659,5 +966,6 @@ export function showCardInteractiveFragmentModal(fragId = null) {
       <button class="btn" id="card-frag-cancel">Cancel</button>
       <button class="btn btn-accent" id="card-frag-save">${isEdit ? "Save" : "Add"}</button>
     </div>`);
+  _initializeFragmentTypeEditor(d);
   _wireCardFragModal("interactive", isEdit, fragId);
 }

@@ -230,7 +230,7 @@ Same shape with these substitutions:
 |---|---|
 | `draft` | str -- current draft, updated by prior hooks' `draft_replaced`. |
 | `effective_msg` | str -- the current turn's user message. |
-| `director_output` | MappingProxyType -- `{active_moods, raw, calls, latency, extra_fields, progressive_fields}`. |
+| `director_output` | MappingProxyType -- `{active_moods, agent_raw, calls, latency, director_fields, extra_fields, progressive_fields, fragment_diagnostics}`. `director_fields` is raw `direct_scene` output; the latter two fragment maps are normalized after descriptor reduction. |
 | `enabled_tools` | MappingProxyType -- merged pipeline tool-enable map (replaces `enabled_tools_pre_merge`). |
 | `prefix` (note differs) | Final pipeline prefix; pre-pipeline extras already appended. |
 | `history` | tuple -- same read-only prior-message list PreCtx received; excludes this turn's user message and the in-flight assistant message (the current user message is `effective_msg`). |

@@ -32,6 +32,8 @@ import { S } from "./state.js";
 import { broadcastExtensionMutation, setExtensionMutationCallback } from "./tabLock.js";
 import { $, toast } from "./utils.js";
 
+let refreshFragmentTypes = async () => {};
+
 // ── DOM helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -184,6 +186,7 @@ async function setEnabled(extensionId, enabled) {
   // restores the checkbox from the server's unchanged view rather than leaving
   // the click showing a flip that did not happen.
   await loadExtensionCatalog();
+  await Promise.all([refreshWorkflowManifest(), refreshFragmentTypes()]);
   broadcastExtensionMutation({ generation: S.extensionRuntimeGeneration });
 }
 
@@ -771,7 +774,7 @@ async function run(request) {
   try {
     const envelope = await request();
     await applyEffects(envelope);
-    await refreshWorkflowManifest();
+    await Promise.all([refreshWorkflowManifest(), refreshFragmentTypes()]);
     return envelope;
   } catch (e) {
     toast(errorText(e), true);
@@ -796,7 +799,9 @@ function errorText(e) {
 
 // ── boot ────────────────────────────────────────────────────────────────────
 
-export function initExtensionManager() {
+export function initExtensionManager(options = {}) {
+  refreshFragmentTypes =
+    typeof options.refreshFragmentTypes === "function" ? options.refreshFragmentTypes : async () => {};
   const header = $("extensions-section-header");
   if (header) {
     header.addEventListener("click", () => {
@@ -808,7 +813,9 @@ export function initExtensionManager() {
   // rather than trusting the broadcast payload: the message says *that* the
   // catalog moved, never what it now contains.
   setExtensionMutationCallback(() => {
-    void loadExtensionCatalog();
-    void refreshWorkflowManifest();
+    void (async () => {
+      await loadExtensionCatalog();
+      await Promise.all([refreshWorkflowManifest(), refreshFragmentTypes()]);
+    })();
   });
 }

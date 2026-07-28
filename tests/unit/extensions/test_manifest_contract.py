@@ -392,6 +392,21 @@ def test_config_template_key_must_be_an_integer():
         )
 
 
+def test_config_template_key_must_be_required():
+    broken = {
+        **METER_TYPE,
+        "config_schema": {
+            **METER_TYPE["config_schema"],
+            "required": ["minimum", "maximum", "initial"],
+        },
+    }
+    with pytest.raises(ValidationError, match="must be required"):
+        manifest(
+            permissions=[{"capability": "fragment_type.contribute"}],
+            contributions={"fragment_types": [broken]},
+        )
+
+
 def test_descriptor_template_cannot_reference_an_unknown_namespace():
     broken = {**METER_TYPE, "writer_context": {"$template": "{{settings.api_key}}"}}
     with pytest.raises(ValidationError):

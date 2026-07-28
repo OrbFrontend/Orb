@@ -5,6 +5,7 @@
 import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { USER_NOTE_ID } from "./direction_notes_panel.js";
+import { renderView } from "./extension_renderer.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, S } from "./state.js";
@@ -465,6 +466,81 @@ function _buildInjectionBlockHtml(inj) {
   </details>`;
 }
 
+function _buildFragmentDiagnosticsHtml(items) {
+  if (!Array.isArray(items) || !items.length) return "";
+  const rows = items
+    .map(
+      (item) =>
+        `<div class="feedback-row">
+          <span class="feedback-row-label">${esc(item.fragment_id || item.field_type || "Fragment")}</span>
+          <div class="feedback-row-value">${esc(item.message || "Fragment value unavailable")}</div>
+        </div>`,
+    )
+    .join("");
+  return `<div class="inspector-block">
+    <h4>Fragment diagnostics</h4>
+    <div class="feedback-card">${rows}</div>
+  </div>`;
+}
+
+function _renderContributedFragmentValues(values) {
+  if (!values || typeof values !== "object") return;
+  const rows = interactiveFragmentsView()
+    .map((fragment) => ({
+      fragment,
+      descriptor: (S.fragmentTypes || []).find((entry) => entry.id === fragment.field_type),
+    }))
+    .filter(({ fragment, descriptor }) => descriptor?.value_view && Object.hasOwn(values, fragment.id));
+  if (!rows.length) return;
+  const parent = $("inspector-content");
+  if (!parent) return;
+  const block = document.createElement("div");
+  block.className = "inspector-block";
+  const heading = document.createElement("h4");
+  heading.textContent = "Fragment values";
+  block.appendChild(heading);
+  for (const { fragment, descriptor } of rows) {
+    const host = document.createElement("div");
+    host.className = "xc-view";
+    renderView(
+      host,
+      {
+        view: descriptor.value_view,
+        data: {
+          fragment: {
+            id: fragment.id,
+            label: fragment.label,
+            injection_label: fragment.injection_label,
+            config: fragment.type_config || {},
+            current: values[fragment.id],
+          },
+        },
+        config: fragment.type_config || {},
+        state: {},
+        errors: {},
+      },
+      {
+        extensionId: descriptor.owner_id,
+        viewId: `fragment-value:${descriptor.local_id}`,
+        instanceId: `inspector:${fragment.id}`,
+        digest: descriptor.content_digest || "",
+        saveMode: "external",
+        onAction: async () => {},
+        onSaveState: async () => {},
+      },
+    );
+    block.appendChild(host);
+  }
+  parent.appendChild(block);
+}
+
+function _inspectedProgressiveFields(insp) {
+  if (insp && S.inspectedMsgId) {
+    return S.messages.find((message) => message.id === S.inspectedMsgId)?.progressive_fields || {};
+  }
+  return S.lastDirectorData?.progressive_fields || S.directorState?.progressive_fields || {};
+}
+
 export function saveInspectorOpenStates() {
   api
     .put("/settings", {
@@ -544,6 +620,7 @@ function _renderInspectorMain() {
       ${_buildReasoningHtml()}
       ${buildFeedbackHtml(insp.feedback)}
       ${buildDirectionNotesHtml(insp.direction_notes)}
+      ${_buildFragmentDiagnosticsHtml(insp.fragment_diagnostics)}
       ${tc.length ? _buildToolCallsHtml(tc) : ""}
       ${inj ? _buildInjectionBlockHtml(inj) : ""}
       ${
@@ -554,6 +631,7 @@ function _renderInspectorMain() {
       }`;
     });
     renderContextSize();
+    _renderContributedFragmentValues(_inspectedProgressiveFields(insp));
     return;
   }
 
@@ -597,6 +675,7 @@ function _renderInspectorMain() {
     ${_buildReasoningHtml()}
     ${buildFeedbackHtml(S.lastFeedback?.values)}
     ${buildDirectionNotesHtml(S.lastDirectionNotes?.notes)}
+    ${_buildFragmentDiagnosticsHtml(ld.fragment_diagnostics)}
     ${tc.length ? _buildToolCallsHtml(tc) : ""}
     ${inj ? _buildInjectionBlockHtml(inj) : ""}
     ${
@@ -607,6 +686,7 @@ function _renderInspectorMain() {
     }`;
   });
   renderContextSize();
+  _renderContributedFragmentValues(_inspectedProgressiveFields(null));
 }
 
 // Expression polling: while the avatar popup is open and the character has an

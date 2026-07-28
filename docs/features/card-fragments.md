@@ -70,10 +70,15 @@ Cards can come from anyone, so Orb treats a card's fragments as untrusted and ch
 | Missing or invalid ID, or an empty label | That fragment is dropped |
 | `enabled: false` | That fragment is skipped |
 | Duplicate IDs within the same card | The first one wins; the rest are dropped |
-| Unknown `field_type` | Falls back to `string` |
+| Unknown non-namespaced `field_type` | Falls back to `string` |
+| Namespaced extension type whose provider is unavailable | Preserved and shown as unavailable; skipped during generation |
+| Invalid extension `type_config` | Preserved and diagnosed; skipped during generation |
 | Unknown `direction_note_timing` | Falls back to `post_turn` |
 
-A valid `field_type` is one of `string`, `array`, `progressive`, `feedback`, or `direction_note`; a valid `direction_note_timing` is `pre_writer` or `post_turn`.
+A valid `field_type` is one of `string`, `array`, `progressive`, `feedback`, or
+`direction_note`, or an installed extension type such as
+`scene-meter:meter`. Extension-backed entries may include a `type_config`
+object. A valid `direction_note_timing` is `pre_writer` or `post_turn`.
 
 ## Fragment format reference
 

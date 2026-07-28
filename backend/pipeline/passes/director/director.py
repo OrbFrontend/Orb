@@ -33,8 +33,8 @@ from ....inference import (
     render_direction_notes_block,
     resolve_mood_fragment_randoms,
 )
+from ...fragment_types import reduce_fragment_outputs, with_fragment_priors
 from ...predicates import direction_note_to_director, direction_note_to_writer
-from . import progressive
 from .lorebook_select import LorebookSelectResult, lorebook_select_step
 
 if TYPE_CHECKING:
@@ -85,8 +85,8 @@ class DirectorResult:
     Field names match ``TurnState`` (e.g. ``agent_raw``, ``extra_fields``) so
     the same name follows each value from the pass through to persistence.
 
-    ``progressive_fields`` is absent — it is derived in ``director_stage`` by
-    filtering ``extra_fields`` through ``progressive.select``.
+    ``progressive_fields`` is absent — ``director_stage`` validates and reduces
+    these raw fields through the resolved fragment descriptors.
     """
 
     active_moods: list[str] = field(default_factory=list)
@@ -357,6 +357,7 @@ async def director_stage(
     lorebook: LorebookTurn,
     macros: Macros,
     extension_context: ExtensionContext | None = None,
+    inert_fragment_ids: Sequence[str] = (),
 ) -> AsyncIterator[dict]:
     """Input-prep + director pass + all post-processing for the director stage.
 
@@ -366,11 +367,11 @@ async def director_stage(
     lorebook block (agentic selection or keyword scan). Returns early on a stop
     during the director pass so ``director_done`` and lorebook work are skipped.
     """
-    # Prior progressive state: the seed for this turn, filtered to the fragments
-    # currently marked progressive. Used to feed the director pass and (as prior
-    # state) the style-injection block — the symmetric counterpart of the output
-    # filter below.
-    prior_progressive = progressive.select(director.get("progressive_fields", {}), writer_fragments)
+    # Resolve prior state once against the same descriptor instances that built
+    # the tool schema. Dynamic values ride only the trailing prompt.
+    prior_progressive = director.get("progressive_fields", {}) or {}
+    prepared_fragments, prior_diagnostics = with_fragment_priors(writer_fragments, prior_progressive)
+    state.fragment_diagnostics.extend(prior_diagnostics)
 
     # Render the stored direction notes once; the director receives them in its
     # direct_scene prompt when it is a chosen recipient (so it steers consistent with
@@ -389,7 +390,7 @@ async def director_stage(
             settings,
             director,
             mood_fragments,
-            writer_fragments,
+            prepared_fragments,
             cfg.enabled_tools,
             attachments=attachments,
             kv_tracker=kv_tracker,
@@ -412,8 +413,7 @@ async def director_stage(
                 state.agent_raw = result.agent_raw
                 state.calls = result.calls
                 state.latency = result.latency
-                state.extra_fields = result.extra_fields
-                state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
+                state.director_fields = result.extra_fields
 
     # Bail out if stop was clicked during the director pass: skip style injection,
     # director_done, and the writer-lorebook computation, exactly as before. The
@@ -459,18 +459,30 @@ async def director_stage(
     if direct_scene_enabled:
         renderable = set(state.active_moods) | set(director["active_moods"])
         inj_mood_fragments = resolve_mood_fragment_randoms(mood_fragments, renderable, state.macro_choices)
-        # Interactive values the director authored this turn roll fresh (per
-        # emission, not per conversation); resolving before progressive.select
-        # keeps the persisted progressive state consistent with the injected text.
-        state.extra_fields = {fid: _resolve_random_in_value(val) for fid, val in state.extra_fields.items()}
-        state.progressive_fields = progressive.select(state.extra_fields, writer_fragments)
+        # Interactive values the Director authored this turn roll fresh (per
+        # emission, not per conversation) before validation/reduction.
+        state.director_fields = {fid: _resolve_random_in_value(val) for fid, val in state.director_fields.items()}
+
+    reduction = await reduce_fragment_outputs(
+        prepared_fragments,
+        state.director_fields,
+        is_cancelled=lambda: cfg.agent_lane.client.is_aborted,
+        carried_progressive={
+            fragment_id: prior_progressive[fragment_id]
+            for fragment_id in inert_fragment_ids
+            if fragment_id in prior_progressive
+        },
+    )
+    state.extra_fields = reduction.fields
+    state.progressive_fields = reduction.progressive_fields
+    state.fragment_diagnostics.extend(reduction.diagnostics)
 
     state.inj_block = macros.resolve_message(
         compute_style_injection_block(
             state.active_moods,
             director["active_moods"],
             inj_mood_fragments,
-            writer_fragments,
+            reduction.rendered_fragments,
             direct_scene_enabled,
             state.extra_fields,
             prior_progressive,
@@ -492,7 +504,10 @@ async def director_stage(
             "injection_block": state.inj_block,
             "tool_calls": state.calls,
             "agent_latency_ms": state.latency,
+            "director_fields": state.director_fields,
             "extra_fields": state.extra_fields,
+            "progressive_fields": state.progressive_fields,
+            "fragment_diagnostics": state.fragment_diagnostics,
         },
     }
 

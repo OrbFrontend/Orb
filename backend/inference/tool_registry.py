@@ -44,24 +44,22 @@ def build_direct_scene_tool(
 ) -> dict:
     """Build the ``direct_scene`` tool schema from the enabled interactive fragments.
 
-    Fragments add dynamic string/array parameters beyond the fixed ``moods``
-    field. Returns an OpenAI function-calling format dict. (Lorebook selection is
-    a separate concern handled by the standalone ``select_lorebook`` tool.)
+    Each fragment arrives with a pre-resolved ``director_schema`` property from
+    the captured fragment-type snapshot. Returns an OpenAI function-calling
+    format dict. (Lorebook selection is a separate concern handled by the
+    standalone ``select_lorebook`` tool.)
     """
     properties: dict = {}
     required: list[str] = []
 
     for df in interactive_fragments:
         fid = df["id"]
-        field_type = df["field_type"]
-        if field_type == "array":
-            prop = {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": df["description"],
-            }
-        else:
-            prop = {"type": "string", "description": df["description"]}
+        resolved = df.get("director_schema")
+        # Runtime turns always arrive through the snapshot resolver. The
+        # conservative string fallback is only for standalone callers that
+        # omitted the resolved property; inference never interprets type ids.
+        prop = dict(resolved) if isinstance(resolved, Mapping) else {"type": "string"}
+        prop["description"] = df["description"]
         properties[fid] = prop
         if df.get("required"):
             required.append(fid)

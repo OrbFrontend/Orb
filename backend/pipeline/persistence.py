@@ -49,6 +49,7 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
             reasoning_writer=res.reasoning_writer,
             reasoning_editor=res.reasoning_editor,
             feedback=res.feedback_values,
+            fragment_diagnostics=res.fragment_diagnostics,
         )
 
     return _on_result
@@ -146,7 +147,7 @@ async def _fallback_persist(
     so a save failure never propagates to the caller.
     """
     try:
-        if res.active_moods and agent_enabled(settings):
+        if agent_enabled(settings):
             await db.update_director_state(
                 conversation_id,
                 res.active_moods,
@@ -164,6 +165,7 @@ async def _fallback_persist(
                 accumulated_text,
                 turn_index,
                 parent_id=user_msg_id,
+                progressive_fields=res.progressive_fields,
             )
             await db.set_active_leaf(conversation_id, asst_id)
             logger.info(

@@ -199,6 +199,13 @@ class HostServices:
     read_state: Callable[[str], Awaitable[Mapping[str, Any]]]
     lanes: Mapping[str, ModelLane] = field(default_factory=dict)
     is_cancelled: Callable[[], bool] = lambda: False
+    charge_step: Callable[[], None] = lambda: None
+    """Reserve shared host work immediately before one interpreter step.
+
+    Ordinary invocations use the no-op default and retain their per-flow cap.
+    Hosts that compose many flows into one operation can inject an aggregate
+    budget without teaching the interpreter about that higher-level feature.
+    """
     context_block_error: Callable[[list[dict[str, Any]]], str | None] | None = None
     owns_message: Callable[[int], Awaitable[bool]] | None = None
     """Whether a message id belongs to this invocation's conversation.
@@ -341,6 +348,7 @@ async def _run_steps(
     for step in steps:
         if invocation.host.is_cancelled():
             raise FlowCancelled("the invocation was cancelled")
+        invocation.host.charge_step()
         invocation.steps_executed += 1
         if invocation.steps_executed > MAX_FLOW_STEPS_EXECUTED:
             raise FlowError(f"flow executed more than {MAX_FLOW_STEPS_EXECUTED} steps")

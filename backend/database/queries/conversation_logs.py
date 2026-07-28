@@ -20,11 +20,12 @@ async def add_conversation_log(
     reasoning_writer: str = "",
     reasoning_editor: str = "",
     feedback: dict | None = None,
+    fragment_diagnostics: list[dict[str, str]] | None = None,
 ):
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
         await db.execute(
-            "INSERT INTO conversation_logs (conversation_id, turn_index, tool_calls, active_moods_after, injection_block, agent_latency_ms, created_at, message_id, reasoning_director, reasoning_writer, reasoning_editor, feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO conversation_logs (conversation_id, turn_index, tool_calls, active_moods_after, injection_block, agent_latency_ms, created_at, message_id, reasoning_director, reasoning_writer, reasoning_editor, feedback, fragment_diagnostics) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 cid,
                 turn_index,
@@ -38,6 +39,7 @@ async def add_conversation_log(
                 reasoning_writer,
                 reasoning_editor,
                 json.dumps(feedback or {}),
+                json.dumps(fragment_diagnostics or []),
             ),
         )
         await db.commit()
@@ -71,6 +73,7 @@ async def get_conversation_logs(cid: str) -> list[ConversationLogRow]:
             d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
             d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []
             d["feedback"] = json.loads(d["feedback"]) if d.get("feedback") else {}
+            d["fragment_diagnostics"] = json.loads(d["fragment_diagnostics"]) if d.get("fragment_diagnostics") else []
             result.append(cast(ConversationLogRow, d))
         return result
 
@@ -89,6 +92,7 @@ async def get_director_log_for_message(message_id: int) -> ConversationLogRow | 
         d["tool_calls"] = json.loads(d["tool_calls"]) if d["tool_calls"] else []
         d["active_moods_after"] = json.loads(d["active_moods_after"]) if d["active_moods_after"] else []
         d["feedback"] = json.loads(d["feedback"]) if d.get("feedback") else {}
+        d["fragment_diagnostics"] = json.loads(d["fragment_diagnostics"]) if d.get("fragment_diagnostics") else []
         d.setdefault("reasoning_director", "")
         d.setdefault("reasoning_writer", "")
         d.setdefault("reasoning_editor", "")
