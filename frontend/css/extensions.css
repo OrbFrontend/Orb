@@ -621,16 +621,33 @@ textarea.xc-input {
 /* The host computes tree depth and draws the indent; the package supplies rows. */
 .xc-tree {
   font-size: 12px;
+  --xc-indent: 10px;
+  /* Guides alternate by hue rather than by brightness: two greys a theme apart
+     read as one smudge at 1px, where neutral-then-accent stays countable. */
+  --xc-guide-a: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  --xc-guide-b: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .xc-tree-row {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding-left: calc(var(--xc-depth, 0) * 14px);
+  padding-left: calc(var(--xc-depth, 0) * var(--xc-indent));
   border-radius: var(--radius);
+  background-image: repeating-linear-gradient(
+    to right,
+    transparent 0 8px,
+    var(--xc-guide-a) 8px 9px,
+    transparent 9px calc(var(--xc-indent) + 8px),
+    var(--xc-guide-b) calc(var(--xc-indent) + 8px) calc(var(--xc-indent) + 9px),
+    transparent calc(var(--xc-indent) + 9px) calc(var(--xc-indent) * 2)
+  );
+  background-size: calc(var(--xc-depth, 0) * var(--xc-indent)) 100%;
+  background-repeat: no-repeat;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 22px;
 }
 .xc-tree-row.xc-tree-active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  background-color: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .xc-tree-toggle,
 .xc-tree-spacer {
@@ -655,7 +672,7 @@ textarea.xc-input {
   background: transparent;
   color: var(--text-primary);
   text-align: left;
-  padding: 2px 4px;
+  padding: 2px 4px 2px 0;
   cursor: pointer;
   font-size: 12px;
 }
@@ -676,6 +693,16 @@ textarea.xc-input {
 .xc-tree-count {
   flex: 0 0 auto;
   color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.xc-tree-run {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 

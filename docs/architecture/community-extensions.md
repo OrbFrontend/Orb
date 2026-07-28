@@ -1438,6 +1438,12 @@ The generic renderer, not the package, computes layout and draws connectors.
 `conversation-tree` receives nodes, active path, collapse state, and a named
 select action.
 
+Because layout is the host's, so is legibility at length: the renderer folds
+each chain of single-child messages into one row carrying a `⋯N` chip, opens
+subtrees off the active path collapsed, and never folds past the message the
+user is on. A package cannot opt out of that, which is the point — the map
+stays a map of branch points instead of growing one row per turn.
+
 #### Branch activation
 
 The host operation `conversation.branch.activate` must call the same core
