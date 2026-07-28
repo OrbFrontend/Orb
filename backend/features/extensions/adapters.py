@@ -287,8 +287,8 @@ def _validate_staged_effects(invocation: Invocation, result: FlowResult) -> None
     if effects.draft is not None:
         invocation.require(Capability.DRAFT_REPLACE)
     if effects.card_tags is not None:
-        invocation.require(Capability.CARD_TAGS_WRITE)
-        invocation.require(Capability.CONTEXT_CHARACTER_READ)
+        invocation.require(Capability.CARD_WRITE, "tags")
+        invocation.require(Capability.CONTEXT_READ, "character")
     if effects.branch_activation is not None:
         invocation.require(Capability.CONVERSATION_BRANCH_ACTIVATE)
     if effects.invalidations:

@@ -45,7 +45,7 @@ ALL_GRANTS = frozenset(
         ("state.read", "conversation"),
         ("state.write", None),
         ("state.write", "conversation"),
-        ("context.draft.read", None),
+        ("context.read", "draft"),
         ("prompt.context.append", None),
         ("prompt.context.append", "writer"),
         ("draft.replace", None),

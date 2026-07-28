@@ -128,7 +128,7 @@ Landed (see section 17 for the phase definitions):
   `persona`. Cursors are authenticated, MAC'd, and bound to the resource that
   issued them; packages treat them as opaque protocol tokens.
 - The `character.card` effect, `ctx.character` resolution from validated action
-  input behind both `context.character.read` and `library.cards.read`, and the
+  input behind both `context.read` for `character` and `library.cards.read`, and the
   `library.card_actions` slot, whose host-supplied card id needs no enumeration
   grant and is checked against the compiled placements.
 - The routes the earlier phases deferred: `GET /{id}/views/{view}`,
@@ -147,6 +147,19 @@ Landed (see section 17 for the phase definitions):
   (`tests/extension_packages.py`), with `test_host_surfaces.py`,
   `test_phase3_operations.py`, `extension_renderer.test.mjs`, and
   `extension_commands.test.mjs`.
+
+**Permission vocabulary generalization** (post-Phase 3, pre-freeze)
+
+The vocabulary was restructured before any package could depend on it: facts
+about a grant that lived in seven unlinked tables now live in one
+`CAPABILITY_SPECS` descriptor, and scopes that were encoded in capability
+*names* became parameters. `context.{input,draft,history,character,persona}.read`
+is `context.read` with a `field`; `conversation.tree.previews` is a `preview`
+field of `conversation.tree.read`; `card.tags.write` is `card.write` with a
+`field`. Sixteen capabilities where there were twenty-one, with the same number
+of consent rows and the same `permission_key()` tuples. Section 6 has the rule
+and its two corollaries; `tests/unit/extensions/test_capability_vocabulary.py`
+holds the derivations closed.
 
 Deliberately absent, per the note at the end of section 16: there is still no
 host HTTP client or secret substitution, no artifact emission, no Git reader,
@@ -564,7 +577,8 @@ Example manifest:
   },
   "permissions": [
     {
-      "capability": "context.draft.read"
+      "capability": "context.read",
+      "field": "draft"
     },
     {
       "capability": "model.call",
@@ -784,7 +798,7 @@ value against the compiled local schema; it does not register a function tool.
 invocation's context** — `ctx.character`, and only that card. It takes no card
 identifier. A flow cannot read card A and write card B, so the operation's
 blast radius is one card by construction rather than by quota, and it needs
-`context.character.read` to do anything at all.
+`context.read` for `character` to do anything at all.
 
 This is the same rule section 10 applies to `artifact.emit`, which must prove
 its target message belongs to the action's conversation: **every write proves
@@ -899,37 +913,79 @@ Each field is absent unless the package has the matching capability. Context
 objects are deep-copied JSON values with size and count bounds, not proxy views
 of live core state.
 
-Initial permission vocabulary:
+### The unit of consent is a grant, not a capability
 
-| Capability | Meaning |
-|---|---|
-| `context.input.read` | Read the effective current user message. |
-| `context.draft.read` | Read the current post-writer draft. |
-| `context.history.read` | Read a bounded active-path history window. |
-| `context.character.read` | Read an allowlisted character projection; avatar bytes and raw extensions require separate future capabilities. |
-| `conversation.tree.read` | Read all message-node metadata in the active conversation. |
-| `conversation.tree.previews` | Also read bounded content previews from inactive branches. |
-| `library.cards.read` | Enumerate the card library (id/name/tags plus this extension's own slot), and resolve a card named by validated action input into `ctx.character`. |
-| `conversation.branch.activate` | Change the active branch through Orb's locked host action. |
-| `prompt.context.append` | Add a per-turn trailing context block for Director, Writer, or both. |
-| `draft.replace` | Replace a post-pipeline draft once. |
-| `card.tags.write` | Replace the tag list of the one character card in the invocation's context. Requires `context.character.read`. |
-| `model.call` | Make a flow-owned call on the declared Writer or Agent lane. |
-| `state.read` / `state.write` | Access only this extension's config/conversation/message/character slot. |
-| `artifact.write` | Emit workflow attachments under the existing artifact contract. |
-| `network.request` | Use exact declared origins through the host client. |
-| `ui.contribute` | Place commands/views into exact declared slots. |
-| `fragment_type.contribute` | Register namespaced fragment-type descriptors. |
+A grant is a `(capability, parameter)` pair. `state.write` on `conversation` and
+`state.write` on `character` are two grants, approved and revoked separately,
+and `permission_key()` has always compared the pair rather than the capability
+name. The vocabulary is written to match: where a capability is scoped by
+something, the scope is a **parameter**, never a suffix on the name.
+
+This is a design rule and not a formatting preference. A scope encoded in the
+name makes every new field a new enum entry, a new consent line, a new
+membership in every classification set, and a new branch in the projection —
+five edits in five files, none of which the type system links. The first draft
+of this vocabulary had twenty-one capabilities for what is structurally sixteen
+decisions, because five of them were `context.<field>.read`.
+
+Everything the host needs to know about a grant lives in one place,
+`CAPABILITY_SPECS` in `contracts/capabilities.py`: its consent copy, the class
+of user data it exposes, its emphasis, the parameter that scopes it and that
+parameter's admissible values, the host resource it gates, and its
+prerequisites. The consent copy table, the loud set, the data-reading set that
+drives the combination banner, the resource-to-grant map, the prerequisite map,
+the `Permission` model's admissible parameters, and `UI_SLOTS` are all
+*derived* from it. Adding a capability — or a value to an existing one — is one
+spec entry, and the copy is a required field, so a grant cannot reach a consent
+dialog without a sentence describing it.
+
+| Capability | Parameter | Meaning |
+|---|---|---|
+| `context.read` | `field`: `input` | Read the effective current user message. |
+| `context.read` | `field`: `draft` | Read the current post-writer draft. |
+| `context.read` | `field`: `history` | Read a bounded active-path history window. |
+| `context.read` | `field`: `character` | Read an allowlisted character projection; avatar bytes and raw extensions require separate future capabilities. |
+| `context.read` | `field`: `persona` | Read the active persona's name and description. Also gates the `persona` resource. |
+| `conversation.tree.read` | `field`: `structure` | Read all message-node metadata in the active conversation. |
+| `conversation.tree.read` | `field`: `preview` | Also read bounded content previews from inactive branches. Requires `structure`. |
+| `library.cards.read` | — | Enumerate the card library (id/name/tags plus this extension's own slot), and resolve a card named by validated action input into `ctx.character`. |
+| `lorebook.read` | — | Read the lorebook entries of the world bound to the invocation's conversation. |
+| `direction_notes.read` | — | Read the active branch's direction notes. |
+| `conversation.branch.activate` | — | Change the active branch through Orb's locked host action. |
+| `prompt.context.append` | `targets`: `director`, `writer` | Add a per-turn trailing context block. |
+| `draft.replace` | — | Replace a post-pipeline draft once. |
+| `card.write` | `field`: `tags` | Replace the tag list of the one character card in the invocation's context. Requires `context.read` for `character`. |
+| `model.call` | `lane`: `writer`, `agent` | Make a flow-owned call on the declared lane. |
+| `state.read` / `state.write` | `scope`: `config`, `conversation`, `message`, `character` | Access only this extension's own slot in that scope. |
+| `artifact.write` | — | Emit workflow attachments under the existing artifact contract. |
+| `network.request` | `origin` | Use exact declared origins through the host client. |
+| `ui.contribute` | `slot` | Place commands/views into exact declared slots. |
+| `fragment_type.contribute` | — | Register namespaced fragment-type descriptors. |
+
+Two rules follow from the parameter being part of the grant, and both are
+enforced rather than documented:
+
+- **Prerequisites are per grant.** `GRANT_PREREQUISITES` is keyed by the pair,
+  because both v1 cases are: `card.write` needs the character projection only
+  for its `tags` field, and tree previews need tree structure without any other
+  `conversation.tree.read` value needing anything. The compiler resolves them
+  transitively, so an operation's derivation states only what it directly
+  reaches.
+- **A multi-valued parameter makes the whole entry the unit of approval.** Use
+  one only where partial approval is meaningless. `conversation.tree.read` takes
+  a *singular* `field` for exactly this reason: previews are a separate
+  conspicuous grant, and a list would have quietly made them come with
+  structure.
 
 Model-call consent must state that the extension can incur token cost. Reading
 inactive branches and sending any conversation data to a network origin are
 separate, conspicuous grants.
 
-`card.tags.write` is the first grant that writes a first-party column, but it is
+`card.write` for `tags` is the first grant that writes a first-party column, but it is
 **not** a grant whose blast radius exceeds the current invocation. It writes
 `ctx.character` and nothing else, so it inherits that projection's scoping:
 consent reads "can change the tags on the character a command is run against",
-and it is refused outright without `context.character.read`.
+and it is refused outright without `context.read` for `character`.
 
 An earlier draft of this document gave the operation a `card_id` argument drawn
 from action input, which made the grant library-wide and required a conspicuous
@@ -953,12 +1009,12 @@ that card and populates `ctx.character` from it, using the same allowlist as
 the hook path. The package names a card; it never names the *fields*, and it
 cannot reach a card by any route that skips the projection.
 
-That resolution requires **both** `context.character.read` and
+That resolution requires **both** `context.read` for `character` and
 `library.cards.read`. Enumeration is not the only way to reach a card: an
 extension that already holds an id — from its own state, from a previous run,
 from something the user pasted — would otherwise read any card in the library
 under a grant whose consent text says "the character in this conversation".
-`context.character.read` alone therefore never leaves the current conversation,
+`context.read` for `character` alone therefore never leaves the current conversation,
 whether by listing cards or by naming one.
 
 Resolving `ctx.character` from action input also rebinds the `character` state
@@ -1189,7 +1245,7 @@ Add a single-query, attachment-free tree projection:
 }
 ```
 
-`preview` is omitted unless `conversation.tree.previews` was granted. Bound its
+`preview` is omitted unless `conversation.tree.read` for `preview` was granted. Bound its
 length and return no attachments, workflow state, progressive fields, logs, or
 full content.
 
@@ -1357,7 +1413,7 @@ following the same rules as the conversation-tree resource:
 view without an invocation per card. No other extension's namespace is ever
 projected, and no card field outside this shape is — in particular not
 `description`, which the classifier reads through `ctx.character` during the
-action, under `context.character.read`, and not here.
+action, under `context.read` for `character`, and not here.
 
 The page is bounded by both a card count and an encoded-response budget, and
 `next_cursor` is an authenticated host-owned token — a package treats it as
@@ -1378,7 +1434,7 @@ between runs. Page assembly stops before adding an item that would cross the
 encoded-byte limit; the cursor resumes from the last item actually emitted,
 not the last one fetched from SQLite.
 
-Requesting it needs `library.cards.read` (section 6); `context.character.read`
+Requesting it needs `library.cards.read` (section 6); `context.read` for `character`
 alone must not enumerate cards. Serve it from
 `GET /api/extensions/{id}/resources/library.cards` as a database projection
 plus a host-resource adapter, exactly as with the tree — never by handing a
@@ -1464,13 +1520,13 @@ which is precisely the mess it was installed to clean up.
 
 #### Consent
 
-Tag Librarian requests `context.character.read`, `library.cards.read`,
+Tag Librarian requests `context.read` for `character`, `library.cards.read`,
 `model.call`, `state.read`, `state.write`, `ui.contribute`, and
-`card.tags.write`.
+`card.write` for `tags`.
 
 `library.cards.read` is the grant that carries the weight here, and it is worth
 being clear about why it is the enumeration grant rather than the write grant.
-`card.tags.write` only ever touches the card an invocation was handed, so on its
+`card.write` for `tags` only ever touches the card an invocation was handed, so on its
 own it is a single-card permission. What makes this package library-wide is that
 it can *see* the library and resolve any card in it — so that is what consent
 describes: "list your characters and read each one it is run against." The write
@@ -2291,7 +2347,7 @@ ordering/failure isolation and permission revocation are integration-tested.
    `card.tags.set` writing `ctx.character` with no card argument, the
    `character.card` effect with frontend debouncing, and `ctx.character`
    resolution from validated action input gated on both
-   `context.character.read` and `library.cards.read`.
+   `context.read` for `character` and `library.cards.read`.
 8. Ship Tag Librarian as the second reference package, with the sweep loop and
    the cursor walk in the renderer rather than the flow.
 
@@ -2496,7 +2552,7 @@ Reference extensions:
   encoded-byte budget.
 - It projects only the requesting extension's namespaced slot, never another
   extension's, and no card field outside the declared shape.
-- Enumeration requires `library.cards.read`; `context.character.read` alone
+- Enumeration requires `library.cards.read`; `context.read` for `character` alone
   returns 403 from the resource route **and** fails an action whose input
   declares a card identifier.
 - Resolving `ctx.character` from action input also scopes `character` state
@@ -2511,7 +2567,7 @@ Reference extensions:
   changing the vocabulary between runs changes what a later run writes.
 - A sweep cancelled at card N leaves cards 1..N-1 written, card N untouched,
   and the remaining cards listed as unclassified on the next run.
-- Revoking `card.tags.write` fails the next `card.tags.set` mid-sweep without
+- Revoking `card.write` for `tags` fails the next `card.tags.set` mid-sweep without
   reverting earlier cards.
 - Revoking the sweep's character-state read removes the view/placement instead
   of treating every absent bookkeeping value as "unclassified"; revoking a
@@ -2574,8 +2630,10 @@ must not be smuggled through permissive v1 fields.
 ## 20. v1.x additive expansions
 
 Everything here is approved surface growth that rides the existing
-vocabularies: new entries in `OPERATION_SPECS`, the `Capability` enum,
-`UI_SLOTS`, and the host-resource catalog, feature-detected through
+vocabularies: new entries in `OPERATION_SPECS` and `CAPABILITY_SPECS` — whether
+as a new capability or as a new admissible value of an existing one, which is
+also how `UI_SLOTS` and the host-resource catalog grow, since both are derived
+from that table — feature-detected through
 `requires.operations` / `requires.components` so an older Orb rejects a
 package that needs them with a diagnostic rather than misbehaving. Nothing in
 this section changes the trust model, the quota model, the flow language, or
@@ -2665,11 +2723,26 @@ No core refactor. Frontend manager + one derived flag in inspection results.
 Three clones of the conversation-tree/library-cards pattern — database
 projection plus host-resource adapter, each behind its own grant:
 
-| Capability | Meaning |
+| Grant | Meaning |
 |---|---|
 | `lorebook.read` | Read the lorebook entries of the world bound to the invocation's conversation. |
 | `direction_notes.read` | Read the active branch's direction notes. |
-| `context.persona.read` | Read the active persona's name and description. |
+| `context.read` for `persona` | Read the active persona's name and description. |
+
+Persona is a `context.read` field rather than a capability of its own because
+it is the same decision as reading the character or the history — one field of
+the invocation's context, differing in sensitivity rather than in kind. It is
+the one field the host serves through a resource route instead of into `ctx`
+(it is a bounded singleton a view reads, not a value a flow interpolates), and
+`RESOURCE_CAPABILITIES` records that without a second grant.
+
+Lorebook and direction notes stay their own capabilities: they are not fields
+of the invocation's context, they are separately paginated projections whose
+consent lines describe different data, and `lorebook.read` in particular is the
+strongest read in v1.x. `library.cards.read` likewise stays its own capability
+rather than becoming a `resource.read` value — it is the *reach* grant, and it
+authorizes resolving a package-named card into `ctx.character`, which is more
+than any other projection hands out.
 
 **Lorebook.** Scope is the world bound to the invocation's conversation card;
 there is no world enumeration grant in v1.x — that would be a
@@ -2678,7 +2751,7 @@ it. Projected fields: entry id, keys, `secondary_keys`, `selective`,
 `use_regex`, enabled, insertion order, and content bounded per-entry and in
 aggregate; paginated with the standard opaque cursor. Note the hazard the
 banner exists for: untriggered entries are content the model may never have
-seen, so this is stronger than `context.history.read` when combined with
+seen, so this is stronger than `context.read` for `history` when combined with
 network access. Writes are refused permanently: lorebook content reaches the
 prompt and fails section 13 condition 3. A "lorebook health" package writes
 its findings into its own state and views; the user applies fixes in Orb's
@@ -2718,8 +2791,8 @@ identifier is host-supplied from a user click, never package input. The
 package's reach is still exactly one user-chosen card per invocation, so
 consent remains "the character a command is run against" and the section 6
 reach rule is preserved, not excepted. `ui.contribute` for the slot and
-`context.character.read` are still required; `card.tags.set` additionally
-requires `card.tags.write` as always.
+`context.read` for `character` are still required; `card.tags.set` additionally
+requires `card.write` for `tags` as always.
 
 This gives single-card tools (re-tag this card, analyze this card) a home
 where the cards are, without the library-wide enumeration grant.

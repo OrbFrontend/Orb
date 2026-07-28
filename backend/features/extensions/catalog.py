@@ -25,74 +25,15 @@ from ...workflows.enablement import effective_workflow_enabled
 from ...workflows.registry import list_workflows
 from . import telemetry
 from .compiler import CompiledPackage, grant_key
-from .contracts import CONFIG_VIEW_ID, Capability
+from .contracts import (
+    CONFIG_VIEW_ID,
+    Capability,
+    Sensitivity,
+    describe,
+    reads_user_data,
+)
 from .lifecycle import Inspection
 from .runtime import InstalledExtension, RuntimeState
-
-# Human-readable consent copy, keyed by capability. The vocabulary is closed, so
-# this table is total by construction -- a new capability that forgot its line
-# would show a bare identifier in a consent dialog, which is the one place a
-# user must not have to guess.
-CAPABILITY_COPY: dict[str, str] = {
-    Capability.CONTEXT_INPUT_READ.value: "Read the message you send each turn.",
-    Capability.CONTEXT_DRAFT_READ.value: "Read the reply Orb wrote, before you see it.",
-    Capability.CONTEXT_HISTORY_READ.value: "Read a recent window of this conversation's messages.",
-    Capability.CONTEXT_CHARACTER_READ.value: "Read the active character's text fields.",
-    Capability.CONTEXT_PERSONA_READ.value: "Read your persona's name and description — your own self-description.",
-    Capability.CONVERSATION_TREE_READ.value: "Read the structure of every branch in this conversation.",
-    Capability.CONVERSATION_TREE_PREVIEWS.value: "Also read text previews from branches you are not currently on.",
-    Capability.CONVERSATION_BRANCH_ACTIVATE.value: "Switch which branch of the conversation is active.",
-    Capability.LIBRARY_CARDS_READ.value: "List your characters and read each one it is run against.",
-    Capability.LOREBOOK_READ.value: "Read this character's lorebook, including entries no message has triggered.",
-    Capability.DIRECTION_NOTES_READ.value: "Read the direction notes on this branch.",
-    Capability.PROMPT_CONTEXT_APPEND.value: "Add its own text to the prompt sent to the model each turn.",
-    Capability.DRAFT_REPLACE.value: "Rewrite the reply before it reaches you.",
-    Capability.CARD_TAGS_WRITE.value: "Change the tags on the character a command is run against.",
-    Capability.MODEL_CALL.value: "Make its own model calls. This consumes tokens and may cost money.",
-    Capability.STATE_READ.value: "Read data it has previously stored.",
-    Capability.STATE_WRITE.value: "Store data of its own.",
-    Capability.ARTIFACT_WRITE.value: "Attach generated files to messages.",
-    Capability.NETWORK_REQUEST.value: "Send requests to an external server.",
-    Capability.UI_CONTRIBUTE.value: "Add its own panels and menu entries to Orb.",
-    Capability.FRAGMENT_TYPE_CONTRIBUTE.value: "Add new interactive-fragment types you can use in characters.",
-}
-
-_LOUD_CAPABILITIES = frozenset(
-    {
-        Capability.MODEL_CALL.value,
-        Capability.NETWORK_REQUEST.value,
-        Capability.CONVERSATION_TREE_PREVIEWS.value,
-        # Enumeration is what makes a package library-wide -- the write it
-        # enables is single-card. Reach is granted once, visibly, by the
-        # capability that enumerates.
-        Capability.LIBRARY_CARDS_READ.value,
-        # The user's own self-description, and the strongest trigger for the
-        # combination banner below.
-        Capability.CONTEXT_PERSONA_READ.value,
-        # Untriggered lorebook entries are content the model may never have
-        # seen, which makes this a stronger read than the history window.
-        Capability.LOREBOOK_READ.value,
-    }
-)
-"""Grants the manager must not let scroll past as one more checkbox line."""
-
-_DATA_READING_CAPABILITIES = frozenset(
-    {
-        Capability.CONTEXT_INPUT_READ.value,
-        Capability.CONTEXT_DRAFT_READ.value,
-        Capability.CONTEXT_HISTORY_READ.value,
-        Capability.CONTEXT_CHARACTER_READ.value,
-        Capability.CONTEXT_PERSONA_READ.value,
-        Capability.CONVERSATION_TREE_READ.value,
-        Capability.CONVERSATION_TREE_PREVIEWS.value,
-        Capability.LIBRARY_CARDS_READ.value,
-        Capability.LOREBOOK_READ.value,
-        Capability.DIRECTION_NOTES_READ.value,
-        Capability.STATE_READ.value,
-    }
-)
-"""Grants that let a package see conversation, character, lorebook, persona, or
-history data -- one half of the combination the banner exists for."""
 
 COMBINATION_BANNER = (
     "This extension can send data it reads — your conversations, characters, "
@@ -111,11 +52,38 @@ def combination_warning(entries: Sequence[Mapping[str, Any]]) -> str | None:
 
     Derived server-side from the *normalized* grant set, so no package string
     influences whether it appears or what it says.
+
+    "Reads data" is :func:`reads_user_data` over the capability table, not a
+    list of capability names kept here. A read grant added without joining such
+    a list would have turned this banner off for exactly the packages that
+    needed it, silently and with no test able to notice.
     """
-    capabilities = {str(entry.get("capability", "")) for entry in entries}
-    if Capability.NETWORK_REQUEST.value not in capabilities:
+    grants = _grants(entries)
+    if not any(capability == Capability.NETWORK_REQUEST.value for capability, _ in grants):
         return None
-    return COMBINATION_BANNER if capabilities & _DATA_READING_CAPABILITIES else None
+    return COMBINATION_BANNER if reads_user_data(grants) else None
+
+
+def _grants(entries: Sequence[Mapping[str, Any]]) -> set[tuple[str, str | None]]:
+    """Every ``(capability, parameter)`` grant a set of permission entries holds."""
+    grants: set[tuple[str, str | None]] = set()
+    for entry in entries:
+        capability = str(entry.get("capability", ""))
+        values = _parameter_values(entry)
+        if values:
+            grants.update((capability, value) for value in values)
+        else:
+            grants.add((capability, None))
+    return grants
+
+
+def _parameter_values(entry: Mapping[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key, value in entry.items():
+        if key == "capability":
+            continue
+        values.extend(str(item) for item in (value if isinstance(value, list) else [value]))
+    return values
 
 
 def permission_view(entry: dict[str, Any], *, granted: bool) -> dict[str, Any]:
@@ -124,34 +92,26 @@ def permission_view(entry: dict[str, Any], *, granted: bool) -> dict[str, Any]:
     ``value`` is the permission exactly as the manifest declared it and exactly
     as the install request must echo it back. The rest is presentation, and the
     server never reads it back.
+
+    The copy is per *grant*, not per capability: "Store data of its own" said
+    the same thing for a package's own settings and for a write onto every
+    character in the library, and a consent row whose identity includes the
+    parameter should describe the parameter too. A multi-valued entry
+    (``targets: [director, writer]``) is described by joining its values' lines,
+    because the entry is what the user ticks.
     """
     capability = str(entry.get("capability", ""))
     parameters = {key: value for key, value in entry.items() if key != "capability"}
+    descriptions = [describe(capability, value) for value in _parameter_values(entry)] or [describe(capability)]
     return {
         "value": entry,
         "capability": capability,
         "parameters": parameters,
-        "description": CAPABILITY_COPY.get(capability, "Use a capability this Orb build does not describe."),
-        "emphasis": "high" if capability in _LOUD_CAPABILITIES or _is_weak_origin(parameters) else "normal",
+        "description": " ".join(dict.fromkeys(d.copy for d in descriptions)),
+        "kind": descriptions[0].kind.value,
+        "emphasis": "high" if any(d.sensitivity is Sensitivity.HIGH for d in descriptions) else "normal",
         "granted": granted,
     }
-
-
-def _is_weak_origin(parameters: dict[str, Any]) -> bool:
-    """Plain HTTP and loopback/private hosts warrant the stronger warning.
-
-    A hostname is not resolved here -- resolution happens in the network client
-    at request time, where it is revalidated on every redirect. This is the
-    consent-time signal from the origin string alone, which is what the user is
-    reading.
-    """
-    origin = parameters.get("origin")
-    if not isinstance(origin, str):
-        return False
-    if origin.startswith("http://"):
-        return True
-    host = origin.split("://", 1)[-1].split(":", 1)[0].strip("[]").lower()
-    return host in ("localhost", "127.0.0.1", "::1") or host.startswith(("10.", "192.168.", "169.254.", "172.16."))
 
 
 def _published_placements(entry: InstalledExtension) -> list[Any]:

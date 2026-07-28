@@ -53,8 +53,8 @@ async def list_library_cards(
 
     An allowlisted projection built for this caller, not a row contract passed
     through: ``description`` in particular is absent, because a classifier
-    reads it through ``ctx.character`` during an action under
-    ``context.character.read``, not here under the enumeration grant.
+    reads it through ``ctx.character`` during an action under ``context.read``
+    scoped to ``character``, not here under the enumeration grant.
 
     ``state`` is *only* ``extension_id``'s own slot. It is what makes "cards not
     yet classified" computable in a view without one invocation per card, and

@@ -252,7 +252,7 @@ async def test_a_hook_whose_grant_was_revoked_writes_nothing(client, db, llm_moc
         "/api/extensions/scene-meter/permissions",
         json={
             "permissions": [
-                {"capability": "context.draft.read"},
+                {"capability": "context.read", "field": "draft"},
                 {"capability": "model.call", "lane": "agent"},
             ]
         },

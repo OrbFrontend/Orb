@@ -667,18 +667,18 @@ def _op_draft_replace(step: Any, inv: Invocation, ns: dict[str, Any]) -> None:
 def _op_card_tags_set(step: Any, inv: Invocation, ns: dict[str, Any]) -> None:
     """Stage a replacement tag list for the card in the invocation's context.
 
-    Both grants are checked, not just the write: ``card.tags.write`` alone
-    would be a permission whose target the package cannot see, and the consent
-    line ("the character a command is run against") would describe a scope the
-    grant did not actually have.
+    Both grants are checked, not just the write: ``card.write`` scoped to
+    ``tags`` alone would be a permission whose target the package cannot see,
+    and the consent line ("the character a command is run against") would
+    describe a scope the grant did not actually have.
 
     The tags are normalized here by the *host* normalizer -- the same one the
     character API runs -- so what a flow stages is already what would be
     stored, and the commit boundary is re-validating a decided value rather
     than deciding it late.
     """
-    inv.require(Capability.CARD_TAGS_WRITE)
-    inv.require(Capability.CONTEXT_CHARACTER_READ)
+    inv.require(Capability.CARD_WRITE, "tags")
+    inv.require(Capability.CONTEXT_READ, "character")
     inv.charge(Quota.CARD_TAGS, MAX_CARD_TAG_WRITES_PER_INVOCATION, "card tag writes")
     card_id = resolve_path({"ctx": inv.ctx}, "ctx.character.id")
     if not isinstance(card_id, str) or not card_id:

@@ -79,8 +79,9 @@ class ResourceError(PackageError):
 
 
 class ResourceForbidden(ResourceError):
-    def __init__(self, capability: str):
-        super().__init__(f"this extension has not been granted {capability!r}", status=403)
+    def __init__(self, capability: str, parameter: str | None = None):
+        grant = capability if parameter is None else f"{capability} for {parameter!r}"
+        super().__init__(f"this extension has not been granted {grant}", status=403)
 
 
 class ResourceTooLarge(ResourceError):
@@ -149,9 +150,9 @@ class ResourceRequest:
     def has(self, capability: Capability, parameter: str | None = None) -> bool:
         return (capability.value, parameter) in self.granted
 
-    def require(self, capability: Capability) -> None:
-        if not self.has(capability):
-            raise ResourceForbidden(capability.value)
+    def require(self, capability: str, parameter: str | None = None) -> None:
+        if (capability, parameter) not in self.granted:
+            raise ResourceForbidden(capability, parameter)
 
 
 async def resolve_resource(request: ResourceRequest) -> dict[str, Any]:
@@ -164,7 +165,7 @@ async def resolve_resource(request: ResourceRequest) -> dict[str, Any]:
     handler = _HANDLERS.get(request.resource)
     if handler is None:
         raise ResourceError(f"unknown host resource {request.resource!r}", status=404)
-    request.require(Capability(RESOURCE_CAPABILITIES[request.resource]))
+    request.require(*RESOURCE_CAPABILITIES[request.resource])
     payload = await handler(request)
     _assert_within_budget(payload, request.resource)
     return payload
@@ -261,7 +262,7 @@ async def _require_conversation(request: ResourceRequest) -> Mapping[str, Any]:
 
 async def _conversation_tree(request: ResourceRequest) -> dict[str, Any]:
     conv = await _require_conversation(request)
-    previews = MAX_TREE_PREVIEW_CHARS if request.has(Capability.CONVERSATION_TREE_PREVIEWS) else 0
+    previews = MAX_TREE_PREVIEW_CHARS if request.has(Capability.CONVERSATION_TREE_READ, "preview") else 0
     try:
         tree = await get_conversation_tree(str(conv["id"]), max_nodes=MAX_TREE_NODES, preview_chars=previews)
     except ValueError as exc:

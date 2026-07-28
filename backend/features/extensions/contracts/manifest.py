@@ -39,7 +39,15 @@ from ..limits import (
     MAX_SECRETS,
     MAX_VIEWS,
 )
-from .capabilities import OPERATION_NAMES, Capability, missing_prerequisites
+from .capabilities import (
+    CAPABILITY_SPECS,
+    OPERATION_NAMES,
+    PARAMETER_NAMES,
+    Capability,
+    missing_prerequisites,
+    parameter_name,
+    parameter_values,
+)
 from .common import (
     ExtensionId,
     ExtModel,
@@ -54,25 +62,21 @@ from .schema_subset import parse_schema
 
 EXTENSION_API_VERSION = 1
 
-UI_SLOTS: frozenset[str] = frozenset(
-    {
-        "composer.menu",
-        "mobile.chat_actions",
-        "tools",
-        "inspector",
-        "message.toolbar",
-        "message.after",
-        "artifact.body",
-        "workspace",
-        # Rendered per card in the library browser. The host resolves the
-        # clicked card into ``ctx.character`` and rebinds the ``character``
-        # state scope to it -- the same resolution an action input's card
-        # identifier gets, minus ``library.cards.read``, because the identifier
-        # is host-supplied from a user click and never package input. Reach
-        # stays exactly one user-chosen card per invocation.
-        "library.card_actions",
-    }
-)
+UI_SLOTS: frozenset[str] = parameter_values(Capability.UI_CONTRIBUTE)
+"""The named slots a package may place into.
+
+Derived from ``ui.contribute``'s admissible parameter values rather than listed
+here: a slot *is* a value of that grant, and a slot that existed without a
+consent line -- or a consent line for a slot the renderer has no place for --
+is exactly the drift the spec table exists to make unrepresentable.
+
+Note ``library.card_actions`` among them. It is rendered per card in the library
+browser, and the host resolves the clicked card into ``ctx.character`` and
+rebinds the ``character`` state scope to it -- the same resolution an action
+input's card identifier gets, minus ``library.cards.read``, because the
+identifier is host-supplied from a user click and never package input. Reach
+stays exactly one user-chosen card per invocation.
+"""
 
 CONFIG_VIEW_ID = "config"
 """The view id the Orb-owned manager renders in a package's detail panel.
@@ -178,80 +182,102 @@ Origin = Annotated[str, AfterValidator(_validate_origin)]
 
 # ── permissions ──────────────────────────────────────────────────────────────
 # Each requested grant is one entry, shown to the user individually. A grant
-# that carries a parameter (a lane, a scope, an origin, a slot) is a *different*
-# grant per parameter value: approving "state.write on conversation" is not
-# approving "state.write on character".
+# that carries a parameter (a lane, a scope, an origin, a slot, a field) is a
+# *different* grant per parameter value: approving "state.write on conversation"
+# is not approving "state.write on character".
+#
+# One model, not one class per parameter shape. The admissible parameter of each
+# capability is a fact about that capability, and it already lives in
+# CAPABILITY_SPECS -- so this model asks the spec rather than restating it in a
+# discriminated union that would have to be edited in lockstep. Adding a
+# capability, or a value to an existing one, is a spec entry and nothing here.
 
 
-class _Permission(ExtModel):
-    pass
+class Permission(ExtModel):
+    """One requested grant: a capability and the parameter that scopes it.
 
+    Exactly one parameter field may be set, and only the one its capability
+    declares. The fields are declared rather than accepted as a free-form dict
+    so each keeps its own validator -- an ``origin`` is checked by the origin
+    grammar here, not by a later consumer that hopes it was checked.
+    """
 
-class SimplePermission(_Permission):
-    capability: Literal[
-        "context.input.read",
-        "context.draft.read",
-        "context.history.read",
-        "context.character.read",
-        "context.persona.read",
-        "conversation.tree.read",
-        "conversation.tree.previews",
-        "conversation.branch.activate",
-        "library.cards.read",
-        "lorebook.read",
-        "direction_notes.read",
-        "draft.replace",
-        "card.tags.write",
-        "artifact.write",
-        "fragment_type.contribute",
-    ]
-
-
-class ContextAppendPermission(_Permission):
-    capability: Literal["prompt.context.append"]
-    targets: list[Literal["director", "writer"]] = Field(min_length=1, max_length=2)
-
-
-class ModelCallPermission(_Permission):
-    capability: Literal["model.call"]
-    lane: Literal["writer", "agent"]
-
-
-class StatePermission(_Permission):
-    capability: Literal["state.read", "state.write"]
-    scope: Literal["config", "conversation", "message", "character"]
-
-
-class NetworkPermission(_Permission):
-    capability: Literal["network.request"]
-    origin: Origin
-
-
-class UiPermission(_Permission):
-    capability: Literal["ui.contribute"]
-    slot: Slot
+    capability: str
+    field: str | None = None
+    scope: str | None = None
+    lane: str | None = None
+    slot: Slot | None = None
+    origin: Origin | None = None
+    targets: list[str] | None = Field(default=None, min_length=1, max_length=8)
 
     @model_validator(mode="after")
-    def _known_slot(self):
-        if self.slot not in UI_SLOTS:
-            raise ValueError(f"unknown UI slot {self.slot!r}; expected one of {sorted(UI_SLOTS)}")
+    def _matches_its_spec(self):
+        try:
+            capability = Capability(self.capability)
+        except ValueError:
+            raise ValueError(
+                f"unknown capability {self.capability!r}; expected one of {sorted(c.value for c in Capability)}"
+            ) from None
+
+        parameter = CAPABILITY_SPECS[capability].parameter
+        supplied = {name for name in PARAMETER_NAMES if self._parameter(name) is not None}
+
+        if parameter is None:
+            if supplied:
+                raise ValueError(f"permission {self.capability!r} takes no parameter, got {sorted(supplied)}")
+            return self
+
+        expected = parameter.name
+        if supplied != {expected}:
+            got = sorted(supplied) or "none"
+            raise ValueError(f"permission {self.capability!r} requires the {expected!r} parameter, got {got}")
+
+        raw = self._parameter(expected)
+        values = raw if isinstance(raw, list) else [raw]
+        if not parameter.multiple and isinstance(raw, list):
+            raise ValueError(f"permission {self.capability!r} takes a single {expected!r}, not a list")
+        if parameter.multiple and not isinstance(raw, list):
+            raise ValueError(f"permission {self.capability!r} takes a list of {expected!r}")
+
+        admissible = parameter.values
+        if admissible is not None:
+            for value in values:
+                if value not in admissible:
+                    raise ValueError(
+                        f"permission {self.capability!r} does not admit {expected}={value!r}; "
+                        f"expected one of {sorted(admissible)}"
+                    )
+        if len(set(values)) != len(values):
+            raise ValueError(f"permission {self.capability!r} repeats a {expected!r} value")
         return self
 
+    def _parameter(self, name: str):
+        return getattr(self, name, None)
 
-Permission = Annotated[
-    SimplePermission | ContextAppendPermission | ModelCallPermission | StatePermission | NetworkPermission | UiPermission,
-    Field(discriminator="capability"),
-]
+    def parameter_values(self) -> tuple[str, ...]:
+        """Every value this entry approves, or ``()`` for an unparameterized grant."""
+        capability = Capability(self.capability)
+        name = parameter_name(capability)
+        if name is None:
+            return ()
+        raw = self._parameter(name)
+        return tuple(raw) if isinstance(raw, list) else ((raw,) if raw is not None else ())
 
 
-def permission_key(permission: _Permission) -> tuple[str, ...]:
+def permission_key(permission: Permission) -> tuple[str, ...]:
     """A permission's identity for diffing and de-duplication.
 
     Consent, revocation, and the update diff all compare these tuples rather
     than display strings, so a reworded consent line can never silently widen
     or narrow what was approved.
+
+    ``exclude_none`` is load-bearing: the model declares every parameter field
+    so each can carry its own validator, and an unset one must be absent rather
+    than present-and-null. A key that carried ``None`` for the six parameters a
+    grant does not use would not match the same grant read back from stored
+    JSON, and the mismatch would read as "this permission was never approved".
     """
-    data = permission.model_dump()
+    data = permission.model_dump(mode="json", exclude_none=True)
     capability = data.pop("capability")
     return (capability, *(str(data[key]) for key in sorted(data)))
 
@@ -485,7 +511,7 @@ class ExtensionManifest(ExtModel):
     @model_validator(mode="after")
     def _intra_manifest_references(self):
         _assert_unique_permissions(self.permissions)
-        _assert_capability_prerequisites(self.permissions)
+        _assert_capability_prerequisites(self)
         _assert_origin_budget(self.permissions)
         _assert_unique_secrets(self.secrets)
         _assert_unique_commands(self.commands)
@@ -504,8 +530,25 @@ class ExtensionManifest(ExtModel):
     def capabilities(self) -> set[Capability]:
         return {Capability(p.capability) for p in self.permissions}
 
+    def requested_grants(self) -> set[tuple[str, str | None]]:
+        """Every ``(capability, parameter)`` grant the manifest asks for.
+
+        The unit the prerequisite check and the consent diff both work in: a
+        capability alone cannot answer "was the ``tags`` field requested", and
+        every parameterized grant in this vocabulary has a rule that turns on
+        the parameter.
+        """
+        grants: set[tuple[str, str | None]] = set()
+        for permission in self.permissions:
+            values = permission.parameter_values()
+            if values:
+                grants.update((permission.capability, value) for value in values)
+            else:
+                grants.add((permission.capability, None))
+        return grants
+
     def origins(self) -> list[str]:
-        return sorted({p.origin for p in self.permissions if isinstance(p, NetworkPermission)})
+        return sorted({p.origin for p in self.permissions if p.origin is not None})
 
     def referenced_flow_paths(self) -> set[str]:
         paths: set[str] = set()
@@ -543,14 +586,20 @@ def _assert_unique_permissions(permissions: list) -> None:
         seen.add(key)
 
 
-def _assert_capability_prerequisites(permissions: list) -> None:
-    requested = {Capability(p.capability) for p in permissions}
-    for capability, prerequisite in missing_prerequisites(requested):
-        raise ValueError(f"permission {capability.value!r} also requires {prerequisite.value!r}")
+def _assert_capability_prerequisites(manifest: ExtensionManifest) -> None:
+    for grant, prerequisite in missing_prerequisites(manifest.requested_grants()):
+        raise ValueError(f"permission {_grant_label(grant)} also requires {_grant_label(prerequisite)}")
+
+
+def _grant_label(grant: tuple[str, str | None]) -> str:
+    capability, parameter = grant
+    if parameter is None:
+        return repr(capability)
+    return f"{capability!r} for {parameter!r}"
 
 
 def _assert_origin_budget(permissions: list) -> None:
-    origins = [p for p in permissions if isinstance(p, NetworkPermission)]
+    origins = [p for p in permissions if p.origin is not None]
     if len(origins) > MAX_ORIGINS:
         raise ValueError(f"{len(origins)} network origins exceeds the limit of {MAX_ORIGINS}")
 
@@ -589,7 +638,7 @@ def _assert_slot_consent(manifest: ExtensionManifest) -> None:
     Consent is per slot, so a package that asked to contribute to ``inspector``
     cannot also appear in ``composer.menu`` on the strength of that approval.
     """
-    granted = {p.slot for p in manifest.permissions if isinstance(p, UiPermission)}
+    granted = {p.slot for p in manifest.permissions if p.capability == Capability.UI_CONTRIBUTE and p.slot}
     for placement in manifest.placements:
         if placement.slot not in granted:
             raise ValueError(

@@ -45,7 +45,7 @@ async def test_inspect_reports_identity_requirements_and_a_consent_diff(client):
     # A fresh install has nothing granted yet, so every request is an addition.
     assert body["permission_diff"]["unchanged"] == []
     assert {row["capability"] for row in body["permission_diff"]["added"]} == {
-        "context.draft.read",
+        "context.read",
         "model.call",
         "state.read",
         "state.write",

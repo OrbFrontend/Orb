@@ -95,7 +95,7 @@ MAX_TREE_NODES = 2000
 """Nodes in one conversation-tree projection before ``resource_too_large``."""
 
 MAX_TREE_PREVIEW_CHARS = 120
-"""One node's preview, when ``conversation.tree.previews`` is granted."""
+"""One node's preview, when ``conversation.tree.read`` is granted on ``preview``."""
 
 MAX_RESOURCE_BYTES = 512 * KIB
 """Encoded size of one host-resource response."""

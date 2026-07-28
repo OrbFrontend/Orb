@@ -42,34 +42,33 @@ from .assets import assert_bytes_match, asset_media_type
 from .contracts import (
     CONFIG_VIEW_ID,
     EXTENSION_API_VERSION,
+    OPERATION_SPECS,
     RESOURCE_CAPABILITIES,
     Capability,
     Component,
     ExtensionManifest,
     Flow,
     OpContext,
+    Requirement,
     StateSource,
     View,
     check_context,
     declared_operations,
     iter_components,
     iter_steps,
+    parameter_values,
     permission_key,
     referenced_actions,
     referenced_assets,
     template_paths,
     used_components,
+    with_prerequisites,
 )
 from .digest import PackageContent, canonical_json_bytes, content_digest
 from .errors import PackageIncompatible, PackageValidationError
 from .json_loader import load_json
 from .limits import MAX_ASSET_BYTES, MAX_MANIFEST_BYTES, MAX_REFERENCED_BYTES_TOTAL
 from .sources import MANIFEST_PATH, PackageSource
-
-# One requirement is a capability plus the parameter that scopes it. ``None``
-# means "this capability, any parameter": an ``http.request`` whose URL is not a
-# literal needs *some* origin grant, and the runtime origin check does the rest.
-Requirement = tuple[str, str | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +108,7 @@ class CompiledPackage:
 
     def requested_permissions(self) -> list[dict[str, Any]]:
         """The manifest's permission requests as plain JSON, in declared order."""
-        return [p.model_dump(mode="json") for p in self.manifest.permissions]
+        return [p.model_dump(mode="json", exclude_none=True) for p in self.manifest.permissions]
 
     def manifest_json(self) -> str:
         return canonical_json_bytes(self.manifest.model_dump(mode="json", by_alias=True, exclude_none=True)).decode("utf-8")
@@ -306,15 +305,17 @@ def _assert_config_view_scope(manifest: ExtensionManifest, views: Mapping[str, V
 
 # ── requirement derivation ──────────────────────────────────────────────────
 
-# Which capability a read of a ``ctx.*`` path consumes. Identity fields
-# (``ctx.extension_id``, ``ctx.conversation.id``, ``ctx.hook``) carry no grant:
-# they tell a flow who and where it is, which it necessarily already knows.
-_CTX_CAPABILITIES: dict[str, Capability] = {
-    "input": Capability.CONTEXT_INPUT_READ,
-    "draft": Capability.CONTEXT_DRAFT_READ,
-    "history": Capability.CONTEXT_HISTORY_READ,
-    "character": Capability.CONTEXT_CHARACTER_READ,
-}
+CTX_FIELDS: frozenset[str] = parameter_values(Capability.CONTEXT_READ)
+"""The ``ctx.*`` fields a grant can unlock, derived from ``context.read``.
+
+Identity fields (``ctx.extension_id``, ``ctx.conversation.id``, ``ctx.hook``)
+carry no grant and are absent here: they tell a flow who and where it is, which
+it necessarily already knows.
+
+Deriving this from the capability's parameter values rather than listing it is
+what keeps the projection and the vocabulary in step. A field added to one and
+forgotten in the other used to fail in whichever direction the omission ran --
+an unreachable grant, or a projected field no consent line covered."""
 
 
 def _derive_requirements(
@@ -346,11 +347,11 @@ def _derive_requirements(
     # card into ``ctx.character`` and rebinds the ``character`` state scope to
     # it. That is the only place package input selects an entity, so it is
     # gated by two grants rather than one: enumeration is not the only way to
-    # reach a card, and ``context.character.read`` alone must never leave the
-    # current conversation.
+    # reach a card, and ``context.read`` scoped to ``character`` alone must
+    # never leave the current conversation.
     for binding in manifest.actions.values():
         if _declares_card_input(binding.input_schema):
-            permissions.add((Capability.CONTEXT_CHARACTER_READ.value, None))
+            permissions.add((Capability.CONTEXT_READ.value, "character"))
             permissions.add((Capability.LIBRARY_CARDS_READ.value, None))
 
     # Placements and contributions are manifest-level reaches. The manifest
@@ -364,7 +365,7 @@ def _derive_requirements(
             # projection grant is required -- but not ``library.cards.read``:
             # the identifier is host-supplied from a user click, never package
             # input, so the reach is still exactly one user-chosen card.
-            permissions.add((Capability.CONTEXT_CHARACTER_READ.value, None))
+            permissions.add((Capability.CONTEXT_READ.value, "character"))
     if manifest.contributions.fragment_types:
         permissions.add((Capability.FRAGMENT_TYPE_CONTRIBUTE.value, None))
     if manifest.produces_artifacts:
@@ -379,38 +380,38 @@ def _derive_requirements(
 
 
 def _step_permissions(step: Any) -> set[Requirement]:
-    """The grants one operation consumes, including its scoping parameter."""
-    op = step.op
-    if op == "state.get":
-        return {(Capability.STATE_READ.value, step.scope)}
-    if op in ("state.set", "state.delete"):
-        # A write to a slot the flow cannot read is legal but unusual; deriving
-        # only the write keeps the consent line honest about what it is.
-        return {(Capability.STATE_WRITE.value, step.scope)}
-    if op in ("model.text", "model.structured"):
-        return {(Capability.MODEL_CALL.value, step.lane)}
-    if op == "http.request":
-        return {(Capability.NETWORK_REQUEST.value, _literal_origin(step.url))}
-    if op == "context.append":
-        return {(Capability.PROMPT_CONTEXT_APPEND.value, target) for target in step.targets}
-    if op == "draft.replace":
-        return {(Capability.DRAFT_REPLACE.value, None)}
-    if op == "card.tags.set":
-        # Both, not just the write. The operation targets ``ctx.character``, so
-        # the projection that puts a card there is part of what it needs -- and
-        # deriving only the write would let a package request a grant whose
-        # consent line describes a card it could not read.
-        return {
-            (Capability.CARD_TAGS_WRITE.value, None),
-            (Capability.CONTEXT_CHARACTER_READ.value, None),
-        }
-    if op == "artifact.emit":
-        return {(Capability.ARTIFACT_WRITE.value, None)}
-    if op == "conversation.branch.activate":
-        return {(Capability.CONVERSATION_BRANCH_ACTIVATE.value, None)}
-    if op == "ui.invalidate":
-        return {(Capability.UI_CONTRIBUTE.value, None)}
-    return set()
+    """The grants one operation consumes, including its scoping parameter.
+
+    Table-driven off ``OPERATION_SPECS``: the operation names its capability
+    and says whether the parameter is pinned by the operation or chosen by the
+    step, and prerequisites come from the grant table. This used to be a ladder
+    of eleven ``if op ==`` branches, which meant a new operation could silently
+    derive nothing -- the failure mode where a package reaches a host capability
+    that never appears in its consent diff.
+    """
+    spec = OPERATION_SPECS.get(step.op)
+    if spec is None or spec.capability is None:
+        return set()
+
+    if spec.parameter is not None:
+        parameters: list[str | None] = [spec.parameter]
+    elif spec.parameter_field is None:
+        parameters = [None]
+    else:
+        raw = getattr(step, spec.parameter_field, None)
+        # A URL is the one parameter the step does not carry literally: the
+        # grant is over the *origin*, and a computed URL has none at compile
+        # time. `_literal_origin` returns None there, which derives the
+        # unparameterized requirement, and the runtime client re-checks the
+        # resolved URL against the granted origins before connecting.
+        if spec.capability is Capability.NETWORK_REQUEST:
+            parameters = [_literal_origin(raw)]
+        elif isinstance(raw, list):
+            parameters = list(raw)
+        else:
+            parameters = [raw]
+
+    return with_prerequisites((spec.capability.value, parameter) for parameter in parameters)
 
 
 def _literal_origin(url: Any) -> str | None:
@@ -474,10 +475,9 @@ def _paths_in(value: Any) -> Iterator[str]:
 
 def _context_requirement(path: str) -> Requirement | None:
     segments = path.split(".")
-    if segments[0] != "ctx" or len(segments) < 2:
+    if segments[0] != "ctx" or len(segments) < 2 or segments[1] not in CTX_FIELDS:
         return None
-    capability = _CTX_CAPABILITIES.get(segments[1])
-    return (capability.value, None) if capability is not None else None
+    return (Capability.CONTEXT_READ.value, segments[1])
 
 
 CARD_INPUT_PROPERTY = "card_id"
@@ -509,9 +509,9 @@ def _view_source_permissions(view: View) -> set[Requirement]:
         if isinstance(source, StateSource):
             permissions.add((Capability.STATE_READ.value, source.scope))
         else:
-            permissions.add((RESOURCE_CAPABILITIES[source.resource], None))
+            permissions.add(RESOURCE_CAPABILITIES[source.resource])
             if source.resource == "conversation.tree" and source.previews:
-                permissions.add((Capability.CONVERSATION_TREE_PREVIEWS.value, None))
+                permissions.add((Capability.CONVERSATION_TREE_READ.value, "preview"))
     return permissions
 
 
@@ -537,7 +537,7 @@ def _component_permissions(node: Component) -> set[Requirement]:
         # only asking for the write.
         permissions: set[Requirement] = {
             (Capability.LIBRARY_CARDS_READ.value, None),
-            (Capability.CONTEXT_CHARACTER_READ.value, None),
+            (Capability.CONTEXT_READ.value, "character"),
         }
         # A named bookkeeping key changes the loop from "visit every card" to
         # "skip cards this extension already completed". Without this read
@@ -610,7 +610,7 @@ def _assert_declarations_cover(manifest: ExtensionManifest, derived: DerivedRequ
 
 
 def _declared_permissions(manifest: ExtensionManifest) -> set[Requirement]:
-    return expand_permissions(p.model_dump(mode="json") for p in manifest.permissions)
+    return expand_permissions(p.model_dump(mode="json", exclude_none=True) for p in manifest.permissions)
 
 
 def expand_permissions(entries: Iterable[Mapping[str, Any]]) -> set[Requirement]:

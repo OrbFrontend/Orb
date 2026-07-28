@@ -88,7 +88,7 @@ async def test_tree_previews_need_their_own_grant(client):
         for entry in (
             await client.post("/api/extensions/inspect-file", files={"file": ("p.orbext", conversation_map_package())})
         ).json()["permissions"]
-        if entry["capability"] != "conversation.tree.previews"
+        if entry["parameters"].get("field") != "preview"
     ]
     await install(client, conversation_map_package(), permissions=[entry["value"] for entry in granted])
 
@@ -129,7 +129,7 @@ async def test_the_library_resource_projects_only_its_declared_shape(client):
     card = body["cards"][0]
     assert set(card) == {"id", "name", "tags", "state"}
     # `description` is read through ctx.character during the action, under
-    # context.character.read -- never here, under the enumeration grant.
+    # context.read scoped to character -- never here, under the enumeration grant.
     assert "description" not in card
 
 
@@ -295,7 +295,11 @@ async def test_a_view_reports_a_missing_grant_per_source_not_as_a_failure(client
     inspection = (
         await client.post("/api/extensions/inspect-file", files={"file": ("p.orbext", conversation_map_package())})
     ).json()
-    approved = [entry["value"] for entry in inspection["permissions"] if entry["capability"] != "conversation.tree.read"]
+    # Withhold the tree resource's *baseline* grant, not previews: previews are
+    # an enrichment the handler drops silently, while structure is what the
+    # resource itself needs, so this is the grant whose absence the view has to
+    # report rather than work around.
+    approved = [entry["value"] for entry in inspection["permissions"] if entry["parameters"].get("field") != "structure"]
     await install(client, conversation_map_package(), permissions=approved)
     response = await client.get(f"/api/extensions/conversation-map/views/map?conversation_id={cid}")
     # The view itself is blocked (its resource requirement is unmet), or it
@@ -516,12 +520,12 @@ async def test_a_card_actions_slot_click_needs_no_enumeration_grant(client, db, 
         client,
         tag_librarian_package(
             permissions=[
-                {"capability": "context.character.read"},
+                {"capability": "context.read", "field": "character"},
                 {"capability": "model.call", "lane": "agent"},
                 {"capability": "state.read", "scope": "config"},
                 {"capability": "state.write", "scope": "config"},
                 {"capability": "state.write", "scope": "character"},
-                {"capability": "card.tags.write"},
+                {"capability": "card.write", "field": "tags"},
                 {"capability": "ui.contribute", "slot": "library.card_actions"},
             ],
             actions={"classify": {"flow": "flows/classify.json", "label": "Classify card"}},
@@ -579,7 +583,7 @@ async def test_revoking_the_tag_write_fails_the_next_classify(client, db, llm_mo
     keep = [
         entry["value"]
         for entry in (await client.get("/api/extensions/tag-librarian")).json()["permissions"]
-        if entry["capability"] != "card.tags.write"
+        if entry["capability"] != "card.write"
     ]
     await client.put("/api/extensions/tag-librarian/permissions", json={"permissions": keep})
 
@@ -649,7 +653,7 @@ def test_character_context_contains_a_bounded_current_tag_list():
     ctx = build_ctx(
         extension_id="tag-librarian",
         hook="action",
-        granted=frozenset({("context.character.read", None)}),
+        granted=frozenset({("context.read", "character")}),
         card={
             "id": "card-1",
             "name": "Mara",
@@ -698,11 +702,14 @@ async def test_the_banner_appears_only_with_network_plus_a_data_read(client):
         combination_warning,
     )
 
-    assert combination_warning([{"capability": "context.history.read"}]) is None
+    assert combination_warning([{"capability": "context.read", "field": "history"}]) is None
     assert combination_warning([{"capability": "network.request", "origin": "https://a.invalid"}]) is None
     assert (
         combination_warning(
-            [{"capability": "network.request", "origin": "https://a.invalid"}, {"capability": "context.persona.read"}]
+            [
+                {"capability": "network.request", "origin": "https://a.invalid"},
+                {"capability": "context.read", "field": "persona"},
+            ]
         )
         == COMBINATION_BANNER
     )

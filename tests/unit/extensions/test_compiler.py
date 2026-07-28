@@ -71,7 +71,7 @@ def test_derives_capabilities_from_operations_and_context_reads():
     derived = compiled.requirements.permissions
     assert ("model.call", "agent") in derived  # from model.structured's lane
     assert ("state.write", "conversation") in derived  # from state.set's scope
-    assert ("context.draft.read", None) in derived  # from {{ctx.draft}} in the prompt
+    assert ("context.read", "draft") in derived  # from {{ctx.draft}} in the prompt
     assert ("ui.contribute", "inspector") in derived  # from the placement's slot
 
 
@@ -100,7 +100,7 @@ def test_compilation_is_repeatable_across_sources(tmp_path, monkeypatch):
 def test_rejects_a_package_that_omits_a_capability_its_flow_uses():
     broken = full_manifest(
         permissions=[
-            {"capability": "context.draft.read"},
+            {"capability": "context.read", "field": "draft"},
             {"capability": "state.read", "scope": "conversation"},
             {"capability": "state.write", "scope": "conversation"},
             {"capability": "ui.contribute", "slot": "inspector"},
@@ -149,7 +149,7 @@ def test_a_resumable_library_sweep_derives_character_state_read():
     declared = manifest(
         requires={"operations": ["return"], "components": ["library-sweep"]},
         permissions=[
-            {"capability": "context.character.read"},
+            {"capability": "context.read", "field": "character"},
             {"capability": "library.cards.read"},
         ],
         actions={"classify": {"flow": "flows/classify.json"}},

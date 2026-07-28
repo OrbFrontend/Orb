@@ -2,8 +2,8 @@
 
 One rule, in one place, because two callers now need it and they sit on
 opposite sides of the layer stack: the pipeline resolves the persona it injects
-into a turn, and the community-extension ``context.persona.read`` resource
-projects the persona a package may see. If those disagreed, a package would
+into a turn, and the community-extension persona resource -- ``context.read``
+scoped to ``persona`` -- projects the persona a package may see. If those disagreed, a package would
 read a description the model never got -- or, worse, the reverse.
 
 Pure and mapping-shaped so it can live in the kernel: it reads three plain

@@ -424,7 +424,8 @@ async def _resolve_action_card(entry, action: str, body: ExtensionActionRequest,
       user consented to. ``library.cards.read`` is not required: the package
       never named the card.
     * **Package input declaring ``card_id``.** The package chooses the card, so
-      it needs both ``context.character.read`` and ``library.cards.read``.
+      it needs both ``context.read`` scoped to ``character`` and
+      ``library.cards.read``.
       Enumeration is not the only way to reach a card, and an extension holding
       an id from its own state would otherwise read any card in the library
       under a grant whose consent text says "the character in this
@@ -464,7 +465,7 @@ async def _resolve_action_card(entry, action: str, body: ExtensionActionRequest,
         # host-supplied. A static manifest declaration is not enough after the
         # user revokes the live slot grant.
         require(Capability.UI_CONTRIBUTE, LIBRARY_CARD_ACTIONS_SLOT)
-        require(Capability.CONTEXT_CHARACTER_READ)
+        require(Capability.CONTEXT_READ, "character")
         return body.card_id
 
     if body.card_id is not None:
@@ -474,7 +475,7 @@ async def _resolve_action_card(entry, action: str, body: ExtensionActionRequest,
 
     declared = body.input.get(CARD_INPUT_PROPERTY)
     if isinstance(declared, str) and declared:
-        require(Capability.CONTEXT_CHARACTER_READ)
+        require(Capability.CONTEXT_READ, "character")
         require(Capability.LIBRARY_CARDS_READ)
         return declared
 

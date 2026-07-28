@@ -34,8 +34,8 @@ GRANTS = frozenset(
         ("state.read", "config"),
         ("state.write", None),
         ("state.write", "character"),
-        ("card.tags.write", None),
-        ("context.character.read", None),
+        ("card.write", "tags"),
+        ("context.read", "character"),
     }
 )
 
@@ -182,11 +182,11 @@ async def test_the_tag_write_needs_a_card_in_context():
 
 async def test_the_tag_write_needs_both_grants():
     """Write-only would be a permission whose target the package cannot see."""
-    with pytest.raises(FlowError, match="context.character.read"):
+    with pytest.raises(FlowError, match="context.read"):
         await run(
             flow({"op": "card.tags.set", "tags": ["noir"]}),
             ctx={"character": {"id": "card-1"}},
-            grants=frozenset({("card.tags.write", None)}),
+            grants=frozenset({("card.write", "tags")}),
         )
 
 

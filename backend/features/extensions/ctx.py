@@ -19,9 +19,9 @@ Two properties follow from constructing rather than wrapping:
 
 Identity fields (``extension_id``, ``hook``, ``conversation.id``,
 ``message.id``) carry no grant: they tell a flow who and where it is, which it
-necessarily already knows, and the compiler's requirement derivation agrees --
-only ``ctx.input``, ``ctx.draft``, ``ctx.history``, and ``ctx.character``
-consume a capability.
+necessarily already knows. Every other field is one value of ``context.read``,
+and the compiler's requirement derivation reads the same value list, so a path
+into ``ctx`` and the grant that unlocks it cannot drift apart.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ...core import normalize_tags
-from .contracts import Capability
+from .contracts import Capability, parameter_values
 from .limits import (
     MAX_CTX_CHARACTER_BYTES,
     MAX_CTX_HISTORY_BYTES,
@@ -146,20 +146,44 @@ def build_ctx(
     projected.
     """
 
-    def has(capability: Capability) -> bool:
-        return (capability.value, None) in granted
+    def granted_field(name: str) -> bool:
+        return (Capability.CONTEXT_READ.value, name) in granted
 
     ctx: dict[str, Any] = {"extension_id": extension_id, "hook": hook}
     if conversation_id:
         ctx["conversation"] = {"id": conversation_id}
     if message_id is not None:
         ctx["message"] = {"id": message_id}
-    if last_user_message is not None and has(Capability.CONTEXT_INPUT_READ):
-        ctx["input"] = {"last_user_message": _clip(last_user_message)}
-    if draft is not None and has(Capability.CONTEXT_DRAFT_READ):
-        ctx["draft"] = _clip(draft)
-    if history is not None and has(Capability.CONTEXT_HISTORY_READ):
-        ctx["history"] = _history_window(history)
-    if card and has(Capability.CONTEXT_CHARACTER_READ):
-        ctx["character"] = _character(card)
+
+    # One entry per ``context.read`` field, so the projection and the grant's
+    # admissible values are the same list read twice rather than two lists that
+    # can disagree. ``CTX_PROJECTIONS`` is asserted total against the capability
+    # below, which is what makes a field impossible to project without a grant
+    # and impossible to grant without a projection.
+    available: dict[str, Any] = {
+        "input": {"last_user_message": _clip(last_user_message)} if last_user_message is not None else None,
+        "draft": _clip(draft) if draft is not None else None,
+        "history": _history_window(history) if history is not None else None,
+        "character": _character(card) if card else None,
+        # Persona is projected by the ``persona`` host resource rather than into
+        # ``ctx``: it is a bounded singleton a view reads, not a per-step value
+        # a flow interpolates. The grant is the same one either way.
+        "persona": None,
+    }
+    _assert_projects_every_field(available)
+    for name, value in available.items():
+        if value is not None and granted_field(name):
+            ctx[name] = value
     return ctx
+
+
+def _assert_projects_every_field(available: Mapping[str, Any]) -> None:
+    """Every ``context.read`` field has a projection, and vice versa.
+
+    Asserted rather than trusted: a field granted with nothing to project is a
+    consent line for nothing, and a projection with no field would be reachable
+    without a grant. Both are silent in ordinary use, which is why this is a
+    check and not a comment.
+    """
+    fields = parameter_values(Capability.CONTEXT_READ)
+    assert set(available) == fields, f"ctx projection and 'context.read' fields disagree: {set(available) ^ fields}"

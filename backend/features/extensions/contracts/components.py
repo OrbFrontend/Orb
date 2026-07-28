@@ -29,9 +29,10 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import AfterValidator, Field
+from pydantic import AfterValidator, Field, model_validator
 
 from ..limits import MAX_COMPONENT_DEPTH, MAX_COMPONENT_NODES, MAX_VIEW_DATA_SOURCES
+from .capabilities import RESOURCE_CAPABILITIES
 from .common import ExtModel, Label, LocalId, PackagePath, Predicate, Value
 
 Tone = Literal["default", "muted", "accent", "success", "warning", "danger"]
@@ -400,15 +401,26 @@ TabsComponent.model_rebuild()
 
 
 class ResourceSource_(ExtModel):
-    """A named host resource, served as a bounded, allowlisted projection."""
+    """A named host resource, served as a bounded, allowlisted projection.
+
+    The admissible names come from ``RESOURCE_CAPABILITIES``, which is itself
+    derived from the capability table -- so a resource cannot be nameable here
+    without a grant that gates it.
+    """
 
     kind: Literal["resource"]
-    resource: Literal["conversation.tree", "library.cards", "lorebook.entries", "direction.notes", "persona"]
+    resource: str
     previews: bool = False
     """Only meaningful for ``conversation.tree``. Requests inactive-branch text
     previews, which are a separate conspicuous grant -- the server still derives
     inclusion from the live grant, so asking without it yields no previews
     rather than an error."""
+
+    @model_validator(mode="after")
+    def _known_resource(self):
+        if self.resource not in RESOURCE_CAPABILITIES:
+            raise ValueError(f"unknown host resource {self.resource!r}; expected one of {sorted(RESOURCE_CAPABILITIES)}")
+        return self
 
 
 class StateSource(ExtModel):
@@ -419,20 +431,6 @@ class StateSource(ExtModel):
 
 
 ViewSource = Annotated[ResourceSource_ | StateSource, Field(discriminator="kind")]
-
-RESOURCE_CAPABILITIES: dict[str, str] = {
-    "conversation.tree": "conversation.tree.read",
-    "library.cards": "library.cards.read",
-    "lorebook.entries": "lorebook.read",
-    "direction.notes": "direction_notes.read",
-    "persona": "context.persona.read",
-}
-"""Which grant each host resource consumes.
-
-One table, read by the compiler when deriving a view's requirements and by the
-resource route when refusing an ungranted request. Two tables would eventually
-disagree, and the direction they disagreed in would decide whether an ungranted
-projection was served."""
 
 
 class View(ExtModel):
