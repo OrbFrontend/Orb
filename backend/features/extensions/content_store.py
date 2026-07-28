@@ -32,6 +32,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Iterable, Mapping
+from contextlib import suppress
 
 from ...database import connection
 from .digest import PackageContent, content_digest
@@ -120,6 +121,33 @@ def materialize(files: Mapping[str, PackageContent]) -> str:
 def remove(digest: str) -> None:
     """Delete one revision's content. Missing is success, not an error."""
     shutil.rmtree(content_path(digest), ignore_errors=True)
+
+
+def usage() -> tuple[int, int]:
+    """``(revision count, bytes on disk)`` for the whole store.
+
+    Observability only -- nothing here decides what to collect. Staging
+    leftovers count toward the bytes but not the revisions: they occupy the
+    disk the user is being shown, and a crash mid-install is exactly when that
+    number is worth seeing, but they are not revisions anything can name.
+    """
+    root = store_root()
+    if not os.path.isdir(root):
+        return 0, 0
+    revisions = total = 0
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name)
+        if not os.path.isdir(path):
+            continue
+        if not name.startswith(".staging-"):
+            revisions += 1
+        for dirpath, _dirnames, filenames in os.walk(path):
+            for filename in filenames:
+                # A file collected out from under the walk is not an error to
+                # report; it is a smaller number, which is the honest answer.
+                with suppress(OSError):
+                    total += os.path.getsize(os.path.join(dirpath, filename))
+    return revisions, total
 
 
 def collect_garbage(keep: Iterable[str]) -> list[str]:

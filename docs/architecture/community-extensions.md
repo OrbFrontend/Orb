@@ -1,8 +1,8 @@
 # Community Extensions — Architecture Handoff
 
-Status: **Phases 0-5 implemented (including all of section 20's v1.x
-expansions); Phase 6 not started. `extension_api: 2` and its one Writer-tool
-contribution are implemented — see
+Status: **Phases 0-6 implemented (including all of section 20's v1.x
+expansions), less the `orb-ext` CLI, which was deliberately deferred.
+`extension_api: 2` and its one Writer-tool contribution are implemented — see
 [Community Writer Tools](community-writer-tools.md).**
 
 The frozen v1 contract has no community tools in the main pipeline, and that
@@ -2640,26 +2640,51 @@ missing/invalid providers never coerce or erase stored data; and no granted
 `fragment_type.contribute` package can install into a state where its declared
 types are neither usable nor diagnosed.
 
-### Phase 6 — Hardening and developer experience
+### Phase 6 — Hardening and developer experience (implemented, less the CLI)
 
-Ship a small `orb-ext` CLI:
+The `orb-ext` CLI (`init` / `validate` / `test --fixture` / `pack`) is
+**deferred**, by decision rather than by omission. Everything else in this phase
+landed:
 
-```text
-orb-ext init
-orb-ext validate
-orb-ext test --fixture <file>
-orb-ext pack
-```
+1. **Parser/compiler fuzzing** (`tests/unit/extensions/test_hardening.py`).
+   Seeded structural mutation of every reference package's JSON, byte-level
+   corruption of the archives, and prefix truncation. The asserted property is
+   that only a `PackageError` escapes `compile_package` — that vocabulary is
+   what the routes map to status codes, so anything else is a 500 on an install
+   request. It found one: a damaged deflate stream raised `BadZipFile` out of
+   `ArchiveSource.read`, because the constructor validates the central
+   directory while corruption surfaces during decompression. Both are now one
+   `PackageParseError`.
+2. **Golden fixtures.** The digest, canonical manifest encoding, contract
+   fingerprint, and *derived* requirement set of a frozen package, pinned. The
+   golden package is written out literally rather than built from
+   `tests/extension_packages.py`, so editing a shared fixture cannot silently
+   rewrite the expectation. Moving a digest or a fingerprint means every
+   installed package asks for fresh consent over bytes that did not change,
+   which is a decision, not a diff.
+3. **Performance budgets.** A package at its declaration limits (`MAX_ACTIONS`
+   flows × `MAX_FLOW_STEPS_DECLARED` steps) compiles inside a wall-clock bound,
+   and the depth/breadth bombs are rejected in linear time. The numbers are
+   loose on purpose: they catch an accidentally quadratic walk, not a five
+   percent regression, because a tight timing assertion on shared CI fails for
+   reasons unrelated to the code.
+4. **Startup/load diagnostics.** `reconcile()` logs one summary line — counts by
+   load status, how many packages are partially granted, and elapsed
+   milliseconds — beside the per-package warnings it already emitted. A blocked
+   entry point logs at INFO, not WARNING: an under-granted package is a state
+   the user chose.
+5. **Storage cleanup observability.** `content_store.usage()` reports stored
+   revisions and bytes, and `GET /api/storage` carries them. Reported and
+   deliberately *not* offered as a cleanup checkbox: extension content's
+   lifetime is the install, not an age, so a checkbox would promise a cleanup
+   that cannot happen. Staging leftovers count toward the bytes but not the
+   revisions — they occupy the disk being shown, under no name anything can
+   reference.
+6. **Author documentation** — `docs/features/community-extensions.md`, written
+   for a package author rather than for the engineer implementing the host.
 
-The CLI is author tooling, not an install-time build system. Orb installs its
-canonical JSON output and never runs the CLI from a package.
-
-Add parser/compiler fuzzing, performance budgets, startup/load diagnostics,
-storage cleanup observability, complete schema/golden fixtures, and author
-documentation. Re-run the full lint, pyright, frontend layer, fresh-install,
-preset, SSE, KV, and workflow suites.
-
-Reference extensions:
+Reference extensions, all four shipped in earlier phases and exercised by the
+fuzz corpus here:
 
 1. Conversation Map — command placement, full-tree resource, workspace, branch
    action.
@@ -2669,6 +2694,25 @@ Reference extensions:
    sweep, first-party card write.
 4. API Artifact — origin consent, secret header, byte response, regeneration
    and reroll.
+
+`scripts/build_example_extensions.py` writes all four to `dist/extensions/` from
+the same builders the suite asserts against, so a package installed by hand is
+the package the tests cover.
+
+#### Why the CLI is deferred
+
+`orb-ext validate` and `orb-ext pack` are `zip -r` plus a compile the install
+route already performs and reports in full — the two-phase inspection shows the
+derived requirements, the permission diff, and the exact validation error before
+anything is installed, which is the feedback the CLI would duplicate over a
+worse channel. `orb-ext test --fixture` is the one subcommand with no equivalent,
+and it is also the one that would need a supported, versioned fixture format for
+`ctx`, action input, state, and stubbed model/HTTP responses — a second contract
+to freeze, for a tier whose whole premise is that the host owns the contracts.
+
+The honest sequence is to ship it when there are enough third-party packages to
+say what authors actually get wrong. Until then it is tooling maintained against
+guesses.
 
 ---
 

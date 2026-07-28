@@ -21,6 +21,7 @@ import os
 import posixpath
 import stat
 import zipfile
+import zlib
 from typing import Protocol
 
 from .errors import PackageLimitExceeded, PackageParseError, PackageValidationError
@@ -28,6 +29,15 @@ from .limits import MAX_REFERENCED_BYTES_TOTAL, MAX_SOURCE_BYTES, MAX_TREE_ENTRI
 from .paths import assert_no_case_collisions, normalize_package_path
 
 MANIFEST_PATH = "orb-extension.json"
+
+_CORRUPT_ARCHIVE = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError)
+"""What a damaged or exotic ZIP raises, mapped to one package parse failure.
+
+Deliberately none of these is a ``ValueError``, because ``PackageValidationError``
+is one: a tuple that caught it would turn every structural rejection this module
+makes into "unreadable archive". ``NotImplementedError`` is in the list because
+that is how ``zipfile`` reports a compression method it was not built with --
+a property of the upload, not of Orb."""
 
 
 class PackageSource(Protocol):
@@ -76,7 +86,7 @@ class ArchiveSource(_BudgetedSource):
             raise PackageLimitExceeded(f"archive is {len(data)} bytes, limit is {MAX_SOURCE_BYTES}")
         try:
             self._zip = zipfile.ZipFile(_BytesReader(data))
-        except zipfile.BadZipFile as exc:
+        except _CORRUPT_ARCHIVE as exc:
             raise PackageParseError(f"not a readable .orbext archive ({exc})") from None
         self._entries = _index_archive(self._zip)
 
@@ -98,10 +108,18 @@ class ArchiveSource(_BudgetedSource):
             raise PackageValidationError(f"package does not contain {path!r}")
         if info.file_size > max_bytes:
             raise PackageLimitExceeded(f"{path}: declared {info.file_size} bytes, limit is {max_bytes}")
-        with self._zip.open(info) as fh:
-            # One byte past the limit distinguishes "exactly at the limit" from
-            # "the header lied and there is more coming".
-            data = fh.read(max_bytes + 1)
+        try:
+            with self._zip.open(info) as fh:
+                # One byte past the limit distinguishes "exactly at the limit"
+                # from "the header lied and there is more coming".
+                data = fh.read(max_bytes + 1)
+        except _CORRUPT_ARCHIVE as exc:
+            # A damaged entry is only discovered while decompressing it: the
+            # central directory the constructor validated can be intact while
+            # the deflate stream, its CRC, or its local header is not. Without
+            # this, a truncated upload leaves the archive layer as a 500 on a
+            # request whose only fault is a bad file.
+            raise PackageParseError(f"{path}: cannot be read from the archive ({exc})") from None
         if len(data) > max_bytes:
             raise PackageLimitExceeded(f"{path}: expands past the limit of {max_bytes} bytes")
         self._charge(path, len(data))

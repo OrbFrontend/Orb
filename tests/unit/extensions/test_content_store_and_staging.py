@@ -107,6 +107,27 @@ def test_garbage_collection_leaves_directories_it_did_not_write():
     assert os.path.isdir(stray)
 
 
+def test_usage_counts_revisions_and_their_bytes():
+    """What the storage page reports. Missing store is zero, not an error."""
+    assert content_store.usage() == (0, 0)
+    content_store.materialize(_files())
+    revisions, size = content_store.usage()
+    assert revisions == 1
+    assert size >= sum(len(c.canonical_bytes()) for c in _files().values())
+
+
+def test_usage_counts_staging_bytes_but_not_as_a_revision():
+    """A crash mid-install occupies disk the user should see, under no name."""
+    content_store.materialize(_files())
+    staging_dir = os.path.join(content_store.store_root(), ".staging-crashed")
+    os.makedirs(staging_dir, exist_ok=True)
+    with open(os.path.join(staging_dir, "partial.json"), "wb") as fh:
+        fh.write(b"x" * 500)
+    revisions, size = content_store.usage()
+    assert revisions == 1
+    assert size >= 500
+
+
 # ── staging tokens ──────────────────────────────────────────────────────────
 
 

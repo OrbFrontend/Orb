@@ -996,6 +996,7 @@ export async function showCleanupModal() {
       </label>
     </div>
     <p class="tool-card-desc" id="cleanup-db">…</p>
+    <p class="tool-card-desc" id="cleanup-extensions">…</p>
     <div class="modal-actions">
       <button class="btn" id="cleanup-cancel">Cancel</button>
       <button class="btn btn-danger" id="cleanup-go">Clean Up</button>
@@ -1028,6 +1029,11 @@ export async function showCleanupModal() {
       $("cleanup-artifacts-size").textContent =
         `${formatBytes(stats.artifacts.bytes)} · ${stats.artifacts.count} items`;
       $("cleanup-logs-size").textContent = `${formatBytes(stats.logs.bytes)} · ${stats.logs.count} entries`;
+      // Reported, not selectable: extension content is freed by uninstalling the
+      // package, so offering it here would promise a cleanup that cannot happen.
+      const ext = stats.extensions ?? { bytes: 0, count: 0 };
+      $("cleanup-extensions").textContent =
+        `Extension packages ${formatBytes(ext.bytes)} · ${ext.count} stored revisions — freed by uninstalling`;
       paint();
     } catch (_e) {
       toast("Failed to read storage usage", true);

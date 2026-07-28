@@ -196,6 +196,20 @@ async def test_preview_matches_what_cleanup_reports(client, db):
     assert (await client.get("/api/storage?days=7")).json()["artifacts"]["count"] == 0
 
 
+async def test_preview_reports_extension_content_without_offering_to_clean_it(client):
+    """Extension packages live outside the db file, so the page reports them.
+
+    Reported and not selectable: their lifetime is the install, and a checkbox
+    would promise an age-based cleanup that cannot exist. The key must always be
+    present -- the frontend renders the line unconditionally.
+    """
+    preview = (await client.get("/api/storage?days=0")).json()
+    assert preview["extensions"] == {"count": 0, "bytes": 0}
+
+    resp = (await client.post("/api/storage/cleanup", json={"artifacts": True, "logs": True, "days": 0})).json()
+    assert "extensions" not in resp
+
+
 async def test_budget_setting_round_trips_and_has_a_floor(client):
     resp = await client.put("/api/settings", json={"attachment_cache_budget_bytes": 100 * 1024 * 1024})
     assert resp.status_code == 200

@@ -23,6 +23,7 @@ from fastapi import APIRouter
 
 from ...core.locks import maintenance_lock
 from ...database import DB_PATH, logs_size_before, wipe_logs_older_than
+from ...features.extensions.content_store import usage as extension_content_usage
 from ...workflows.attachment_cache import aged_artifact_size, evict_older_than
 from ..schemas import CleanupRequest
 
@@ -89,9 +90,15 @@ async def api_storage(days: int = 0):
     cutoff = _cutoff(days)
     art_count, art_bytes = await aged_artifact_size(cutoff)
     log_count, log_bytes = await logs_size_before(cutoff)
+    # Extension package content is the one thing on this page that lives outside
+    # the database file, so it is reported and *not* offered as a checkbox: its
+    # lifetime is the install, not an age. Uninstalling is what frees it, and
+    # the next boot's garbage collection is what returns the bytes.
+    ext_count, ext_bytes = await asyncio.to_thread(extension_content_usage)
     return {
         "artifacts": {"count": art_count, "bytes": art_bytes},
         "logs": {"count": log_count, "bytes": log_bytes},
+        "extensions": {"count": ext_count, "bytes": ext_bytes},
         "db_bytes": os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0,
         "free_bytes": free_bytes(),
     }

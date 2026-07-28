@@ -37,6 +37,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -535,17 +537,34 @@ async def reconcile() -> int:
     database onto a machine without the content files must not silently reach
     out to a recorded commit.
     """
+    started = time.monotonic()
     staging.clear()
     rows = await list_extension_packages()
     installed = await asyncio.to_thread(load_installed, rows)
     generation = publish(installed)
+    statuses: Counter[str] = Counter()
+    blocked = 0
     for entry in installed:
         status, error = entry.load_status.value, entry.diagnostic
+        statuses[status] += 1
         if entry.row["load_status"] != status or entry.row["load_error"] != error:
             await set_extension_load_status(entry.id, status, error)
         if entry.load_status.value != "available":
             logger.warning("extension %r is %s: %s", entry.id, status, error or "no detail")
+        elif entry.blocked:
+            # Not a warning: an under-granted package is a package the user
+            # consented to partially, which is a supported state, not a fault.
+            blocked += 1
+            logger.info("extension %r has blocked entry points: %s", entry.id, ", ".join(entry.blocked))
     await collect_content_garbage()
+    if installed:
+        logger.info(
+            "extension load: %d installed (%s)%s in %.0f ms",
+            len(installed),
+            ", ".join(f"{count} {status}" for status, count in sorted(statuses.items())),
+            f", {blocked} partially granted" if blocked else "",
+            (time.monotonic() - started) * 1000,
+        )
     return generation
 
 
