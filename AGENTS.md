@@ -35,7 +35,7 @@ Dependency order (top to bottom — each layer may only import layers below it):
 
 | Layer | Purpose |
 |-------|---------|
-| `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `personas`, `tags`, `utils` |
+| `core/` | Small, closed-by-default kernel of canonical host invariants, value contracts, and process primitives |
 | `database/` | aiosqlite foundation: schema, migrations, queries, models (TypedDicts) |
 | `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`) |
 | `analysis/` | Pure prose-quality detection: `audit.py` + detectors; shared by editor + workflows |
@@ -43,6 +43,39 @@ Dependency order (top to bottom — each layer may only import layers below it):
 | `pipeline/` | Director→Writer→Editor turn engine (`entrypoints`, `orchestrator`, `context`, `config`, `persistence`, `passes/`) |
 | `features/` | Self-contained slices: `cards`, `lorebook`, `summarization`, `presets`, `documents`, `extensions` |
 | `api/` | HTTP layer: FastAPI app factory, routes, Pydantic schemas |
+
+### Core admission rule
+
+`core/` is **not** a home for code that is merely shared, pure, or convenient.
+It is closed by default. A new core symbol or module is admissible only when all
+of these are true:
+
+1. It is a canonical host invariant/value contract or a process-coordination
+   primitive, not a feature workflow.
+2. It depends only on the explicitly approved standard-library surface and
+   sibling `core/` modules. It performs no database, filesystem, network,
+   environment/config, HTTP, framework, or registry access.
+3. It must have one identity across owners that cannot legally import one
+   another, or it must sit below `database/` to enforce a write invariant at the
+   single persistence path. "Two callers" alone is not sufficient.
+4. It operates only on values supplied by its caller. Fetching, persistence,
+   projection, consent, and orchestration remain with their owning layer.
+5. Its vocabulary and policy belong to Orb itself. Extensions and workflows
+   conform to the host rule; their requirements never define a core contract.
+
+Prefer a feature-local module whenever the rule has a single feature owner. If
+a lower layer needs higher-layer behavior, use dependency inversion instead of
+moving that behavior into `core/`. The closed module/import inventory in
+`tests/unit/test_import_layering.py` makes additions an explicit architecture
+decision.
+
+The current domain-specific admissions are deliberately narrow:
+
+- `personas.py` owns only effective-persona precedence over already-loaded
+  mappings. Persona CRUD, loading, and projection stay outside `core/`.
+- `tags.py` owns only the canonical normalization of an already-supplied
+  character-tag list. Card CRUD, import, filtering, and extension operations
+  stay outside `core/`.
 
 **The one-way rule:** lower layers never import up. When a lower layer needs higher-layer *behavior*, use dependency inversion — the lower layer declares a hook, the higher layer registers an implementation. Example: `database/queries/messages.py` owns `register_workflow_attachment_persister`; `workflows/attachment_cache.py` fills it in.
 
@@ -86,7 +119,7 @@ features/<name>/
 | `model_configs` | Per-endpoint model params (temp, top_p, max_tokens, system_prompt, …) |
 | `conversations` | Chat sessions; `active_leaf_id` selects branch leaf; `macro_seed` pins {{random}} on checkpoint/compress copies |
 | `messages` | Message tree (`parent_id`); `role`, `content`, `progressive_fields`, `workflow_state` |
-| `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`). **`tags` is normalized on every update** by `core/tags.py` (trim, clip, drop empties, case-insensitive dedupe, per-tag and per-card caps) — `update_character_card` is the single write path, shared by the character API and the extension `card.tags.set`. Import is deliberately *not* normalized, and existing rows are never backfilled |
+| `character_cards` | V3-spec characters (`ccv3` chunk preferred, `chara` V2 fallback); `avatar_b64`, `world_id`, `persona_lock_id`, `extensions` (card extensions JSON; card-embedded fragments at `orb.fragments`, V3-only card fields parked at `orb.v3`, merged ephemerally in `_load_pipeline_context`). **`tags` is normalized on every update** by the canonical host policy in `core/tags.py` (trim, clip, drop empties, case-insensitive dedupe, per-tag and per-card caps) — `update_character_card` is the single write path, and extension `card.tags.set` conforms to it. Import is deliberately *not* normalized, and existing rows are never backfilled |
 | `character_expressions` | Per-character go-emotions expression images |
 | `user_personas` | User profiles injected into system prompt |
 | `director_state` | Per-conversation Director memory (moods, keywords, progressive_fields, macro_choices) |

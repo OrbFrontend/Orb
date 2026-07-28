@@ -1,13 +1,12 @@
-"""Which persona is in effect, as a pure function of already-loaded rows.
+"""Canonical effective-persona precedence over already-loaded mappings.
 
-One rule, in one place, because two callers now need it and they sit on
-opposite sides of the layer stack: the pipeline resolves the persona it injects
-into a turn, and the community-extension persona resource -- ``context.read``
-scoped to ``persona`` -- projects the persona a package may see. If those disagreed, a package would
-read a description the model never got -- or, worse, the reverse.
+This is not the persona feature. It owns only the host rule that selects an id:
+conversation pin, then character-card pin, then the global active persona.
+Persona loading, CRUD, projection, and consent remain in their owning layers.
 
-Pure and mapping-shaped so it can live in the kernel: it reads three plain
-dicts the caller already has and touches no database.
+The rule needs one identity in the pipeline and the community-extension resource
+feature, which may not import sideways from one another. It therefore receives
+plain mappings the callers already loaded and performs no database access.
 """
 
 from __future__ import annotations

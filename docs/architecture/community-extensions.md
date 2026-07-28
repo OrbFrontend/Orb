@@ -108,7 +108,7 @@ Landed (see section 17 for the phase definitions):
 
 **Phase 3 — host UI, resources, and the two reference packages**
 
-- Shared character-tag normalization (`core/tags.py`): trim, clip on a
+- Canonical host character-tag normalization (`core/tags.py`): trim, clip on a
   character boundary, drop empties, dedupe case-insensitively, cap per-tag
   bytes and per-card count. `update_character_card` is the one write path, so
   the character API and `card.tags.set` store byte-identical lists; the chip
@@ -814,12 +814,16 @@ The host — not the package — normalizes the result: trim, drop empties,
 deduplicate case-insensitively, and enforce the per-tag length and per-card
 count caps.
 
-This normalization now lives in `core/tags.py`. The character API and
-`card.tags.set` both reach it through `update_character_card`; the chip widget
-uses the same case-insensitive, first-spelling-wins rule. Import deliberately
-bypasses the helper so stored/exported author data remains faithful, while
-extension read projections apply the same caps ephemerally so an old imported
-tag list cannot exceed a resource or context budget.
+This canonical host normalization now lives in `core/tags.py`. It is a narrow
+core admission because the single database write path must enforce the invariant
+without importing a feature. It does not move card CRUD, import, filtering, UI,
+or extension behavior into `core/`. The character API and `card.tags.set` both
+reach it through `update_character_card`; the extension operation conforms to
+the host limits. The chip widget uses the same case-insensitive,
+first-spelling-wins rule. Import deliberately bypasses the helper so
+stored/exported author data remains faithful, while extension read projections
+apply the same caps ephemerally so an old imported tag list cannot exceed a
+resource or context budget.
 
 Given that shared normalizer, `card.tags.set` calls the ordinary card update
 path rather than writing the column directly.
@@ -1557,13 +1561,16 @@ hooks. A descriptor may participate only in this fixed lifecycle:
 It cannot add a new model tool, new pipeline pass, database query, or persistence
 location.
 
-The contribution registry belongs in the lower `workflows/` layer (with pure
-descriptor value contracts in `core/` if needed). `features/extensions/`
-publishes compiled community descriptors into that registry; the pipeline reads
-the captured snapshot and normalizes fragments before calling `inference/`.
-Neither `pipeline/` nor `inference/` imports `features/extensions/`, and
-`database/` never consults the live registry. This preserves the layer stack and
-allows stored unknown providers to remain inert data.
+The contribution registry belongs in the lower `workflows/` layer. Its
+descriptor contracts belong there too; being pure or shared is not sufficient
+reason to put an extension descriptor in `core/`. Only a pre-existing canonical
+host value contract that independently satisfies the `AGENTS.md` core admission
+rule may be reused from `core/`. `features/extensions/` publishes compiled
+community descriptors into that registry; the pipeline reads the captured
+snapshot and normalizes fragments before calling `inference/`. Neither
+`pipeline/` nor `inference/` imports `features/extensions/`, and `database/`
+never consults the live registry. This preserves the layer stack and allows
+stored unknown providers to remain inert data.
 
 ### IDs and data model
 
@@ -2252,7 +2259,7 @@ feature.
 |---|---|
 | `backend/features/extensions/` (new) | Strict manifest/flow/component/schema models; duplicate-key JSON loader; package reference walker/compiler; immutable compiled records; interpreter and effect staging; capability/context projection; package/CAS/staging lifecycle; safe archive/Git readers; mediated HTTP/secrets; host resources; startup reconciliation. Split these by responsibility rather than one extension manager module. |
 | `backend/core/locks.py` | Expose the conversation stream lock through a downward-safe owner or add an equivalent core lock service; add any message/extension lifecycle locks needed by transaction commits. Preserve current lock ordering and document it to prevent stream/workflow/character deadlocks. |
-| `backend/database/` | Add package/revision/secret tables, `interactive_fragments.type_config`, migrations, models, facades, and transaction-aware queries. Add an attachment-free full-tree projection and atomic branch activation. Add a snapshot-bounded, cursor-paginated library-card projection (id/name/tags plus one extension's own namespaced slot) with an authenticated host-owned cursor and adaptive byte-sized pages. Add shared character-tag normalization (trim, drop empties, case-insensitive dedupe, per-tag length and per-card count caps), route both the character API and `card.tags.set` through it, and make the chip widget match. Do not backfill existing rows, and leave card import unnormalized so exported PNGs keep author fidelity; bound extension read projections independently. Add bounded namespaced-state and purge helpers. Update `schema.py`, fresh bootstrap/stamping, seeds where applicable, and preset policy together. |
+| `backend/database/` | Add package/revision/secret tables, `interactive_fragments.type_config`, migrations, models, facades, and transaction-aware queries. Add an attachment-free full-tree projection and atomic branch activation. Add a snapshot-bounded, cursor-paginated library-card projection (id/name/tags plus one extension's own namespaced slot) with an authenticated host-owned cursor and adaptive byte-sized pages. Enforce the canonical `core/tags.py` host normalization (trim, drop empties, case-insensitive dedupe, per-tag length and per-card count caps) in the single character-card update path; route both the character API and `card.tags.set` through it, and make the chip widget match. Do not backfill existing rows, and leave card import unnormalized so exported PNGs keep author fidelity; bound extension read projections independently. Add bounded namespaced-state and purge helpers. Update `schema.py`, fresh bootstrap/stamping, seeds where applicable, and preset policy together. |
 | `backend/workflows/contracts.py` / `registry.py` / `enablement.py` | Add source/frontend kind, hook stage, immutable built-in-base + community-overlay snapshots, generation, snapshot-aware lookup/iteration, scoped community replacement, and artifact declaration validation. Do not route community tool declarations through `register_tool`. |
 | `backend/pipeline/entrypoints.py`, `context.py`, `state.py` | Capture/thread the runtime snapshot; resolve extension fragment providers before building schema; carry Director/Writer context-block collections and extension diagnostics; keep one writer content value for Editor replay. |
 | `backend/pipeline/workflow_bridge.py` / `orchestrator.py` | Adapt trusted contexts to `ExtensionCtx`; run staged declarative hooks in explicit transform/observe phases; consume only fixed control effects; commit post-message state/artifacts with the assistant result; preserve failure isolation and cancellation. |

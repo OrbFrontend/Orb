@@ -1,4 +1,8 @@
-"""Character-tag normalization -- one rule set, two callers.
+"""Canonical host normalization for an already-supplied character-tag list.
+
+This is not the character-card feature. It owns only the write invariant for a
+tag value supplied by a caller. Card persistence, import, filtering, UI, and
+extension operations remain in their owning layers.
 
 Until this module existed there was no server-side rule at all:
 ``CharacterCardUpdate.tags`` is an unconstrained ``list[str] | None`` and the
@@ -34,10 +38,10 @@ from collections.abc import Iterable
 from typing import Any
 
 MAX_TAG_BYTES = 64
-"""One tag, in UTF-8 bytes. Matches the ``card.tags.set`` execution limit."""
+"""Canonical host storage limit for one tag, in UTF-8 bytes."""
 
 MAX_TAGS_PER_CARD = 32
-"""Tags stored on one card. Matches the ``card.tags.set`` execution limit."""
+"""Canonical host storage limit for the number of tags on one card."""
 
 
 def _clip(text: str, limit: int = MAX_TAG_BYTES) -> str:

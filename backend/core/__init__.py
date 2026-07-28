@@ -1,8 +1,15 @@
-"""Shared kernel — dependency-free leaves imported by every layer above.
+"""Small shared kernel — closed by default, not a generic helpers package.
 
 This package is the bottom of the one-way dependency order
 (``api → {pipeline, features} → workflows → {inference, analysis} → core``).
 It imports nothing upward; everything else may import it.
+
+Admission requires more than being pure or having multiple callers. A symbol
+must be a canonical host invariant/value contract or process primitive that
+cannot retain a legal single-layer owner. It receives already-loaded values and
+does no I/O, persistence, configuration lookup, or feature orchestration. See
+the "Core admission rule" in ``AGENTS.md``; the module/import inventory is
+ratcheted by ``tests/unit/test_import_layering.py``.
 
 The facade re-exports the kernel surface so callers write ``from .core import X``
 regardless of which submodule ``X`` actually lives in. Patch the *canonical*
@@ -54,8 +61,9 @@ __all__ = [
     "Macros",
     "has_inline_macros",
     "resolve_inline",
-    "resolve_persona_id",
     "resolve_stored_random",
+    # personas — effective-persona host policy only
+    "resolve_persona_id",
     # tags — shared character-tag normalization
     "MAX_TAGS_PER_CARD",
     "MAX_TAG_BYTES",
