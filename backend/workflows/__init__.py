@@ -31,12 +31,16 @@ validates that every ``produces_artifacts=True`` workflow has both
 from __future__ import annotations
 
 from .contracts import (
+    AUDIT_DETECTOR_TIMEOUT_SECONDS,
     EV_ATTACH_ARTIFACT,
     EV_CONTEXT_BLOCK,
     EV_DRAFT_REPLACED,
     EV_ENABLE_TOOLS,
     EV_SET_MESSAGE_STATE,
     EV_SYSTEM_PROMPT,
+    AuditDetectorBinding,
+    AuditDetectorRequest,
+    AuditDetectorSpec,
     FrontendKind,
     HookStage,
     HookType,
@@ -76,6 +80,7 @@ from .image_gen.hooks import query as _image_gen_query
 from .image_gen.hooks import regenerate as _image_gen_regenerate
 from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
 from .registry import (
+    MAX_AUDIT_DETECTORS_PUBLISHED,
     RegistrySnapshot,
     Subscription,
     ToolNameCollision,
@@ -146,6 +151,11 @@ __all__ = [
     "PreCtx",
     "QueryCtx",
     "RegenCtx",
+    "AUDIT_DETECTOR_TIMEOUT_SECONDS",
+    "AuditDetectorBinding",
+    "AuditDetectorRequest",
+    "AuditDetectorSpec",
+    "MAX_AUDIT_DETECTORS_PUBLISHED",
     "RegistrySnapshot",
     "RerollGenCtx",
     "Subscription",

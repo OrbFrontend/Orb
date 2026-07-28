@@ -138,6 +138,25 @@ the tool is active, whether or not a call happens. ``MAX_DESCRIPTION_CHARS``
 (2000) is the bound on catalog copy a user reads once; this is the bound on
 text a model reads every turn, and they are not the same quantity."""
 
+MAX_AUDIT_FINDINGS_PER_DETECTOR = 8
+"""Findings one detector invocation may return.
+
+Charged against the Editor's report, which is prompt bytes on every rewrite
+iteration -- and against ``MAX_PREFILL_TARGETS`` (8), so one detector can at
+most fill the prefill batch it is inserted at the head of."""
+
+MAX_AUDIT_FINDING_SNIPPET_CHARS = 400
+"""One finding's draft span. Long enough for a sentence or two, short enough
+that a "finding" cannot be the whole draft echoed back as a patch anchor."""
+
+MAX_AUDIT_FINDING_NOTE_CHARS = 300
+"""One finding's explanation. Bounded package-authored *model input*: it lands
+in the Editor's tail message and in the prefilled patch prompt."""
+
+# The per-turn wall clock for the detector batch is
+# ``AUDIT_DETECTOR_TIMEOUT_SECONDS`` in ``workflows/contracts.py``: the Editor
+# enforces it, and ``pipeline/`` cannot import this peer slice.
+
 MAX_CARD_TAG_WRITES_PER_INVOCATION = 1
 """``card.tags.set`` calls per invocation. One card per invocation, by design:
 library-wide reach comes from a user driving a host-rendered loop, never from
@@ -193,6 +212,14 @@ MAX_ACTIONS = 32
 MAX_ORIGINS = 8
 MAX_SECRETS = 8
 MAX_FRAGMENT_TYPES = 16
+MAX_AUDIT_DETECTORS = 4
+"""Audit detectors one package may contribute.
+
+Small because each one is a whole extra pass over every draft, and a package
+that wants four different checks almost always wants one flow with four
+branches. The snapshot-wide cap is ``MAX_AUDIT_DETECTORS_PUBLISHED`` in
+``workflows/registry.py``, which is the layer that enforces it."""
+
 MAX_COMPONENT_NODES = 256
 MAX_COMPONENT_DEPTH = 12
 MAX_VIEW_DATA_SOURCES = 8
@@ -213,6 +240,9 @@ MAX_CTX_TEXT_BYTES = 64 * KIB
 
 MAX_CTX_CHARACTER_BYTES = 16 * KIB
 """Aggregate UTF-8 bytes of the allowlisted character projection."""
+
+MAX_CTX_DIRECTION_BYTES = 16 * KIB
+"""Aggregate UTF-8 bytes of the allowlisted Director-output projection."""
 
 MAX_RENDERED_TEMPLATE_CHARS = 128 * KIB
 """What a ``$template`` may render to, once its holes are filled.

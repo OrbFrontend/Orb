@@ -26,7 +26,7 @@ from ..inference import (
     enabled_schemas,
     writer_tool_incompatibility,
 )
-from ..workflows import RegistrySnapshot
+from ..workflows import AuditDetectorBinding, RegistrySnapshot
 from ..workflows.enablement import disabled_workflow_tool_names
 from .passes.director import build_direct_scene_override
 from .passes.editor import _feedback_active, build_feedback_override
@@ -138,6 +138,7 @@ def _resolve_pipeline_config(
         agent_tool_schemas=agent_tool_schemas,
         writer_tool_schemas=writer_tool_schemas,
         writer_tool_policy=policy,
+        audit_detectors=_resolve_audit_detectors(settings, registry),
         writer_text_mode=writer_text_mode,
         writer_lane=writer_lane,
         agent_lane=agent_lane,
@@ -208,6 +209,31 @@ def _resolve_writer_tool_policy(
         description=str(function.get("description", "")),
         parameter_summary=_parameter_summary(function.get("parameters")),
     )
+
+
+def _resolve_audit_detectors(
+    settings: Mapping[str, Any],
+    registry: RegistrySnapshot | None,
+) -> tuple[AuditDetectorBinding, ...]:
+    """The contributed detectors this turn runs, in snapshot order.
+
+    Resolved from the *captured* snapshot, exactly like the Writer tool, so a
+    package installed mid-turn cannot add a detector to a turn already running.
+
+    Default **off**, unlike ``analysis.audit._on``, which defaults a missing key
+    to enabled. That is right for the built-in scanners, whose keys ship in
+    ``schema.py``'s default JSON and whose cost is a local scan -- and wrong
+    here: installing a package must not silently add a per-turn model call and a
+    draft-shaped egress to every reply. This mirrors the Writer tool, which is
+    eligible on install and inert until the user selects it. One extra click,
+    and the asymmetry is the point.
+    """
+    if registry is None or not registry.audit_detectors:
+        return ()
+    toggles = settings.get("editor_audit_toggles") or {}
+    if not isinstance(toggles, Mapping):
+        return ()
+    return tuple(binding for key, binding in registry.audit_detectors.items() if toggles.get(key) is True)
 
 
 def _parameter_summary(parameters: Any) -> str:

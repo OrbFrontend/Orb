@@ -194,6 +194,7 @@ why there is no `context.draft.read`.
 | `context.read` | `field`: `draft` | Read the post-writer draft. |
 | `context.read` | `field`: `history` | Read a bounded active-path history window. |
 | `context.read` | `field`: `character` | Read an allowlisted character text projection plus its tags. |
+| `context.read` | `field`: `direction` | Read this turn's scene direction: active moods, the Scene Direction text, and the reduced fragment map. |
 | `context.read` | `field`: `persona` | Read the active persona's name and description. Also gates the `persona` resource. |
 | `conversation.tree.read` | `field`: `structure` | Read message-node metadata for every branch. Gates the `conversation.tree` resource. |
 | `conversation.tree.read` | `field`: `preview` | Also read previews from inactive branches. Requires `structure`. |
@@ -211,6 +212,7 @@ why there is no `context.draft.read`.
 | `ui.contribute` | `slot` | Place a command or view in one exact slot. |
 | `fragment_type.contribute` | — | Register namespaced fragment types. |
 | `writer.tool.contribute` | — | Contribute the one Writer tool (API 2). |
+| `audit.detector.contribute` | — | Contribute checks to the Output Auditor (API 3). Reads every draft before you see it and can steer a rewrite. |
 
 `CAPABILITY_SPECS` in `features/extensions/contracts/capabilities.py` is the one
 place any of this is written down. Each entry carries its consent copy, the
@@ -383,11 +385,11 @@ whether its effect is staged.
 | Operation | Capability | Allowed in |
 |---|---|---|
 | `if`, `return`, `text.concat`, `text.replace_literal`, `json.pick`, `json.merge`, `list.intersect`, `list.join`, `math.add`, `math.subtract`, `math.negate`, `math.clamp` | — | everywhere, including reducers |
-| `random.integer`, `random.choice` | — | pre, post, action, recovery, writer tool |
-| `state.get` | `state.read` (`scope`) | pre, post, action, recovery, writer tool |
-| `state.set`, `state.delete` | `state.write` (`scope`) | pre, post, action, recovery, writer tool |
-| `model.text`, `model.structured` | `model.call` (`lane`) | pre, post, action, recovery, writer tool |
-| `http.request` | `network.request` (origin) | pre, post, action, recovery, writer tool |
+| `random.integer`, `random.choice` | — | pre, post, action, recovery, writer tool, detector |
+| `state.get` | `state.read` (`scope`) | pre, post, action, recovery, writer tool, detector |
+| `state.set`, `state.delete` | `state.write` (`scope`) | pre, post, action, recovery, writer tool, detector |
+| `model.text`, `model.structured` | `model.call` (`lane`) | pre, post, action, recovery, writer tool, detector |
+| `http.request` | `network.request` (origin) | pre, post, action, recovery, writer tool, detector |
 | `ui.status`, `ui.toast` | — | pre, post, action, recovery |
 | `ui.invalidate` | `ui.contribute` | pre, post, action, recovery |
 | `artifact.emit` | `artifact.write` | post, action, recovery |
@@ -396,10 +398,13 @@ whether its effect is staged.
 | `card.tags.set` | `card.write` for `tags` | actions only |
 | `conversation.branch.activate` | `conversation.branch.activate` | actions only |
 
-The seven contexts are `pre_pipeline`, `post_transform`, `post_observe`,
-`action`, `recovery`, `reducer`, and `writer_tool`. A **reducer** is the
-strictest profile — a pure function from (config, previous, Director output) to
-the next value. A **Writer tool** is next strictest: no UI, no draft, no
+The eight contexts are `pre_pipeline`, `post_transform`, `post_observe`,
+`action`, `recovery`, `reducer`, `writer_tool`, and `detector`. A **reducer** is
+the strictest profile — a pure function from (config, previous, Director output)
+to the next value. A **Writer tool** and a **detector** share the next profile
+and share the reason for it: both run inside an unfinished turn with no user
+click and no assistant row, so both get `EXTERNAL_CONTEXTS` (model calls, state,
+HTTP) and neither gets `IMPURE_CONTEXTS` — no UI, no draft replacement, no
 artifacts, no first-party writes, and no message-scoped state. **Recovery** is
 the regenerate/reroll pair an artifact producer declares; the framework already
 knows which attachment is being rebuilt, so a recovery flow names no target
@@ -956,6 +961,103 @@ The catalog exposes the whole state as host-derived fields:
 }
 ```
 
+### Audit detectors (`extension_api: 3`)
+
+The Editor's mirror of the Writer tool. A v3 package may contribute up to four
+checks to the Output Auditor behind `audit.detector.contribute`; each one runs
+against the post-Writer draft and its findings merge into the same audit report
+the built-in scanners produce — which means they render in the report the Editor
+reads *and* feed the prefilled `editor_apply_patch` path, exactly like a cliché
+hit. The use case that shaped it is scoring slop with a classifier model instead
+of a static algorithm.
+
+```json
+{
+  "extension_api": 3,
+  "permissions": [
+    { "capability": "audit.detector.contribute" },
+    { "capability": "context.read", "field": "draft" },
+    { "capability": "context.read", "field": "direction" },
+    { "capability": "model.call", "lane": "agent" }
+  ],
+  "contributions": {
+    "audit_detectors": [
+      {
+        "id": "slop",
+        "label": "Model-scored slop",
+        "description": "Flags the weakest sentence in each reply.",
+        "flow": "flows/score-slop.json"
+      }
+    ]
+  }
+}
+```
+
+**The finding shape is host-fixed.** A detector declares no output schema, so it
+cannot widen what a finding is. The flow returns an array of
+`{ "snippet": str, "note": str }`; `snippet` is a span of the draft, or `""` for
+a whole-draft judgement. `label` is stamped by the *host* from the binding onto
+every finding — a per-finding heading would be package text rendered as though
+Orb had classified it.
+
+**Default off, and that asymmetry is the point.** `analysis.audit._on` defaults a
+missing toggle to *enabled*, which is right for the built-in scanners shipped in
+`schema.py`'s default JSON. It is wrong here: installing a package must not
+silently add a per-turn model call and a draft-shaped egress to every reply. A
+contributed detector is eligible on install and inert until the user ticks it,
+mirroring the Writer tool's separate selection step. Contributed toggles key into
+the existing free-form `settings.editor_audit_toggles` JSON under
+`"<ext>:<local>"` — no migration, no new table, no new route.
+
+**Detectors run once per turn**, before the initial audit, in one
+`asyncio.gather` under one `asyncio.wait_for(AUDIT_DETECTOR_TIMEOUT_SECONDS)`.
+The findings are merged into every subsequent report, and
+`filter_audit_report_to_text` prunes each one as the rewrite fixes the span it
+named. The editor audits up to three times, so re-running per iteration would be
+up to 4× the model calls and 4× the prefix evictions for findings that are
+mostly still valid. There is no per-turn budget object: each invocation already
+carries the interpreter's own caps, and the registry bounds how many detectors
+exist.
+
+`AUDIT_DETECTOR_TIMEOUT_SECONDS` (20 s) is the first *wall-clock* timeout on a
+flow invocation — the existing ones are transport-level. The asymmetry with the
+Writer tool is deliberate: a Writer-tool call is something the model chose
+mid-stream while the user watches tokens arrive, whereas a detector is invisible
+work between the Writer finishing and the reply appearing. It sits below the
+30 s HTTP timeout so a hung origin cannot hold a turn for its full budget.
+
+**Any failure yields zero findings and never fails the turn** — a revoked grant,
+a timeout, a malformed return, a blocked invocation. The same philosophy as
+`RESOLVER_UNAVAILABLE`: the reply is not the place to surface a package's
+problem.
+
+**KV cache.** Findings render through `format_report` into the Editor's per-turn
+tail message, exactly where the built-in report already goes; no pass's shared
+prefix gains a byte. The unavoidable cost is the one the Writer tool already
+pays — a detector's `model.*` call is an isolated, prefix-free completion, so on
+a single-slot server it evicts the turn's shared prefix between the Writer and
+the Editor. Running once per turn is what keeps that to one eviction.
+
+**Document mode is deliberately out of scope.** `features/documents/audit.py`
+calls `run_audit` directly with its own `document_audit_toggles` column and never
+sees a `_PipelineConfig`.
+
+The catalog lists the rows the audit panel renders:
+
+```json
+{
+  "audit_detectors": [
+    {
+      "id": "slop",
+      "namespaced_id": "slop-scorer:slop",
+      "label": "Model-scored slop",
+      "description": "Flags the weakest sentence in each reply.",
+      "enabled": false
+    }
+  ]
+}
+```
+
 ---
 
 ## Network and secrets
@@ -1328,7 +1430,16 @@ diagnostic rather than misbehaving. None of that needs an `extension_api` bump.
 - **A new API version.** Add it to `SUPPORTED_EXTENSION_APIS` and give each new
   `contributions` slot an entry in `CONTRIBUTION_MIN_API`. A slot introduced in
   a later API stays refused on an earlier one, which is the whole reason a
-  contribution field warrants a version bump.
+  contribution field warrants a version bump. API 2 added `writer_tool`; API 3
+  added `audit_detectors`.
+- **A new pass-facing contribution.** Follow the three-way split both existing
+  ones use: the value contract in the lowest layer every owner can import
+  (`core/writer_tools.py` for the Writer tool, because three layers must agree on
+  a wire name; `analysis/audit.py` for a finding, because the report it merges
+  into already lives there), the binding on a `RegistrySnapshot`, the executor
+  compiled in `features/extensions/`, and resolution from the *captured* snapshot
+  in `pipeline/`. A new `core/` module is admissible only when no lower layer can
+  own the contract — check the core admission rule before adding one.
 
 ### Admission rules
 
@@ -1429,11 +1540,12 @@ Package:
 | Path length | 240 bytes |
 | Declared flow steps | 128 |
 | Permissions / actions / views / placements / commands | 64 / 32 / 32 / 32 / 32 |
-| Declared origins / secrets / fragment types | 8 / 8 / 16 |
+| Declared origins / secrets / fragment types / audit detectors | 8 / 8 / 16 / 4 |
 | Component nodes per view, depth, data sources | 256 / 12 / 8 |
 | Declared `$template` literal, substitutions | 8192 chars / 32 |
 | Writer-tool description (and each property description) | 600 chars |
 | One Writer-tool schema entry / all published bindings | 4 KiB / 32 bindings, 8 KiB blob |
+| Published audit detectors per snapshot | 8 |
 
 Per flow invocation:
 
@@ -1451,6 +1563,7 @@ Per flow invocation:
 | Rendered template | 128 KiB |
 | Draft / action result | 1 MiB / 1 MiB |
 | Writer-tool arguments / result | 16 KiB / 8 KiB |
+| Audit findings per detector / snippet / note / batch wall clock | 8 / 400 chars / 300 chars / 20 s |
 | JSON depth / members / string | 32 / 1024 / 256 KiB |
 
 Projections and resources:
@@ -1459,7 +1572,7 @@ Projections and resources:
 |---|---:|
 | History window | 20 messages, 32 KiB |
 | One projected text field | 64 KiB |
-| Character / persona projection | 16 KiB / 8 KiB |
+| Character / persona / direction projection | 16 KiB / 8 KiB / 16 KiB |
 | Conversation-tree nodes, one preview | 2000, 120 chars |
 | One resource response / page items / one text field | 512 KiB / 100 / 4 KiB |
 | Active extension-backed fragment instances per turn | 50 |

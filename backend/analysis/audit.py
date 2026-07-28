@@ -4,6 +4,7 @@ audit.py — Run all programmatic scanners and produce a consolidated AuditRepor
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .detectors.slop_detector import DetectionResult, detect_cliches
@@ -67,6 +68,30 @@ def _merge_phrase_results(short: PhraseResult, long: PhraseResult) -> PhraseResu
 # Data container
 
 
+@dataclass(frozen=True, slots=True)
+class ContributedFinding:
+    """One finding a contributed detector produced, as the report carries it.
+
+    The value type lives here rather than in ``core/`` because the report it
+    merges into lives here, and ``analysis/`` sits below every owner that has to
+    agree on it (``workflows/``, ``pipeline/``, ``features/extensions/``). It
+    imports nothing, which is what keeps that placement legal.
+
+    ``label`` is stamped by the *host* from the binding's label, never taken
+    from a per-finding value. A section heading a package could rewrite per
+    finding would be package text rendered as though Orb had classified it.
+    """
+
+    detector_id: str
+    """``"<ext>:<local>"`` -- the namespaced catalog key the toggle uses."""
+
+    label: str
+    snippet: str
+    """The span in the draft, or ``""`` for a whole-draft finding."""
+
+    note: str
+
+
 class AuditReport:
     __slots__ = (
         "cliche_result",
@@ -76,6 +101,7 @@ class AuditReport:
         "phrase_result",
         "structural_repetition_result",
         "echo_result",
+        "contributed_results",
     )
 
     def __init__(
@@ -87,6 +113,7 @@ class AuditReport:
         phrase_result: PhraseResult | None = None,
         structural_repetition_result: StructuralResult | None = None,
         echo_result: EchoResult | None = None,
+        contributed_results: tuple[ContributedFinding, ...] = (),
     ):
         self.cliche_result = cliche_result
         self.monotony_result = monotony_result
@@ -95,6 +122,7 @@ class AuditReport:
         self.phrase_result = phrase_result
         self.structural_repetition_result = structural_repetition_result
         self.echo_result = echo_result
+        self.contributed_results = contributed_results
 
     @classmethod
     def clean(cls) -> AuditReport:
@@ -107,6 +135,7 @@ class AuditReport:
             phrase_result=None,
             structural_repetition_result=None,
             echo_result=None,
+            contributed_results=(),
         )
 
     @property
@@ -122,6 +151,7 @@ class AuditReport:
             and is_phrase_clean
             and is_structural_clean
             and is_echo_clean
+            and len(self.contributed_results) == 0
         )
 
     @property
@@ -137,6 +167,7 @@ class AuditReport:
             + phrase_issues
             + structural_issues
             + echo_issues
+            + len(self.contributed_results)
         )
 
 
@@ -344,8 +375,28 @@ def format_report(report: AuditReport) -> str:
             lines.append(f'   - "{_strip_markers(fe.echo)}" repeats the user\'s words: "{_strip_markers(fe.matched_phrase)}"')
         sections.append("\n".join(lines))
 
+    # 8. Contributed detectors, one section per detector in first-seen order.
+    # Headed by the host-stamped label so the model reads a heading Orb wrote,
+    # in the same shape as the built-in sections above it.
+    for detector_id, findings in _group_contributed(report.contributed_results).items():
+        lines = [findings[0].label or detector_id]
+        for finding in findings:
+            snippet = _strip_markers(finding.snippet)
+            lines.append(f'   - "{snippet}": {finding.note}' if snippet else f"   - {finding.note}")
+        sections.append("\n".join(lines))
+
     sections.append("\n*** END OF REPORT ***")
     return "\n\n".join(sections)
+
+
+def _group_contributed(
+    findings: tuple[ContributedFinding, ...],
+) -> dict[str, list[ContributedFinding]]:
+    """Group findings by detector, preserving first-seen detector order."""
+    grouped: dict[str, list[ContributedFinding]] = {}
+    for finding in findings:
+        grouped.setdefault(finding.detector_id, []).append(finding)
+    return grouped
 
 
 def report_to_dict(report: AuditReport) -> dict:
@@ -422,6 +473,18 @@ def report_to_dict(report: AuditReport) -> dict:
         sections["anti_echo"] = [
             {"echo": _strip_markers(fe.echo), "matched": _strip_markers(fe.matched_phrase)}
             for fe in report.echo_result.flagged_echoes
+        ]
+
+    # Contributed sections key on the namespaced detector id, so they cannot
+    # collide with an AUDIT_TYPES name (which never contains a colon).
+    for detector_id, findings in _group_contributed(report.contributed_results).items():
+        sections[detector_id] = [
+            {
+                "label": finding.label,
+                "snippet": _strip_markers(finding.snippet),
+                "note": finding.note,
+            }
+            for finding in findings
         ]
 
     return {"total_issues": report.total_issues, "is_clean": report.is_clean, "sections": sections}

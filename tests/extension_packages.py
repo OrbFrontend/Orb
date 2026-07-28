@@ -885,3 +885,91 @@ def outcome_resolver_package(**overrides: Any) -> bytes:
             "flows/resolve-outcome.json": resolve_outcome_flow(),
         }
     )
+
+
+# ── API 3: a contributed audit detector ─────────────────────────────────────
+# The Editor's mirror of the Writer tool. The flow reads ``ctx.draft`` and
+# ``ctx.direction``, scores the draft with an isolated model call, and returns
+# the host-fixed ``[{snippet, note}]`` shape -- the package declares no output
+# schema, so it cannot widen what a finding is.
+
+SLOP_SCORER_ID = "slop-scorer"
+
+
+def score_slop_flow() -> dict[str, Any]:
+    """Ask a model for the worst span in the draft, return it as one finding.
+
+    ``ctx.direction`` is read for its own sake: it is what a scorer needs to
+    judge a draft against the scene it was supposed to write, and it is the
+    projection Phase 1 added. The ``model.structured`` call is what makes this a
+    *classifier* detector rather than another static algorithm.
+    """
+    return {
+        "flow_version": 1,
+        "steps": [
+            {
+                "id": "score",
+                "op": "model.structured",
+                "lane": "agent",
+                "prompt": {
+                    "$template": (
+                        "Scene direction: {{ctx.direction.scene_direction}}\n\n"
+                        "Quote the single worst sentence of this reply, and say why in one line.\n\n"
+                        "{{ctx.draft}}"
+                    )
+                },
+                "output_schema": {
+                    "type": "object",
+                    "properties": {"snippet": {"type": "string"}, "note": {"type": "string"}},
+                    "required": ["snippet", "note"],
+                    "additionalProperties": False,
+                },
+            },
+            {
+                "op": "return",
+                "value": [
+                    {
+                        "snippet": {"$ref": "steps.score.snippet"},
+                        "note": {"$ref": "steps.score.note"},
+                    }
+                ],
+            },
+        ],
+    }
+
+
+def audit_detector_manifest(**overrides: Any) -> dict[str, Any]:
+    base = manifest(
+        extension_api=3,
+        id=SLOP_SCORER_ID,
+        name="Slop Scorer",
+        description="Scores each draft with a classifier instead of a static algorithm.",
+        requires={"operations": ["model.structured", "return"], "components": []},
+        permissions=[
+            {"capability": "audit.detector.contribute"},
+            {"capability": "context.read", "field": "draft"},
+            {"capability": "context.read", "field": "direction"},
+            {"capability": "model.call", "lane": "agent"},
+        ],
+        contributions={
+            "audit_detectors": [
+                {
+                    "id": "slop",
+                    "label": "Model-scored slop",
+                    "description": "Flags the weakest sentence in each reply.",
+                    "flow": "flows/score-slop.json",
+                }
+            ]
+        },
+    )
+    base.update(overrides)
+    return base
+
+
+def audit_detector_package(**overrides: Any) -> bytes:
+    return orbext(
+        {
+            "orb-extension.json": audit_detector_manifest(**overrides),
+            "flows/score-slop.json": score_slop_flow(),
+        }
+    )

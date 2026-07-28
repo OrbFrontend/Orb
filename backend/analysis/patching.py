@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from dataclasses import fields
 
-from .audit import AuditReport
+from .audit import AuditReport, ContributedFinding
 from .detectors.opening_monotony import FlaggedOpener, MonotonyResult
 from .detectors.slop_detector import DetectionResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
@@ -54,6 +54,25 @@ def _filter_flagged_items(items, sentences: set[str], total: int, *, cls, label_
                 )
             )
     return filtered
+
+
+def live_contributed_findings(
+    findings: tuple[ContributedFinding, ...],
+    target_text: str,
+) -> tuple[ContributedFinding, ...]:
+    """The contributed findings whose span still appears in *target_text*.
+
+    Substring containment, like the cliché and not-but branches below rather
+    than the sentence-set path: a detector reports the span it chose, not one
+    the host's splitter produced, so set membership would drop findings that are
+    still perfectly valid.
+
+    This is what ages findings out across the editor's rewrite loop -- a span
+    the rewrite already fixed stops matching -- and it is what lets detectors run
+    once per turn instead of once per iteration. A finding with no span is a
+    whole-draft judgement and always survives.
+    """
+    return tuple(finding for finding in findings if not finding.snippet or finding.snippet in target_text)
 
 
 def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditReport:
@@ -111,6 +130,8 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
     # splits only on [.!?]), so use substring containment here too.
     filtered_not_but = [nb for nb in report.not_but_result if nb.get("sentence", "") in target_text]
 
+    filtered_contributed = live_contributed_findings(report.contributed_results, target_text)
+
     # Structural repetition and exact phrase repetition are cross-message checks,
     # so they're always relevant when comparing the draft to previous messages.
     # Phrase repetition already focuses on the draft via require_last_message, so
@@ -125,6 +146,7 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
         phrase_result=report.phrase_result,
         structural_repetition_result=report.structural_repetition_result,
         echo_result=report.echo_result,
+        contributed_results=filtered_contributed,
     )
 
 

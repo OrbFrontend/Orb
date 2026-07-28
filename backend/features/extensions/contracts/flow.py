@@ -495,27 +495,32 @@ def check_context(flow: Flow, context: OpContext) -> list[str]:
                 f"operation {op!r} is not allowed in a {context.value} flow (allowed: {sorted(c.value for c in spec.contexts)})"
             )
     problems.extend(_artifact_target_problems(flow, context))
-    problems.extend(_writer_tool_scope_problems(flow, context))
+    problems.extend(_no_message_row_scope_problems(flow, context))
     return problems
 
 
-def _writer_tool_scope_problems(flow: Flow, context: OpContext) -> Iterator[str]:
-    """A Writer tool cannot address message-scoped state.
+_NO_MESSAGE_ROW_CONTEXTS = frozenset({OpContext.WRITER_TOOL, OpContext.DETECTOR})
+"""Contexts that run inside an unfinished turn, before the assistant row exists."""
+
+
+def _no_message_row_scope_problems(flow: Flow, context: OpContext) -> Iterator[str]:
+    """A flow running mid-turn cannot address message-scoped state.
 
     Not a runtime "there is no message in scope" -- a compile-time refusal. The
-    assistant row does not exist while the Writer is mid-reply, so a package
-    that writes message state in this context is describing a target that never
-    exists for this entry point, and finding that out on the first live turn
-    would mean a failed resolver in front of a user rather than a rejected
-    install in front of the author.
+    assistant row does not exist while the Writer is mid-reply, nor while the
+    Editor is auditing the draft it produced, so a package that writes message
+    state in either context is describing a target that never exists for that
+    entry point. Finding that out on the first live turn would mean a failed
+    contribution in front of a user rather than a rejected install in front of
+    the author.
     """
-    if context is not OpContext.WRITER_TOOL:
+    if context not in _NO_MESSAGE_ROW_CONTEXTS:
         return
     for step in iter_steps(flow.steps):
         if step.op.startswith("state.") and step.scope == "message":
             yield (
-                f"operation {step.op!r} cannot use scope 'message' in a writer_tool flow: the assistant message "
-                f"does not exist yet while the Writer is still writing it"
+                f"operation {step.op!r} cannot use scope 'message' in a {context.value} flow: the assistant "
+                f"message does not exist yet while the turn is still producing it"
             )
 
 

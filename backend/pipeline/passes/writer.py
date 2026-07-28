@@ -235,6 +235,7 @@ async def writer_pass(
     character_id: str | None = None,
     history: Sequence[Mapping[str, Any]] | None = None,
     effective_msg: str = "",
+    direction: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict]:
     """Yield ``{"type": "content"|"reasoning"|"tool_status"|"trace", ...}`` dicts.
 
@@ -302,6 +303,7 @@ async def writer_pass(
         character_id=character_id,
         history=history,
         effective_msg=effective_msg,
+        direction=direction,
     ):
         yield item
 
@@ -347,6 +349,7 @@ async def _resolve_and_continue(
     character_id: str | None,
     history: Sequence[Mapping[str, Any]] | None,
     effective_msg: str,
+    direction: Mapping[str, Any] | None,
 ) -> AsyncIterator[dict]:
     """Answer the assistant's calls, then run exactly one continuation.
 
@@ -422,6 +425,7 @@ async def _resolve_and_continue(
                     card=card,
                     history=tuple(history or ()),
                     last_user_message=effective_msg,
+                    direction=direction,
                 )
             )
         except Exception as exc:
@@ -586,6 +590,7 @@ async def writer_stage(
         character_id=character_id,
         history=history,
         effective_msg=state.effective_msg,
+        direction=state.as_direction_view(),
     ):
         if item["type"] == "reasoning":
             state.reasoning_writer += item["delta"]

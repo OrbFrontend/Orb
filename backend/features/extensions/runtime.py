@@ -47,6 +47,7 @@ from ...workflows.registry import (
 )
 from . import content_store
 from .adapters import (
+    audit_detector_bindings,
     fragment_type_bindings,
     hook_bindings,
     publishes_artifacts,
@@ -284,6 +285,14 @@ def blocked_entry_points(compiled: CompiledPackage, granted: frozenset[Requireme
         # record. If any reducer cannot execute end to end, publish none rather
         # than expose a partially live type set under one consent grant.
         yield "fragment type contributions"
+    if manifest.contributions.audit_detectors and (
+        (Capability.AUDIT_DETECTOR_CONTRIBUTE.value, None) not in granted
+        or any(not covered(descriptor.flow) for descriptor in manifest.contributions.audit_detectors)
+    ):
+        # All-or-nothing like the fragment catalog: the detectors publish under
+        # one consent grant, so a set where some run and others silently do not
+        # is worse than a package the manager can explain.
+        yield "audit detectors"
     writer_tool = manifest.writer_tool
     if writer_tool is not None and (
         (Capability.WRITER_TOOL_CONTRIBUTE.value, None) not in granted or not covered(writer_tool.flow)
@@ -370,6 +379,12 @@ def _record(entry: InstalledExtension) -> Workflow:
         # rather than filtered afterwards.
         if bool(entry.row["enabled"]):
             record.writer_tool = writer_tool_binding(entry.compiled, entry.blocked)
+            # Gated on enablement for the same reason: a disabled package must
+            # not put a row in the audit panel, and the panel renders from the
+            # catalog rather than filtering it afterwards. The *toggle* is a
+            # separate axis again -- publishing makes a detector eligible, and
+            # ``_resolve_audit_detectors`` still requires an explicit opt-in.
+            record.audit_detectors = audit_detector_bindings(entry.compiled, entry.blocked)
             # The stored preference survives disable and revocation; it becomes
             # a *selection* only when there is a binding to select. Publishing
             # the flag without one is refused by the registry, which is what

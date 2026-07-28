@@ -22,6 +22,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any
 
+from ..analysis import ContributedFinding
 from ..core import WriterToolInvocation, WriterToolResult, WriterToolSpec
 
 
@@ -97,6 +98,13 @@ class WriterToolRequest:
     card: Mapping[str, Any] | None = None
     history: tuple = ()
     last_user_message: str = ""
+    direction: Mapping[str, Any] | None = None
+    """This turn's bounded scene-direction bundle, or ``None``.
+
+    Carried on the request rather than read from the turn, because the executor
+    builds its ``ctx`` purely from these fields -- without one there is nothing
+    to project, however granted the package is."""
+
     runtime_generation: int = 0
 
 
@@ -127,6 +135,104 @@ class WriterToolBinding:
     @property
     def owner_id(self) -> str:
         return self.spec.key.owner_id
+
+    @property
+    def label(self) -> str:
+        return self.spec.label
+
+
+AUDIT_DETECTOR_TIMEOUT_SECONDS = 20.0
+"""Wall clock for one turn's whole contributed-detector batch.
+
+The first wall-clock timeout on a flow invocation -- the existing ones are
+transport-level (``HTTP_TIMEOUT_SECONDS``, ``GIT_FETCH_TIMEOUT_SECONDS``). The
+asymmetry with the Writer tool is deliberate: a Writer-tool call is something the
+model chose mid-stream while the user watches tokens arrive, whereas a detector
+is invisible work between the Writer finishing and the reply appearing. Set
+below the 30 s HTTP timeout so a hung origin cannot hold a turn for its full
+budget.
+
+Here rather than in ``features/extensions/limits.py`` because the *Editor*
+enforces it, and ``pipeline/`` may not import that peer slice.
+"""
+
+
+@dataclass(frozen=True)
+class AuditDetectorRequest:
+    """One contributed audit detector's invocation, plus the host services it may use.
+
+    The Editor's mirror of :class:`WriterToolRequest`, and deliberately the same
+    *whole* field set rather than just the draft. The executor projects a model
+    lane out of ``settings`` and ``client``, and builds its ``ctx`` from the
+    card, history, last user message, and direction -- a four-field shape
+    (draft, previous messages, conversation, seed) could not have called a model
+    at all, which is the use case the contribution exists for.
+
+    ``draft`` is the post-Writer text as the Editor has it, and
+    ``previous_messages`` is the same recent-assistant window the cross-message
+    scanners compare against.
+    """
+
+    draft: str
+    previous_messages: tuple[str, ...]
+    conversation_id: str | None
+    turn_seed: str
+    settings: Mapping[str, Any]
+    client: Any
+    is_cancelled: Callable[[], bool]
+    character_id: str | None = None
+    card: Mapping[str, Any] | None = None
+    history: tuple = ()
+    last_user_message: str = ""
+    direction: Mapping[str, Any] | None = None
+    runtime_generation: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class AuditDetectorSpec:
+    """The immutable identity of one contributed audit detector."""
+
+    key: str
+    """``"<ext>:<local>"`` -- the namespaced catalog key, and the key the
+    free-form ``settings.editor_audit_toggles`` map is written under."""
+
+    label: str
+    """The section heading the host stamps onto every finding this detector
+    produces. Package-authored text, rendered as data and never as markup."""
+
+    content_digest: str
+    """The compiled revision this spec was built from, checked against the
+    owning record at publish time."""
+
+    @property
+    def owner_id(self) -> str:
+        return self.key.split(":", 1)[0]
+
+
+@dataclass(frozen=True)
+class AuditDetectorBinding:
+    """One contributed detector: its immutable spec plus how to run it.
+
+    Modelled on :class:`WriterToolBinding`, and likewise *not* a
+    :class:`ToolSpec`: it claims no name in the inference registry, is resolved
+    only through a captured snapshot, and carries its own executor.
+
+    ``invoke`` returns fully stamped findings -- the owning layer built it over
+    an already compiled revision, so the pipeline merges typed values without
+    knowing what a package, a flow, or a grant is. Any failure yields zero
+    findings rather than failing the turn.
+    """
+
+    spec: AuditDetectorSpec
+    invoke: Callable[[AuditDetectorRequest], Awaitable[tuple[ContributedFinding, ...]]]
+
+    @property
+    def key(self) -> str:
+        return self.spec.key
+
+    @property
+    def owner_id(self) -> str:
+        return self.spec.owner_id
 
     @property
     def label(self) -> str:
@@ -236,6 +342,13 @@ class PostCtx:
     schema_overrides: MappingProxyType
     character_id: str | None = None
     character: MappingProxyType | None = None
+    direction: Mapping[str, Any] | None = None
+    """The bounded scene-direction bundle, for hooks that only need that much.
+
+    ``director_output`` remains the trusted full projection; this is the same
+    subset a community package may be granted, so the adapter has one field to
+    forward rather than a filter to keep in sync with the consent copy."""
+
     runtime_generation: int = 0
 
 
