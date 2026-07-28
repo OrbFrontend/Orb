@@ -578,9 +578,18 @@ class ExtensionPackageRow(TypedDict):
 
 
 class ExtensionPackageRuntimeRow(ExtensionPackageRow):
-    """An installed package joined to its active revision's consent contract."""
+    """An installed package joined to its active revision's consent contract.
+
+    ``active_commit_id`` is the Git commit that revision was fetched from, and
+    None for an archive install. It is joined here rather than looked up
+    per-package because the manager shows it beside the digest -- "exact
+    commit/digest" is what the design asks the consent and detail surfaces to
+    display, and a second query per row to get it would be an N+1 on the catalog
+    route.
+    """
 
     active_contract_fingerprint: str | None
+    active_commit_id: str | None
 
 
 class ExtensionRevisionRow(TypedDict):

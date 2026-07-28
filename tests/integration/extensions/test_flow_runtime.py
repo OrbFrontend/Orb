@@ -18,7 +18,7 @@ import asyncio
 import pytest
 
 import backend.database as dbmod
-from backend.features.extensions import execution
+from backend.features.extensions import execution, interpreter
 from backend.features.extensions.adapters import _invoke, _StateAccess
 from backend.features.extensions.contracts import Flow, OpContext
 from backend.features.extensions.errors import FlowError
@@ -83,12 +83,20 @@ async def test_a_granted_package_publishes_both_hooks(client):
 
 async def test_a_flow_reaching_an_unimplemented_operation_is_blocked_not_published(
     client,
+    monkeypatch,
 ):
     """A later phase's operation blocks its entry point, exactly like a missing grant.
 
     Publishing it and failing mid-flow would be worse than not publishing:
     the user would see an extension that works until the step that does not.
+
+    ``UNIMPLEMENTED_OPS`` is empty as of Phase 4, so the gate is exercised
+    against a synthetic entry rather than deleted with the last operation that
+    populated it. The seam is what this test is about -- it exists for the next
+    operation whose contract ships ahead of its runtime, and an untested
+    mechanism with nothing in it is the one that quietly stops working.
     """
+    monkeypatch.setattr(interpreter, "UNIMPLEMENTED_OPS", frozenset({"http.request"}))
     package = orbext(
         {
             "orb-extension.json": scene_meter_manifest(
@@ -404,7 +412,12 @@ async def test_revocation_after_the_last_privileged_step_prevents_commit(client)
     )
     stream = _invoke(
         flow=_flow(
-            {"op": "state.set", "scope": "conversation", "path": "saved", "value": True},
+            {
+                "op": "state.set",
+                "scope": "conversation",
+                "path": "saved",
+                "value": True,
+            },
             {"op": "ui.status", "text": "paused"},
         ),
         invocation=invocation,
@@ -438,13 +451,77 @@ async def test_context_budget_failure_discards_the_same_invocations_state(client
     with pytest.raises(FlowError, match="context blocks exceed"):
         async for _ in _invoke(
             flow=_flow(
-                {"op": "state.set", "scope": "conversation", "path": "saved", "value": True},
-                {"op": "context.append", "targets": ["writer"], "label": "L", "text": "context"},
+                {
+                    "op": "state.set",
+                    "scope": "conversation",
+                    "path": "saved",
+                    "value": True,
+                },
+                {
+                    "op": "context.append",
+                    "targets": ["writer"],
+                    "label": "L",
+                    "text": "context",
+                },
             ),
             invocation=invocation,
             access=access,
         ):
             pass
+    assert await dbmod.get_workflow_state(cid, "scene-meter") is None
+
+
+async def test_all_action_effects_roll_back_when_the_last_database_write_fails(client):
+    await _install_scene_meter(client)
+    cid = await _conversation("conv-ext-whole-effect-atomic")
+    message_id, _rejected = await dbmod.add_message(cid, "user", "hello", 0)
+    access = _StateAccess("scene-meter", conversation_id=cid, character_id=None)
+
+    async def owns_message(candidate: int) -> bool:
+        row = await dbmod.get_message_by_id(candidate)
+        return bool(row and row["conversation_id"] == cid)
+
+    invocation = Invocation(
+        extension_id="scene-meter",
+        context=OpContext.ACTION,
+        host=HostServices(
+            grants=lambda: frozenset(
+                {
+                    ("state.write", "conversation"),
+                    ("conversation.branch.activate", None),
+                }
+            ),
+            read_state=access.read,
+            owns_message=owns_message,
+        ),
+        metadata={"conversation_id": cid},
+        scopes_in_scope=frozenset({"conversation"}),
+    )
+    compiled = current_state().get("scene-meter").compiled
+    stream = _invoke(
+        compiled=compiled,
+        flow=_flow(
+            {
+                "op": "state.set",
+                "scope": "conversation",
+                "path": "saved",
+                "value": True,
+            },
+            {"op": "conversation.branch.activate", "message_id": message_id},
+            {"op": "ui.status", "text": "paused"},
+        ),
+        invocation=invocation,
+        access=access,
+    )
+    assert (await anext(stream))["type"] == "status"
+
+    # The target disappears after staging but before commit. State is written
+    # earlier in the transaction than branch activation and must still roll back.
+    async with dbmod.get_db() as db:
+        await db.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+        await db.commit()
+    with pytest.raises(FlowError, match="not part of this conversation"):
+        await anext(stream)
     assert await dbmod.get_workflow_state(cid, "scene-meter") is None
 
 
@@ -461,7 +538,14 @@ async def test_post_hook_message_state_commits_with_the_assistant_row(client, db
             ),
             "flows/message.json": {
                 "flow_version": 1,
-                "steps": [{"op": "state.set", "scope": "message", "path": "label", "value": "kept"}],
+                "steps": [
+                    {
+                        "op": "state.set",
+                        "scope": "message",
+                        "path": "label",
+                        "value": "kept",
+                    }
+                ],
             },
         }
     )
@@ -482,7 +566,10 @@ async def test_dual_model_hook_uses_the_agent_endpoint(client, db, llm_mock):
     assert endpoint.status_code == 200
     configured = await client.put(
         "/api/settings",
-        json={"agent_same_as_writer": False, "agent_endpoint_id": endpoint.json()["id"]},
+        json={
+            "agent_same_as_writer": False,
+            "agent_endpoint_id": endpoint.json()["id"],
+        },
     )
     assert configured.status_code == 200
     cid = await _conversation("conv-ext-dual-agent")
@@ -523,7 +610,10 @@ async def test_action_response_keeps_the_generation_captured_with_its_flow(clien
     package = orbext(
         {
             "orb-extension.json": scene_meter_manifest(
-                requires={"operations": ["model.structured", "return", "ui.toast"], "components": []},
+                requires={
+                    "operations": ["model.structured", "return", "ui.toast"],
+                    "components": [],
+                },
                 permissions=[{"capability": "model.call", "lane": "agent"}],
                 hooks={},
                 actions={"score": {"flow": "flows/score.json", "label": "Score"}},

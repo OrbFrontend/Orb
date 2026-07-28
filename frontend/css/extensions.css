@@ -157,6 +157,43 @@
   color: var(--text-muted);
 }
 
+/* Write-only secret editing. A configured secret shows a placeholder and an
+   empty box, because there is no server read path that could fill it in — the
+   value went to the origin and to nowhere else. */
+.ext-secrets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ext-secret-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ext-secret-label {
+  flex: 0 0 140px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-bottom: 0;
+}
+
+.ext-secret-input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.ext-secret-desc {
+  flex: 1 0 100%;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 /* The third band, and the one place a misclick is unrecoverable: uninstall and
    purge are pushed to the far edge so they are never adjacent to "Disable". */
 .ext-footer {

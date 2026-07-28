@@ -55,7 +55,7 @@ from ...database import (
     set_extension_permissions,
 )
 from ...workflows.registry import RESERVED_WORKFLOW_IDS, get_workflow
-from . import content_store, execution, staging
+from . import content_store, execution, git_source, staging
 from .compiler import CompiledPackage, compile_package, grant_key
 from .contracts import EXTENSION_ID_PATTERN
 from .errors import PackageError, PackageValidationError
@@ -72,8 +72,11 @@ from .staging import StagedOperation
 logger = logging.getLogger(__name__)
 
 SOURCE_ARCHIVE = "archive"
-"""The only source kind Phase 1 implements. Git installation arrives with the
-bounded Dulwich fetch in Phase 4 and writes ``'git'`` into the same column."""
+SOURCE_GIT = "git"
+"""The two source kinds. They differ only in where the bytes came from: both
+compile through the same reader interface, produce the same digest for the same
+content, and stage the same token -- so an update inspected from a Git URL diffs
+cleanly against a revision that was installed from a local archive."""
 
 
 class LifecycleError(Exception):
@@ -120,6 +123,59 @@ def _compile_archive(data: bytes) -> CompiledPackage:
         compiled = compile_package(source)
     content_store.materialize(compiled.files)
     return compiled
+
+
+async def inspect_git(
+    url: str,
+    ref: str = "",
+    *,
+    allow_local: bool = False,
+    extension_id: str | None = None,
+) -> Inspection:
+    """Fetch, compile, and stage one revision from an HTTPS Git URL.
+
+    An install when *extension_id* is ``None`` and an update otherwise, because
+    the two differ only in what the resulting token is bound to -- the fetch,
+    the compile, the digest, and the consent screen are identical. Routing them
+    through one function is what keeps a Git update from acquiring its own
+    slightly different validation.
+
+    Nothing about the fetch is trusted afterwards: the recorded source, ref, and
+    commit ride in the staging token's payload, so the apply request cannot name
+    a different origin than the one that was inspected.
+    """
+    provenance = {"source_kind": SOURCE_GIT, "source_url": url, "requested_ref": ref}
+    if extension_id is not None:
+        row = await get_extension_package(extension_id)
+        if row is None:
+            raise LifecycleError(f"extension {extension_id!r} is not installed")
+
+    compiled, commit_id = await asyncio.to_thread(_compile_git, url, ref, allow_local)
+    provenance["commit_id"] = commit_id
+
+    if extension_id is None:
+        return _stage(compiled, operation="install", payload=provenance)
+    if compiled.extension_id != extension_id:
+        raise LifecycleError(
+            f"this repository declares id {compiled.extension_id!r}; an update must keep the installed id {extension_id!r}"
+        )
+    row = await get_extension_package(extension_id)
+    installed = current_state().get(extension_id)
+    return _stage(
+        compiled,
+        operation="update",
+        observed_active_digest=row["active_digest"] if row else "",
+        active=installed.compiled if installed else None,
+        installed=installed,
+        payload=provenance,
+    )
+
+
+def _compile_git(url: str, ref: str, allow_local: bool) -> tuple[CompiledPackage, str]:
+    fetched = git_source.fetch_repository(url, git_source.validate_ref(ref), allow_local=allow_local)
+    compiled = compile_package(fetched.source)
+    content_store.materialize(compiled.files)
+    return compiled, fetched.commit_id
 
 
 async def inspect_update(extension_id: str, data: bytes) -> Inspection:
@@ -185,14 +241,38 @@ def _stage(
     observed_active_digest: str = "",
     active: CompiledPackage | None = None,
     installed: InstalledExtension | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> Inspection:
     staged = staging.stage(
         operation=operation,  # type: ignore[arg-type]
         extension_id=compiled.extension_id,
         digest=compiled.digest,
         observed_active_digest=observed_active_digest,
+        payload=payload,
     )
-    return Inspection(staged=staged, compiled=compiled, operation=operation, active=active, installed=installed)
+    return Inspection(
+        staged=staged,
+        compiled=compiled,
+        operation=operation,
+        active=active,
+        installed=installed,
+    )
+
+
+def _provenance(staged: StagedOperation) -> dict[str, Any]:
+    """Where a staged revision came from, as the token recorded it.
+
+    Read from the token rather than from the apply request. The frontend echoes
+    back a token and a grant list; letting it also name the source URL would let
+    a stored package claim an origin it was never fetched from, which is the one
+    piece of provenance the manager displays and the update flow reuses.
+    """
+    return {
+        "source_kind": str(staged.payload.get("source_kind") or SOURCE_ARCHIVE),
+        "source_url": str(staged.payload.get("source_url") or ""),
+        "requested_ref": str(staged.payload.get("requested_ref") or ""),
+        "commit_id": (str(staged.payload["commit_id"]) if staged.payload.get("commit_id") else None),
+    }
 
 
 # ── application ─────────────────────────────────────────────────────────────
@@ -203,9 +283,6 @@ async def apply_install(
     token: str,
     approved: list[dict[str, Any]],
     enabled: bool,
-    source_kind: str = SOURCE_ARCHIVE,
-    source_url: str = "",
-    requested_ref: str = "",
 ) -> int:
     """Redeem an install token and activate the revision. Returns the generation.
 
@@ -222,19 +299,17 @@ async def apply_install(
         status, error = _initial_status(compiled)
         await install_extension_package(
             extension_id=compiled.extension_id,
-            source_kind=source_kind,
-            source_url=source_url,
-            requested_ref=requested_ref,
             content_digest=compiled.digest,
             manifest=compiled.manifest_json(),
             extension_api=compiled.manifest.extension_api,
             version=compiled.manifest.version,
-            commit_id=None,
             contract_fingerprint=compiled.contract_fingerprint,
             approved_permissions=grants,
             enabled=enabled,
             load_status=status,
             load_error=error,
+            declared_secret_names=tuple(secret.name for secret in compiled.manifest.secrets),
+            **_provenance(staged),
         )
         generation = await _republish(compiled.extension_id)
         if enabled:
@@ -261,18 +336,23 @@ async def apply_update(*, extension_id: str, token: str, approved: list[dict[str
         compiled = await _recompile(staged)
         grants = _normalized_grants(approved, compiled)
         status, error = _initial_status(compiled)
+        # A rollback carries no provenance of its own -- it re-activates content
+        # already in the store -- so the package's recorded source is left alone
+        # rather than overwritten with the empty archive default.
+        provenance = _provenance(staged) if staged.payload.get("source_kind") else {"commit_id": None}
         applied = await activate_extension_revision(
             extension_id=extension_id,
             content_digest=compiled.digest,
             manifest=compiled.manifest_json(),
             extension_api=compiled.manifest.extension_api,
             version=compiled.manifest.version,
-            commit_id=None,
             contract_fingerprint=compiled.contract_fingerprint,
             approved_permissions=grants,
             load_status=status,
             load_error=error,
             expected_active_digest=staged.observed_active_digest,
+            declared_secret_names=tuple(secret.name for secret in compiled.manifest.secrets),
+            **provenance,
         )
         if not applied:
             raise LifecycleConflict("the active revision changed while applying; inspect the package again")
@@ -426,7 +506,10 @@ async def collect_content_garbage() -> list[str]:
     keep |= staging.pinned_digests()
     removed = content_store.collect_garbage(keep)
     if removed:
-        logger.info("extension content store: collected %d unreferenced revision(s)", len(removed))
+        logger.info(
+            "extension content store: collected %d unreferenced revision(s)",
+            len(removed),
+        )
     return removed
 
 
@@ -513,7 +596,10 @@ def _initial_status(compiled: CompiledPackage) -> tuple[str, str]:
     from what a rejection would suggest ("this package is broken").
     """
     if compiled.unavailable:
-        return "incompatible", f"this Orb build does not provide: {', '.join(compiled.unavailable)}"
+        return (
+            "incompatible",
+            f"this Orb build does not provide: {', '.join(compiled.unavailable)}",
+        )
     return "available", ""
 
 

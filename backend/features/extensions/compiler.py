@@ -60,6 +60,7 @@ from .contracts import (
     permission_key,
     referenced_actions,
     referenced_assets,
+    referenced_flow_assets,
     template_paths,
     used_components,
     with_prerequisites,
@@ -130,11 +131,12 @@ def compile_package(source: PackageSource) -> CompiledPackage:
     files: dict[str, PackageContent] = {MANIFEST_PATH: PackageContent.json(raw)}
     flows = _load_flows(source, manifest, files)
     views = _load_views(source, manifest, files)
-    asset_types = _load_assets(source, views, files)
+    asset_types = _load_assets(source, flows, views, files)
 
     _assert_flow_contexts(manifest, flows)
     _assert_view_actions(manifest, views)
     _assert_config_view_scope(manifest, views)
+    _assert_artifact_declaration(manifest, flows)
     requirements = _derive_requirements(manifest, flows, views)
     _assert_declarations_cover(manifest, requirements)
 
@@ -210,17 +212,23 @@ def _load_views(source: PackageSource, manifest: ExtensionManifest, files: dict[
 
 def _load_assets(
     source: PackageSource,
+    flows: Mapping[str, Flow],
     views: Mapping[str, View],
     files: dict[str, PackageContent],
 ) -> dict[str, str]:
-    """Read every asset a view can render, checking type and leading bytes.
+    """Read every asset the package can render or attach, checking its bytes.
 
-    Assets are discovered from the *parsed* views, not from the manifest: only
-    the compiler knows which files a component tree reaches, which is exactly
-    why the digest cannot be computed before the views are parsed.
+    Assets are discovered from the *parsed* flows and views, not from the
+    manifest: only the compiler knows which files a component tree or an
+    ``artifact.emit`` step reaches, which is exactly why the digest cannot be
+    computed before they are parsed. Both sources feed one set, so an asset a
+    view renders and a flow attaches is read, checked, and hashed once.
     """
     asset_types: dict[str, str] = {}
-    paths = sorted({path for view in views.values() for path in referenced_assets(view)})
+    paths = sorted(
+        {path for view in views.values() for path in referenced_assets(view)}
+        | {path for flow in flows.values() for path in referenced_flow_assets(flow)}
+    )
     for path in paths:
         if path in files:
             raise PackageValidationError(f"asset {path!r} is also referenced as a flow or view")
@@ -260,8 +268,8 @@ def _flow_contexts(manifest: ExtensionManifest) -> Iterator[tuple[str, OpContext
     for binding in manifest.actions.values():
         yield binding.flow, OpContext.ACTION
     if manifest.artifact_flows is not None:
-        yield manifest.artifact_flows.regenerate, OpContext.ACTION
-        yield manifest.artifact_flows.reroll_gen, OpContext.ACTION
+        yield manifest.artifact_flows.regenerate, OpContext.RECOVERY
+        yield manifest.artifact_flows.reroll_gen, OpContext.RECOVERY
     for descriptor in manifest.contributions.fragment_types:
         yield descriptor.reduce_flow, OpContext.REDUCER
 
@@ -271,6 +279,26 @@ def _assert_view_actions(manifest: ExtensionManifest, views: Mapping[str, View])
         for name in sorted(referenced_actions(view)):
             if name not in manifest.actions:
                 raise PackageValidationError(f"{path}: dispatches undeclared action {name!r}")
+
+
+def _assert_artifact_declaration(manifest: ExtensionManifest, flows: Mapping[str, Flow]) -> None:
+    """A flow that emits artifacts must be an artifact producer.
+
+    The manifest validator already enforces the other direction (declaring
+    ``produces_artifacts`` requires the flows and the grant). This is the one
+    the manifest cannot see: only the compiler knows a flow reaches
+    ``artifact.emit``. Without it the package would install, the registry would
+    bind no regenerate/reroll pair, and the bridge would silently drop every
+    attachment -- a working-looking package whose output never appears.
+    """
+    if manifest.produces_artifacts:
+        return
+    for path, flow in sorted(flows.items()):
+        if any(step.op == "artifact.emit" for step in iter_steps(flow.steps)):
+            raise PackageValidationError(
+                f"{path}: uses 'artifact.emit' but the manifest does not set produces_artifacts=true "
+                f"with its 'artifact_flows' regenerate/reroll_gen pair"
+            )
 
 
 def _assert_config_view_scope(manifest: ExtensionManifest, views: Mapping[str, View]) -> None:

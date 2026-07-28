@@ -42,10 +42,18 @@ from ...database import (
     get_workflow_character_state,
     get_workflow_config,
     get_workflow_state,
+    list_configured_secret_names,
     list_extension_secret_names,
     namespaced_state_owners,
 )
-from ...features.extensions import adapters, catalog, lifecycle, resources, staging
+from ...features.extensions import (
+    adapters,
+    catalog,
+    lifecycle,
+    resources,
+    secrets,
+    staging,
+)
 from ...features.extensions.compiler import (
     CARD_INPUT_PROPERTY,
     LIBRARY_CARD_ACTIONS_SLOT,
@@ -61,9 +69,11 @@ from ...workflows.contracts import LoadStatus, WorkflowSource
 from ...workflows.enablement import effective_workflow_enabled
 from ..schemas import (
     ExtensionActionRequest,
+    ExtensionGitInspect,
     ExtensionInstallRequest,
     ExtensionPermissionsUpdate,
     ExtensionPurgeRequest,
+    ExtensionSecretsUpdate,
     ExtensionStateWrite,
     ExtensionUpdateRequest,
 )
@@ -99,7 +109,10 @@ async def _read_upload(file: UploadFile) -> bytes:
     """
     data = await file.read(MAX_SOURCE_BYTES + 1)
     if len(data) > MAX_SOURCE_BYTES:
-        raise HTTPException(status_code=413, detail=f"package archive exceeds the {MAX_SOURCE_BYTES} byte limit")
+        raise HTTPException(
+            status_code=413,
+            detail=f"package archive exceeds the {MAX_SOURCE_BYTES} byte limit",
+        )
     if not data:
         raise HTTPException(status_code=400, detail="no package archive was uploaded")
     return data
@@ -164,9 +177,12 @@ async def api_list_extensions():
     state = current_state()
     settings = await get_settings()
     owners = await namespaced_state_owners()
+    configured = await list_configured_secret_names()
     return {
         "runtime_generation": state.generation,
-        "extensions": [catalog.catalog_entry(entry, settings) for entry in state.list()],
+        "extensions": [
+            catalog.catalog_entry(entry, settings, configured_secrets=configured.get(entry.id, {})) for entry in state.list()
+        ],
         "orphaned_data": catalog.orphaned_data(owners, state),
     }
 
@@ -175,12 +191,12 @@ async def api_list_extensions():
 async def api_get_extension(extension_id: str):
     entry = await _require_installed(extension_id)
     settings = await get_settings()
-    secrets = [
+    declared = [
         {"name": row["name"], "updated_at": row["updated_at"]} for row in await list_extension_secret_names(extension_id)
     ]
     return {
         "runtime_generation": current_state().generation,
-        **catalog.detail_entry(entry, settings, secret_names=secrets),
+        **catalog.detail_entry(entry, settings, secret_names=declared),
     }
 
 
@@ -199,6 +215,26 @@ async def api_inspect_extension_file(file: Annotated[UploadFile, File(...)]):
     data = await _read_upload(file)
     try:
         inspection = await lifecycle.inspect_archive(data)
+    except PackageError as exc:
+        raise _package_error(exc) from None
+    return catalog.inspection_view(inspection)
+
+
+@router.post("/inspect")
+async def api_inspect_extension_git(body: ExtensionGitInspect):
+    """Fetch an HTTPS Git repository and return its consent screen.
+
+    The bytes arrive through the installer's own bounded transport -- the flow
+    HTTP client's URL policy, address validation, and pinning, applied per
+    redirect hop -- and are then compiled by exactly the same code an uploaded
+    archive goes through. Nothing is registered, granted, enabled, or published
+    here, and the resolved commit rides in the staging token rather than in the
+    install request, so the apply call cannot claim a different origin.
+    """
+    try:
+        inspection = await lifecycle.inspect_git(body.url, body.ref, allow_local=body.allow_local)
+    except lifecycle.LifecycleError as exc:
+        raise _lifecycle_error(exc) from None
     except PackageError as exc:
         raise _package_error(exc) from None
     return catalog.inspection_view(inspection)
@@ -229,6 +265,30 @@ async def api_inspect_extension_update(extension_id: str, file: Annotated[Upload
     data = await _read_upload(file)
     try:
         inspection = await lifecycle.inspect_update(extension_id, data)
+    except lifecycle.LifecycleError as exc:
+        raise _lifecycle_error(exc) from None
+    except PackageError as exc:
+        raise _package_error(exc) from None
+    return catalog.inspection_view(inspection)
+
+
+@router.post("/{extension_id}/inspect-update-git")
+async def api_inspect_extension_update_git(extension_id: str, body: ExtensionGitInspect):
+    """Stage an update by re-fetching the package's repository.
+
+    The Git counterpart of ``inspect-update``: same compile, same diff, same
+    token contract, and the same rejection of a manifest whose id changed. It
+    exists as its own route rather than as a mode on ``inspect-update`` because
+    that one takes a multipart upload, and a route whose body shape depends on a
+    flag is a route two clients read differently.
+    """
+    try:
+        inspection = await lifecycle.inspect_git(
+            body.url,
+            body.ref,
+            allow_local=body.allow_local,
+            extension_id=extension_id,
+        )
     except lifecycle.LifecycleError as exc:
         raise _lifecycle_error(exc) from None
     except PackageError as exc:
@@ -320,6 +380,34 @@ async def api_set_extension_permissions(extension_id: str, body: ExtensionPermis
     return _envelope(generation)
 
 
+@router.put("/{extension_id}/secrets")
+async def api_set_extension_secrets(extension_id: str, body: ExtensionSecretsUpdate):
+    """Set or clear declared secrets. Write-only, by construction.
+
+    The response carries names and timestamps because that is all the read path
+    can produce -- there is no query in the codebase that returns a stored value
+    to a route. Values reach exactly one consumer, the host HTTP client, and
+    only as a substitution inside a request it is already building.
+
+    Names are checked against the *active* manifest's declaration, so a secret
+    left behind by an older revision can be cleared but not re-set under a
+    contract the user was never shown.
+    """
+    entry = await _require_installed(extension_id)
+    if entry.compiled is None:
+        raise HTTPException(
+            status_code=409,
+            detail=entry.diagnostic or "this extension is not available",
+        )
+    declared = [s.name for s in entry.compiled.manifest.secrets]
+    try:
+        await secrets.write_secrets(extension_id, declared, body.values)
+    except secrets.SecretError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    stored = [{"name": row["name"], "updated_at": row["updated_at"]} for row in await list_extension_secret_names(extension_id)]
+    return _envelope(current_state().generation, {"secrets": stored})
+
+
 @router.delete("/{extension_id}")
 async def api_uninstall_extension(extension_id: str):
     """Remove registration and secrets. Namespaced data survives on purpose."""
@@ -357,6 +445,7 @@ async def api_run_extension_action(
     generation = runtime.generation
     settings = await get_settings()
     binding, flow = _resolve_action(entry, action, settings)
+    assert entry.compiled is not None
 
     conversation_id = body.conversation_id
     conv = await get_conversation(conversation_id) if conversation_id else None
@@ -380,7 +469,7 @@ async def api_run_extension_action(
 
     try:
         envelope = await adapters.run_action(
-            extension_id=extension_id,
+            compiled=entry.compiled,
             action_name=action,
             flow=flow,
             action_input=body.input,
@@ -440,7 +529,10 @@ async def _resolve_action_card(entry, action: str, body: ExtensionActionRequest,
     def require(capability: Capability, parameter: str | None = None) -> None:
         if (capability.value, parameter) not in granted:
             detail = capability.value if parameter is None else f"{capability.value} for {parameter}"
-            raise HTTPException(status_code=403, detail=f"this extension has not been granted {detail!r}")
+            raise HTTPException(
+                status_code=403,
+                detail=f"this extension has not been granted {detail!r}",
+            )
 
     if body.slot is not None:
         if body.slot != LIBRARY_CARD_ACTIONS_SLOT:
@@ -471,7 +563,10 @@ async def _resolve_action_card(entry, action: str, body: ExtensionActionRequest,
     if body.card_id is not None:
         # Only the slot path may supply one out of band. Accepting it here would
         # be the dual-grant check's bypass, spelled as a convenience.
-        raise HTTPException(status_code=422, detail="'card_id' is only accepted with a UI slot that supplies it")
+        raise HTTPException(
+            status_code=422,
+            detail="'card_id' is only accepted with a UI slot that supplies it",
+        )
 
     declared = body.input.get(CARD_INPUT_PROPERTY)
     if isinstance(declared, str) and declared:
@@ -492,17 +587,29 @@ def _resolve_action(entry, action: str, settings):
     something about.
     """
     if entry.compiled is None or entry.load_status is not LoadStatus.AVAILABLE:
-        raise HTTPException(status_code=409, detail=entry.diagnostic or "this extension is not available")
+        raise HTTPException(
+            status_code=409,
+            detail=entry.diagnostic or "this extension is not available",
+        )
     if not effective_workflow_enabled(entry.id, settings, WorkflowSource.COMMUNITY):
         raise HTTPException(status_code=409, detail="this extension is disabled")
     binding = entry.compiled.manifest.actions.get(action)
     if binding is None:
-        raise HTTPException(status_code=404, detail=f"extension {entry.id!r} declares no action {action!r}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"extension {entry.id!r} declares no action {action!r}",
+        )
     if f"action {action!r}" in entry.blocked:
-        raise HTTPException(status_code=403, detail=f"action {action!r} is not published: {entry.diagnostic}")
+        raise HTTPException(
+            status_code=403,
+            detail=f"action {action!r} is not published: {entry.diagnostic}",
+        )
     flow = entry.compiled.flows.get(binding.flow)
     if flow is None:
-        raise HTTPException(status_code=409, detail="the action's flow is missing from the compiled revision")
+        raise HTTPException(
+            status_code=409,
+            detail="the action's flow is missing from the compiled revision",
+        )
     return binding, flow
 
 
@@ -512,7 +619,10 @@ def _resolve_action(entry, action: str, settings):
 def _available(entry, settings):
     """The three runtime gates a content route shares, as distinct refusals."""
     if entry.compiled is None or entry.load_status is not LoadStatus.AVAILABLE:
-        raise HTTPException(status_code=409, detail=entry.diagnostic or "this extension is not available")
+        raise HTTPException(
+            status_code=409,
+            detail=entry.diagnostic or "this extension is not available",
+        )
     if not effective_workflow_enabled(entry.id, settings, WorkflowSource.COMMUNITY):
         raise HTTPException(status_code=409, detail="this extension is disabled")
     return entry.compiled
@@ -536,9 +646,15 @@ async def api_get_extension_view(extension_id: str, view_id: str, conversation_i
     compiled = _available(entry, settings)
     binding = compiled.manifest.views.get(view_id)
     if binding is None:
-        raise HTTPException(status_code=404, detail=f"extension {extension_id!r} declares no view {view_id!r}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"extension {extension_id!r} declares no view {view_id!r}",
+        )
     if f"view {view_id!r}" in entry.blocked:
-        raise HTTPException(status_code=403, detail=f"view {view_id!r} is not published: {entry.diagnostic}")
+        raise HTTPException(
+            status_code=403,
+            detail=f"view {view_id!r} is not published: {entry.diagnostic}",
+        )
     view = compiled.views.get(binding.source)
     if view is None:
         raise HTTPException(status_code=409, detail="the view is missing from the compiled revision")
@@ -546,7 +662,10 @@ async def api_get_extension_view(extension_id: str, view_id: str, conversation_i
     data, errors = await _view_data(entry, view, conversation_id)
     runtime_requirements = derive_view_runtime_requirements(view)
     state = await _view_state(entry, view, conversation_id, runtime_requirements)
-    needs_config = (Capability.STATE_READ.value, "config") in runtime_requirements or any(
+    needs_config = (
+        Capability.STATE_READ.value,
+        "config",
+    ) in runtime_requirements or any(
         source.kind == "state" and source.scope == "config" for _, source in resources.data_sources_for_view(view)
     )
     config: dict[str, Any] = {}

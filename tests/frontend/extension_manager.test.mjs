@@ -258,6 +258,12 @@ test("a permission's parameters read as part of its sentence, not as a column", 
   assert.equal(detailOwner.textContent, "Make its own model calls.");
 });
 
+test("the host-authored secret transmission warning is visible in package detail", () => {
+  const warning = "Configured secrets (api_key) may be sent to every approved network origin: https://api.invalid.";
+  const root = renderManager([catalogEntry({ secret_transmission_warning: warning })]);
+  assert.ok(root.allText().includes(warning));
+});
+
 test("orphaned data from an uninstalled extension is listed so it stays purgeable", () => {
   // Uninstall preserves namespaced state on purpose; if the manager did not
   // list it, that data would be neither visible nor purgeable.

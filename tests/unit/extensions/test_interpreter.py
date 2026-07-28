@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from backend.features.extensions import interpreter
 from backend.features.extensions.contracts import Flow, OpContext, parse_schema
 from backend.features.extensions.errors import FlowCancelled, FlowError
 from backend.features.extensions.interpreter import (
@@ -439,7 +440,16 @@ async def test_a_scope_with_no_entity_in_this_invocation_is_refused():
 # ── build-gated operations ──────────────────────────────────────────────────
 
 
-async def test_an_operation_this_build_cannot_run_is_refused_rather_than_half_done():
+async def test_an_operation_this_build_cannot_run_is_refused_rather_than_half_done(monkeypatch):
+    """The build gate refuses before the operation's own checks run.
+
+    ``UNIMPLEMENTED_OPS`` is empty as of Phase 4 -- every parsed operation is
+    now executable -- so the gate is exercised against a synthetic entry. That
+    is the point of testing it at all: the seam exists for the *next* operation
+    whose contract ships ahead of its runtime, and a mechanism with nothing in
+    it is exactly the mechanism that quietly stops working.
+    """
+    monkeypatch.setattr(interpreter, "UNIMPLEMENTED_OPS", frozenset({"http.request"}))
     with pytest.raises(FlowError, match="not available in this Orb build"):
         await run(
             flow(

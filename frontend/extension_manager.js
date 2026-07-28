@@ -228,6 +228,7 @@ function renderManagerBody() {
 
   const actions = el("div", { cls: "btn-row", style: "gap:8px;margin-bottom:10px" }, [
     button("⬆ Install from file", () => triggerExtensionInstall()),
+    button("⬇ Install from Git", () => triggerExtensionGitInstall()),
     button("Close", () => closeModal()),
   ]);
 
@@ -276,6 +277,9 @@ function cardDetail(item) {
     }),
   );
   body.appendChild(el("div", { cls: "ext-field ext-digest", text: `Revision: ${item.active_digest.slice(0, 16)}…` }));
+  if (item.commit_id) {
+    body.appendChild(el("div", { cls: "ext-field ext-digest", text: `Commit: ${item.commit_id}` }));
+  }
 
   if (item.blocked_entry_points?.length) {
     body.appendChild(el("div", { cls: "ext-field", text: "Not published (missing permissions):" }));
@@ -289,9 +293,14 @@ function cardDetail(item) {
   if (item.combination_warning) {
     body.appendChild(el("div", { cls: "ext-banner", text: item.combination_warning }));
   }
+  if (item.secret_transmission_warning) {
+    body.appendChild(el("div", { cls: "ext-banner", text: item.secret_transmission_warning }));
+  }
 
   body.appendChild(permissionList(item));
 
+  const secrets = secretsSection(item);
+  if (secrets) body.appendChild(secrets);
   if (item.config_view) body.appendChild(configSection(item));
   const telemetry = telemetrySection(item);
   if (telemetry) body.appendChild(telemetry);
@@ -300,6 +309,9 @@ function cardDetail(item) {
   // one enablement control. The dimming above is a readout, not a second switch.
   const row = el("div", { cls: "btn-row ext-footer" }, [
     button("Update from file…", () => triggerExtensionUpdate(item.id)),
+    item.source_kind === "git" && item.source_url
+      ? button("Update from Git", () => triggerExtensionGitUpdate(item))
+      : null,
     item.can_rollback ? button("Roll back", () => startRollback(item.id)) : null,
     el("div", { cls: "ext-footer-danger" }, [
       button("Uninstall", () => uninstall(item.id), "btn btn-sm btn-danger"),
@@ -340,6 +352,56 @@ function permissionList(item) {
     ]),
   );
   return wrap;
+}
+
+/**
+ * Write-only secret editing.
+ *
+ * The catalog never carries a stored value — there is no server read path that
+ * could produce one — so a configured secret renders as a placeholder and an
+ * empty box. Leaving a box empty on save is "leave this one alone", not "clear
+ * it"; clearing is its own button, because a form that erased credentials by
+ * being submitted unchanged would do it constantly.
+ */
+function secretsSection(item) {
+  const declared = item.secrets || [];
+  if (!declared.length) return null;
+  const wrap = el("div", { cls: "ext-secrets" }, [el("div", { cls: "ext-section-title", text: "Secrets" })]);
+  const inputs = new Map();
+  for (const secret of declared) {
+    const input = document.createElement("input");
+    input.type = "password";
+    input.className = "ext-secret-input";
+    input.autocomplete = "off";
+    input.placeholder = secret.configured ? "•••••••• (set)" : "not set";
+    inputs.set(secret.name, input);
+    const row = el("div", { cls: "ext-secret-row" }, [
+      el("label", { cls: "ext-secret-label", text: secret.label || secret.name }),
+      input,
+      button("Clear", () => saveSecrets(item.id, { [secret.name]: null }), "btn btn-sm btn-danger"),
+    ]);
+    if (secret.description) row.appendChild(el("div", { cls: "ext-secret-desc", text: secret.description }));
+    wrap.appendChild(row);
+  }
+  wrap.appendChild(
+    el("div", { cls: "ext-actions" }, [
+      button("Save secrets", () => {
+        const values = {};
+        for (const [name, input] of inputs) if (input.value) values[name] = input.value;
+        if (Object.keys(values).length === 0) {
+          toast("Enter a value first — an empty box leaves the stored secret unchanged.");
+          return;
+        }
+        for (const input of inputs.values()) input.value = "";
+        return saveSecrets(item.id, values);
+      }),
+    ]),
+  );
+  return wrap;
+}
+
+async function saveSecrets(extensionId, values) {
+  await run(() => api.put(`/extensions/${encodeURIComponent(extensionId)}/secrets`, { values }));
 }
 
 /**
@@ -450,6 +512,59 @@ function triggerExtensionUpdate(extensionId) {
   });
 }
 
+/**
+ * Ask for a repository URL, then run the ordinary two-phase consent flow.
+ *
+ * `allow_local` is a separate confirmation rather than a silent retry: a
+ * repository host that resolves to the user's own machine or LAN is refused by
+ * default, and re-asking with the flag set is the user saying "yes, that one is
+ * mine". Fetching it automatically after a refusal would make the check
+ * decorative.
+ */
+function promptGitSource(defaults = {}) {
+  const url = window.prompt("Repository URL (https://…)", defaults.url || "https://");
+  if (!url) return null;
+  const ref = window.prompt("Branch, tag, or commit (blank for the default branch)", defaults.ref || "") || "";
+  return { url: url.trim(), ref: ref.trim() };
+}
+
+async function inspectGit(path, source) {
+  let reason = "";
+  try {
+    return await api.post(path, { ...source, allow_local: false });
+  } catch (e) {
+    reason = errorText(e);
+    toast(reason, true);
+  }
+  // A second request widens only the address policy. Offer it solely for the
+  // host-authored local-address refusals it can actually resolve; retrying an
+  // unknown ref, malformed repository, or public HTTP URL with allow_local
+  // would turn a security confirmation into a generic "try again" button.
+  if (!/(loopback|private address|link-local|local repository)/i.test(reason)) return null;
+  if (
+    !window.confirm(
+      "That repository could not be reached under the default policy. Is it on your own machine or local network?",
+    )
+  ) {
+    return null;
+  }
+  return inspect(() => api.post(path, { ...source, allow_local: true }));
+}
+
+async function triggerExtensionGitInstall() {
+  const source = promptGitSource();
+  if (!source) return;
+  const inspection = await inspectGit("/extensions/inspect", source);
+  if (inspection) showConsentModal(inspection);
+}
+
+async function triggerExtensionGitUpdate(item) {
+  const source = promptGitSource({ url: item.source_url, ref: item.requested_ref });
+  if (!source) return;
+  const inspection = await inspectGit(`/extensions/${encodeURIComponent(item.id)}/inspect-update-git`, source);
+  if (inspection) showConsentModal(inspection, item.id);
+}
+
 async function startRollback(extensionId) {
   const inspection = await inspect(() =>
     api.post(`/extensions/${encodeURIComponent(extensionId)}/inspect-rollback`, {}),
@@ -518,6 +633,9 @@ function showConsentModal(inspection, extensionId = null) {
 
   if (inspection.combination_warning) {
     nodes.push(el("div", { cls: "ext-banner", text: inspection.combination_warning }));
+  }
+  if (inspection.secret_transmission_warning) {
+    nodes.push(el("div", { cls: "ext-banner", text: inspection.secret_transmission_warning }));
   }
 
   const boxes = [];

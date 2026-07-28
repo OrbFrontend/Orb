@@ -1,7 +1,13 @@
 # Community Extensions v1 — Architecture Handoff
 
-Status: **Phases 0-3 implemented (including all of section 20's v1.x
-expansions); Phases 4-6 not started**
+Status: **Phases 0-4 implemented (including all of section 20's v1.x
+expansions); Phases 5-6 not started**
+
+The frozen v1 contract still has no community tools in the main pipeline.
+A bounded Writer-only tool ABI is now an accepted follow-on direction, planned
+separately in [Community Writer Tools](community-writer-tools.md). It is not
+implemented, is not part of Phases 0-3, and does not permit community Director
+or Editor tools.
 
 Section 20 records the approved v1.x additive expansions — new resources,
 grants, one operation, one slot, and host telemetry — with their security
@@ -148,6 +154,64 @@ Landed (see section 17 for the phase definitions):
   `test_phase3_operations.py`, `extension_renderer.test.mjs`, and
   `extension_commands.test.mjs`.
 
+**Phase 4 — network, secrets, Git, and artifacts**
+
+- The host HTTP client (`network.py`): canonical origin derivation, the URL
+  policy (no userinfo, no wildcard, no non-http scheme, no control
+  characters), address validation that judges *every* resolved address, and
+  connection pinning that keeps the `Host` header and TLS SNI on the origin's
+  real name. Redirects are followed by Orb rather than by httpx, and each hop
+  is revalidated against the live grant set and the address policy; a
+  cross-origin hop drops every package-supplied header. `trust_env=False`,
+  bounded request body, decompressed-response cap enforced at the streaming
+  boundary, a redirect budget, and a wall-clock deadline across hops.
+  `network.request` is granted per exact origin. A weak transport (all plain
+  HTTP) receives stronger consent copy, but only an origin whose hostname is
+  visibly local may resolve to a local address; transport warning and
+  local-address authority are separate decisions. That distinction prevents
+  `http://public.example` from rebinding to loopback.
+- `http.request` returns `{"status", "body"}`. `json`/`text` bodies become
+  ordinary flow values; `bytes` becomes an opaque `ResponseBytes` handle with
+  no scalar rendering, so a template, a state write, or a return value rejects
+  it through bounds that already existed. `artifact.emit` is the only operation
+  that declares it as an input.
+- Write-only secrets (`secrets.py`, `PUT /{id}/secrets`): `{"$secret": name}`
+  survives value resolution as a marker and becomes a value only inside the
+  network client, so the interpreter never holds one. A header value may be a
+  list of literal/secret parts. The only statement in the codebase that selects
+  `secret_value` is called by that client and by nothing else. Responses are
+  scanned for the exact configured byte sequences before becoming a flow value.
+- `artifact.emit` with its three declared byte sources (a response handle, a
+  validated package asset, text/JSON from a prior step), an inert-media-type
+  allowlist, host-owned filename reduction, and a per-invocation count and byte
+  budget. A post hook attaches to the assistant row and may not name a message;
+  an action must name one and it is proved to belong to the invocation while
+  *staging*; a recovery flow names none. All three are compile-time rules, which
+  is why `OpContext.RECOVERY` exists — a recovery flow also cannot activate a
+  branch or rewrite card tags.
+- Framework recovery metadata records the producing extension id, version, and
+  content digest beside the package's own `recovery` payload. Regenerate and
+  reroll execute the revision from the request's captured registry snapshot
+  under *live* grants; a stored payload that captured
+  `recovery_input_schema` rejects fails with the sanitized "produced by an
+  incompatible revision" diagnostic and leaves the attachment untouched.
+  `produces_artifacts` and the regenerate/reroll pair
+  publish together or not at all, because the registry's artifact mandate fails
+  the whole overlay swap on a half-bound record.
+- Bounded Git installation (`git_source.py`): an in-process Dulwich shallow
+  fetch through an Orb-owned `pool_manager` that applies the flow client's URL
+  and address policy per hop, a byte-bounded pack sink, and an object-tree walk
+  that rejects symlinks, submodules, non-regular modes, duplicate normalized
+  paths, and case collisions. Nothing is checked out and no system Git is
+  invoked. `POST /api/extensions/inspect` and
+  `POST /{id}/inspect-update-git` feed the same two-phase consent flow an
+  archive uses; the resolved commit rides in the staging token, so the apply
+  request cannot claim an origin it was not fetched from. Dulwich is imported
+  lazily, so a deployment without it still boots and still installs archives.
+- API Artifact as the fourth reference package (`tests/extension_packages.py`),
+  with `test_network.py`, `test_phase4_operations.py`, `test_git_source.py`, and
+  the live-socket `tests/integration/extensions/test_phase4.py`.
+
 **Permission vocabulary generalization** (post-Phase 3, pre-freeze)
 
 The vocabulary was restructured before any package could depend on it: facts
@@ -162,18 +226,23 @@ and its two corollaries; `tests/unit/extensions/test_capability_vocabulary.py`
 holds the derivations closed.
 
 Deliberately absent, per the note at the end of section 16: there is still no
-host HTTP client or secret substitution, no artifact emission, no Git reader,
-and no fragment-type contribution — and no permissive placeholder stands in for
-any of them. `http.request` and `artifact.emit` remain in `UNIMPLEMENTED_OPS`,
-so an entry point reaching one is blocked with a diagnostic.
+fragment-type contribution, and no permissive placeholder stands in for it.
+`UNIMPLEMENTED_OPS` is now empty — every operation the contract parses is
+executable — but the seam stays and is tested against a synthetic entry, because
+it is the right shape for the next operation whose contract ships ahead of its
+runtime, and a mechanism with nothing in it is the one that quietly stops
+working.
 
-Two route names extend section 12's family. `POST
+Three route names extend section 12's family. `POST
 /api/extensions/{id}/inspect-rollback` exists because rollback is an inspected
 operation with a real permission diff (restoring a revision must not restore a
 capability since revoked), and it deserves the same two-request shape as
 update rather than an implicit mode on `/rollback`. `POST
-/api/extensions/inspect` (Git) is deferred with the rest of the Dulwich work to
-Phase 4, as is `PUT /{id}/secrets`.
+/api/extensions/{id}/inspect-update-git` is the Git counterpart of
+`inspect-update`: same compile, same diff, same token contract, but a JSON body
+rather than a multipart upload — a route whose body shape depends on a flag is a
+route two clients read differently. `POST /api/extensions/inspect` (Git) and
+`PUT /{id}/secrets` are section 12's own, and both landed in Phase 4.
 
 One route is additive to that family and not in section 12's list:
 `PUT /api/extensions/{id}/state`. Section 7 says a bound form's submission
@@ -195,6 +264,9 @@ persistence, failure behavior, rollout order, and acceptance tests.
 
 Read these first:
 
+- [Community Writer Tools](community-writer-tools.md) — the planned,
+  not-yet-implemented API 2 Writer-only tool ABI that follows this v1
+  architecture.
 - [Secondary Workflows](secondary-workflow.md) — the trusted first-party
   execution framework community extensions reuse.
 - [KV Cache Reuse](kv-cache.md) — constraints on prompt placement and tool
@@ -217,7 +289,7 @@ Read these first:
 | Installation | HTTPS Git URL or local `.orbext` archive. Resolve and inspect before asking for permission consent. |
 | Git implementation | In-process Git protocol client; never execute the system `git` command. Inspect Git objects without checking out a worktree. |
 | Network | Host-mediated HTTP to exact manifest-declared origins after user consent. Public and local/private origins are separate grants. |
-| Model tools | Community extensions do **not** add tools to Director, Writer, or Editor. Extension flows may make their own bounded model calls. |
+| Model tools | Frozen v1 packages do **not** add tools to Director, Writer, or Editor. Extension flows may make their own bounded isolated model calls. A dedicated Writer-only API 2 contribution is accepted but not implemented; see [Community Writer Tools](community-writer-tools.md). Director/Editor tools and arbitrary shared-registry tools remain out of scope. |
 | Built-in workflows | Remain trusted Python plus same-origin JavaScript. They are a separate trust tier and do not need to migrate. |
 | Dependencies | No extension-to-extension dependencies in v1. |
 | Updates | Manual by default; atomic; permission expansion requires fresh consent; keep one prior revision for rollback. |
@@ -630,6 +702,8 @@ Apply all limits before persistence:
 | Limit | Value |
 |---|---:|
 | Downloaded Git pack/archive | 50 MiB |
+| One expanded Git object | 25 MiB |
+| Expanded objects/deltas in one Git pack | 100 MiB total |
 | Reachable tree entries | 512 |
 | Referenced files after decompression | 25 MiB total |
 | `orb-extension.json` | 1 MiB |
@@ -1055,13 +1129,24 @@ the exact extension-augmented writer message. Enforce the 8 KiB per-block and
 overflowing extension invocation with a diagnostic; do not silently truncate
 or let installation order decide which text survives.
 
-Extension flows may force their own structured model output, but their schemas
-do not enter `TOOLS`, `PRE_WRITER_TOOLS`, `POST_WRITER_TOOLS`, or any
-Director/Writer/Editor `CachedBase`. Enabling an ordinary extension therefore
-does not change the main tool blob. A flow-owned call uses an isolated request,
-validates the response against its local schema, and never mutates a shared
-cached request object. It also does not inherit the pipeline prefix: that would
-leak history/card/persona data around the capability projection.
+Ordinary extension flows may force their own structured model output, but their
+schemas do not enter `TOOLS`, `PRE_WRITER_TOOLS`, `POST_WRITER_TOOLS`, or any
+Director/Writer/Editor `CachedBase`. Enabling an extension with no dedicated
+Writer-tool contribution therefore does not change the main tool blob. A
+flow-owned call uses an isolated request, validates the response against its
+local schema, and never mutates a shared cached request object. It also does
+not inherit the pipeline prefix: that would leak history/card/persona data
+around the capability projection.
+
+The planned API 2 Writer-tool ABI is a deliberate exception with a separate
+contract, consent line, immutable snapshot binding, per-turn activation, and
+bounded Writer ReAct loop. It still does not register community names in
+`TOOLS`: the selected eligible Writer schema is assembled from the captured
+extension snapshot, and single-model passes receive one deterministic union
+for cache parity. The exact tail OOC policy narrows the Writer to that tool
+while host validation remains authoritative. See
+[Community Writer Tools](community-writer-tools.md). Until that plan is
+implemented, the v1 behavior above is the complete runtime behavior.
 
 ---
 
@@ -1787,13 +1872,15 @@ seed behavior, byte-budget eviction, sibling grouping, and validation remain
 framework-owned.
 
 Framework recovery metadata also records the producing extension version and
-content digest. Regenerate/reroll always execute the **currently active**
-revision under its current grants, passing the prior metadata through the
-declared recovery input schema. Packages are responsible for backward-compatible
-recovery inputs. If an update no longer accepts old metadata, the operation
-fails with a sanitized "artifact was produced by an incompatible revision"
-diagnostic and leaves the existing attachment untouched; Orb does not silently
-execute an old package revision or retain old permissions.
+content digest. Regenerate/reroll execute the revision captured when the
+request resolves its immutable registry snapshot under live grants, passing
+the prior metadata through that revision's recovery input schema. A concurrent
+update cannot swap the flow, assets, schema, or provenance midway through an
+invocation. Packages are responsible for backward-compatible recovery inputs.
+If an update no longer accepts old metadata, the operation fails with a
+sanitized "artifact was produced by an incompatible revision" diagnostic and
+leaves the existing attachment untouched; Orb does not silently execute an old
+package revision or retain old permissions.
 
 `artifact.emit` in a post hook attaches to the assistant message being
 persisted. In an action it requires an explicit target message already validated
@@ -1816,9 +1903,11 @@ them individually. Grants distinguish:
 - Private/link-local LAN.
 - Plain HTTP.
 
-Local/private or plain-HTTP origins require a stronger warning. Do not allow
-wildcard hosts, wildcard ports, URL userinfo, `file:`, Unix sockets, or
-package-controlled proxy settings.
+Local/private or plain-HTTP origins require a stronger warning. That warning is
+not local-network authority: a public-looking hostname is still forbidden from
+resolving to loopback/private/link-local space even when its scheme is HTTP.
+Do not allow wildcard hosts, wildcard ports, URL userinfo, `file:`, Unix
+sockets, or package-controlled proxy settings.
 
 ### Host client requirements
 
@@ -1838,6 +1927,12 @@ Secrets are declared by name and edited only in an Orb-owned form. The API is
 write-only: reads return presence metadata, never the value. Flows may reference
 a secret only in declared header or body positions; never in a URL, log,
 template, UI value, state write, SSE payload, or returned error.
+
+A multi-secret edit validates the complete batch and commits it in one
+transaction. Activating a revision removes stored secret rows that revision no
+longer declares; rolling back across that removal requires the user to
+configure the old secret again rather than silently reviving a hidden
+credential.
 
 At-rest storage follows Orb's existing local SQLite secret posture; v1 must not
 claim encryption that Orb does not provide. The security improvement is
@@ -1866,6 +1961,8 @@ executable:
 ### Supported sources
 
 - Any public HTTPS Git host that supports a shallow fetch of the selected ref.
+- Plain HTTP only for an explicitly confirmed repository whose origin and
+  resolved addresses are local.
 - Optional explicit branch/tag/ref.
 - Local `.orbext` ZIP for development/offline install.
 
@@ -1882,9 +1979,13 @@ submodules, and LFS are deferred.
    and timeout rules as the flow HTTP client. Do not fall back to Dulwich's
    ambient proxy/credential behavior.
 4. Shallow-fetch only the selected ref into a temporary bare object store with
-   a hard received-pack limit. If the server cannot honor the bounded fetch,
-   reject instead of downloading full history.
-5. Resolve and record the commit ID.
+   a hard received-pack limit. Preflight the disk-backed pack before indexing:
+   bound each advertised object, each delta result, and aggregate expanded
+   bytes so a small compressed pack cannot become an unbounded allocation. If
+   the server cannot honor the bounded fetch, reject instead of downloading
+   full history.
+5. Peel annotated tags with a bounded chain, then resolve and record the commit
+   ID rather than the tag-object ID.
 6. Walk the commit tree as Git objects. Never checkout.
 7. Reject symlink modes, submodule/gitlink modes, path traversal, absolute
    paths, NULs, duplicate normalized paths, case-folding collisions, excessive
@@ -1911,6 +2012,7 @@ GET    /api/extensions
 GET    /api/extensions/{id}
 POST   /api/extensions/{id}/enabled          (API only -- the UI toggles via /api/workflows/{id}/enabled)
 POST   /api/extensions/{id}/inspect-update
+POST   /api/extensions/{id}/inspect-update-git
 POST   /api/extensions/{id}/update
 POST   /api/extensions/{id}/inspect-rollback
 POST   /api/extensions/{id}/rollback
@@ -2151,7 +2253,10 @@ Required registry changes:
   time.
 - Re-run artifact mandate and declaration validation before publishing a new
   snapshot.
-- Never let a community operation mutate the inference tool registry.
+- Never let a community operation mutate the inference tool registry. The
+  planned Writer-only ABI preserves this rule by publishing dedicated immutable
+  bindings in the captured workflow snapshot rather than calling
+  `register_tool`.
 
 Startup initialization runs after `init_db()`/migrations and before the FastAPI
 lifespan yields. It compiles every installed active revision independently,
@@ -2260,11 +2365,11 @@ feature.
 | `backend/features/extensions/` (new) | Strict manifest/flow/component/schema models; duplicate-key JSON loader; package reference walker/compiler; immutable compiled records; interpreter and effect staging; capability/context projection; package/CAS/staging lifecycle; safe archive/Git readers; mediated HTTP/secrets; host resources; startup reconciliation. Split these by responsibility rather than one extension manager module. |
 | `backend/core/locks.py` | Expose the conversation stream lock through a downward-safe owner or add an equivalent core lock service; add any message/extension lifecycle locks needed by transaction commits. Preserve current lock ordering and document it to prevent stream/workflow/character deadlocks. |
 | `backend/database/` | Add package/revision/secret tables, `interactive_fragments.type_config`, migrations, models, facades, and transaction-aware queries. Add an attachment-free full-tree projection and atomic branch activation. Add a snapshot-bounded, cursor-paginated library-card projection (id/name/tags plus one extension's own namespaced slot) with an authenticated host-owned cursor and adaptive byte-sized pages. Enforce the canonical `core/tags.py` host normalization (trim, drop empties, case-insensitive dedupe, per-tag length and per-card count caps) in the single character-card update path; route both the character API and `card.tags.set` through it, and make the chip widget match. Do not backfill existing rows, and leave card import unnormalized so exported PNGs keep author fidelity; bound extension read projections independently. Add bounded namespaced-state and purge helpers. Update `schema.py`, fresh bootstrap/stamping, seeds where applicable, and preset policy together. |
-| `backend/workflows/contracts.py` / `registry.py` / `enablement.py` | Add source/frontend kind, hook stage, immutable built-in-base + community-overlay snapshots, generation, snapshot-aware lookup/iteration, scoped community replacement, and artifact declaration validation. Do not route community tool declarations through `register_tool`. |
+| `backend/workflows/contracts.py` / `registry.py` / `enablement.py` | Add source/frontend kind, hook stage, immutable built-in-base + community-overlay snapshots, generation, snapshot-aware lookup/iteration, scoped community replacement, and artifact declaration validation. Do not route community tool declarations through `register_tool`. The planned dedicated Writer binding extends this snapshot later without weakening that prohibition. |
 | `backend/pipeline/entrypoints.py`, `context.py`, `state.py` | Capture/thread the runtime snapshot; resolve extension fragment providers before building schema; carry Director/Writer context-block collections and extension diagnostics; keep one writer content value for Editor replay. |
 | `backend/pipeline/workflow_bridge.py` / `orchestrator.py` | Adapt trusted contexts to `ExtensionCtx`; run staged declarative hooks in explicit transform/observe phases; consume only fixed control effects; commit post-message state/artifacts with the assistant result; preserve failure isolation and cancellation. |
 | `backend/pipeline/config.py`, `passes/director/**`, `passes/writer.py`, `persistence.py` | Replace hard-coded progressive/string/array decisions with resolved fragment descriptors; build the dynamic schema once; validate/reduce/carry forward extension values; render descriptor writer context; persist normalized progressive values. Keep `feedback` and `direction_note` dedicated behaviors while moving ordinary string/array/progressive handling behind the common descriptor contract. |
-| `backend/inference/` | Keep the main tool registry extension-blind. `tool_registry.py:build_direct_scene_tool` currently emits only two property shapes per fragment (array-of-string, or plain string) from a literal `field_type` branch; replace that branch with a lookup that accepts a pre-resolved JSON-schema property dict per fragment id, so a core type keeps synthesizing its own shape through the same seam an extension type's `director_schema` fills. `prompt_builder.py` carries four more `field_type` branches that must move the same way: the progressive-prior-value filter and the per-field-type hint text in `build_director_scene_step_prompt`, the progressive-only prior-value line beside it, and the array/progressive split in `format_message_with_attachments`'s Scene Direction rendering. All four must consume pre-rendered strings/schemas the pipeline resolved from the fragment-type registry, never switch on a type string themselves. If shared helpers are needed beyond that, add an isolated no-prefix model-call path and schema-value validation that `features/extensions/` may call downward. |
+| `backend/inference/` | Keep the mutable main tool registry extension-blind. `tool_registry.py:build_direct_scene_tool` currently emits only two property shapes per fragment (array-of-string, or plain string) from a literal `field_type` branch; replace that branch with a lookup that accepts a pre-resolved JSON-schema property dict per fragment id, so a core type keeps synthesizing its own shape through the same seam an extension type's `director_schema` fills. `prompt_builder.py` carries four more `field_type` branches that must move the same way: the progressive-prior-value filter and the per-field-type hint text in `build_director_scene_step_prompt`, the progressive-only prior-value line beside it, and the array/progressive split in `format_message_with_attachments`'s Scene Direction rendering. All four must consume pre-rendered strings/schemas the pipeline resolved from the fragment-type registry, never switch on a type string themselves. If shared helpers are needed beyond that, add an isolated no-prefix model-call path and schema-value validation that `features/extensions/` may call downward. The later Writer-only plan composes snapshot-derived schemas into a deterministic per-lane blob without registering them in `TOOLS`. |
 | `backend/api/routes/extensions.py` (new) | Inspect/install/catalog/detail/enable/update/rollback/permissions/secrets/actions/views/resources/assets/uninstall/purge routes. Use strict request/response schemas, staging tokens, lifecycle lock, generation checks, fixed effect envelopes, and no package-selected routes. Register the router in `api/routes/__init__.py`. |
 | `backend/api/__init__.py` | After DB initialization/migrations, reconcile content, compile installed revisions, and publish the initial snapshot before serving. Shutdown cancels/drains extension invocations and removes staging data. |
 | `frontend/extension_manager.js` (new) | Orb-owned inspect/consent/status/update/rollback/secrets/uninstall/purge UI. Never render package-provided consent text as markup. |
@@ -2335,7 +2440,7 @@ without any package file becoming browser/server code.
 Exit gate: failure at every step boundary leaves no partial Orb mutation; hook
 ordering/failure isolation and permission revocation are integration-tested.
 
-### Phase 3 — Host UI and Conversation Map vertical slice
+### Phase 3 — Host UI and Conversation Map vertical slice (implemented)
 
 1. Build the safe component renderer, form drafts, commands, workspace, and
    generation-keyed disposal.
@@ -2372,7 +2477,7 @@ sweep cancelled midway leaves every completed card written, no card partially
 written, and the next run resuming from the remainder. A tag list the character
 API accepts and one `card.tags.set` accepts normalize identically.
 
-### Phase 4 — Network, secrets, Git, and artifacts
+### Phase 4 — Network, secrets, Git, and artifacts (implemented)
 
 1. Implement the pinned-address HTTP client, exact-origin grants, redirect
    revalidation, response handles, and byte/time caps.
@@ -2386,6 +2491,22 @@ API accepts and one `card.tags.set` accepts normalize identically.
 
 Exit gate: SSRF/DNS-rebinding/secret-leak corpus and artifact lifecycle tests
 pass on Linux, macOS, and Windows path/network variants.
+
+Two decisions this phase made that the earlier text did not anticipate:
+
+- **A recovery flow is its own context.** `OpContext.RECOVERY` was added rather
+  than reusing `ACTION`, because the two differ in what they may do and in what
+  they must say. A recovery flow's target is the attachment the framework is
+  rebuilding, so it names no message; an action's is not implied by anything, so
+  it must name one. Reusing `ACTION` would have made that a runtime check, and
+  it would have left branch activation and `card.tags.set` reachable from a
+  regenerate button.
+- **`artifact.emit`'s byte source is a step field, not a value form.** Section 10
+  lists a package asset among the three sources. An asset has to be known at
+  compile time — it is read, type-checked, hashed into the digest, and served —
+  so it is a declared `asset:` path beside `data:`, not a new `$asset` value
+  form. Adding a reserved `$` key to the value grammar would have been a change
+  to every position a value can appear in, to solve a problem in one.
 
 ### Phase 5 — Fragment-type contributions
 
@@ -2594,7 +2715,10 @@ Reference extensions:
 
 - Existing first-party workflow, artifact, frontend-layer, SSE, fresh-install,
   preset, card-fragment, and pyright tests stay green.
-- Enabling an ordinary extension does not change the main model tool blob.
+- Enabling an ordinary extension with no dedicated Writer-tool contribution
+  does not change the main model tool blob. A future eligible API 2 Writer
+  contribution intentionally changes the deterministic Writer/single-model
+  schema set described in its separate plan.
 - Trusted workflow entries are the only manifest records that reach dynamic
   `import()`.
 - Applying old presets and loading old cards with only core fragment types is
@@ -2605,7 +2729,10 @@ Reference extensions:
 ## 19. Deferred beyond v1
 
 - WASM or any general-purpose package code.
-- Extension-defined Agent/Writer/Editor tools or new model passes.
+- Extension-defined Director/Editor tools, arbitrary all-pass tools, or new
+  model passes. The bounded Writer-only ABI in
+  [Community Writer Tools](community-writer-tools.md) is an accepted follow-on
+  and is no longer covered by this deferral.
 - Background services, timers, daemons, or startup jobs.
 - Extension dependencies.
 - Arbitrary DOM/CSS, custom canvas code, iframe applications, or browser
@@ -2828,23 +2955,24 @@ catalog field.
 
 ### Implementation order (normative)
 
-1. **`list.join` + withdrawal of array interpolation** — contract-adjacent,
-   so it lands first, with or before Phase 3 step 7 (which is amended to ship
-   it). Nothing depends on it; everything is simpler after it.
-2. **Invocation telemetry** — independent of the renderer; land it while
-   Phase 3 step 1 is in progress so the reference packages are measured from
-   day one.
-3. **Consent combination banner** — with the Phase 3 manager work; it must be
-   in place before any read resource beyond the tree ships.
-4. **Config view convention** — immediately after Phase 3 step 1 (renderer
-   core); it is the cheapest complete use of the renderer and a good first
-   integration test for form scope restrictions.
-5. **Read resources (lorebook, direction notes, persona)** — after Phase 3
-   step 4 establishes the resource adapter pattern; they are clones of it.
-   Persona ships last of the three, after the banner is verified.
-6. **`library.card_actions` slot** — after Phase 3 step 2's command model
-   lands, naturally paired with step 8 (Tag Librarian) since both touch the
-   library browser.
+All items below are implemented. The list is retained as the normative landed
+order and dependency record.
+
+1. **`list.join` + withdrawal of array interpolation** — landed first, with
+   Phase 3 step 7 (which was amended to ship it). Nothing depended on it;
+   everything was simpler after it.
+2. **Invocation telemetry** — landed while renderer work was in progress so
+   the reference packages were measured from day one.
+3. **Consent combination banner** — landed with the Phase 3 manager work,
+   before any read resource beyond the tree.
+4. **Config view convention** — landed immediately after the renderer core as
+   the cheapest complete use of the renderer and the first integration test
+   for form scope restrictions.
+5. **Read resources (lorebook, direction notes, persona)** — landed after the
+   tree established the resource-adapter pattern. Persona followed the other
+   two after the banner was verified.
+6. **`library.card_actions` slot** — landed after the command model, paired
+   with Tag Librarian because both touch the library browser.
 
 ### Acceptance tests
 

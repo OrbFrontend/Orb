@@ -25,6 +25,12 @@ MIB = 1024 * 1024
 MAX_SOURCE_BYTES = 50 * MIB
 """Downloaded Git pack or ``.orbext`` archive, compressed bytes on the wire."""
 
+MAX_GIT_OBJECT_BYTES = 25 * MIB
+"""One expanded Git object before it enters Dulwich's object store."""
+
+MAX_GIT_EXPANDED_BYTES = 100 * MIB
+"""Aggregate expanded object/delta bytes in one received Git pack."""
+
 MAX_TREE_ENTRIES = 512
 """Reachable tree entries in the package root, directories included."""
 
@@ -78,6 +84,24 @@ MAX_LIST_OPERATION_MEMBERS = 256
 Both operations are single bounded folds with no per-element package logic, so
 this is a memory bound rather than a work bound -- but it is also what keeps
 them from being mistaken for the seed of a collection library."""
+
+MAX_ARTIFACTS_PER_INVOCATION = 2
+"""``artifact.emit`` calls per invocation. Two, not one: a producer that emits a
+rendered result beside its source data is the ordinary case, and the byte budget
+below -- not the count -- is what bounds the cost."""
+
+MAX_ARTIFACT_BYTES = 10 * MIB
+"""One emitted artifact. Matches ``MAX_ASSET_BYTES`` so the largest package
+asset a flow may attach is not larger than the attachment it becomes."""
+
+MAX_ARTIFACT_FILENAME_CHARS = 120
+
+MAX_ARTIFACT_RECOVERY_BYTES = 16 * KIB
+"""The package-authored half of an artifact's recovery metadata.
+
+Small because it is *parameters*, not payload: enough to say which prompt,
+model, or endpoint produced the bytes, and not enough to smuggle the bytes back
+in beside them."""
 
 MAX_CARD_TAG_WRITES_PER_INVOCATION = 1
 """``card.tags.set`` calls per invocation. One card per invocation, by design:

@@ -6,6 +6,8 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, Protocol, cast
 
+import aiosqlite
+
 from ...core.domain_types import MessageRole
 from ..connection import get_db
 from ..models import (
@@ -318,7 +320,9 @@ async def get_user_attachments_for_message(message_id: int) -> list[UserAttachme
         return [cast(UserAttachmentRow, dict(r)) for r in rows]
 
 
-async def get_workflow_attachments_for_message(message_id: int) -> list[WorkflowAttachmentRowBase]:
+async def get_workflow_attachments_for_message(
+    message_id: int,
+) -> list[WorkflowAttachmentRowBase]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -384,7 +388,36 @@ async def get_deepest_descendant(cid: str, message_id: int) -> int:
         return current_id
 
 
-async def switch_to_branch(cid: str, message_id: int) -> bool:
+async def _switch_to_branch_on(db: aiosqlite.Connection, cid: str, message_id: int) -> bool:
+    owned = list(
+        await db.execute_fetchall(
+            "SELECT id FROM messages WHERE id = ? AND conversation_id = ?",
+            (message_id, cid),
+        )
+    )
+    if not owned:
+        return False
+    leaf_id = message_id
+    while True:
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT id FROM messages WHERE conversation_id = ? AND parent_id = ? ORDER BY id DESC LIMIT 1",
+                (cid, leaf_id),
+            )
+        )
+        if not rows:
+            break
+        leaf_id = rows[0]["id"]
+    await db.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (leaf_id, cid))
+    return True
+
+
+async def switch_to_branch(
+    cid: str,
+    message_id: int,
+    *,
+    db: aiosqlite.Connection | None = None,
+) -> bool:
     """Point *cid*'s active leaf at the deepest descendant of *message_id*.
 
     Returns ``False`` when the message does not exist or belongs to another
@@ -402,34 +435,21 @@ async def switch_to_branch(cid: str, message_id: int) -> bool:
     storage-level one, and the extension path needs both to match the built-in
     route exactly.
     """
-    async with get_db() as db:
-        await db.execute("BEGIN IMMEDIATE")
+    if db is not None:
+        if not db.in_transaction:
+            raise RuntimeError("switch_to_branch: caller-provided db must hold an active transaction")
+        return await _switch_to_branch_on(db, cid, message_id)
+    async with get_db() as own_db:
+        await own_db.execute("BEGIN IMMEDIATE")
         try:
-            owned = list(
-                await db.execute_fetchall(
-                    "SELECT id FROM messages WHERE id = ? AND conversation_id = ?",
-                    (message_id, cid),
-                )
-            )
-            if not owned:
-                await db.rollback()
+            switched = await _switch_to_branch_on(own_db, cid, message_id)
+            if not switched:
+                await own_db.rollback()
                 return False
-            leaf_id = message_id
-            while True:
-                rows = list(
-                    await db.execute_fetchall(
-                        "SELECT id FROM messages WHERE conversation_id = ? AND parent_id = ? ORDER BY id DESC LIMIT 1",
-                        (cid, leaf_id),
-                    )
-                )
-                if not rows:
-                    break
-                leaf_id = rows[0]["id"]
-            await db.execute("UPDATE conversations SET active_leaf_id = ? WHERE id = ?", (leaf_id, cid))
-            await db.commit()
+            await own_db.commit()
             return True
         except BaseException:
-            await db.rollback()
+            await own_db.rollback()
             raise
 
 

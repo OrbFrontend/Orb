@@ -84,6 +84,25 @@ def _isobmff(data: bytes) -> bool:
     return len(data) >= 12 and data[4:8] == b"ftyp"
 
 
+ARTIFACT_MEDIA_TYPES: frozenset[str] = frozenset(BINARY_MEDIA_TYPES.values()) | {
+    "text/plain",
+    "application/json",
+}
+"""What ``artifact.emit`` may declare a produced file to be.
+
+The asset allowlist plus the two text shapes a flow can produce on its own. An
+artifact's mime is stored and travels to the frontend, which turns it into a
+blob the user can open -- so ``text/html`` or ``image/svg+xml`` here would be
+the same active-content hole the package-asset allowlist exists to close, one
+step further downstream. The parameters (``; charset=...``) are dropped before
+the check, because a charset is not a type."""
+
+
+def normalize_artifact_mime(raw: str) -> str:
+    """Lowercase a declared artifact mime and drop its parameters."""
+    return raw.split(";", 1)[0].strip().lower()
+
+
 def asset_media_type(path: str) -> str:
     """The media type *path*'s extension declares, or raise.
 

@@ -30,8 +30,9 @@ choosing. They ride two fixed public events, ``extension_status`` and
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -44,6 +45,7 @@ from ...core import (
 from ...database import (
     commit_extension_state,
     get_conversation,
+    get_db,
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
@@ -52,7 +54,9 @@ from ...database import (
     update_character_card,
 )
 from ...inference import agent_lane_from_settings
+from ...workflows.attachment_cache import insert_workflow_attachments
 from ...workflows.contracts import (
+    EV_ATTACH_ARTIFACT,
     EV_CONTEXT_BLOCK,
     EV_DRAFT_REPLACED,
     EV_SET_MESSAGE_STATE,
@@ -60,8 +64,11 @@ from ...workflows.contracts import (
     HookType,
     PostCtx,
     PreCtx,
+    RegenCtx,
+    RerollGenCtx,
 )
-from . import execution, telemetry
+from . import artifacts, execution, secrets, telemetry
+from .compiler import CompiledPackage
 from .contracts import (
     Capability,
     EffectEnvelope,
@@ -84,6 +91,7 @@ from .interpreter import (
     unimplemented_operations,
 )
 from .limits import MAX_STATE_BYTES_PER_SCOPE
+from .network import HttpService, granted_origins
 from .values import assert_json_bounds
 
 logger = logging.getLogger(__name__)
@@ -195,13 +203,12 @@ async def _locks(stack: AsyncExitStack, access: _StateAccess, scopes: frozenset[
             await stack.enter_async_context(workflow_character_state_lock(access.character_id, access.extension_id))
 
 
-async def _commit_state(
+def _state_updates(
     access: _StateAccess,
     effects: StagedEffects,
     current: Mapping[str, Mapping[str, Any]],
-    validate: Callable[[], None],
-) -> None:
-    """Fold staged writes and commit every database-backed scope atomically."""
+) -> dict[str, dict[str, Any]]:
+    """Fold staged state writes into their post-invocation values."""
     updates: dict[str, dict[str, Any]] = {}
     for scope, staged in effects.state.items():
         if scope == "message":
@@ -213,16 +220,7 @@ async def _commit_state(
             else:
                 merged[path] = value
         updates[scope] = merged
-    if not updates:
-        validate()
-        return
-    await commit_extension_state(
-        access.extension_id,
-        updates,
-        conversation_id=access.conversation_id,
-        character_id=access.character_id,
-        validate=validate,
-    )
+    return updates
 
 
 # ── shared invocation driver ─────────────────────────────────────────────────
@@ -245,13 +243,31 @@ def _effects_list(extension_id: str, effects: StagedEffects, conversation_id: st
         # extension path repaints identically rather than approximately.
         listed.extend(
             [
-                {"resource": "conversation.messages", "conversation_id": conversation_id},
-                {"resource": "conversation.director", "conversation_id": conversation_id},
-                {"resource": "conversation.direction_notes", "conversation_id": conversation_id},
+                {
+                    "resource": "conversation.messages",
+                    "conversation_id": conversation_id,
+                },
+                {
+                    "resource": "conversation.director",
+                    "conversation_id": conversation_id,
+                },
+                {
+                    "resource": "conversation.direction_notes",
+                    "conversation_id": conversation_id,
+                },
             ]
         )
+    if effects.artifacts and conversation_id:
+        # An action-attached artifact changes what the message list should be
+        # showing. The same effect the built-in attachment routes cause a
+        # refetch through, so the extension path repaints identically.
+        listed.append({"resource": "conversation.messages", "conversation_id": conversation_id})
     listed.extend({"resource": "extension.view", "extension_id": extension_id, "view": view} for view in effects.invalidations)
-    return listed
+    # One invocation that both activates a branch and attaches a file names the
+    # message list twice. Deduplicated here rather than by the frontend: an
+    # effect is a statement about a resource, and stating it twice is noise the
+    # envelope's own budget would eventually pay for.
+    return list({canonical_json_bytes(effect): effect for effect in listed}.values())
 
 
 def _effect_payload(
@@ -291,6 +307,8 @@ def _validate_staged_effects(invocation: Invocation, result: FlowResult) -> None
         invocation.require(Capability.CONTEXT_READ, "character")
     if effects.branch_activation is not None:
         invocation.require(Capability.CONVERSATION_BRANCH_ACTIVATE)
+    if effects.artifacts:
+        invocation.require(Capability.ARTIFACT_WRITE)
     if effects.invalidations:
         invocation.require(Capability.UI_CONTRIBUTE)
     if invocation.host.context_block_error is not None:
@@ -307,7 +325,7 @@ def _validate_staged_effects(invocation: Invocation, result: FlowResult) -> None
     )
 
 
-async def _commit_card_tags(effects: StagedEffects) -> None:
+async def _commit_card_tags(db, effects: StagedEffects) -> None:
     """Write the staged tag list through the ordinary card update path.
 
     Through ``update_character_card`` rather than straight into the column,
@@ -316,19 +334,64 @@ async def _commit_card_tags(effects: StagedEffects) -> None:
     tag-writing path, and the whole reason ``card.tags.set`` is admissible is
     that there is only one.
 
-    Committed *before* the namespaced state write. If the pair cannot both
-    land, the survivable half is "tags written, not yet recorded as
-    classified": the next sweep re-classifies that card. The reverse leaves a
-    card marked done that never got its tags, which no later run would revisit.
+    The supplied connection owns the invocation transaction, so the normalized
+    tag write lands with every other staged database effect or not at all.
     """
     if effects.card_tags is None:
         return
     card_id, tags = effects.card_tags
-    if await update_character_card(card_id, {"tags": tags}) is None:
+    if await update_character_card(card_id, {"tags": tags}, db=db) is None:
         raise FlowError("the character card this action targets no longer exists")
 
 
-async def _commit_branch(effects: StagedEffects, conversation_id: str | None) -> None:
+def artifact_payloads(compiled: CompiledPackage, effects: StagedEffects, seed: str) -> list[dict[str, Any]]:
+    """Every staged artifact as the framework's attachment dict."""
+    return [
+        artifacts.attachment_payload(
+            staged,
+            extension_id=compiled.extension_id,
+            version=compiled.manifest.version,
+            content_digest=compiled.digest,
+            seed=seed,
+        )
+        for staged in effects.artifacts
+    ]
+
+
+async def _commit_artifacts(
+    db,
+    compiled: CompiledPackage,
+    effects: StagedEffects,
+    seed: str,
+) -> None:
+    """Attach the artifacts that named their own target message.
+
+    Only those: a post hook's artifact rides the pipeline result and commits
+    with the assistant row it belongs to, and a recovery flow's is handed back
+    to the framework route that asked for it. The discriminator is the target
+    the compiler already forced each context to declare, so this does not have
+    to know which kind of invocation it is in.
+    """
+    by_message: dict[int, list[dict[str, Any]]] = {}
+    for staged in effects.artifacts:
+        if staged.message_id is None:
+            continue
+        payload = artifacts.attachment_payload(
+            staged,
+            extension_id=compiled.extension_id,
+            version=compiled.manifest.version,
+            content_digest=compiled.digest,
+            seed=seed,
+        )
+        by_message.setdefault(staged.message_id, []).append(payload)
+    for message_id, payloads in by_message.items():
+        _attachment_ids, rejected = await insert_workflow_attachments(message_id, payloads, db=db)
+        if rejected:
+            reason = rejected[0].get("reason") or "the attachment was refused"
+            raise FlowError(f"the artifact could not be attached: {reason}")
+
+
+async def _commit_branch(db, effects: StagedEffects, conversation_id: str | None) -> None:
     """Activate the staged branch through the same helper /switch-branch uses.
 
     Called while the conversation stream lock is still held, so it serializes
@@ -339,12 +402,59 @@ async def _commit_branch(effects: StagedEffects, conversation_id: str | None) ->
     """
     if effects.branch_activation is None:
         return
-    if not conversation_id or not await switch_to_branch(conversation_id, effects.branch_activation):
+    if not conversation_id or not await switch_to_branch(conversation_id, effects.branch_activation, db=db):
         raise FlowError("the selected message is not part of this conversation")
+
+
+async def _commit_staged(
+    compiled: CompiledPackage | None,
+    invocation: Invocation,
+    access: _StateAccess,
+    result: FlowResult,
+) -> None:
+    """Commit every database-backed staged effect in one transaction."""
+    effects = result.effects
+    updates = _state_updates(access, effects, invocation.state_snapshots)
+    has_database_effect = bool(
+        effects.card_tags is not None
+        or any(staged.message_id is not None for staged in effects.artifacts)
+        or updates
+        or effects.branch_activation is not None
+    )
+    if not has_database_effect:
+        _validate_staged_effects(invocation, result)
+        return
+    if any(staged.message_id is not None for staged in effects.artifacts) and compiled is None:
+        raise FlowError("the invocation has no revision binding for its artifact")
+
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            # The live-grant/cancellation check belongs inside the write
+            # transaction. No permission mutation can commit between it and
+            # the staged writes.
+            _validate_staged_effects(invocation, result)
+            await _commit_card_tags(db, effects)
+            if compiled is not None:
+                await _commit_artifacts(db, compiled, effects, invocation.seed)
+            if updates:
+                await commit_extension_state(
+                    access.extension_id,
+                    updates,
+                    conversation_id=access.conversation_id,
+                    character_id=access.character_id,
+                    db=db,
+                )
+            await _commit_branch(db, effects, access.conversation_id)
+            await db.commit()
+        except BaseException:
+            await db.rollback()
+            raise
 
 
 async def _invoke(
     *,
+    compiled: CompiledPackage | None = None,
     flow: Flow,
     invocation: Invocation,
     access: _StateAccess,
@@ -382,14 +492,7 @@ async def _invoke(
                         yield event
                 assert result is not None
                 _validate_staged_effects(invocation, result)
-                await _commit_card_tags(result.effects)
-                await _commit_state(
-                    access,
-                    result.effects,
-                    invocation.state_snapshots,
-                    lambda: _validate_staged_effects(invocation, result),
-                )
-                await _commit_branch(result.effects, conversation_id)
+                await _commit_staged(compiled, invocation, access, result)
                 outcome = "ok"
                 yield result
     except execution.InvocationBlocked as exc:
@@ -405,7 +508,7 @@ async def _invoke(
 
 
 def _services(
-    extension_id: str,
+    compiled: CompiledPackage,
     access: _StateAccess,
     *,
     lanes: Mapping[str, ModelLane],
@@ -413,6 +516,8 @@ def _services(
     context_block_error: Callable[[list[dict[str, Any]]], str | None] | None = None,
 ) -> HostServices:
     from .runtime import live_grants
+
+    extension_id = compiled.extension_id
 
     async def owns_message(message_id: int) -> bool:
         if not access.conversation_id:
@@ -427,7 +532,56 @@ def _services(
         is_cancelled=is_cancelled,
         context_block_error=context_block_error,
         owns_message=owns_message,
+        http=_http_service(compiled, is_cancelled),
+        read_asset=_asset_reader(compiled),
     )
+
+
+def _http_service(compiled: CompiledPackage, is_cancelled: Callable[[], bool]) -> HttpService:
+    """The extension's egress: bounded, and bound to its *live* grants.
+
+    Always constructed, because a package with no network grant fails at
+    ``inv.require`` with "permission network.request is not granted" -- which
+    tells the user what to do -- rather than at the vaguer "not available in
+    this invocation" an absent service produces. The absent case is still real:
+    an invocation built without one (a unit test, a future context with no
+    egress at all) refuses the operation outright.
+
+    Origins and secret values are read at request time, but the set of declared
+    secret names is captured from the invocation's compiled revision. Revoking
+    an origin or clearing a value therefore lands on the next request without
+    letting a concurrent package update change what an in-flight flow means.
+    """
+    from .runtime import live_grants
+
+    extension_id = compiled.extension_id
+    declared = tuple(secret.name for secret in compiled.manifest.secrets)
+
+    def origins() -> frozenset[str]:
+        return granted_origins(live_grants(extension_id))
+
+    async def load() -> Mapping[str, str]:
+        return await secrets.load_secrets(extension_id, declared)
+
+    return HttpService(extension_id, origins=origins, secrets=load, is_cancelled=is_cancelled)
+
+
+def _asset_reader(compiled: CompiledPackage) -> Callable[[str], bytes] | None:
+    """Read a compiled asset from the invocation's revision, by exact key.
+
+    Resolved against the compiled record rather than the content directory, so
+    an asset request cannot outlive garbage collection or reach a file the
+    compiler never selected. A path the compiled revision does not know is a
+    flow error, not a filesystem miss.
+    """
+
+    def read(path: str) -> bytes:
+        content = compiled.files.get(path)
+        if content is None or path not in compiled.asset_types:
+            raise FlowError(f"this package has no asset {path!r}")
+        return content.canonical_bytes()
+
+    return read
 
 
 def _turn_lanes(ctx: PreCtx | PostCtx) -> dict[str, ModelLane]:
@@ -445,7 +599,10 @@ def _turn_lanes(ctx: PreCtx | PostCtx) -> dict[str, ModelLane]:
         writer_client=ctx.client,
         abort_token=getattr(ctx.client, "abort_token", None),
     )
-    return {"writer": writer, "agent": ModelLane(client=agent_client, model=agent_model)}
+    return {
+        "writer": writer,
+        "agent": ModelLane(client=agent_client, model=agent_model),
+    }
 
 
 def _cancelled(ctx: PreCtx | PostCtx) -> Callable[[], bool]:
@@ -453,13 +610,15 @@ def _cancelled(ctx: PreCtx | PostCtx) -> Callable[[], bool]:
     return lambda: bool(getattr(client, "is_aborted", False))
 
 
-def make_pre_hook(extension_id: str, flow: Flow) -> Callable[[PreCtx], AsyncIterator[dict]]:
+def make_pre_hook(compiled: CompiledPackage, flow: Flow) -> Callable[[PreCtx], AsyncIterator[dict]]:
     """Bind a compiled flow as this extension's ``pre_pipeline`` subscription.
 
     A pre hook may produce trailing context blocks and state. It cannot see or
     replace a draft -- there is none yet -- and the compiler already refused
     ``draft.replace`` in this context, so the adapter has nothing to filter.
     """
+
+    extension_id = compiled.extension_id
 
     async def hook(ctx: PreCtx) -> AsyncIterator[dict]:
         access = _StateAccess(
@@ -471,7 +630,7 @@ def make_pre_hook(extension_id: str, flow: Flow) -> Callable[[PreCtx], AsyncIter
             extension_id=extension_id,
             context=OpContext.PRE_PIPELINE,
             host=_services(
-                extension_id,
+                compiled,
                 access,
                 lanes=_turn_lanes(ctx),
                 is_cancelled=_cancelled(ctx),
@@ -492,6 +651,7 @@ def make_pre_hook(extension_id: str, flow: Flow) -> Callable[[PreCtx], AsyncIter
         )
         async for event in _drive(
             extension_id,
+            compiled,
             flow,
             invocation,
             access,
@@ -503,8 +663,14 @@ def make_pre_hook(extension_id: str, flow: Flow) -> Callable[[PreCtx], AsyncIter
     return hook
 
 
-def make_post_hook(extension_id: str, flow: Flow, stage: HookStage) -> Callable[[PostCtx], AsyncIterator[dict]]:
+def make_post_hook(
+    compiled: CompiledPackage,
+    flow: Flow,
+    stage: HookStage,
+) -> Callable[[PostCtx], AsyncIterator[dict]]:
     """Bind a compiled flow as this extension's ``post_pipeline`` subscription."""
+
+    extension_id = compiled.extension_id
 
     async def hook(ctx: PostCtx) -> AsyncIterator[dict]:
         access = _StateAccess(
@@ -517,7 +683,7 @@ def make_post_hook(extension_id: str, flow: Flow, stage: HookStage) -> Callable[
             extension_id=extension_id,
             context=OpContext.POST_TRANSFORM if stage is HookStage.TRANSFORM else OpContext.POST_OBSERVE,
             host=_services(
-                extension_id,
+                compiled,
                 access,
                 lanes=_turn_lanes(ctx),
                 is_cancelled=_cancelled(ctx),
@@ -542,6 +708,7 @@ def make_post_hook(extension_id: str, flow: Flow, stage: HookStage) -> Callable[
         )
         async for event in _drive(
             extension_id,
+            compiled,
             flow,
             invocation,
             access,
@@ -561,6 +728,7 @@ def _granted(extension_id: str) -> frozenset[tuple[str, str | None]]:
 
 async def _drive(
     extension_id: str,
+    compiled: CompiledPackage,
     flow: Flow,
     invocation: Invocation,
     access: _StateAccess,
@@ -578,9 +746,15 @@ async def _drive(
     """
     emitted_status = False
     try:
-        async for event in _invoke(flow=flow, invocation=invocation, access=access, entry_point=hook_name):
+        async for event in _invoke(
+            compiled=compiled,
+            flow=flow,
+            invocation=invocation,
+            access=access,
+            entry_point=hook_name,
+        ):
             if isinstance(event, FlowResult):
-                for control in _result_events(extension_id, event, generation):
+                for control in _result_events(compiled, event, generation, seed=invocation.seed):
                     yield control
                 continue
             emitted_status = True
@@ -602,13 +776,20 @@ async def _drive(
             }
 
 
-def _result_events(extension_id: str, result: FlowResult, generation: int):
+def _result_events(compiled: CompiledPackage, result: FlowResult, generation: int, *, seed: str = ""):
     """The control and public events one committed invocation produces."""
+    extension_id = compiled.extension_id
     effects = result.effects
     for block in effects.context_blocks:
         yield {"type": EV_CONTEXT_BLOCK, "extension_id": extension_id, **block}
     if effects.draft is not None:
         yield {"type": EV_DRAFT_REPLACED, "draft": effects.draft}
+    for payload in artifact_payloads(compiled, effects, seed):
+        # The assistant row does not exist yet, so the attachment rides the
+        # pipeline result exactly as a message-state write does, and the bridge
+        # persists it with that row. Its ``workflow_id``/``source`` pairing was
+        # stamped by the host, which is what the bridge validates before staging.
+        yield {"type": EV_ATTACH_ARTIFACT, "attachment": payload}
     message_state = effects.state.get("message")
     if message_state:
         # The assistant row does not exist yet, so the write rides the pipeline
@@ -629,7 +810,7 @@ def _result_events(extension_id: str, result: FlowResult, generation: int):
 
 async def run_action(
     *,
-    extension_id: str,
+    compiled: CompiledPackage,
     action_name: str,
     flow: Flow,
     action_input: Mapping[str, Any],
@@ -657,6 +838,7 @@ async def run_action(
     invocation has to remember: this function receives a card that was already
     permitted.
     """
+    extension_id = compiled.extension_id
     assert_json_bounds(dict(action_input), what="action input")
     if input_schema is not None:
         reason = parse_schema(input_schema, what="input_schema").validate(dict(action_input))
@@ -667,7 +849,7 @@ async def run_action(
     invocation = Invocation(
         extension_id=extension_id,
         context=OpContext.ACTION,
-        host=_services(extension_id, access, lanes=lanes, is_cancelled=is_cancelled),
+        host=_services(compiled, access, lanes=lanes, is_cancelled=is_cancelled),
         ctx=build_ctx(
             extension_id=extension_id,
             hook="action",
@@ -683,11 +865,179 @@ async def run_action(
     )
 
     result: FlowResult | None = None
-    async for event in _invoke(flow=flow, invocation=invocation, access=access, entry_point=f"action {action_name}"):
+    async for event in _invoke(
+        compiled=compiled,
+        flow=flow,
+        invocation=invocation,
+        access=access,
+        entry_point=f"action {action_name}",
+    ):
         if isinstance(event, FlowResult):
             result = event
     assert result is not None
-    return _effect_payload(extension_id, result.effects, generation, data=result.value, conversation_id=conversation_id)
+    return _effect_payload(
+        extension_id,
+        result.effects,
+        generation,
+        data=result.value,
+        conversation_id=conversation_id,
+    )
+
+
+# ── artifact recovery ────────────────────────────────────────────────────────
+
+
+def _decode_metadata(raw: Any) -> Mapping[str, Any]:
+    """Read a stored ``generation_metadata`` column into a mapping."""
+    if isinstance(raw, Mapping):
+        return raw
+    if isinstance(raw, str) and raw:
+        try:
+            decoded = json.loads(raw)
+        except ValueError:
+            return {}
+        return decoded if isinstance(decoded, Mapping) else {}
+    return {}
+
+
+async def _run_recovery(
+    compiled: CompiledPackage,
+    flow: Flow,
+    *,
+    entry_point: str,
+    conversation_id: str,
+    message_id: int,
+    stored_metadata: Any,
+    settings: Mapping[str, Any],
+    client: Any,
+    seed: str,
+) -> list[dict[str, Any]]:
+    """Run one recovery flow on the revision captured by the registry snapshot.
+
+    The revision binding is the whole point of this function. The stored
+    metadata says which revision produced the bytes, but the flow that runs is
+    the one captured when this request resolved its registry snapshot, under
+    live grants. Orb does not resurrect the producing revision or its old
+    permission set. The stored payload is validated against the captured
+    revision's ``recovery_input_schema`` first.
+    """
+    extension_id = compiled.extension_id
+    declared = compiled.manifest.artifact_flows
+    schema = None
+    if declared is not None and declared.recovery_input_schema is not None:
+        schema = parse_schema(declared.recovery_input_schema, what="recovery_input_schema")
+    recovery = artifacts.recovery_input(_decode_metadata(stored_metadata), schema=schema)
+
+    access = _StateAccess(extension_id, conversation_id=conversation_id, character_id=None)
+    agent_client, agent_model = agent_lane_from_settings(settings, writer_client=client)
+    invocation = Invocation(
+        extension_id=extension_id,
+        context=OpContext.RECOVERY,
+        host=_services(
+            compiled,
+            access,
+            lanes={
+                "writer": ModelLane(client=client, model=settings["model_name"]),
+                "agent": ModelLane(client=agent_client, model=agent_model),
+            },
+            is_cancelled=lambda: bool(getattr(client, "is_aborted", False)),
+        ),
+        ctx=build_ctx(
+            extension_id=extension_id,
+            hook="recovery",
+            granted=_granted(extension_id),
+            conversation_id=conversation_id,
+            message_id=message_id,
+        ),
+        action_input=recovery,
+        metadata={
+            "conversation_id": conversation_id,
+            "hook": "recovery",
+            "message_id": message_id,
+        },
+        # Regenerate replays the original seed and reroll receives a fresh one,
+        # so a deterministic flow reproduces its own bytes on one path and
+        # deliberately does not on the other.
+        seed=seed,
+        scopes_in_scope=flow_scopes(flow),
+    )
+    result: FlowResult | None = None
+    async for event in _invoke(
+        compiled=compiled,
+        flow=flow,
+        invocation=invocation,
+        access=access,
+        entry_point=entry_point,
+    ):
+        if isinstance(event, FlowResult):
+            result = event
+    assert result is not None
+    payloads = artifact_payloads(compiled, result.effects, seed)
+    if not payloads:
+        raise FlowError("the recovery flow produced no artifact")
+    return payloads
+
+
+def make_regenerate(
+    compiled: CompiledPackage,
+    flow: Flow,
+) -> Callable[[RegenCtx, dict], Awaitable[list[dict[str, Any]]]]:
+    """Bind a compiled flow as this extension's ``regenerate`` handler.
+
+    Regenerate reuses the original attachment's recorded seed, so a flow whose
+    output depends on ``random.*`` reproduces the same draw. What it does *not*
+    reuse is the producing revision: the flow/schema/assets come from the
+    request's registry snapshot and grants remain live.
+    """
+
+    async def regenerate(ctx: RegenCtx, _body: dict) -> list[dict[str, Any]]:
+        original = ctx.original_attachment
+        return await _run_recovery(
+            compiled,
+            flow,
+            entry_point="regenerate",
+            conversation_id=ctx.conversation_id,
+            message_id=ctx.message_id,
+            stored_metadata=original.get("generation_metadata"),
+            settings=ctx.settings,
+            client=ctx.client,
+            seed=str(original.get("seed") or ""),
+        )
+
+    return regenerate
+
+
+def make_reroll(
+    compiled: CompiledPackage,
+    flow: Flow,
+) -> Callable[[RerollGenCtx, dict, str], Awaitable[bytes]]:
+    """Bind a compiled flow as this extension's ``reroll_gen`` handler.
+
+    The framework hands it the stored parameters and a *new* seed and expects
+    bytes back; it owns the sibling row, the byte budget, and the rehydrate
+    path. The contract is exactly one attachment: accepting two and silently
+    discarding one would persist provenance for bytes other than those returned.
+    """
+
+    async def reroll(ctx: RerollGenCtx, params: dict, seed: str) -> bytes:
+        payloads = await _run_recovery(
+            compiled,
+            flow,
+            entry_point="reroll_gen",
+            conversation_id=ctx.conversation_id,
+            message_id=ctx.message_id,
+            stored_metadata=params or ctx.original_attachment.get("generation_metadata"),
+            settings=ctx.settings,
+            client=ctx.client,
+            seed=seed,
+        )
+        if len(payloads) != 1:
+            raise FlowError("the reroll recovery flow must produce exactly one artifact")
+        params.clear()
+        params.update(payloads[0]["generation_metadata"])
+        return payloads[0]["data"]
+
+    return reroll
 
 
 # ── host-generated state writes ──────────────────────────────────────────────
@@ -771,7 +1121,7 @@ def _assert_still_granted(extension_id: str, updates: Mapping[str, Any]) -> None
 # ── publishing ───────────────────────────────────────────────────────────────
 
 
-def hook_bindings(manifest, flows: Mapping[str, Flow], blocked: Sequence[str]):
+def hook_bindings(compiled: CompiledPackage, blocked: Sequence[str]):
     """Yield ``(HookType, callable, stage)`` for every publishable hook.
 
     A hook whose entry point is blocked -- under-granted, or reaching an
@@ -779,12 +1129,14 @@ def hook_bindings(manifest, flows: Mapping[str, Flow], blocked: Sequence[str]):
     the package's diagnostic instead of being published and failing halfway
     through ordinary use.
     """
+    manifest = compiled.manifest
+    flows = compiled.flows
     if manifest.hooks.pre_pipeline and "hook pre_pipeline" not in blocked:
         flow = flows.get(manifest.hooks.pre_pipeline.flow)
         if flow is not None:
             yield (
                 HookType.PRE_PIPELINE,
-                make_pre_hook(manifest.id, flow),
+                make_pre_hook(compiled, flow),
                 HookStage.TRANSFORM,
             )
     if manifest.hooks.post_pipeline and "hook post_pipeline" not in blocked:
@@ -793,9 +1145,49 @@ def hook_bindings(manifest, flows: Mapping[str, Flow], blocked: Sequence[str]):
             stage = HookStage.TRANSFORM if manifest.hooks.post_pipeline.stage == "transform" else HookStage.OBSERVE
             yield (
                 HookType.POST_PIPELINE,
-                make_post_hook(manifest.id, flow, stage),
+                make_post_hook(compiled, flow, stage),
                 stage,
             )
+    yield from artifact_bindings(compiled, blocked)
+
+
+def artifact_bindings(compiled: CompiledPackage, blocked: Sequence[str]):
+    """Yield the regenerate/reroll pair, or nothing at all.
+
+    Nothing at all is the important case. The registry's artifact mandate is
+    all-or-nothing -- a record declaring ``produces_artifacts`` without both
+    hooks fails the *whole* overlay swap -- so a package whose recovery flows
+    are blocked must publish neither the hooks nor the declaration.
+    :func:`publishes_artifacts` is the one predicate both this and the record
+    builder ask, so the two cannot disagree about a package that would
+    otherwise take every other extension down with it at startup.
+    """
+    manifest = compiled.manifest
+    flows = compiled.flows
+    if not publishes_artifacts(manifest, flows, blocked):
+        return
+    declared = manifest.artifact_flows
+    assert declared is not None
+    yield (
+        HookType.REGENERATE,
+        make_regenerate(compiled, flows[declared.regenerate]),
+        HookStage.TRANSFORM,
+    )
+    yield (
+        HookType.REROLL_GEN,
+        make_reroll(compiled, flows[declared.reroll_gen]),
+        HookStage.TRANSFORM,
+    )
+
+
+def publishes_artifacts(manifest, flows: Mapping[str, Flow], blocked: Sequence[str]) -> bool:
+    """Whether this revision can honor the artifact contract end to end."""
+    declared = manifest.artifact_flows
+    if not manifest.produces_artifacts or declared is None:
+        return False
+    if "artifact flows" in blocked:
+        return False
+    return declared.regenerate in flows and declared.reroll_gen in flows
 
 
 def blocked_by_build(flows: Mapping[str, Flow]) -> dict[str, list[str]]:

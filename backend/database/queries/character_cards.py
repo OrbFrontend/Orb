@@ -106,39 +106,54 @@ async def list_library_cards(
     return page, snapshot_rowid, snapshot_created_at
 
 
+async def _get_character_card_on(
+    db: aiosqlite.Connection,
+    card_id: str,
+    *,
+    include_avatar: bool = False,
+) -> CharacterCardRow | None:
+    cols = (
+        "*"
+        if include_avatar
+        else (
+            "id, name, description, personality, scenario, first_mes, mes_example, "
+            "creator_notes, system_prompt, post_history_instructions, tags, creator, "
+            "character_version, alternate_greetings, avatar_mime, source_format, world_id, persona_lock_id, "
+            "extensions, created_at, updated_at"
+        )
+    )
+    rows = list(
+        await db.execute_fetchall(
+            f"SELECT {cols} FROM character_cards WHERE id = ?",
+            (card_id,),  # nosec B608 — cols is a hardcoded literal, not user input
+        )
+    )
+    if not rows:
+        return None
+    d = dict(rows[0])
+    d["tags"] = json.loads(d["tags"]) if d.get("tags") else []
+    d["alternate_greetings"] = json.loads(d["alternate_greetings"]) if d.get("alternate_greetings") else []
+    d["extensions"] = json.loads(d["extensions"]) if d.get("extensions") else {}
+    d["has_avatar"] = d.get("avatar_mime") is not None
+    return cast(CharacterCardRow, d)
+
+
 async def get_character_card(card_id: str, include_avatar: bool = False) -> CharacterCardRow | None:
     async with get_db() as db:
-        cols = (
-            "*"
-            if include_avatar
-            else (
-                "id, name, description, personality, scenario, first_mes, mes_example, "
-                "creator_notes, system_prompt, post_history_instructions, tags, creator, "
-                "character_version, alternate_greetings, avatar_mime, source_format, world_id, persona_lock_id, "
-                "extensions, created_at, updated_at"
-            )
-        )
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT {cols} FROM character_cards WHERE id = ?",
-                (card_id,),  # nosec B608 — cols is a hardcoded literal, not user input
-            )
-        )
-        if not rows:
-            return None
-        d = dict(rows[0])
-        d["tags"] = json.loads(d["tags"]) if d.get("tags") else []
-        d["alternate_greetings"] = json.loads(d["alternate_greetings"]) if d.get("alternate_greetings") else []
-        d["extensions"] = json.loads(d["extensions"]) if d.get("extensions") else {}
-        d["has_avatar"] = d.get("avatar_mime") is not None
-        return cast(CharacterCardRow, d)
+        return await _get_character_card_on(db, card_id, include_avatar=include_avatar)
 
 
 # Server-side mirror of frontend FRAGMENT_ID_REGEX, plus a length cap: card
 # fragment ids become LLM tool-schema property names, and some backends
 # enforce a strict charset/length on those.
 _CARD_FRAGMENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-_INTERACTIVE_FIELD_TYPES = {"string", "array", "progressive", "feedback", "direction_note"}
+_INTERACTIVE_FIELD_TYPES = {
+    "string",
+    "array",
+    "progressive",
+    "feedback",
+    "direction_note",
+}
 
 
 def _card_fragment_entries(raw: Any) -> list[dict]:
@@ -331,56 +346,74 @@ async def reroll_unfrozen_greetings(cid: str) -> None:
             await db.commit()
 
 
-async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | None:
-    async with get_db() as db:
-        allowed = [
-            "name",
-            "description",
-            "personality",
-            "scenario",
-            "first_mes",
-            "mes_example",
-            "creator_notes",
-            "system_prompt",
-            "post_history_instructions",
-            "creator",
-            "character_version",
-            "world_id",
-            "persona_lock_id",
-        ]
-        sets, vals = _build_set_clause(allowed, data)
-        # JSON fields
-        if "tags" in data:
-            # The one write path for tags, so the one place they are normalized.
-            # The character API and the extension ``card.tags.set`` operation
-            # both land here, which is what makes their stored results
-            # byte-identical for the same input list. Import deliberately does
-            # not pass through here -- an imported card keeps its author's tags.
-            sets.append("tags = ?")
-            vals.append(json.dumps(normalize_tags(data["tags"])))
-        if "alternate_greetings" in data:
-            sets.append("alternate_greetings = ?")
-            vals.append(json.dumps(data["alternate_greetings"]))
-        if "extensions" in data:
-            sets.append("extensions = ?")
-            vals.append(json.dumps(data["extensions"]))
-        # Avatar
-        if "avatar_b64" in data:
-            sets.append("avatar_b64 = ?")
-            vals.append(data["avatar_b64"])
-            sets.append("avatar_mime = ?")
-            vals.append(data.get("avatar_mime"))
+async def _update_character_card_on(db: aiosqlite.Connection, card_id: str, data: dict) -> CharacterCardRow | None:
+    allowed = [
+        "name",
+        "description",
+        "personality",
+        "scenario",
+        "first_mes",
+        "mes_example",
+        "creator_notes",
+        "system_prompt",
+        "post_history_instructions",
+        "creator",
+        "character_version",
+        "world_id",
+        "persona_lock_id",
+    ]
+    sets, vals = _build_set_clause(allowed, data)
+    # JSON fields
+    if "tags" in data:
+        # The one write path for tags, so the one place they are normalized.
+        # The character API and the extension ``card.tags.set`` operation both
+        # land here, including callers that supply a surrounding transaction.
+        sets.append("tags = ?")
+        vals.append(json.dumps(normalize_tags(data["tags"])))
+    if "alternate_greetings" in data:
+        sets.append("alternate_greetings = ?")
+        vals.append(json.dumps(data["alternate_greetings"]))
+    if "extensions" in data:
+        sets.append("extensions = ?")
+        vals.append(json.dumps(data["extensions"]))
+    # Avatar
+    if "avatar_b64" in data:
+        sets.append("avatar_b64 = ?")
+        vals.append(data["avatar_b64"])
+        sets.append("avatar_mime = ?")
+        vals.append(data.get("avatar_mime"))
 
-        if sets:
-            sets.append("updated_at = ?")
-            vals.append(datetime.now(UTC).isoformat())
-            vals.append(card_id)
-            await db.execute(
-                f"UPDATE character_cards SET {', '.join(sets)} WHERE id = ?",
-                vals,  # nosec B608 — cols from hardcoded allowlist, values parameterised
-            )
-            await db.commit()
-        return await get_character_card(card_id)
+    if sets:
+        sets.append("updated_at = ?")
+        vals.append(datetime.now(UTC).isoformat())
+        vals.append(card_id)
+        await db.execute(
+            f"UPDATE character_cards SET {', '.join(sets)} WHERE id = ?",
+            vals,  # nosec B608 — cols from hardcoded allowlist, values parameterised
+        )
+    return await _get_character_card_on(db, card_id)
+
+
+async def update_character_card(
+    card_id: str,
+    data: dict,
+    *,
+    db: aiosqlite.Connection | None = None,
+) -> CharacterCardRow | None:
+    """Update a card through the canonical normalization path.
+
+    When *db* is supplied, the caller owns the active transaction. This lets a
+    community action commit a tag update with its other staged effects without
+    creating a second tag-writing policy.
+    """
+    if db is not None:
+        if not db.in_transaction:
+            raise RuntimeError("update_character_card: caller-provided db must hold an active transaction")
+        return await _update_character_card_on(db, card_id, data)
+    async with get_db() as own_db:
+        result = await _update_character_card_on(own_db, card_id, data)
+        await own_db.commit()
+        return result
 
 
 async def sync_conversations_for_card(card_id: str, card: Mapping[str, Any], old_name: str | None = None) -> None:

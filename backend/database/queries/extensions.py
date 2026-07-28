@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -60,6 +60,7 @@ async def commit_extension_state(
     conversation_id: str | None,
     character_id: str | None,
     validate: Callable[[], None] | None = None,
+    db: aiosqlite.Connection | None = None,
 ) -> None:
     """Commit every database-backed extension state scope atomically.
 
@@ -74,62 +75,70 @@ async def commit_extension_state(
     if unknown:
         raise ValueError(f"unsupported extension state scope(s): {sorted(unknown)}")
 
-    async with get_db() as db:
-        await db.execute("BEGIN IMMEDIATE")
+    async def apply(conn: aiosqlite.Connection) -> None:
+        if validate is not None:
+            validate()
+        if "config" in updates:
+            payload = dict(updates["config"])
+            if payload:
+                await conn.execute(
+                    "UPDATE settings "
+                    "SET workflow_config = json_set(COALESCE(workflow_config, '{}'), '$.' || ?, json(?)) "
+                    "WHERE id = 1",
+                    (extension_id, json.dumps(payload)),
+                )
+            else:
+                await conn.execute(
+                    "UPDATE settings "
+                    "SET workflow_config = json_remove(COALESCE(workflow_config, '{}'), '$.' || ?) "
+                    "WHERE id = 1",
+                    (extension_id,),
+                )
+        if "conversation" in updates and conversation_id is not None:
+            payload = dict(updates["conversation"])
+            if payload:
+                await conn.execute(
+                    "UPDATE conversations "
+                    "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
+                    "WHERE id = ?",
+                    (extension_id, json.dumps(payload), conversation_id),
+                )
+            else:
+                await conn.execute(
+                    "UPDATE conversations "
+                    "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
+                    "WHERE id = ?",
+                    (extension_id, conversation_id),
+                )
+        if "character" in updates and character_id is not None:
+            payload = dict(updates["character"])
+            if payload:
+                await conn.execute(
+                    "UPDATE character_cards "
+                    "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
+                    "WHERE id = ?",
+                    (extension_id, json.dumps(payload), character_id),
+                )
+            else:
+                await conn.execute(
+                    "UPDATE character_cards "
+                    "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
+                    "WHERE id = ?",
+                    (extension_id, character_id),
+                )
+
+    if db is not None:
+        if not db.in_transaction:
+            raise RuntimeError("commit_extension_state: caller-provided db must hold an active transaction")
+        await apply(db)
+        return
+    async with get_db() as own_db:
+        await own_db.execute("BEGIN IMMEDIATE")
         try:
-            if validate is not None:
-                validate()
-            if "config" in updates:
-                payload = dict(updates["config"])
-                if payload:
-                    await db.execute(
-                        "UPDATE settings "
-                        "SET workflow_config = json_set(COALESCE(workflow_config, '{}'), '$.' || ?, json(?)) "
-                        "WHERE id = 1",
-                        (extension_id, json.dumps(payload)),
-                    )
-                else:
-                    await db.execute(
-                        "UPDATE settings "
-                        "SET workflow_config = json_remove(COALESCE(workflow_config, '{}'), '$.' || ?) "
-                        "WHERE id = 1",
-                        (extension_id,),
-                    )
-            if "conversation" in updates and conversation_id is not None:
-                payload = dict(updates["conversation"])
-                if payload:
-                    await db.execute(
-                        "UPDATE conversations "
-                        "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
-                        "WHERE id = ?",
-                        (extension_id, json.dumps(payload), conversation_id),
-                    )
-                else:
-                    await db.execute(
-                        "UPDATE conversations "
-                        "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
-                        "WHERE id = ?",
-                        (extension_id, conversation_id),
-                    )
-            if "character" in updates and character_id is not None:
-                payload = dict(updates["character"])
-                if payload:
-                    await db.execute(
-                        "UPDATE character_cards "
-                        "SET workflow_state = json_set(COALESCE(workflow_state, '{}'), '$.' || ?, json(?)) "
-                        "WHERE id = ?",
-                        (extension_id, json.dumps(payload), character_id),
-                    )
-                else:
-                    await db.execute(
-                        "UPDATE character_cards "
-                        "SET workflow_state = json_remove(COALESCE(workflow_state, '{}'), '$.' || ?) "
-                        "WHERE id = ?",
-                        (extension_id, character_id),
-                    )
-            await db.commit()
+            await apply(own_db)
+            await own_db.commit()
         except BaseException:
-            await db.rollback()
+            await own_db.rollback()
             raise
 
 
@@ -145,7 +154,7 @@ async def list_extension_packages() -> list[ExtensionPackageRuntimeRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT p.*, r.contract_fingerprint AS active_contract_fingerprint "
+                "SELECT p.*, r.contract_fingerprint AS active_contract_fingerprint, r.commit_id AS active_commit_id "
                 "FROM extension_packages AS p "
                 "LEFT JOIN extension_revisions AS r "
                 "ON r.extension_id = p.id AND r.content_digest = p.active_digest "
@@ -234,7 +243,8 @@ async def _upsert_revision(
         "(extension_id, content_digest, manifest, extension_api, version, commit_id, contract_fingerprint, first_seen_at) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(extension_id, content_digest) DO UPDATE SET "
-        "contract_fingerprint = excluded.contract_fingerprint",
+        "contract_fingerprint = excluded.contract_fingerprint, "
+        "commit_id = COALESCE(excluded.commit_id, extension_revisions.commit_id)",
         (
             extension_id,
             content_digest,
@@ -264,6 +274,7 @@ async def install_extension_package(
     enabled: bool,
     load_status: str,
     load_error: str,
+    declared_secret_names: Sequence[str],
 ) -> None:
     """Create a package registration, revision, grants, and switch atomically.
 
@@ -321,6 +332,7 @@ async def install_extension_package(
             contract_fingerprint=contract_fingerprint,
         )
         await _prune_revisions(db, extension_id, {content_digest})
+        await _delete_obsolete_secrets(db, extension_id, declared_secret_names)
         await _set_workflow_enabled(db, extension_id, enabled)
         await db.commit()
 
@@ -341,6 +353,7 @@ async def activate_extension_revision(
     load_status: str,
     load_error: str,
     expected_active_digest: str,
+    declared_secret_names: Sequence[str],
 ) -> bool:
     """Swap the active digest of an installed package, one transaction.
 
@@ -407,6 +420,7 @@ async def activate_extension_revision(
         if previous_digest:
             keep_digests.add(previous_digest)
         await _prune_revisions(db, extension_id, keep_digests)
+        await _delete_obsolete_secrets(db, extension_id, declared_secret_names)
         await db.commit()
     return True
 
@@ -488,21 +502,87 @@ async def list_extension_secret_names(extension_id: str) -> list[ExtensionSecret
     return [cast(ExtensionSecretRow, dict(r)) for r in rows]
 
 
-async def set_extension_secret(extension_id: str, name: str, value: str) -> None:
+async def list_configured_secret_names() -> dict[str, dict[str, str]]:
+    """``{extension_id: {name: updated_at}}`` for every stored secret.
+
+    One statement for the whole catalog, so the manager can show which declared
+    secrets are filled in without a query per package. Like its per-extension
+    sibling it cannot return a value -- the column is not in the SELECT.
+    """
     async with get_db() as db:
-        await db.execute(
-            "INSERT INTO extension_secrets (extension_id, name, secret_value, updated_at) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(extension_id, name) DO UPDATE SET secret_value = excluded.secret_value, "
-            "updated_at = excluded.updated_at",
-            (extension_id, name, value, _now()),
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT extension_id, name, updated_at FROM extension_secrets ORDER BY extension_id, name"
+            )
         )
-        await db.commit()
+    configured: dict[str, dict[str, str]] = {}
+    for row in rows:
+        configured.setdefault(str(row["extension_id"]), {})[str(row["name"])] = str(row["updated_at"] or "")
+    return configured
 
 
-async def delete_extension_secret(extension_id: str, name: str) -> None:
+async def get_extension_secret_values(extension_id: str) -> dict[str, str]:
+    """The stored secret values, for the host HTTP client and nothing else.
+
+    The only statement in the codebase that selects ``secret_value``. It exists
+    because substitution has to happen *somewhere*, and the design's answer is
+    "inside the network client, never in package-visible data" -- so this is
+    called by :mod:`backend.features.extensions.secrets` on the request path and
+    by no route, projection, or catalog. Everything a user-facing surface needs
+    comes from :func:`list_extension_secret_names`, which cannot return a value
+    at all.
+    """
     async with get_db() as db:
-        await db.execute("DELETE FROM extension_secrets WHERE extension_id = ? AND name = ?", (extension_id, name))
-        await db.commit()
+        rows = list(
+            await db.execute_fetchall(
+                "SELECT name, secret_value FROM extension_secrets WHERE extension_id = ?",
+                (extension_id,),
+            )
+        )
+    return {str(r["name"]): str(r["secret_value"] or "") for r in rows}
+
+
+async def write_extension_secrets(extension_id: str, values: Mapping[str, str | None]) -> None:
+    """Set and clear a validated secret batch in one transaction."""
+    async with get_db() as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            now = _now()
+            for name in sorted(values):
+                value = values[name]
+                if value is None:
+                    await db.execute(
+                        "DELETE FROM extension_secrets WHERE extension_id = ? AND name = ?",
+                        (extension_id, name),
+                    )
+                else:
+                    await db.execute(
+                        "INSERT INTO extension_secrets (extension_id, name, secret_value, updated_at) VALUES (?, ?, ?, ?) "
+                        "ON CONFLICT(extension_id, name) DO UPDATE SET secret_value = excluded.secret_value, "
+                        "updated_at = excluded.updated_at",
+                        (extension_id, name, value, now),
+                    )
+            await db.commit()
+        except BaseException:
+            await db.rollback()
+            raise
+
+
+async def _delete_obsolete_secrets(
+    db: aiosqlite.Connection,
+    extension_id: str,
+    declared_secret_names: Sequence[str],
+) -> None:
+    """Remove credentials the newly active manifest can no longer name."""
+    names = tuple(sorted(set(declared_secret_names)))
+    if not names:
+        await db.execute("DELETE FROM extension_secrets WHERE extension_id = ?", (extension_id,))
+        return
+    placeholders = ", ".join("?" for _ in names)
+    await db.execute(
+        f"DELETE FROM extension_secrets WHERE extension_id = ? AND name NOT IN ({placeholders})",
+        (extension_id, *names),
+    )
 
 
 # ── namespaced user data ────────────────────────────────────────────────────

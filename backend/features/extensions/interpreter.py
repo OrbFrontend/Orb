@@ -45,6 +45,8 @@ from typing import Any
 
 from ...core import normalize_tags
 from ...inference import IsolatedCallError, isolated_structured, isolated_text
+from .artifacts import StagedArtifact, safe_filename
+from .assets import normalize_artifact_mime
 from .contracts import (
     OPERATION_SPECS,
     Capability,
@@ -58,16 +60,22 @@ from .digest import canonical_json_bytes
 from .errors import FlowCancelled, FlowError
 from .limits import (
     MAX_ACTION_RESULT_BYTES,
+    MAX_ARTIFACT_BYTES,
+    MAX_ARTIFACT_RECOVERY_BYTES,
+    MAX_ARTIFACTS_PER_INVOCATION,
     MAX_CARD_TAG_WRITES_PER_INVOCATION,
     MAX_CONTEXT_BLOCK_BYTES,
     MAX_DRAFT_BYTES,
     MAX_FLOW_STEPS_EXECUTED,
+    MAX_HTTP_REQUESTS_PER_INVOCATION,
+    MAX_LABEL_CHARS,
     MAX_LIST_OPERATION_MEMBERS,
     MAX_MODEL_CALLS_PER_INVOCATION,
     MAX_MODEL_OUTPUT_BYTES,
     MAX_MODEL_OUTPUT_TOKENS,
     MAX_STATE_BYTES_PER_SCOPE,
 )
+from .network import ResponseBytes
 from .values import (
     MISSING,
     assert_concrete,
@@ -95,15 +103,17 @@ intermediate value can never be the step that smuggles past a final quota:
 concatenating two values that each pass this bound still has to pass it again.
 """
 
-UNIMPLEMENTED_OPS: frozenset[str] = frozenset({"http.request", "artifact.emit"})
+UNIMPLEMENTED_OPS: frozenset[str] = frozenset()
 """Operations this build parses and consents to, but cannot yet execute.
 
-Network and artifact bytes arrive with the pinned-address HTTP client and the
-artifact recovery contract. Until then an entry point that reaches one of them
-is *blocked* with a diagnostic rather than published and failed halfway through
--- the same treatment an under-granted entry point gets. The interpreter also
-refuses them defensively, so a publishing bug cannot turn into a half-executed
-flow.
+Empty as of Phase 4: ``http.request`` and ``artifact.emit`` were the last two,
+and they now have the pinned-address client and the artifact recovery contract
+behind them. The seam stays because it is the right shape for the next
+operation that ships its contract ahead of its runtime -- an entry point
+reaching one is *blocked* with a diagnostic rather than published and failed
+halfway through ordinary use, which is the same treatment an under-granted
+entry point gets. The interpreter also refuses them defensively, so a
+publishing bug cannot turn into a half-executed flow.
 """
 
 
@@ -133,6 +143,12 @@ class StagedEffects:
     """The message id whose branch this invocation wants active. At most one:
     two activations in one flow would make the final active branch depend on
     step order rather than on anything the user chose."""
+    artifacts: list[StagedArtifact] = field(default_factory=list)
+    """Files this invocation wants attached, in emission order.
+
+    A list rather than a single value because a producer that emits a rendered
+    result beside its source data is ordinary; the per-invocation count and byte
+    budgets are what bound it."""
     toasts: list[dict[str, str]] = field(default_factory=list)
     invalidations: list[str] = field(default_factory=list)
 
@@ -191,6 +207,22 @@ class HostServices:
     so selecting a foreign message fails the flow before any other effect is
     written. The commit path re-checks atomically anyway; this is the check
     that makes the failure clean rather than partial."""
+
+    http: Any = None
+    """The extension's bounded egress (:class:`~.network.HttpService`).
+
+    Absent for an invocation with no network authority at all, which makes
+    ``http.request`` fail closed rather than fall back to some default client.
+    Typed loosely to keep the interpreter free of an import it would otherwise
+    need only for an annotation."""
+
+    read_asset: Callable[[str], bytes] | None = None
+    """Read one compiled package asset by its exact declared path.
+
+    Supplied by the adapter from the *compiled revision*, never from the
+    filesystem: the path was validated, type-checked, and hashed into the
+    digest at install time, so this is a dictionary lookup rather than an
+    open()."""
 
 
 @dataclass(slots=True)
@@ -644,6 +676,125 @@ async def _op_model_structured(step: Any, inv: Invocation, ns: dict[str, Any]) -
     return value
 
 
+async def _op_http_request(step: Any, inv: Invocation, ns: dict[str, Any]) -> Any:
+    """Perform one bounded, host-mediated request to a granted origin.
+
+    Two grant checks, and they are not redundant. The unparameterized one fails
+    fast for a package with no network authority at all; the origin check
+    happens inside :class:`~.network.HttpService` against the *resolved* URL,
+    because a computed URL has no origin until it is computed and a redirect has
+    none until the server sends one.
+
+    Headers and body are resolved here into ordinary values that may still
+    contain ``{"$secret": name}`` markers. The substitution happens in the
+    network client, so the interpreter -- and therefore every log line, staged
+    effect, and returned error that could quote a flow value -- never holds a
+    secret.
+    """
+    inv.require(Capability.NETWORK_REQUEST)
+    inv.charge(Quota.HTTP_REQUEST, MAX_HTTP_REQUESTS_PER_INVOCATION, "HTTP requests")
+    if inv.host.http is None:
+        raise FlowError("network requests are not available in this invocation")
+    url = assert_concrete(resolve_value(step.url, ns), what="the http.request url")
+    headers = {name: resolve_value(value, ns) for name, value in step.headers.items()}
+    body = resolve_value(step.body, ns) if step.body is not None else None
+    if body is not None:
+        assert_concrete(body, what="the http.request body")
+    return await inv.host.http.request(
+        method=step.method,
+        url=url,
+        headers=headers,
+        body=body,
+        response_kind=step.response,
+    )
+
+
+def _artifact_bytes(step: Any, inv: Invocation, ns: dict[str, Any]) -> tuple[bytes, str]:
+    """Resolve an artifact's bytes from the one source the step declares.
+
+    The three sources are deliberately not interchangeable at runtime: a
+    response handle carries bytes the host bounded on the way in, an asset was
+    validated at install time, and text/JSON is encoded here. Anything else --
+    a number, a missing path, a container of handles -- is a type error rather
+    than something to coerce, because coercion is how ``[object Object]`` ends
+    up in a downloaded file.
+    """
+    if step.asset is not None:
+        if inv.host.read_asset is None:
+            raise FlowError("package assets are not available in this invocation")
+        return inv.host.read_asset(step.asset), "asset"
+    resolved = resolve_value(step.data, ns)
+    if isinstance(resolved, ResponseBytes):
+        return resolved.data, "response"
+    resolved = assert_concrete(resolved, what="the artifact data")
+    if isinstance(resolved, str):
+        return resolved.encode("utf-8"), "text"
+    if isinstance(resolved, (dict, list)):
+        assert_json_bounds(resolved, what="the artifact data")
+        return canonical_json_bytes(resolved), "json"
+    raise FlowError("artifact.emit data must be response bytes, text, or a JSON container")
+
+
+async def _op_artifact_emit(step: Any, inv: Invocation, ns: dict[str, Any]) -> None:
+    """Stage one attachment, proving its target is in the invocation's scope.
+
+    Same rule every other write follows. A post hook attaches to the assistant
+    message being persisted and therefore names nothing; an action names a
+    message and it is checked against this invocation's conversation *while
+    staging*, so pointing at a foreign message fails the flow before any other
+    effect is written rather than at commit time with half the work done.
+    """
+    inv.require(Capability.ARTIFACT_WRITE)
+    inv.charge(Quota.ARTIFACT, MAX_ARTIFACTS_PER_INVOCATION, "artifacts")
+    data, source = _artifact_bytes(step, inv, ns)
+    if not data:
+        raise FlowError("artifact.emit produced no bytes")
+    if len(data) > MAX_ARTIFACT_BYTES:
+        raise FlowError(f"the artifact is {len(data)} bytes, over the {MAX_ARTIFACT_BYTES} byte limit")
+
+    message_id: int | None = None
+    if step.message_id is not None:
+        message_id = resolve_value(step.message_id, ns)
+        if isinstance(message_id, bool) or not isinstance(message_id, int):
+            raise FlowError("artifact.emit needs an integer message id")
+        if inv.host.owns_message is None or not await inv.host.owns_message(message_id):
+            raise FlowError("the selected message is not part of this conversation")
+
+    recovery = None
+    if step.recovery is not None:
+        recovery = assert_json_bounds(
+            assert_concrete(resolve_value(step.recovery, ns), what="the artifact recovery metadata"),
+            what="the artifact recovery metadata",
+        )
+        if not isinstance(recovery, dict):
+            raise FlowError("artifact.emit recovery metadata must be an object")
+        _assert_encoded_size(recovery, MAX_ARTIFACT_RECOVERY_BYTES, "the artifact recovery metadata")
+
+    inv.effects.artifacts.append(
+        StagedArtifact(
+            filename=safe_filename(
+                resolve_value(step.filename, ns),
+                fallback=f"{inv.extension_id}-{source}",
+            ),
+            mime=normalize_artifact_mime(step.mime),
+            data=data,
+            annotation=_optional_text(step.annotation, ns, "the artifact annotation"),
+            recovery=recovery,
+            message_id=message_id,
+        )
+    )
+
+
+def _optional_text(value: Any, ns: dict[str, Any], what: str) -> str | None:
+    """Render an optional text field, collapsing an absent one to ``None``."""
+    if value is None:
+        return None
+    resolved = resolve_value(value, ns)
+    if resolved is MISSING or resolved is None:
+        return None
+    return scalar_text(resolved, what=what)[:MAX_LABEL_CHARS]
+
+
 def _op_context_append(step: Any, inv: Invocation, ns: dict[str, Any]) -> None:
     for target in step.targets:
         inv.require(Capability.PROMPT_CONTEXT_APPEND, target)
@@ -739,6 +890,8 @@ _HANDLERS: dict[str, Any] = {
     "random.choice": _op_random_choice,
     "model.text": _op_model_text,
     "model.structured": _op_model_structured,
+    "http.request": _op_http_request,
+    "artifact.emit": _op_artifact_emit,
     "context.append": _op_context_append,
     "draft.replace": _op_draft_replace,
     "card.tags.set": _op_card_tags_set,

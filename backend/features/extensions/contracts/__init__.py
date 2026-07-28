@@ -80,6 +80,7 @@ from .flow import (
     declared_operations,
     derive_capabilities,
     iter_steps,
+    referenced_flow_assets,
 )
 from .manifest import (
     CONFIG_VIEW_ID,
@@ -187,6 +188,7 @@ __all__ = [
     "permission_key",
     "referenced_actions",
     "referenced_assets",
+    "referenced_flow_assets",
     "split_fragment_type",
     "template_paths",
     "used_components",

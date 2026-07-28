@@ -549,6 +549,33 @@ class ExtensionUpdateRequest(BaseModel):
     permissions: list[dict] = Field(default_factory=list)
 
 
+class ExtensionGitInspect(BaseModel):
+    """Inspect a package from an HTTPS Git URL.
+
+    ``allow_local`` is the user's explicit confirmation that this repository
+    lives on their own machine or LAN -- the installer's counterpart to a weak
+    network-origin grant. It defaults to false so a repository host that
+    resolves to a private address is refused rather than silently fetched, and
+    the manager has to ask before it can be set.
+    """
+
+    url: str
+    ref: str = ""
+    allow_local: bool = False
+
+
+class ExtensionSecretsUpdate(BaseModel):
+    """Set or clear this extension's declared secrets.
+
+    Write-only: the response carries names and timestamps, never values. A
+    ``null`` or empty string clears one. Names the active manifest does not
+    declare are refused rather than stored, because the form is generated from
+    that declaration.
+    """
+
+    values: dict[str, str | None] = Field(default_factory=dict)
+
+
 class ExtensionPermissionsUpdate(BaseModel):
     # Required (no default): a body lacking "permissions" is a 422, never an
     # accidental revoke-everything.

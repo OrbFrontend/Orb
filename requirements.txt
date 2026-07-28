@@ -5,4 +5,5 @@ httpx[socks]==0.28.1
 pydantic==2.13.4
 Pillow==12.3.0
 python-multipart==0.0.32
+dulwich==1.2.12
 edge-tts>=7.2.8

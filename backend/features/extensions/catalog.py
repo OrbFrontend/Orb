@@ -47,6 +47,15 @@ which is exactly the inference a consent screen should not require.
 """
 
 
+def secret_transmission_warning(secret_names: Sequence[str], origins: Sequence[str]) -> str | None:
+    """Host-authored disclosure for the secret/network authority combination."""
+    names = sorted({str(name) for name in secret_names if name})
+    destinations = sorted({str(origin) for origin in origins if origin})
+    if not names or not destinations:
+        return None
+    return f"Configured secrets ({', '.join(names)}) may be sent to every approved network origin: {', '.join(destinations)}."
+
+
 def combination_warning(entries: Sequence[Mapping[str, Any]]) -> str | None:
     """The banner text when a grant set both reads data and reaches the network.
 
@@ -147,12 +156,47 @@ def _published_placements(entry: InstalledExtension) -> list[Any]:
     return published
 
 
-def catalog_entry(entry: InstalledExtension, settings: Any) -> dict[str, Any]:
+def secret_rows(manifest: Any, configured: Mapping[str, str]) -> list[dict[str, Any]]:
+    """The declared secrets, each marked set or unset. Never a value.
+
+    Driven by the *manifest's* declaration rather than by the stored rows, so a
+    secret an older revision declared shows as absent instead of offering a form
+    field the current contract has no use for. ``configured`` carries only
+    timestamps, because that is all the read path can produce.
+    """
+    if manifest is None:
+        return []
+    return [
+        {
+            "name": secret.name,
+            "label": secret.label,
+            "description": secret.description,
+            "configured": secret.name in configured,
+            "updated_at": configured.get(secret.name, ""),
+        }
+        for secret in manifest.secrets
+    ]
+
+
+def catalog_entry(
+    entry: InstalledExtension,
+    settings: Any,
+    *,
+    configured_secrets: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """One installed package as the manager list renders it."""
     manifest = entry.compiled.manifest if entry.compiled else None
     granted_values = _granted_values(entry)
     requested = entry.compiled.requested_permissions() if entry.compiled else []
+    approved = [value for value in requested if grant_key(value) in granted_values]
+    approved_origins = [
+        origin
+        for value in approved
+        if value.get("capability") == Capability.NETWORK_REQUEST.value
+        for origin in _parameter_values(value)
+    ]
     return {
+        "secrets": secret_rows(manifest, configured_secrets or {}),
         "id": entry.id,
         "name": entry.display_name,
         "version": entry.version,
@@ -163,6 +207,10 @@ def catalog_entry(entry: InstalledExtension, settings: Any) -> dict[str, Any]:
         "source_url": entry.row["source_url"],
         "requested_ref": entry.row["requested_ref"],
         "active_digest": entry.digest,
+        # The exact commit a Git revision came from, beside the digest the
+        # design asks the manager to show. None for an archive install, where
+        # the digest is the whole of the provenance there is.
+        "commit_id": entry.row.get("active_commit_id"),
         "previous_digest": entry.row["previous_digest"],
         "installed_at": entry.row["installed_at"],
         "updated_at": entry.row["updated_at"],
@@ -175,7 +223,11 @@ def catalog_entry(entry: InstalledExtension, settings: Any) -> dict[str, Any]:
         # Derived from what is *approved*, not from what is requested: revoking
         # the network grant must clear the banner on the detail panel, or the
         # warning stops describing the package the user actually has.
-        "combination_warning": combination_warning([v for v in requested if grant_key(v) in granted_values]),
+        "combination_warning": combination_warning(approved),
+        "secret_transmission_warning": secret_transmission_warning(
+            [secret.name for secret in manifest.secrets] if manifest else [],
+            approved_origins,
+        ),
         "telemetry": telemetry.summary(entry.id),
         "placements": [{"slot": p.slot, "view": p.view, "command": p.command} for p in _published_placements(entry)],
         "commands": [
@@ -205,11 +257,11 @@ def detail_entry(entry: InstalledExtension, settings: Any, *, secret_names: list
     only the dedicated view route, where live grants and runtime requirements
     are checked before the host renderer receives them.
     """
-    view = catalog_entry(entry, settings)
+    configured = {str(row["name"]): str(row.get("updated_at") or "") for row in secret_names}
+    view = catalog_entry(entry, settings, configured_secrets=configured)
     manifest = entry.compiled.manifest if entry.compiled else None
     view.update(
         {
-            "secrets": secret_names,
             "requires": {
                 "operations": sorted(manifest.requires.operations) if manifest else [],
                 "components": sorted(manifest.requires.components) if manifest else [],
@@ -262,6 +314,10 @@ def inspection_view(inspection: Inspection) -> dict[str, Any]:
         "permissions": [permission_view(value, granted=False) for value in requested],
         "permission_diff": {"added": added, "unchanged": unchanged, "removed": removed},
         "combination_warning": combination_warning(requested),
+        "secret_transmission_warning": secret_transmission_warning(
+            [secret.name for secret in manifest.secrets],
+            manifest.origins(),
+        ),
         "origins": manifest.origins(),
         "secrets": [{"name": s.name, "label": s.label, "description": s.description} for s in manifest.secrets],
         "requires": {

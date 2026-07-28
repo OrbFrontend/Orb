@@ -46,7 +46,7 @@ from ...workflows.registry import (
     runtime_generation,
 )
 from . import content_store
-from .adapters import hook_bindings
+from .adapters import hook_bindings, publishes_artifacts
 from .compiler import (
     CompiledPackage,
     Requirement,
@@ -130,7 +130,9 @@ def current_state() -> RuntimeState:
     return _STATE
 
 
-def load_installed(rows: Sequence[ExtensionPackageRuntimeRow]) -> list[InstalledExtension]:
+def load_installed(
+    rows: Sequence[ExtensionPackageRuntimeRow],
+) -> list[InstalledExtension]:
     """Compile every installed package independently, isolating failures.
 
     Independently is the whole point: one package whose content vanished must
@@ -156,9 +158,19 @@ def load_one(row: ExtensionPackageRuntimeRow) -> InstalledExtension:
     try:
         compiled = compile_package(StoredSource(content_store.content_path(digest)))
     except PackageIncompatible as exc:
-        return InstalledExtension(row=row, load_status=LoadStatus.INCOMPATIBLE, diagnostic=str(exc), granted=granted)
+        return InstalledExtension(
+            row=row,
+            load_status=LoadStatus.INCOMPATIBLE,
+            diagnostic=str(exc),
+            granted=granted,
+        )
     except PackageError as exc:
-        return InstalledExtension(row=row, load_status=LoadStatus.INVALID, diagnostic=str(exc), granted=granted)
+        return InstalledExtension(
+            row=row,
+            load_status=LoadStatus.INVALID,
+            diagnostic=str(exc),
+            granted=granted,
+        )
 
     if compiled.digest != digest:
         # Content that no longer hashes to the digest the database recorded is
@@ -247,6 +259,15 @@ def blocked_entry_points(compiled: CompiledPackage, granted: frozenset[Requireme
             not covered(manifest.actions[a].flow) for a in referenced_actions(view) if a in manifest.actions
         ):
             yield f"view {view_id!r}"
+    # All-or-nothing, unlike every other entry point here. The registry mandate
+    # rejects a record that declares ``produces_artifacts`` without *both*
+    # recovery hooks, and a rejected publish takes the whole overlay with it --
+    # so one blocked recovery flow has to unpublish the pair and the declaration
+    # together rather than leave the package half-bound.
+    if manifest.produces_artifacts and manifest.artifact_flows is not None:
+        pair = (manifest.artifact_flows.regenerate, manifest.artifact_flows.reroll_gen)
+        if ("artifact.write", None) not in granted or not all(covered(path) for path in pair):
+            yield "artifact flows"
     for placement in manifest.placements:
         if ("ui.contribute", placement.slot) not in granted:
             yield f"placement in slot {placement.slot!r}"
@@ -291,12 +312,18 @@ def _record(entry: InstalledExtension) -> Workflow:
     """Project one installed package into its community registry record.
 
     Available packages bind their unblocked hooks to generic interpreter
-    adapters here. ``produces_artifacts`` stays False for every record until the
-    phase that implements ``artifact.emit``: declaring the contract without the
-    flows to honor it would trip the registry's artifact mandate and fail the
-    *whole* overlay swap over one package that merely says it produces
-    artifacts, which is exactly the isolation startup must preserve.
+    adapters here. ``produces_artifacts`` is set from the same predicate that
+    decides whether the recovery pair binds, never from the manifest's claim
+    alone: the registry's artifact mandate fails the *whole* overlay swap for a
+    record that declares the contract without both hooks, so one package that
+    merely says it produces artifacts must not be able to take every other
+    extension -- and the built-ins -- down with it at startup.
     """
+    publishable = (
+        publishes_artifacts(entry.compiled.manifest, entry.compiled.flows, entry.blocked)
+        if entry.compiled is not None and entry.load_status is LoadStatus.AVAILABLE
+        else False
+    )
     record = Workflow(
         id=entry.id,
         display_name=entry.display_name,
@@ -305,9 +332,10 @@ def _record(entry: InstalledExtension) -> Workflow:
         content_digest=entry.digest,
         load_status=entry.load_status,
         diagnostic=entry.diagnostic,
+        produces_artifacts=publishable,
     )
     if entry.compiled is not None and entry.load_status is LoadStatus.AVAILABLE:
-        for hook_type, callable_, stage in hook_bindings(entry.compiled.manifest, entry.compiled.flows, entry.blocked):
+        for hook_type, callable_, stage in hook_bindings(entry.compiled, entry.blocked):
             _bind_subscription(record, hook_type, callable_, priority=0, stage=stage)
     return record
 
@@ -334,7 +362,10 @@ def _decode_grants(row: ExtensionPackageRuntimeRow) -> list[dict[str, Any]]:
     try:
         decoded = json.loads(row["approved_permissions"] or "[]")
     except (TypeError, ValueError):
-        logger.warning("extension %r has an undecodable approved_permissions column; treating as no grants", row["id"])
+        logger.warning(
+            "extension %r has an undecodable approved_permissions column; treating as no grants",
+            row["id"],
+        )
         return []
     if not isinstance(decoded, list):
         return []

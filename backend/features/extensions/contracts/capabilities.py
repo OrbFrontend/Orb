@@ -488,7 +488,9 @@ def with_prerequisites(grants: Iterable[Requirement]) -> set[Requirement]:
     return resolved
 
 
-def missing_prerequisites(granted: Iterable[Requirement]) -> list[tuple[Requirement, Requirement]]:
+def missing_prerequisites(
+    granted: Iterable[Requirement],
+) -> list[tuple[Requirement, Requirement]]:
     """Every ``(grant, unmet prerequisite)`` pair in *granted*."""
     held = set(granted)
     return sorted(
@@ -606,17 +608,24 @@ class OpContext(StrEnum):
     rather than checked at runtime. ``REDUCER`` is the strictest profile -- a
     fragment reducer is a pure function from (config, previous, director
     output) to the next value.
+
+    ``RECOVERY`` is the regenerate/reroll pair an artifact producer declares. It
+    is not ``ACTION``: the framework already knows which attachment is being
+    rebuilt, so a recovery flow names no target message -- and it must not
+    activate a branch or rewrite a card's tags on the way, which is a guarantee
+    worth having from the allowlist rather than from a reviewer.
     """
 
     PRE_PIPELINE = "pre_pipeline"
     POST_TRANSFORM = "post_transform"
     POST_OBSERVE = "post_observe"
     ACTION = "action"
+    RECOVERY = "recovery"
     REDUCER = "reducer"
 
 
 HOOK_CONTEXTS = frozenset({OpContext.PRE_PIPELINE, OpContext.POST_TRANSFORM, OpContext.POST_OBSERVE})
-IMPURE_CONTEXTS = frozenset(HOOK_CONTEXTS | {OpContext.ACTION})
+IMPURE_CONTEXTS = frozenset(HOOK_CONTEXTS | {OpContext.ACTION, OpContext.RECOVERY})
 ALL_CONTEXTS = frozenset(OpContext)
 PURE_CONTEXTS = frozenset(IMPURE_CONTEXTS | {OpContext.REDUCER})
 
@@ -677,9 +686,19 @@ def _spec(
 OPERATION_SPECS: dict[str, OperationSpec] = {
     # ── data and deterministic transforms ────────────────────────────────────
     "state.get": _spec(Capability.STATE_READ, IMPURE_CONTEXTS, output=True, parameter_field="scope"),
-    "state.set": _spec(Capability.STATE_WRITE, IMPURE_CONTEXTS, quota=Quota.STATE_WRITE, staged=True, parameter_field="scope"),
+    "state.set": _spec(
+        Capability.STATE_WRITE,
+        IMPURE_CONTEXTS,
+        quota=Quota.STATE_WRITE,
+        staged=True,
+        parameter_field="scope",
+    ),
     "state.delete": _spec(
-        Capability.STATE_WRITE, IMPURE_CONTEXTS, quota=Quota.STATE_WRITE, staged=True, parameter_field="scope"
+        Capability.STATE_WRITE,
+        IMPURE_CONTEXTS,
+        quota=Quota.STATE_WRITE,
+        staged=True,
+        parameter_field="scope",
     ),
     "text.concat": _spec(None, PURE_CONTEXTS, output=True),
     "text.replace_literal": _spec(None, PURE_CONTEXTS, output=True),
@@ -704,9 +723,19 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
     "if": _spec(None, PURE_CONTEXTS),
     "return": _spec(None, PURE_CONTEXTS),
     # ── host capabilities ────────────────────────────────────────────────────
-    "model.text": _spec(Capability.MODEL_CALL, IMPURE_CONTEXTS, output=True, quota=Quota.MODEL_CALL, parameter_field="lane"),
+    "model.text": _spec(
+        Capability.MODEL_CALL,
+        IMPURE_CONTEXTS,
+        output=True,
+        quota=Quota.MODEL_CALL,
+        parameter_field="lane",
+    ),
     "model.structured": _spec(
-        Capability.MODEL_CALL, IMPURE_CONTEXTS, output=True, quota=Quota.MODEL_CALL, parameter_field="lane"
+        Capability.MODEL_CALL,
+        IMPURE_CONTEXTS,
+        output=True,
+        quota=Quota.MODEL_CALL,
+        parameter_field="lane",
     ),
     "http.request": _spec(
         Capability.NETWORK_REQUEST,
@@ -730,7 +759,14 @@ OPERATION_SPECS: dict[str, OperationSpec] = {
     ),
     "artifact.emit": _spec(
         Capability.ARTIFACT_WRITE,
-        frozenset({OpContext.POST_TRANSFORM, OpContext.POST_OBSERVE, OpContext.ACTION}),
+        frozenset(
+            {
+                OpContext.POST_TRANSFORM,
+                OpContext.POST_OBSERVE,
+                OpContext.ACTION,
+                OpContext.RECOVERY,
+            }
+        ),
         quota=Quota.ARTIFACT,
         staged=True,
     ),

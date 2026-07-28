@@ -30,6 +30,7 @@ from ...database import (
 )
 from ...database.models import ConversationRow
 from ...features.extensions import lifecycle
+from ...features.extensions.errors import FlowError
 from ...inference import agent_lane_from_settings, client_from_settings
 from ...workflows import (
     HookType,
@@ -72,8 +73,38 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _artifact_flow_error(exc: FlowError, workflow_id: Any, attachment_id: int, *, action: str) -> HTTPException:
+    """A community recovery flow's failure, as something the user can act on.
+
+    A declarative artifact producer fails through the interpreter's sanitized
+    vocabulary -- a revoked grant, a budget, an origin that is no longer
+    approved, or a recovery payload the *currently active* revision cannot
+    accept. Those are 4xx answers with a message worth reading, not the generic
+    "handler raised; see server logs" a genuine crash gets, and the distinction
+    matters most for the incompatible-revision case: the design requires that
+    one to say so out loud and leave the existing attachment untouched, which
+    the caller does by never reaching the write.
+
+    Trusted Python hooks do not raise ``FlowError``, so this narrows nothing for
+    them.
+    """
+    logger.info(
+        "workflow %r %s refused for attachment %r: %s",
+        scrub_log(workflow_id),
+        action,
+        scrub_log(attachment_id),
+        exc,
+    )
+    return HTTPException(status_code=409, detail=str(exc))
+
+
 def _gate_workflow_sub(
-    sub: Subscription | None, wid: str, settings: Mapping[str, Any], *, action: str, detail: str
+    sub: Subscription | None,
+    wid: str,
+    settings: Mapping[str, Any],
+    *,
+    action: str,
+    detail: str,
 ) -> Subscription:
     """Shared missing-handler / disabled gate, applied before any lock is taken.
 
@@ -329,8 +360,14 @@ async def api_regenerate_attachment(
                 character=_readonly(card),
             )
             new_dicts = await sub.callable(regen_ctx, body)
+        except FlowError as e:
+            raise _artifact_flow_error(e, wid, aid, action="regenerate") from None
         except Exception:
-            logger.exception("regenerate hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
+            logger.exception(
+                "regenerate hook %r failed for attachment %r",
+                scrub_log(wid),
+                scrub_log(aid),
+            )
             raise HTTPException(status_code=500, detail="Regenerate handler raised; see server logs") from None
 
         if not isinstance(new_dicts, list):
@@ -351,7 +388,11 @@ async def api_regenerate_attachment(
             if not isinstance(d, dict):
                 logger.warning("regenerate hook %r returned non-dict entry; skipping", wid)
                 continue
-            candidate = {**d, "workflow_id": sub.workflow_id, "parent_attachment_id": root_id}
+            candidate = {
+                **d,
+                "workflow_id": sub.workflow_id,
+                "parent_attachment_id": root_id,
+            }
             ok, reason = validate_workflow_attachment_shape(candidate)
             if not ok:
                 rejected_pre.append(
@@ -378,7 +419,10 @@ async def api_regenerate_attachment(
             new_ids, helper_rejected = await insert_workflow_attachments(mid, fixed)
         except (ValueError, LookupError, OSError):
             logger.exception("regenerate hook %r batch insert failed", wid)
-            raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs") from None
+            raise HTTPException(
+                status_code=500,
+                detail="Regenerate batch insert failed; see server logs",
+            ) from None
 
         helper_rejected_projected = [project_rejected_attachment(a, root_id) for a in helper_rejected]
         return {
@@ -455,7 +499,12 @@ def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, d
 
 
 def _build_reroll_gen_ctx(
-    cid: str, mid: int, aid: int, att: Mapping[str, Any], settings: Mapping[str, Any], client
+    cid: str,
+    mid: int,
+    aid: int,
+    att: Mapping[str, Any],
+    settings: Mapping[str, Any],
+    client,
 ) -> RerollGenCtx:
     prior_cm = _decode_stored_consumption_metadata(att)
     return RerollGenCtx(
@@ -522,8 +571,14 @@ async def api_reroll_gen_attachment(
         try:
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
             result = await sub.callable(ctx, params, seed)
+        except FlowError as e:
+            raise _artifact_flow_error(e, wid, aid, action="reroll_gen") from None
         except Exception:
-            logger.exception("reroll_gen hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
+            logger.exception(
+                "reroll_gen hook %r failed for attachment %r",
+                scrub_log(wid),
+                scrub_log(aid),
+            )
             raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs") from None
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
@@ -592,8 +647,9 @@ async def api_rehydrate_attachment(
     # the pre-lock att is a safe source for the gate.
     wid = att.get("workflow_id")
     settings_snapshot = await get_settings()
-    _gate_workflow_sub(
-        get_subscription(wid, HookType.REROLL_GEN) if wid else None,
+    registry_snapshot = current_snapshot()
+    sub = _gate_workflow_sub(
+        get_subscription(wid, HookType.REROLL_GEN, snapshot=registry_snapshot) if wid else None,
         wid,
         settings_snapshot,
         action="rehydrate",
@@ -613,14 +669,11 @@ async def api_rehydrate_attachment(
         # check and double the reroll_gen LLM call before the cache helper's
         # transactional recheck deduplicates the bytes write.
         if att.get("data_b64") != EVICTED_MARKER:
-            raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate")
-        wid = att.get("workflow_id")
-        sub = get_subscription(wid, HookType.REROLL_GEN) if wid else None
-        if sub is None:
             raise HTTPException(
-                status_code=404,
-                detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
+                status_code=409,
+                detail="Attachment bytes are present; nothing to rehydrate",
             )
+        wid = att.get("workflow_id")
 
         params = _decode_generation_params(att)
 
@@ -629,8 +682,14 @@ async def api_rehydrate_attachment(
         try:
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
             result = await sub.callable(ctx, params, seed)
+        except FlowError as e:
+            raise _artifact_flow_error(e, wid, aid, action="rehydrate") from None
         except Exception:
-            logger.exception("reroll_gen (rehydrate) %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
+            logger.exception(
+                "reroll_gen (rehydrate) %r failed for attachment %r",
+                scrub_log(wid),
+                scrub_log(aid),
+            )
             raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs") from None
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
@@ -644,7 +703,10 @@ async def api_rehydrate_attachment(
             # Race with a concurrent rehydrate that already restored the bytes.
             # End state is correct; surface as 409 so the client treats it as
             # success rather than the generic 500.
-            raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate") from None
+            raise HTTPException(
+                status_code=409,
+                detail="Attachment bytes are present; nothing to rehydrate",
+            ) from None
         except (LookupError, ValueError):
             logger.exception("rehydrate write failed for attachment %r", scrub_log(aid))
             raise HTTPException(status_code=500, detail="rehydrate write failed; see server logs") from None

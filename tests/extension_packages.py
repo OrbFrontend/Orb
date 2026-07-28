@@ -503,3 +503,114 @@ def tag_librarian_package(**overrides: Any) -> bytes:
             "ui/config.json": tag_librarian_config_view(),
         }
     )
+
+
+# ── API Artifact: the network/secret/artifact reference package ─────────────
+# The reason `http.request`, the pinned-address client, write-only secrets, and
+# `artifact.emit` exist. It is the only package that leaves the machine: it
+# sends a bounded request to one consented origin with a secret in a header,
+# receives bytes it never decodes, and attaches them to the message being
+# written. Its regenerate/reroll pair is what makes those bytes recoverable
+# after eviction without Orb ever re-running an old revision.
+
+API_ARTIFACT_ORIGIN = "https://api.example.invalid"
+
+FETCH_RECOVERY_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {"prompt": {"type": "string", "maxLength": 2000}},
+    "required": ["prompt"],
+    "additionalProperties": False,
+}
+
+
+def _render_request(prompt_value: dict[str, Any]) -> list[dict[str, Any]]:
+    """The two steps every API Artifact flow shares: request, then attach.
+
+    Factored out because regenerate and reroll must send the *same* request the
+    original did -- a recovery path that differed from the production path would
+    return bytes the user never asked for, and the difference would only show up
+    after an eviction.
+    """
+    return [
+        {
+            "id": "render",
+            "op": "http.request",
+            "method": "POST",
+            "url": f"{API_ARTIFACT_ORIGIN}/v1/render",
+            # A list of parts, not a template: a template's output is an
+            # ordinary flow value, and a secret must never become one.
+            "headers": {"Authorization": ["Bearer ", {"$secret": "api_key"}]},
+            "body": {"prompt": prompt_value},
+            "response": "bytes",
+        },
+        {
+            "op": "artifact.emit",
+            "filename": "render.png",
+            "mime": "image/png",
+            "data": {"$ref": "steps.render.body"},
+            "annotation": "Rendered by API Artifact",
+            # Recorded so a later regenerate can reproduce this exact call. The
+            # host adds the producing revision's id, version, and digest beside
+            # it; the package supplies only what its own flow needs back.
+            "recovery": {"prompt": prompt_value},
+        },
+    ]
+
+
+def api_artifact_hook_flow() -> dict[str, Any]:
+    """Post-pipeline: render the finished reply and attach the result."""
+    return {
+        "flow_version": 1,
+        "steps": [
+            {"op": "ui.status", "text": "Rendering..."},
+            *_render_request({"$ref": "ctx.draft"}),
+        ],
+    }
+
+
+def api_artifact_recovery_flow() -> dict[str, Any]:
+    """Regenerate and reroll: the same request from the stored parameters.
+
+    One file bound to both hooks. They differ only in the seed the host hands
+    them -- regenerate replays the original, reroll gets a fresh one -- which is
+    the framework's distinction, not the package's, so the package has no reason
+    to hold two copies of the same steps.
+    """
+    return {
+        "flow_version": 1,
+        "steps": _render_request({"$ref": "input.prompt"}),
+    }
+
+
+def api_artifact_manifest(**overrides: Any) -> dict[str, Any]:
+    base = manifest(
+        id="api-artifact",
+        name="API Artifact",
+        description="Renders each reply through an external API and attaches the result.",
+        requires={"operations": ["http.request", "artifact.emit", "ui.status"], "components": []},
+        permissions=[
+            {"capability": "context.read", "field": "draft"},
+            {"capability": "network.request", "origin": API_ARTIFACT_ORIGIN},
+            {"capability": "artifact.write"},
+        ],
+        secrets=[{"name": "api_key", "label": "API key", "description": "Sent as a bearer token to the render endpoint."}],
+        hooks={"post_pipeline": {"flow": "flows/render.json", "stage": "observe"}},
+        produces_artifacts=True,
+        artifact_flows={
+            "regenerate": "flows/recover.json",
+            "reroll_gen": "flows/recover.json",
+            "recovery_input_schema": FETCH_RECOVERY_SCHEMA,
+        },
+    )
+    base.update(overrides)
+    return base
+
+
+def api_artifact_package(**overrides: Any) -> bytes:
+    return orbext(
+        {
+            "orb-extension.json": api_artifact_manifest(**overrides),
+            "flows/render.json": api_artifact_hook_flow(),
+            "flows/recover.json": api_artifact_recovery_flow(),
+        }
+    )

@@ -32,6 +32,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, Field, model_validator
 
+from ..assets import ARTIFACT_MEDIA_TYPES, normalize_artifact_mime
 from ..limits import MAX_FLOW_NESTING_DEPTH, MAX_FLOW_STEPS_DECLARED, MAX_JSON_MEMBERS
 from .capabilities import (
     EXTERNAL_EFFECT_OPS,
@@ -43,6 +44,7 @@ from .common import (
     ExtModel,
     Label,
     LocalId,
+    PackagePath,
     Predicate,
     SecretBearingValue,
     StepId,
@@ -266,11 +268,38 @@ class DraftReplaceStep(_Step):
 
 
 class ArtifactEmitStep(_Step):
+    """Attach bytes the interpreter already holds to a message.
+
+    The three sources section 10 names, and no fourth: ``data`` resolving to an
+    opaque HTTP response handle, ``data`` resolving to text or JSON a prior step
+    produced, or ``asset`` naming a validated package file. ``asset`` is a
+    declared *path* rather than a value because the compiler has to know which
+    files a package reaches -- an asset chosen at runtime could not be read,
+    type-checked, digested, or served, since none of those happen at runtime.
+
+    ``message_id`` is action-only and ``recovery`` is what a later regenerate or
+    reroll gets handed back. Both are optional here and checked against the
+    binding's context by the compiler, which knows which one a flow is bound to.
+    """
+
     op: Literal["artifact.emit"]
     filename: Value
     mime: Annotated[str, Field(min_length=1, max_length=128)]
-    data: Value
+    data: Value | None = None
+    asset: PackagePath | None = None
     annotation: Value | None = None
+    recovery: Value | None = None
+    message_id: Value | None = None
+
+    @model_validator(mode="after")
+    def _one_byte_source(self):
+        if (self.data is None) == (self.asset is None):
+            raise ValueError("artifact.emit must name exactly one of 'data' or 'asset'")
+        if normalize_artifact_mime(self.mime) not in ARTIFACT_MEDIA_TYPES:
+            raise ValueError(
+                f"artifact.emit mime {self.mime!r} is not an inert media type; allowed: {sorted(ARTIFACT_MEDIA_TYPES)}"
+            )
+        return self
 
 
 class CardTagsSetStep(_Step):
@@ -465,7 +494,40 @@ def check_context(flow: Flow, context: OpContext) -> list[str]:
             problems.append(
                 f"operation {op!r} is not allowed in a {context.value} flow (allowed: {sorted(c.value for c in spec.contexts)})"
             )
+    problems.extend(_artifact_target_problems(flow, context))
     return problems
+
+
+def _artifact_target_problems(flow: Flow, context: OpContext) -> Iterator[str]:
+    """Where an emitted artifact is allowed to say which message it lands on.
+
+    A post hook's target is the assistant row being persisted -- it has no id
+    yet, and naming one would let a hook attach to a message somewhere else in
+    the conversation. A recovery flow's target is the attachment the framework
+    is rebuilding, which it already knows. An action has neither binding, so it
+    must name its target, and the interpreter proves that message belongs to the
+    invocation's conversation before staging anything. All of it is checked at
+    compile time so a package cannot be published in a shape whose failure mode
+    is a half-executed flow.
+    """
+    for step in iter_steps(flow.steps):
+        if step.op != "artifact.emit":
+            continue
+        if context is OpContext.ACTION and step.message_id is None:
+            yield "artifact.emit in an action must name the 'message_id' it attaches to"
+        if context is not OpContext.ACTION and step.message_id is not None:
+            yield f"artifact.emit in a {context.value} flow attaches to the message being written and takes no 'message_id'"
+
+
+def referenced_flow_assets(flow: Flow) -> set[str]:
+    """Package asset paths a flow attaches, for the compiler's selected set.
+
+    Assets reachable from a flow are as much a part of the revision as ones
+    reachable from a view: they are read, type-checked, hashed into the digest,
+    and served. Collecting them here rather than in the compiler keeps "what a
+    flow reaches" a fact the flow module owns.
+    """
+    return {step.asset for step in iter_steps(flow.steps) if step.op == "artifact.emit" and step.asset is not None}
 
 
 def derive_capabilities(flow: Flow) -> set[Capability]:
