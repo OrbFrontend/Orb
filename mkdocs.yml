@@ -70,6 +70,7 @@ nav:
       - KV Cache Reuse: architecture/kv-cache.md
       - SSE Turn Stream: architecture/sse-stream.md
       - Secondary Workflows: architecture/secondary-workflow.md
+      - Community Extensions: architecture/community-extensions.md
   - Features:
       - Overview: features/index.md
       - Direction:
@@ -88,7 +89,6 @@ nav:
           - Compress History: features/compress-history.md
           - Document Mode: features/document-mode.md
       - App & Data:
-          - Community Extensions: features/community-extensions.md
           - Card-Embedded Fragments: features/card-fragments.md
           - Fetch Cards from Internet: features/fetch-cards.md
           - Backups & Presets: features/backups-presets.md

@@ -73,8 +73,8 @@ no permissive placeholder executor should stand in for the real thing: a
 temporary "run arbitrary operation" switch is difficult to tighten once
 packages exist that depend on it.
 
-Full design: ``docs/architecture/community-extensions.md``. Author-facing
-documentation: ``docs/features/community-extensions.md``.
+Full contract, for authors and for anyone growing the ABI:
+``docs/architecture/community-extensions.md``.
 """
 
 from __future__ import annotations

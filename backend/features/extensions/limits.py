@@ -6,8 +6,8 @@ parser and the runtime is how a "1 MiB manifest" becomes a 4 MiB manifest that
 merely *parses* in two steps -- these constants exist so the streaming
 boundary and the post-parse check cannot disagree.
 
-Source of truth: ``docs/architecture/community-extensions.md`` sections 4
-(package limits) and 5 (execution limits). Numbers here are byte counts unless
+Source of truth: the "Limits" tables in
+``docs/architecture/community-extensions.md``. Numbers here are byte counts unless
 the name says otherwise; ``KIB``/``MIB`` suffixes are always UTF-8 bytes, never
 characters, because a character bound is not a memory bound.
 """
@@ -17,7 +17,7 @@ from __future__ import annotations
 KIB = 1024
 MIB = 1024 * 1024
 
-# ── package limits (section 4) ───────────────────────────────────────────────
+# ── package limits ───────────────────────────────────────────────────────────
 # Applied while reading a source, before anything is persisted. Each is checked
 # at its streaming boundary: an archive that *claims* 2 MiB but expands past
 # MAX_REFERENCED_BYTES_TOTAL is rejected mid-expansion, not after.
@@ -46,7 +46,7 @@ MAX_ASSET_BYTES = 10 * MIB
 MAX_PATH_BYTES = 240
 """One normalized relative path, in UTF-8 bytes."""
 
-# ── JSON parse limits (section 5, "Execution limits") ────────────────────────
+# ── JSON parse limits ────────────────────────────────────────────────────────
 # Shared by package files and by every runtime JSON value, so a value that
 # could not have been authored also cannot be synthesized at runtime.
 
@@ -59,7 +59,7 @@ MAX_JSON_MEMBERS = 1024
 MAX_JSON_STRING_BYTES = 256 * KIB
 """One JSON string value, in UTF-8 bytes."""
 
-# ── flow execution limits (section 5) ────────────────────────────────────────
+# ── flow execution limits ────────────────────────────────────────────────────
 
 MAX_FLOW_STEPS_EXECUTED = 128
 MAX_FLOW_NESTING_DEPTH = 8
@@ -143,7 +143,7 @@ MAX_CARD_TAG_WRITES_PER_INVOCATION = 1
 library-wide reach comes from a user driving a host-rendered loop, never from
 a single flow widening its own blast radius."""
 
-# ── host resources (sections 8 and 20) ───────────────────────────────────────
+# ── host resources ───────────────────────────────────────────────────────────
 # Every resource is bounded by both an item count and an encoded-byte budget.
 # The tree fails past its budget because a partial graph looks complete; every
 # other resource paginates, because a single-response cap would either truncate
@@ -197,7 +197,7 @@ MAX_COMPONENT_NODES = 256
 MAX_COMPONENT_DEPTH = 12
 MAX_VIEW_DATA_SOURCES = 8
 
-# ── capability-filtered context projection (section 6) ───────────────────────
+# ── capability-filtered context projection ───────────────────────────────────
 # Every variable-length projection has both an item count and an aggregate
 # UTF-8 byte cap. One without the other is not a bound: 10,000 one-byte
 # messages and one 10 MiB message are the same failure in different shapes.

@@ -270,7 +270,7 @@ class DraftReplaceStep(_Step):
 class ArtifactEmitStep(_Step):
     """Attach bytes the interpreter already holds to a message.
 
-    The three sources section 10 names, and no fourth: ``data`` resolving to an
+    The three sources the artifact contract names, and no fourth: ``data`` resolving to an
     opaque HTTP response handle, ``data`` resolving to text or JSON a prior step
     produced, or ``asset`` naming a validated package file. ``asset`` is a
     declared *path* rather than a value because the compiler has to know which

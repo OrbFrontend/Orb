@@ -19,7 +19,7 @@ class PackageError(Exception):
 
 
 class PackageLimitExceeded(PackageError):
-    """A declared package limit was exceeded (section 4 / section 5 bounds).
+    """A declared package limit was exceeded (a bound from ``limits.py``).
 
     Raised at the streaming boundary wherever possible, so the process never
     holds the oversized value it is rejecting.

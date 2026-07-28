@@ -15,7 +15,7 @@ receive equivalent URL/address validation" is an acceptance test and not a
 nice-to-have: an SSRF through the installer reaches exactly the same internal
 services an SSRF through a flow does.
 
-What is deliberately absent, per section 12: SSH, the unauthenticated ``git://``
+What is deliberately absent: SSH, the unauthenticated ``git://``
 protocol, private-repository credentials, submodules, and LFS. Each would add a
 credential path or a second fetch protocol, and none is needed to install a
 package that is, by contract, a handful of JSON files.
