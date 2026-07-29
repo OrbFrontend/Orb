@@ -83,7 +83,7 @@ function query(action, extra) {
 // into the panel.
 export function configPanelRenderer() {
   return `<div class="tool-card-desc">Generate and play spoken audio for assistant replies.</div>
-    <button class="btn btn-sm tts-settings-btn" data-wf-action="tts:openSettings">Settings</button>`;
+    <button class="btn btn-sm tool-card-btn" data-wf-action="tts:openSettings">Settings</button>`;
 }
 
 function settingsBodyHtml() {

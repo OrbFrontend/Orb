@@ -107,6 +107,13 @@ input[type="range"]::-moz-range-track {
   padding: 2px 6px;
 }
 
+/* A card's action button (Settings, …) stacks under the card body on its
+   content axis: it is a secondary escape hatch, so it reads with the content it
+   configures. Sizing/colour come from the shared .btn .btn-sm pair. */
+.tool-card-btn {
+  margin-top: 8px;
+}
+
 /* Two-control grid (recording + injection): labels share a sized first column so
    the selects start at the same x and fill the rest, keeping both rows aligned. */
 .dn-config {

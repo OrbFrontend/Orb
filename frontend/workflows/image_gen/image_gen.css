@@ -11,17 +11,20 @@
 .image-gen-note{color:var(--text-muted);font-size:.85em;margin:0;line-height:1.45}
 
 /* ---- tools-panel card ----
-   Setup and normal-use controls are mutually exclusive, keeping the card to one
-   compact action row below its description. */
-.image-gen-card-setup,.image-gen-card-controls{display:flex;align-items:center;gap:8px;margin-top:8px}
-.image-gen-card-controls{flex-wrap:wrap}
-.image-gen-card-controls .image-gen-card-style{flex-basis:100%}
+   Setup and normal-use controls are mutually exclusive: an unconfigured card
+   shows one status row, a ready one the pickers. */
+.image-gen-card-setup{display:flex;align-items:center;gap:8px;margin-top:8px}
+/* Label/control grid, matching the Direction Notes card. */
+.image-gen-card-controls{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 10px;margin-top:10px}
+/* The global label rule carries a bottom margin for stacked forms; a centered
+   grid cell needs the text on the select's midline instead. */
+.image-gen-card-controls>label{margin:0}
+.image-gen-card-controls>select{width:100%;min-width:0}
 .image-gen-card-status{display:flex;align-items:center;gap:6px;min-width:0;color:var(--accent);font-size:11px;line-height:1.4}
 .image-gen-card-status::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:currentColor}
-.image-gen-card-style{display:flex;align-items:center;gap:8px;min-width:0;flex:1;font-size:12px}
-.image-gen-card-style select{flex:1;min-width:0;width:auto}
-.image-gen-card-setup .image-gen-card-btn{margin-left:auto}
-.image-gen-card-btn{flex:none}
+/* Shares its line with the status text, so it hangs off the right edge rather
+   than sitting on the content axis like a stacked card button. */
+.image-gen-card-setup .image-gen-card-btn{flex:none;margin-left:auto}
 
 /* The Visualize button pulses while its render is in flight; clicking it again
    cancels. */

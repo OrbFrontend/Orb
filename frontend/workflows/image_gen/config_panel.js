@@ -110,13 +110,13 @@ function configPanelBody() {
   }
 
   const stylePicker = cardStyles.length
-    ? `<label class="image-gen-card-style">Style<select id="ig-card-style" class="tool-card-select" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select></label>`
+    ? `<label for="ig-card-style">Style</label><select id="ig-card-style" class="tool-card-select" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select>`
     : "";
-  return `<div class="image-gen-card-controls">
-    ${stylePicker}
-    ${povPicker()}
-    <button class="btn btn-sm image-gen-card-btn" data-wf-action="image_gen:settings">Settings</button>
-  </div>`;
+  // An empty grid still occupies its top margin, so with no style list and no
+  // conversation the card drops it entirely.
+  const controls = stylePicker + povPicker();
+  return `${controls ? `<div class="image-gen-card-controls">${controls}</div>` : ""}
+    <button class="btn btn-sm tool-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
 }
 
 // Auto stays selectable with the classifier missing -- the backend degrades to
@@ -131,7 +131,7 @@ function cardPovOptions() {
 
 function povPicker() {
   if (!cardPov.convId) return ""; // no conversation open: nothing to scope a camera to
-  return `<label class="image-gen-card-style">POV<select id="ig-card-pov" class="tool-card-select" data-conv-id="${escAttr(cardPov.convId)}" data-wf-action="image_gen:pickPov" data-wf-on="change">${cardPovOptions()}</select></label>`;
+  return `<label for="ig-card-pov">POV</label><select id="ig-card-pov" class="tool-card-select" data-conv-id="${escAttr(cardPov.convId)}" data-wf-action="image_gen:pickPov" data-wf-on="change">${cardPovOptions()}</select>`;
 }
 
 async function selectPovMode(el) {

@@ -139,10 +139,6 @@
 
 /* ---- config panel (Tools "Secondary" tab) ---- */
 
-/* Card button that opens the settings modal. Sizing/colour come from the shared
-   .btn .btn-sm pair so it stays identical to the other workflow cards' buttons. */
-.tts-settings-btn { margin-top: 6px; }
-
 .tts-config {
   display: flex;
   flex-direction: column;
