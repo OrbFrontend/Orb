@@ -141,6 +141,7 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 - **Phrase bank, Personas, Presets, Documents:** standard CRUD
 - **Workflows:** `/api/workflows`, trigger/regenerate/reroll/rehydrate/activate/delete on attachments
 - **Image generation:** external-ComfyUI readiness/styles/connection/model discovery via the conversation-less workflow QUERY route (`POST /api/workflows/image_gen/query`, `action` = status\|styles\|test\|models\|node_types); generation uses the conversation-scoped workflow trigger
+- **Local ML:** `/api/local-ml/status`, `/{feature}/download`, `/{feature}/enabled`, plus one route per inference shape (`/slop-score`, `/classify-emotion`); 503 when the extras, the GGUF, or the toggle is missing
 - **Inspector:** `/api/conversations/{cid}/director`, `/logs`, `/messages/{id}/director-log`
 - **Direction notes:** CRUD under `/api/conversations/{cid}/direction-notes`
 - **Storage:** `GET /api/storage?days=N` (what a cleanup would reclaim), `POST /api/storage/cleanup` (age-based artifact eviction + Director-log wipe — payload columns blanked in place, `LOG_KEEP_COLUMNS` whitelist survives — then VACUUM)
@@ -151,22 +152,8 @@ Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint
 ### Add an HTTP route
 Drop `api/routes/<feature>.py` with `router = APIRouter()`, append to `ROUTERS` in `api/routes/__init__.py`. No edit to `main.py`.
 
-### Add a model-callable tool
-1. Define schema in `inference/tool_registry.py`
-2. Register in `TOOLS` with `choice` + `schema`; add to `PRE_WRITER_TOOLS` or `POST_WRITER_TOOLS`
-3. Handle the tool call in the relevant pass
-4. Add to `settings.enabled_tools` and the frontend `TOOL_DEFS` panel
-
-### Add a feature flag (non-tool toggle)
-1. Add `INTEGER NOT NULL DEFAULT 0` column to `database/schema.py`, `seeds.py`, and a numbered migration
-2. Add to `allowed` list in `database/queries/settings.py` and `SettingsUpdate` in `api/schemas.py`
-3. Read from `settings` (not `enabled_tools`) in the pipeline
-
 ### Add a secondary workflow
 See [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md) — new folder + `register_workflow`/`subscribe` in `workflows/__init__.py`.
-
-### Add a theme
-Create `frontend/themes/your_theme.css` using CSS custom properties on `[data-theme="your_theme"]`. Auto-listed by `GET /api/themes`.
 
 ### Format and lint
 ```sh

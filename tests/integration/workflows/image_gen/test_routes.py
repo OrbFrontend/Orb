@@ -121,6 +121,9 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert captured["compose"]["model_name"] == lane["agent_model_name"]
     assert captured["compose"]["prompt_format"] == "hybrid"
     assert captured["compose"]["profile_owner_name"] == "Iris"
+    assert captured["compose"]["style_prompt"] == anime_prompt
+    assert captured["compose"]["style_negative_prompt"] == CONFIG_DEFAULTS["external_comfy"]["styles"][1]["negative_prompt"]
+    assert captured["compose"]["profile_negative_prompt"] == ""
 
     match = re.search(r'"attachment_id":(\d+)', response.text)
     assert match

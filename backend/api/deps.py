@@ -412,13 +412,7 @@ _DECORATOR_PREAMBLE = re.compile(r"\A\s*(?:@@[^\n]*\n?)+")
 
 
 def _strip_decorators(content: str) -> str:
-    """Drop the V3 decorator preamble from an entry's content.
-
-    ponytail: decorators are dropped, not interpreted — Orb's lorebook engine has
-    no depth/role/position axis to map them onto, and the spec says an
-    unrecognised decorator SHOULD be ignored. They must still be removed, or
-    `@@depth 4` leaks into the prompt as literal text.
-    """
+    """Drop the V3 decorator preamble from an entry's content."""
     stripped = _DECORATOR_PREAMBLE.sub("", content)
     return stripped.lstrip("\n") if stripped != content else content
 

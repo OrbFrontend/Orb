@@ -21,7 +21,8 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
-from backend.workflows import set_workflow_config
+from backend.workflows import set_workflow_character_state, set_workflow_config
+from backend.workflows.image_gen import pov
 from backend.workflows.image_gen.engine import ImageResult
 
 USER_GRAPH = {
@@ -424,3 +425,81 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
     assert captured["model_name"] == "regen-agent-model"
     assert captured["prefix"][0]["content"].startswith("Regeneration agent system.")
     assert captured["reasoning_on"] is False
+
+
+# ── camera ───────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pov_mode_roundtrips_per_conversation(client):
+    """The camera picker's two actions, over the wire.
+
+    Both run inside the trigger route's ``workflow_state_lock``. Neither may take
+    that lock itself -- ``asyncio.Lock`` is not reentrant, so a second acquisition
+    here would hang the request rather than fail it, which is why this is an
+    end-to-end test and not a unit one.
+    """
+    await _seed("ig-pov-a")
+    await _seed("ig-pov-b")
+
+    initial = (await client.post("/api/conversations/ig-pov-a/workflows/image_gen/trigger", json={"action": "get_pov"})).json()
+    assert initial["pov_mode"] == "auto"
+    # The picker labels "Auto" off these two, so both must be answered whatever the
+    # machine has on disk -- a dev box with the GGUF present reports ready, and an
+    # absent flag would leave the label lying either way.
+    assert isinstance(initial["classifier_ready"], bool)
+    assert initial["fallback_mode"] == pov.DEFAULT_POV_MODE
+
+    set_resp = await client.post(
+        "/api/conversations/ig-pov-a/workflows/image_gen/trigger",
+        json={"action": "set_pov", "pov_mode": "first"},
+    )
+    assert set_resp.json() == {"ok": True, "pov_mode": "first"}
+
+    # Sticks to its own chat: narration POV is a property of the conversation, so
+    # unlike the style picker it must not follow the user into the next one.
+    a = await client.post("/api/conversations/ig-pov-a/workflows/image_gen/trigger", json={"action": "get_pov"})
+    b = await client.post("/api/conversations/ig-pov-b/workflows/image_gen/trigger", json={"action": "get_pov"})
+    assert a.json()["pov_mode"] == "first"
+    assert b.json()["pov_mode"] == "auto"
+
+    # Junk normalizes rather than persisting an unrenderable mode.
+    junk = await client.post(
+        "/api/conversations/ig-pov-a/workflows/image_gen/trigger",
+        json={"action": "set_pov", "pov_mode": "sideways"},
+    )
+    assert junk.json()["pov_mode"] == "auto"
+
+
+@pytest.mark.asyncio
+async def test_generate_records_the_camera_and_the_lever_that_chose_it(client, monkeypatch):
+    mid = await _seed("ig-pov-meta", with_character=True)
+    await set_workflow_character_state("ig-pov-meta-char", "image_gen", {"appearance_prompt": "3D, third_person"})
+    seen: dict = {}
+
+    async def fake_compose(**kwargs):
+        seen.update(kwargs)
+        return "1girl, standing", "", "single_call"
+
+    async def fake_render(config, request, **kwargs):
+        return _image()
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
+
+    # The picker decides. A 'third_person' tag left in the character's appearance
+    # prompt is appearance data now, not a camera override.
+    await _trigger(client, "ig-pov-meta", {"action": "set_pov", "pov_mode": "first"})
+    events = await _trigger(client, "ig-pov-meta", {"action": "generate", "message_id": mid, "style_id": "anime"})
+    assert ("image_gen_done", {"attachment_id": None}) not in events
+
+    assert seen["pov"] == "first_person"
+    rows = await get_workflow_attachments_for_message(mid)
+    metadata = json.loads(rows[0]["generation_metadata"])
+    assert metadata["pov"] == "first_person"
+    assert metadata["pov_source"] == "manual"
+    # Also in the display half: generation_metadata is the replay record the UI
+    # never reads, and a wrong camera has to be visible on the bad image itself.
+    consumption = json.loads(rows[0]["consumption_metadata"])
+    assert consumption["pov"] == "first_person"
+    assert consumption["pov_source"] == "manual"

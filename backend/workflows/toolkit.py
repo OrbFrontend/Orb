@@ -6,9 +6,10 @@ re-exports is the workflow author's API: LLM client, tool-schema
 assembly, prompt assembly, macro resolution, read-only DB helpers for
 core state, workflow-scoped storage wrappers, the locks guarding
 read-modify-write on that storage, the forced-call helper,
-the tool-overlay helper, and the editor audit helpers (for workflows
-scoring their own outputs against the same audit logic the editor
-runs).
+the tool-overlay helper, the ``local_ml`` scaffold (for workflows that
+run a small in-process classifier alongside their LLM calls), and the
+editor audit helpers (for workflows scoring their own outputs against
+the same audit logic the editor runs).
 
 Workflows do not import orchestration symbols, the transactional DB
 helpers (``add_message``, etc.), director-state
@@ -45,6 +46,7 @@ from ..database import (
     get_messages,
     get_mood_fragments,
     get_phrase_bank,
+    get_settings,
     get_user_persona,
     get_user_personas,
     resolve_char_context,
@@ -57,6 +59,7 @@ from ..inference import (
     compute_constant_lorebook_block,
     enabled_schemas,
     format_message_with_attachments,
+    local_ml,
     parse_tool_calls,
     reasoning_cfg,
     separate_agent_lane_configured,
@@ -94,6 +97,7 @@ __all__ = [
     "get_messages",
     "get_mood_fragments",
     "get_phrase_bank",
+    "get_settings",
     "get_user_personas",
     "get_user_persona",
     "get_workflow_character_state",
@@ -101,6 +105,7 @@ __all__ = [
     "get_workflow_message_state",
     "get_workflow_state",
     "insert_workflow_attachment",
+    "local_ml",
     "normalize_to_baseline",
     "overlay_enable_tools",
     "parse_tool_calls",

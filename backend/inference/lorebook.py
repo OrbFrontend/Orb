@@ -106,7 +106,7 @@ def _any_keyword_hit(
     flags = re.IGNORECASE if case_insensitive else 0
     for kw in keywords:
         if use_regex:
-            # ponytail: `re` caches compiled patterns internally — no manual cache
+            # `re` caches compiled patterns internally — no manual cache
             # for a ~55-entry scan. A literal key that happens to be valid regex
             # (`C++`, `(H)`) is *reinterpreted*, which is what a spec-compliant
             # reader does; the except only nets syntactically invalid patterns

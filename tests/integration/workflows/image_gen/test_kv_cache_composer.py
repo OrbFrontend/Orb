@@ -124,7 +124,6 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
             "tool_calls": _tc(
                 "analyze_scene",
                 {
-                    "viewpoint": "third_person",
                     "characters": [{"name": "Iris", "appearance": ""}],
                     "setting": "rainy archive at night",
                 },

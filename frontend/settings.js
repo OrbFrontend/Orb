@@ -197,11 +197,13 @@ const LOCAL_ML_LABELS = {
   autocomplete: "Input Autocomplete",
   slop_classifier: "AI-Slop Classifier",
   emotion_classifier: "Character Expressions",
+  pov_classifier: "Image POV",
 };
 const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
   slop_classifier: "Unlock AI slop scorer.",
   emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
+  pov_classifier: "Auto POV for image-gen.",
 };
 
 // Tri-state per feature: deps missing → grayed Download + hint; deps ok & model

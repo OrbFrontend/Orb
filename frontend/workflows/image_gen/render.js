@@ -12,6 +12,16 @@
 
 const WORKFLOW_ID = "image_gen";
 
+// How the resolved camera reads back to a user. The levers are named for the
+// control the user would go change, not for the backend symbol that chose them.
+const POV_LABELS = { first_person: "First-person", third_person: "Third-person" };
+const POV_SOURCE_LABELS = {
+  manual: "POV picker",
+  classifier: "classifier",
+  no_classifier: "default (no POV classifier)",
+  default: "default (the narration read as ambiguous)",
+};
+
 export function hasAttachment(msg) {
   return (msg?.workflow_attachments || []).some((a) => a.workflow_id === WORKFLOW_ID);
 }
@@ -52,9 +62,16 @@ export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr, pending 
   // Populated only when a replay could not be honoured exactly (a deleted user
   // graph, say) — the disclosure belongs where the odd-looking image is.
   const notes = (Array.isArray(cm.notes) ? cm.notes : []).map((note) => `<dt>Note</dt><dd>${esc(note)}</dd>`).join("");
+  // Absent on images generated before the camera was recorded, so the row is
+  // omitted rather than shown empty. The lever is what makes this actionable: a
+  // wrong camera is fixed in a different place depending on which one chose it.
+  const source = POV_SOURCE_LABELS[cm.pov_source] || cm.pov_source;
+  const camera = cm.pov
+    ? `<dt>Camera</dt><dd>${esc(POV_LABELS[cm.pov] || cm.pov)}${source ? esc(` — from the ${source}`) : ""}</dd>`
+    : "";
   return `${defaultHtml}<details class="image-gen-details" open><summary>Render details</summary>
     <dl><dt>Style</dt><dd>${style}</dd>
-      <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>
+      <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${camera}
       <dt>Seed</dt><dd><code>${esc(att?.seed || "")}</code></dd>
       <dt>Prompt ${pencil("prompt", "Prompt")}</dt><dd>${field("prompt", "Prompt", pending?.prompt ?? cm.prompt ?? "")}${marker}</dd>
       <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${notes}</dl>
