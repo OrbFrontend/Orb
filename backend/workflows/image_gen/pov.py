@@ -36,12 +36,19 @@ FIRST = "first_person"
 THIRD = "third_person"
 
 # What the user may choose per conversation. "auto" runs the classifier and
-# degrades to DEFAULT_POV when it is not installed or is toggled off.
+# degrades to DEFAULT_POV when it is not installed or is toggled off. The picker
+# hides "auto" in that state -- it would draw the same camera as the fallback --
+# but the mode stays valid here: a conversation set to auto before the classifier
+# went away keeps it, and gets it back when the classifier returns.
 POV_MODES = ("auto", "first", "third")
 DEFAULT_MODE = "auto"
 DEFAULT_POV = THIRD
 
 _MANUAL = {"first": FIRST, "third": THIRD}
+
+# DEFAULT_POV as a picker mode, so the UI can name the camera "Auto" will actually
+# produce without keeping its own copy of the default.
+DEFAULT_POV_MODE = next(mode for mode, viewpoint in _MANUAL.items() if viewpoint == DEFAULT_POV)
 
 # First- and second-person narration are the same camera: both put it behind the
 # user's eyes. Only third-person narration watches from outside.
@@ -142,8 +149,11 @@ async def resolve(
     manual = _MANUAL.get(normalize_mode(mode))
     if manual is not None:
         return manual, "manual"
-    if await classifier_ready():
-        classified = await _classify(history)
-        if classified is not None:
-            return classified, "classifier"
+    # Two different ways "auto" lands on the default, and they are fixed in two
+    # different places: install/enable the classifier, or pin the mode by hand.
+    if not await classifier_ready():
+        return DEFAULT_POV, "no_classifier"
+    classified = await _classify(history)
+    if classified is not None:
+        return classified, "classifier"
     return DEFAULT_POV, "default"

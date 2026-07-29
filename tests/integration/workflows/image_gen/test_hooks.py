@@ -22,6 +22,7 @@ from backend.database import (
     set_active_leaf,
 )
 from backend.workflows import set_workflow_character_state, set_workflow_config
+from backend.workflows.image_gen import pov
 from backend.workflows.image_gen.engine import ImageResult
 
 USER_GRAPH = {
@@ -443,9 +444,11 @@ async def test_pov_mode_roundtrips_per_conversation(client):
 
     initial = (await client.post("/api/conversations/ig-pov-a/workflows/image_gen/trigger", json={"action": "get_pov"})).json()
     assert initial["pov_mode"] == "auto"
-    # The picker labels "Auto" off this, so it must answer even with no model on
-    # disk rather than leaving the flag absent.
-    assert initial["classifier_ready"] is False
+    # The picker labels "Auto" off these two, so both must be answered whatever the
+    # machine has on disk -- a dev box with the GGUF present reports ready, and an
+    # absent flag would leave the label lying either way.
+    assert isinstance(initial["classifier_ready"], bool)
+    assert initial["fallback_mode"] == pov.DEFAULT_POV_MODE
 
     set_resp = await client.post(
         "/api/conversations/ig-pov-a/workflows/image_gen/trigger",

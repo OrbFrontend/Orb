@@ -310,6 +310,9 @@ async def on_demand(ctx, body):
         return {
             "pov_mode": await _read_pov_mode(ctx.conversation_id),
             "classifier_ready": await pov_mod.classifier_ready(),
+            # What "Auto" degrades to without the classifier, so the label can say
+            # it instead of the picker keeping its own copy of the default.
+            "fallback_mode": pov_mod.DEFAULT_POV_MODE,
         }
     if action == "set_pov":
         mode = pov_mod.normalize_mode(body.get("pov_mode"))

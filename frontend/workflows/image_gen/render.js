@@ -19,7 +19,8 @@ const POV_SOURCE_LABELS = {
   character_tag: "camera tag in the character's prompt",
   manual: "POV picker",
   classifier: "classifier",
-  default: "default",
+  no_classifier: "default (no POV classifier)",
+  default: "default (the narration read as ambiguous)",
 };
 
 export function hasAttachment(msg) {

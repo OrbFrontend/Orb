@@ -24,3 +24,31 @@ export function isLoopbackUrl(apiUrl) {
   const host = parsed.hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
+
+// Camera modes, mirroring backend pov.POV_MODES. "auto" runs the local POV
+// classifier; the other two pin the camera by hand. Unlike style this is
+// per-conversation: narration POV belongs to the chat, so it must not follow the
+// user out of it.
+export const POV_MODES = [
+  ["auto", "Auto"],
+  ["first", "First-person"],
+  ["third", "Third-person"],
+];
+
+// What the picker offers, and which entry is selected.
+//
+// Without the classifier, "Auto" is a second name for the fallback camera --
+// `pov.resolve` degrades it to exactly that -- so offering both would be two
+// options that draw the same shot. Auto is dropped and the fallback shown in its
+// place, which is the camera the next image will actually use.
+//
+// A conversation already set to "auto" keeps that stored value; the coerced
+// selection is display only, and nothing writes until the user picks something.
+// So installing or re-enabling the classifier brings Auto back, still selected.
+export function povChoices({ classifier, mode, fallback }) {
+  if (classifier) return { modes: POV_MODES, selected: mode };
+  return {
+    modes: POV_MODES.filter(([id]) => id !== "auto"),
+    selected: mode === "auto" ? fallback : mode,
+  };
+}

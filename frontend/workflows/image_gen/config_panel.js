@@ -18,21 +18,13 @@ import {
   splitCandidate,
 } from "./graph_import.js";
 import { modelPickerState } from "./model_picker.js";
-import { isLoopbackUrl } from "./policy.js";
+import { isLoopbackUrl, povChoices } from "./policy.js";
 
 const WORKFLOW_ID = "image_gen";
 const PROMPT_FORMATS = [
   ["tags", "Tags"],
   ["hybrid", "Hybrid"],
   ["prose", "Prose"],
-];
-// Camera modes, mirroring backend pov.POV_MODES. "auto" runs the local POV
-// classifier; the other two pin it. Unlike style this is per-conversation:
-// narration POV belongs to the chat, so it must not follow the user out of it.
-const POV_MODES = [
-  ["auto", "Auto"],
-  ["first", "First-person"],
-  ["third", "Third-person"],
 ];
 let cfg;
 let pendingGraph = null;
@@ -85,7 +77,7 @@ let cardReadiness = { text: "", ready: true };
 // switch, so a picker left visible across one must not write to the new chat.
 // The classifier starts assumed-present so the picker never claims it is off on
 // the strength of a probe that has not run yet.
-let cardPov = { mode: "auto", convId: null, classifier: true };
+let cardPov = { mode: "auto", convId: null, classifier: true, fallback: "third" };
 // Style list for the card picker, cached the same way. The Visualize button
 // reads its choice from cfg.default_style, so the picker is where a style is
 // chosen once instead of in a modal on every generate.
@@ -118,14 +110,14 @@ function configPanelBody() {
     <button class="btn btn-sm tool-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
 }
 
-// Auto stays selectable with the classifier missing -- the backend degrades to
-// third-person on its own -- but says so in its label, so a user who picked it
-// and got the default camera can see why without opening Settings.
+// Which modes exist and which is showing is a pure decision (see povChoices) --
+// the fallback is the backend's, reported by get_pov, not a second copy of the
+// default here.
 function cardPovOptions() {
-  return POV_MODES.map(([id, label]) => {
-    const text = id === "auto" && !cardPov.classifier ? "Auto (classifier off)" : label;
-    return `<option value="${escAttr(id)}"${id === cardPov.mode ? " selected" : ""}>${esc(text)}</option>`;
-  }).join("");
+  const { modes, selected } = povChoices(cardPov);
+  return modes
+    .map(([id, label]) => `<option value="${escAttr(id)}"${id === selected ? " selected" : ""}>${esc(label)}</option>`)
+    .join("");
 }
 
 function povPicker() {
@@ -142,7 +134,7 @@ async function selectPovMode(el) {
     return;
   }
   if (!convId) {
-    el.value = cardPov.mode;
+    el.value = povChoices(cardPov).selected;
     toast("Open a conversation to set its camera", "error");
     return;
   }
@@ -168,7 +160,12 @@ export async function refreshCardPov() {
   }
   try {
     const state = await trigger("get_pov");
-    cardPov = { mode: state?.pov_mode || "auto", convId, classifier: !!state?.classifier_ready };
+    cardPov = {
+      mode: state?.pov_mode || "auto",
+      convId,
+      classifier: !!state?.classifier_ready,
+      fallback: state?.fallback_mode || cardPov.fallback,
+    };
   } catch {
     cardPov = { ...cardPov, convId };
   }

@@ -203,7 +203,7 @@ const LOCAL_ML_DESCS = {
   autocomplete: "Autocomplete input as you type.",
   slop_classifier: "Unlock AI slop scorer.",
   emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
-  pov_classifier: "Aim the image camera by detecting first- or third-person narration.",
+  pov_classifier: "Auto POV for image-gen.",
 };
 
 // Tri-state per feature: deps missing → grayed Download + hint; deps ok & model

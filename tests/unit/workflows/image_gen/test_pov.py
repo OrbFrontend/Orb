@@ -143,7 +143,11 @@ async def test_auto_without_a_classifier_degrades_to_the_default(monkeypatch):
         raise AssertionError("classifier must not run when it is not ready")
 
     monkeypatch.setattr(local_ml, "aclassify_pov", explode)
-    assert await pov.resolve(mode="auto", history=_history(("assistant", "x"))) == (pov.DEFAULT_POV, "default")
+    # Its own source: "the classifier is not there" and "the classifier could not
+    # decide" are fixed in different places, so the attachment must tell them apart.
+    assert await pov.resolve(mode="auto", history=_history(("assistant", "x"))) == (pov.DEFAULT_POV, "no_classifier")
+    # The mode the picker names in that label resolves to the same camera.
+    assert await pov.resolve(mode=pov.DEFAULT_POV_MODE, history=()) == (pov.DEFAULT_POV, "manual")
 
 
 async def test_a_failing_classifier_degrades_instead_of_raising(monkeypatch):

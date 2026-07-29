@@ -166,6 +166,13 @@ test("the camera row names the viewpoint and the lever that chose it", () => {
   assert.ok(html.includes("« — from the classifier»"));
 });
 
+test("the default camera says which of the two ways it got there", () => {
+  const off = attachmentDetailsHtml({ consumption_metadata: { pov: "third_person", pov_source: "no_classifier" } }, "", MARKERS);
+  assert.ok(off.includes("« — from the default (no POV classifier)»"));
+  const ambiguous = attachmentDetailsHtml({ consumption_metadata: { pov: "third_person", pov_source: "default" } }, "", MARKERS);
+  assert.ok(ambiguous.includes("ambiguous"));
+});
+
 test("an unrecognized camera falls back to its raw value, still escaped", () => {
   const html = attachmentDetailsHtml({ consumption_metadata: { pov: HOSTILE, pov_source: HOSTILE } }, "", MARKERS);
   assert.ok(html.includes(`«${HOSTILE}»`));
