@@ -47,7 +47,7 @@ class WriterReplay:
     assistant message immediately before a downstream request may then contain
     only the post-tool continuation, so the request has to say which text is
     "the draft" instead of leaving the model to infer it from a transcript that
-    spans three messages.
+    spans several assistant/tool messages.
     """
 
     messages: tuple[WireMessage, ...]

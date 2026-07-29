@@ -48,6 +48,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from ....core import MAX_WRITER_TOOL_CALLS_PER_TURN
+
 Requirement = tuple[str, str | None]
 """One grant as the runtime checks it: a capability and its scoping parameter.
 
@@ -411,7 +413,8 @@ CAPABILITY_SPECS: Mapping[Capability, CapabilitySpec] = {
     Capability.WRITER_TOOL_CONTRIBUTE: CapabilitySpec(
         copy=(
             "Add a callable tool and its instructions to the Writer. Its result can directly influence the reply "
-            "even though the extension cannot write the reply itself."
+            "even though the extension cannot write the reply itself. Orb may run it up to "
+            f"{MAX_WRITER_TOOL_CALLS_PER_TURN} times while composing one reply."
         ),
         kind=GrantKind.CONTRIBUTE,
         sensitivity=Sensitivity.HIGH,
@@ -688,7 +691,7 @@ PURE_CONTEXTS = frozenset(EXTERNAL_CONTEXTS | {OpContext.REDUCER})
 
 
 class Quota(StrEnum):
-    """The per-invocation counter an operation charges, beyond the step count."""
+    """An operation counter, local to each invocation and optionally turn-wide."""
 
     MODEL_CALL = "model_calls"
     HTTP_REQUEST = "http_requests"

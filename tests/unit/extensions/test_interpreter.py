@@ -17,7 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.features.extensions import interpreter
-from backend.features.extensions.contracts import Flow, OpContext, parse_schema
+from backend.features.extensions.contracts import Flow, OpContext, Quota, parse_schema
 from backend.features.extensions.errors import FlowCancelled, FlowError
 from backend.features.extensions.interpreter import (
     DELETED,
@@ -31,6 +31,7 @@ from backend.features.extensions.limits import (
     MAX_FLOW_STEPS_DECLARED,
     MAX_FLOW_STEPS_EXECUTED,
     MAX_JSON_STRING_BYTES,
+    MAX_MODEL_CALLS_PER_INVOCATION,
     MAX_STATE_BYTES_PER_SCOPE,
 )
 from backend.features.extensions.values import (
@@ -40,6 +41,7 @@ from backend.features.extensions.values import (
     render_template,
     resolve_path,
 )
+from backend.workflows import WriterToolTurnBudget
 
 ALL_GRANTS = frozenset(
     {
@@ -126,6 +128,33 @@ def test_resolution_walks_mappings_and_indices_but_never_attributes():
     assert resolve_path(namespaces, "ctx.history.0.role") == "user"
     assert resolve_path(namespaces, "ctx.history.9") is MISSING
     assert resolve_path(namespaces, "ctx.draft.__class__") is MISSING
+
+
+def test_writer_tool_quotas_are_shared_across_separate_invocations():
+    budget = WriterToolTurnBudget()
+
+    async def read_state(_scope):
+        return {}
+
+    def invocation() -> Invocation:
+        return Invocation(
+            extension_id="scene-meter",
+            context=OpContext.WRITER_TOOL,
+            host=HostServices(grants=lambda: ALL_GRANTS, read_state=read_state),
+            shared_budget=budget,
+        )
+
+    first = invocation()
+    first.charge(Quota.MODEL_CALL, MAX_MODEL_CALLS_PER_INVOCATION, "model calls")
+    second = invocation()
+    second.charge(Quota.MODEL_CALL, MAX_MODEL_CALLS_PER_INVOCATION, "model calls")
+
+    with pytest.raises(FlowError, match="Writer tool turn exceeded"):
+        invocation().charge(Quota.MODEL_CALL, MAX_MODEL_CALLS_PER_INVOCATION, "model calls")
+
+    assert first.quotas == {"model_calls": 1}
+    assert second.quotas == {"model_calls": 1}
+    assert budget.used("model_calls") == MAX_MODEL_CALLS_PER_INVOCATION
 
 
 def test_exists_distinguishes_a_null_value_from_an_absent_path():

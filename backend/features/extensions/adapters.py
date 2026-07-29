@@ -423,13 +423,17 @@ def make_writer_tool(
                 "writer_tool": key.local_id if key is not None else declared.id,
                 "writer_tool_input_bytes": argument_bytes,
             },
-            # Conversation, host-owned turn-attempt identity, revision, tool, and
-            # provider call id. The attempt seed makes regeneration fresh even
-            # when history/input are identical; the call id distinguishes calls
-            # within that attempt without being trusted as the attempt identity.
-            seed=f"writer_tool|{call.conversation_id or ''}|{call.turn_seed}|{compiled.digest}|{declared.id}|{call.call_id}",
+            # Conversation, host-owned turn-attempt identity and invocation
+            # ordinal, revision, tool, and provider call id. The ordinal is what
+            # distinguishes calls within an attempt: compatible providers may
+            # reuse their correlation id across separate completions.
+            seed=(
+                f"writer_tool|{call.conversation_id or ''}|{call.turn_seed}|{call.invocation_index}|"
+                f"{compiled.digest}|{declared.id}|{call.call_id}"
+            ),
             scopes_in_scope=flow_scopes(flow),
             output_schema=output_schema,
+            shared_budget=request.turn_budget,
         )
 
         result: FlowResult | None = None
@@ -1001,6 +1005,14 @@ async def _invoke(
                     # state. An over-budget result is a failed invocation, not a
                     # successful state transaction followed by a transport error.
                     writer_tool_output_bytes = _assert_encoded_writer_result(result.value)
+                    if invocation.shared_budget is not None and not invocation.shared_budget.reserve(
+                        "writer_result_bytes",
+                        MAX_WRITER_TOOL_RESULT_BYTES,
+                        writer_tool_output_bytes,
+                    ):
+                        raise FlowError(
+                            f"Writer tool turn returned more than {MAX_WRITER_TOOL_RESULT_BYTES} encoded result bytes"
+                        )
                 await _commit_staged(compiled, invocation, access, result)
                 outcome = "ok"
                 yield result

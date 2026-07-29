@@ -9,10 +9,13 @@ no runtime dependency on it.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from ..core.writer_tools import WRITER_TOOL_ERROR_CODES
 
 if TYPE_CHECKING:
     from .kv_tracker import _KVCacheTracker
@@ -30,6 +33,24 @@ def _render_tail(tail: Sequence[Mapping[str, Any]]) -> str:
     out = []
     for m in tail:
         content = m.get("content")
+        if m.get("role") == "tool":
+            encoded = content.encode("utf-8", errors="replace") if isinstance(content, str) else repr(content).encode()
+            status = "unknown"
+            code = ""
+            if isinstance(content, str):
+                try:
+                    payload = json.loads(content)
+                except (TypeError, ValueError):
+                    payload = None
+                if isinstance(payload, Mapping):
+                    raw_status = payload.get("status")
+                    raw_code = payload.get("code")
+                    if isinstance(raw_status, str) and raw_status in {"ok", "error"}:
+                        status = raw_status
+                    if raw_status == "error" and raw_code in WRITER_TOOL_ERROR_CODES:
+                        code = f", code={raw_code}"
+            out.append(f"--- tool ---\n[result status={status}{code}, bytes={len(encoded)}]")
+            continue
         if isinstance(content, list):
             content = "\n".join(p.get("text") or f"[{p.get('type', 'part')}]" for p in content)
         out.append(f"--- {m.get('role')} ---\n{content}")

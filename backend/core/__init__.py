@@ -45,6 +45,7 @@ from .utils import (
 from .writer_tools import (
     INVALID_ARGUMENTS,
     MAX_WRITER_TOOL_BLOB_BYTES,
+    MAX_WRITER_TOOL_CALLS_PER_TURN,
     MAX_WRITER_TOOLS_PUBLISHED,
     RESOLVER_UNAVAILABLE,
     TOOL_NOT_AVAILABLE,
@@ -95,6 +96,7 @@ __all__ = [
     "scrub_log",
     # writer_tools — the Writer-tool ABI shared by workflows/features/pipeline
     "INVALID_ARGUMENTS",
+    "MAX_WRITER_TOOL_CALLS_PER_TURN",
     "MAX_WRITER_TOOLS_PUBLISHED",
     "MAX_WRITER_TOOL_BLOB_BYTES",
     "RESOLVER_UNAVAILABLE",

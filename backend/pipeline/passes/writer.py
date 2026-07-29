@@ -23,13 +23,14 @@ rather than merely limited:
   this turn published a schema for.
 * **Every failure still lets the Writer finish.** An unknown call, a bad
   argument, or an extension error becomes a fixed error result and another
-  completion -- so the model completes the reply rather than inventing a
-  successful resolution or leaving a half-written scene.
+  completion. Non-retryable failures disable the tool for the following completion;
+  invalid arguments alone may be corrected while call budget remains.
 
 The budget is charged per *iteration that returned calls*, not per successful
-resolution. A failed call therefore costs the same as a good one, which is what
-keeps a broken resolver to a fixed worst case instead of letting an
-error-and-retry cycle bill the user for one completion per attempt.
+resolution. The configured Writer ``max_tokens`` is also one allowance shared
+by every completion, and extension flow quotas are shared by every invocation.
+The call ceiling therefore cannot multiply either model output or package work
+by resetting a per-call counter.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...core import (
     INVALID_ARGUMENTS,
+    MAX_WRITER_TOOL_CALLS_PER_TURN,
     RESOLVER_UNAVAILABLE,
     TOOL_NOT_AVAILABLE,
     AssistantToolMessage,
@@ -55,7 +57,7 @@ from ...core import (
     writer_tool_ok,
 )
 from ...inference import CachedBase, LLMClient, _KVCacheTracker, reasoning_cfg
-from ...workflows import WriterToolRequest
+from ...workflows import WriterToolRequest, WriterToolTurnBudget
 from .editor.length_guard import LengthGuard, writer_nudge
 
 if TYPE_CHECKING:
@@ -64,16 +66,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 NO_TOOLS_NUDGE = "**Do not use tool or function calls this turn.**\n\n"
-
-MAX_WRITER_TOOL_CALLS_PER_TURN = 3
-"""How many times one Writer turn may call its active tool.
-
-A per-turn ceiling rather than a per-call retry rule: each call costs a full
-completion the user waits through, so the worst case has to be a number, and
-the number has to be small enough that a resolver failing on every attempt is
-an annoyance rather than a bill. Charged per iteration that returned calls --
-see the module docstring.
-"""
 
 WRITER_TOOL_POLICY = """[OOC: Writer tool policy for this turn.
 You may write normally or call ONLY `{name}`.
@@ -180,7 +172,10 @@ def standard_tool_calls(message: Mapping[str, Any]) -> list[dict]:
 
 def _decode_arguments(call: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """Decode one call's arguments, or ``None`` when they are unusable."""
-    raw = call.get("function", {}).get("arguments", "")
+    function = _call_function(call)
+    if function is None:
+        return None
+    raw = function.get("arguments", "")
     if isinstance(raw, Mapping):
         return raw
     if not isinstance(raw, str):
@@ -208,7 +203,7 @@ def _assistant_message(content: str, calls: Sequence[Mapping[str, Any]]) -> Assi
                 "id": str(call.get("id", "")),
                 "type": "function",
                 "function": {
-                    "name": str(call.get("function", {}).get("name", "")),
+                    "name": str((_call_function(call) or {}).get("name", "")),
                     "arguments": _argument_text(call),
                 },
             }
@@ -217,9 +212,54 @@ def _assistant_message(content: str, calls: Sequence[Mapping[str, Any]]) -> Assi
     }
 
 
+def _call_function(call: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Return a call's nested function object only when it is replayable."""
+    function = call.get("function")
+    return function if isinstance(function, Mapping) else None
+
+
 def _argument_text(call: Mapping[str, Any]) -> str:
-    raw = call.get("function", {}).get("arguments", "")
-    return raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+    function = _call_function(call)
+    raw = function.get("arguments", "") if function is not None else ""
+    if isinstance(raw, str):
+        return raw
+    try:
+        return json.dumps(raw, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return ""
+
+
+def _completion_output_tokens(done: Mapping[str, Any]) -> int:
+    """Provider output-token usage, with a conservative local fallback."""
+    usage = done.get("usage")
+    if isinstance(usage, Mapping):
+        for key in ("completion_tokens", "output_tokens"):
+            value = usage.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+                return max(1, int(value))
+
+    message = done.get("message")
+    if not isinstance(message, Mapping):
+        return 0
+    generated = {
+        key: message[key] for key in ("content", "reasoning_content", "tool_calls") if message.get(key) not in (None, "", [])
+    }
+    if not generated:
+        return 0
+    rendered = json.dumps(generated, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    # Providers that omit usage give us no tokenizer-specific count. UTF-8
+    # bytes are a deliberately pessimistic upper bound for the tokenizers Orb
+    # supports; under-counting here would let later completions multiply the
+    # configured allowance, while over-counting merely ends this turn early.
+    return len(rendered.encode("utf-8"))
+
+
+def _bounded_hyperparams(hyperparams: Mapping[str, Any], remaining_tokens: int | None) -> dict[str, Any]:
+    """Copy hyperparameters with the remaining turn-wide output allowance."""
+    params = dict(hyperparams)
+    if remaining_tokens is not None:
+        params["max_tokens"] = max(1, remaining_tokens)
+    return params
 
 
 def _tool_result(call_id: str, payload: Mapping[str, Any]) -> WireMessage:
@@ -279,6 +319,16 @@ async def writer_pass(
     active = policy is not None and policy.active
     trailing: list[WireMessage] = [{"role": "user", "content": content}]
     hyperparams = extract_hyperparams(settings)
+    configured_max_tokens = hyperparams.get("max_tokens")
+    remaining_tokens = (
+        int(configured_max_tokens)
+        if isinstance(configured_max_tokens, (int, float))
+        and not isinstance(configured_max_tokens, bool)
+        and configured_max_tokens > 0
+        else None
+    )
+    turn_budget = WriterToolTurnBudget() if active else None
+    tool_available = active
     logger.info(
         "Writer pass: tools included=%s, writer tool=%s",
         json.dumps([t["function"]["name"] for t in base.tools]) if base.tools else "[]",
@@ -288,9 +338,10 @@ async def writer_pass(
     prose = ""
     calls_made = 0
     while True:
-        callable_now = active and calls_made < MAX_WRITER_TOOL_CALLS_PER_TURN
+        callable_now = tool_available and calls_made < MAX_WRITER_TOOL_CALLS_PER_TURN
         segment = ""
         message: dict = {}
+        done: dict = {}
         async for item in _complete(
             client,
             base,
@@ -302,17 +353,29 @@ async def writer_pass(
             kv_tracker=kv_tracker,
             reasoning_on=reasoning_on,
             reasoning_prefill=reasoning_prefill,
-            hyperparams=hyperparams,
+            hyperparams=_bounded_hyperparams(hyperparams, remaining_tokens),
         ):
             if item["type"] == "done":
                 message = item["message"]
+                done = item
                 break
             if item["type"] == "content":
                 segment += item["delta"]
             yield item
         prose += segment
+        if remaining_tokens is not None:
+            remaining_tokens = max(0, remaining_tokens - _completion_output_tokens(done))
 
         calls = standard_tool_calls(message) if callable_now else []
+        if calls and remaining_tokens == 0:
+            # The configured Writer output allowance is turn-scoped, not reset
+            # for every ReAct segment. There is no budget left to return a tool
+            # result and let the model react, so execute nothing and retain only
+            # the ordinary prose from this terminal message.
+            logger.warning("Writer exhausted its turn output budget while requesting a tool; ignoring the call")
+            trailing.append({"role": "assistant", "content": segment})
+            yield {"type": "trace", "messages": list(trailing), "used_tool": calls_made > 0}
+            return
         if not calls:
             if standard_tool_calls(message):
                 # A provider that ignored ``tool_choice="none"``. Execute
@@ -342,6 +405,8 @@ async def writer_pass(
             history=history,
             effective_msg=effective_msg,
             direction=direction,
+            invocation_index=calls_made,
+            turn_budget=turn_budget,
         ):
             if item["type"] == "answered":
                 answered = item
@@ -350,6 +415,8 @@ async def writer_pass(
 
         if answered.get("aborted"):
             return
+        if answered.get("disable_tool"):
+            tool_available = False
         if answered.get("recover_clean"):
             # Unanswerable: a tool result must carry the provider's own id, and
             # inventing one would claim a call the provider never made. Drop the
@@ -362,7 +429,7 @@ async def writer_pass(
                 kv_tracker=kv_tracker,
                 reasoning_on=reasoning_on,
                 reasoning_prefill=reasoning_prefill,
-                hyperparams=hyperparams,
+                hyperparams=_bounded_hyperparams(hyperparams, remaining_tokens),
             ):
                 yield item
             return
@@ -410,6 +477,8 @@ async def _answer_calls(
     history: Sequence[Mapping[str, Any]] | None,
     effective_msg: str,
     direction: Mapping[str, Any] | None,
+    invocation_index: int,
+    turn_budget: WriterToolTurnBudget | None,
 ) -> AsyncIterator[dict]:
     """Answer one iteration's calls, yielding progress then a terminal verdict.
 
@@ -426,6 +495,7 @@ async def _answer_calls(
     assert binding is not None
 
     replies: list[WireMessage] = []
+    disable_tool = False
 
     # Multiple calls in one message execute nothing. Not the per-turn budget,
     # which counts messages and lets the model call again after seeing a result:
@@ -434,20 +504,30 @@ async def _answer_calls(
     only = calls[0] if len(calls) == 1 else None
     if only is None:
         logger.warning("Writer returned %d tool calls in one message; executing none", len(calls))
+        disable_tool = True
 
     for call in calls:
-        call_id = str(call.get("id", ""))
-        name = str(call.get("function", {}).get("name", ""))
-        if not valid_call_id(call_id):
+        raw_call_id = call.get("id")
+        function = _call_function(call)
+        name = function.get("name") if function is not None else None
+        if not valid_call_id(raw_call_id) or not isinstance(name, str) or not name:
             # Unanswerable: a tool result must carry the provider's own id, and
-            # inventing one would claim a call the provider never made. The
-            # caller recovers from a clean branch; nothing already staged in
-            # ``replies`` is usable once one call in the message is unanswerable.
-            logger.warning("Writer tool call has an unusable id; recovering without a tool exchange")
-            yield {"type": "answered", "replies": [], "aborted": False, "recover_clean": True}
+            # the assistant call must carry a replayable function object. The
+            # caller recovers cleanly rather than inventing either protocol value.
+            logger.warning("Writer tool call has an unusable id or function shape; recovering without a tool exchange")
+            yield {
+                "type": "answered",
+                "replies": [],
+                "aborted": False,
+                "recover_clean": True,
+                "disable_tool": True,
+            }
             return
+        assert isinstance(raw_call_id, str)
+        call_id = raw_call_id
         if call is not only or name != policy.wire_name:
             replies.append(_tool_result(call_id, writer_tool_error(TOOL_NOT_AVAILABLE)))
+            disable_tool = True
             continue
         arguments = _decode_arguments(call)
         if arguments is None:
@@ -474,6 +554,7 @@ async def _answer_calls(
                         draft=prose,
                         conversation_id=conversation_id,
                         turn_seed=turn_seed,
+                        invocation_index=invocation_index,
                     ),
                     settings=settings,
                     client=client,
@@ -483,6 +564,7 @@ async def _answer_calls(
                     history=tuple(history or ()),
                     last_user_message=effective_msg,
                     direction=direction,
+                    turn_budget=turn_budget,
                 )
             )
         except Exception as exc:
@@ -493,7 +575,13 @@ async def _answer_calls(
             if client.is_aborted:
                 logger.info("Writer tool %r cancelled with the owning turn", policy.wire_name)
                 yield {"type": "tool_status", "running": False, "label": policy.label}
-                yield {"type": "answered", "replies": [], "aborted": True, "recover_clean": False}
+                yield {
+                    "type": "answered",
+                    "replies": [],
+                    "aborted": True,
+                    "recover_clean": False,
+                    "disable_tool": True,
+                }
                 return
             # Timeout, revoked permission, invalid output, and a sanitized flow
             # error all become one fixed code.
@@ -502,11 +590,18 @@ async def _answer_calls(
             # instruction Orb did not author.
             logger.warning("Writer tool %r failed: %s", policy.wire_name, exc)
             replies.append(_tool_result(call_id, writer_tool_error(RESOLVER_UNAVAILABLE)))
+            disable_tool = True
         else:
             replies.append(_tool_result(call_id, writer_tool_ok(result.value)))
         yield {"type": "tool_status", "running": False, "label": policy.label}
 
-    yield {"type": "answered", "replies": replies, "aborted": False, "recover_clean": False}
+    yield {
+        "type": "answered",
+        "replies": replies,
+        "aborted": False,
+        "recover_clean": False,
+        "disable_tool": disable_tool,
+    }
 
 
 async def _continue_clean(

@@ -94,6 +94,15 @@ multi-tool turn would cost -- and it bounds it at publish time, where the
 failure is "this overlay was refused", not "this turn's prompt was too large".
 """
 
+MAX_WRITER_TOOL_CALLS_PER_TURN = 3
+"""How many times one Writer turn may invoke its active tool.
+
+This is a canonical host policy shared by the prompt, pipeline loop, extension
+consent copy, and documentation. Keeping one value here prevents the model from
+being told a different budget than the host enforces, or the user from approving
+different behavior than the loop can perform.
+"""
+
 
 class WriterToolError(ValueError):
     """A Writer-tool value violated its ABI invariant."""
@@ -187,6 +196,13 @@ class WriterToolInvocation:
     draft: str
     conversation_id: str | None = None
     turn_seed: str = ""
+    invocation_index: int = 0
+    """Host-owned zero-based ordinal within this Writer turn.
+
+    Provider call ids correlate an assistant call with its tool result, but they
+    are not required to be unique across separate completions. The ordinal is
+    therefore part of invocation identity and the deterministic random seed.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,6 +346,7 @@ __all__ = [
     "INVALID_ARGUMENTS",
     "MAX_TOOL_CALL_ID_CHARS",
     "MAX_WIRE_NAME_CHARS",
+    "MAX_WRITER_TOOL_CALLS_PER_TURN",
     "MAX_WRITER_TOOLS_PUBLISHED",
     "MAX_WRITER_TOOL_BLOB_BYTES",
     "RESOLVER_UNAVAILABLE",

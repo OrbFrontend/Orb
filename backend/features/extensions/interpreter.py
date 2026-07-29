@@ -250,6 +250,14 @@ class Invocation:
     effects: StagedEffects = field(default_factory=StagedEffects)
     steps_executed: int = 0
     quotas: dict[str, int] = field(default_factory=dict)
+    shared_budget: Any = None
+    """Optional host-owned aggregate budget spanning multiple invocations.
+
+    The concrete ledger lives below the feature boundary and exposes only
+    ``reserve(key, limit)``. Ordinary actions/hooks leave it ``None``; the
+    interleaved Writer loop supplies one so per-invocation quotas cannot reset
+    on every roll.
+    """
     _rng: random.Random | None = None
     state_snapshots: dict[str, Mapping[str, Any]] = field(default_factory=dict)
 
@@ -272,7 +280,12 @@ class Invocation:
         used = self.quotas.get(quota.value, 0) + 1
         if used > limit:
             raise FlowError(f"flow exceeded its budget of {limit} {label}")
+        self._reserve_shared(quota.value, limit, label)
         self.quotas[quota.value] = used
+
+    def _reserve_shared(self, key: str, limit: int, label: str) -> None:
+        if self.shared_budget is not None and not self.shared_budget.reserve(key, limit):
+            raise FlowError(f"Writer tool turn exceeded its budget of {limit} {label}")
 
     def require(self, capability: Capability, parameter: str | None = None) -> None:
         """Check the live grant view, or refuse the operation."""
@@ -349,9 +362,11 @@ async def _run_steps(
         if invocation.host.is_cancelled():
             raise FlowCancelled("the invocation was cancelled")
         invocation.host.charge_step()
-        invocation.steps_executed += 1
-        if invocation.steps_executed > MAX_FLOW_STEPS_EXECUTED:
+        steps_executed = invocation.steps_executed + 1
+        if steps_executed > MAX_FLOW_STEPS_EXECUTED:
             raise FlowError(f"flow executed more than {MAX_FLOW_STEPS_EXECUTED} steps")
+        invocation._reserve_shared("steps", MAX_FLOW_STEPS_EXECUTED, "steps")
+        invocation.steps_executed = steps_executed
 
         # ``IfStep.when`` selects its branch. Every other step uses ``when`` as
         # an optional guard, so applying the generic guard to ``if`` would skip

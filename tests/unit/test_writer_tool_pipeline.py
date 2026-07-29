@@ -12,7 +12,7 @@ from types import MappingProxyType
 
 import pytest
 
-from backend.core import WriterToolKey, WriterToolSpec
+from backend.core import MAX_WRITER_TOOL_CALLS_PER_TURN, WriterToolKey, WriterToolSpec
 from backend.inference import CachedBase
 from backend.pipeline.config import (
     _parameter_summary,
@@ -20,7 +20,6 @@ from backend.pipeline.config import (
     _union_tool_schemas,
 )
 from backend.pipeline.passes.writer import (
-    MAX_WRITER_TOOL_CALLS_PER_TURN,
     build_writer_content,
     standard_tool_calls,
     writer_pass,
@@ -172,18 +171,23 @@ class _WriterLoopClient:
     def __init__(self, responses: list[dict]):
         self.responses = list(responses)
         self.calls = 0
+        self.tool_choices: list[object] = []
+        self.max_tokens: list[int | None] = []
         self.is_aborted = False
 
     def abort(self) -> None:
         self.is_aborted = True
 
-    async def complete(self, **_kwargs):
+    async def complete(self, **kwargs):
         self.calls += 1
-        response = self.responses.pop(0)
+        self.tool_choices.append(kwargs.get("tool_choice"))
+        self.max_tokens.append(kwargs.get("max_tokens"))
+        response = dict(self.responses.pop(0))
+        usage = response.pop("usage", None)
         content = response.get("content", "")
         if content:
             yield {"type": "content", "delta": content}
-        yield {"type": "done", "message": {"role": "assistant", **response}}
+        yield {"type": "done", "message": {"role": "assistant", **response}, "usage": usage}
 
 
 def _loop_policy(invoke) -> WriterToolPolicy:
@@ -256,6 +260,142 @@ async def test_a_failed_replayable_exchange_keeps_its_trace_for_downstream_calls
     trace = next(event for event in events if event["type"] == "trace")
     assert trace["used_tool"] is True
     assert any(message.get("role") == "tool" for message in trace["messages"])
+    assert client.tool_choices == ["auto", "none"]
+
+
+async def test_host_ordinals_distinguish_calls_when_the_provider_reuses_an_id():
+    calls = _writer_tool_call()
+    client = _WriterLoopClient(
+        [
+            {"content": "A. ", "tool_calls": calls},
+            {"content": "B. ", "tool_calls": calls},
+            {"content": "C."},
+        ]
+    )
+    invocations = []
+    budgets = []
+
+    async def resolve(request):
+        invocations.append(request.invocation.invocation_index)
+        budgets.append(request.turn_budget)
+        from backend.core import WriterToolResult
+
+        return WriterToolResult(value={"outcome": "success"})
+
+    events = [
+        event
+        async for event in writer_pass(
+            client,
+            CachedBase(prefix=(), tools=(SCHEMA,), model="m"),
+            {"model_name": "m"},
+            "request",
+            policy=_loop_policy(resolve),
+            turn_seed="attempt-1",
+        )
+    ]
+
+    assert invocations == [0, 1]
+    assert budgets[0] is budgets[1] and budgets[0] is not None
+    assert next(event for event in events if event["type"] == "trace")["used_tool"] is True
+
+
+async def test_max_tokens_is_one_turn_budget_not_one_budget_per_completion():
+    calls = _writer_tool_call()
+    client = _WriterLoopClient(
+        [
+            {"content": "A. ", "tool_calls": calls, "usage": {"completion_tokens": 3}},
+            {"content": "B. ", "tool_calls": calls, "usage": {"completion_tokens": 2}},
+            {"content": "unreachable"},
+        ]
+    )
+    invoked = 0
+
+    async def resolve(_request):
+        nonlocal invoked
+        invoked += 1
+        from backend.core import WriterToolResult
+
+        return WriterToolResult(value={"outcome": "success"})
+
+    events = [
+        event
+        async for event in writer_pass(
+            client,
+            CachedBase(prefix=(), tools=(SCHEMA,), model="m"),
+            {"model_name": "m", "max_tokens": 5},
+            "request",
+            policy=_loop_policy(resolve),
+            turn_seed="attempt-1",
+        )
+    ]
+
+    assert client.calls == 2
+    assert client.max_tokens == [5, 2]
+    assert invoked == 1
+    trace = next(event for event in events if event["type"] == "trace")
+    assert trace["messages"][-1] == {"role": "assistant", "content": "B. "}
+
+
+async def test_missing_usage_conservatively_reduces_the_next_completion_budget():
+    calls = _writer_tool_call()
+    client = _WriterLoopClient(
+        [
+            {"content": "A. ", "tool_calls": calls},
+            {"content": "B."},
+        ]
+    )
+
+    async def resolve(_request):
+        from backend.core import WriterToolResult
+
+        return WriterToolResult(value={"outcome": "success"})
+
+    events = [
+        event
+        async for event in writer_pass(
+            client,
+            CachedBase(prefix=(), tools=(SCHEMA,), model="m"),
+            {"model_name": "m", "max_tokens": 512},
+            "request",
+            policy=_loop_policy(resolve),
+            turn_seed="attempt-1",
+        )
+    ]
+
+    assert client.calls == 2
+    assert client.max_tokens[0] == 512
+    assert 0 < client.max_tokens[1] < 512
+    assert next(event for event in events if event["type"] == "trace")["used_tool"] is True
+
+
+async def test_a_malformed_nested_function_recovers_without_crashing():
+    malformed = [{"id": "call-1", "type": "function", "function": None}]
+    client = _WriterLoopClient(
+        [
+            {"content": "She tries. ", "tool_calls": malformed},
+            {"content": "Nothing resolves."},
+        ]
+    )
+
+    async def must_not_run(_request):
+        raise AssertionError("malformed calls must not execute")
+
+    events = [
+        event
+        async for event in writer_pass(
+            client,
+            CachedBase(prefix=(), tools=(SCHEMA,), model="m"),
+            {"model_name": "m"},
+            "request",
+            policy=_loop_policy(must_not_run),
+            turn_seed="attempt-1",
+        )
+    ]
+
+    trace = next(event for event in events if event["type"] == "trace")
+    assert client.tool_choices == ["auto", "none"]
+    assert trace["used_tool"] is False
+    assert not any("tool_calls" in message for message in trace["messages"])
 
 
 # ── downstream replay ───────────────────────────────────────────────────────

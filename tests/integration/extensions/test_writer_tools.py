@@ -16,11 +16,10 @@ import json
 import pytest
 
 import backend.database as dbmod
-from backend.core import WRITER_TOOL_PREFIX
+from backend.core import MAX_WRITER_TOOL_CALLS_PER_TURN, WRITER_TOOL_PREFIX
 from backend.features.extensions import adapters, telemetry
 from backend.features.extensions.runtime import current_state
 from backend.pipeline import handle_regenerate, handle_turn
-from backend.pipeline.passes.writer import MAX_WRITER_TOOL_CALLS_PER_TURN
 from backend.workflows.registry import current_snapshot
 from tests.extension_packages import (
     OUTCOME_RESOLVER_ID,
@@ -394,7 +393,7 @@ async def test_the_writer_can_call_again_after_reacting_to_the_first_result(clie
     )
     llm_mock.enqueue_writer("It swings open.")
 
-    await _drain(handle_turn(cid, "pick the lock"))
+    events = await _drain(handle_turn(cid, "pick the lock"))
 
     calls = _writer_calls(llm_mock)
     assert len(calls) == 3
@@ -414,6 +413,14 @@ async def test_the_writer_can_call_again_after_reacting_to_the_first_result(clie
     # the segment that preceded it.
     state = await dbmod.get_workflow_state(cid, OUTCOME_RESOLVER_ID)
     assert state["draft_at_call"] == "She reaches for the latch. The lock gives. She tries the door. "
+    assert [event["data"]["running"] for event in events if event["event"] == "writer_tool_status"] == [
+        True,
+        False,
+        True,
+        False,
+    ]
+    messages = await dbmod.get_messages(cid)
+    assert messages[-1]["content"] == "She reaches for the latch. The lock gives. She tries the door. It swings open."
 
 
 async def test_the_call_budget_is_a_host_property_not_a_provider_promise(client, llm_mock):
@@ -438,9 +445,8 @@ async def test_the_call_budget_is_a_host_property_not_a_provider_promise(client,
     assert stats["writer_tool_invocations"] == MAX_WRITER_TOOL_CALLS_PER_TURN
 
 
-async def test_failed_calls_consume_the_budget(client, llm_mock):
-    """Otherwise a resolver that fails every time bills one completion per
-    attempt for as long as the model keeps trying."""
+async def test_an_unavailable_resolver_is_not_retried(client, llm_mock):
+    """A fixed unavailable result is non-retryable inside the same turn."""
     broken = orbext(
         {
             "orb-extension.json": outcome_resolver_manifest(),
@@ -452,16 +458,41 @@ async def test_failed_calls_consume_the_budget(client, llm_mock):
     )
     await _install(client, package=broken)
     cid = await _conversation("conv-wt-failbudget")
-    for n in range(MAX_WRITER_TOOL_CALLS_PER_TURN + 2):
-        llm_mock.enqueue_writer(f"try {n}. ", tool_calls=_call({"action": "a", "difficulty": 5}, call_id=f"f{n}"))
+    llm_mock.enqueue_writer("try 0. ", tool_calls=_call({"action": "a", "difficulty": 5}, call_id="f0"))
     llm_mock.enqueue_writer("done")
 
     await _drain(handle_turn(cid, "try"))
 
     calls = _writer_calls(llm_mock)
-    assert len(calls) == MAX_WRITER_TOOL_CALLS_PER_TURN + 1
+    assert len(calls) == 2
+    assert calls[-1]["tool_choice"] == "none"
     replies = [json.loads(m["content"]) for m in calls[-1]["messages"] if m.get("role") == "tool"]
-    assert replies == [{"status": "error", "code": "resolver_unavailable"}] * MAX_WRITER_TOOL_CALLS_PER_TURN
+    assert replies == [{"status": "error", "code": "resolver_unavailable"}]
+
+
+async def test_provider_call_ids_do_not_define_roll_identity(client, llm_mock, monkeypatch):
+    await _install(client)
+    captured_seeds: list[str] = []
+    original_invoke = adapters._invoke
+
+    async def capture_seed(**kwargs):
+        captured_seeds.append(kwargs["invocation"].seed)
+        async for event in original_invoke(**kwargs):
+            yield event
+
+    monkeypatch.setattr(adapters, "_invoke", capture_seed)
+    cid = await _conversation("conv-wt-reused-id")
+    repeated = "provider-local-call-0"
+    llm_mock.enqueue_writer("A. ", tool_calls=_call({"action": "first", "difficulty": 5}, call_id=repeated))
+    llm_mock.enqueue_writer("B. ", tool_calls=_call({"action": "second", "difficulty": 5}, call_id=repeated))
+    llm_mock.enqueue_writer("C.")
+
+    await _drain(handle_turn(cid, "roll twice"))
+
+    assert len(captured_seeds) == 2
+    assert captured_seeds[0] != captured_seeds[1]
+    assert "|0|" in captured_seeds[0]
+    assert "|1|" in captured_seeds[1]
 
 
 async def test_multiple_calls_in_one_message_execute_nothing(client, llm_mock):

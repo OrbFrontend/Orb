@@ -211,7 +211,7 @@ why there is no `context.draft.read`.
 | `network.request` | `origin` | Reach one exact declared origin through Orb's client. |
 | `ui.contribute` | `slot` | Place a command or view in one exact slot. |
 | `fragment_type.contribute` | — | Register namespaced fragment types. |
-| `writer.tool.contribute` | — | Contribute the one Writer tool (API 2). |
+| `writer.tool.contribute` | — | Contribute the one Writer tool (API 2), which Orb may invoke up to `MAX_WRITER_TOOL_CALLS_PER_TURN` times while composing one reply. |
 | `audit.detector.contribute` | — | Contribute checks to the Output Auditor (API 3). Reads every draft before you see it and can steer a rewrite. |
 
 `CAPABILITY_SPECS` in `features/extensions/contracts/capabilities.py` is the one
@@ -850,8 +850,8 @@ selection transactionally and bumps `runtime_generation`. It does not travel in
 shareable presets.
 
 **Ownership is split three ways and stays split.** `core/writer_tools.py` owns
-the ABI values, the derived wire name, call-id validity, and the fixed
-result/error encoding — the built-in Writer-tool set is an empty snapshot
+the ABI values, the call ceiling, host invocation ordinal, derived wire name,
+call-id validity, and fixed result/error encoding — the built-in Writer-tool set is an empty snapshot
 mapping, never a module-global list. `workflows/` carries the
 `WriterToolBinding` on a `RegistrySnapshot` and enforces the snapshot-level caps
 (32 published bindings, 8 KiB aggregate blob). `features/extensions/` compiles
@@ -887,20 +887,22 @@ result, continue from that exact point without repeating prior prose.
 The authority, exclusivity, call budget, and continuation wording are fixed Orb
 text; the two package-influenced holes are the bounded description and a
 schema-derived parameter summary. The budget number is interpolated from
-`MAX_WRITER_TOOL_CALLS_PER_TURN`, so the number the model reads and the number
-the loop enforces cannot drift apart. The block is the semantic tail even with
+`core.writer_tools.MAX_WRITER_TOOL_CALLS_PER_TURN`, so the consent copy, number
+the model reads, and number the loop enforces cannot drift apart. The block is the semantic tail even with
 attachments — content parts are built so the policy is the final text part after
 the image parts. The prompt is not the security boundary; the captured
 `active_writer_tool` is.
 
-**The loop.** Up to `MAX_WRITER_TOOL_CALLS_PER_TURN` (3) iterations, each one
-completion. While budget remains the request goes out with
-`tool_choice="auto"`; once it is spent, `tool_choice="none"`. If the terminal
+**The loop.** Up to `MAX_WRITER_TOOL_CALLS_PER_TURN` (3) tool-bearing
+completions, plus one final completion that reacts to the last result: four
+Writer completions at most. While call budget remains the request goes out with
+`tool_choice="auto"`; once it is spent, or a non-retryable call fails, it goes
+out with `tool_choice="none"`. If the terminal
 message has no *standard structured* `tool_calls`, the accumulated prose is the
 draft and the turn ends — content-encoded fallbacks are deliberately not parsed
 here, because reinterpreting narrative JSON as a call is unsafe once prose has
 streamed. For exactly one standard call to the captured wire name: validate call
-id, name, argument JSON, schema, and byte limits; compute `ctx.draft` from all
+id, nested function shape, name, argument JSON, schema, and byte limits; compute `ctx.draft` from all
 prose emitted *so far this turn*, across every prior iteration; invoke the
 captured binding with cancellation and live grant re-checks; validate the return
 against the compiled output schema; append the sanitized assistant message
@@ -909,24 +911,35 @@ carrying only that iteration's prose and one tool-role message holding
 left is dropped and logged — the budget is a host property, not a provider
 promise.
 
-The budget is charged per *iteration that returned calls*, not per successful
-resolution, so a resolver failing on every attempt costs a fixed three
-completions rather than one per retry. Each iteration re-sends the same shared
-prefix and a longer trailing transcript, so the cache extends instead of
-forking; the marginal cost of a second call is the tokens the first exchange
-added.
+Three budgets are turn-scoped. A call-bearing iteration is charged whether the
+resolution succeeds or fails. The Writer's configured `max_tokens` is decremented
+by provider `completion_tokens` / `output_tokens` usage (with a conservative
+UTF-8 message-size bound when usage is absent), and each continuation receives only
+the remainder. The extension interpreter's step, model-call, HTTP, state/effect,
+and total result-byte quotas share one `WriterToolTurnBudget` across every
+invocation; a second call cannot reset them. Each iteration still re-sends the
+same shared prefix and a longer trailing transcript, so the cache extends instead
+of forking.
 
 Multiple calls in one message, unselected or unknown names, and stale bindings
 execute nothing; the host appends one fixed error result per call id so the
-transcript stays protocol-valid, then continues the loop. A call with an
-unusable id ends the loop and recovers from a clean branch (the original request,
-all accumulated prose, and a fixed host "continue without tools" message) rather
-than fabricating a provider call id — that branch rebuilds from the request
-precisely because the loop's own trailing already contains earlier prose.
+transcript stays protocol-valid, disables the tool, then lets one no-tools
+completion finish. Invalid arguments remain retryable while budget remains. A
+call with an unusable id or malformed nested function ends the loop and recovers
+from a clean branch (the original request, all accumulated prose, and a fixed
+host "continue without tools" message) rather than fabricating provider protocol
+values — that branch rebuilds from the request precisely because the loop's own
+trailing already contains earlier prose.
 Extension failures — timeout, revocation, invalid output, sanitized `FlowError`
 — become `{"status": "error", "code": "resolver_unavailable"}`; the Writer never
-sees internal exception text. User cancellation is the exception: no tool result,
-no further completion.
+sees internal exception text, and the next completion is forced no-tools rather
+than retrying a failure it cannot diagnose. User cancellation is the exception:
+no tool result, no further completion.
+
+Every invocation carries a host-owned zero-based ordinal in addition to the
+provider's call id. The ordinal enters the deterministic flow seed, so two
+separate rolls stay distinct even when a compatible provider reuses its
+correlation id across completions.
 
 **Flow context.** `writer_tool` allows pure operations, `return`, namespaced
 `state.*` for config, conversation, and character, `model.*`, and
@@ -937,7 +950,8 @@ second one) and message-scoped state (no assistant row exists for this entry
 point, so a package declaring the write is describing a target that cannot
 occur). The successful invocation is its own transaction: committed namespaced
 state is **not** rolled back if the Writer continuation later fails or the user
-aborts.
+aborts. Per-invocation limits remain defense in depth, but a turn-wide ledger
+applies the same limits cumulatively across all calls.
 
 **Downstream.** `WriterReplay` (`pipeline/replay.py`) decides what a downstream
 agent call replays. In single-model mode it replays the sanitized trace so the
@@ -947,8 +961,8 @@ hold only the post-tool continuation. In dual-model mode the agent base does not
 declare the tool, so the Editor, feedback, and direction-note steps get the
 normalized `writer_user_msg + canonical assistant draft` shape instead. Only the
 final concatenated prose is persisted; the hidden tool transcript and raw
-extension output are not, and debug logging uses sizes, names, and status codes
-rather than payloads.
+extension output are not. Completion logging redacts tool-role payloads and
+records only their encoded size, fixed status, and fixed error code.
 
 **Transport.** Writer tools need a chat transport that returns standard
 structured `tool_calls` with replayable call ids and honors `auto`/`none`.

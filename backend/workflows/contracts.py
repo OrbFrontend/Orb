@@ -73,6 +73,36 @@ EV_SET_MESSAGE_STATE = "set_message_state"  # post-pipeline
 # can order blocks deterministically rather than by installation time.
 
 
+class WriterToolTurnBudget:
+    """Host-owned aggregate work ledger shared by every call in one Writer turn.
+
+    The workflow boundary owns only reservation mechanics, not extension policy:
+    callers provide the feature-specific key and limit. A package never receives
+    this object. The extension interpreter uses it alongside each invocation's
+    local counters so three individually-valid calls cannot multiply model,
+    network, state, or step budgets threefold.
+    """
+
+    __slots__ = ("_used",)
+
+    def __init__(self) -> None:
+        self._used: dict[str, int] = {}
+
+    def reserve(self, key: str, limit: int, units: int = 1) -> bool:
+        """Reserve *units* under *key*, returning ``False`` at the limit."""
+        if units < 0:
+            return False
+        used = self._used.get(key, 0) + units
+        if used > limit:
+            return False
+        self._used[key] = used
+        return True
+
+    def used(self, key: str) -> int:
+        """Return the units already reserved for *key*."""
+        return self._used.get(key, 0)
+
+
 @dataclass(frozen=True)
 class WriterToolRequest:
     """One Writer-tool call, plus the host services the executor may use.
@@ -106,6 +136,12 @@ class WriterToolRequest:
     to project, however granted the package is."""
 
     runtime_generation: int = 0
+    turn_budget: WriterToolTurnBudget | None = None
+    """Aggregate work budget shared by all Writer-tool calls this turn.
+
+    ``None`` retains the ordinary per-invocation limits for standalone bindings
+    and older test doubles. The pipeline always supplies one for a real turn.
+    """
 
 
 @dataclass(frozen=True)
