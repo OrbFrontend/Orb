@@ -175,7 +175,9 @@ def _metadata(
     }
 
 
-def _consumption(style: Mapping[str, Any], prompt: str, negative_prompt: str, result=None) -> dict:
+def _consumption(
+    style: Mapping[str, Any], prompt: str, negative_prompt: str, result=None, camera: Mapping[str, Any] | None = None
+) -> dict:
     notes = list(getattr(result, "backend_info", {}).get("notes") or []) if result is not None else []
     payload = {
         "source": "External ComfyUI",
@@ -184,6 +186,15 @@ def _consumption(style: Mapping[str, Any], prompt: str, negative_prompt: str, re
         "prompt": prompt,
         "negative_prompt": negative_prompt,
     }
+    # The camera rides both halves. generation_metadata is the replay record the
+    # UI never reads; a wrong POV is the failure this feature exists to fix, so
+    # which camera ran and which lever chose it belong where the user is looking
+    # at the bad image. *camera* is whichever dict already carries them -- the
+    # fresh metadata on a generate, the stored parameters on a reroll.
+    for key in ("pov", "pov_source"):
+        value = (camera or {}).get(key)
+        if value:
+            payload[key] = value
     # Disclosure lives in the display-safe half: a replay that could not be
     # honoured exactly says so on the attachment the user is looking at.
     if notes:
@@ -264,7 +275,7 @@ async def _generate_fresh(
         pov=pov,
         pov_source=pov_source,
     )
-    return _attachment(seed, result, md, _consumption(style, prompt, negative, result))
+    return _attachment(seed, result, md, _consumption(style, prompt, negative, result, camera=md))
 
 
 async def on_demand(ctx, body):
@@ -608,7 +619,9 @@ async def reroll_gen(ctx, params, seed):
         # overwriting the row with different bytes than it is meant to restore.
         replay=params,
     )
-    consumption = _consumption(style, prompt, negative, result)
+    # A reroll re-renders the stored prompt under a new seed, so the camera cannot
+    # have changed: carry the one `params` already records rather than re-resolving.
+    consumption = _consumption(style, prompt, negative, result, camera=params)
     if style_changed:
         # Only the assembled prompt is stored, never the scene/avoid halves it was built
         # from, so a style swap cannot re-word it -- say so rather than substitute silently.

@@ -494,3 +494,8 @@ async def test_generate_records_the_camera_and_the_lever_that_chose_it(client, m
     metadata = json.loads(rows[0]["generation_metadata"])
     assert metadata["pov"] == "third_person"
     assert metadata["pov_source"] == "character_tag"
+    # Also in the display half: generation_metadata is the replay record the UI
+    # never reads, and a wrong camera has to be visible on the bad image itself.
+    consumption = json.loads(rows[0]["consumption_metadata"])
+    assert consumption["pov"] == "third_person"
+    assert consumption["pov_source"] == "character_tag"

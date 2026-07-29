@@ -222,7 +222,9 @@ Orb decides the camera in this order. The first match wins:
 4. Third-person.
 
 Each image records which camera it used and which of the four levers chose it.
-Open the image details to see them.
+Open **Render details** under the image and read the **Camera** row. It tells you
+where to go to change a camera you did not want: the character's prompt, the POV
+picker, or the classifier.
 
 ### Turn on the POV classifier
 

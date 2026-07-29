@@ -154,3 +154,25 @@ test("replay disclosure notes are shown and escaped", () => {
   assert.ok(html.includes(`«${HOSTILE}»`));
   assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").includes("<script>"));
 });
+
+test("the camera row names the viewpoint and the lever that chose it", () => {
+  const html = attachmentDetailsHtml(
+    { consumption_metadata: { pov: "first_person", pov_source: "classifier" } },
+    "",
+    MARKERS,
+  );
+  assert.ok(html.includes("<dt>Camera</dt>"));
+  assert.ok(html.includes("«First-person»"));
+  assert.ok(html.includes("« — from the classifier»"));
+});
+
+test("an unrecognized camera falls back to its raw value, still escaped", () => {
+  const html = attachmentDetailsHtml({ consumption_metadata: { pov: HOSTILE, pov_source: HOSTILE } }, "", MARKERS);
+  assert.ok(html.includes(`«${HOSTILE}»`));
+  assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").replaceAll(`« — from the ${HOSTILE}»`, "").includes("<script>"));
+});
+
+test("an image generated before the camera was recorded shows no camera row", () => {
+  const html = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, "", MARKERS);
+  assert.ok(!html.includes("<dt>Camera</dt>"));
+});

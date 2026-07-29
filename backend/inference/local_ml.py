@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -369,12 +370,36 @@ async def aclassify(feature: str, text: str) -> str:
 
 
 # --- POV classification (image generation camera) ------------------------------
-# The povtense encoder's trained context is 256 tokens, but _load_scorer_blocking
-# hard-codes n_ctx=512 for every classifier feature. This cap, not n_ctx, is what
-# keeps the input inside the window the model was actually trained on. Tail-sliced
-# like the emotion path: the composer freezes the FINAL visible instant of a reply,
-# so the end of the message is the part whose POV matters.
+# The model card asks for "roughly 1-4 sentences without prior context", not a
+# whole reply: the encoder's trained context is 256 tokens, and a raw tail slice of
+# that size is 5-10 sentences that usually starts mid-word. So `pov_input` shapes
+# the span instead of just capping it. Tail-anchored like the emotion path: the
+# composer freezes the FINAL visible instant of a reply, so the end of the message
+# is the part whose POV matters. _POV_MAX_CHARS survives only as a runaway guard
+# for text with no sentence breaks at all.
 _POV_MAX_CHARS = 800
+_POV_SENTENCES = 3
+# Dialogue is dropped before the narration is read. An RP reply usually ends in
+# speech, and speech is first-person by nature ("I'll go," she said) -- feeding it
+# to a POV classifier is the single most likely way to read a third-person scene as
+# first. Straight and curly quotes both; asterisk-wrapped action is narration and
+# stays.
+_POV_DIALOGUE_RE = re.compile(r"[\"“”«»][^\"“”«»]*[\"“”«»]")
+_POV_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def pov_input(text: str) -> str:
+    """The span of *text* the povtense model should see: the last few narration
+    sentences, dialogue removed.
+
+    Pure, so the shaping — which decides what the model is even asked about — is
+    testable without loading it. Returns "" for a reply that is all dialogue; the
+    caller reads that as "ambiguous" and walks back to the previous message, which
+    is the right answer for a turn that shows no narration.
+    """
+    narration = _POV_DIALOGUE_RE.sub(" ", text or "")
+    sentences = [s for s in _POV_SENTENCE_SPLIT_RE.split(narration.strip()) if s.strip()]
+    return " ".join(sentences[-_POV_SENTENCES:]).strip()[-_POV_MAX_CHARS:]
 
 
 def pov_from_logits(logits: Sequence[float]) -> str:
@@ -392,14 +417,16 @@ def pov_from_logits(logits: Sequence[float]) -> str:
 
 
 def _classify_pov_blocking(feature: str, text: str) -> str:
-    text = (text or "").strip()[-_POV_MAX_CHARS:]
-    if not text:
+    shaped = pov_input(text)
+    if not shaped:
         return "ambiguous"
-    return pov_from_logits(_head_logits(feature, text, len(POV_ROWS) * _POV_TENSES))
+    return pov_from_logits(_head_logits(feature, shaped, len(POV_ROWS) * _POV_TENSES))
 
 
 async def aclassify_pov(text: str) -> str:
     """One message → one of POV_ROWS ("first" | "second" | "third" | "ambiguous").
+
+    Only the span `pov_input` selects is read, not the whole message.
 
     "ambiguous" is a real class the model was trained to emit, not a confidence
     floor we impose, so the caller treats it as "ask the previous message" rather
@@ -470,6 +497,17 @@ if __name__ == "__main__":
     spread[0] = 3.0  # "first", one tense only
     assert pov_from_logits(spread) == "third", spread
     print("pov_from_logits OK")
+
+    # Self-check for what the POV model is actually shown (no model needed).
+    reply = 'She turned. "I will go," she said. He waited by the door. Rain hit the glass.'
+    shaped = pov_input(reply)
+    assert "I will go" not in shaped, shaped  # dialogue is not narration
+    assert shaped.endswith("Rain hit the glass."), shaped  # tail-anchored
+    assert len(_POV_SENTENCE_SPLIT_RE.split(shaped)) <= _POV_SENTENCES, shaped
+    assert pov_input('"All of it." "Every word."') == ""  # all dialogue -> caller walks back
+    assert pov_input("") == "" and pov_input("   ") == ""
+    assert pov_input("no terminal punctuation here") == "no terminal punctuation here"
+    print("pov_input OK")
 
     # Self-check for the destructive prune (temp dir; never touches real models).
     import tempfile
