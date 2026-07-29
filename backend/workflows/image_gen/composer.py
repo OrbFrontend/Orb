@@ -91,7 +91,7 @@ _SHOT_PROSE_THIRD = (
 _SCENE_FORMAT_TAIL = (
     "Order the scene by visual importance. Give each character's pose and action first. Then give their build, current "
     "clothing, hair, and other visible traits. Keep one character's facts together. Then describe the interaction and "
-    "spatial relationships, followed by the setting, lighting, and framing. "
+    "spatial relationships, followed by the setting (place/time), lighting, and framing. "
     "Use as much detail as the visible constraints need, but state each fact once and omit filler. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Be anatomically and spatially precise. "
@@ -233,7 +233,7 @@ ANALYZE_TOOL_SCHEMA = {
                                 "type": ["string", "null"],
                                 "description": (
                                     "Current visible clothing established by the conversation, or null if unknown, can be nude. "
-                                    "Give the whole known outfit, not a list of recent changes."
+                                    "Give the whole current outfit, not a list of recent changes."
                                 ),
                             },
                             "position": {
