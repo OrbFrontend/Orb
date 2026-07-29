@@ -19,6 +19,14 @@ async def test_download_unknown_feature_404(client):
     assert resp.status_code == 404
 
 
+async def test_status_covers_every_registered_feature(client):
+    # The Settings card is generic over MODELS, so a new entry (pov_classifier)
+    # only reaches the UI if status enumerates the registry rather than a list.
+    st = (await client.get("/api/local-ml/status")).json()
+    assert set(st["features"]) == set(local_ml.MODELS)
+    assert st["features"]["pov_classifier"]["size_mb"] == local_ml.MODELS["pov_classifier"].size_mb
+
+
 async def test_enable_toggle_roundtrips(client):
     resp = await client.post("/api/local-ml/autocomplete/enabled", json={"enabled": False})
     assert resp.status_code == 200

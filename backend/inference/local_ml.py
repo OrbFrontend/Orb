@@ -7,11 +7,12 @@ route just 503s.
 
 One registry (``MODELS``), one download path, and per-feature cached ``Llama``
 handles. ``autocomplete`` is a text-generation model (``create_completion``);
-``slop_classifier`` is a ModernBERT sequence classifier scored via ``ascore``.
-A new model reuses the download/toggle/path plumbing for free, but its
-*inference* path is its own — generation and classification don't share a call.
-The ``available`` / ``complete`` / ``build_prompt`` / ``ascore`` names are the
-routes' stable surface.
+the rest are ModernBERT sequence classifiers read through ``_head_logits`` and
+differing only in how they interpret those logits — ``ascore`` softmaxes two,
+``aclassify`` argmaxes 28, ``aclassify_pov`` marginalizes a 4x3 grid. A new model
+reuses the download/toggle/path plumbing for free, but its *inference* path is its
+own — generation and classification don't share a call. The ``available`` /
+``complete`` / ``build_prompt`` / ``ascore`` names are the routes' stable surface.
 """
 
 from __future__ import annotations
@@ -50,6 +51,11 @@ MODELS: dict[str, ModelSpec] = {
         filename="gguf/ettin-emotion-28ml-68m-q8_0.gguf",
         size_mb=71,
     ),
+    "pov_classifier": ModelSpec(
+        repo_id="chartreuse-verte/ettin-povtense-17m",
+        filename="gguf/povtense-17m-q8_0.gguf",
+        size_mb=20,
+    ),
 }
 
 # The 28 go-emotions labels in standard id2label order (neutral last, index 27).
@@ -85,6 +91,14 @@ GO_EMOTIONS: tuple[str, ...] = (
     "surprise",
     "neutral",
 )
+
+# The POV half of the povtense head, whose 12 logits are a row-major 4x3 grid:
+# POV rows x tense columns (past, present, ambiguous). Row-sum the softmax for the
+# POV, column-sum it for the tense. Order MUST match the GGUF head's logit order.
+# Only the rows are consumed -- an image prompt has no tense, so the columns are
+# summed by nobody and the tense half of the model is deliberately unused.
+POV_ROWS: tuple[str, ...] = ("first", "second", "third", "ambiguous")
+_POV_TENSES = 3
 
 _REPEAT_PENALTY = 1.1
 _FREQUENCY_PENALTY = 0.1
@@ -315,27 +329,36 @@ async def ascore(feature: str, sentences: Sequence[str]) -> list[float]:
 
 # --- Emotion classification (character expressions) ----------------------------
 # Same RANK-pooling embed() path as the scorer, but a 28-class go-emotions head:
-# argmax over the first 28 logits → GO_EMOTIONS[i]. No softmax — we only need the
-# single top label. The tail slice below is purely an n_ctx=512 guard, NOT a
+# argmax over the head's logits → GO_EMOTIONS[i]. The tail slice below is purely an n_ctx=512 guard, NOT a
 # recency heuristic: the model (DistilBERT/go-emotions, trained on short comments)
 # can't be trusted to weight late text, so the caller enforces recency by sending
 # only the last few sentences (frontend sentenceTail); we just cap runaway input.
 _CLASSIFY_MAX_CHARS = 1500
 
 
-def _classify_blocking(feature: str, text: str) -> str:
+def _head_logits(feature: str, text: str, n: int) -> list[float]:
+    """The first *n* class logits off feature's RANK-pooled classification head.
+
+    The buffer past the head's own logits is uninitialized, so a short read is the
+    one reliable signal that the GGUF carries a different head than the caller expects.
+    """
     _load_scorer_blocking(feature)  # same embedding+RANK load as the scorer
     llama = _llamas.get(feature)
     if llama is None:
         raise RuntimeError(_load_errors.get(feature) or "model unavailable")
+    v = llama.embed(text)
+    if len(v) < n:
+        raise RuntimeError(f"classifier returned {len(v)} logits, expected >={n} (wrong head?)")
+    return [float(v[i]) for i in range(n)]
+
+
+def _classify_blocking(feature: str, text: str) -> str:
     text = (text or "").strip()[-_CLASSIFY_MAX_CHARS:]  # n_ctx guard; caller owns recency
     if not text:
         return "neutral"
-    v = llama.embed(text)
-    if len(v) < 28:  # buffer past the class logits is uninitialized — short = wrong head
-        raise RuntimeError(f"classifier returned {len(v)} logits, expected >=28 (wrong head?)")
-    i = max(range(28), key=lambda j: float(v[j]))
-    return GO_EMOTIONS[i]
+    logits = _head_logits(feature, text, len(GO_EMOTIONS))
+    # No softmax — only the single top label is wanted, and argmax is invariant to it.
+    return GO_EMOTIONS[max(range(len(logits)), key=logits.__getitem__)]
 
 
 async def aclassify(feature: str, text: str) -> str:
@@ -343,6 +366,47 @@ async def aclassify(feature: str, text: str) -> str:
     one mood — YAGNI). Lazy-loads; serialized by the feature's lock; off the loop."""
     async with _lock(feature):
         return await asyncio.to_thread(_classify_blocking, feature, text)
+
+
+# --- POV classification (image generation camera) ------------------------------
+# The povtense encoder's trained context is 256 tokens, but _load_scorer_blocking
+# hard-codes n_ctx=512 for every classifier feature. This cap, not n_ctx, is what
+# keeps the input inside the window the model was actually trained on. Tail-sliced
+# like the emotion path: the composer freezes the FINAL visible instant of a reply,
+# so the end of the message is the part whose POV matters.
+_POV_MAX_CHARS = 800
+
+
+def pov_from_logits(logits: Sequence[float]) -> str:
+    """Marginalize the 4x3 povtense grid down to one POV row label.
+
+    Pure, so the row-major layout — the one thing here that is silently wrong if
+    transposed — is testable without the model.
+    """
+    m = max(logits)
+    exp = [math.exp(x - m) for x in logits]
+    # Row sums over the softmax marginalize the tense out of each POV. The
+    # normalizer is constant across rows, so argmax needs no division.
+    rows = [sum(exp[i * _POV_TENSES : (i + 1) * _POV_TENSES]) for i in range(len(POV_ROWS))]
+    return POV_ROWS[max(range(len(rows)), key=rows.__getitem__)]
+
+
+def _classify_pov_blocking(feature: str, text: str) -> str:
+    text = (text or "").strip()[-_POV_MAX_CHARS:]
+    if not text:
+        return "ambiguous"
+    return pov_from_logits(_head_logits(feature, text, len(POV_ROWS) * _POV_TENSES))
+
+
+async def aclassify_pov(text: str) -> str:
+    """One message → one of POV_ROWS ("first" | "second" | "third" | "ambiguous").
+
+    "ambiguous" is a real class the model was trained to emit, not a confidence
+    floor we impose, so the caller treats it as "ask the previous message" rather
+    than as a failure. Lazy-loads; serialized by the feature's lock; off the loop.
+    """
+    async with _lock("pov_classifier"):
+        return await asyncio.to_thread(_classify_pov_blocking, "pov_classifier", text)
 
 
 def build_prompt(
@@ -392,6 +456,20 @@ if __name__ == "__main__":
     assert "Aria is a wry tavern keeper." in p
     assert "Director" not in p and "Scene Direction" not in p
     print("build_prompt OK")
+
+    # Self-check for the povtense grid layout (no model needed). One hot cell per
+    # case, placed row-major: index = row * 3 + tense column.
+    for row, label in enumerate(POV_ROWS):
+        for col in range(_POV_TENSES):
+            grid = [0.0] * (len(POV_ROWS) * _POV_TENSES)
+            grid[row * _POV_TENSES + col] = 9.0
+            assert pov_from_logits(grid) == label, (row, col, label)
+    # A POV spread across all three tenses still beats a single taller cell in another row.
+    spread = [0.0] * 12
+    spread[6] = spread[7] = spread[8] = 2.0  # "third", split across tenses
+    spread[0] = 3.0  # "first", one tense only
+    assert pov_from_logits(spread) == "third", spread
+    print("pov_from_logits OK")
 
     # Self-check for the destructive prune (temp dir; never touches real models).
     import tempfile

@@ -14,9 +14,12 @@ from ..toolkit import (
     get_message_by_id,
     get_workflow_character_state,
     get_workflow_config,
+    get_workflow_state,
     insert_workflow_attachment,
     set_workflow_character_state,
+    set_workflow_state,
 )
+from . import pov as pov_mod
 from .composer import assemble_prompts, compose_scene
 from .config import (
     WORKFLOW_ID,
@@ -63,6 +66,14 @@ def _requested_style_id(body: Any, config: Mapping[str, Any]) -> str:
     """Use an explicit request style, otherwise today's global selection."""
     style_id = body.get("style_id") if isinstance(body, Mapping) else None
     return style_id or config["default_style"]
+
+
+async def _read_pov_mode(conversation_id: str) -> str:
+    """This conversation's manual camera choice. Style is global; the camera is not
+    -- narration POV is a property of the chat, so it must not follow the user
+    into the next one."""
+    state = await get_workflow_state(conversation_id, WORKFLOW_ID)
+    return pov_mod.normalize_mode((state or {}).get("pov_mode"))
 
 
 def _phase(label: str) -> dict:
@@ -138,6 +149,8 @@ def _metadata(
     prompt: str,
     negative_prompt: str,
     composer_mode: str,
+    pov: str,
+    pov_source: str,
 ) -> dict:
     info = dict(result.backend_info)
     return {
@@ -149,6 +162,11 @@ def _metadata(
         "runtime_version": None,
         "backend_model": info.get("backend_model"),
         "composer_mode": composer_mode,
+        # Which camera was drawn, and which lever chose it. A wrong POV is the
+        # failure this feature exists to fix, so it must be traceable to
+        # character_tag / manual / classifier / default rather than guessed at.
+        "pov": pov,
+        "pov_source": pov_source,
         "prompt": prompt,
         "negative_prompt": negative_prompt,
         # Read back off the graph that executed, so replay can compare what an
@@ -193,24 +211,32 @@ async def _generate_fresh(
     config: Mapping[str, Any],
     profile: Mapping[str, Any],
     style_id: str,
+    pov_mode: str,
     prefix: Sequence[dict] | None = None,
     progress: ProgressCallback | None = None,
 ):
+    history = _history_through(ctx.history, int(message["id"]))
     if prefix is None:
-        history = _history_through(ctx.history, int(message["id"]))
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     selected_style = resolve_style(config, style_id)
     character = getattr(ctx, "character", None)
     profile_owner_name = str(character.get("name") or "") if isinstance(character, Mapping) else ""
+    appearance = str(profile.get("appearance_prompt") or "")
+    # Resolved here, not in the caller's prep phase: the classifier's first call
+    # loads a model, and that latency belongs behind the "Composing image
+    # prompt..." pill rather than ahead of the stream's first frame.
+    pov, pov_source = await pov_mod.resolve(appearance=appearance, mode=pov_mode, history=history)
+    logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,
         model_name=ctx.agent_model_name,
         prefix=prefix,
         settings=ctx.settings,
         prompt_format=selected_style["prompt_format"],
+        pov=pov,
         reasoning_on=bool(config.get("prompter_reasoning")),
         scene_analysis=bool(config.get("scene_analysis")),
-        appearance=str(profile.get("appearance_prompt") or ""),
+        appearance=appearance,
         profile_owner_name=profile_owner_name,
         extra_instructions=str(selected_style.get("extra_instructions") or ""),
         supports_negative=graph_has_negative(config, selected_style["workflow"]),
@@ -235,6 +261,8 @@ async def _generate_fresh(
         prompt=prompt,
         negative_prompt=negative,
         composer_mode=composer_mode,
+        pov=pov,
+        pov_source=pov_source,
     )
     return _attachment(seed, result, md, _consumption(style, prompt, negative, result))
 
@@ -259,6 +287,22 @@ async def on_demand(ctx, body):
         normalized = normalize_profile(profile)
         await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, normalized)
         return {"ok": True, "profile": normalized}
+    # The camera picker. Both run under the trigger route's workflow_state lock,
+    # which is why neither acquires it -- asyncio.Lock is not reentrant, and the
+    # read-then-write these guard is exactly what that lock is held across.
+    if action == "get_pov":
+        # Readiness rides along: the picker needs both to label "Auto", and both
+        # are local (a file check and a settings read), so one trip answers it.
+        return {
+            "pov_mode": await _read_pov_mode(ctx.conversation_id),
+            "classifier_ready": await pov_mod.classifier_ready(),
+        }
+    if action == "set_pov":
+        mode = pov_mod.normalize_mode(body.get("pov_mode"))
+        state = dict(await get_workflow_state(ctx.conversation_id, WORKFLOW_ID) or {})
+        state["pov_mode"] = mode
+        await set_workflow_state(ctx.conversation_id, WORKFLOW_ID, state)
+        return {"ok": True, "pov_mode": mode}
     return {"error": f"unknown action: {action!r}"}
 
 
@@ -423,6 +467,9 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
     except ValueError as exc:
         return _failed_stream(str(exc))
     prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
+    # Read under the route's workflow_state lock, with the rest of the DB-backed
+    # prep; the stream body below runs after that lock releases.
+    pov_mode = await _read_pov_mode(ctx.conversation_id)
 
     async def stream():
         attachment_id: int | None = None
@@ -446,6 +493,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
                 config=config,
                 profile=profile,
                 style_id=style_id,
+                pov_mode=pov_mode,
                 prefix=prefix,
                 progress=on_progress,
             )
@@ -502,6 +550,7 @@ async def regenerate(ctx, body):
                 config=config,
                 profile=profile,
                 style_id=style_id,
+                pov_mode=await _read_pov_mode(ctx.conversation_id),
             )
         ]
     except Exception:

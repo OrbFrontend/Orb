@@ -26,6 +26,14 @@ const PROMPT_FORMATS = [
   ["hybrid", "Hybrid"],
   ["prose", "Prose"],
 ];
+// Camera modes, mirroring backend pov.POV_MODES. "auto" runs the local POV
+// classifier; the other two pin it. Unlike style this is per-conversation:
+// narration POV belongs to the chat, so it must not follow the user out of it.
+const POV_MODES = [
+  ["auto", "Auto"],
+  ["first", "First-person"],
+  ["third", "Third-person"],
+];
 let cfg;
 let pendingGraph = null;
 // The styles and imported graphs being edited. A working copy rather than cfg
@@ -41,6 +49,7 @@ export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "settings", () => openSettings());
   registerAction(WORKFLOW_ID, "pickStyle", (el) => selectDefaultStyle(el.value));
+  registerAction(WORKFLOW_ID, "pickPov", (el) => selectPovMode(el));
   registerAction(WORKFLOW_ID, "editStyle", (el) => openSettings(el.dataset.styleId));
   registerAction(WORKFLOW_ID, "settingsClose", () => closeModal());
   registerAction(WORKFLOW_ID, "test", () => testConnection());
@@ -61,9 +70,20 @@ function query(action, extra) {
   return api.post(`/workflows/${WORKFLOW_ID}/query`, { action, ...extra });
 }
 
+// Trigger actions are conversation-scoped, so the camera picker rides /trigger
+// rather than the conversation-less /query the rest of this card uses.
+function trigger(action, extra) {
+  const cid = getActiveConvId();
+  return cid ? api.post(convUrl(cid, "workflows", WORKFLOW_ID, "trigger"), { action, ...extra }) : null;
+}
+
 // Last readiness answer, so the card renders synchronously from a known value
 // instead of painting empty and filling in later.
 let cardReadiness = { text: "", ready: true };
+// The camera picker's last known state, cached the same way. `convId` is what it
+// was fetched for: the tools panel re-renders on open but not on a conversation
+// switch, so a picker left visible across one must not write to the new chat.
+let cardPov = { mode: "auto", convId: null, classifier: false };
 // Style list for the card picker, cached the same way. The Visualize button
 // reads its choice from cfg.default_style, so the picker is where a style is
 // chosen once instead of in a modal on every generate.
@@ -94,8 +114,60 @@ function configPanelBody() {
     : "";
   return `<div class="image-gen-card-controls">
     ${stylePicker}
+    ${povPicker()}
     <button class="btn btn-sm image-gen-card-btn" data-wf-action="image_gen:settings">Settings</button>
   </div>`;
+}
+
+// Auto stays selectable with the classifier missing -- the backend degrades to
+// third-person on its own -- but says so in its label, so a user who picked it
+// and got the default camera can see why without opening Settings.
+function cardPovOptions() {
+  return POV_MODES.map(([id, label]) => {
+    const text = id === "auto" && !cardPov.classifier ? "Auto (classifier off)" : label;
+    return `<option value="${escAttr(id)}"${id === cardPov.mode ? " selected" : ""}>${esc(text)}</option>`;
+  }).join("");
+}
+
+function povPicker() {
+  if (!cardPov.convId) return ""; // no conversation open: nothing to scope a camera to
+  return `<label class="image-gen-card-style">POV<select id="ig-card-pov" class="tool-card-select" data-conv-id="${escAttr(cardPov.convId)}" data-wf-action="image_gen:pickPov" data-wf-on="change">${cardPovOptions()}</select></label>`;
+}
+
+async function selectPovMode(el) {
+  // The panel does not re-render on a conversation switch, so a picker that
+  // outlived one is showing the previous chat's choice. Resync instead of
+  // writing this chat's camera from a value the user never saw for it.
+  if (el.dataset.convId !== getActiveConvId()) {
+    await refreshCardPov();
+    return;
+  }
+  const mode = el.value;
+  cardPov = { ...cardPov, mode };
+  try {
+    await trigger("set_pov", { pov_mode: mode });
+  } catch {
+    toast("Could not save the camera", "error");
+    refreshCardPov();
+  }
+}
+
+// Fetched per conversation, alongside the classifier readiness the label needs.
+// Failure leaves the picker on its cached value rather than blanking the card.
+export async function refreshCardPov() {
+  const convId = getActiveConvId();
+  if (!convId) {
+    cardPov = { ...cardPov, convId: null };
+    refreshCard();
+    return;
+  }
+  try {
+    const state = await trigger("get_pov");
+    cardPov = { mode: state?.pov_mode || "auto", convId, classifier: !!state?.classifier_ready };
+  } catch {
+    cardPov = { ...cardPov, convId };
+  }
+  refreshCard();
 }
 
 function refreshCard() {
@@ -104,6 +176,10 @@ function refreshCard() {
 }
 
 export function configPanelRenderer() {
+  // Style and readiness are global and primed at load; the camera is
+  // per-conversation, so it is re-read on every panel open. Fire-and-forget: the
+  // card paints from cache now and patches itself when the answer lands.
+  refreshCardPov();
   return `<div class="tool-card-desc">Generate images on demand with external ComfyUI.</div>
     <div id="ig-card-config">${configPanelBody()}</div>`;
 }

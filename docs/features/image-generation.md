@@ -195,6 +195,47 @@ To add a style, do these steps:
 
 You must keep at least one style.
 
+## Set the camera (POV)
+
+The camera decides whether the image looks *through* the user's eyes or *at* the
+scene from outside. Orb decides it before it writes the prompt, then gives the
+prompter one set of instructions written for that camera only.
+
+Set it in the **Image Generation** card, next to the style picker. The choice
+belongs to the conversation, not to the app: a chat written in second person keeps
+its camera when you switch to a chat written in third person.
+
+| Mode | Result |
+|---|---|
+| **Auto** | The local POV classifier reads the reply. First- and second-person narration give the first-person camera; third-person narration gives the third-person camera. |
+| **First-person** | Always through the user's eyes. The user is not drawn. |
+| **Third-person** | Always from outside. Every person in frame is drawn, including the character the user plays. |
+
+Orb decides the camera in this order. The first match wins:
+
+1. A camera tag in the character's **Positive prompt** — write `first_person`,
+   `1st person`, `pov`, `third_person`, or `3rd person`. This always wins, so use
+   it to pin one character to one camera.
+2. The **First-person** or **Third-person** mode on the picker.
+3. The classifier, in **Auto** mode. If a reply is too short or too mixed to read,
+   Orb reads the previous assistant replies until one is clear.
+4. Third-person.
+
+Each image records which camera it used and which of the four levers chose it.
+Open the image details to see them.
+
+### Turn on the POV classifier
+
+**Auto** needs a small local model. Without it, **Auto** falls back to
+third-person and the picker says `Auto (classifier off)`.
+
+1. Install the machine-learning extras. See [Character Expressions](character-expressions.md).
+2. Open **Settings** and find **Local ML**.
+3. Select **Download** on **Image POV**. The model is about 20 MB.
+4. Leave the toggle on.
+
+The model runs on the CPU inside Orb. It sends nothing to a server.
+
 ## Analyze a complex scene
 
 Turn on **Analyze complex scenes** when a scene has multiple characters or
