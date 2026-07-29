@@ -32,7 +32,7 @@ def test_render_scene_lays_out_each_character_with_outfit_and_position():
         },
         THIRD,
     )
-    lines = block.splitlines()[1:]  # [0] is the viewpoint header
+    lines = block.splitlines()
     # Pose/position first, then visible attributes (outfit, appearance).
     assert lines[0] == "Ashley: left, holding a book, sitting, reading, wearing: silk dress, bare feet"
     assert lines[1] == "nobleman: right, behind her, tall man, dark hair"
@@ -55,21 +55,14 @@ def test_render_scene_hides_face_for_turned_away_character():
         },
         THIRD,
     )
-    line = block.splitlines()[1]
+    line = block.splitlines()[0]
     assert line == "Malina: back view, flying away, gaze: looking ahead"
     assert "expression" not in line  # no expression readable off the back of a head
 
 
-def test_render_scene_marks_the_resolved_camera_not_the_analyzed_one():
-    cast = {"characters": [{"name": "a", "action": "smiling"}]}
-    # The viewpoint comes from the caller now; a stale one in the scene is ignored.
-    assert _render_scene({**cast, "viewpoint": "third_person"}, FIRST).startswith("viewpoint: first-person")
-    assert _render_scene({**cast, "viewpoint": "first_person"}, THIRD).startswith("viewpoint: third-person")
-
-
 def test_render_scene_carries_viewer_contact_only_in_first_person():
     scene = {"characters": [{"name": "a", "action": "smiling"}], "viewer_contact": "one hand on her shoulder"}
-    assert "viewer's hand or arm in frame: one hand on her shoulder" in _render_scene(scene, FIRST)
+    assert "the user's hand or arm in frame: one hand on her shoulder" in _render_scene(scene, FIRST)
     # Third-person never reads it, so an analyzer that filled it anyway cannot put
     # a disembodied hand in the shot.
     assert "one hand on her shoulder" not in _render_scene(scene, THIRD)
@@ -256,6 +249,50 @@ def test_analyzer_distinguishes_hidden_faces_from_visible_profiles_and_sideways_
     assert "A side profile or sideways gaze is still visible" in prompt
     assert "face is fully occluded" in prompt
     assert "set `expression` null" in prompt
+
+
+@pytest.mark.parametrize("mode_pov", [FIRST, THIRD])
+async def test_the_word_camera_never_reaches_the_image_prompt(monkeypatch, mode_pov):
+    # A diffusion text encoder draws "camera" as an object in frame. The word is
+    # unavoidable in the instructions, so a composer echoing it back is a matter of
+    # when, not if -- the chunk carrying it is dropped whatever the model wrote.
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "compose_image_prompt": {
+                    "scene": "1girl, the camera is her eyes, camerawork from above, looking at viewer, red hair",
+                    "avoid": None,
+                }
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(client=None, model_name="m", prefix=[], settings={"model_name": "writer"}, pov=mode_pov)
+    assert "camera" not in scene.lower()
+    # The booru tag "looking at viewer" is real and wanted; only the camera chunks go.
+    assert scene == "1girl, looking at viewer, red hair"
+
+
+def test_the_structured_block_states_no_viewpoint_the_composer_could_copy():
+    # The compose OOC tells the model to render this block exactly, so anything in
+    # it is a candidate for the image prompt. The shot rules belong in the head.
+    for mode_pov in (FIRST, THIRD):
+        block = _render_scene({"characters": [{"name": "a", "action": "smiling"}]}, mode_pov)
+        assert "camera" not in block.lower()
+        assert "viewpoint" not in block.lower()
+        assert "first-person" not in block.lower() and "third-person" not in block.lower()
+
+
+def test_viewer_contact_is_emitted_after_the_scene_it_depends_on():
+    # Strict decoding emits fields in schema order, so a viewer_contact placed
+    # first would make the analyzer rule on the user's hand before it has listed a
+    # single character. `required` repeats `properties` order for the same reason.
+    params = composer.ANALYZE_TOOL_SCHEMA["function"]["parameters"]
+    order = list(params["properties"])
+    assert order.index("viewer_contact") > order.index("characters")
+    assert order.index("viewer_contact") > order.index("framing")
+    assert params["required"] == [key for key in order if key in params["required"]]
 
 
 async def test_nullish_strings_never_reach_the_scene_or_the_negative(monkeypatch):
