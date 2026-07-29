@@ -83,7 +83,9 @@ let cardReadiness = { text: "", ready: true };
 // The camera picker's last known state, cached the same way. `convId` is what it
 // was fetched for: the tools panel re-renders on open but not on a conversation
 // switch, so a picker left visible across one must not write to the new chat.
-let cardPov = { mode: "auto", convId: null, classifier: false };
+// The classifier starts assumed-present so the picker never claims it is off on
+// the strength of a probe that has not run yet.
+let cardPov = { mode: "auto", convId: null, classifier: true };
 // Style list for the card picker, cached the same way. The Visualize button
 // reads its choice from cfg.default_style, so the picker is where a style is
 // chosen once instead of in a modal on every generate.
@@ -112,10 +114,7 @@ function configPanelBody() {
   const stylePicker = cardStyles.length
     ? `<label for="ig-card-style">Style</label><select id="ig-card-style" class="tool-card-select" data-wf-action="image_gen:pickStyle" data-wf-on="change">${cardStyleOptions()}</select>`
     : "";
-  // An empty grid still occupies its top margin, so with no style list and no
-  // conversation the card drops it entirely.
-  const controls = stylePicker + povPicker();
-  return `${controls ? `<div class="image-gen-card-controls">${controls}</div>` : ""}
+  return `<div class="image-gen-card-controls">${stylePicker}${povPicker()}</div>
     <button class="btn btn-sm tool-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
 }
 
@@ -130,22 +129,28 @@ function cardPovOptions() {
 }
 
 function povPicker() {
-  if (!cardPov.convId) return ""; // no conversation open: nothing to scope a camera to
-  return `<label for="ig-card-pov">POV</label><select id="ig-card-pov" class="tool-card-select" data-conv-id="${escAttr(cardPov.convId)}" data-wf-action="image_gen:pickPov" data-wf-on="change">${cardPovOptions()}</select>`;
+  return `<label for="ig-card-pov">POV</label><select id="ig-card-pov" class="tool-card-select" data-conv-id="${escAttr(cardPov.convId || "")}" data-wf-action="image_gen:pickPov" data-wf-on="change">${cardPovOptions()}</select>`;
 }
 
 async function selectPovMode(el) {
   // The panel does not re-render on a conversation switch, so a picker that
   // outlived one is showing the previous chat's choice. Resync instead of
   // writing this chat's camera from a value the user never saw for it.
-  if (el.dataset.convId !== getActiveConvId()) {
+  const convId = getActiveConvId();
+  if (el.dataset.convId && el.dataset.convId !== convId) {
     await refreshCardPov();
     return;
   }
+  if (!convId) {
+    el.value = cardPov.mode;
+    toast("Open a conversation to set its camera", "error");
+    return;
+  }
   const mode = el.value;
-  cardPov = { ...cardPov, mode };
+  cardPov = { ...cardPov, mode, convId };
   try {
     await trigger("set_pov", { pov_mode: mode });
+    el.dataset.convId = convId;
   } catch {
     toast("Could not save the camera", "error");
     refreshCardPov();
