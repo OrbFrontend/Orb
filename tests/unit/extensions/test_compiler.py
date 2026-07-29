@@ -417,8 +417,8 @@ def test_a_future_extension_api_is_incompatible_not_invalid():
     whole reason the versioned dispatch exists: every field of a future
     manifest would otherwise look unknown, and ``extra="forbid"`` would report
     "malformed package" for "package from a newer Orb"."""
-    with pytest.raises(PackageIncompatible, match="extension_api 3"):
-        compile_bytes(metadata_package(extension_api=3))
+    with pytest.raises(PackageIncompatible, match="extension_api 4"):
+        compile_bytes(metadata_package(extension_api=4))
 
 
 def test_extension_api_2_is_supported():

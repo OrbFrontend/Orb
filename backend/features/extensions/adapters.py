@@ -36,6 +36,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequenc
 from contextlib import AsyncExitStack
 from typing import Any
 
+from ...analysis import ContributedFinding
 from ...core import (
     WriterToolResult,
     conversation_stream_lock,
@@ -61,6 +62,9 @@ from ...workflows.contracts import (
     EV_CONTEXT_BLOCK,
     EV_DRAFT_REPLACED,
     EV_SET_MESSAGE_STATE,
+    AuditDetectorBinding,
+    AuditDetectorRequest,
+    AuditDetectorSpec,
     HookStage,
     HookType,
     PostCtx,
@@ -79,6 +83,7 @@ from ...workflows.fragment_types import (
 from . import artifacts, execution, secrets, telemetry
 from .compiler import CompiledPackage
 from .contracts import (
+    AuditDetectorDescriptor,
     Capability,
     EffectEnvelope,
     Flow,
@@ -101,6 +106,9 @@ from .interpreter import (
     unimplemented_operations,
 )
 from .limits import (
+    MAX_AUDIT_FINDING_NOTE_CHARS,
+    MAX_AUDIT_FINDING_SNIPPET_CHARS,
+    MAX_AUDIT_FINDINGS_PER_DETECTOR,
     MAX_STATE_BYTES_PER_SCOPE,
     MAX_WRITER_TOOL_ARGUMENT_BYTES,
     MAX_WRITER_TOOL_RESULT_BYTES,
@@ -394,7 +402,7 @@ def make_writer_tool(
             host=_services(
                 compiled,
                 access,
-                lanes=_writer_tool_lanes(request),
+                lanes=_turn_lanes(request),
                 is_cancelled=request.is_cancelled,
             ),
             ctx=build_ctx(
@@ -406,6 +414,7 @@ def make_writer_tool(
                 history=request.history,
                 last_user_message=request.last_user_message,
                 draft=call.draft,
+                direction=request.direction,
             ),
             action_input=arguments,
             metadata={
@@ -459,24 +468,154 @@ def _assert_encoded_writer_result(value: Any) -> int:
     return size
 
 
-def _writer_tool_lanes(request: WriterToolRequest) -> dict[str, ModelLane]:
-    """The two lanes a Writer-tool flow's ``model.*`` operation may address.
+# ── Audit detectors ──────────────────────────────────────────────────────────
 
-    The turn's own clients, so a flow-owned call inherits the endpoint,
-    credentials, model, and abort token the user configured -- and, as
-    everywhere else, no prefix and no tool blob. An isolated call assembles its
-    own request from the host safety preamble and the flow's prompt.
+_FINDING_SCHEMA = parse_schema(
+    {
+        "type": "array",
+        "maxItems": MAX_AUDIT_FINDINGS_PER_DETECTOR,
+        "items": {
+            "type": "object",
+            "properties": {
+                "snippet": {"type": "string", "maxLength": MAX_AUDIT_FINDING_SNIPPET_CHARS},
+                "note": {"type": "string", "maxLength": MAX_AUDIT_FINDING_NOTE_CHARS},
+            },
+            "required": ["snippet", "note"],
+        },
+    },
+    what="audit detector result",
+)
+"""What a detector flow must return, fixed by the host.
+
+The one structural difference from the Writer tool: a package declares no output
+schema here, so it cannot widen what a finding *is*. ``snippet`` may be empty --
+that is the whole-draft finding, which renders in the report and produces no
+prefill target -- but it must be present, so "no span" is a stated choice rather
+than a missing key.
+"""
+
+
+def audit_detector_bindings(compiled: CompiledPackage, blocked: Sequence[str]) -> tuple[AuditDetectorBinding, ...]:
+    """Bind this revision's audit detectors, or publish none at all.
+
+    All or nothing, like the fragment-type catalog and for the same reason: the
+    contributions publish under one consent grant, so a set where some detectors
+    run and others silently do not is a worse outcome than a package the manager
+    can explain.
     """
-    settings = request.settings
-    agent_client, agent_model = agent_lane_from_settings(
-        settings,
-        writer_client=request.client,
-        abort_token=getattr(request.client, "abort_token", None),
-    )
-    return {
-        "writer": ModelLane(client=request.client, model=settings["model_name"]),
-        "agent": ModelLane(client=agent_client, model=agent_model),
-    }
+    declared = compiled.manifest.contributions.audit_detectors
+    if not declared or "audit detectors" in blocked:
+        return ()
+    bindings: list[AuditDetectorBinding] = []
+    for descriptor in declared:
+        flow = compiled.flows.get(descriptor.flow)
+        if flow is None:
+            return ()
+        spec = AuditDetectorSpec(
+            key=f"{compiled.extension_id}:{descriptor.id}",
+            label=descriptor.label,
+            content_digest=compiled.digest,
+        )
+        bindings.append(AuditDetectorBinding(spec=spec, invoke=make_audit_detector(compiled, descriptor, flow, spec)))
+    return tuple(bindings)
+
+
+def make_audit_detector(
+    compiled: CompiledPackage,
+    declared: AuditDetectorDescriptor,
+    flow: Flow,
+    spec: AuditDetectorSpec,
+) -> Callable[[AuditDetectorRequest], Awaitable[tuple[ContributedFinding, ...]]]:
+    """Bind a compiled flow as one of this extension's audit detectors.
+
+    The Editor's mirror of :func:`make_writer_tool`, with the same trust profile
+    and one different failure rule:
+
+    * it runs inside an *unfinished* turn, so there is no message row (the
+      compiler already refused ``message`` scope), no artifact to attach, no UI
+      surface listening for a toast, and no user click to justify a first-party
+      mutation;
+    * ``ctx.draft`` is the post-Writer text the host supplies -- a detector
+      scores the draft Orb has, not one it describes;
+    * **any failure yields zero findings and never fails the turn.** A refused
+      grant, a timeout, a malformed return, a blocked invocation: all of them
+      mean "this check did not run", which is the same philosophy as
+      ``RESOLVER_UNAVAILABLE``. The reply is not the place to surface a
+      package's problem.
+    """
+    extension_id = compiled.extension_id
+
+    async def invoke(request: AuditDetectorRequest) -> tuple[ContributedFinding, ...]:
+        granted = _granted(extension_id)
+        if (Capability.AUDIT_DETECTOR_CONTRIBUTE.value, None) not in granted:
+            raise FlowError("permission audit.detector.contribute is not granted")
+
+        access = _StateAccess(
+            extension_id,
+            conversation_id=request.conversation_id,
+            character_id=request.character_id,
+        )
+        invocation = Invocation(
+            extension_id=extension_id,
+            context=OpContext.DETECTOR,
+            host=_services(
+                compiled,
+                access,
+                lanes=_turn_lanes(request),
+                is_cancelled=request.is_cancelled,
+            ),
+            ctx=build_ctx(
+                extension_id=extension_id,
+                hook="audit_detector",
+                granted=granted,
+                conversation_id=request.conversation_id,
+                card=request.card,
+                history=request.history,
+                last_user_message=request.last_user_message,
+                draft=request.draft,
+                direction=request.direction,
+            ),
+            metadata={
+                "conversation_id": request.conversation_id,
+                "hook": "audit_detector",
+                "audit_detector": declared.id,
+            },
+            # Conversation, host-owned turn-attempt identity, revision, and
+            # detector. Same construction as the Writer tool with ``detector|``
+            # as the discriminator, so regeneration is fresh even when the draft
+            # and history are identical, and two detectors in one turn do not
+            # share a random stream.
+            seed=f"detector|{request.conversation_id or ''}|{request.turn_seed}|{compiled.digest}|{declared.id}",
+            scopes_in_scope=flow_scopes(flow),
+            output_schema=_FINDING_SCHEMA,
+        )
+
+        result: FlowResult | None = None
+        async for event in _invoke(
+            compiled=compiled,
+            flow=flow,
+            invocation=invocation,
+            access=access,
+            entry_point=f"audit detector {declared.id}",
+        ):
+            if isinstance(event, FlowResult):
+                result = event
+        assert result is not None
+        return tuple(
+            ContributedFinding(
+                detector_id=spec.key,
+                # Stamped from the binding, never from the returned item: a
+                # per-finding heading would be package text rendered as though
+                # Orb had classified it.
+                label=spec.label,
+                snippet=str(item.get("snippet", "")),
+                note=str(item.get("note", "")),
+            )
+            for item in result.value
+            if isinstance(item, Mapping)
+        )
+
+    return invoke
 
 
 def flow_scopes(flow: Flow) -> frozenset[str]:
@@ -959,20 +1098,25 @@ def _asset_reader(compiled: CompiledPackage) -> Callable[[str], bytes] | None:
     return read
 
 
-def _turn_lanes(ctx: PreCtx | PostCtx) -> dict[str, ModelLane]:
-    """The two lanes a hook's ``model.*`` operation may address.
+def _turn_lanes(source: PreCtx | PostCtx | WriterToolRequest | AuditDetectorRequest) -> dict[str, ModelLane]:
+    """The two lanes an in-turn ``model.*`` operation may address.
 
     Reuses the turn's already-built clients so an extension call inherits the
-    endpoint, credentials, and model the user configured -- and nothing else.
-    Neither lane carries a prefix or a tool blob: an isolated call assembles its
-    own request from the safety preamble and the flow's prompt.
+    endpoint, credentials, model, and abort token the user configured -- and
+    nothing else. Neither lane carries a prefix or a tool blob: an isolated call
+    assembles its own request from the safety preamble and the flow's prompt.
+
+    One function over every in-turn carrier because nothing in it is specific to
+    any of them: each supplies the same two fields (``settings``, ``client``),
+    and a second copy per entry point would be four places for the agent-lane
+    resolution to drift.
     """
-    settings = ctx.settings
-    writer = ModelLane(client=ctx.client, model=settings["model_name"])
+    settings = source.settings
+    writer = ModelLane(client=source.client, model=settings["model_name"])
     agent_client, agent_model = agent_lane_from_settings(
         settings,
-        writer_client=ctx.client,
-        abort_token=getattr(ctx.client, "abort_token", None),
+        writer_client=source.client,
+        abort_token=getattr(source.client, "abort_token", None),
     )
     return {
         "writer": writer,
@@ -1072,6 +1216,7 @@ def make_post_hook(
                 history=ctx.history,
                 last_user_message=ctx.effective_msg,
                 draft=ctx.draft,
+                direction=ctx.direction,
             ),
             metadata={
                 "conversation_id": ctx.conversation_id,

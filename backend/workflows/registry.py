@@ -80,6 +80,7 @@ from ..inference import (
     register_tool,
 )
 from .contracts import (
+    AuditDetectorBinding,
     FrontendKind,
     HookStage,
     HookType,
@@ -89,6 +90,19 @@ from .contracts import (
     WriterToolBinding,
 )
 from .fragment_types import BUILTIN_FRAGMENT_TYPES, FragmentTypeDefinition
+
+MAX_AUDIT_DETECTORS_PUBLISHED = 8
+"""Contributed audit detectors across one registry snapshot.
+
+Lives here rather than in ``core/`` because the registry is the only layer that
+enforces it -- unlike ``MAX_WRITER_TOOLS_PUBLISHED``, whose core home was forced
+by ``core/writer_tools.py`` owning the wire-name ABI that three layers must
+agree on. A detector has no wire name and no ABI; it has a publish cap.
+
+Bounds the per-turn cost end to end: each invocation already carries the
+interpreter's own caps (steps, model calls, HTTP requests), so the turn budget
+is this count times those, with no separate budget object to keep in sync.
+"""
 
 
 @dataclass
@@ -140,6 +154,14 @@ class Workflow:
     that resolves its resolver from a snapshot cannot have the selection change
     underneath it, and cannot send one package's schema while invoking
     another's."""
+
+    audit_detectors: tuple[AuditDetectorBinding, ...] = ()
+    """The record's contributed audit detectors.
+
+    Beside ``writer_tool`` and for the same reason: a separate mechanism from
+    ``tools``, resolved only through a captured snapshot. The built-in band
+    leaves it empty -- Orb's own scanners are ``AUDIT_TYPES`` in ``analysis/``,
+    not bindings anything can append to."""
 
     writer_tool: WriterToolBinding | None = None
     """The record's contributed Writer tool, if it has one.
@@ -435,6 +457,39 @@ def _assert_writer_tool_bindings(records: Iterable[Workflow]) -> None:
         )
 
 
+def _assert_audit_detector_bindings(records: Iterable[Workflow]) -> None:
+    """Validate every audit-detector binding before the overlay swaps.
+
+    The same properties ``_assert_writer_tool_bindings`` checks, minus the ones
+    that are about a provider-facing name (a detector has none) and the tool
+    blob (a detector adds no prompt bytes): the binding, its key, and its digest
+    belong to one compiled revision; keys are globally unique; and the count fits
+    the host cap. Entirely before the swap, so a rejected overlay leaves the
+    prior detector set active rather than none.
+    """
+    seen: dict[str, str] = {}
+    for record in records:
+        for binding in record.audit_detectors:
+            spec = binding.spec
+            if spec.owner_id != record.id:
+                raise WorkflowDeclarationError(
+                    f"audit detector {spec.key!r} is owned by {spec.owner_id!r} but published by workflow {record.id!r}"
+                )
+            if spec.content_digest != record.content_digest:
+                raise WorkflowDeclarationError(
+                    f"audit detector {spec.key!r} does not belong to workflow {record.id!r}'s compiled revision"
+                )
+            if spec.key in seen:
+                raise WorkflowDeclarationError(
+                    f"audit detector key {spec.key!r} is claimed by both {seen[spec.key]!r} and {record.id!r}"
+                )
+            seen[spec.key] = record.id
+    if len(seen) > MAX_AUDIT_DETECTORS_PUBLISHED:
+        raise WorkflowDeclarationError(
+            f"{len(seen)} audit detectors exceeds the limit of {MAX_AUDIT_DETECTORS_PUBLISHED} per registry snapshot"
+        )
+
+
 def finalize_registry() -> None:
     """Validate that every ``produces_artifacts=True`` workflow has both
     ``REGENERATE`` and ``REROLL_GEN`` subscriptions.
@@ -486,6 +541,15 @@ class RegistrySnapshot:
     contribution, and this names the single one a turn may actually send and
     invoke. Both come from the same captured generation, so "the schema I sent"
     and "the binding I ran" cannot disagree."""
+
+    audit_detectors: Mapping[str, AuditDetectorBinding] = field(default_factory=lambda: MappingProxyType({}))
+    """Every published audit-detector binding, keyed by ``"<ext>:<local>"``.
+
+    Deterministic insertion order (extension id, then local id) for the same
+    reason the fragment-type and Writer-tool loops sort: two users with the same
+    packages must get the same turn regardless of install order. Availability,
+    not activation -- ``settings.editor_audit_toggles`` decides which of these a
+    turn actually runs, and it defaults a contributed key to *off*."""
 
     writer_tools: Mapping[str, WriterToolBinding] = field(default_factory=lambda: MappingProxyType({}))
     """Every eligible Writer-tool binding, keyed by its derived wire name.
@@ -606,10 +670,13 @@ def current_snapshot() -> RegistrySnapshot:
         workflows[record.id] = record
     fragment_types = dict(BUILTIN_FRAGMENT_TYPES)
     writer_tools: dict[str, WriterToolBinding] = {}
+    audit_detectors: dict[str, AuditDetectorBinding] = {}
     active_writer_tool: str | None = None
     for record in sorted(overlay, key=lambda item: item.id):
         for descriptor in sorted(record.fragment_types, key=lambda item: item.local_id):
             fragment_types[descriptor.type_id] = descriptor
+        for detector in sorted(record.audit_detectors, key=lambda item: item.key):
+            audit_detectors[detector.key] = detector
         if record.writer_tool is not None:
             writer_tools[record.writer_tool.wire_name] = record.writer_tool
             if record.writer_tool_selected:
@@ -622,6 +689,7 @@ def current_snapshot() -> RegistrySnapshot:
         fragment_types=MappingProxyType(fragment_types),
         active_writer_tool=active_writer_tool,
         writer_tools=MappingProxyType(writer_tools),
+        audit_detectors=MappingProxyType(audit_detectors),
     )
 
 
@@ -672,11 +740,16 @@ def publish_community_overlay(records: Sequence[Workflow]) -> int:
         # *whole* overlay swap over one broken package. Startup must isolate a
         # bad package, not let it block every other extension and the built-ins.
         if record.load_status is not LoadStatus.AVAILABLE and (
-            record.subscriptions or record.produces_artifacts or record.fragment_types or record.writer_tool
+            record.subscriptions
+            or record.produces_artifacts
+            or record.fragment_types
+            or record.writer_tool
+            or record.audit_detectors
         ):
             raise WorkflowDeclarationError(
                 f"community workflow {record.id!r} is {record.load_status.value} but published entry points; "
-                f"an unavailable record must carry no subscriptions, fragment types, Writer tool, or artifact production"
+                f"an unavailable record must carry no subscriptions, fragment types, Writer tool, audit detectors, "
+                f"or artifact production"
             )
         for descriptor in record.fragment_types:
             expected = f"{record.id}:{descriptor.local_id}"
@@ -694,6 +767,7 @@ def publish_community_overlay(records: Sequence[Workflow]) -> int:
         seen.add(record.id)
     _assert_artifact_mandate(records)
     _assert_writer_tool_bindings(records)
+    _assert_audit_detector_bindings(records)
 
     global _PUBLISHED
     _PUBLISHED = _Published(generation=next(_GENERATION_COUNTER), overlay=tuple(records))

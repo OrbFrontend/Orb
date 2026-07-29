@@ -11,7 +11,14 @@ from __future__ import annotations
 import pytest
 
 from backend.workflows import registry as reg
-from backend.workflows.contracts import HookStage, HookType, LoadStatus, WorkflowSource
+from backend.workflows.contracts import (
+    AuditDetectorBinding,
+    AuditDetectorSpec,
+    HookStage,
+    HookType,
+    LoadStatus,
+    WorkflowSource,
+)
 from backend.workflows.registry import (
     Workflow,
     WorkflowDeclarationError,
@@ -294,3 +301,86 @@ def test_list_puts_builtins_before_community_records():
     builtin("b2")
     publish_community_overlay([community("c1")])
     assert [w.id for w in current_snapshot().list()] == ["b1", "b2", "c1"]
+
+
+# ── contributed audit detectors ──────────────────────────────────────────────
+
+
+async def _no_findings(_request):
+    return ()
+
+
+def detector(record: Workflow, local_id: str) -> AuditDetectorBinding:
+    return AuditDetectorBinding(
+        spec=AuditDetectorSpec(
+            key=f"{record.id}:{local_id}",
+            label=local_id.title(),
+            content_digest=record.content_digest or "",
+        ),
+        invoke=_no_findings,
+    )
+
+
+def test_detector_order_is_by_extension_then_local_id_not_publish_order():
+    # Same rule as the hook bands and the fragment-type loop: what a turn sees
+    # must be a function of the package set, not of installation history.
+    zulu = community("zulu")
+    alpha = community("alpha")
+    zulu.audit_detectors = (detector(zulu, "second"), detector(zulu, "first"))
+    alpha.audit_detectors = (detector(alpha, "only"),)
+
+    publish_community_overlay([zulu, alpha])
+    first = list(current_snapshot().audit_detectors)
+    publish_community_overlay([alpha, zulu])
+    second = list(current_snapshot().audit_detectors)
+
+    assert first == ["alpha:only", "zulu:first", "zulu:second"] == second
+
+
+def test_a_detector_owned_by_another_extension_is_refused():
+    record = community("a")
+    other = community("b")
+    record.audit_detectors = (detector(other, "slop"),)
+    with pytest.raises(WorkflowDeclarationError, match="is owned by"):
+        publish_community_overlay([record])
+
+
+def test_a_detector_from_a_different_revision_is_refused():
+    record = community("a")
+    record.audit_detectors = (
+        AuditDetectorBinding(
+            spec=AuditDetectorSpec(key="a:slop", label="Slop", content_digest="e" * 64),
+            invoke=_no_findings,
+        ),
+    )
+    with pytest.raises(WorkflowDeclarationError, match="compiled revision"):
+        publish_community_overlay([record])
+
+
+def test_one_key_cannot_be_published_twice():
+    """Cross-record collision is impossible by construction -- a key is
+    ``<owner>:<local>`` and the ownership check above rejects a mismatch -- so
+    the duplicate gate's real job is a record that lists one detector twice."""
+    record = community("a")
+    record.audit_detectors = (detector(record, "slop"), detector(record, "slop"))
+    with pytest.raises(WorkflowDeclarationError, match="claimed by both"):
+        publish_community_overlay([record])
+
+
+def test_the_publish_cap_is_enforced_across_the_whole_snapshot():
+    records = []
+    for index in range(reg.MAX_AUDIT_DETECTORS_PUBLISHED + 1):
+        record = community(f"ext{index}")
+        record.audit_detectors = (detector(record, "slop"),)
+        records.append(record)
+    with pytest.raises(WorkflowDeclarationError, match="exceeds the limit"):
+        publish_community_overlay(records)
+
+
+def test_an_unavailable_record_may_not_publish_detectors():
+    """Publishing no entry points has to cover detectors too, or a broken
+    package would put a row in the audit panel it can never answer."""
+    record = community("a", load_status=LoadStatus.INVALID)
+    record.audit_detectors = (detector(record, "slop"),)
+    with pytest.raises(WorkflowDeclarationError, match="audit detectors"):
+        publish_community_overlay([record])

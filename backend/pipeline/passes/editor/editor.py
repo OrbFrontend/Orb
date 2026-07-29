@@ -6,6 +6,7 @@ the writer's output.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import time
@@ -14,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from ....analysis import (
     AuditReport,
+    ContributedFinding,
     format_report,
     run_audit,
 )
@@ -29,6 +31,7 @@ from ....analysis.patching import (
     _strip_outer_markers,
     apply_patches,
     filter_audit_report_to_text,
+    live_contributed_findings,
 )
 from ....core import AssistantToolMessage, ContentPart, WireMessage, extract_hyperparams
 from ....inference import (
@@ -42,6 +45,11 @@ from ....inference import (
     has_image_parts,
     parse_tool_calls,
     reasoning_cfg,
+)
+from ....workflows import (
+    AUDIT_DETECTOR_TIMEOUT_SECONDS,
+    AuditDetectorBinding,
+    AuditDetectorRequest,
 )
 from ...replay import WriterReplay
 from .length_guard import LengthGuard, evaluate_length_guard
@@ -162,6 +170,66 @@ async def _run_contextual_audit(
     return filtered, format_report(filtered)
 
 
+async def _audit(
+    draft: str,
+    phrase_bank: list[PhraseGroup],
+    previous_assistant_msgs: list[str],
+    audit_toggles: dict | None,
+    user_message: str,
+    contributed: tuple[ContributedFinding, ...],
+) -> tuple[AuditReport, str]:
+    """:func:`_run_contextual_audit` plus this turn's contributed findings.
+
+    Merged *around* ``run_audit`` rather than inside it: ``run_audit`` is
+    synchronous and lives in ``analysis/``, which sits below ``workflows/`` and
+    can never see a binding. Findings are re-aged against the current draft on
+    every iteration by the same containment rule the report filter uses, so a
+    span the rewrite already fixed drops out -- which is what lets the detectors
+    run once for the whole turn.
+    """
+    report, report_text = await _run_contextual_audit(draft, phrase_bank, previous_assistant_msgs, audit_toggles, user_message)
+    if not contributed:
+        return report, report_text
+    report.contributed_results = live_contributed_findings(contributed, draft)
+    return report, format_report(report)
+
+
+async def _run_audit_detectors(
+    detectors: tuple[AuditDetectorBinding, ...],
+    request: AuditDetectorRequest | None,
+) -> tuple[ContributedFinding, ...]:
+    """Run every enabled contributed detector once, concurrently, under one clock.
+
+    Once per turn rather than once per iteration: the editor audits up to three
+    times, so re-running would be up to 4x the model calls and 4x the KV-prefix
+    evictions for findings that are mostly still valid.
+
+    One ``wait_for`` over the whole batch is the only new mechanism here -- there
+    is no per-turn budget object, because each invocation already carries the
+    interpreter's own caps and the registry already bounds how many detectors
+    exist. A detector that fails, times out, or has had its grant revoked
+    contributes zero findings and never fails the turn.
+    """
+    if not detectors or request is None:
+        return ()
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*(binding.invoke(request) for binding in detectors), return_exceptions=True),
+            timeout=AUDIT_DETECTOR_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("Editor: audit detectors exceeded %ss; continuing with none", AUDIT_DETECTOR_TIMEOUT_SECONDS)
+        return ()
+    findings: list[ContributedFinding] = []
+    for binding, result in zip(detectors, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.warning("Editor: audit detector %r failed: %s", binding.key, result)
+            continue
+        findings.extend(result)
+    logger.info("Editor: %d contributed finding(s) from %d detector(s)", len(findings), len(detectors))
+    return tuple(findings)
+
+
 # ── Editor pass (ReAct loop) ─────────────────────────────────────────────────
 
 
@@ -199,6 +267,8 @@ async def editor_pass(
     writer_user_msg: str | list[ContentPart] | None = None,
     replay: WriterReplay | None = None,
     feedback_fragments: Sequence[Mapping[str, Any]] | None = None,
+    detectors: tuple[AuditDetectorBinding, ...] = (),
+    detector_request: AuditDetectorRequest | None = None,
 ) -> AsyncIterator[dict]:
     """Run the ReAct edit loop, then the optional feedback sub-step.
 
@@ -231,6 +301,8 @@ async def editor_pass(
         audit_context_msgs=audit_context_msgs,
         writer_user_msg=writer_user_msg,
         replay=replay,
+        detectors=detectors,
+        detector_request=detector_request,
     ):
         if ev["type"] == "reasoning":
             yield {"type": "reasoning", "delta": ev["delta"], "pass": "editor"}
@@ -290,6 +362,11 @@ async def editor_stage(
     editor_audit_msgs: list[str] | None,
     kv_tracker: _KVCacheTracker,
     dual_model: bool = False,
+    conversation_id: str | None = None,
+    character_id: str | None = None,
+    card: Mapping[str, Any] | None = None,
+    history: Sequence[Mapping[str, Any]] | None = None,
+    turn_seed: str = "",
 ) -> AsyncIterator[dict]:
     """Gating + writer→editor boundary event + editor pass + event translation.
 
@@ -349,6 +426,29 @@ async def editor_stage(
             # a message that model was never told about.
             replay=state.writer_replay(state.resp_text, dual_model=dual_model),
             feedback_fragments=feedback_fragments if feedback_needed else None,
+            detectors=cfg.audit_detectors,
+            # ``draft`` and ``previous_messages`` are filled in by the edit loop,
+            # which owns both; everything else is the same turn context the
+            # Writer-tool request carries, and the same shape ``writer_stage``
+            # already receives.
+            detector_request=(
+                AuditDetectorRequest(
+                    draft="",
+                    previous_messages=(),
+                    conversation_id=conversation_id,
+                    turn_seed=turn_seed,
+                    settings=settings,
+                    client=cfg.writer_lane.client,
+                    is_cancelled=lambda: bool(getattr(cfg.writer_lane.client, "is_aborted", False)),
+                    character_id=character_id,
+                    card=card,
+                    history=tuple(history or ()),
+                    last_user_message=state.effective_msg,
+                    direction=state.as_direction_view(),
+                )
+                if cfg.audit_detectors
+                else None
+            ),
         ):
             if event["type"] == "reasoning":
                 # Feedback reasoning is folded into the editor channel (it is an
@@ -411,6 +511,10 @@ async def _run_edit_loop(
     | None = None,  # writer's exact last user message; when provided replaces bare effective_msg so the editor extends the writer's KV-cached prefix
     replay: WriterReplay
     | None = None,  # the Writer's sanitized transcript, when one should be replayed instead of the normalized pair
+    detectors: tuple[
+        AuditDetectorBinding, ...
+    ] = (),  # contributed detectors the user enabled; run once, before the initial audit
+    detector_request: AuditDetectorRequest | None = None,  # the turn context those detectors receive
 ) -> AsyncIterator[dict]:
     """ReAct-style edit loop with optional audit and/or length guard.
 
@@ -432,6 +536,21 @@ async def _run_edit_loop(
     # super-regenerate doesn't compare the new draft against the message it replaced.
     assistant_messages: list[str] = _baseline_window(base, audit_context_msgs) if audit_enabled else []
 
+    # ── Contributed detectors, once for the whole turn
+    # Before the initial audit so their findings are in every report the loop
+    # produces; filter_audit_report_to_text prunes each one as the rewrite fixes
+    # the span it named.
+    contributed = (
+        await _run_audit_detectors(
+            detectors,
+            dataclasses.replace(detector_request, draft=draft, previous_messages=tuple(assistant_messages))
+            if detector_request is not None
+            else None,
+        )
+        if audit_enabled
+        else ()
+    )
+
     # ── Initial audit
     if audit_enabled:
         logger.info(
@@ -440,7 +559,7 @@ async def _run_edit_loop(
             len(assistant_messages),
             len(phrase_bank),
         )
-        report, report_text = await _run_contextual_audit(draft, phrase_bank, assistant_messages, audit_toggles, effective_msg)
+        report, report_text = await _audit(draft, phrase_bank, assistant_messages, audit_toggles, effective_msg, contributed)
         structural_issues = (
             1 if report.structural_repetition_result and report.structural_repetition_result.is_repetitive else 0
         )
@@ -650,8 +769,8 @@ async def _run_edit_loop(
                 debug_parts.append(f"Iteration {iteration + 1}: rewrite applied ({pre_len}→{len(current_draft)} chars)")
 
                 if audit_enabled:
-                    report, report_text = await _run_contextual_audit(
-                        current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg
+                    report, report_text = await _audit(
+                        current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg, contributed
                     )
                     debug_parts.append(f"Post-rewrite audit ({report.total_issues} issues):\n{report_text}")
                 else:
@@ -723,8 +842,8 @@ async def _run_edit_loop(
             for e in errors:
                 logger.warning("Editor iteration %d patch error: %s", iteration + 1, e)
 
-            report, report_text = await _run_contextual_audit(
-                current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg
+            report, report_text = await _audit(
+                current_draft, phrase_bank, assistant_messages, audit_toggles, effective_msg, contributed
             )
             logger.info(
                 "Editor iteration %d: post-audit — %d issues",
@@ -840,6 +959,14 @@ def _prefill_targets(report: AuditReport, draft: str) -> list[tuple[str, str]]:
     span — the rewrite path owns it.
     """
     raw: list[tuple[str, str]] = []
+    # Contributed findings first, before the MAX_PREFILL_TARGETS slice below.
+    # A draft with eight built-in findings would otherwise starve them entirely,
+    # and a user who installed *and* enabled a detector asked for it; the
+    # built-ins recur on the next iteration anyway. A finding with no span is
+    # whole-draft and produces no target, like structural repetition.
+    for finding in report.contributed_results:
+        if finding.snippet:
+            raw.append((finding.snippet, finding.note))
     for fs in report.cliche_result.flagged_sentences:
         phrases = ", ".join(f'"{h.phrase}"' for h in fs.cliches)
         raw.append((fs.sentence, f"contains banned phrase(s): {phrases}"))

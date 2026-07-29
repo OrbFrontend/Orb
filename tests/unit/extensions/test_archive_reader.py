@@ -113,6 +113,22 @@ def test_rejects_bytes_that_are_not_a_zip():
         ArchiveSource(b"not a zip at all")
 
 
+def test_rejects_an_entry_whose_compressed_bytes_are_damaged():
+    """A valid directory over a corrupt stream is a package error, not a crash.
+
+    The failure only surfaces while decompressing, so the constructor's check
+    cannot see it -- and an uploaded file with a flipped byte must be a 400 on
+    the install request rather than an unhandled ``BadZipFile``.
+    """
+    from backend.features.extensions.errors import PackageParseError
+
+    data = bytearray(metadata_package())
+    # Past the local header, inside the deflate stream itself.
+    data[60] ^= 0xFF
+    with ArchiveSource(bytes(data)) as source, pytest.raises(PackageParseError, match="cannot be read"):
+        source.read(MANIFEST_PATH, max_bytes=1024)
+
+
 def test_reading_an_unlisted_path_is_an_error_not_an_empty_result():
     with ArchiveSource(metadata_package()) as source:
         assert not source.has("flows/missing.json")

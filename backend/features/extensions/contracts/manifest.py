@@ -45,6 +45,7 @@ from pydantic import AfterValidator, Field, model_validator
 from ....core import WriterToolError, WriterToolKey, wire_name
 from ..limits import (
     MAX_ACTIONS,
+    MAX_AUDIT_DETECTORS,
     MAX_COMMANDS,
     MAX_DESCRIPTION_CHARS,
     MAX_FRAGMENT_TYPES,
@@ -590,6 +591,27 @@ def _walk_writer_schema(schema: Mapping[str, Any], *, what: str, depth: int) -> 
         _walk_writer_schema(items, what=what, depth=depth + 1)
 
 
+class AuditDetectorDescriptor(ExtModel):
+    """One contributed Output Auditor check an API 3 package may declare.
+
+    The Editor's mirror of :class:`WriterToolDescriptor`, and deliberately
+    smaller. A detector declares no output schema: the host fixes what a finding
+    is (``snippet`` + ``note``), so a package cannot widen it into a channel for
+    arbitrary structure. And it declares no ``config_schema``: there is no UI
+    that would render one, and namespaced ``state.*`` already carries per-install
+    configuration.
+
+    ``label`` is what the host stamps as the report's section heading, so it is
+    package-authored text a user consented to -- which is why it joins the
+    contract fingerprint and changing it is an inspected update.
+    """
+
+    id: LocalId
+    label: Label
+    description: Description | None = None
+    flow: PackagePath
+
+
 class Contributions(ExtModel):
     """Every domain contribution slot, across every supported API version.
 
@@ -609,6 +631,7 @@ class Contributions(ExtModel):
 
     fragment_types: list[FragmentTypeDescriptor] = Field(default_factory=list, max_length=MAX_FRAGMENT_TYPES)
     writer_tool: WriterToolDescriptor | None = None
+    audit_detectors: list[AuditDetectorDescriptor] = Field(default_factory=list, max_length=MAX_AUDIT_DETECTORS)
 
 
 class Requires(ExtModel):
@@ -676,6 +699,7 @@ class ExtensionManifest(ExtModel):
         _assert_artifact_mandate(self)
         _assert_fragment_type_consent(self)
         _assert_writer_tool_consent(self)
+        _assert_audit_detector_consent(self)
         return self
 
     # ── derived views the compiler and installer both read ───────────────────
@@ -734,6 +758,7 @@ class ExtensionManifest(ExtModel):
         if self.artifact_flows is not None:
             paths.update({self.artifact_flows.regenerate, self.artifact_flows.reroll_gen})
         paths.update(descriptor.reduce_flow for descriptor in self.contributions.fragment_types)
+        paths.update(descriptor.flow for descriptor in self.contributions.audit_detectors)
         if self.writer_tool is not None:
             paths.add(self.writer_tool.flow)
         return paths
@@ -753,7 +778,7 @@ class ExtensionManifest(ExtModel):
         return self.referenced_flow_paths() | self.referenced_view_paths()
 
 
-SUPPORTED_EXTENSION_APIS: frozenset[int] = frozenset({1, 2})
+SUPPORTED_EXTENSION_APIS: frozenset[int] = frozenset({1, 2, 3})
 """Every API version this build implements.
 
 The compiler checks the raw ``extension_api`` integer against this set *before*
@@ -763,7 +788,7 @@ strict parsing, so an unknown version is
 
 MAX_EXTENSION_API_VERSION = max(SUPPORTED_EXTENSION_APIS)
 
-CONTRIBUTION_MIN_API: Mapping[str, int] = {"writer_tool": 2}
+CONTRIBUTION_MIN_API: Mapping[str, int] = {"writer_tool": 2, "audit_detectors": 3}
 """The API version each ``contributions`` slot became legal in.
 
 This is what "v1 still means v1" reduces to. One model carries every slot, and
@@ -787,7 +812,7 @@ def _assert_version_contract(manifest: ExtensionManifest) -> None:
             f"(supported: {sorted(SUPPORTED_EXTENSION_APIS)})"
         )
     for slot, minimum in CONTRIBUTION_MIN_API.items():
-        if getattr(manifest.contributions, slot, None) is not None and manifest.extension_api < minimum:
+        if getattr(manifest.contributions, slot, None) and manifest.extension_api < minimum:
             raise ValueError(
                 f"contributions.{slot!r} requires extension_api {minimum}; this manifest declares {manifest.extension_api}"
             )
@@ -891,6 +916,23 @@ def _assert_writer_tool_consent(manifest: ExtensionManifest) -> None:
         wire_name(WriterToolKey(owner_id=manifest.id, local_id=declared.id))
     except WriterToolError as exc:
         raise ValueError(str(exc)) from None
+
+
+def _assert_audit_detector_consent(manifest: ExtensionManifest) -> None:
+    """Contributed detectors need their own grant, and distinct ids.
+
+    Beside :func:`_assert_writer_tool_consent`, minus its name check: a detector
+    has no provider-facing name to overflow, only a namespaced catalog key whose
+    two halves each already satisfy the id grammar.
+    """
+    detectors = manifest.contributions.audit_detectors
+    if not detectors:
+        return
+    if Capability.AUDIT_DETECTOR_CONTRIBUTE not in manifest.capabilities():
+        raise ValueError("contributing an audit detector requires the 'audit.detector.contribute' permission")
+    ids = [descriptor.id for descriptor in detectors]
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate audit detector id")
 
 
 def _assert_fragment_type_consent(manifest: ExtensionManifest) -> None:

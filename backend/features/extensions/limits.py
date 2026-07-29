@@ -6,8 +6,8 @@ parser and the runtime is how a "1 MiB manifest" becomes a 4 MiB manifest that
 merely *parses* in two steps -- these constants exist so the streaming
 boundary and the post-parse check cannot disagree.
 
-Source of truth: ``docs/architecture/community-extensions.md`` sections 4
-(package limits) and 5 (execution limits). Numbers here are byte counts unless
+Source of truth: the "Limits" tables in
+``docs/architecture/community-extensions.md``. Numbers here are byte counts unless
 the name says otherwise; ``KIB``/``MIB`` suffixes are always UTF-8 bytes, never
 characters, because a character bound is not a memory bound.
 """
@@ -17,7 +17,7 @@ from __future__ import annotations
 KIB = 1024
 MIB = 1024 * 1024
 
-# ── package limits (section 4) ───────────────────────────────────────────────
+# ── package limits ───────────────────────────────────────────────────────────
 # Applied while reading a source, before anything is persisted. Each is checked
 # at its streaming boundary: an archive that *claims* 2 MiB but expands past
 # MAX_REFERENCED_BYTES_TOTAL is rejected mid-expansion, not after.
@@ -46,7 +46,7 @@ MAX_ASSET_BYTES = 10 * MIB
 MAX_PATH_BYTES = 240
 """One normalized relative path, in UTF-8 bytes."""
 
-# ── JSON parse limits (section 5, "Execution limits") ────────────────────────
+# ── JSON parse limits ────────────────────────────────────────────────────────
 # Shared by package files and by every runtime JSON value, so a value that
 # could not have been authored also cannot be synthesized at runtime.
 
@@ -59,7 +59,7 @@ MAX_JSON_MEMBERS = 1024
 MAX_JSON_STRING_BYTES = 256 * KIB
 """One JSON string value, in UTF-8 bytes."""
 
-# ── flow execution limits (section 5) ────────────────────────────────────────
+# ── flow execution limits ────────────────────────────────────────────────────
 
 MAX_FLOW_STEPS_EXECUTED = 128
 MAX_FLOW_NESTING_DEPTH = 8
@@ -138,12 +138,31 @@ the tool is active, whether or not a call happens. ``MAX_DESCRIPTION_CHARS``
 (2000) is the bound on catalog copy a user reads once; this is the bound on
 text a model reads every turn, and they are not the same quantity."""
 
+MAX_AUDIT_FINDINGS_PER_DETECTOR = 8
+"""Findings one detector invocation may return.
+
+Charged against the Editor's report, which is prompt bytes on every rewrite
+iteration -- and against ``MAX_PREFILL_TARGETS`` (8), so one detector can at
+most fill the prefill batch it is inserted at the head of."""
+
+MAX_AUDIT_FINDING_SNIPPET_CHARS = 400
+"""One finding's draft span. Long enough for a sentence or two, short enough
+that a "finding" cannot be the whole draft echoed back as a patch anchor."""
+
+MAX_AUDIT_FINDING_NOTE_CHARS = 300
+"""One finding's explanation. Bounded package-authored *model input*: it lands
+in the Editor's tail message and in the prefilled patch prompt."""
+
+# The per-turn wall clock for the detector batch is
+# ``AUDIT_DETECTOR_TIMEOUT_SECONDS`` in ``workflows/contracts.py``: the Editor
+# enforces it, and ``pipeline/`` cannot import this peer slice.
+
 MAX_CARD_TAG_WRITES_PER_INVOCATION = 1
 """``card.tags.set`` calls per invocation. One card per invocation, by design:
 library-wide reach comes from a user driving a host-rendered loop, never from
 a single flow widening its own blast radius."""
 
-# ── host resources (sections 8 and 20) ───────────────────────────────────────
+# ── host resources ───────────────────────────────────────────────────────────
 # Every resource is bounded by both an item count and an encoded-byte budget.
 # The tree fails past its budget because a partial graph looks complete; every
 # other resource paginates, because a single-response cap would either truncate
@@ -193,11 +212,19 @@ MAX_ACTIONS = 32
 MAX_ORIGINS = 8
 MAX_SECRETS = 8
 MAX_FRAGMENT_TYPES = 16
+MAX_AUDIT_DETECTORS = 4
+"""Audit detectors one package may contribute.
+
+Small because each one is a whole extra pass over every draft, and a package
+that wants four different checks almost always wants one flow with four
+branches. The snapshot-wide cap is ``MAX_AUDIT_DETECTORS_PUBLISHED`` in
+``workflows/registry.py``, which is the layer that enforces it."""
+
 MAX_COMPONENT_NODES = 256
 MAX_COMPONENT_DEPTH = 12
 MAX_VIEW_DATA_SOURCES = 8
 
-# ── capability-filtered context projection (section 6) ───────────────────────
+# ── capability-filtered context projection ───────────────────────────────────
 # Every variable-length projection has both an item count and an aggregate
 # UTF-8 byte cap. One without the other is not a bound: 10,000 one-byte
 # messages and one 10 MiB message are the same failure in different shapes.
@@ -213,6 +240,9 @@ MAX_CTX_TEXT_BYTES = 64 * KIB
 
 MAX_CTX_CHARACTER_BYTES = 16 * KIB
 """Aggregate UTF-8 bytes of the allowlisted character projection."""
+
+MAX_CTX_DIRECTION_BYTES = 16 * KIB
+"""Aggregate UTF-8 bytes of the allowlisted Director-output projection."""
 
 MAX_RENDERED_TEMPLATE_CHARS = 128 * KIB
 """What a ``$template`` may render to, once its holes are filled.

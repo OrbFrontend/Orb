@@ -213,6 +213,33 @@ def writer_tool_view(entry: InstalledExtension, *, endpoint_diagnostic: str = ""
     }
 
 
+def audit_detector_views(entry: InstalledExtension, settings: Any) -> list[dict[str, Any]]:
+    """The audit panel's contributed rows for one package.
+
+    ``enabled`` reads the same free-form ``settings.editor_audit_toggles`` map
+    the built-in scanners use, and defaults to **False** where they default to
+    True. Installing a package must not silently add a per-turn model call and a
+    draft-shaped egress to every reply, so a contributed check is eligible on
+    install and inert until the user ticks it.
+    """
+    manifest = entry.compiled.manifest if entry.compiled else None
+    if manifest is None or "audit detectors" in entry.blocked:
+        return []
+    toggles = settings.get("editor_audit_toggles") if isinstance(settings, Mapping) else None
+    if not isinstance(toggles, Mapping):
+        toggles = {}
+    return [
+        {
+            "id": descriptor.id,
+            "namespaced_id": f"{entry.id}:{descriptor.id}",
+            "label": descriptor.label,
+            "description": descriptor.description,
+            "enabled": toggles.get(f"{entry.id}:{descriptor.id}") is True,
+        }
+        for descriptor in manifest.contributions.audit_detectors
+    ]
+
+
 def catalog_entry(
     entry: InstalledExtension,
     settings: Any,
@@ -266,6 +293,10 @@ def catalog_entry(
         ),
         "telemetry": telemetry.summary(entry.id),
         "writer_tool": writer_tool_view(entry, endpoint_diagnostic=endpoint_diagnostic),
+        # On the *list* entry rather than the detail one, because the audit
+        # panel in the tools settings renders from the catalog the sidebar
+        # already loaded, not from a per-package detail fetch.
+        "audit_detectors": audit_detector_views(entry, settings),
         "placements": [{"slot": p.slot, "view": p.view, "command": p.command} for p in _published_placements(entry)],
         "commands": [
             {
@@ -372,6 +403,7 @@ def inspection_view(inspection: Inspection) -> dict[str, Any]:
         "commands": [{"id": c.id, "label": c.label, "icon": c.icon} for c in manifest.commands],
         "placements": [{"slot": p.slot, "view": p.view, "command": p.command} for p in manifest.placements],
         "fragment_types": [{"id": f.id, "label": f.label} for f in manifest.contributions.fragment_types],
+        "audit_detectors": [{"id": d.id, "label": d.label} for d in manifest.contributions.audit_detectors],
         "produces_artifacts": manifest.produces_artifacts,
         "hooks": _hook_summary(manifest),
     }

@@ -487,10 +487,10 @@ async def test_a_package_needing_features_this_build_lacks_installs_but_is_inert
 
 async def test_a_future_api_version_is_refused_with_a_conflict(client):
     response = await client.post(
-        "/api/extensions/inspect-file", files={"file": ("pkg.orbext", metadata_package(extension_api=3))}
+        "/api/extensions/inspect-file", files={"file": ("pkg.orbext", metadata_package(extension_api=4))}
     )
     assert response.status_code == 409
-    assert "extension_api 3" in response.json()["detail"]
+    assert "extension_api 4" in response.json()["detail"]
 
 
 async def test_a_supported_api_version_inspects_normally(client):

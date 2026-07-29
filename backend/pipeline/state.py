@@ -25,7 +25,7 @@ from ..features.lorebook import (
     compute_lorebook_block,
 )
 from ..inference import CachedBase, LLMClient
-from ..workflows import WriterToolBinding
+from ..workflows import AuditDetectorBinding, WriterToolBinding
 from .passes.editor.length_guard import LengthGuard
 from .replay import CANONICAL_DRAFT_BLOCK, WriterReplay
 
@@ -152,6 +152,10 @@ class _PipelineConfig:
     agent_tool_schemas: tuple[dict, ...]
     writer_tool_schemas: tuple[dict, ...]
     writer_tool_policy: WriterToolPolicy
+    # The contributed audit detectors the user enabled, resolved from the same
+    # captured snapshot as the Writer tool. Empty on every install with no v3
+    # package and on every turn where none is toggled on.
+    audit_detectors: tuple[AuditDetectorBinding, ...]
     # True when the writer endpoint is in text-completion mode: suppress the
     # no-tools nudge (meaningless without a rendered tool harness). The shared
     # tool blob is untouched — director/editor keep their schemas.
@@ -297,6 +301,23 @@ class TurnState:
             messages=tuple(self.writer_trace),
             canonical_draft_block=CANONICAL_DRAFT_BLOCK.format(draft=draft),
         )
+
+    def as_direction_view(self) -> dict:
+        """Return the bounded scene-direction bundle a community flow may read.
+
+        Deliberately *not* ``as_director_output()``, and co-located with it so
+        the difference stays visible: that dict is the trusted post-pipeline
+        projection and carries the raw agent reply, the tool calls, the latency,
+        and the fragment diagnostics. This one carries the three facts that are
+        actually scene direction -- and two of them (``scene_direction``,
+        ``extra_fields`` rather than the raw ``director_fields``) are absent from
+        or different in that dict, so it could not have been reused.
+        """
+        return {
+            "moods": list(self.active_moods),
+            "scene_direction": self.scene_direction,
+            "fields": dict(self.extra_fields),
+        }
 
     def as_director_output(self) -> dict:
         """Return the director-output subset seeding ``PostCtx.director_output``.

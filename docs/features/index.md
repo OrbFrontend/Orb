@@ -41,6 +41,7 @@ Content, data management, and platform features.
 
 | Feature | Summary |
 |---|---|
+| [Community Extensions](../architecture/community-extensions.md) | Install third-party extensions, and write your own as declarative data |
 | [Card-Embedded Fragments](card-fragments.md) | Ship mood and interactive fragments inside a character card |
 | [Fetch Cards from Internet](fetch-cards.md) | Browse and import character cards from online repositories |
 | [Backups & Presets](backups-presets.md) | Snapshot, share, and restore your data |

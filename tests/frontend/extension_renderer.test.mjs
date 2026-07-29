@@ -395,6 +395,94 @@ test("a node whose parent is unknown is treated as a root rather than dropped", 
   assert.ok(host.allText().includes("assistant"));
 });
 
+// ── scale: the map is a map of branches, not of messages ────────────────────
+
+const rowsIn = (host) => {
+  const found = [];
+  const collect = (node) => {
+    if (node.className?.includes("xc-tree-row")) found.push(node);
+    for (const child of node.children) collect(child);
+  };
+  collect(host);
+  return found;
+};
+
+/** A linear chain of *n* messages: 1 → 2 → … → n, no branches anywhere. */
+const chain = (n) =>
+  Array.from({ length: n }, (_, i) => ({
+    id: i + 1,
+    parent_id: i === 0 ? null : i,
+    role: i % 2 === 0 ? "user" : "assistant",
+    child_count: i === n - 1 ? 0 : 1,
+    preview: `m${i + 1}`,
+  }));
+
+const conversationTree = (activePath) =>
+  tree({
+    component: "conversation-tree",
+    nodes: { $ref: "data.nodes" },
+    active_path: activePath,
+    select_action: "select",
+    show_previews: true,
+  });
+
+test("a linear run of messages folds to one row, and its chip unfolds it", () => {
+  const host = render(conversationTree([]), { data: { nodes: chain(20) } });
+  assert.equal(rowsIn(host).length, 1, "20 messages with no branch are one row");
+  assert.ok(host.allText().includes("m20"), "the folded row stands for the run's tip");
+
+  const chip = host.find((n) => n.className?.includes("xc-tree-run"));
+  assert.equal(chip.textContent, "⋯20");
+  for (const fn of chip.listeners.click || []) fn();
+  assert.equal(rowsIn(host).length, 20, "unfolding shows the run, not one collapsed row");
+});
+
+test("a run of two is never folded, because the chip would hide one message", () => {
+  const host = render(conversationTree([]), { data: { nodes: chain(2) } });
+  assert.equal(rowsIn(host).length, 2);
+  assert.equal(host.find((n) => n.className?.includes("xc-tree-run")), null);
+});
+
+test("a fold stops at the message you are on", () => {
+  // Active leaf is 3 of 5: the run 1→2→3 folds, 4→5 is a separate row below it.
+  const host = render(conversationTree([1, 2, 3]), { data: { nodes: chain(5) } });
+  const rows = rowsIn(host);
+  assert.equal(rows.length, 2);
+  assert.ok(rows[0].className.includes("xc-tree-active"));
+  assert.ok(rows[0].allText().includes("m3"), "the active row ends on the active leaf, not past it");
+});
+
+test("off-path branches open collapsed; the active path opens expanded", () => {
+  // 1 → 2 → 3 (active), and 1 → 4 → 5 → 6 → 7 (an abandoned reroll).
+  const nodes = [
+    { id: 1, parent_id: null, role: "user", child_count: 2, preview: "root" },
+    { id: 2, parent_id: 1, role: "assistant", child_count: 1, preview: "kept" },
+    { id: 3, parent_id: 2, role: "user", child_count: 0, preview: "here" },
+    { id: 4, parent_id: 1, role: "assistant", child_count: 1, preview: "reroll" },
+    { id: 5, parent_id: 4, role: "user", child_count: 1, preview: "m5" },
+    { id: 6, parent_id: 5, role: "assistant", child_count: 1, preview: "m6" },
+    { id: 7, parent_id: 6, role: "user", child_count: 0, preview: "m7" },
+  ];
+  const host = render(conversationTree([1, 2, 3]), { data: { nodes } });
+  const text = host.allText().join(" ");
+  assert.ok(text.includes("here"), "the message you are on is visible without a click");
+  assert.ok(text.includes("m7"), "the abandoned branch folds to its tip rather than four rows");
+
+  // Root, the two active messages under it, and one folded row for the reroll.
+  assert.equal(rowsIn(host).length, 4);
+});
+
+test("selecting a folded run activates its tip", () => {
+  const calls = [];
+  const host = render(conversationTree([]), {
+    data: { nodes: chain(9) },
+    onAction: async (id, input) => calls.push([id, input]),
+  });
+  const label = host.find((n) => n.className?.includes("xc-tree-node"));
+  for (const fn of label.listeners.click || []) fn();
+  assert.deepEqual(calls, [["select", { message_id: 9 }]]);
+});
+
 // ── draft disposal ──────────────────────────────────────────────────────────
 
 test("drafts keyed to a departed digest are dropped on disposal", () => {

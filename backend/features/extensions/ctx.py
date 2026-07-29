@@ -26,6 +26,7 @@ into ``ctx`` and the grant that unlocks it cannot drift apart.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -33,6 +34,7 @@ from ...core import normalize_tags
 from .contracts import Capability, parameter_values
 from .limits import (
     MAX_CTX_CHARACTER_BYTES,
+    MAX_CTX_DIRECTION_BYTES,
     MAX_CTX_HISTORY_BYTES,
     MAX_CTX_HISTORY_MESSAGES,
     MAX_CTX_TEXT_BYTES,
@@ -124,6 +126,51 @@ def _character(card: Mapping[str, Any]) -> dict[str, Any]:
     return projected
 
 
+DIRECTION_FIELDS: tuple[str, ...] = ("moods", "scene_direction", "fields")
+"""The allowlisted Director-output projection.
+
+An allowlist for the same reason ``CHARACTER_FIELDS`` is one, and the sources
+are deliberately not the post-pipeline ``as_director_output()`` dict: that
+carries the raw agent reply, the tool calls, the pass latency, and the fragment
+diagnostics, none of which are scene direction. ``fields`` is the *reduced*
+fragment map (``extra_fields``), never the raw ``direct_scene`` return.
+"""
+
+
+def _direction(direction: Mapping[str, Any]) -> dict[str, Any]:
+    """The allowlisted direction keys, within the aggregate byte cap.
+
+    Values are re-encoded through ``_clip``/``normalize`` rather than copied, so
+    a fragment value that is a nested container reaches a package as bounded
+    text rather than as an arbitrary-depth structure the byte cap never saw.
+    """
+    projected: dict[str, Any] = {}
+    used = 0
+    moods: list[str] = []
+    for mood in direction.get("moods") or ():
+        text = _clip(mood, MAX_CTX_DIRECTION_BYTES)
+        used += len(text.encode("utf-8"))
+        if used > MAX_CTX_DIRECTION_BYTES:
+            break
+        moods.append(text)
+    projected["moods"] = moods
+    scene = _clip(direction.get("scene_direction"), MAX_CTX_DIRECTION_BYTES)
+    used += len(scene.encode("utf-8"))
+    projected["scene_direction"] = scene if used <= MAX_CTX_DIRECTION_BYTES else ""
+    fields: dict[str, str] = {}
+    for name, value in (direction.get("fields") or {}).items():
+        if not isinstance(name, str):
+            continue
+        text = _clip(value if isinstance(value, str) else json.dumps(value, default=str), MAX_CTX_DIRECTION_BYTES)
+        used += len(name.encode("utf-8")) + len(text.encode("utf-8"))
+        if used > MAX_CTX_DIRECTION_BYTES:
+            break
+        fields[name] = text
+    projected["fields"] = fields
+    assert set(projected) == set(DIRECTION_FIELDS)
+    return projected
+
+
 def build_ctx(
     *,
     extension_id: str,
@@ -135,6 +182,7 @@ def build_ctx(
     history: Sequence[Mapping[str, Any]] | None = None,
     last_user_message: str | None = None,
     draft: str | None = None,
+    direction: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the ``ctx`` namespace one invocation may read.
 
@@ -165,6 +213,7 @@ def build_ctx(
         "draft": _clip(draft) if draft is not None else None,
         "history": _history_window(history) if history is not None else None,
         "character": _character(card) if card else None,
+        "direction": _direction(direction) if direction is not None else None,
         # Persona is projected by the ``persona`` host resource rather than into
         # ``ctx``: it is a bounded singleton a view reads, not a per-step value
         # a flow interpolates. The grant is the same one either way.

@@ -17,7 +17,7 @@ which is why the package limits, the strict parser, and the hostile-package
 test corpus in ``tests/unit/extensions/`` are load-bearing rather than
 decorative.
 
-Contents (Phases 0-2 -- contracts, package lifecycle, flow runtime):
+Contents:
 
 * :mod:`.contracts` -- frozen v1 models for manifest, permissions, flows,
   values, schemas, components, effects, and fragment-type descriptors.
@@ -50,18 +50,31 @@ Contents (Phases 0-2 -- contracts, package lifecycle, flow runtime):
   actions, owning their own lock plan and committing staged effects.
 * :mod:`.execution` -- process-local invocation gating and drain/cancel
   coordination for disable, purge, and shutdown.
+* :mod:`.network` -- the bounded egress every package-influenced request goes
+  through, with origin derivation, address validation, and connection pinning.
+* :mod:`.secrets` -- write-only secret storage and the substitution that
+  happens inside the network client and nowhere else.
+* :mod:`.git_source` -- the in-process, byte-bounded shallow fetch and object
+  walk. No system ``git``, no checkout.
+* :mod:`.artifacts` -- ``artifact.emit``'s declared byte sources, media
+  allowlist, and recovery metadata.
+* :mod:`.resources` -- the cursor-paginated host read surfaces a view or flow
+  may consume, each behind its own grant.
+* :mod:`.writer_tools` -- the compiled API 2 Writer-tool spec and the executor
+  a snapshot publishes as a binding.
+* :mod:`.telemetry` -- host-only invocation counters. No prompt or result
+  content.
 
-Deliberately absent until their phase lands: the host HTTP client and secrets
-substitution, artifact emission, branch activation, the component renderer, the
-Git reader, and fragment-type contribution. Those operations parse and appear
-in the consent diff, but an entry point that reaches one is *blocked* with a
-diagnostic rather than published -- see
-:data:`.interpreter.UNIMPLEMENTED_OPS`. The design note is explicit that no
-permissive placeholder executor should stand in for the real one: a temporary
-"run arbitrary operation" switch is difficult to tighten once packages exist
-that depend on it.
+:data:`.interpreter.UNIMPLEMENTED_OPS` is empty: every operation the contract
+parses is executable. It stays as a tested seam for a future operation whose
+contract lands before its runtime -- an entry point reaching one is *blocked*
+with a diagnostic rather than failing halfway. The design note is explicit that
+no permissive placeholder executor should stand in for the real thing: a
+temporary "run arbitrary operation" switch is difficult to tighten once
+packages exist that depend on it.
 
-Full design: ``docs/architecture/community-extensions.md``.
+Full contract, for authors and for anyone growing the ABI:
+``docs/architecture/community-extensions.md``.
 """
 
 from __future__ import annotations

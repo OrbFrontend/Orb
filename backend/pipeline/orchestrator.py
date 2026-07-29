@@ -244,6 +244,14 @@ async def _run_pipeline(
         editor_audit_msgs=editor_audit_msgs,
         kv_tracker=kv_tracker,
         dual_model=is_dual_model(agent_client),
+        conversation_id=conversation_id,
+        character_id=character_id,
+        card=card,
+        history=history,
+        # Same host-owned attempt identity the Writer tool mixes into its seed,
+        # so a regenerate re-runs the detectors freshly rather than replaying a
+        # seeded flow's choices.
+        turn_seed=writer_tool_turn_seed,
     ):
         yield ev
 
@@ -259,6 +267,7 @@ async def _run_pipeline(
         history=history,
         effective_msg=state.effective_msg,
         director_output=director_output,
+        direction=state.as_direction_view(),
         settings=settings,
         prefix=prefix,
         enabled_tools=cfg.enabled_tools,

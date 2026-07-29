@@ -721,21 +721,47 @@ function buildTree(nodes, activePath, selectAction, scope, showPreviews) {
   }
 
   const root = el("div", "xc-tree");
-  const collapsed = scope.draft;
+  const draft = scope.draft;
+  const activeLeaf = activePath.length ? activePath[activePath.length - 1] : null;
+  const redraw = () => {
+    root.replaceChildren();
+    walk(null, 0, root);
+  };
+  let activeRow = null;
 
   const walk = (parentId, depth, into) => {
     for (const node of children.get(parentId) || []) {
-      const row = el("div", cls("xc-tree-row", active.has(node.id) ? "xc-tree-active" : ""));
+      // ponytail: fold a chain of single-child messages into one row, the way a
+      // file tree folds a chain of single-child directories. A branch map's
+      // rows are branch points; 300 linear messages carry no structure worth
+      // 300 rows. Ceiling: the fold is per-view draft state, so it resets when
+      // the view closes -- persist it in extension state if that ever matters.
+      const runKey = `\u0000run:${node.id}`;
+      const run = [node];
+      if (!draft[runKey]) {
+        let next = children.get(node.id) || [];
+        while (next.length === 1 && run[run.length - 1].id !== activeLeaf) {
+          run.push(next[0]);
+          next = children.get(next[0].id) || [];
+        }
+        if (run.length < 3) run.length = 1; // never hide one message behind a chip
+      }
+      const tip = run[run.length - 1];
+      const kids = children.get(tip.id) || [];
+      const key = `\u0000collapsed:${tip.id}`;
+      // Off-path subtrees start closed: the map opens on where you are plus one
+      // row per divergence, not on every reroll ever made. An explicit toggle
+      // still wins, which is why this reads `key in draft` and not a value.
+      const isCollapsed = key in draft ? draft[key] : active.size > 0 && !active.has(tip.id);
+
+      const row = el("div", cls("xc-tree-row", run.some((n) => active.has(n.id)) ? "xc-tree-active" : ""));
       row.style.setProperty("--xc-depth", String(Math.min(depth, 24)));
-      const kids = children.get(node.id) || [];
-      const key = `\u0000collapsed:${node.id}`;
       if (kids.length) {
-        const toggle = el("button", "xc-tree-toggle", collapsed[key] ? "▸" : "▾");
+        const toggle = el("button", "xc-tree-toggle", isCollapsed ? "▸" : "▾");
         toggle.type = "button";
         toggle.addEventListener("click", () => {
-          collapsed[key] = !collapsed[key];
-          root.replaceChildren();
-          walk(null, 0, root);
+          draft[key] = !isCollapsed;
+          redraw();
         });
         row.appendChild(toggle);
       } else {
@@ -743,20 +769,39 @@ function buildTree(nodes, activePath, selectAction, scope, showPreviews) {
       }
       const label = el("button", "xc-tree-node");
       label.type = "button";
-      label.appendChild(el("span", "xc-tree-role", node.role || ""));
-      if (showPreviews && node.preview) label.appendChild(el("span", "xc-tree-preview", node.preview));
+      label.appendChild(el("span", "xc-tree-role", tip.role || ""));
+      if (showPreviews && tip.preview) label.appendChild(el("span", "xc-tree-preview", tip.preview));
       if (kids.length > 1) label.appendChild(el("span", "xc-tree-count", `${kids.length}`));
       if (selectAction) {
-        label.addEventListener("click", () => scope.onAction(selectAction, { message_id: node.id }));
+        label.addEventListener("click", () => scope.onAction(selectAction, { message_id: tip.id }));
       } else {
         label.disabled = true;
       }
       row.appendChild(label);
+      if (run.length > 1) {
+        const unfold = el("button", "xc-tree-run", `⋯${run.length}`);
+        unfold.type = "button";
+        unfold.addEventListener("click", () => {
+          for (const n of run) {
+            draft[`\u0000run:${n.id}`] = true;
+            draft[`\u0000collapsed:${n.id}`] = false;
+          }
+          redraw();
+        });
+        row.appendChild(unfold);
+      }
       into.appendChild(row);
-      if (!collapsed[key]) walk(node.id, depth + 1, into);
+      if (!activeRow && row.className.includes("xc-tree-active")) activeRow = row;
+      if (!isCollapsed) walk(tip.id, depth + 1, into);
     }
   };
   walk(null, 0, root);
+  // Once per view instance, not on every re-render: a map that re-scrolled on
+  // each update would fight the user for the scrollbar.
+  if (!draft[`\u0000scrolled`]) {
+    draft[`\u0000scrolled`] = true;
+    activeRow?.scrollIntoView?.({ block: "center" });
+  }
   return root;
 }
 

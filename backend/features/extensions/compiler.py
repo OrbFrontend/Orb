@@ -312,6 +312,8 @@ def _flow_contexts(manifest: ExtensionManifest) -> Iterator[tuple[str, OpContext
         yield manifest.artifact_flows.reroll_gen, OpContext.RECOVERY
     for descriptor in manifest.contributions.fragment_types:
         yield descriptor.reduce_flow, OpContext.REDUCER
+    for descriptor in manifest.contributions.audit_detectors:
+        yield descriptor.flow, OpContext.DETECTOR
     if manifest.writer_tool is not None:
         yield manifest.writer_tool.flow, OpContext.WRITER_TOOL
 
@@ -500,6 +502,8 @@ def _derive_requirements(
             permissions.add((Capability.CONTEXT_READ.value, "character"))
     if manifest.contributions.fragment_types:
         permissions.add((Capability.FRAGMENT_TYPE_CONTRIBUTE.value, None))
+    if manifest.contributions.audit_detectors:
+        permissions.add((Capability.AUDIT_DETECTOR_CONTRIBUTE.value, None))
     if manifest.writer_tool is not None:
         permissions.add((Capability.WRITER_TOOL_CONTRIBUTE.value, None))
     if manifest.produces_artifacts:
@@ -844,6 +848,15 @@ def _fingerprint(
             "schema": writer_tool.provider_schema(),
             "output_schema": dict(parse_schema(declared.output_schema, what="writer_tool output_schema").schema),
         }
+    # Same reason as the Writer-tool entry: a detector's label and description
+    # are package-authored text the user consented to (the label becomes the
+    # report's section heading), so changing either is an inspected update
+    # rather than a silent swap under an unchanged grant set.
+    if manifest.contributions.audit_detectors:
+        payload["audit_detectors"] = [
+            [descriptor.id, descriptor.label, descriptor.description or ""]
+            for descriptor in manifest.contributions.audit_detectors
+        ]
     return hashlib.sha256(canonical_json_bytes(payload)).hexdigest()
 
 

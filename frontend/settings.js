@@ -11,7 +11,7 @@ import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panel
 import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
-import { $, esc, formatBytes, toast } from "./utils.js";
+import { $, esc, escAttr, escHandlerArg, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // Re-export the sub-module public surfaces so "./settings.js" remains the stable
@@ -323,6 +323,30 @@ export const AUDIT_TYPE_DEFS = [
   },
 ];
 
+// The second, data-driven band of the audit panel: checks contributed by
+// installed extensions, read off the /api/extensions catalog the sidebar already
+// loaded. They write the same editor_audit_toggles map as the built-ins above
+// them, keyed by "<ext>:<local>" — the load-time merge in loadSettings preserves
+// namespaced keys, so persistSettings needs no change.
+//
+// Two differences from the built-in band, both deliberate:
+//  - default OFF (=== true, not !== false). Installing a package must not
+//    silently add a per-turn model call to every reply.
+//  - every package string goes through esc/escAttr/escHandlerArg. A label here
+//    is author text, and this panel is built with innerHTML.
+function contributedAuditChecks() {
+  return (S.extensionCatalog || [])
+    .filter((ext) => effectiveWorkflowEnabled(ext.id, "community"))
+    .flatMap((ext) => ext.audit_detectors || [])
+    .map(
+      (d) => `<label class="lg-enforce-label" title="${escAttr(d.description || d.label)}">
+               <input type="checkbox" ${S.editorAuditToggles[d.namespaced_id] === true ? "checked" : ""} onchange="toggleAuditType('${escHandlerArg(d.namespaced_id)}',this.checked)">
+               ${esc(d.label)}
+             </label>`,
+    )
+    .join("");
+}
+
 async function persistSettings(payload) {
   try {
     S.settings = await api.put("/settings", payload);
@@ -584,12 +608,13 @@ export function renderToolsPanel() {
   const cardById = {};
   for (const t of TOOL_DEFS) {
     const on = !!S.enabledTools[t.id];
-    const auditChecks = AUDIT_TYPE_DEFS.map(
-      (a) => `<label class="lg-enforce-label" title="${a.title}">
+    const auditChecks =
+      AUDIT_TYPE_DEFS.map(
+        (a) => `<label class="lg-enforce-label" title="${a.title}">
                <input type="checkbox" ${S.editorAuditToggles[a.key] !== false ? "checked" : ""} onchange="toggleAuditType('${a.key}',this.checked)">
                ${a.label}
              </label>`,
-    ).join("");
+      ).join("") + contributedAuditChecks();
     let extras = "";
     if (t.id === "editor_apply_patch" && on)
       extras = `<div class="lg-config">
@@ -996,6 +1021,7 @@ export async function showCleanupModal() {
       </label>
     </div>
     <p class="tool-card-desc" id="cleanup-db">…</p>
+    <p class="tool-card-desc" id="cleanup-extensions">…</p>
     <div class="modal-actions">
       <button class="btn" id="cleanup-cancel">Cancel</button>
       <button class="btn btn-danger" id="cleanup-go">Clean Up</button>
@@ -1028,6 +1054,11 @@ export async function showCleanupModal() {
       $("cleanup-artifacts-size").textContent =
         `${formatBytes(stats.artifacts.bytes)} · ${stats.artifacts.count} items`;
       $("cleanup-logs-size").textContent = `${formatBytes(stats.logs.bytes)} · ${stats.logs.count} entries`;
+      // Reported, not selectable: extension content is freed by uninstalling the
+      // package, so offering it here would promise a cleanup that cannot happen.
+      const ext = stats.extensions ?? { bytes: 0, count: 0 };
+      $("cleanup-extensions").textContent =
+        `Extension packages ${formatBytes(ext.bytes)} · ${ext.count} stored revisions — freed by uninstalling`;
       paint();
     } catch (_e) {
       toast("Failed to read storage usage", true);

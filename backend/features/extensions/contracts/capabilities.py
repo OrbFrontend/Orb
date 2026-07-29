@@ -77,6 +77,7 @@ class Capability(StrEnum):
     UI_CONTRIBUTE = "ui.contribute"
     FRAGMENT_TYPE_CONTRIBUTE = "fragment_type.contribute"
     WRITER_TOOL_CONTRIBUTE = "writer.tool.contribute"
+    AUDIT_DETECTOR_CONTRIBUTE = "audit.detector.contribute"
 
 
 class GrantKind(StrEnum):
@@ -213,6 +214,14 @@ CAPABILITY_SPECS: Mapping[Capability, CapabilitySpec] = {
                 "character": ValueSpec(
                     copy="Read the active character's text fields.",
                     reads=frozenset({DataClass.CHARACTER}),
+                ),
+                # The Director's decision for this turn, not the user's own
+                # words: moods, scene direction, and the reduced fragment map.
+                # Ordinary sensitivity for that reason -- it is Orb's staging of
+                # the scene, which the character projection already implies.
+                "direction": ValueSpec(
+                    copy="Read the scene direction Orb set for this turn.",
+                    reads=frozenset({DataClass.CONVERSATION}),
                 ),
                 # The user's own self-description, and the strongest trigger for
                 # the combination banner.
@@ -403,6 +412,19 @@ CAPABILITY_SPECS: Mapping[Capability, CapabilitySpec] = {
         copy=(
             "Add a callable tool and its instructions to the Writer. Its result can directly influence the reply "
             "even though the extension cannot write the reply itself."
+        ),
+        kind=GrantKind.CONTRIBUTE,
+        sensitivity=Sensitivity.HIGH,
+    ),
+    # The Editor's mirror of the Writer tool, and loud for the same shape of
+    # reason: a detector reads every draft before the user sees it, its findings
+    # steer a rewrite the way the built-in scanners do, and -- since scoring slop
+    # with a classifier is the use case -- it may send that draft to a model or
+    # an origin.
+    Capability.AUDIT_DETECTOR_CONTRIBUTE: CapabilitySpec(
+        copy=(
+            "Add its own check to the Output Auditor. It reads every reply before you see it and can make Orb "
+            "rewrite parts of one."
         ),
         kind=GrantKind.CONTRIBUTE,
         sensitivity=Sensitivity.HIGH,
@@ -645,6 +667,7 @@ class OpContext(StrEnum):
     RECOVERY = "recovery"
     REDUCER = "reducer"
     WRITER_TOOL = "writer_tool"
+    DETECTOR = "detector"
 
 
 HOOK_CONTEXTS = frozenset({OpContext.PRE_PIPELINE, OpContext.POST_TRANSFORM, OpContext.POST_OBSERVE})
@@ -656,7 +679,7 @@ which is why adding ``WRITER_TOOL`` to it would have been wrong: a Writer tool
 does cause side effects, but it has no toast to raise and no view to
 invalidate. Its progress is the host's fixed status channel."""
 
-EXTERNAL_CONTEXTS = frozenset(IMPURE_CONTEXTS | {OpContext.WRITER_TOOL})
+EXTERNAL_CONTEXTS = frozenset(IMPURE_CONTEXTS | {OpContext.WRITER_TOOL, OpContext.DETECTOR})
 """Contexts that may read and write namespaced state and call out to a model or
 an HTTP origin. ``REDUCER`` is excluded because a reducer is a pure function."""
 
