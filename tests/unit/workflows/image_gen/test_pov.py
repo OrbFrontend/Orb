@@ -1,4 +1,4 @@
-"""Camera resolution: the four levers, and the grid math behind the classifier.
+"""Camera resolution: the three levers, and the grid math behind the classifier.
 
 No model and no network — `local_ml.aclassify_pov` is monkeypatched everywhere, and
 the grid math is exercised through the pure `pov_from_logits`.
@@ -62,41 +62,11 @@ def test_pov_from_logits_marginalizes_tense_rather_than_taking_the_top_cell():
 
 
 @pytest.mark.parametrize(
-    "appearance, expected",
-    [
-        ("3D, third_person", pov.THIRD),
-        ("3D, third-person", pov.THIRD),
-        ("3D, Third Person", pov.THIRD),
-        ("3D, 3rd person", pov.THIRD),
-        ("anime, first_person", pov.FIRST),
-        ("anime, 1st-person", pov.FIRST),
-        ("anime, pov", pov.FIRST),
-        ("blonde hair, 3D, personal trainer", None),  # 'person' alone is not a camera tag
-        ("", None),
-        (None, None),
-    ],
-)
-def test_pinned_viewpoint_reads_a_camera_tag_in_any_spelling(appearance, expected):
-    assert pov.pinned_viewpoint(appearance) == expected
-
-
-@pytest.mark.parametrize(
     "value, expected",
     [("auto", "auto"), ("first", "first"), ("third", "third"), ("nonsense", "auto"), (None, "auto"), (7, "auto")],
 )
 def test_normalize_mode_falls_back_to_the_default(value, expected):
     assert pov.normalize_mode(value) == expected
-
-
-async def test_character_tag_beats_manual_and_the_classifier(monkeypatch):
-    seen = _fake_classifier(monkeypatch, ["first"])
-    result = await pov.resolve(
-        appearance="video game asset, 3D, third_person",
-        mode="first",
-        history=_history(("assistant", "You feel her hand on yours.")),
-    )
-    assert result == (pov.THIRD, "character_tag")
-    assert seen == []  # a pinned camera short-circuits before any model runs
 
 
 @pytest.mark.parametrize("mode, expected", [("first", pov.FIRST), ("third", pov.THIRD)])

@@ -225,18 +225,17 @@ its camera when you switch to a chat written in third person.
 
 Orb decides the camera in this order. The first match wins:
 
-1. A camera tag in the character's **Positive prompt** — write `first_person`,
-   `1st person`, `pov`, `third_person`, or `3rd person`. This always wins, so use
-   it to pin one character to one camera.
-2. The **First-person** or **Third-person** mode on the picker.
-3. The classifier, in **Auto** mode. If a reply is too short or too mixed to read,
+1. The **First-person** or **Third-person** mode on the picker.
+2. The classifier, in **Auto** mode. If a reply is too short or too mixed to read,
    Orb reads the previous assistant replies until one is clear.
-4. Third-person.
+3. Third-person.
 
-Each image records which camera it used and which of the four levers chose it.
+A camera tag such as `first_person` in the character's **Positive prompt** no
+longer sets the camera — use the picker.
+
+Each image records which camera it used and which of the three levers chose it.
 Open **Render details** under the image and read the **Camera** row. It tells you
-where to go to change a camera you did not want: the character's prompt, the POV
-picker, or the classifier.
+where to go to change a camera you did not want: the POV picker or the classifier.
 
 ### Turn on the POV classifier
 

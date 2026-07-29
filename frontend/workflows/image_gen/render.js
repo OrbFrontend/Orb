@@ -16,7 +16,6 @@ const WORKFLOW_ID = "image_gen";
 // control the user would go change, not for the backend symbol that chose them.
 const POV_LABELS = { first_person: "First-person", third_person: "Third-person" };
 const POV_SOURCE_LABELS = {
-  character_tag: "camera tag in the character's prompt",
   manual: "POV picker",
   classifier: "classifier",
   no_classifier: "default (no POV classifier)",

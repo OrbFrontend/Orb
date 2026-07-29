@@ -164,7 +164,7 @@ def _metadata(
         "composer_mode": composer_mode,
         # Which camera was drawn, and which lever chose it. A wrong POV is the
         # failure this feature exists to fix, so it must be traceable to
-        # character_tag / manual / classifier / default rather than guessed at.
+        # manual / classifier / default rather than guessed at.
         "pov": pov,
         "pov_source": pov_source,
         "prompt": prompt,
@@ -236,7 +236,7 @@ async def _generate_fresh(
     # Resolved here, not in the caller's prep phase: the classifier's first call
     # loads a model, and that latency belongs behind the "Composing image
     # prompt..." pill rather than ahead of the stream's first frame.
-    pov, pov_source = await pov_mod.resolve(appearance=appearance, mode=pov_mode, history=history)
+    pov, pov_source = await pov_mod.resolve(mode=pov_mode, history=history)
     logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
     scene, avoid, composer_mode = await compose_scene(
         client=ctx.agent_client,

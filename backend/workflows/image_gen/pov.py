@@ -8,11 +8,14 @@ written for it alone.
 
 The levers, first hit wins:
 
-1. a camera tag in the character's fixed appearance prompt -- an explicit user pin
-2. a manual per-conversation ``pov_mode`` of "first" or "third"
-3. the local povtense classifier, walking back through recent assistant messages
+1. a manual per-conversation ``pov_mode`` of "first" or "third"
+2. the local povtense classifier, walking back through recent assistant messages
    while it answers "ambiguous"
-4. ``DEFAULT_POV``
+3. ``DEFAULT_POV``
+
+A camera tag in the character's appearance prompt used to outrank all three. That
+was a workaround for having no picker; the picker exists now, so the tag is just
+appearance data again.
 
 Nothing here is persisted. "Use the previous message's POV" is served by
 re-classifying the actual previous messages (lever 3), which beats a cached value
@@ -24,7 +27,6 @@ it before a streaming response body runs, and ``asyncio.Lock`` is not reentrant.
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -61,29 +63,10 @@ LOOKBACK = 3
 
 FEATURE = "pov_classifier"
 
-# A camera tag in the profile's fixed tags is an explicit user choice, but the
-# prompter never sees it as one: that block is handed over as appearance tags it
-# must not repeat, so a 'third_person' sitting in it reads as a trait, not a
-# camera. Parse it here and let it win outright.
-_VIEWPOINT_TAG_RE = re.compile(
-    r"\b(?:(?P<first>(?:first|1st)[ _-]?person|pov)|(?P<third>(?:third|3rd)[ _-]?person))\b",
-    re.IGNORECASE,
-)
-
 
 def normalize_mode(value: Any) -> str:
     """The stored ``pov_mode``, or the default for anything unrecognized."""
     return value if value in POV_MODES else DEFAULT_MODE
-
-
-def pinned_viewpoint(appearance: Any) -> str | None:
-    """The viewpoint the fixed appearance tags demand, or None when they name none."""
-    if not isinstance(appearance, str):
-        return None
-    match = _VIEWPOINT_TAG_RE.search(appearance)
-    if match is None:
-        return None
-    return FIRST if match.group("first") else THIRD
 
 
 async def classifier_ready() -> bool:
@@ -134,7 +117,6 @@ async def _classify(history: Sequence[Mapping[str, Any]]) -> str | None:
 
 async def resolve(
     *,
-    appearance: str = "",
     mode: str = DEFAULT_MODE,
     history: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[str, str]:
@@ -143,9 +125,6 @@ async def resolve(
     *source* is recorded on the attachment so a wrong camera can be traced to the
     lever that chose it rather than guessed at.
     """
-    pinned = pinned_viewpoint(appearance)
-    if pinned is not None:
-        return pinned, "character_tag"
     manual = _MANUAL.get(normalize_mode(mode))
     if manual is not None:
         return manual, "manual"

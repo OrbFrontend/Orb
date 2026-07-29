@@ -487,18 +487,19 @@ async def test_generate_records_the_camera_and_the_lever_that_chose_it(client, m
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
-    # Manual says first-person; the character's pinned camera tag outranks it.
+    # The picker decides. A 'third_person' tag left in the character's appearance
+    # prompt is appearance data now, not a camera override.
     await _trigger(client, "ig-pov-meta", {"action": "set_pov", "pov_mode": "first"})
     events = await _trigger(client, "ig-pov-meta", {"action": "generate", "message_id": mid, "style_id": "anime"})
     assert ("image_gen_done", {"attachment_id": None}) not in events
 
-    assert seen["pov"] == "third_person"
+    assert seen["pov"] == "first_person"
     rows = await get_workflow_attachments_for_message(mid)
     metadata = json.loads(rows[0]["generation_metadata"])
-    assert metadata["pov"] == "third_person"
-    assert metadata["pov_source"] == "character_tag"
+    assert metadata["pov"] == "first_person"
+    assert metadata["pov_source"] == "manual"
     # Also in the display half: generation_metadata is the replay record the UI
     # never reads, and a wrong camera has to be visible on the bad image itself.
     consumption = json.loads(rows[0]["consumption_metadata"])
-    assert consumption["pov"] == "third_person"
-    assert consumption["pov_source"] == "character_tag"
+    assert consumption["pov"] == "first_person"
+    assert consumption["pov_source"] == "manual"
