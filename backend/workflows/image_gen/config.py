@@ -8,6 +8,9 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
+from .pov import DEFAULT_MODE as DEFAULT_POV_MODE
+from .pov import normalize_mode as normalize_pov_mode
+
 WORKFLOW_ID = "image_gen"
 MAX_STYLES = 32
 MAX_USER_GRAPHS = 16
@@ -18,6 +21,7 @@ DEFAULT_PROMPT_FORMAT = "hybrid"
 CONFIG_DEFAULTS = {
     "source": "external_comfy",
     "default_style": "realistic",
+    "pov_mode": DEFAULT_POV_MODE,
     "scene_analysis": False,
     "prompter_reasoning": False,
     "timeout_seconds": 180.0,
@@ -171,6 +175,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     return {
         "source": "external_comfy",
         "default_style": default_style,
+        "pov_mode": normalize_pov_mode(raw.get("pov_mode")),
         "scene_analysis": bool(raw.get("scene_analysis", False)),
         "prompter_reasoning": raw.get("prompter_reasoning") is True,
         "timeout_seconds": min(900.0, max(10.0, timeout)),

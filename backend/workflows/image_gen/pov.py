@@ -8,7 +8,7 @@ written for it alone.
 
 The levers, first hit wins:
 
-1. a manual per-conversation ``pov_mode`` of "first" or "third"
+1. a manual ``pov_mode`` of "first" or "third", from the global workflow config
 2. the local povtense classifier, walking back through recent assistant messages
    while it answers "ambiguous"
 3. ``DEFAULT_POV``
@@ -18,10 +18,7 @@ was a workaround for having no picker; the picker exists now, so the tag is just
 appearance data again.
 
 Nothing here is persisted. "Use the previous message's POV" is served by
-re-classifying the actual previous messages (lever 3), which beats a cached value
-and keeps the whole generation path free of ``workflow_state`` writes -- the
-trigger route holds ``workflow_state_lock`` around the on-demand hook but releases
-it before a streaming response body runs, and ``asyncio.Lock`` is not reentrant.
+re-classifying the actual previous messages (lever 2), which beats a cached value.
 """
 
 from __future__ import annotations
@@ -37,11 +34,11 @@ logger = logging.getLogger(__name__)
 FIRST = "first_person"
 THIRD = "third_person"
 
-# What the user may choose per conversation. "auto" runs the classifier and
+# What the user may choose, globally. "auto" runs the classifier and
 # degrades to DEFAULT_POV when it is not installed or is toggled off. The picker
 # hides "auto" in that state -- it would draw the same camera as the fallback --
-# but the mode stays valid here: a conversation set to auto before the classifier
-# went away keeps it, and gets it back when the classifier returns.
+# but the mode stays valid here: a config set to auto before the classifier went
+# away keeps it, and gets it back when the classifier returns.
 POV_MODES = ("auto", "first", "third")
 DEFAULT_MODE = "auto"
 DEFAULT_POV = THIRD

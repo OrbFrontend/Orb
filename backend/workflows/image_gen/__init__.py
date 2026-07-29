@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..registry import Workflow
 from .composer import ANALYZE_TOOL, COMPOSE_TOOL
 from .config import CONFIG_DEFAULTS, normalize_config
+from .pov import POV_MODES
 
 _CONFIG_SCHEMA = {
     "type": "object",
@@ -15,6 +16,7 @@ _CONFIG_SCHEMA = {
             "title": "Image backend",
         },
         "default_style": {"type": "string", "title": "Default style"},
+        "pov_mode": {"type": "string", "enum": list(POV_MODES), "title": "Camera"},
         "scene_analysis": {"type": "boolean", "title": "Analyze complex scenes"},
         "prompter_reasoning": {"type": "boolean", "title": "Enable prompter thinking"},
         "timeout_seconds": {

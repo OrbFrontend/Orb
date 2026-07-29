@@ -431,44 +431,25 @@ async def test_regenerate_recomposes_under_the_current_style_as_a_sibling(client
 
 
 @pytest.mark.asyncio
-async def test_pov_mode_roundtrips_per_conversation(client):
-    """The camera picker's two actions, over the wire.
-
-    Both run inside the trigger route's ``workflow_state_lock``. Neither may take
-    that lock itself -- ``asyncio.Lock`` is not reentrant, so a second acquisition
-    here would hang the request rather than fail it, which is why this is an
-    end-to-end test and not a unit one.
-    """
+async def test_pov_mode_is_global_config(client):
+    """The camera rides the workflow config, like the style: one setting for every
+    conversation, saved through the same config PUT the style picker uses."""
     await _seed("ig-pov-a")
-    await _seed("ig-pov-b")
+    await client.put("/api/workflows/image_gen/config", json={"config": {**CONFIG, "pov_mode": "first"}})
 
-    initial = (await client.post("/api/conversations/ig-pov-a/workflows/image_gen/trigger", json={"action": "get_pov"})).json()
-    assert initial["pov_mode"] == "auto"
-    # The picker labels "Auto" off these two, so both must be answered whatever the
-    # machine has on disk -- a dev box with the GGUF present reports ready, and an
-    # absent flag would leave the label lying either way.
-    assert isinstance(initial["classifier_ready"], bool)
-    assert initial["fallback_mode"] == pov.DEFAULT_POV_MODE
-
-    set_resp = await client.post(
-        "/api/conversations/ig-pov-a/workflows/image_gen/trigger",
-        json={"action": "set_pov", "pov_mode": "first"},
-    )
-    assert set_resp.json() == {"ok": True, "pov_mode": "first"}
-
-    # Sticks to its own chat: narration POV is a property of the conversation, so
-    # unlike the style picker it must not follow the user into the next one.
-    a = await client.post("/api/conversations/ig-pov-a/workflows/image_gen/trigger", json={"action": "get_pov"})
-    b = await client.post("/api/conversations/ig-pov-b/workflows/image_gen/trigger", json={"action": "get_pov"})
-    assert a.json()["pov_mode"] == "first"
-    assert b.json()["pov_mode"] == "auto"
+    stored = (await client.get("/api/workflows/image_gen/config")).json()["config"]
+    assert stored["pov_mode"] == "first"
 
     # Junk normalizes rather than persisting an unrenderable mode.
-    junk = await client.post(
-        "/api/conversations/ig-pov-a/workflows/image_gen/trigger",
-        json={"action": "set_pov", "pov_mode": "sideways"},
-    )
-    assert junk.json()["pov_mode"] == "auto"
+    await client.put("/api/workflows/image_gen/config", json={"config": {**CONFIG, "pov_mode": "sideways"}})
+    assert (await client.get("/api/workflows/image_gen/config")).json()["config"]["pov_mode"] == "auto"
+
+    # The picker labels "Auto" off these two, so both must be answered whatever
+    # the machine has on disk -- a dev box with the GGUF present reports ready,
+    # and an absent flag would leave the label lying either way.
+    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
+    assert isinstance(status["classifier_ready"], bool)
+    assert status["fallback_mode"] == pov.DEFAULT_POV_MODE
 
 
 @pytest.mark.asyncio
@@ -489,7 +470,7 @@ async def test_generate_records_the_camera_and_the_lever_that_chose_it(client, m
 
     # The picker decides. A 'third_person' tag left in the character's appearance
     # prompt is appearance data now, not a camera override.
-    await _trigger(client, "ig-pov-meta", {"action": "set_pov", "pov_mode": "first"})
+    await set_workflow_config("image_gen", {**CONFIG, "pov_mode": "first"})
     events = await _trigger(client, "ig-pov-meta", {"action": "generate", "message_id": mid, "style_id": "anime"})
     assert ("image_gen_done", {"attachment_id": None}) not in events
 

@@ -11,6 +11,7 @@ const WORKFLOW_ID = "image_gen";
 const config = {
   source: "external_comfy",
   default_style: "realistic",
+  pov_mode: "auto",
   scene_analysis: false,
   prompter_reasoning: false,
   timeout_seconds: 180,

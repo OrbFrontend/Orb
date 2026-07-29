@@ -213,9 +213,9 @@ The camera decides whether the image looks *through* the user's eyes or *at* the
 scene from outside. Orb decides it before it writes the prompt, then gives the
 prompter one set of instructions written for that camera only.
 
-Set it in the **Image Generation** card, next to the style picker. The choice
-belongs to the conversation, not to the app: a chat written in second person keeps
-its camera when you switch to a chat written in third person.
+Set it in the **Image Generation** card, next to the style picker. The choice is
+global, like the style: it applies to every conversation until you change it.
+Leave it on **Auto** if your chats are written in different persons.
 
 | Mode | Result |
 |---|---|

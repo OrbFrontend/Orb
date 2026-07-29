@@ -40,8 +40,10 @@ let checkpointProbeId = 0;
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "settings", () => openSettings());
-  registerAction(WORKFLOW_ID, "pickStyle", (el) => selectDefaultStyle(el.value));
-  registerAction(WORKFLOW_ID, "pickPov", (el) => selectPovMode(el));
+  registerAction(WORKFLOW_ID, "pickStyle", (el) =>
+    saveConfigPatch({ default_style: el.value }, "Could not save default style"),
+  );
+  registerAction(WORKFLOW_ID, "pickPov", (el) => saveConfigPatch({ pov_mode: el.value }, "Could not save the camera"));
   registerAction(WORKFLOW_ID, "editStyle", (el) => openSettings(el.dataset.styleId));
   registerAction(WORKFLOW_ID, "settingsClose", () => closeModal());
   registerAction(WORKFLOW_ID, "test", () => testConnection());
@@ -62,22 +64,13 @@ function query(action, extra) {
   return api.post(`/workflows/${WORKFLOW_ID}/query`, { action, ...extra });
 }
 
-// Trigger actions are conversation-scoped, so the camera picker rides /trigger
-// rather than the conversation-less /query the rest of this card uses.
-function trigger(action, extra) {
-  const cid = getActiveConvId();
-  return cid ? api.post(convUrl(cid, "workflows", WORKFLOW_ID, "trigger"), { action, ...extra }) : null;
-}
-
 // Last readiness answer, so the card renders synchronously from a known value
 // instead of painting empty and filling in later.
 let cardReadiness = { text: "", ready: true };
-// The camera picker's last known state, cached the same way. `convId` is what it
-// was fetched for: the tools panel re-renders on open but not on a conversation
-// switch, so a picker left visible across one must not write to the new chat.
-// The classifier starts assumed-present so the picker never claims it is off on
-// the strength of a probe that has not run yet.
-let cardPov = { mode: "auto", convId: null, classifier: true, fallback: "third" };
+// What the camera picker needs beyond the saved mode, which lives in cfg. Both
+// ride the readiness answer. The classifier starts assumed-present so the picker
+// never claims it is off on the strength of a probe that has not run yet.
+let cardPov = { classifier: true, fallback: "third" };
 // Style list for the card picker, cached the same way. The Visualize button
 // reads its choice from cfg.default_style, so the picker is where a style is
 // chosen once instead of in a modal on every generate.
@@ -111,65 +104,17 @@ function configPanelBody() {
 }
 
 // Which modes exist and which is showing is a pure decision (see povChoices) --
-// the fallback is the backend's, reported by get_pov, not a second copy of the
-// default here.
+// the fallback is the backend's, reported by the status query, not a second copy
+// of the default here.
 function cardPovOptions() {
-  const { modes, selected } = povChoices(cardPov);
+  const { modes, selected } = povChoices({ ...cardPov, mode: cfg?.pov_mode || "auto" });
   return modes
     .map(([id, label]) => `<option value="${escAttr(id)}"${id === selected ? " selected" : ""}>${esc(label)}</option>`)
     .join("");
 }
 
 function povPicker() {
-  return `<label for="ig-card-pov">POV</label><select id="ig-card-pov" class="tool-card-select" data-conv-id="${escAttr(cardPov.convId || "")}" data-wf-action="image_gen:pickPov" data-wf-on="change">${cardPovOptions()}</select>`;
-}
-
-async function selectPovMode(el) {
-  // The panel does not re-render on a conversation switch, so a picker that
-  // outlived one is showing the previous chat's choice. Resync instead of
-  // writing this chat's camera from a value the user never saw for it.
-  const convId = getActiveConvId();
-  if (el.dataset.convId && el.dataset.convId !== convId) {
-    await refreshCardPov();
-    return;
-  }
-  if (!convId) {
-    el.value = povChoices(cardPov).selected;
-    toast("Open a conversation to set its camera", "error");
-    return;
-  }
-  const mode = el.value;
-  cardPov = { ...cardPov, mode, convId };
-  try {
-    await trigger("set_pov", { pov_mode: mode });
-    el.dataset.convId = convId;
-  } catch {
-    toast("Could not save the camera", "error");
-    refreshCardPov();
-  }
-}
-
-// Fetched per conversation, alongside the classifier readiness the label needs.
-// Failure leaves the picker on its cached value rather than blanking the card.
-export async function refreshCardPov() {
-  const convId = getActiveConvId();
-  if (!convId) {
-    cardPov = { ...cardPov, convId: null };
-    refreshCard();
-    return;
-  }
-  try {
-    const state = await trigger("get_pov");
-    cardPov = {
-      mode: state?.pov_mode || "auto",
-      convId,
-      classifier: !!state?.classifier_ready,
-      fallback: state?.fallback_mode || cardPov.fallback,
-    };
-  } catch {
-    cardPov = { ...cardPov, convId };
-  }
-  refreshCard();
+  return `<label for="ig-card-pov">POV</label><select id="ig-card-pov" class="tool-card-select" data-wf-action="image_gen:pickPov" data-wf-on="change">${cardPovOptions()}</select>`;
 }
 
 function refreshCard() {
@@ -178,24 +123,23 @@ function refreshCard() {
 }
 
 export function configPanelRenderer() {
-  // Style and readiness are global and primed at load; the camera is
-  // per-conversation, so it is re-read on every panel open. Fire-and-forget: the
-  // card paints from cache now and patches itself when the answer lands.
-  refreshCardPov();
+  // Style, camera and readiness are all global and primed at load, so the card
+  // paints synchronously from cache.
   return `<div class="tool-card-desc">Generate images on demand with external ComfyUI.</div>
     <div id="ig-card-config">${configPanelBody()}</div>`;
 }
 
-// The card picker is the only place a default style is chosen, so its choice
-// persists — otherwise every reload reopens on the shipped default, which is the
-// hassle the picker exists to remove. The full config round-trips like a Save.
-async function selectDefaultStyle(styleId) {
-  cfg.default_style = styleId;
+// The card pickers are the only place the default style and the camera are
+// chosen, so their choices persist — otherwise every reload reopens on the
+// shipped defaults, which is the hassle the pickers exist to remove. The full
+// config round-trips like a Save.
+async function saveConfigPatch(patch, failure) {
+  Object.assign(cfg, patch);
   try {
-    const res = await api.put(`/workflows/${WORKFLOW_ID}/config`, { config: { ...cfg, default_style: styleId } });
+    const res = await api.put(`/workflows/${WORKFLOW_ID}/config`, { config: { ...cfg, ...patch } });
     if (res?.config) Object.assign(cfg, res.config);
   } catch {
-    toast("Could not save default style", "error");
+    toast(failure, "error");
   }
 }
 
@@ -224,6 +168,8 @@ export async function refreshCardReadiness() {
         ? `Ready — ${status.style_count} style${status.style_count === 1 ? "" : "s"}`
         : status?.detail || "Not configured",
     };
+    // Rides along: what the camera picker needs to label "Auto" honestly.
+    cardPov = { classifier: !!status?.classifier_ready, fallback: status?.fallback_mode || cardPov.fallback };
   } catch {
     cardReadiness = { ready: false, text: "" };
   }
@@ -478,8 +424,9 @@ function readConfig() {
   captureStyles();
   return {
     source: "external_comfy",
-    // Chosen in the tools-panel card now, not here; carry the live value through.
+    // Chosen in the tools-panel card now, not here; carry the live values through.
     default_style: cfg.default_style || draft.styles[0]?.id || "realistic",
+    pov_mode: cfg.pov_mode || "auto",
     scene_analysis: document.getElementById("ig-scene-analysis")?.checked === true,
     prompter_reasoning: document.getElementById("ig-prompter-reasoning")?.checked === true,
     timeout_seconds: Number(document.getElementById("ig-timeout")?.value) || 180,

@@ -26,9 +26,8 @@ export function isLoopbackUrl(apiUrl) {
 }
 
 // Camera modes, mirroring backend pov.POV_MODES. "auto" runs the local POV
-// classifier; the other two pin the camera by hand. Unlike style this is
-// per-conversation: narration POV belongs to the chat, so it must not follow the
-// user out of it.
+// classifier; the other two pin the camera by hand. Global, like the style: it
+// lives in the workflow config, not on a conversation.
 export const POV_MODES = [
   ["auto", "Auto"],
   ["first", "First-person"],
@@ -42,8 +41,8 @@ export const POV_MODES = [
 // options that draw the same shot. Auto is dropped and the fallback shown in its
 // place, which is the camera the next image will actually use.
 //
-// A conversation already set to "auto" keeps that stored value; the coerced
-// selection is display only, and nothing writes until the user picks something.
+// A config already set to "auto" keeps that stored value; the coerced selection
+// is display only, and nothing writes until the user picks something.
 // So installing or re-enabling the classifier brings Auto back, still selected.
 export function povChoices({ classifier, mode, fallback }) {
   if (classifier) return { modes: POV_MODES, selected: mode };
