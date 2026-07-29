@@ -20,6 +20,7 @@ from backend.core import WRITER_TOOL_PREFIX
 from backend.features.extensions import adapters, telemetry
 from backend.features.extensions.runtime import current_state
 from backend.pipeline import handle_regenerate, handle_turn
+from backend.pipeline.passes.writer import MAX_WRITER_TOOL_CALLS_PER_TURN
 from backend.workflows.registry import current_snapshot
 from tests.extension_packages import (
     OUTCOME_RESOLVER_ID,
@@ -201,7 +202,9 @@ async def test_the_selected_schema_and_policy_reach_the_writer(client, llm_mock)
     assert writer["tool_choice"] == "auto"
     tail = writer["messages"][-1]["content"]
     assert f"call ONLY `{WIRE_NAME}`" in tail
-    assert "Call it at most once." in tail
+    # The number the model reads is the constant the loop enforces, not a
+    # second copy of it that can drift.
+    assert f"up to {MAX_WRITER_TOOL_CALLS_PER_TURN} times this turn" in tail
     # Package-authored description and a host-derived parameter list, both
     # inside the fixed block rather than replacing any of it.
     assert "Resolve an uncertain action" in tail
@@ -281,8 +284,9 @@ async def test_a_valid_call_runs_the_flow_and_the_writer_continues(client, llm_m
     calls = _writer_calls(llm_mock)
     assert len(calls) == 2
     assert calls[0]["tool_choice"] == "auto"
-    # The continuation can never call again -- a failed call does not buy a retry.
-    assert calls[1]["tool_choice"] == "none"
+    # Budget remains, so the continuation may still call. It returned prose
+    # instead, which is what ended the loop.
+    assert calls[1]["tool_choice"] == "auto"
 
     # The tool exchange is present in the *request*, and it is protocol-valid.
     tool_msg = next(m for m in calls[1]["messages"] if m.get("role") == "tool")
@@ -370,11 +374,94 @@ async def test_a_rejected_call_executes_nothing_and_still_continues(client, llm_
 
     # Nothing executed: the flow's only observable effect is its state write.
     assert await dbmod.get_workflow_state(cid, OUTCOME_RESOLVER_ID) is None
-    # And the Writer still finished, from one continuation with no tools.
+    # And the Writer still finished, from a continuation that saw the error.
     second = _writer_calls(llm_mock)[1]
-    assert second["tool_choice"] == "none"
     tool_msg = next(m for m in second["messages"] if m.get("role") == "tool")
     assert json.loads(tool_msg["content"])["status"] == "error"
+
+
+async def test_the_writer_can_call_again_after_reacting_to_the_first_result(client, llm_mock):
+    """The interleaved shape: roll, react in prose, roll again.
+
+    The second call is the whole point of the budget -- the model chooses it
+    *after* seeing the first result, which a single batched call cannot express.
+    """
+    await _install(client)
+    cid = await _conversation("conv-wt-interleave")
+    llm_mock.enqueue_writer("She reaches for the latch. ", tool_calls=_call({"action": "pick", "difficulty": 5}, call_id="c1"))
+    llm_mock.enqueue_writer(
+        "The lock gives. She tries the door. ", tool_calls=_call({"action": "shove", "difficulty": 9}, call_id="c2")
+    )
+    llm_mock.enqueue_writer("It swings open.")
+
+    await _drain(handle_turn(cid, "pick the lock"))
+
+    calls = _writer_calls(llm_mock)
+    assert len(calls) == 3
+    assert [c["tool_choice"] for c in calls] == ["auto", "auto", "auto"]
+
+    # Both exchanges are in the final request, in order, each with its own id.
+    final = calls[2]["messages"]
+    assert [m["tool_call_id"] for m in final if m.get("role") == "tool"] == ["c1", "c2"]
+    assert all(json.loads(m["content"])["status"] == "ok" for m in final if m.get("role") == "tool")
+
+    # Each assistant message carries only its own segment. Accumulating into
+    # every message would resend the whole draft once per call.
+    assistant = [m["content"] for m in final if m.get("role") == "assistant"]
+    assert assistant == ["She reaches for the latch. ", "The lock gives. She tries the door. "]
+
+    # ``ctx.draft`` at the second call is everything streamed so far, not just
+    # the segment that preceded it.
+    state = await dbmod.get_workflow_state(cid, OUTCOME_RESOLVER_ID)
+    assert state["draft_at_call"] == "She reaches for the latch. The lock gives. She tries the door. "
+
+
+async def test_the_call_budget_is_a_host_property_not_a_provider_promise(client, llm_mock):
+    """A model that keeps calling gets cut off by the loop, not asked nicely."""
+    telemetry.reset()
+    await _install(client)
+    cid = await _conversation("conv-wt-budget")
+    for n in range(MAX_WRITER_TOOL_CALLS_PER_TURN + 1):
+        llm_mock.enqueue_writer(f"beat {n}. ", tool_calls=_call({"action": "try", "difficulty": 5}, call_id=f"c{n}"))
+    llm_mock.enqueue_writer("never reached")
+
+    await _drain(handle_turn(cid, "try"))
+
+    calls = _writer_calls(llm_mock)
+    # One completion per call, plus the final one that may no longer call.
+    assert len(calls) == MAX_WRITER_TOOL_CALLS_PER_TURN + 1
+    assert calls[-1]["tool_choice"] == "none"
+    executed = [m for m in calls[-1]["messages"] if m.get("role") == "tool"]
+    assert len(executed) == MAX_WRITER_TOOL_CALLS_PER_TURN
+    # The over-budget call came back anyway and was dropped, not executed.
+    stats = telemetry.summary(OUTCOME_RESOLVER_ID)
+    assert stats["writer_tool_invocations"] == MAX_WRITER_TOOL_CALLS_PER_TURN
+
+
+async def test_failed_calls_consume_the_budget(client, llm_mock):
+    """Otherwise a resolver that fails every time bills one completion per
+    attempt for as long as the model keeps trying."""
+    broken = orbext(
+        {
+            "orb-extension.json": outcome_resolver_manifest(),
+            "flows/resolve-outcome.json": {
+                "flow_version": 1,
+                "steps": [{"op": "return", "value": {"outcome": "maybe", "roll": 3}}],
+            },
+        }
+    )
+    await _install(client, package=broken)
+    cid = await _conversation("conv-wt-failbudget")
+    for n in range(MAX_WRITER_TOOL_CALLS_PER_TURN + 2):
+        llm_mock.enqueue_writer(f"try {n}. ", tool_calls=_call({"action": "a", "difficulty": 5}, call_id=f"f{n}"))
+    llm_mock.enqueue_writer("done")
+
+    await _drain(handle_turn(cid, "try"))
+
+    calls = _writer_calls(llm_mock)
+    assert len(calls) == MAX_WRITER_TOOL_CALLS_PER_TURN + 1
+    replies = [json.loads(m["content"]) for m in calls[-1]["messages"] if m.get("role") == "tool"]
+    assert replies == [{"status": "error", "code": "resolver_unavailable"}] * MAX_WRITER_TOOL_CALLS_PER_TURN
 
 
 async def test_multiple_calls_in_one_message_execute_nothing(client, llm_mock):

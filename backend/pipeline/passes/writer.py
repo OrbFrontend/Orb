@@ -7,10 +7,11 @@ and a host instruction telling the model not to call anything. That path is
 byte-identical to what it was before Writer tools existed, and every install
 without a selected v2 resolver takes it.
 
-With one active Writer tool it becomes a bounded ReAct loop: at most one
-successful tool call, then one continuation with ``tool_choice="none"``, and
-never a third completion. Three rules make that safe rather than merely
-limited:
+With one active Writer tool it becomes a bounded ReAct loop: up to
+``MAX_WRITER_TOOL_CALLS_PER_TURN`` calls, each answered and followed by another
+completion the model can react in, and a final completion with
+``tool_choice="none"`` once the budget is spent. Three rules make that safe
+rather than merely limited:
 
 * **Only standard structured ``tool_calls`` count.** The generic
   ``parse_tool_calls`` content-body fallbacks are useful for a forced,
@@ -21,9 +22,14 @@ limited:
   improves tool choice. What Orb *executes* is checked against the one binding
   this turn published a schema for.
 * **Every failure still lets the Writer finish.** An unknown call, a bad
-  argument, or an extension error becomes a fixed error result and one no-tools
-  continuation -- so the model completes the reply rather than inventing a
+  argument, or an extension error becomes a fixed error result and another
+  completion -- so the model completes the reply rather than inventing a
   successful resolution or leaving a half-written scene.
+
+The budget is charged per *iteration that returned calls*, not per successful
+resolution. A failed call therefore costs the same as a good one, which is what
+keeps a broken resolver to a fixed worst case instead of letting an
+error-and-retry cycle bill the user for one completion per attempt.
 """
 
 from __future__ import annotations
@@ -59,13 +65,24 @@ logger = logging.getLogger(__name__)
 
 NO_TOOLS_NUDGE = "**Do not use tool or function calls this turn.**\n\n"
 
+MAX_WRITER_TOOL_CALLS_PER_TURN = 3
+"""How many times one Writer turn may call its active tool.
+
+A per-turn ceiling rather than a per-call retry rule: each call costs a full
+completion the user waits through, so the worst case has to be a number, and
+the number has to be small enough that a resolver failing on every attempt is
+an annoyance rather than a bill. Charged per iteration that returned calls --
+see the module docstring.
+"""
+
 WRITER_TOOL_POLICY = """[OOC: Writer tool policy for this turn.
 You may write normally or call ONLY `{name}`.
 {purpose}Call it only when the uncertain action described by the tool should be
 resolved before you decide what happens.
-Call it at most once. Never call Director or Editor tools.
-If you call it, pause at the current point. After Orb returns the result,
-continue from that exact point without repeating prior prose.
+You may call it up to {budget} times this turn, one call per message. Never
+call Director or Editor tools.
+Each time you call it, pause at the current point. After Orb returns the
+result, continue from that exact point without repeating prior prose.
 ]
 
 """
@@ -73,7 +90,10 @@ continue from that exact point without repeating prior prose.
 holes: the derived tool name and a bounded purpose line built from the
 package's description and a schema-derived parameter list. The authority,
 exclusivity, call budget, and continuation wording are fixed Orb text -- a
-package that could rewrite those would be writing the rule it is bound by.
+package that could rewrite those would be writing the rule it is bound by. The
+budget is interpolated from the host constant for the same reason: a number the
+model reads and a number the loop enforces that could disagree is worse than
+either alone.
 
 The prompt is not the security boundary. It is expected to improve tool choice,
 especially in single-model mode where the shared base also carries the agent's
@@ -91,7 +111,11 @@ def writer_tool_block(policy: WriterToolPolicy) -> str:
         purpose = f"What it does: {policy.description}\n"
     if policy.parameter_summary:
         purpose += f"It takes: {policy.parameter_summary}\n"
-    return WRITER_TOOL_POLICY.format(name=policy.wire_name, purpose=purpose)
+    return WRITER_TOOL_POLICY.format(
+        name=policy.wire_name,
+        purpose=purpose,
+        budget=MAX_WRITER_TOOL_CALLS_PER_TURN,
+    )
 
 
 def build_writer_content(
@@ -247,6 +271,10 @@ async def writer_pass(
     pass may replay. It is always emitted, and for a turn with no tool call it
     is exactly the ``user request + assistant draft`` pair the pipeline built
     before this loop existed.
+
+    Each iteration re-sends the same shared prefix and a *growing* trailing
+    transcript, so the cache extends rather than forking: the cost of a second
+    call is the tokens the first exchange added, not a fresh prefill.
     """
     active = policy is not None and policy.active
     trailing: list[WireMessage] = [{"role": "user", "content": content}]
@@ -258,54 +286,92 @@ async def writer_pass(
     )
 
     prose = ""
-    message: dict = {}
-    async for item in _complete(
-        client,
-        base,
-        trailing,
-        # ``auto`` only when something is actually callable. Otherwise the
-        # historical behavior exactly: no tools means no ``tool_choice``, and a
-        # shared blob the Writer may not touch means ``"none"``.
-        tool_choice="auto" if active else ("none" if base.tools else None),
-        kv_tracker=kv_tracker,
-        reasoning_on=reasoning_on,
-        reasoning_prefill=reasoning_prefill,
-        hyperparams=hyperparams,
-    ):
-        if item["type"] == "done":
-            message = item["message"]
-            break
-        if item["type"] == "content":
-            prose += item["delta"]
-        yield item
+    calls_made = 0
+    while True:
+        callable_now = active and calls_made < MAX_WRITER_TOOL_CALLS_PER_TURN
+        segment = ""
+        message: dict = {}
+        async for item in _complete(
+            client,
+            base,
+            trailing,
+            # ``auto`` only while budget remains. Otherwise the historical
+            # behavior exactly: no tools means no ``tool_choice``, and a shared
+            # blob the Writer may not touch means ``"none"``.
+            tool_choice="auto" if callable_now else ("none" if base.tools else None),
+            kv_tracker=kv_tracker,
+            reasoning_on=reasoning_on,
+            reasoning_prefill=reasoning_prefill,
+            hyperparams=hyperparams,
+        ):
+            if item["type"] == "done":
+                message = item["message"]
+                break
+            if item["type"] == "content":
+                segment += item["delta"]
+            yield item
+        prose += segment
 
-    calls = standard_tool_calls(message) if active else []
-    if not calls:
-        yield {"type": "trace", "messages": [*trailing, {"role": "assistant", "content": prose}], "used_tool": False}
-        return
+        calls = standard_tool_calls(message) if callable_now else []
+        if not calls:
+            if standard_tool_calls(message):
+                # A provider that ignored ``tool_choice="none"``. Execute
+                # nothing, keep whatever ordinary prose came with it, and never
+                # extend the loop -- the budget is a host property, not a
+                # provider promise.
+                logger.warning("Writer returned a tool call with no budget left; ignoring it")
+            trailing.append({"role": "assistant", "content": segment})
+            # A failed or refused call still warmed this exact transcript.
+            # Downstream replay is about protocol shape and KV continuity, not
+            # whether the extension returned success.
+            yield {"type": "trace", "messages": list(trailing), "used_tool": calls_made > 0}
+            return
 
-    assert policy is not None and policy.binding is not None
-    async for item in _resolve_and_continue(
-        client,
-        base,
-        trailing,
-        calls,
-        prose=prose,
-        policy=policy,
-        settings=settings,
-        kv_tracker=kv_tracker,
-        reasoning_on=reasoning_on,
-        reasoning_prefill=reasoning_prefill,
-        hyperparams=hyperparams,
-        conversation_id=conversation_id,
-        turn_seed=turn_seed,
-        card=card,
-        character_id=character_id,
-        history=history,
-        effective_msg=effective_msg,
-        direction=direction,
-    ):
-        yield item
+        assert policy is not None and policy.binding is not None
+        answered: dict = {}
+        async for item in _answer_calls(
+            calls,
+            prose=prose,
+            policy=policy,
+            settings=settings,
+            client=client,
+            conversation_id=conversation_id,
+            turn_seed=turn_seed,
+            card=card,
+            character_id=character_id,
+            history=history,
+            effective_msg=effective_msg,
+            direction=direction,
+        ):
+            if item["type"] == "answered":
+                answered = item
+                break
+            yield item
+
+        if answered.get("aborted"):
+            return
+        if answered.get("recover_clean"):
+            # Unanswerable: a tool result must carry the provider's own id, and
+            # inventing one would claim a call the provider never made. Drop the
+            # whole exchange and finish from the accumulated prose instead.
+            async for item in _continue_clean(
+                client,
+                base,
+                trailing[0],
+                prose,
+                kv_tracker=kv_tracker,
+                reasoning_on=reasoning_on,
+                reasoning_prefill=reasoning_prefill,
+                hyperparams=hyperparams,
+            ):
+                yield item
+            return
+
+        # The assistant message carries only *this* iteration's prose. Appending
+        # the accumulation would repeat every earlier segment once per call.
+        trailing.append(_assistant_message(segment, calls))
+        trailing.extend(answered["replies"])
+        calls_made += 1
 
 
 def _complete(
@@ -330,19 +396,13 @@ def _complete(
     )
 
 
-async def _resolve_and_continue(
-    client: LLMClient,
-    base: CachedBase,
-    trailing: list[WireMessage],
+async def _answer_calls(
     calls: Sequence[Mapping[str, Any]],
     *,
     prose: str,
     policy: WriterToolPolicy,
     settings: Mapping[str, Any],
-    kv_tracker,
-    reasoning_on: bool,
-    reasoning_prefill: str,
-    hyperparams: Mapping[str, Any],
+    client: LLMClient,
     conversation_id: str | None,
     turn_seed: str,
     card: Mapping[str, Any] | None,
@@ -351,20 +411,26 @@ async def _resolve_and_continue(
     effective_msg: str,
     direction: Mapping[str, Any] | None,
 ) -> AsyncIterator[dict]:
-    """Answer the assistant's calls, then run exactly one continuation.
+    """Answer one iteration's calls, yielding progress then a terminal verdict.
 
     "Answer" covers refusal: every standard call gets a tool-role reply so the
     transcript stays protocol-valid, and only a single call to the captured wire
     name with a usable id and valid arguments actually executes anything.
+
+    Yields ``tool_status`` events while work runs, then exactly one
+    ``{"type": "answered", ...}`` the caller consumes and does not forward --
+    the same shape :func:`_complete` uses for ``done``. The caller owns every
+    completion, so this function issues none and the loop stays in one place.
     """
     binding = policy.binding
     assert binding is not None
 
     replies: list[WireMessage] = []
 
-    # Multiple calls execute nothing. Not a budget check -- a budget would
-    # execute the first and refuse the rest, and "the model asked for two
-    # resolutions" is not a request whose first half is meaningful.
+    # Multiple calls in one message execute nothing. Not the per-turn budget,
+    # which counts messages and lets the model call again after seeing a result:
+    # this refuses a single message asking for two resolutions at once, because
+    # that is not a request whose first half is meaningful.
     only = calls[0] if len(calls) == 1 else None
     if only is None:
         logger.warning("Writer returned %d tool calls in one message; executing none", len(calls))
@@ -374,20 +440,11 @@ async def _resolve_and_continue(
         name = str(call.get("function", {}).get("name", ""))
         if not valid_call_id(call_id):
             # Unanswerable: a tool result must carry the provider's own id, and
-            # inventing one would claim a call the provider never made. Fall
-            # through to the clean recovery branch below.
+            # inventing one would claim a call the provider never made. The
+            # caller recovers from a clean branch; nothing already staged in
+            # ``replies`` is usable once one call in the message is unanswerable.
             logger.warning("Writer tool call has an unusable id; recovering without a tool exchange")
-            async for item in _continue_clean(
-                client,
-                base,
-                trailing,
-                prose,
-                kv_tracker=kv_tracker,
-                reasoning_on=reasoning_on,
-                reasoning_prefill=reasoning_prefill,
-                hyperparams=hyperparams,
-            ):
-                yield item
+            yield {"type": "answered", "replies": [], "aborted": False, "recover_clean": True}
             return
         if call is not only or name != policy.wire_name:
             replies.append(_tool_result(call_id, writer_tool_error(TOOL_NOT_AVAILABLE)))
@@ -432,10 +489,11 @@ async def _resolve_and_continue(
             # Cancellation is a turn-level stop, not a resolver result. The
             # binding cannot expose its feature-local FlowCancelled type across
             # the layer boundary, so the shared abort token is the neutral
-            # contract: once set, do not start the continuation completion.
+            # contract: once set, run no further completion and end the loop.
             if client.is_aborted:
                 logger.info("Writer tool %r cancelled with the owning turn", policy.wire_name)
                 yield {"type": "tool_status", "running": False, "label": policy.label}
+                yield {"type": "answered", "replies": [], "aborted": True, "recover_clean": False}
                 return
             # Timeout, revoked permission, invalid output, and a sanitized flow
             # error all become one fixed code.
@@ -448,48 +506,13 @@ async def _resolve_and_continue(
             replies.append(_tool_result(call_id, writer_tool_ok(result.value)))
         yield {"type": "tool_status", "running": False, "label": policy.label}
 
-    trailing.append(_assistant_message(prose, calls))
-    trailing.extend(replies)
-
-    continuation = ""
-    message: dict = {}
-    async for item in _complete(
-        client,
-        base,
-        trailing,
-        # Never ``auto`` again. One successful call per turn, and a failed one
-        # does not buy a retry -- a model that could retry after an error would
-        # turn a broken resolver into a loop the user pays for.
-        tool_choice="none",
-        kv_tracker=kv_tracker,
-        reasoning_on=reasoning_on,
-        reasoning_prefill=reasoning_prefill,
-        hyperparams=hyperparams,
-    ):
-        if item["type"] == "done":
-            message = item["message"]
-            break
-        if item["type"] == "content":
-            continuation += item["delta"]
-        yield item
-
-    if standard_tool_calls(message):
-        # A provider that ignored ``tool_choice="none"``. Execute nothing, keep
-        # whatever ordinary prose came with it, and never issue a third
-        # completion -- the budget is a host property, not a provider promise.
-        logger.warning("Writer returned a tool call despite tool_choice='none'; ignoring it")
-
-    trailing.append({"role": "assistant", "content": continuation})
-    # A failed or refused call with a usable id still warmed this exact
-    # assistant/tool/continuation transcript. Downstream replay is about protocol
-    # shape and KV continuity, not whether the extension returned success.
-    yield {"type": "trace", "messages": list(trailing), "used_tool": True}
+    yield {"type": "answered", "replies": replies, "aborted": False, "recover_clean": False}
 
 
 async def _continue_clean(
     client: LLMClient,
     base: CachedBase,
-    trailing: list[WireMessage],
+    request: WireMessage,
     prose: str,
     *,
     kv_tracker,
@@ -503,9 +526,14 @@ async def _continue_clean(
     unusable assistant message is dropped and the accumulated prose is replayed
     as an ordinary assistant turn, so the transcript Orb sends is one it could
     have produced without any tool at all.
+
+    It takes the original *request* rather than the loop's accumulated trailing
+    for that same reason: by iteration two the trailing holds earlier
+    assistant/tool exchanges whose prose is already inside *prose*, and
+    replaying both would send every earlier segment twice.
     """
     branch: list[WireMessage] = [
-        *trailing,
+        request,
         {"role": "assistant", "content": prose},
         {"role": "user", "content": CONTINUE_WITHOUT_TOOLS},
     ]
@@ -530,7 +558,7 @@ async def _continue_clean(
     # use and carries only the request and the finished prose.
     yield {
         "type": "trace",
-        "messages": [*trailing, {"role": "assistant", "content": prose + continuation}],
+        "messages": [request, {"role": "assistant", "content": prose + continuation}],
         "used_tool": False,
     }
 

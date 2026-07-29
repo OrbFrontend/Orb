@@ -20,6 +20,7 @@ from backend.pipeline.config import (
     _union_tool_schemas,
 )
 from backend.pipeline.passes.writer import (
+    MAX_WRITER_TOOL_CALLS_PER_TURN,
     build_writer_content,
     standard_tool_calls,
     writer_pass,
@@ -113,7 +114,8 @@ def test_no_active_tool_renders_no_policy_block():
 def test_the_policy_block_is_fixed_text_with_two_package_influenced_holes():
     block = writer_tool_block(_policy())
     assert f"call ONLY `{WIRE}`" in block
-    assert "Call it at most once. Never call Director or Editor tools." in block
+    assert f"up to {MAX_WRITER_TOOL_CALLS_PER_TURN} times this turn" in block
+    assert "Never\ncall Director or Editor tools." in block
     assert "continue from that exact point without repeating prior prose" in block
     assert "What it does: Resolve an uncertain action." in block
     assert "It takes: action (required), stakes" in block

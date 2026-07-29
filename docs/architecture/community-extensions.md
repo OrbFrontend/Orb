@@ -877,40 +877,56 @@ host-authored block follows the effective user request:
 You may write normally or call ONLY `orb_writer_…`.
 Call it only when the uncertain action described by the tool should be
 resolved before you decide what happens.
-Call it at most once. Never call Director or Editor tools.
-If you call it, pause at the current point. After Orb returns the result,
-continue from that exact point without repeating prior prose.
+You may call it up to 3 times this turn, one call per message. Never
+call Director or Editor tools.
+Each time you call it, pause at the current point. After Orb returns the
+result, continue from that exact point without repeating prior prose.
 ]
 ```
 
 The authority, exclusivity, call budget, and continuation wording are fixed Orb
 text; the two package-influenced holes are the bounded description and a
-schema-derived parameter summary. The block is the semantic tail even with
+schema-derived parameter summary. The budget number is interpolated from
+`MAX_WRITER_TOOL_CALLS_PER_TURN`, so the number the model reads and the number
+the loop enforces cannot drift apart. The block is the semantic tail even with
 attachments — content parts are built so the policy is the final text part after
 the image parts. The prompt is not the security boundary; the captured
 `active_writer_tool` is.
 
-**The loop.** One initial call with `tool_choice="auto"`. If the terminal
+**The loop.** Up to `MAX_WRITER_TOOL_CALLS_PER_TURN` (3) iterations, each one
+completion. While budget remains the request goes out with
+`tool_choice="auto"`; once it is spent, `tool_choice="none"`. If the terminal
 message has no *standard structured* `tool_calls`, the accumulated prose is the
 draft and the turn ends — content-encoded fallbacks are deliberately not parsed
 here, because reinterpreting narrative JSON as a call is unsafe once prose has
 streamed. For exactly one standard call to the captured wire name: validate call
 id, name, argument JSON, schema, and byte limits; compute `ctx.draft` from all
-prose emitted before the call; invoke the captured binding with cancellation and
-live grant re-checks; validate the return against the compiled output schema;
-append the sanitized assistant message and one tool-role message carrying
-`{"status": "ok", "result": {…}}`; continue once with `tool_choice="none"`.
-Never a third completion.
+prose emitted *so far this turn*, across every prior iteration; invoke the
+captured binding with cancellation and live grant re-checks; validate the return
+against the compiled output schema; append the sanitized assistant message
+carrying only that iteration's prose and one tool-role message holding
+`{"status": "ok", "result": {…}}`; then iterate. A call returned with no budget
+left is dropped and logged — the budget is a host property, not a provider
+promise.
 
-Multiple calls, unselected or unknown names, and stale bindings execute nothing;
-the host appends one fixed error result per call id so the transcript stays
-protocol-valid, then makes the same single no-tools continuation. A call with an
-unusable id recovers from a clean trailing branch (accumulated prose plus a
-fixed host "continue without tools" request) rather than fabricating a provider
-call id. Extension failures — timeout, revocation, invalid output, sanitized
-`FlowError` — become `{"status": "error", "code": "resolver_unavailable"}`; the
-Writer never sees internal exception text. User cancellation is the exception:
-no tool result, no continuation.
+The budget is charged per *iteration that returned calls*, not per successful
+resolution, so a resolver failing on every attempt costs a fixed three
+completions rather than one per retry. Each iteration re-sends the same shared
+prefix and a longer trailing transcript, so the cache extends instead of
+forking; the marginal cost of a second call is the tokens the first exchange
+added.
+
+Multiple calls in one message, unselected or unknown names, and stale bindings
+execute nothing; the host appends one fixed error result per call id so the
+transcript stays protocol-valid, then continues the loop. A call with an
+unusable id ends the loop and recovers from a clean branch (the original request,
+all accumulated prose, and a fixed host "continue without tools" message) rather
+than fabricating a provider call id — that branch rebuilds from the request
+precisely because the loop's own trailing already contains earlier prose.
+Extension failures — timeout, revocation, invalid output, sanitized `FlowError`
+— become `{"status": "error", "code": "resolver_unavailable"}`; the Writer never
+sees internal exception text. User cancellation is the exception: no tool result,
+no further completion.
 
 **Flow context.** `writer_tool` allows pure operations, `return`, namespaced
 `state.*` for config, conversation, and character, `model.*`, and
