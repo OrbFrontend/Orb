@@ -271,7 +271,7 @@ def assert_json_bounds(value: Any, *, what: str, depth: int = 0) -> Any:
         for key, item in value.items():
             if not isinstance(key, str):
                 raise FlowError(f"{what} has a non-string object key")
-            if len(key.encode("utf-8")) > MAX_JSON_STRING_BYTES:
+            if _utf8_size(key, what=what) > MAX_JSON_STRING_BYTES:
                 raise FlowError(f"{what} has an object key over the {MAX_JSON_STRING_BYTES} byte string limit")
             assert_json_bounds(item, what=what, depth=depth + 1)
     elif isinstance(value, (list, tuple)):
@@ -280,7 +280,7 @@ def assert_json_bounds(value: Any, *, what: str, depth: int = 0) -> Any:
         for item in value:
             assert_json_bounds(item, what=what, depth=depth + 1)
     elif isinstance(value, str):
-        if len(value.encode("utf-8")) > MAX_JSON_STRING_BYTES:
+        if _utf8_size(value, what=what) > MAX_JSON_STRING_BYTES:
             raise FlowError(f"{what} contains a string over the {MAX_JSON_STRING_BYTES} byte limit")
     elif isinstance(value, float):
         if not math.isfinite(value):
@@ -288,6 +288,13 @@ def assert_json_bounds(value: Any, *, what: str, depth: int = 0) -> Any:
     elif not isinstance(value, (int, bool)) and value is not None:
         raise FlowError(f"{what} contains an unsupported value")
     return value
+
+
+def _utf8_size(value: str, *, what: str) -> int:
+    try:
+        return len(value.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise FlowError(f"{what} contains invalid Unicode") from None
 
 
 def sequence_or_empty(value: Any) -> Sequence[Any]:

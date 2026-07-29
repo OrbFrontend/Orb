@@ -210,6 +210,20 @@ def test_a_capability_behind_an_unsatisfiable_predicate_still_counts():
         compile_bytes(orbext({"orb-extension.json": declared, "flows/go.json": flow}))
 
 
+def test_persona_is_a_view_resource_not_a_flow_context_field():
+    flow = {
+        "flow_version": 1,
+        "steps": [{"op": "return", "value": {"$ref": "ctx.persona.name"}}],
+    }
+    declared = manifest(
+        requires={"operations": ["return"], "components": []},
+        permissions=[{"capability": "context.read", "field": "persona"}],
+        actions={"go": {"flow": "flows/go.json"}},
+    )
+    with pytest.raises(PackageValidationError, match=r"ctx\.persona.*resource"):
+        compile_bytes(orbext({"orb-extension.json": declared, "flows/go.json": flow}))
+
+
 def test_rejects_an_undeclared_secret_reference():
     flow = {
         "flow_version": 1,

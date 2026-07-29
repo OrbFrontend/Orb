@@ -862,7 +862,6 @@ async def _invoke(
                     # state. An over-budget result is a failed invocation, not a
                     # successful state transaction followed by a transport error.
                     writer_tool_output_bytes = _assert_encoded_writer_result(result.value)
-                _validate_staged_effects(invocation, result)
                 await _commit_staged(compiled, invocation, access, result)
                 outcome = "ok"
                 yield result

@@ -20,6 +20,7 @@ import asyncio
 
 import pytest
 
+from backend.features.extensions import network
 from backend.features.extensions.errors import FlowError
 from backend.features.extensions.limits import (
     MAX_HTTP_REQUEST_BODY_BYTES,
@@ -77,6 +78,10 @@ def test_parse_url_normalizes_and_keeps_the_query():
         ("https://example.com:99999/x", "port"),
         ("https://exa mple.com/x", "whitespace or control"),
         ("https://example.com/\x00", "whitespace or control"),
+        ("http://2130706433/x", "non-canonical numeric"),
+        ("http://127.1/x", "non-canonical numeric"),
+        ("http://0177.0.0.1/x", "non-canonical numeric"),
+        ("http://0x7f.0.0.1/x", "non-canonical numeric"),
     ],
 )
 def test_hostile_urls_are_refused_with_their_own_reason(url, reason):
@@ -159,6 +164,31 @@ async def test_an_explicit_local_http_origin_may_resolve_to_loopback(monkeypatch
 
     monkeypatch.setattr(loop, "getaddrinfo", local)
     assert await resolve_destination(parse_url("http://localhost/render")) == "127.0.0.1"
+
+
+async def test_request_deadline_bounds_the_whole_hop(monkeypatch):
+    async def no_secrets():
+        return {}
+
+    service = HttpService(
+        "deadline-test",
+        origins=lambda: frozenset({"https://example.com"}),
+        secrets=no_secrets,
+    )
+
+    async def stalled(*_args, **_kwargs):
+        await asyncio.sleep(1)
+
+    monkeypatch.setattr(network, "HTTP_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(service, "_one_hop", stalled)
+    with pytest.raises(FlowError, match="second budget"):
+        await service.request(
+            method="GET",
+            url="https://example.com",
+            headers={},
+            body=None,
+            response_kind="text",
+        )
 
 
 # ── secrets ─────────────────────────────────────────────────────────────────

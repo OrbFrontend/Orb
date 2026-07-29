@@ -190,7 +190,7 @@ export function evaluatePredicate(node, namespaces) {
 const _drafts = new Map();
 
 function draftKey(ctx) {
-  return `${ctx.extensionId} ${ctx.digest || ""} ${ctx.viewId} ${ctx.instanceId || "0"}`;
+  return `${ctx.extensionId}\u0000${ctx.digest || ""}\u0000${ctx.viewId}\u0000${ctx.instanceId || "0"}`;
 }
 
 function draftFor(ctx) {
@@ -207,7 +207,7 @@ function draftFor(ctx) {
 export function disposeStaleDrafts(liveDigests) {
   const live = new Set(liveDigests);
   for (const key of [..._drafts.keys()]) {
-    const digest = key.split(" ")[1];
+    const digest = key.split("\u0000")[1];
     if (digest && !live.has(digest)) _drafts.delete(key);
   }
 }
@@ -358,7 +358,7 @@ const COMPONENTS = {
     // Tab selection is host-owned ephemeral renderer state: switching tabs is a
     // repaint, never a backend round trip and never a state write.
     const draft = scope.draft;
-    const stateKey = ` tab:${node.tabs?.map((t) => t.id).join(",")}`;
+    const stateKey = `\u0000tab:${node.tabs?.map((t) => t.id).join(",")}`;
     const select = (id) => {
       draft[stateKey] = id;
       for (const button of strip.children) button.classList.toggle("active", button.dataset.xcTab === id);
@@ -728,7 +728,7 @@ function buildTree(nodes, activePath, selectAction, scope, showPreviews) {
       const row = el("div", cls("xc-tree-row", active.has(node.id) ? "xc-tree-active" : ""));
       row.style.setProperty("--xc-depth", String(Math.min(depth, 24)));
       const kids = children.get(node.id) || [];
-      const key = ` collapsed:${node.id}`;
+      const key = `\u0000collapsed:${node.id}`;
       if (kids.length) {
         const toggle = el("button", "xc-tree-toggle", collapsed[key] ? "▸" : "▾");
         toggle.type = "button";

@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import re
 import socket
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -66,6 +67,7 @@ SECRET_KEY = "$secret"
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 _BODYLESS_METHODS = frozenset({"GET", "DELETE"})
+_NUMERIC_HOST_PART = re.compile(r"(?:0[xX][0-9a-fA-F]+|[0-9]+)\Z")
 
 MAX_HEADER_VALUE_BYTES = 4096
 """One request header value, after secret substitution.
@@ -152,6 +154,8 @@ def parse_url(raw: Any, *, what: str = "the request URL") -> Destination:
         raise FlowError(f"{what} has a port outside 1-65535")
     if "*" in host:
         raise FlowError(f"{what} uses a wildcard host")
+    if _looks_like_noncanonical_ipv4(host):
+        raise FlowError(f"{what} uses a non-canonical numeric IP address")
 
     origin = canonical_origin(parts.scheme, host, port)
     # Rebuild rather than pass the string through: the URL that reaches httpx is
@@ -165,6 +169,25 @@ def parse_url(raw: Any, *, what: str = "the request URL") -> Destination:
         origin=origin,
         url=normalized,
     )
+
+
+def _looks_like_noncanonical_ipv4(host: str) -> bool:
+    """Reject legacy inet spellings such as ``2130706433`` and ``127.1``.
+
+    System resolvers still accept decimal, octal, hexadecimal, and shortened
+    IPv4 forms. Treating one as an unqualified LAN hostname would grant it local
+    authority even though the consent screen did not visibly show an address.
+    Canonical dotted IPv4 is accepted by :mod:`ipaddress` and returns early.
+    """
+    candidate = host.rstrip(".")
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        pass
+    else:
+        return False
+    parts = candidate.split(".")
+    return bool(parts) and all(_NUMERIC_HOST_PART.fullmatch(part) for part in parts)
 
 
 def granted_origins(grants: Iterable[tuple[str, str | None]]) -> frozenset[str]:
@@ -496,14 +519,18 @@ class HttpService:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise FlowError(f"the request exceeded its {HTTP_TIMEOUT_SECONDS:.0f} second budget")
-                status, location, data, media_type = await self._one_hop(
-                    client,
-                    method=method,
-                    destination=destination,
-                    headers=request_headers,
-                    payload=payload,
-                    remaining=remaining,
-                )
+                try:
+                    async with asyncio.timeout(remaining):
+                        status, location, data, media_type = await self._one_hop(
+                            client,
+                            method=method,
+                            destination=destination,
+                            headers=request_headers,
+                            payload=payload,
+                            remaining=remaining,
+                        )
+                except TimeoutError:
+                    raise FlowError(f"the request exceeded its {HTTP_TIMEOUT_SECONDS:.0f} second budget") from None
                 if location is None:
                     return self._decode(status, data, media_type, response_kind, secrets)
                 if hop >= MAX_HTTP_REDIRECTS:

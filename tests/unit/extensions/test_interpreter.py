@@ -35,6 +35,7 @@ from backend.features.extensions.limits import (
 )
 from backend.features.extensions.values import (
     MISSING,
+    assert_json_bounds,
     evaluate_predicate,
     render_template,
     resolve_path,
@@ -113,6 +114,11 @@ def test_a_missing_path_resolves_to_the_sentinel_not_to_none():
     namespaces = {"ctx": {"draft": None}}
     assert resolve_path(namespaces, "ctx.draft") is None
     assert resolve_path(namespaces, "ctx.nope") is MISSING
+
+
+def test_runtime_values_reject_invalid_unicode_cleanly():
+    with pytest.raises(FlowError, match="invalid Unicode"):
+        assert_json_bounds({"result": "\ud800"}, what="model output")
 
 
 def test_resolution_walks_mappings_and_indices_but_never_attributes():

@@ -67,6 +67,12 @@ def test_invalid_utf8_is_rejected():
         _load(b'{"x": "\xff\xfe"}')
 
 
+@pytest.mark.parametrize("raw", [b'{"x": "\\ud800"}', '{"x": "\udfff"}'])
+def test_lone_unicode_surrogates_are_rejected_cleanly(raw):
+    with pytest.raises(PackageParseError, match="invalid Unicode"):
+        _load(raw)
+
+
 def test_utf8_bom_is_rejected():
     # A BOM makes two byte-different files carry the same parsed value, which
     # would let one digest describe two contents.

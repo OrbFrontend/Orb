@@ -113,9 +113,17 @@ def _walk_limits(value: Any, *, what: str) -> None:
                 raise PackageLimitExceeded(f"{what}: array has {len(node)} members, limit is {MAX_JSON_MEMBERS}")
             stack.extend(node)
         elif isinstance(node, str):
-            size = len(node.encode("utf-8"))
+            size = _utf8_size(node, what=what)
             if size > MAX_JSON_STRING_BYTES:
                 raise PackageLimitExceeded(f"{what}: string value is {size} bytes, limit is {MAX_JSON_STRING_BYTES}")
+
+
+def _utf8_size(value: str, *, what: str) -> int:
+    """Measure a JSON string while rejecting lone surrogate code points."""
+    try:
+        return len(value.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise PackageParseError(f"{what}: string contains invalid Unicode") from None
 
 
 def decode_text(data: bytes, *, what: str, max_bytes: int) -> str:
@@ -143,7 +151,7 @@ def load_json(data: bytes | str, *, what: str, max_bytes: int) -> Any:
     the manifest and an asset do not share one.
     """
     text = decode_text(data, what=what, max_bytes=max_bytes) if isinstance(data, bytes) else data
-    if isinstance(data, str) and len(text.encode("utf-8")) > max_bytes:
+    if isinstance(data, str) and _utf8_size(text, what=what) > max_bytes:
         raise PackageLimitExceeded(f"{what}: exceeds the limit of {max_bytes} bytes")
 
     _scan_depth(text, what=what)

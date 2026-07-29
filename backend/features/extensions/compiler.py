@@ -611,6 +611,10 @@ def _context_requirement(path: str) -> Requirement | None:
     segments = path.split(".")
     if segments[0] != "ctx" or len(segments) < 2 or segments[1] not in CTX_FIELDS:
         return None
+    if segments[1] == "persona":
+        raise PackageValidationError(
+            "'ctx.persona' is not available to flows; declare the 'persona' host resource on a view instead"
+        )
     return (Capability.CONTEXT_READ.value, segments[1])
 
 
