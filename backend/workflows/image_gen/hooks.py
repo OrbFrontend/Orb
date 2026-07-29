@@ -240,6 +240,9 @@ async def _generate_fresh(
         profile_owner_name=profile_owner_name,
         extra_instructions=str(selected_style.get("extra_instructions") or ""),
         supports_negative=graph_has_negative(config, selected_style["workflow"]),
+        style_prompt=str(selected_style.get("prompt") or ""),
+        style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
+        profile_negative_prompt=str(profile.get("negative_prompt") or ""),
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()

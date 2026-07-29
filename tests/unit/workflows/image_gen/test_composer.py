@@ -47,6 +47,7 @@ def test_render_scene_hides_face_for_turned_away_character():
                     "name": "Malina",
                     "action": "flying away",
                     "face_visible": False,
+                    "face_view": "back view",
                     "expression": "annoyed",
                     "gaze": "looking ahead",
                 }
@@ -55,7 +56,7 @@ def test_render_scene_hides_face_for_turned_away_character():
         THIRD,
     )
     line = block.splitlines()[1]
-    assert line == "Malina: from behind, facing away, flying away, gaze: looking ahead"
+    assert line == "Malina: back view, flying away, gaze: looking ahead"
     assert "expression" not in line  # no expression readable off the back of a head
 
 
@@ -250,6 +251,13 @@ def test_the_analyze_schema_states_no_viewpoint():
     assert "viewer_contact" in params["required"]
 
 
+def test_analyzer_distinguishes_hidden_faces_from_visible_profiles_and_sideways_gaze():
+    prompt = composer._analyze_ooc(THIRD)
+    assert "A side profile or sideways gaze is still visible" in prompt
+    assert "face is fully occluded" in prompt
+    assert "set `expression` null" in prompt
+
+
 async def test_nullish_strings_never_reach_the_scene_or_the_negative(monkeypatch):
     monkeypatch.setattr(
         composer,
@@ -423,6 +431,62 @@ async def test_single_call_strips_negation_from_scene(monkeypatch):
     assert mode == "single_call"
 
 
+async def test_prose_strips_leaked_booru_count_prefix_without_touching_natural_cast_prose(monkeypatch):
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "compose_image_prompt": {
+                    "scene": "1girl, solo. Iris sits beside the window. Two women cross the garden behind her.",
+                    "avoid": None,
+                    "profile_owner_visible": False,
+                }
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        prompt_format="prose",
+    )
+    assert scene == "Iris sits beside the window. Two women cross the garden behind her."
+
+
+async def test_scene_analysis_never_pins_a_count_anchor_into_prose(monkeypatch):
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "analyze_scene": {
+                    "characters": [
+                        {"name": "Iris", "sex": "girl", "action": "standing"},
+                        {"name": "Ren", "sex": "boy", "action": "sitting"},
+                    ],
+                },
+                "compose_image_prompt": {
+                    "scene": "1girl, 1boy. Iris stands beside Ren. Ren sits on a bench.",
+                    "avoid": None,
+                    "profile_owner_visible": False,
+                },
+            }
+        ),
+    )
+    scene, _, mode = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        prompt_format="prose",
+        scene_analysis=True,
+    )
+    assert scene == "Iris stands beside Ren. Ren sits on a bench."
+    assert mode == "scene_analysis"
+
+
 async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monkeypatch):
     monkeypatch.setattr(
         composer,
@@ -446,7 +510,7 @@ async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monk
         profile_owner_name="Iris",
         prompt_format="hybrid",
     )
-    assert scene == "1girl, solo, sitting by a window, Iris: long silver hair, blue eyes"
+    assert scene == "1girl, solo, Iris: long silver hair, blue eyes, sitting by a window"
 
     monkeypatch.setattr(
         composer,
@@ -475,14 +539,14 @@ async def test_single_call_inserts_named_profile_only_when_owner_is_visible(monk
 @pytest.mark.parametrize(
     ("prompt_format", "expected"),
     (
-        ("tags", "2girls, Iris sits beside Ashley., long silver hair, blue eyes"),
+        ("tags", "2girls, long silver hair, blue eyes, Iris sits beside Ashley."),
         (
             "hybrid",
-            "2girls, Iris sits beside Ashley., Iris: long silver hair, blue eyes",
+            "2girls, Iris: long silver hair, blue eyes, Iris sits beside Ashley.",
         ),
         (
             "prose",
-            "2girls, Iris sits beside Ashley. Iris has these traits: long silver hair, blue eyes.",
+            "Iris has these traits: long silver hair, blue eyes. Iris sits beside Ashley.",
         ),
     ),
 )
@@ -535,7 +599,7 @@ async def test_profile_appearance_negation_cannot_bypass_scene_cleanup(monkeypat
         profile_owner_name="Iris",
         prompt_format="hybrid",
     )
-    assert scene == "1girl, solo, sitting, Iris: long silver hair, blue eyes"
+    assert scene == "1girl, solo, Iris: long silver hair, blue eyes, sitting"
 
 
 async def test_analysis_owns_profile_visibility_and_preserves_scene_fields(monkeypatch):
@@ -586,7 +650,8 @@ async def test_analysis_owns_profile_visibility_and_preserves_scene_fields(monke
         scene_analysis=True,
     )
     assert scene.startswith("1girl, solo,")
-    assert scene.endswith("Iris: long silver hair")  # appearance seated after the pose body
+    assert scene.startswith("1girl, solo, Iris: long silver hair,")  # identity stays near the prompt head
+    assert scene.endswith("medium shot")
     assert avoid == "looking at viewer"
     structured_tail = captured["compose_image_prompt"]
     assert "expression: smiling" in structured_tail
@@ -730,3 +795,31 @@ def test_assemble_keeps_profile_out_of_positive_because_composer_owns_it():
         config, "anime", {"appearance_prompt": "1girl, solo, long red hair"}, "2girls, garden", ""
     )
     assert positive == "2girls, anime illustration, clean line art, very aesthetic, high contrast, garden"
+
+
+def test_final_prose_assembly_strips_count_tags_from_stale_scene_and_saved_style():
+    config = {
+        "external_comfy": {
+            "styles": [
+                {
+                    "id": "prose",
+                    "label": "Prose",
+                    "prompt_format": "prose",
+                    "prompt": "cinematic photograph, 1girl, natural light",
+                    "negative_prompt": "",
+                    "checkpoint": "",
+                    "workflow": "",
+                }
+            ]
+        }
+    }
+    positive, _, _ = composer.assemble_prompts(
+        config,
+        "prose",
+        {"appearance_prompt": ""},
+        "1girl, solo. Iris sits beside the window.",
+        "",
+    )
+    assert positive == "cinematic photograph, natural light, Iris sits beside the window."
+    assert "1girl" not in positive
+    assert "solo" not in positive

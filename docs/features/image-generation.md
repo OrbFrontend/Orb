@@ -16,8 +16,18 @@ Make sure that you have these items:
 - At least one checkpoint in ComfyUI
 - Network access from Orb to the ComfyUI server
 
-The LLM reads the conversation and writes the image prompt. ComfyUI uses this
-prompt to make the image.
+Orb's Agent-lane LLM reads the conversation through the reply you selected and
+writes the scene portion of the image prompt. It also sees the saved style and
+character prompt blocks so it can avoid duplicating or contradicting them. It
+does not see the generated image.
+
+For **Tags** and **Hybrid**, Orb starts the final positive prompt with booru
+character-count tags, then combines the saved style prompt, visible character
+profile, and composed scene. For **Prose**, Orb omits booru count tags entirely
+and describes the visible cast naturally. It assembles the negative prompt from
+the character exclusions, scene-specific exclusions, and style exclusions. The
+image model receives only those final prompt strings; it does not receive the
+conversation, character card, or scene analysis.
 
 ## Enable image generation
 
@@ -176,8 +186,10 @@ Orb ships **Realistic** and **Anime** styles out of the box. A style contains th
 | Item | Function |
 |---|---|
 | **Name** | Sets the name in the style list. |
-| **Positive style tags** | Appends visual properties to the image prompt. |
+| **Prompt format** | Chooses tags, hybrid tags and clauses, or prose for the scene portion. Tags and Hybrid use `1girl`/`1boy` count tags; Prose never does. Match this to the text encoder in the imported workflow. |
+| **Positive style tags** | Adds visual properties near the start of the image prompt. |
 | **Negative style tags** | Appends properties that ComfyUI must avoid. |
+| **Extra instructions** | Gives composition or emphasis guidance to the prompter model. This is not copied into the image prompt. |
 | **Checkpoint** | Selects the model file on the ComfyUI server. |
 | **Workflow** | Selects the ComfyUI workflow for this style. |
 
@@ -240,7 +252,10 @@ The model runs on the CPU inside Orb. It sends nothing to a server.
 
 Turn on **Analyze complex scenes** when a scene has multiple characters or
 important positions. Orb first identifies the visible characters, clothes, and
-positions. Orb then writes the image prompt.
+positions at the final visible instant. Orb then converts that structured scene
+to the selected prompt format. The second pass treats the extracted scene as
+data, so dialogue or instructions inside the roleplay do not become prompt
+instructions.
 
 This option makes one additional LLM call for each new image or regenerated
 image. A reroll uses the stored prompt and does not make this additional call.
