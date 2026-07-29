@@ -41,7 +41,7 @@ _FORMAT_INSTRUCTIONS = {
         "Format example only; do not copy its details: '1girl, 1boy, Mara stands left of Ren, Ren reaches toward Mara'. "
     ),
     "prose": (
-        "Write short, concrete prose sentences in present tense. Do not write booru count tags such as '1girl', '1boy', "
+        "Write short, concrete prose sentences in present tense. Do not write booru count tags such as '1boy', "
         "'2girls', or 'solo'. If the number of people matters, state it naturally in prose. "
         "For more than one person, name the character in every sentence about that character so attributes and actions "
         "stay bound to the correct person. "
@@ -49,18 +49,10 @@ _FORMAT_INSTRUCTIONS = {
     ),
 }
 
-# The camera is resolved before either call (see pov.py), so each mode gets the
-# head written for it alone instead of one head that hedges for both. Everything
-# after the head stays shared, so the two modes cannot drift apart.
-#
-# "camera" appears in these heads and nowhere the composer is told to copy: the
-# word explains the shot better than any circumlocution, but an image prompt that
-# contains it draws a literal camera, so both heads forbid writing it and
-# `_CAMERA_CHUNK_RE` enforces that regardless of whether the model complies.
-_SHOT_NO_CAMERA_WORD = "Never write the words 'camera' or 'pov' in the image prompt. "
+_SHOT_NO_CAMERA_WORD = "Never write the word 'pov' in the image prompt. "
 
 _SHOT_COUNTED_FIRST = (
-    "The camera is the user's eyes. The user is not drawn. "
+    "The pov is the user's eyes. The user is ignored. "
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "Do not count the user. Examples: 1girl, solo. 2girls. 2boys. "
     "If the user looks at one girl, write '1girl, solo'. Do not write '1boy, 1girl'. "
@@ -69,7 +61,7 @@ _SHOT_COUNTED_FIRST = (
 )
 
 _SHOT_COUNTED_THIRD = (
-    "The camera looks at the scene from outside. Draw every person in frame. "
+    "The pov looks at the scene from outside. Draw every person in frame. "
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "Examples: 1girl. 1boy. 2girls. 1boy, 1girl. "
     "Add 'solo' after the count tag when only one person is in frame. "
@@ -77,14 +69,14 @@ _SHOT_COUNTED_THIRD = (
 )
 
 _SHOT_PROSE_FIRST = (
-    "The camera is the user's eyes. The user is not drawn. Describe only the other people visible to this camera. "
+    "The pov is the user's eyes. The user is ignored. Describe only the others visible to this pov. "
     "Do not describe the user as a person in the image. Write the user's hand or arm only when the final instant explicitly "
     "puts it in frame, and state its exact action or contact. Do not write the user's face, body, or clothing. "
     "Do not write any booru count tags. " + _SHOT_NO_CAMERA_WORD
 )
 
 _SHOT_PROSE_THIRD = (
-    "The camera looks at the scene from outside. Describe every person visible in frame, including the character the user "
+    "The pov looks at the scene from outside. Describe every person visible in frame, including the character the user "
     "plays. Bind each person's appearance and action with natural prose. Do not write booru count tags. " + _SHOT_NO_CAMERA_WORD
 )
 
@@ -334,19 +326,19 @@ ANALYZE_TOOL = ToolSpec(
 _COMPOSER_MISSION = (
     "Pause the roleplay and write one spatial scene for a text-to-image model. "
     "Freeze one coherent still at the final visible instant of the previous assistant reply. Do not blend earlier actions "
-    "into that still. Write only the visible scene. Saved style and character prompt blocks are added separately. "
+    "into that still. "
 )
 
 # The one instruction that cannot ride the schema: text mode renders no schemas,
 # so `viewer_contact` would otherwise be an unexplained field in every mode.
 _ANALYZE_CAMERA = {
     FIRST: (
-        "The camera is the user's eyes. Do not list the user as a character. List only characters visible to this camera. "
+        "The pov is the user's eyes. Do not list the user as a character. List only characters visible to this pov. "
         "Set `viewer_contact` only when the final instant explicitly puts the user's hand or arm in frame. State the visible "
         "limb and its exact action or contact. Otherwise set it null. "
     ),
     THIRD: (
-        "The camera looks at the scene from outside. List every character visible in frame, including the character the "
+        "The pov looks at the scene from outside. List every character visible in frame, including the character the "
         "user plays. Set `viewer_contact` to null. "
     ),
 }
