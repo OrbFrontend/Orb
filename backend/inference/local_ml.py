@@ -18,6 +18,7 @@ own — generation and classification don't share a call. The ``available`` /
 from __future__ import annotations
 
 import asyncio
+import atexit
 import math
 import os
 import re
@@ -111,6 +112,22 @@ _TOP_K = 5
 _llamas: dict[str, Any] = {}
 _load_errors: dict[str, str] = {}
 _locks: dict[str, asyncio.Lock] = {}
+
+
+@atexit.register
+def _close_llamas() -> None:
+    """Free handles while llama_cpp's globals still exist.
+
+    Left to GC, ``Llama.__del__`` runs after interpreter shutdown has nulled the
+    llama_cpp module globals and dies on ``llama_model_free is None`` — noisy
+    "Exception ignored in" tracebacks at the tail of every test run.
+    """
+    while _llamas:
+        _, llama = _llamas.popitem()
+        try:
+            llama.close()
+        except Exception:  # nothing left to salvage at exit
+            pass
 
 
 def _lock(feature: str) -> asyncio.Lock:
