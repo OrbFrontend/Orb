@@ -59,6 +59,9 @@ class ModelProfile:
     # If True, the chat transport rewrites forced-function tool calls as
     # strict ``response_format`` structured-output requests (the chat analogue
     # of text mode's forced grammar), guaranteeing byte-exact argument keys.
+    # Setting it also withholds ``tools`` and ``tool_choice`` from every chat
+    # request to the endpoint -- a model that can still see ``tools`` may
+    # answer with a native tool call that bypasses the schema.
     # Opt-in per provider: only set after verifying the endpoint honors
     # ``response_format: {"type": "json_schema", "strict": true}``.
     structured_tool_calls: bool = False
