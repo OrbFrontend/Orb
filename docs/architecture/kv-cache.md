@@ -261,9 +261,18 @@ with thinking on rejects it; OpenRouter and llama.cpp's chat endpoint sometimes
 ignore it). Forcing is what makes the shared blob safe: without it the model
 picks from the array and answers `analyze_scene` when `compose_image_prompt` was
 asked for. So on those providers `forced_tool_call` ships only the forced tool,
-and the two calls no longer share a prefix. That costs one cache miss per image
-in the analysis path and buys a composed prompt at all — the previous behavior
-was a hard failure, not a cheaper success. Matching Editor reasoning is a useful cross-pass heuristic because
+and the two calls no longer share a prefix. That costs one extra cache miss per
+image, only on the analysis path (without analysis there is just one call) — and
+it is a *whole-prefix* miss, not a tail miss: templates render the tool
+declarations ahead of the conversation (llama.cpp's Gemma 4 template emits them
+inside the first system turn), so a different tools array diverges at the front
+and `compose` re-prefills the entire conversation rather than resuming after it.
+Shipping one tool rules out the wrong tool; a provider that ignores `tool_choice`
+is still free to answer with no tool call at all, which degrades to empty args as
+before. The trade buys a composed prompt at all — the previous behavior was a
+hard failure, not a cheaper success.
+
+Matching Editor reasoning is a useful cross-pass heuristic because
 it is the same Agent server and often the latest Agent-side call, but it is not
 an invariant: the Editor may be skipped, providers differ, and the prompter's
 standalone tools can create a distinct templated prefix. Keeping the prompter

@@ -182,27 +182,36 @@ async def forced_tool_call(
                 if kv_tracker is not None:
                     kv_tracker.record_usage(kv_label, event.get("usage"))
 
-    def _parse() -> tuple[bool, dict]:
-        """(was the forced tool actually called, its arguments)."""
+    def _parse() -> tuple[dict, bool]:
+        """(the forced tool's arguments, whether some *other* tool was called).
+
+        The second flag is the only sound evidence that tool selection was left
+        to the model: a reply with no call at all proves nothing (truncated at
+        max_tokens mid-reasoning, a content-only answer, a provider-side
+        finish_reason=error), and treating it as evidence would drop the shared
+        blob for the whole session over one flaky reply.
+        """
         try:
             calls = parse_tool_calls(resp)
         except Exception as e:
             logger.warning("forced_tool_call %s parse failed: %r", tool_name, e)
-            return False, {}
+            return {}, False
         mine = [c for c in calls if c["name"] == tool_name]
-        return bool(mine), (mine[0]["arguments"] if mine else {})
+        return (mine[0]["arguments"] if mine else {}), bool(calls) and not mine
 
     try:
         async for event in _attempt(tools):
             yield event
-        called, args = _parse()
-        if not called and collapsible and len(tools) > 1:
-            # The forced tool_choice did not take: some providers ignore the
-            # field instead of rejecting it (OpenRouter routing a thinking-on
-            # model, llama.cpp's chat endpoint), so nothing up front can predict
-            # it -- the reply is the only evidence. Remember the pair so the rest
-            # of the session skips the lottery, and retry now with the forced tool
-            # alone, which is forcing by construction.
+        args, wrong_tool = _parse()
+        if wrong_tool and collapsible and len(tools) > 1:
+            # A different tool came back: the forced tool_choice did not take.
+            # Some providers ignore the field instead of rejecting it (OpenRouter
+            # routing a thinking-on model, llama.cpp's chat endpoint), so nothing
+            # up front can predict it -- the reply is the only evidence. Remember
+            # the pair so the rest of the session skips the lottery, and retry now
+            # with the forced tool alone: that rules out the wrong tool, though a
+            # provider free to call nothing at all can still answer without a call
+            # (the empty-args degrade below covers that).
             note_forced_tool_choice_ignored(base_url, resolved_model)
             logger.info(
                 "forced_tool_call %s: %s ignored the forced tool_choice; retrying with that tool alone",
@@ -214,7 +223,7 @@ async def forced_tool_call(
                 kv_tracker.record(kv_label, messages, tools, model=resolved_model)
             async for event in _attempt(tools):
                 yield event
-            _, args = _parse()
+            args, _ = _parse()
     except Exception as e:
         logger.warning("forced_tool_call %s failed during stream: %r", tool_name, e)
         yield {"type": "result", "args": {}}

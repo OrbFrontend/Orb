@@ -308,6 +308,41 @@ class TestToolsAssembly:
         finally:
             ep._FORCED_CHOICE_IGNORED.discard(("http://ignores-forcing.local", "test-model"))
 
+    async def test_no_tool_call_at_all_does_not_brand_the_endpoint(self):
+        """A reply with no tool call is not evidence that forcing was ignored.
+
+        Truncation at max_tokens mid-reasoning, a content-only answer, or a
+        provider-side finish_reason=error all land here; branding the endpoint on
+        one of those would drop the shared two-tool blob -- and with it the
+        analyze/compose prefix -- for the rest of the session on a provider that
+        does honor forcing. Degrade to empty args, no retry, nothing learned.
+        """
+        from backend.inference import endpoint_profiles as ep
+
+        client = _ReplayClient(
+            [
+                [{"type": "done", "message": {"content": "I'll think about it", "finish_reason": "length"}}],
+                [_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "unreachable"})],
+            ]
+        )
+        client.base_url = "http://truncating.local"
+        try:
+            out = await _collect(
+                forced_tool_call(
+                    client=client,
+                    prefix=[],
+                    tail_messages=[],
+                    tool_name=_TOOL_NAME,
+                    settings=_SETTINGS,
+                    offer_tools=("editor_apply_patch", _TOOL_NAME),
+                )
+            )
+            assert out == [{"type": "result", "args": {}}]
+            assert len(client.seen) == 1
+            assert ep.honors_forced_tool_choice("http://truncating.local", "test-model")
+        finally:
+            ep._FORCED_CHOICE_IGNORED.discard(("http://truncating.local", "test-model"))
+
     async def test_enabled_tools_array_never_collapses(self):
         """The pipeline's blob is the shared KV prefix: a wrong tool in the reply
         degrades to empty args rather than re-issuing with a different array."""
