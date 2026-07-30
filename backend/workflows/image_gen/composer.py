@@ -52,10 +52,9 @@ _FORMAT_INSTRUCTIONS = {
 _SHOT_NO_CAMERA_WORD = "Never write the word 'pov' in the image prompt. "
 
 _SHOT_COUNTED_FIRST = (
-    "The pov is the user's eyes. The user is ignored. "
+    "The pov is the user's eyes, describe what they can **see**. The user is ignored. "
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
-    "Do not count the user. Examples: 1girl, solo. 2girls. 2boys. "
-    "If the user looks at one girl, write '1girl, solo'. Do not write '1boy, 1girl'. "
+    "If the user looks at a subject, only describe the subject. "
     "Write the user's hand or arm only when the final instant explicitly puts it in frame. State its exact action or contact. "
     "Do not write the user's face, body, or clothing. " + _SHOT_NO_CAMERA_WORD
 )
@@ -69,10 +68,10 @@ _SHOT_COUNTED_THIRD = (
 )
 
 _SHOT_PROSE_FIRST = (
-    "The pov is the user's eyes. The user is ignored. Describe only the others visible to this pov. "
-    "Do not describe the user as a person in the image. Write the user's hand or arm only when the final instant explicitly "
+    "The pov is the user's eyes, describe what they can **see**. The user is ignored. Describe only the others visible to this pov. "
+    "If the user looks at a subject, only describe the subject. Write the user's hand or arm only when the final instant explicitly "
     "puts it in frame, and state its exact action or contact. Do not write the user's face, body, or clothing. "
-    "Do not write any booru count tags. " + _SHOT_NO_CAMERA_WORD
+    + _SHOT_NO_CAMERA_WORD
 )
 
 _SHOT_PROSE_THIRD = (
@@ -896,7 +895,7 @@ async def compose_scene(
         tail=tail,
         tool_name="compose_image_prompt",
         settings=settings,
-        max_tokens=1_024,
+        max_tokens=4_096,
         reasoning_on=reasoning_on,
     )
 
