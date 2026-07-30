@@ -41,12 +41,14 @@ FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 
 
 # Per-root_id serialization for mutations of workflow_attachments groups.
-# Regenerate, reroll-gen, and activate all write the root's
-# active_sibling_id. BEGIN IMMEDIATE prevents data corruption, but commit
-# order across concurrent transactions is indeterminate; the loser's API
-# response can name a sibling whose active-pointer status the winner has
-# already overwritten. The lock turns concurrent requests into sequential
-# ones so the loser proceeds against post-winner state.
+# Regenerate, reroll-gen, rehydrate, and delete all mutate the sibling tree.
+# BEGIN IMMEDIATE prevents data corruption, but commit order across
+# concurrent transactions is indeterminate; the loser's API response can name
+# a sibling whose active-pointer status the winner has already overwritten.
+# The lock turns concurrent requests into sequential ones so the loser
+# proceeds against post-winner state. /activate stays out of it: these holders
+# run for the whole render, and queuing a swipe behind one blocks artifact
+# navigation for its duration (see api_activate_workflow_attachment).
 #
 # Dict grows over the process lifetime, bounded by distinct root_ids the
 # user has interacted with. Single-user localhost app, so cap is small
@@ -86,10 +88,16 @@ async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIt
     to ``expected_message_id`` (raised here, in the API layer, exactly as
     ``require_conversation`` does, so callers need no error mapping).
     ``BEGIN IMMEDIATE`` in the cache layer remains the final integrity boundary;
-    this only stabilizes the process-local lock identity so same-group mutations
-    serialize and a generative hook never runs against a since-deleted parent.
-    Retry is unbounded, which is safe here: promotion requires this same lock, so
-    churn cannot outrun acquisition on a single-user local app.
+    this only stabilizes the process-local lock identity so its *holders'*
+    same-group mutations serialize and a generative hook never runs against a
+    since-deleted parent. Retry is unbounded, which is safe here: promotion
+    requires this same lock, so churn cannot outrun acquisition on a single-user
+    local app.
+
+    ``/activate`` is not a holder (see ``api_activate_workflow_attachment``), so
+    a swipe can commit between two holders' transactions. Only the active-pointer
+    commit order is at stake there, and ``set_active_sibling``'s own
+    ``BEGIN IMMEDIATE`` keeps the pointer it writes valid regardless.
     """
     while True:
         before = await get_workflow_attachment_by_id(aid)

@@ -562,13 +562,12 @@ async def api_rehydrate_attachment(
         detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
     )
 
-    # Serialize same-root rehydrates the way /regenerate, /reroll-gen, and
-    # /activate already do for their sibling-tree mutations. Without this,
-    # two concurrent callers would each run the full reroll_gen LLM call
-    # before the cache helper's transactional recheck deduplicates them at
-    # the DB layer -- doubling LLM cost even though the row stays consistent.
-    # locked_attachment_group holds the canonical-root lock and re-reads `att`
-    # under it, replacing the manual in-lock re-read this route used to do.
+    # Serialize same-root rehydrates the way /regenerate and /reroll-gen already
+    # do for their sibling-tree mutations. Without this, two concurrent callers
+    # would each run the full reroll_gen LLM call before the cache helper's
+    # transactional recheck deduplicates them at the DB layer -- doubling LLM cost
+    # even though the row stays consistent. locked_attachment_group holds the
+    # canonical-root lock and re-reads `att` under it.
     async with locked_attachment_group(aid, mid) as (att, _root_id):
         # Re-check the eviction precondition on the in-lock snapshot so a
         # concurrent caller that already rehydrated cannot slip past the pre-lock
@@ -636,12 +635,17 @@ async def api_activate_workflow_attachment(
     if raw_sibling_id is not None and (not isinstance(raw_sibling_id, int) or isinstance(raw_sibling_id, bool)):
         raise HTTPException(status_code=400, detail="sibling_id must be an integer or null")
 
-    # `aid` is the group root here; locked_attachment_group resolves and locks the
-    # canonical root, so a request holding a root id that a concurrent delete has
-    # since promoted away 404s (target gone) instead of locking a stale key.
+    # Not under locked_attachment_group: /regenerate and /reroll-gen hold that
+    # root lock for the whole render (a minute+ for image gen), so queuing the
+    # user's swipe behind it hangs the arrow POST and freezes artifact navigation
+    # for the duration. set_active_sibling validates root, message, and group
+    # membership inside its own BEGIN IMMEDIATE, so a row a concurrent
+    # delete/promotion removed still 404s (LookupError below) and no invalid
+    # pointer can be written. What is given up is commit ordering against an
+    # in-flight render: whichever of "user's swipe" and "new sibling wins" lands
+    # last is what the next refetch shows.
     try:
-        async with locked_attachment_group(aid, mid) as (_att, _root_id):
-            await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
+        await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:

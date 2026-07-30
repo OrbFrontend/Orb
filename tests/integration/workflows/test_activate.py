@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+
+from backend.api.deps import _workflow_root_lock
 from backend.database import (
     add_message,
     insert_workflow_attachment_row,
@@ -139,6 +142,28 @@ async def test_sibling_id_from_different_group_returns_400(client):
         json={"sibling_id": other_root},
     )
     assert resp.status_code == 400
+
+
+async def test_activate_not_blocked_by_held_root_lock(client):
+    """A swipe must land while a reroll/regen holds the group's root lock.
+
+    Those routes hold it for the whole render (a minute+ for image gen). If
+    /activate waited on it, artifact navigation would freeze for the duration:
+    one click hangs, and the frontend's per-root in-flight guard then drops
+    every later click.
+    """
+    cid, mid, root_id, sib_id = await _seed_root_with_sibling(client)
+    async with _workflow_root_lock(root_id):
+        resp = await asyncio.wait_for(
+            client.post(
+                f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root_id}/activate",
+                json={"sibling_id": sib_id},
+            ),
+            timeout=5,
+        )
+    assert resp.status_code == 200
+    row = await must_get_workflow_attachment(root_id)
+    assert row["active_sibling_id"] == sib_id
 
 
 async def test_sibling_id_equal_to_root_accepted(client):
