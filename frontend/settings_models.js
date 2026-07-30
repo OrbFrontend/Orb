@@ -799,7 +799,16 @@ async function _doSaveEndpointSetting(ctx, el) {
     } else if (key === ctx.modelField) {
       await _syncModelConfigRecord(ctx, v, payload);
     } else if (ctx.hyperparamKeys.includes(key) && S[ctx.configIdKey]) {
-      await api.put(`/models/${S[ctx.configIdKey]}`, { [baseKey]: v });
+      // Pinned across the await: a combobox model switch runs outside the save
+      // queue and can repoint S[ctx.configIdKey] mid-flight.
+      const configId = S[ctx.configIdKey];
+      await api.put(`/models/${configId}`, { [baseKey]: v });
+      // The /settings response above predates this write, so keys the server
+      // serves from the model-config overlay come back one save behind. The
+      // cached row is read outside this module without a refetch.
+      S.settings[key] = v;
+      const cfg = S[ctx.configsKey].find((m) => m.id === configId);
+      if (cfg) cfg[baseKey] = v;
     }
   } catch (e) {
     console.error("Endpoint/model sync error:", e);
