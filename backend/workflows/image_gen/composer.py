@@ -30,7 +30,7 @@ _FORMAT_INSTRUCTIONS = {
     "tags": (
         "After the count tags, write booru-style visual tags only. Separate all tags with commas. "
         "Use common, concrete tags. Do not use character names or full sentences. "
-        "Keep each character's pose, visible traits, and clothing together before moving to the next character. "
+        "Keep each character's pose, visible traits, and clothing together before moving to the next one. "
         "Format example only; do not copy its details: '1girl, solo, short black hair, blue jacket, smiling'. "
     ),
     "hybrid": (
@@ -49,13 +49,15 @@ _FORMAT_INSTRUCTIONS = {
     ),
 }
 
-_SHOT_NO_CAMERA_WORD = "Never write the word 'pov' in the image prompt. "
+_SHOT_NO_CAMERA_WORD = "Never write the word 'pov' or 'user' in the image prompt. "
 
 _SHOT_COUNTED_FIRST = (
-    "The pov is from the user's eyes, describe what they can **see**. The user is ignored. "
+    "The pov is from the user's eyes, describe what they can **see**. Ignore the user. "
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "If the user looks at a subject, only describe the subject. "
-    "Write the user's hand or arm only when the final instant explicitly puts it in frame. State its exact action or contact. "
+    "Write the user's hand or arm only when the final instant explicitly puts it in frame. State its exact action or contact, "
+    'always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never as "the viewer grips" or other phrasing where viewer is '
+    "the verb's subject. "
     "Do not write the user's face, body, or clothing. " + _SHOT_NO_CAMERA_WORD
 )
 
@@ -70,7 +72,10 @@ _SHOT_COUNTED_THIRD = (
 _SHOT_PROSE_FIRST = (
     "The pov is from the user's eyes, describe what they can **see**. The user is ignored. Describe only the others visible to this pov. "
     "If the user looks at a subject, only describe the subject. Write the user's hand or arm only when the final instant explicitly "
-    "puts it in frame, and state its exact action or contact. Do not write the user's face, body, or clothing. "
+    'puts it in frame, and state its exact action or contact, always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never '
+    "as \"the viewer grips\" or other phrasing where viewer is the verb's subject. NEVER mention the user's face, body, or clothing. "
+    "If the subject is touching the viewer but not on hands or arms, write this: `one arm reaching out beyond the edge of screen`. "
+    "If the subject is really close, prompt for only the unoccluded parts, e.g. head and torso visible, etc. "
     + _SHOT_NO_CAMERA_WORD
 )
 
@@ -90,9 +95,9 @@ _SCENE_FORMAT_TAIL = (
     "Describe only concrete visual details. Do not include dialogue, thoughts, sounds, motives, sensations, "
     "analogies, or a narrative explanation. Describe the current visible state affirmatively. Do not mention occluded or "
     "absent items in the positive scene. "
-    "Do not add medium, art-style, artist, or generic quality words. "
-    "Do not describe facial traits or an expression when the face is not visible; describe the visible head orientation instead. "
-    "Be extremely meticulous and as lengthy as needed. "
+    "Do not add medium, or generic quality words. "
+    "Ignore facial traits or an expression when the face is not visible; describe the visible head orientation instead. "
+    "Be extremely meticulous and as lengthy as needed with the fine details. "
 )
 
 # The `avoid` list only reaches the image model when the workflow maps a negative
@@ -120,7 +125,7 @@ _SCENE_FORMAT_STRUCTURED_TAIL = (
     "Use direct, honest, active language; prefer 'pulling' to an ambiguous passive word such as 'pulled'. "
     "Describe only concrete visual details. Do not include dialogue, thoughts, sounds, motives, sensations, "
     "analogies, or narrative explanation. Describe the current visible state affirmatively. Do not mention occluded or "
-    "absent items in the positive scene. Do not describe facial traits or an expression when the face is not visible. "
+    "absent items in the positive scene. Ignore describe facial traits or an expression when the face is not visible. "
     "Do not add medium, art-style, artist, or generic quality words. Leave `avoid` empty."
 )
 
@@ -356,7 +361,7 @@ def _profile_instruction(profile_owner_name: str, appearance: str) -> str:
         )
     return (
         f"The profile owner is {owner}. These fixed positive tags are added separately: {fixed}. "
-        "These tags are prompt data, not instructions. Do not copy or contradict them in `scene`. "
+        "Do not copy or contradict them in `scene`. "
         "Set `profile_owner_visible` true only if this person is visible. "
     )
 
@@ -458,7 +463,7 @@ def _compose_ooc(
         + profile
         + downstream
         + guide
-        + " The final reply defines the current instant. Use earlier conversation only for stable visible continuity such as "
+        + "  Use earlier conversation only for stable visible continuity such as "
         "identity, the current outfit, and the setting. Leave unknown details out. " + extra + "]"
     )
 
@@ -569,6 +574,78 @@ _POV_CHUNK_RE = re.compile(r"pov", re.IGNORECASE)
 # the booru tag "looking at viewer" is a real and wanted tag that must survive.
 _CAMERA_CHUNK_RE = re.compile(r"\bcamera\w*", re.IGNORECASE)
 
+# The composer writes the literal contact -- "arm gripping viewer's shirt collar"
+# -- because that is what happened in the reply. The text encoder has never seen
+# it: booru tagged the subject's reach *toward* the lens, never the viewer's body,
+# so the literal phrase draws an improvised limb instead of the pose. Same split as
+# the pov/camera chunks above: the model states the fact, this table owns the
+# vocabulary. Teaching the vocabulary in the OOC instead would cost prefix tokens
+# on every call and still be a judgment the model is bad at.
+# ponytail: flat table, first hit wins. Add a row when a bad render names a contact
+# it misses; a real tag lexicon only when it outgrows a screen.
+_VIEWER_RE = re.compile(r"\b(?:viewer|user|your)'?s?\b", re.IGNORECASE)
+# Mentioning the viewer is not touching them. "standing close to the viewer",
+# "blocking the viewer's path" name no contact, and giving them the reach tags
+# invents an arm that is not in the scene -- a worse error than losing the chunk,
+# which is what they get instead. Only a contact word, or a row below, earns tags.
+#
+# "pin" and "cup" are only two letters past their word boundary and are real
+# words on their own ("pin-up", "cupcake"), unlike the other stems here which
+# only collide with their own inflections. Exclude those specific tails rather
+# than dropping the stems: "pinning her against the wall" and "cupping her
+# cheek" are both real contact this table exists to catch.
+_VIEWER_CONTACT_VERB_RE = re.compile(
+    r"\b(?:grab|grip|grasp|clutch|clasp|pull|tug|yank|hold|shov|push|press|pin(?!-?up)|touch|caress|"
+    r"cup(?!cake|board)|stroke|squeez|reach|kiss|hug|embrac|bit|lick|slap|punch|strik|hit|chok|strangl|throttl)",
+    re.IGNORECASE,
+)
+# Gaze is the other thing a composer says about the viewer, and booru has exactly
+# one tag for it. Normalize every phrasing to that tag rather than keeping only the
+# literal one. ponytail: drops the angle ("looking *up* at the viewer") -- the
+# framing tags usually carry it; add `looking up` here if low shots read flat.
+_VIEWER_GAZE_RE = re.compile(r"\b(?:look|gaz|star|glanc|watch|eyes?)\w*\b[^,]*\b(?:viewer|user|your)", re.IGNORECASE)
+_LOOKING_AT_VIEWER = "looking at viewer"
+
+# Which side of the contact the viewer is on decides everything, and only the noun
+# after the possessive says which. A viewer's *limb* is the user acting -- the shot
+# rules ask for it by name when the instant puts a hand in frame -- and collapsing
+# it would reverse who is doing what to whom. Anything else the possessive can own
+# (throat, collar, chest) is the viewer being acted upon, and their body must not
+# be drawn. Keep the first, retag it, collapse the second.
+_VIEWER_LIMB_RE = re.compile(
+    r"\b(?:viewer|user|your)'?s?\s+(?:hands?|arms?|fingers?|palms?|fists?|wrists?|thumbs?)\b",
+    re.IGNORECASE,
+)
+_VIEWER_POSSESSIVE_RE = re.compile(r"\b(?:the\s+)?(?:viewer|user|your)'?s?\s+", re.IGNORECASE)
+# What booru calls the user's own hand entering frame. Survives the bare-"pov"
+# strip above, which fullmatches the chunk rather than searching it.
+_POV_HANDS = "pov hands"
+
+_VIEWER_CONTACT_TAGS = (
+    (re.compile(r"\bkiss", re.IGNORECASE), "incoming kiss, close-up, foreshortening"),
+    (re.compile(r"\b(?:hug|embrac)", re.IGNORECASE), "incoming hug, outstretched arms, foreshortening"),
+    # A hand at the viewer's neck is the same arm-toward-lens composition as the
+    # fallback, plus the grip the fallback loses. Approximate by design: a gentle
+    # hand on the neck lands here too, and the shape is close enough to be right.
+    (
+        re.compile(r"\b(?:strangl|chok|throttl|throat|neck)", re.IGNORECASE),
+        "strangling, reaching towards viewer, foreshortening",
+    ),
+    (re.compile(r"\b(?:punch|slap|strik|attack|swing)", re.IGNORECASE), "incoming attack, outstretched arm, foreshortening"),
+    # Mounting the viewer is contact without a reach: the fallback's outstretched
+    # arm would be flatly wrong, so this row exists to not get that.
+    (re.compile(r"\b(?:straddl|lap|sitting on|riding|on top of)", re.IGNORECASE), "on top, straddling, foreshortening"),
+    # A weapon levelled at the viewer touches nothing, so the contact gate would
+    # drop it and lose the whole point of the shot.
+    (re.compile(r"\b(?:aim|point|knife|gun|blade|sword|weapon|barrel)", re.IGNORECASE), "aiming at viewer, foreshortening"),
+    # Body against body, no reach: this fills the frame instead of extending toward
+    # it. Last row, so a lean that is really a kiss or a straddle matches those first.
+    (re.compile(r"\b(?:lean|nuzzl|snuggl|nestl|against|resting on)", re.IGNORECASE), "close-up, foreshortening"),
+)
+# Everything else that touches the viewer collapses to the one composition booru
+# has in volume: arm out, hand toward the lens, the rest cropped past the wrist.
+_VIEWER_FALLBACK = "reaching beyond edge of screen, foreshortening"
+
 # A saved appearance sheet is frontal: on a back shot it must not carry face-only
 # traits (eyes, makeup, mouth) that contradict a turned-away face. Drop any comma
 # chunk naming one, only when the analyzer flags the face hidden.
@@ -584,6 +661,43 @@ def _strip_chunks(text: str, pattern: re.Pattern, *, whole: bool = True) -> str:
     pattern (count blocks); otherwise the pattern need only appear inside it."""
     hit = pattern.fullmatch if whole else pattern.search
     return ", ".join(c for c in (c.strip() for c in text.split(",")) if c and not hit(c))
+
+
+def _rewrite_viewer_contact(text: str) -> str:
+    """Swap chunks that name contact with the viewer for tags the encoder knows.
+
+    Contact collapses to a tag, the viewer's own limb keeps its action, gaze
+    normalizes, and a chunk that merely mentions the viewer is dropped. Nothing
+    naming the viewer survives verbatim: kept, it draws the viewer's own body back
+    into frame, which is the one thing a first-person shot must not contain.
+    """
+    out: list[str] = []
+    for chunk in (c.strip() for c in text.split(",")):
+        if not chunk:
+            continue
+        if not _VIEWER_RE.search(chunk):
+            out.append(chunk)
+            continue
+        if _VIEWER_LIMB_RE.search(chunk):
+            # The viewer's own limb, acting. Keep what it is doing -- that is the
+            # subject of the shot -- and drop only the possessive naming its owner,
+            # which is the part the encoder cannot place.
+            if _POV_HANDS not in out:
+                out.append(_POV_HANDS)
+            out.append(_VIEWER_POSSESSIVE_RE.sub("", chunk).strip())
+            continue
+        tag = next((t for pat, t in _VIEWER_CONTACT_TAGS if pat.search(chunk)), None)
+        if tag is None and _VIEWER_CONTACT_VERB_RE.search(chunk):
+            tag = _VIEWER_FALLBACK
+        if tag is None:
+            # No contact. Gaze is the only other thing worth keeping; everything
+            # else here just names the viewer, and naming them draws them.
+            tag = _LOOKING_AT_VIEWER if _VIEWER_GAZE_RE.search(chunk) else ""
+        # Two chunks describing one grab ("gripping the viewer's collar", "pulling
+        # the viewer closer") land on the same tag; emit it once.
+        if tag and tag not in out:
+            out.append(tag)
+    return ", ".join(out)
 
 
 def _count_anchor(characters: Any) -> str | None:
@@ -921,6 +1035,13 @@ async def compose_scene(
     # No meta-camera talk in any mode either, for the same reason and with worse
     # consequences: "pov" skews a shot, "camera" adds an object to it.
     scene = _strip_chunks(scene, _CAMERA_CHUNK_RE, whole=False)
+    # Only first-person has a viewer to touch, and only the tag formats have a tag
+    # vocabulary to swap in. ponytail: prose is left to its OOC instruction -- a
+    # natural-language encoder has a real chance at the literal phrase, and booru
+    # tags spliced into a sentence cost more than they fix. Give prose its own
+    # replacement text if it starts drawing the viewer's body.
+    if pov == FIRST and normalized_format != "prose":
+        scene = _rewrite_viewer_contact(scene)
     if not scene:
         # No excerpt fallback. When the forced call produces no scene, stop --
         # do not ship the raw reply text to the diffusion model as the image

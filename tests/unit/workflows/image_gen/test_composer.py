@@ -271,6 +271,118 @@ async def test_the_word_camera_never_reaches_the_image_prompt(monkeypatch, mode_
     assert scene == "1girl, looking at viewer, red hair"
 
 
+@pytest.mark.parametrize(
+    "mode_pov, prompt_format, expected",
+    [
+        # The encoder has no "grips the viewer's collar" -- it has the reach toward
+        # the lens. Both contact chunks name one grab, so the tag block lands once.
+        (
+            FIRST,
+            "tags",
+            "1girl, reaching towards viewer, outstretched arm, foreshortening, looking at viewer, red hair",
+        ),
+        # Third-person has no viewer to touch: the gate is off and nothing is swapped.
+        (
+            THIRD,
+            "tags",
+            "1girl, arm gripping viewer's shirt collar, pulling the viewer closer, looking at viewer, red hair",
+        ),
+        # Prose keeps its literal phrasing: a natural-language encoder can read it,
+        # and booru tags spliced into a sentence cost more than they fix. The lead
+        # count tag goes for the unrelated reason that prose encoders read it literally.
+        (
+            "prose",
+            "prose",
+            "arm gripping viewer's shirt collar, pulling the viewer closer, looking at viewer, red hair",
+        ),
+    ],
+    ids=["first_person_tags", "third_person", "prose"],
+)
+async def test_viewer_contact_becomes_tags_the_encoder_has_seen(monkeypatch, mode_pov, prompt_format, expected):
+    monkeypatch.setattr(
+        composer,
+        "forced_tool_call",
+        _fake_forced(
+            {
+                "compose_image_prompt": {
+                    "scene": "1girl, arm gripping viewer's shirt collar, pulling the viewer closer, looking at viewer, red hair",
+                    "avoid": None,
+                }
+            }
+        ),
+    )
+    scene, _, _ = await compose_scene(
+        client=None,
+        model_name="m",
+        prefix=[],
+        settings={"model_name": "writer"},
+        pov=FIRST if mode_pov == "prose" else mode_pov,
+        prompt_format=prompt_format,
+    )
+    assert scene == expected
+
+
+def test_unmapped_viewer_talk_collapses_rather_than_naming_the_viewers_body():
+    # The rewrite is not a nicety: kept verbatim, "the viewer's chest" puts the
+    # viewer's own body in a shot taken from behind their eyes. Leaning is contact
+    # without a reach, so it fills the frame rather than extending toward it.
+    assert composer._rewrite_viewer_contact("1girl, leaning against the viewer's chest") == ("1girl, close-up, foreshortening")
+    assert composer._rewrite_viewer_contact("1girl, kissing the viewer") == "1girl, incoming kiss, close-up, foreshortening"
+    assert composer._rewrite_viewer_contact("1girl, red hair, looking at viewer") == "1girl, red hair, looking at viewer"
+    # Second person is the same viewer by another name.
+    assert composer._rewrite_viewer_contact("1girl, grabbing your collar") == (
+        "1girl, reaching towards viewer, outstretched arm, foreshortening"
+    )
+
+
+def test_naming_the_viewer_without_touching_them_earns_no_arm():
+    # The fallback fires on contact, not on the word. An invented outstretched arm
+    # is a worse failure than a lost chunk, because it draws a limb nobody wrote.
+    assert composer._rewrite_viewer_contact("1girl, standing close to the viewer, red hair") == "1girl, red hair"
+    assert composer._rewrite_viewer_contact("1girl, blocking the viewer's path") == "1girl"
+    # Gaze survives in every phrasing, normalized onto the one tag booru has for it.
+    assert composer._rewrite_viewer_contact("1girl, looking up at the viewer") == "1girl, looking at viewer"
+    assert composer._rewrite_viewer_contact("1girl, her eyes searching the viewer's face") == "1girl, looking at viewer"
+    # Contact without a reach, and a threat without contact: both would be wrong
+    # as the fallback's outstretched arm -- one flatly, one by being dropped.
+    assert composer._rewrite_viewer_contact("1girl, straddling the viewer's lap") == (
+        "1girl, girl on top, straddling, foreshortening"
+    )
+    assert composer._rewrite_viewer_contact("1girl, pointing a knife at the viewer") == (
+        "1girl, aiming at viewer, foreshortening"
+    )
+
+
+def test_short_verb_stems_do_not_false_fire_on_unrelated_words():
+    # "pin" and "cup" are real words on their own -- unlike the other stems here,
+    # which only collide with their own inflections -- so a costume tag or a prop
+    # must not turn into a fabricated incoming arm. The regression that motivated
+    # this: both matched as bare substrings before the exclusion was added.
+    assert composer._rewrite_viewer_contact("1girl, wearing a pin-up costume near the viewer") == "1girl"
+    assert composer._rewrite_viewer_contact("1girl, a cupcake sits beside the viewer") == "1girl"
+    # The exclusion must not cost the stem its real inflections.
+    assert composer._rewrite_viewer_contact("1girl, pinning the viewer against the wall") == "1girl, close-up, foreshortening"
+    assert composer._rewrite_viewer_contact("1girl, cupping the viewer's cheek") == (
+        "1girl, reaching towards viewer, outstretched arm, foreshortening"
+    )
+
+
+def test_the_viewer_can_be_the_hand_or_the_throat_and_they_do_not_rewrite_alike():
+    # Viewer as patient: their throat is not drawn, the grip reaching the lens is.
+    assert composer._rewrite_viewer_contact("1girl, hand gripping the viewer's throat") == (
+        "1girl, strangling, reaching towards viewer, outstretched arm, foreshortening"
+    )
+    # Viewer as agent: the shot rules ask for this by name when a hand is in frame.
+    # Collapsing it would reverse who is choking whom, so only the possessive goes.
+    assert composer._rewrite_viewer_contact("1girl, the user's hand gripping her throat, kneeling") == (
+        "1girl, pov hands, hand gripping her throat, kneeling"
+    )
+    # Both directions at once, which is what a struggle actually looks like.
+    assert composer._rewrite_viewer_contact("your hand on her throat, her arm gripping your shirt") == (
+        "pov hands, hand on her throat, reaching towards viewer, outstretched arm, foreshortening"
+    )
+
+
 def test_the_structured_block_states_no_viewpoint_the_composer_could_copy():
     # The compose OOC tells the model to render this block exactly, so anything in
     # it is a candidate for the image prompt. The shot rules belong in the head.
