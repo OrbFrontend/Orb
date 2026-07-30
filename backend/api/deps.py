@@ -451,6 +451,11 @@ def _normalise_lorebook_entry(item: dict) -> dict:
         "sort_order": int(item.get("insertion_order") or 0),
         "case_insensitive": not bool(case_sensitive),
         "constant": constant,
+        # SillyTavern World Info's `position: 4` is "@ Depth" — injected after the
+        # latest message instead of into the character defs. V2/V3 `character_book`
+        # spells position as a string ("before_char"/"after_char"), which is never 4.
+        # `at_depth` is our own export key, read back so an Orb round-trip is lossless.
+        "at_depth": bool(item.get("at_depth")) or item.get("position") == 4,
         "use_regex": bool(item.get("use_regex", False)),
         # Cards in the wild set `selective` on every entry while leaving
         # secondary_keys empty; honouring that literally would make the whole
@@ -480,6 +485,10 @@ def lorebook_to_book(world_name: str, entries: Sequence[Mapping[str, Any]]) -> d
                 "insertion_order": e["sort_order"],
                 "case_sensitive": not bool(e["case_insensitive"]),
                 "constant": bool(e.get("constant", False)),
+                # Additive, like the V3 keys below. A round-trip through
+                # SillyTavern loses the depth placement — ST reads its own
+                # `position` field, whose V2 spelling has no @Depth value.
+                "at_depth": bool(e.get("at_depth", False)),
                 "name": e["name"],
                 "priority": e["priority"],
                 "id": e["id"],

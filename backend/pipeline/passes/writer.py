@@ -33,6 +33,7 @@ def build_writer_content(
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard: LengthGuard | None,
     text_mode: bool = False,
+    depth_block: str = "",
 ) -> str | list[ContentPart]:
     """Build the writer's user-message content (string or multimodal list).
 
@@ -41,6 +42,10 @@ def build_writer_content(
     nudge (preventive arm) fires only in enforce mode; a non-None *length_guard*
     already means the feature is enabled. In *text_mode* the no-tools nudge is
     dropped — no tool harness is rendered, so the instruction is meaningless.
+
+    *depth_block* (``at_depth`` lorebook entries) goes last, *after* the user
+    message — SillyTavern's ``@ Depth`` position, which is the whole point of the
+    flag: the directives sit at the generation boundary.
     """
     tail = ""
     if lorebook_block:
@@ -51,6 +56,8 @@ def build_writer_content(
         tail += "**Do not use tool or function calls this turn.**\n\n"
     tail += writer_nudge(length_guard)
     tail += "___\n\n" + effective_msg + "\n\n"
+    if depth_block:
+        tail += "___\n\n" + depth_block + "\n\n"
 
     return build_multimodal_content(tail, attachments)
 
@@ -103,6 +110,7 @@ async def writer_stage(
     settings: Mapping[str, Any],
     attachments: Sequence[Mapping[str, Any]],
     kv_tracker: _KVCacheTracker,
+    depth_block: str = "",
 ) -> AsyncIterator[dict]:
     """Input-prep + writer pass + event translation.
 
@@ -119,6 +127,7 @@ async def writer_stage(
         attachments,
         cfg.length_guard,
         cfg.writer_text_mode,
+        depth_block=depth_block,
     )
     writer_t0 = time.monotonic()
     async for item in writer_pass(

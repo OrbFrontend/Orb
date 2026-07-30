@@ -430,11 +430,12 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         {},
     )
 
-    # Lorebook: trailing keyword-scanned block + constant prefix section
+    # Lorebook: trailing keyword-scanned block + constant prefix section + @Depth tail
     scan_depth = lorebook.LOREBOOK_SCAN_DEPTH
     recent_messages = messages[-scan_depth:] if len(messages) >= scan_depth else messages
     lorebook_block = lorebook.compute_lorebook_injection_block(recent_messages, lorebook_entries, macros)
     constant_lorebook_block = lorebook.compute_constant_lorebook_block(lorebook_entries, macros)
+    depth_lorebook_block = lorebook.compute_depth_lorebook_block(lorebook_entries, macros)
 
     breakdown = {}
     for label, chars in [
@@ -448,6 +449,7 @@ async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require
         ("director_injection", len(inj_block)),
         ("lorebook", len(lorebook_block)),
         ("lorebook_constant", len(constant_lorebook_block)),
+        ("lorebook_depth", len(depth_lorebook_block)),
     ]:
         breakdown[label] = {"chars": chars, "tokens_est": estimate_tokens(chars)}
 

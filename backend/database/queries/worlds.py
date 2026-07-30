@@ -98,7 +98,7 @@ async def create_lorebook_entry(world_id: str, data: dict) -> LorebookEntryRow:
     async with get_db() as db:
         now = datetime.now(UTC).isoformat()
         cur = await db.execute(
-            "INSERT INTO lorebook_entries (world_id, name, content, keywords, case_insensitive, constant, use_regex, selective, secondary_keys, priority, enabled, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO lorebook_entries (world_id, name, content, keywords, case_insensitive, constant, at_depth, use_regex, selective, secondary_keys, priority, enabled, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 world_id,
                 data["name"],
@@ -106,6 +106,7 @@ async def create_lorebook_entry(world_id: str, data: dict) -> LorebookEntryRow:
                 json.dumps(data.get("keywords", [])),
                 1 if data.get("case_insensitive", True) else 0,
                 1 if data.get("constant", False) else 0,
+                1 if data.get("at_depth", False) else 0,
                 1 if data.get("use_regex", False) else 0,
                 1 if data.get("selective", False) else 0,
                 json.dumps(data.get("secondary_keys", [])),
@@ -131,6 +132,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
             "keywords",
             "case_insensitive",
             "constant",
+            "at_depth",
             "use_regex",
             "selective",
             "secondary_keys",

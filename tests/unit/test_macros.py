@@ -253,3 +253,35 @@ def test_date_resolves_to_iso_date():
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", resolve_message("{{DATE}}", "U", "C", seed="conv-1"))
     assert has_inline_macros("today is {{date}}")
     assert resolve_inline("say `{{date}}`") == "say `{{date}}`"
+
+
+# ── {{// comment }} (SillyTavern's author-note macro) ────────────────────────
+
+
+def test_comment_stripped_with_its_line():
+    # A comment on its own line leaves no blank line behind.
+    assert resolve_inline("a\n{{// note to self}}\nb") == "a\nb"
+    assert resolve_inline("keep {{// drop}}this") == "keep this"
+
+
+def test_comment_multiline_and_repeated():
+    text = "# SHEET\n{{//\n- all start at 1\n- max 5\n}}\n## PHYSICAL\n{{// second }}\nStrength: 1"
+    assert resolve_inline(text) == "# SHEET\n## PHYSICAL\nStrength: 1"
+
+
+def test_macro_inside_comment_does_not_fire():
+    # Comments are stripped before every other inline macro, so a nested macro is
+    # deleted rather than resolved — its trailing `}}` survives (grammar limit).
+    assert resolve_inline("{{// dice: {{roll::1d6}} }}x") == " }}x"
+    assert resolve_message("{{// pick {{random::a::b}} }}y", "U", "C") == " }}y"
+
+
+def test_comment_detected_and_backtick_literal():
+    assert has_inline_macros("hi {{// psst}}")
+    assert not has_inline_macros("show `{{// psst}}`")
+    assert resolve_inline("show `{{// psst}}`") == "show `{{// psst}}`"
+
+
+def test_comment_body_cannot_contain_closing_braces():
+    # Documented grammar limit: the match ends at the first }}.
+    assert resolve_inline("{{// see {{user}} }}") == " }}"

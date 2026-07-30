@@ -27,6 +27,7 @@ const _emptyDraft = () => ({
   priority: 100,
   case_insensitive: true,
   constant: false,
+  at_depth: false,
   enabled: true,
   use_regex: false,
   selective: false,
@@ -40,6 +41,7 @@ const _draftFromEntry = (e) => ({
   priority: e.priority ?? 100,
   case_insensitive: boolFlag(e.case_insensitive),
   constant: boolFlag(e.constant),
+  at_depth: boolFlag(e.at_depth),
   enabled: boolFlag(e.enabled),
   use_regex: boolFlag(e.use_regex),
   selective: boolFlag(e.selective),
@@ -474,6 +476,8 @@ function renderLorebookDrawer() {
   if (regexCb) regexCb.onchange = (e) => lbDraftChange("use_regex", e.target.checked);
   const selectiveCb = $("lb-selective");
   if (selectiveCb) selectiveCb.onchange = (e) => lbToggleSelective(e.target.checked);
+  const atDepthCb = $("lb-at-depth");
+  if (atDepthCb) atDepthCb.onchange = (e) => lbDraftChange("at_depth", e.target.checked);
 
   if (_selectedEntryId) {
     const kwWrap = $("lb-chip-wrap");
@@ -527,6 +531,14 @@ function _buildEditorHtml() {
                    onchange="lbToggleConstant(this.checked)">
             <span>Constant</span>
           </label>
+          ${
+            _draft.constant
+              ? `<label class="lb-case-check" title="Inject after the latest message instead of the system prompt — {{roll}} re-rolls every turn">
+            <input type="checkbox" id="lb-at-depth" ${_draft.at_depth ? "checked" : ""}>
+            <span>@ Depth</span>
+          </label>`
+              : ""
+          }
           <span class="lb-keyword-hint">${_draft.constant ? "Always injected" : "Enter or , to add · Backspace to remove"}</span>
         </div>
       </div>
@@ -701,6 +713,7 @@ export async function lbSaveEntry() {
       keywords: _draft.keywords,
       case_insensitive: _draft.case_insensitive,
       constant: _draft.constant,
+      at_depth: _draft.at_depth,
       use_regex: _draft.use_regex,
       selective: _draft.selective,
       secondary_keys: _draft.secondary_keys,

@@ -248,6 +248,7 @@ CREATE TABLE IF NOT EXISTS lorebook_entries (
     keywords TEXT NOT NULL DEFAULT '[]',
     case_insensitive BOOLEAN NOT NULL DEFAULT 1,
     constant BOOLEAN NOT NULL DEFAULT 0,
+    at_depth INTEGER NOT NULL DEFAULT 0,
     use_regex INTEGER NOT NULL DEFAULT 0,
     selective INTEGER NOT NULL DEFAULT 0,
     secondary_keys TEXT NOT NULL DEFAULT '[]',

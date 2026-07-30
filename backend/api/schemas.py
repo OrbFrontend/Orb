@@ -208,6 +208,7 @@ class LorebookEntryCreate(BaseModel):
     keywords: list[str] = []
     case_insensitive: bool = True
     constant: bool = False
+    at_depth: bool = False
     use_regex: bool = False
     selective: bool = False
     secondary_keys: list[str] = []
@@ -221,6 +222,7 @@ class LorebookEntryUpdate(BaseModel):
     keywords: list[str] | None = None
     case_insensitive: bool | None = None
     constant: bool | None = None
+    at_depth: bool | None = None
     use_regex: bool | None = None
     selective: bool | None = None
     secondary_keys: list[str] | None = None
@@ -233,7 +235,7 @@ class LorebookImportPayload(BaseModel):
     # Supports three common formats:
     #   - SillyTavern standalone lorebook: {"entries": {"0": {...}, "1": {...}}}
     #     where each entry has `key` (list), `comment`, `content`, `disable`, `order`, `caseSensitive`,
-    #     plus `selective` / `keysecondary`
+    #     plus `selective` / `keysecondary` and `position` (4 = "@ Depth" → `at_depth`)
     #   - Tavern V2 character_book: {"entries": [...]}
     #     where each entry has `keys`, `name`, `content`, `enabled`, `insertion_order`, `case_sensitive`
     #   - Character Card V3 character_book: as V2, plus `use_regex` and `selective`/`secondary_keys`

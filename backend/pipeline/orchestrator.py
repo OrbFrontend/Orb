@@ -187,6 +187,7 @@ async def _run_pipeline(
         settings=settings,
         attachments=attachments,
         kv_tracker=kv_tracker,
+        depth_block=lorebook.depth_block,
     ):
         yield ev
 

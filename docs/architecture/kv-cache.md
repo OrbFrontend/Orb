@@ -58,6 +58,7 @@ Within a single turn, Orb makes 2–4+ LLM calls. Here's what each one looks lik
 + lorebook block                  ← keyword hits + Director picks only; constants sit in the system prompt
 + "**Scene Direction**\n<Mood content>"   ← injected from director's output
 + user's actual message
++ lorebook depth block            ← `constant` + `at_depth` entries (SillyTavern's @ Depth)
 ```
 
 `tool_choice="none"`. The model writes prose.
@@ -83,9 +84,9 @@ The editor's prompt **extends** the writer's prompt: the writer's trailing user 
 
 Character card, persona, constant lorebook entries (the `## Lorebook` section, rendered right after the character description), scenario, example dialogue, post-history instructions, and user description are concatenated into a single system message once per turn. The same string is sent to all three passes. No pass adds, edits, or reorders anything.
 
-Inline macros in these fields are resolved during that per-turn build, so they must be byte-stable across turns: `{{random}}` is — it resolves through a per-conversation seed (`Macros.seed`: the conversation id, or the carried `conversations.macro_seed` on checkpoint/compress copies so picks match the copied history), always yielding the same pick — but `{{roll}}` re-rolls every turn and will silently change the system-prompt bytes; avoid `{{roll}}` in card prefix fields and constant lorebook entry names/content.
+Inline macros in these fields are resolved during that per-turn build, so they must be byte-stable across turns: `{{random}}` is — it resolves through a per-conversation seed (`Macros.seed`: the conversation id, or the carried `conversations.macro_seed` on checkpoint/compress copies so picks match the copied history), always yielding the same pick — but `{{roll}}` re-rolls every turn and will silently change the system-prompt bytes; avoid `{{roll}}` in card prefix fields and constant lorebook entry names/content. A constant entry that *needs* fresh rolls sets `at_depth` instead — that moves it out of the prefix into the per-turn tail, where it is resolved unseeded and costs no cache (see the writer diagram above).
 
-Constant lorebook entries are the deliberate mirror image of Invariant 4: they are byte-identical every turn (canonical `priority DESC, sort_order, id` sort in `render_lorebook_block` keeps the section stable regardless of query order), so they live here in the cached prefix rather than re-billing in the trailing block of every director *and* writer call. The flip side: editing a constant entry, toggling its `constant`/`enabled` flag, or disabling its world changes prefix bytes and re-bills from that point on the next turn — the same class of (rare, accepted) cache bust as editing the card itself. Keyword-triggered and Director-picked entries change per turn and stay in the trailing block.
+Constant lorebook entries are the deliberate mirror image of Invariant 4: they are byte-identical every turn (canonical `priority DESC, sort_order, id` sort in `render_lorebook_block` keeps the section stable regardless of query order), so they live here in the cached prefix rather than re-billing in the trailing block of every director *and* writer call. The flip side: editing a constant entry, toggling its `constant`/`enabled` flag, or disabling its world changes prefix bytes and re-bills from that point on the next turn — the same class of (rare, accepted) cache bust as editing the card itself. Keyword-triggered and Director-picked entries change per turn and stay in the trailing block, as do constant entries flagged `at_depth`, which opt out of the prefix in exchange for per-turn macro resolution.
 
 ### Invariant 2 — One history list, shared by every pass
 

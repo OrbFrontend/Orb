@@ -26,7 +26,7 @@ from .endpoint_profiles import (
     profile_for,
 )
 from .kv_tracker import _KVCacheTracker
-from .lorebook import compute_constant_lorebook_block
+from .lorebook import compute_constant_lorebook_block, compute_depth_lorebook_block
 from .prompt_builder import (
     build_direction_note_prompt,
     build_director_scene_step_prompt,
@@ -85,6 +85,7 @@ __all__ = [
     "has_image_parts",
     # lorebook — full surface via .lorebook / features.lorebook facade
     "compute_constant_lorebook_block",
+    "compute_depth_lorebook_block",
     # prompt_builder
     "build_director_scene_step_prompt",
     "build_director_tool_prompt",

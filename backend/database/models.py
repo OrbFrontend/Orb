@@ -351,6 +351,7 @@ class LorebookEntryRow(TypedDict):
     keywords: list
     case_insensitive: int
     constant: int
+    at_depth: int
     use_regex: int
     selective: int
     secondary_keys: list

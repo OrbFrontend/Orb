@@ -3,7 +3,9 @@ lorebook.py — Lorebook activation: one pipeline, three sources.
 
 A lorebook entry activates from any of three sources:
   * ``constant`` — always active; rides the cached system-prompt prefix
-    (:func:`compute_constant_lorebook_block`), never the trailing block.
+    (:func:`compute_constant_lorebook_block`), never the trailing block. Unless
+    it also sets ``at_depth``, in which case it rides the per-turn tail instead
+    (:func:`compute_depth_lorebook_block`) — SillyTavern's ``@ Depth``.
   * keyword scan — a keyword appears (substring) within the last ``scan_depth`` messages.
   * director pick — the agentic Director named the entry.
 
@@ -259,8 +261,9 @@ def compute_lorebook_injection_block(
     """Substring path: build the trailing lorebook block by keyword scanning.
 
     Entries are included when a keyword matches within the 6 most recent
-    messages. Constant entries are excluded — they ride the cached system
-    prefix (:func:`compute_constant_lorebook_block`). Sorted by priority DESC.
+    messages. Constant entries are excluded — they ride the cached system prefix
+    (:func:`compute_constant_lorebook_block`) or, with ``at_depth``, the depth
+    block (:func:`compute_depth_lorebook_block`). Sorted by priority DESC.
     Returns ``""`` when nothing matches.
     """
     return compute_lorebook_block(entries, messages, scan_depth=LOREBOOK_SCAN_DEPTH, macros=macros)
@@ -278,8 +281,9 @@ def compute_agentic_lorebook_block(
     trimmed) + entries triggered by a keyword scan over the current turn
     (``AGENTIC_LOREBOOK_SCAN_DEPTH``), so keywords the Director overlooks still
     activate their entries. Constant entries are excluded — they ride the cached
-    system prefix (:func:`compute_constant_lorebook_block`). Returns ``""`` when
-    nothing matches.
+    system prefix (:func:`compute_constant_lorebook_block`) or, with
+    ``at_depth``, the depth block (:func:`compute_depth_lorebook_block`).
+    Returns ``""`` when nothing matches.
     """
     return compute_lorebook_block(
         entries,
@@ -301,7 +305,31 @@ def compute_constant_lorebook_block(
     register) instead of the per-turn trailing block. The canonical sort in
     :func:`render_lorebook_block` keeps the bytes stable across turns (KV cache);
     like other prefix fields, entry text should avoid ``{{roll}}`` — it re-rolls
-    per resolution and would silently change prefix bytes. Returns ``""`` when
-    there are no constant entries.
+    per resolution and would silently change prefix bytes (that is what
+    ``at_depth`` is for; see :func:`compute_depth_lorebook_block`). Returns
+    ``""`` when there are no prefix-bound constant entries.
     """
-    return render_lorebook_block([e for e in entries if e.get("constant")], macros, header="## Lorebook")
+    prefix_bound = [e for e in entries if e.get("constant") and not e.get("at_depth")]
+    return render_lorebook_block(prefix_bound, macros, header="## Lorebook")
+
+
+def compute_depth_lorebook_block(
+    entries: Sequence[Mapping[str, Any]],
+    macros: Macros | None = None,
+) -> str:
+    """Depth path: render the ``constant`` + ``at_depth`` entries for the tail.
+
+    SillyTavern's ``position: 4`` (@ Depth): always injected, but into the
+    per-turn tail after the user message rather than the cached prefix. Two
+    things follow from that placement, and both are the point of it —
+    instructions land next to the generation boundary, and inline macros are
+    resolved *unseeded*, so ``{{roll}}`` yields fresh dice every turn instead of
+    freezing for the conversation. Unseeding happens here rather than at the
+    call site so no caller can accidentally hand this block a frozen RNG.
+
+    Costs no KV cache: the tail is rebuilt every turn regardless. Returns ``""``
+    when no constant entry is depth-bound.
+    """
+    depth_bound = [e for e in entries if e.get("constant") and e.get("at_depth")]
+    fresh = macros._replace(seed="") if macros else None
+    return render_lorebook_block(depth_bound, fresh, header="**Lorebook (Depth)**")

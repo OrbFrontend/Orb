@@ -194,9 +194,9 @@ class LorebookTurn:
     mutually exclusive by mode (kept separate because they inject at different
     positions in the Director prompt). ``writer_block`` derives the final block
     shown to the writer. Constant entries are not part of any trailing block —
-    they ride the cached system prefix (``context._build_prefix_from_ctx``);
-    ``entries`` still carries the full pool so the catalog/selection layer sees
-    everything.
+    they ride the cached system prefix (``context._build_prefix_from_ctx``), or
+    ``depth_block`` when they set ``at_depth``; ``entries`` still carries the
+    full pool so the catalog/selection layer sees everything.
 
     The selection/rendering it delegates to lives in the pure ``lorebook`` layer
     (``backend/inference/lorebook.py``); this bundle is the pipeline-turn view
@@ -208,6 +208,10 @@ class LorebookTurn:
     agentic: bool
     block: str = ""  # Director-facing lore context (substring mode; "" when agentic)
     catalog: str = ""  # Director-facing pick catalog (agentic mode; "" otherwise)
+    # Rendered once per turn by ``_prepare_turn``: the ``constant`` + ``at_depth``
+    # entries, macros resolved unseeded. Frozen here so the writer and the editor
+    # replaying its content see the same {{roll}} values.
+    depth_block: str = ""
 
     @property
     def scan_depth(self) -> int:

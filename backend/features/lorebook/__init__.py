@@ -1,8 +1,10 @@
 """Lorebook feature slice — facade over ``inference.lorebook``.
 
 The activation/selection/rendering logic lives in ``backend/inference/lorebook.py``:
-the constant-entry prefix section (:func:`compute_constant_lorebook_block`) is
-part of prompt assembly, and the workflow toolkit's off-turn prefix builder
+the constant-entry prefix section (:func:`compute_constant_lorebook_block`) and
+its ``at_depth`` counterpart in the per-turn tail
+(:func:`compute_depth_lorebook_block`) are part of prompt assembly, and the
+workflow toolkit's off-turn prefix builder
 (``workflows/toolkit.py``) must render it byte-identically to the pipeline's —
 ``workflows`` sits below ``features``, so the logic sits at the ``inference``
 layer both consumers may import. This facade keeps the established import path
@@ -22,6 +24,7 @@ from ...inference.lorebook import (
     build_lorebook_catalog,
     compute_agentic_lorebook_block,
     compute_constant_lorebook_block,
+    compute_depth_lorebook_block,
     compute_lorebook_block,
     compute_lorebook_injection_block,
     render_lorebook_block,
@@ -46,4 +49,5 @@ __all__ = [
     "compute_lorebook_injection_block",
     "compute_agentic_lorebook_block",
     "compute_constant_lorebook_block",
+    "compute_depth_lorebook_block",
 ]

@@ -34,6 +34,12 @@ Public API:
         stored pick so the fragment stays fixed for the conversation.
 
 Inline macros (adding one = a regex + a handler + a row in _INLINE_MACROS):
+    {{// comment }}               — dropped. A comment that owns its line takes
+        the line with it; a mid-line one leaves the surrounding text untouched.
+        Multi-line; the body cannot contain ``}}`` (grammar, not enforced — the
+        match ends at the first one, so a macro nested inside is deleted rather
+        than resolved but its trailing ``}}`` survives). Stripped before every
+        other inline macro.
     {{roll::NdM}}                 — sum of N M-sided dice.
     {{random::opt1::opt2::...}}   — one option, ``::``-separated. Options
         cannot contain ``::`` or ``}}`` (grammar, not enforced).
@@ -114,10 +120,18 @@ def _sub(text: str, user_name: str, char_name: str) -> str:
     return _outside_literals(text, _fire)
 
 
+# Two branches: a comment that owns its line(s) takes the whole line with it (no
+# blank line left behind); one sitting mid-line takes only itself, leaving the
+# surrounding spaces. Non-greedy either way, so the body ends at the first `}}`.
+_COMMENT_RE = re.compile(r"^[ \t]*\{\{//.*?\}\}[ \t]*\n|\{\{//.*?\}\}", re.DOTALL | re.MULTILINE)
 _ROLL_RE = re.compile(r"\{\{roll::(\d+)d(\d+)\}\}", re.IGNORECASE)
 _RANDOM_RE = re.compile(r"\{\{(?:random|pick)::(.*?)\}\}", re.IGNORECASE | re.DOTALL)
 _TIME_RE = re.compile(r"\{\{time\}\}", re.IGNORECASE)
 _DATE_RE = re.compile(r"\{\{date\}\}", re.IGNORECASE)
+
+
+def _comment(m: re.Match, rng: Any) -> str:
+    return ""
 
 
 def _roll(m: re.Match, rng: Any) -> str:
@@ -138,8 +152,10 @@ def _date(m: re.Match, rng: Any) -> str:
 
 
 # The inline-macro grammar. Adding a macro = one regex + one handler + one row
-# here; _resolve_inline and has_inline_macros iterate this table.
+# here; _resolve_inline and has_inline_macros iterate this table. Comments come
+# first so a macro written inside one is deleted rather than resolved.
 _INLINE_MACROS: list[tuple[re.Pattern, Callable[[re.Match, Any], str]]] = [
+    (_COMMENT_RE, _comment),
     (_ROLL_RE, _roll),
     (_RANDOM_RE, _rand),
     (_TIME_RE, _time),
@@ -148,7 +164,7 @@ _INLINE_MACROS: list[tuple[re.Pattern, Callable[[re.Match, Any], str]]] = [
 
 
 def _resolve_inline(text: str, seed: str = "") -> str:
-    """Resolve inline macros ({{roll}}, {{random}}/{{pick}}, {{time}}).
+    """Resolve inline macros ({{//}}, {{roll}}, {{random}}/{{pick}}, {{time}}).
 
     Randomized macros roll fresh when *seed* is empty; with a seed the result
     is a pure function of (seed, macro text, occurrence), so identical text

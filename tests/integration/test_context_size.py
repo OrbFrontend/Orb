@@ -74,6 +74,7 @@ async def test_context_size_returns_breakdown(client):
         "director_injection",
         "lorebook",
         "lorebook_constant",
+        "lorebook_depth",
     }
     assert set(bd.keys()) == expected_keys
 

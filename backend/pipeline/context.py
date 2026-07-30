@@ -39,6 +39,7 @@ from ..features.lorebook import (
     agentic_lorebook_active,
     build_lorebook_catalog,
     compute_constant_lorebook_block,
+    compute_depth_lorebook_block,
     compute_lorebook_injection_block,
 )
 from ..inference import (
@@ -201,7 +202,8 @@ def _build_prefix_from_ctx(
     agent prefix in dual-model mode. *extra_system_blocks* are additional system
     sections contributed by pre-pipeline workflow hooks. Constant lorebook
     entries are rendered here into the system body (they are byte-identical
-    every turn, so they belong in the cached prefix, not the trailing block).
+    every turn, so they belong in the cached prefix, not the trailing block) —
+    except the ``at_depth`` ones, which ride ``LorebookTurn.depth_block``.
     """
     conv = ctx.conv
     macros, user_description = persona_macros(
@@ -319,6 +321,9 @@ async def _prepare_turn(
         # (which the writer block reuses verbatim in substring mode).
         catalog=build_lorebook_catalog(ctx.lorebook_entries) if agentic_active else "",
         block="" if agentic_active else compute_lorebook_injection_block(lorebook_messages, ctx.lorebook_entries, macros),
+        # Rolled once here, so the writer and the editor replaying its content
+        # agree on the dice (and a stopped/retried pass never re-rolls mid-turn).
+        depth_block=compute_depth_lorebook_block(ctx.lorebook_entries, macros),
     )
 
     # Builds direct_scene + optionally give_feedback; must be called once so all
