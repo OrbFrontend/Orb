@@ -50,38 +50,41 @@ _FORMAT_INSTRUCTIONS = {
 }
 
 _SHOT_NO_CAMERA_WORD = "Never write the word 'pov' or 'user' in the image prompt. "
+_SHOT_SUBJECT_VISIBILITY = "There may or may not be any characters in the frame - just scenery is fine. "
 
 _SHOT_COUNTED_FIRST = (
-    "The pov is from the user's eyes, describe what they can **see**. Ignore the user. "
+    "The pov is from the user's eyes, describe what they can **see**. "
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "If the user looks at a subject, only describe the subject. "
     "Write the user's hand or arm only when the final instant explicitly puts it in frame. State its exact action or contact, "
     'always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never as "the viewer grips" or other phrasing where viewer is '
     "the verb's subject. "
-    "Do not write the user's face, body, or clothing. " + _SHOT_NO_CAMERA_WORD
+    "Never mention the user's face, body, or clothing. " + _SHOT_NO_CAMERA_WORD + _SHOT_SUBJECT_VISIBILITY
 )
 
 _SHOT_COUNTED_THIRD = (
-    "The pov looks at the scene from outside. Draw every person in frame. "
+    "The pov looks at the scene from outside. Describe every person in frame. "
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "Examples: 1girl. 1boy. 2girls. 1boy, 1girl. "
     "Add 'solo' after the count tag when only one person is in frame. "
-    "Count the person the user plays. Draw that person like any other person. " + _SHOT_NO_CAMERA_WORD
+    "Count the person the user plays. Draw that person like any other person. "
+    + _SHOT_NO_CAMERA_WORD
+    + _SHOT_SUBJECT_VISIBILITY
 )
 
 _SHOT_PROSE_FIRST = (
-    "The pov is from the user's eyes, describe what they can **see**. The user is ignored. Describe only the others visible to this pov. "
+    "The pov is from the user's eyes, describe what they can **see**. Describe only the others visible to this pov. "
     "If the user looks at a subject, only describe the subject. Write the user's hand or arm only when the final instant explicitly "
     'puts it in frame, and state its exact action or contact, always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never '
     "as \"the viewer grips\" or other phrasing where viewer is the verb's subject. NEVER mention the user's face, body, or clothing. "
-    "If the subject is touching the viewer but not on hands or arms, write this: `one arm reaching out beyond the edge of screen`. "
-    "If the subject is really close, prompt for only the unoccluded parts, e.g. head and torso visible, etc. "
+    "If the subject is really close, mention only the dominating parts, e.g. head and torso visible, etc. "
     + _SHOT_NO_CAMERA_WORD
+    + _SHOT_SUBJECT_VISIBILITY
 )
 
 _SHOT_PROSE_THIRD = (
     "The pov looks at the scene from outside. Describe every person visible in frame, including the character the user "
-    "plays. Bind each person's appearance and action with natural prose. Do not write booru count tags. " + _SHOT_NO_CAMERA_WORD
+    "plays. Bind each person's appearance and action with natural prose. " + _SHOT_NO_CAMERA_WORD + _SHOT_SUBJECT_VISIBILITY
 )
 
 _SCENE_FORMAT_TAIL = (
@@ -90,12 +93,11 @@ _SCENE_FORMAT_TAIL = (
     "spatial relationships, followed by the setting (place/time), lighting, and framing. "
     "Use as much detail as the visible constraints need, but state each fact once and omit filler. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
-    "'two' when they disambiguate limbs, hands, objects, or contacts. Be anatomically and spatially precise. "
-    "Use direct, honest, active language; prefer 'pulling' to an ambiguous passive word such as 'pulled'. "
-    "Describe only concrete visual details. Do not include dialogue, thoughts, sounds, motives, sensations, "
-    "analogies, or a narrative explanation. Describe the current visible state affirmatively. Do not mention occluded or "
-    "absent items in the positive scene. "
-    "Do not add medium, or generic quality words. "
+    "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
+    "Use direct, honest, active language - for example, use 'pulling' with ownership over an ambiguous passive word such as 'pulled'. "
+    "Describe only concrete visual details. Exclude dialogue, thoughts, sounds, motives, sensations, "
+    "analogies, or a narrative explanation. Describe the current visible state affirmatively. Exclude occluded or "
+    "absent items from the positive scene. "
     "Ignore facial traits or an expression when the face is not visible; describe the visible head orientation instead. "
     "Be extremely meticulous and as lengthy as needed with the fine details. "
 )
@@ -121,12 +123,12 @@ _SCENE_FORMAT_STRUCTURED_TAIL = (
     "interaction and spatial relationships, then setting, lighting, and framing. Keep one character's facts together. "
     "Use as much detail as the visible constraints need, but state each fact once and omit filler. Be extremely meticulous and as lengthy as needed. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
-    "'two' when they disambiguate limbs, hands, objects, or contacts. Be anatomically and spatially precise. "
-    "Use direct, honest, active language; prefer 'pulling' to an ambiguous passive word such as 'pulled'. "
-    "Describe only concrete visual details. Do not include dialogue, thoughts, sounds, motives, sensations, "
-    "analogies, or narrative explanation. Describe the current visible state affirmatively. Do not mention occluded or "
-    "absent items in the positive scene. Ignore describe facial traits or an expression when the face is not visible. "
-    "Do not add medium, art-style, artist, or generic quality words. Leave `avoid` empty."
+    "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
+    "Use direct, honest, active language - for example, use 'pulling' with ownership over an ambiguous passive word such as 'pulled'. "
+    "Describe only concrete visual details. Exclude include dialogue, thoughts, sounds, motives, sensations, "
+    "analogies, or narrative explanation. Describe the current visible state affirmatively. Exclude occluded or "
+    "absent items from the positive scene. Exclude facial traits or an expression when the face is not visible. "
+    "Leave `avoid` empty."
 )
 
 
@@ -156,7 +158,7 @@ COMPOSE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "compose_image_prompt",
-        "description": "Write a literal prompt for one visible scene without choosing an art style.",
+        "description": "Write a detailed image-gen prompt for one visible scene.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -464,7 +466,7 @@ def _compose_ooc(
         + downstream
         + guide
         + "  Use earlier conversation only for stable visible continuity such as "
-        "identity, the current outfit, and the setting. Leave unknown details out. " + extra + "]"
+        "identity, the current outfit, and the setting. " + extra + "]"
     )
 
 
