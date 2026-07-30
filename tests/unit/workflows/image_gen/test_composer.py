@@ -228,10 +228,14 @@ async def test_the_camera_moves_the_tails_and_never_the_tool_schemas(monkeypatch
     assert before == after, "the tool blob must not depend on the camera"
     # Vacuity guard: the camera really did change what the model was told.
     assert first_tails != third_tails
-    assert any("the camera is the user's eyes" in t.lower() for t in first_tails)
-    assert not any("the camera is the user's eyes" in t.lower() for t in third_tails)
-    # And each mode is free of the other's hedging -- the point of the split.
-    assert not any("do not count the user" in t.lower() for t in third_tails)
+    # Asserted against the constants, not their wording: the prompts get tuned, the
+    # wiring must not. Each camera ships its own copy and none of the other's.
+    first_copy = (composer._ANALYZE_CAMERA[FIRST], composer._SHOT_COUNTED_FIRST, composer._SHOT_PROSE_FIRST)
+    third_copy = (composer._ANALYZE_CAMERA[THIRD], composer._SHOT_COUNTED_THIRD, composer._SHOT_PROSE_THIRD)
+    for tails, mine, theirs in ((first_tails, first_copy, third_copy), (third_tails, third_copy, first_copy)):
+        joined = "".join(tails)
+        assert sum(c in joined for c in mine) >= 2  # the analyze camera plus one shot rule
+        assert not any(c in joined for c in theirs)
 
 
 def test_the_analyze_schema_states_no_viewpoint():
@@ -242,13 +246,6 @@ def test_the_analyze_schema_states_no_viewpoint():
     # is a schema that varies with the camera.
     assert "viewer_contact" in params["properties"]
     assert "viewer_contact" in params["required"]
-
-
-def test_analyzer_distinguishes_hidden_faces_from_visible_profiles_and_sideways_gaze():
-    prompt = composer._analyze_ooc(THIRD)
-    assert "A side profile or sideways gaze is still visible" in prompt
-    assert "face is fully occluded" in prompt
-    assert "set `expression` null" in prompt
 
 
 @pytest.mark.parametrize("mode_pov", [FIRST, THIRD])

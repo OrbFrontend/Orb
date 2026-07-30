@@ -79,27 +79,29 @@ async def _run(base, fragments, settings, director=None):
 
 
 class TestStepPrompt:
+    # These assert on what the builder *interpolates* -- fragment ids, descriptions,
+    # decided values, the field-type hint -- never on the surrounding instruction
+    # copy, which gets reworded whenever the director prompt is tuned.
+
     def test_moods_stage_targets_moods_only(self):
         out = build_director_scene_step_prompt("msg", ["tense"], _MOODS, target_fragment=None)
-        assert "Fill ONLY: moods" in out
+        assert "tense" in out and "suspenseful" in out  # the mood options block rendered
+        assert "user_intent" not in out  # ...and no interactive fragment was targeted
         # Lorebook selection is no longer part of direct_scene (own select_lorebook tool).
         assert "selected_lorebook_entries" not in out
-        assert "Available writing moods" in out
-        assert "[tense]" in out
 
     def test_fragment_stage_targets_one_field(self):
         out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=_FRAGMENTS[0])
-        assert "Fill ONLY the 'user_intent' parameter" in out
-        assert "Field 'user_intent' (single value): what the user wants" in out
+        assert "user_intent" in out and "what the user wants" in out
+        assert "single value" in out  # field_type -> hint
 
     def test_array_fragment_hint(self):
         out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=_FRAGMENTS[1])
-        assert "Field 'keywords' (list of strings):" in out
+        assert "keywords" in out and "list of strings" in out
 
     def test_decided_fields_rendered_and_list_joined(self):
         decided = [("User intent", "wants conflict"), ("Keywords", ["desert", "knife"])]
         out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=_FRAGMENTS[2], decided_fields=decided)
-        assert "Decided so far this turn" in out
         assert "- User intent: wants conflict" in out
         assert "- Keywords: desert, knife" in out
 
@@ -107,15 +109,17 @@ class TestStepPrompt:
         out = build_director_scene_step_prompt(
             "msg", [], _MOODS, target_fragment=_FRAGMENTS[2], decided_fields=[("Keywords", [])]
         )
-        assert "Decided so far this turn" not in out
+        assert "Keywords" not in out
 
     def test_progressive_prior_line_only_when_progressive(self):
         prog = {"id": "stat", "field_type": "progressive", "description": "hp", "injection_label": "HP", "sort_order": 1}
-        out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=prog, progressive_prior="10")
-        assert "Previous value (update it): 10" in out
+        out = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=prog, progressive_prior="hp 42/100")
+        assert "hp 42/100" in out
         # Same prior on a non-progressive field renders no previous-value line.
-        plain = build_director_scene_step_prompt("msg", [], _MOODS, target_fragment=_FRAGMENTS[0], progressive_prior="10")
-        assert "Previous value" not in plain
+        plain = build_director_scene_step_prompt(
+            "msg", [], _MOODS, target_fragment=_FRAGMENTS[0], progressive_prior="hp 42/100"
+        )
+        assert "hp 42/100" not in plain
 
 
 # ── director_pass per-fragment loop ───────────────────────────────────────────
@@ -167,7 +171,6 @@ class TestPerFragmentLoop:
         await _run(base, _FRAGMENTS, self._toggle_on())
         # The keywords call (second) must show the user_intent decided in the first.
         keywords_call = base.calls[1][1]
-        assert "Decided so far this turn" in keywords_call
         assert "wants X" in keywords_call
 
     async def test_moods_call_last_sees_decided_scene(self):
@@ -181,9 +184,8 @@ class TestPerFragmentLoop:
         base = _FakeBase(_FRAGMENTS, responses)
         await _run(base, _FRAGMENTS, self._toggle_on())
         moods_call = base.calls[-1][1]
-        assert "Scene direction decided this turn" in moods_call
         assert "Next event: she leaves" in moods_call
-        assert "Fill ONLY: moods" in moods_call
+        assert "suspenseful" in moods_call  # the moods stage, not another fragment stage
 
     async def test_moods_cleared_when_omitted(self):
         # Moods stage is last; an empty moods call clears the prior active moods.
