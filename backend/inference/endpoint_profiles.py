@@ -18,8 +18,9 @@ To add a new quirk:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 # Body keys always sent; never subject to allowlist filtering.
 ALWAYS_ALLOWED: frozenset[str] = frozenset({"model", "messages", "stream", "tools", "tool_choice"})
@@ -182,6 +183,41 @@ PROFILES: dict[str, dict[str | None, ModelProfile]] = {
         ),
     },
 }
+
+
+# (endpoint_url, model) pairs observed to answer a forced tool_choice with a
+# different tool this session — either a profile coerced the choice to "auto"
+# or the provider ignored it silently (OpenRouter + a thinking-on model,
+# llama.cpp's chat endpoint, …). In-memory only, like _TOOL_CHOICE_UNSUPPORTED.
+_FORCED_CHOICE_IGNORED: set[tuple[str, str]] = set()
+
+
+def note_forced_tool_choice_ignored(endpoint_url: str, model: str) -> None:
+    """Record that *model* answered a forced tool_choice with some other tool."""
+    _FORCED_CHOICE_IGNORED.add((endpoint_url, model))
+
+
+def honors_forced_tool_choice(endpoint_url: str, model: str = "", params: Mapping[str, Any] | None = None) -> bool:
+    """True when a forced-function ``tool_choice`` is expected to actually force.
+
+    Dry-runs :func:`prepare_request_body` over a throwaway body rather than
+    re-stating any provider rule, so profile knobs, conditional transforms
+    (DeepSeek's thinking check) and session-learned drops all count. *params*
+    is the rest of the intended body — pass the reasoning params, since
+    whether forcing survives can depend on them.
+
+    Providers that ignore the field instead of rejecting it can't be known up
+    front; they get learned via :func:`note_forced_tool_choice_ignored`.
+
+    Callers that assembled a multi-tool array only as a cache optimization
+    should ship just the forced tool when this returns ``False``: an unforced
+    array turns every rival schema into a coin flip.
+    """
+    if (endpoint_url, model) in _FORCED_CHOICE_IGNORED:
+        return False
+    body: dict = {**(dict(params) if params else {}), "tool_choice": {"type": "function", "function": {"name": "_probe"}}}
+    prepare_request_body(endpoint_url, model, body)
+    return is_forced_tool_choice(body.get("tool_choice"))
 
 
 def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:

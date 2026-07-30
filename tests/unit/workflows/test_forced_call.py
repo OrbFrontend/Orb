@@ -41,6 +41,19 @@ class _FakeClient:
             yield ev
 
 
+class _ReplayClient:
+    """Serves one programmed event list per ``complete`` call, recording each."""
+
+    def __init__(self, streams: list[list[dict]]) -> None:
+        self._streams = streams
+        self.seen: list[dict[str, Any]] = []
+
+    async def complete(self, **kwargs) -> AsyncIterator[dict]:
+        self.seen.append(kwargs)
+        for ev in self._streams[len(self.seen) - 1]:
+            yield ev
+
+
 def _done_event_with_tool_call(name: str, args: dict) -> dict:
     return {
         "type": "done",
@@ -223,6 +236,95 @@ class TestToolsAssembly:
         )
         names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
         assert _TOOL_NAME in names
+
+    async def test_offer_tools_ships_the_shared_blob(self):
+        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
+        client.base_url = "http://localhost:5000/v1"
+        await _collect(
+            forced_tool_call(
+                client=client,
+                prefix=[],
+                tail_messages=[],
+                tool_name=_TOOL_NAME,
+                settings=_SETTINGS,
+                offer_tools=("editor_apply_patch", _TOOL_NAME),
+            )
+        )
+        names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
+        assert names == ["editor_apply_patch", _TOOL_NAME]
+
+    async def test_offer_tools_collapses_when_forcing_is_dropped(self):
+        """DeepSeek + thinking coerces the forced tool_choice to "auto"; a rival
+        schema in the array then wins the model's pick, so only the forced tool
+        may ship."""
+        client = _FakeClient([_done_event_with_tool_call(_TOOL_NAME, {})])
+        client.base_url = "https://api.deepseek.com"
+        await _collect(
+            forced_tool_call(
+                client=client,
+                prefix=[],
+                tail_messages=[],
+                tool_name=_TOOL_NAME,
+                settings=_SETTINGS,
+                model_name="deepseek-v4-pro",
+                reasoning_on=True,
+                offer_tools=("editor_apply_patch", _TOOL_NAME),
+            )
+        )
+        names = [t["function"]["name"] for t in client.complete_kwargs["tools"]]
+        assert names == [_TOOL_NAME]
+
+    async def test_offer_tools_retries_alone_when_forcing_is_ignored(self):
+        """A provider that ignores tool_choice instead of rejecting it can only be
+        caught by the reply: the wrong tool came back, so retry with the forced
+        tool alone and remember the endpoint for the rest of the session."""
+        from backend.inference import endpoint_profiles as ep
+
+        client = _ReplayClient(
+            [
+                [_done_event_with_tool_call("editor_apply_patch", {})],
+                [_done_event_with_tool_call(_TOOL_NAME, {"rewritten_text": "ok"})],
+            ]
+        )
+        client.base_url = "http://ignores-forcing.local"
+        try:
+            out = await _collect(
+                forced_tool_call(
+                    client=client,
+                    prefix=[],
+                    tail_messages=[],
+                    tool_name=_TOOL_NAME,
+                    settings=_SETTINGS,
+                    offer_tools=("editor_apply_patch", _TOOL_NAME),
+                )
+            )
+            assert out == [{"type": "result", "args": {"rewritten_text": "ok"}}]
+            assert [[t["function"]["name"] for t in kw["tools"]] for kw in client.seen] == [
+                ["editor_apply_patch", _TOOL_NAME],
+                [_TOOL_NAME],
+            ]
+            # Learned: the next call skips the wasted first attempt.
+            assert not ep.honors_forced_tool_choice("http://ignores-forcing.local", "test-model")
+        finally:
+            ep._FORCED_CHOICE_IGNORED.discard(("http://ignores-forcing.local", "test-model"))
+
+    async def test_enabled_tools_array_never_collapses(self):
+        """The pipeline's blob is the shared KV prefix: a wrong tool in the reply
+        degrades to empty args rather than re-issuing with a different array."""
+        client = _ReplayClient([[_done_event_with_tool_call("editor_apply_patch", {})]])
+        client.base_url = "http://ignores-forcing.local"
+        out = await _collect(
+            forced_tool_call(
+                client=client,
+                prefix=[],
+                tail_messages=[],
+                tool_name=_TOOL_NAME,
+                settings=_SETTINGS,
+                enabled_tools={"editor_apply_patch": True, "editor_rewrite": True},
+            )
+        )
+        assert out == [{"type": "result", "args": {}}]
+        assert len(client.seen) == 1
 
     async def test_wrapped_prefix_unwrapped_to_plain_dicts(self):
         """A workflow that passes ``pre_ctx.prefix`` (tuple of

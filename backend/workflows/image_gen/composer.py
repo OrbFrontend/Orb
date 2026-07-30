@@ -516,6 +516,8 @@ def _join(parts: Sequence[Any]) -> str:
 # rejected outright (DeepSeek). Order is fixed regardless of which is forced, so
 # analyze and compose are byte-identical and reuse each other's cached prefix.
 # Kept out of enabled_schemas (standalone): never leaks into the pipeline's set.
+# forced_tool_call drops the sibling schema on providers that don't honor the
+# forcing -- an unforced array lets the model answer with the other tool.
 _OFFER_TOOLS = ("analyze_scene", "compose_image_prompt")
 
 

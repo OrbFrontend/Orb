@@ -37,6 +37,20 @@ def test_allow_extra_none_drops_nothing():
     assert not any("dropped" in a for a in actions)
 
 
+def test_honors_forced_tool_choice_dry_run():
+    from backend.inference.endpoint_profiles import honors_forced_tool_choice
+
+    thinking_on = {"thinking": {"type": "enabled"}}
+    # DeepSeek 400s on a forced tool_choice whenever thinking is enabled, so the
+    # profile coerces it; without thinking the forcing survives.
+    assert not honors_forced_tool_choice("https://api.deepseek.com", "deepseek-v4-pro", thinking_on)
+    assert honors_forced_tool_choice("https://api.deepseek.com", "deepseek-v4-pro", {"thinking": {"type": "disabled"}})
+    assert honors_forced_tool_choice("https://api.deepseek.com", "deepseek-v4-pro")
+    # deepseek-reasoner drops it unconditionally; unknown endpoints pass through.
+    assert not honors_forced_tool_choice("https://api.deepseek.com", "deepseek-reasoner")
+    assert honors_forced_tool_choice("http://localhost:5000/v1", "any-model", thinking_on)
+
+
 def test_allow_extra_frozenset_still_drops():
     prof = ModelProfile(allow_extra=frozenset({"temperature"}))
     body = {"model": "m", "messages": [], "temperature": 0.7, "weird": 1}

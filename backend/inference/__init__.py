@@ -18,7 +18,13 @@ from .client import (
     reasoning_cfg,
     separate_agent_lane_configured,
 )
-from .endpoint_profiles import ModelProfile, is_forced_tool_choice, profile_for
+from .endpoint_profiles import (
+    ModelProfile,
+    honors_forced_tool_choice,
+    is_forced_tool_choice,
+    note_forced_tool_choice_ignored,
+    profile_for,
+)
 from .kv_tracker import _KVCacheTracker
 from .lorebook import compute_constant_lorebook_block
 from .prompt_builder import (
@@ -68,7 +74,9 @@ __all__ = [
     "RetryPolicy",
     # endpoint_profiles — provider adapter
     "ModelProfile",
+    "honors_forced_tool_choice",
     "is_forced_tool_choice",
+    "note_forced_tool_choice_ignored",
     "profile_for",
     # cached_call / kv_tracker
     "CachedBase",
