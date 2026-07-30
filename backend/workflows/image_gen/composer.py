@@ -52,7 +52,7 @@ _FORMAT_INSTRUCTIONS = {
 _SHOT_NO_CAMERA_WORD = "Never write the word 'pov' in the image prompt. "
 
 _SHOT_COUNTED_FIRST = (
-    "The pov is the user's eyes, describe what they can **see**. The user is ignored. "
+    "The pov is from the user's eyes, describe what they can **see**. The user is ignored. "
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "If the user looks at a subject, only describe the subject. "
     "Write the user's hand or arm only when the final instant explicitly puts it in frame. State its exact action or contact. "
@@ -68,7 +68,7 @@ _SHOT_COUNTED_THIRD = (
 )
 
 _SHOT_PROSE_FIRST = (
-    "The pov is the user's eyes, describe what they can **see**. The user is ignored. Describe only the others visible to this pov. "
+    "The pov is from the user's eyes, describe what they can **see**. The user is ignored. Describe only the others visible to this pov. "
     "If the user looks at a subject, only describe the subject. Write the user's hand or arm only when the final instant explicitly "
     "puts it in frame, and state its exact action or contact. Do not write the user's face, body, or clothing. "
     + _SHOT_NO_CAMERA_WORD
@@ -83,14 +83,14 @@ _SCENE_FORMAT_TAIL = (
     "Order the scene by visual importance. Give each character's pose and action first. Then give their build, current "
     "clothing, hair, and other visible traits. Keep one character's facts together. Then describe the interaction and "
     "spatial relationships, followed by the setting (place/time), lighting, and framing. "
-    "Use as much detail as the visible constraints need, but state each fact once and omit filler. "
+    "Use as much detail as the visible constraints need, but state each fact once and omit filler. Be obsessive. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Be anatomically and spatially precise. "
     "Use direct, active language; prefer 'pulling' to an ambiguous passive word such as 'pulled'. "
-    "Describe only concrete details that can change pixels. Do not include dialogue, thoughts, sounds, motives, sensations, "
-    "analogies, or a narrative explanation. Describe the current visible state affirmatively. Do not mention removed or "
+    "Describe only concrete visual details. Do not include dialogue, thoughts, sounds, motives, sensations, "
+    "analogies, or a narrative explanation. Describe the current visible state affirmatively. Do not mention occluded or "
     "absent items in the positive scene. "
-    "Do not add medium, art-style, artist, rendering-quality, or generic quality words. Saved style data handles them. "
+    "Do not add medium, art-style, artist, or generic quality words. "
     "Do not describe facial traits or an expression when the face is not visible; describe the visible head orientation instead. "
 )
 
@@ -113,14 +113,14 @@ _SCENE_FORMAT_STRUCTURED_HEAD = (
 _SCENE_FORMAT_STRUCTURED_TAIL = (
     "Render it in the requested prompt format and keep its order: pose and action, visible traits and current clothing, "
     "interaction and spatial relationships, then setting, lighting, and framing. Keep one character's facts together. "
-    "Use as much detail as the visible constraints need, but state each fact once and omit filler. "
+    "Use as much detail as the visible constraints need, but state each fact once and omit filler. Be obsessive. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Be anatomically and spatially precise. "
     "Use direct, active language; prefer 'pulling' to an ambiguous passive word such as 'pulled'. "
-    "Describe only concrete details that can change pixels. Do not include dialogue, thoughts, sounds, motives, sensations, "
-    "analogies, or narrative explanation. Describe the current visible state affirmatively. Do not mention removed or "
+    "Describe only concrete visual details. Do not include dialogue, thoughts, sounds, motives, sensations, "
+    "analogies, or narrative explanation. Describe the current visible state affirmatively. Do not mention occluded or "
     "absent items in the positive scene. Do not describe facial traits or an expression when the face is not visible. "
-    "Do not add medium, art-style, artist, rendering-quality, or generic quality words. Leave `avoid` empty."
+    "Do not add medium, art-style, artist, or generic quality words. Leave `avoid` empty."
 )
 
 
