@@ -279,7 +279,7 @@ async def test_the_word_camera_never_reaches_the_image_prompt(monkeypatch, mode_
         (
             FIRST,
             "tags",
-            "1girl, reaching towards viewer, outstretched arm, foreshortening, looking at viewer, red hair",
+            "1girl, reaching beyond edge of screen, foreshortening, looking at viewer, red hair",
         ),
         # Third-person has no viewer to touch: the gate is off and nothing is swapped.
         (
@@ -331,12 +331,12 @@ def test_unmapped_viewer_talk_collapses_rather_than_naming_the_viewers_body():
     assert composer._rewrite_viewer_contact("1girl, red hair, looking at viewer") == "1girl, red hair, looking at viewer"
     # Second person is the same viewer by another name.
     assert composer._rewrite_viewer_contact("1girl, grabbing your collar") == (
-        "1girl, reaching towards viewer, outstretched arm, foreshortening"
+        "1girl, reaching beyond edge of screen, foreshortening"
     )
 
 
 def test_naming_the_viewer_without_touching_them_earns_no_arm():
-    # The fallback fires on contact, not on the word. An invented outstretched arm
+    # The fallback fires on contact, not on the word. An invented reaching arm
     # is a worse failure than a lost chunk, because it draws a limb nobody wrote.
     assert composer._rewrite_viewer_contact("1girl, standing close to the viewer, red hair") == "1girl, red hair"
     assert composer._rewrite_viewer_contact("1girl, blocking the viewer's path") == "1girl"
@@ -344,9 +344,9 @@ def test_naming_the_viewer_without_touching_them_earns_no_arm():
     assert composer._rewrite_viewer_contact("1girl, looking up at the viewer") == "1girl, looking at viewer"
     assert composer._rewrite_viewer_contact("1girl, her eyes searching the viewer's face") == "1girl, looking at viewer"
     # Contact without a reach, and a threat without contact: both would be wrong
-    # as the fallback's outstretched arm -- one flatly, one by being dropped.
+    # as the fallback's reach past the frame edge -- one flatly, one by being dropped.
     assert composer._rewrite_viewer_contact("1girl, straddling the viewer's lap") == (
-        "1girl, girl on top, straddling, foreshortening"
+        "1girl, on top, straddling, foreshortening"
     )
     assert composer._rewrite_viewer_contact("1girl, pointing a knife at the viewer") == (
         "1girl, aiming at viewer, foreshortening"
@@ -363,14 +363,14 @@ def test_short_verb_stems_do_not_false_fire_on_unrelated_words():
     # The exclusion must not cost the stem its real inflections.
     assert composer._rewrite_viewer_contact("1girl, pinning the viewer against the wall") == "1girl, close-up, foreshortening"
     assert composer._rewrite_viewer_contact("1girl, cupping the viewer's cheek") == (
-        "1girl, reaching towards viewer, outstretched arm, foreshortening"
+        "1girl, reaching beyond edge of screen, foreshortening"
     )
 
 
 def test_the_viewer_can_be_the_hand_or_the_throat_and_they_do_not_rewrite_alike():
     # Viewer as patient: their throat is not drawn, the grip reaching the lens is.
     assert composer._rewrite_viewer_contact("1girl, hand gripping the viewer's throat") == (
-        "1girl, strangling, reaching towards viewer, outstretched arm, foreshortening"
+        "1girl, strangling, reaching towards viewer, foreshortening"
     )
     # Viewer as agent: the shot rules ask for this by name when a hand is in frame.
     # Collapsing it would reverse who is choking whom, so only the possessive goes.
@@ -379,7 +379,7 @@ def test_the_viewer_can_be_the_hand_or_the_throat_and_they_do_not_rewrite_alike(
     )
     # Both directions at once, which is what a struggle actually looks like.
     assert composer._rewrite_viewer_contact("your hand on her throat, her arm gripping your shirt") == (
-        "pov hands, hand on her throat, reaching towards viewer, outstretched arm, foreshortening"
+        "pov hands, hand on her throat, reaching beyond edge of screen, foreshortening"
     )
 
 
