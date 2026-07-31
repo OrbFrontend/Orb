@@ -214,8 +214,9 @@ async def test_model_config_reasoning_effort_round_trip(client, db):
 
 
 async def test_settings_overlay_reasoning_effort(client, db):
-    """The active model config's reasoning_effort reaches get_settings, and the
-    agent inherits it when sharing the writer endpoint."""
+    """The active model config's reasoning settings -- including a custom param
+    name and its value -- reach get_settings, and the agent lane inherits them
+    when it shares the writer's endpoint."""
     endpoint_resp = await client.post(
         "/api/endpoints",
         json={"url": "https://api.overlay.com", "api_key": "key"},
@@ -223,7 +224,12 @@ async def test_settings_overlay_reasoning_effort(client, db):
     endpoint_id = endpoint_resp.json()["id"]
     model_resp = await client.post(
         f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "overlay-model", "reasoning_effort": "high"},
+        json={
+            "model_name": "overlay-model",
+            "reasoning_effort": "custom",
+            "reasoning_effort_param": "reasoning_effort",
+            "reasoning_effort_value": "max",
+        },
     )
     config_id = model_resp.json()["id"]
 
@@ -233,8 +239,11 @@ async def test_settings_overlay_reasoning_effort(client, db):
     resp = await client.get("/api/settings")
     assert resp.status_code == 200
     settings = resp.json()
-    assert settings["reasoning_effort"] == "high"
-    assert settings["agent_reasoning_effort"] == "high"
+    assert settings["reasoning_effort"] == "custom"
+    assert settings["agent_reasoning_effort"] == "custom"
+    assert settings["reasoning_effort_param"] == "reasoning_effort"
+    assert settings["reasoning_effort_value"] == "max"
+    assert settings["agent_reasoning_effort_value"] == "max"
 
 
 async def test_endpoint_crud_workflow(client, db):
