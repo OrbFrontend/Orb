@@ -853,7 +853,9 @@ class LLMClient:
             bool(grammar),
         )
 
-        splitter = text_completion.ThinkSplitter(tags, already_open=pre_opened)
+        # trim_lead off on a prefilled call: the stream continues an open assistant
+        # turn, so a leading space is the word separator, not template padding.
+        splitter = text_completion.ThinkSplitter(tags, already_open=pre_opened, trim_lead=not prefill)
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         forced_buf: list[str] = []

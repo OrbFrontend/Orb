@@ -154,6 +154,11 @@ class ThinkSplitter:
     ``reasoning`` (inside the span), ``content`` (after the span; no more tags).
     A non-thinking model (empty open tag) starts in ``content``.
 
+    ``trim_lead=False`` disables the leading-whitespace trim below: on a
+    prefilled (open assistant turn) call the model is continuing a sentence, so
+    its first byte is usually the space that joins the two — trimming it welds
+    the words together (``He`` + ``saw`` -> ``Hesaw``).
+
     ``already_open`` starts in ``reasoning`` instead of ``pre``: some chat
     templates (Qwen3) emit the *opening* think tag in the generation prompt, so
     the model's stream begins *inside* the span with no open tag to see. The
@@ -162,10 +167,11 @@ class ThinkSplitter:
     ``False`` and the default ``pre`` scan catches it.
     """
 
-    def __init__(self, tags: ThinkTags, already_open: bool = False) -> None:
+    def __init__(self, tags: ThinkTags, already_open: bool = False, trim_lead: bool = True) -> None:
         self._open, self._close, _ = tags
         self._buf = ""
-        self._content_started = False
+        self._trim_lead = trim_lead
+        self._trim_pending = trim_lead
         if not self._open:
             self._state = "content"
         elif already_open:
@@ -183,11 +189,11 @@ class ThinkSplitter:
         newlines inside the reply are untouched — and a whitespace-only first
         piece is dropped entirely so the trim carries to the next one.
         """
-        if kind == "content" and not self._content_started:
+        if kind == "content" and self._trim_pending:
             text = text.lstrip()
             if not text:
                 return
-            self._content_started = True
+            self._trim_pending = False
         out.append((kind, text))
 
     def feed(self, delta: str) -> list[tuple[str, str]]:
@@ -210,7 +216,7 @@ class ThinkSplitter:
             if self._state == "pre":
                 # Provisional content before the span was a false start; the real
                 # reply begins after the close tag, so re-arm the trim.
-                self._state, self._content_started = "reasoning", False
+                self._state, self._trim_pending = "reasoning", self._trim_lead
             else:
                 self._state = "content"
         return out
