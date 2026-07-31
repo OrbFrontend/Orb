@@ -2,10 +2,7 @@
 // through the /config route; the per-conversation prose-format spec goes through
 // the on-demand trigger RPC. Mirrors the TTS panel pattern.
 
-import { api } from "/static/api.js";
-import { S } from "/static/state.js";
-import { convUrl, esc } from "/static/utils.js";
-import { showModal } from "/static/modal.js";
+import { api, closeModal, convUrl, esc, getActiveConvId, registerAction, showModal } from "/static/workflow_api.js";
 
 const WORKFLOW_ID = "prose_format_llm";
 
@@ -15,22 +12,23 @@ const WORKFLOW_ID = "prose_format_llm";
 let spec = [];
 
 export function initConfigPanel() {
-  window.pfOpenSettings = openSettings;
-  window.pfSaveGlobal = saveGlobal;
-  window.pfAddRow = addRow;
-  window.pfDelRow = delRow;
-  window.pfAnalyze = analyze;
-  window.pfSaveSpec = saveSpec;
-  window.pfReset = reset;
+  registerAction(WORKFLOW_ID, "settings", () => openSettings());
+  registerAction(WORKFLOW_ID, "close", () => closeModal());
+  registerAction(WORKFLOW_ID, "saveGlobal", () => saveGlobal());
+  registerAction(WORKFLOW_ID, "addRow", () => addRow());
+  registerAction(WORKFLOW_ID, "delRow", (el) => delRow(Number(el.dataset.i)));
+  registerAction(WORKFLOW_ID, "analyze", () => analyze());
+  registerAction(WORKFLOW_ID, "saveSpec", () => saveSpec());
+  registerAction(WORKFLOW_ID, "reset", () => reset());
 }
 
 export function configCardRenderer() {
   return `<div class="tool-card-desc">Hold replies to a recorded prose format with an LLM judge/enforce pass.</div>
-    <button class="btn btn-sm pf-settings-btn" onclick="window.pfOpenSettings()">Settings</button>`;
+    <button class="btn btn-sm pf-settings-btn" data-wf-action="prose_format_llm:settings">Settings</button>`;
 }
 
 function triggerUrl() {
-  return convUrl(S.activeConvId, "workflows", WORKFLOW_ID, "trigger");
+  return convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger");
 }
 
 async function openSettings() {
@@ -45,20 +43,20 @@ function modalShell() {
     <div class="pf-section-title">Enforcement</div>
     <div class="field">
       <label for="pf-cfg-iters">Max enforce iterations</label>
-      <input type="number" id="pf-cfg-iters" min="0" step="1" value="1" onchange="window.pfSaveGlobal()">
+      <input type="number" id="pf-cfg-iters" min="0" step="1" value="1" data-wf-action="prose_format_llm:saveGlobal" data-wf-on="change">
     </div>
     <div class="field">
       <label for="pf-cfg-mode">Prompt mode</label>
-      <select id="pf-cfg-mode" onchange="window.pfSaveGlobal()">
+      <select id="pf-cfg-mode" data-wf-action="prose_format_llm:saveGlobal" data-wf-on="change">
         <option value="minimal">Minimal (draft + format only)</option>
         <option value="extend">Full context (whole conversation)</option>
       </select>
     </div>
-    <label class="modal-checkbox-label pf-check"><input type="checkbox" id="pf-cfg-auto" onchange="window.pfSaveGlobal()"> Auto-analyze a conversation once</label>
-    <label class="modal-checkbox-label pf-check"><input type="checkbox" id="pf-cfg-reasoning" onchange="window.pfSaveGlobal()"> Reasoning -- let every agent think before acting</label>
-    <label class="modal-checkbox-label pf-check"><input type="checkbox" id="pf-cfg-stream" onchange="window.pfSaveGlobal()"> Stream that reasoning to the inspector rail (needs reasoning on)</label>
+    <label class="modal-checkbox-label pf-check"><input type="checkbox" id="pf-cfg-auto" data-wf-action="prose_format_llm:saveGlobal" data-wf-on="change"> Auto-analyze a conversation once</label>
+    <label class="modal-checkbox-label pf-check"><input type="checkbox" id="pf-cfg-reasoning" data-wf-action="prose_format_llm:saveGlobal" data-wf-on="change"> Reasoning -- let every agent think before acting</label>
+    <label class="modal-checkbox-label pf-check"><input type="checkbox" id="pf-cfg-stream" data-wf-action="prose_format_llm:saveGlobal" data-wf-on="change"> Stream that reasoning to the inspector rail (needs reasoning on)</label>
     <div class="pf-spec" id="pf-spec">Loading...</div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
+    <div class="modal-actions"><button class="btn" data-wf-action="prose_format_llm:close">Close</button></div>`;
 }
 
 async function loadGlobal() {
@@ -102,7 +100,7 @@ async function saveGlobal() {
 async function populateSpec() {
   const host = document.getElementById("pf-spec");
   if (!host) return;
-  if (!S.activeConvId) {
+  if (!getActiveConvId()) {
     host.innerHTML = `<div class="pf-note">Open a conversation to edit its prose format.</div>`;
     return;
   }
@@ -145,7 +143,7 @@ function renderSpec() {
       (r, i) => `<div class="pf-row">
       <input class="pf-name" type="text" data-pf-name data-i="${i}" value="${esc(r.name)}" placeholder="element">
       <textarea class="pf-field" data-pf-desc data-i="${i}" rows="2" placeholder="how the analyzer should describe this element">${esc(r.description)}</textarea>
-      <button class="btn btn-xs btn-danger pf-del" onclick="window.pfDelRow(${i})">Remove</button>
+      <button class="btn btn-xs btn-danger pf-del" data-wf-action="prose_format_llm:delRow" data-i="${i}">Remove</button>
     </div>`,
     )
     .join("");
@@ -159,14 +157,14 @@ function renderSpec() {
     .join("");
   host.innerHTML = `<div class="pf-section-title">Elements (analyzer guidance)</div>
     <div class="pf-rows">${schemaRows}</div>
-    <button class="btn btn-sm pf-add" onclick="window.pfAddRow()">+ Add element</button>
+    <button class="btn btn-sm pf-add" data-wf-action="prose_format_llm:addRow">+ Add element</button>
     <div class="pf-section-title">Recorded format (what gets enforced)</div>
     <div class="pf-rows">${valueRows}</div>
     <div class="pf-actions">
-      <button class="btn btn-sm" onclick="window.pfAnalyze()">Analyze now</button>
-      <button class="btn btn-sm" onclick="window.pfReset()">Reset elements to default</button>
+      <button class="btn btn-sm" data-wf-action="prose_format_llm:analyze">Analyze now</button>
+      <button class="btn btn-sm" data-wf-action="prose_format_llm:reset">Reset elements to default</button>
       <span id="pf-status" class="pf-status"></span>
-      <button class="btn btn-sm btn-accent" onclick="window.pfSaveSpec()">Save</button>
+      <button class="btn btn-sm btn-accent" data-wf-action="prose_format_llm:saveSpec">Save</button>
     </div>`;
 }
 

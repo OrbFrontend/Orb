@@ -3,7 +3,7 @@
 // rail; this module supplies the card body, the rail's pass list, and the
 // settings modal wiring.
 
-import { registerWorkflowPipeline, registerWorkflowToolsPanelCard } from "/static/state.js";
+import { registerWorkflowPipeline, registerWorkflowToolsPanelCard } from "/static/workflow_api.js";
 import { configCardRenderer, initConfigPanel } from "./config_panel.js";
 
 const WORKFLOW_ID = "prose_format_llm";
