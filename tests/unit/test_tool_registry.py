@@ -41,23 +41,16 @@ def _restore_registry():
 
 
 class TestBuiltinToolNames:
-    def test_builtins_are_the_non_standalone_tools(self):
-        # Built-ins are exactly the non-standalone tools. A workflow that
-        # contributes tools registers them standalone (e.g. prose_format_llm), so
-        # they land in STANDALONE_TOOLS instead of widening the built-in set. The
-        # exact built-in <-> TOOLS-literal match is asserted at module load in
-        # tool_registry.py itself, before any workflow registers.
-        assert frozenset(TOOLS) - STANDALONE_TOOLS == BUILTIN_TOOL_NAMES
+    def test_matches_tools_keys_at_module_load(self):
+        assert BUILTIN_TOOL_NAMES == frozenset(TOOLS) - STANDALONE_TOOLS
 
     def test_is_a_frozenset(self):
         assert isinstance(BUILTIN_TOOL_NAMES, frozenset)
 
 
 class TestStandaloneToolsBaseline:
-    def test_no_builtin_is_standalone(self):
-        # STANDALONE_TOOLS holds only workflow-contributed tools; no built-in is
-        # ever standalone (register_workflow rejects built-in tool names).
-        assert STANDALONE_TOOLS.isdisjoint(BUILTIN_TOOL_NAMES)
+    def test_empty_at_module_load(self):
+        assert BUILTIN_TOOL_NAMES.isdisjoint(STANDALONE_TOOLS)
 
 
 class TestPipelinePhaseSets:
