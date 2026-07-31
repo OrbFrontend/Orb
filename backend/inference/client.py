@@ -243,6 +243,11 @@ class LLMClient:
         from the body. For a forced call this is decoding-only on both
         transports — prompt bytes and KV cache untouched.
 
+        Endpoints whose profile sets ``structured_tool_calls`` drop the pair on
+        every call, flag or no flag: forced calls ride ``response_format``, and
+        ``tools``/``tool_choice`` never enter the body, so that endpoint's
+        server-rendered prompts carry no schemas at all (see ``_complete_chat``).
+
         Yields:
             ``{"type": "reasoning", "delta": str}`` — zero or more reasoning chunks
             ``{"type": "content",   "delta": str}`` — zero or more content chunks
@@ -339,23 +344,18 @@ class LLMClient:
         # schema, which guarantees byte-exact argument keys where free-decoded
         # tool calls do not (e.g. GLM-5.2 snake-cases hyphenated keys). Two
         # triggers:
-        #   * profile opt-in -- ``tools`` stays in the body so the
-        #     server-rendered prompt (and with it the KV cache) is unchanged;
-        #     only ``tool_choice`` is replaced.
+        #   * profile opt-in -- the endpoint honors strict json_schema for the
+        #     models it fronts (``supports_structured_tool_calls``).
         #   * ``tools_in_prompt=False`` -- the caller's conversation has no
         #     tools in its cached prefix (doc-mode auditor), so the schema must
-        #     not touch the prompt at all: ``tools`` is dropped from the body
-        #     and the forced call rides response_format alone. (Non-forced
-        #     tool_choice with the flag drops both -- a choice about absent
-        #     tools is meaningless.)
+        #     not touch the prompt at all.
         # The caller-supplied ``json_schema`` (per-fragment director steps)
         # narrows the schema exactly as it narrows the text-mode grammar.
         tools_in_prompt = params.pop("tools_in_prompt", True)
         schema_override = params.pop("json_schema", None)
+        structured = endpoint_profiles.supports_structured_tool_calls(self.base_url, model)
         forced_name: str | None = None
-        if isinstance(tool_choice, dict) and (
-            not tools_in_prompt or endpoint_profiles.supports_structured_tool_calls(self.base_url, model)
-        ):
+        if isinstance(tool_choice, dict) and (not tools_in_prompt or structured):
             name = (tool_choice.get("function") or {}).get("name")
             schema = schema_override or text_completion.forced_schema(tools, tool_choice)
             if name and schema:
@@ -365,7 +365,29 @@ class LLMClient:
                     "json_schema": {"name": name, "strict": True, "schema": strictify_schema(schema)},
                 }
                 tool_choice = None
-        if not tools_in_prompt:
+        # Both triggers withhold the tool blob -- and ``tool_choice`` with it --
+        # from the body; on a structured-output endpoint that holds for EVERY
+        # pass, not just the forced ones. Two reasons:
+        #
+        # Correctness -- a model that can still see ``tools`` may answer with a
+        # native tool call instead, and that path bypasses the schema entirely.
+        # DeepSeek rewrites the argument keys when it does (0/39 came back
+        # intact under ``tools`` + strict schema, 22/22 without ``tools``), so
+        # the caller's lookup by the name it sent silently finds nothing.
+        #
+        # Caching -- the server renders ``tools`` into the prompt, so dropping
+        # it only on forced passes would leave the writer with a different
+        # prefix from the director and editor and thrash the shared KV base
+        # they sit on (Invariant 3, docs/architecture/kv-cache.md). Dropping it
+        # for every pass keeps one stable prefix, and a smaller one. For
+        # ``tools_in_prompt=False`` callers the same drop is simply the flag's
+        # contract: their prefix never had schemas to begin with.
+        #
+        # ``tools`` still arrives here: it is the source of the response_format
+        # schema built above. If that derivation fails the call goes out with
+        # neither tools nor tool_choice and degrades to the parse_tool_calls
+        # recovery chain, which is the same posture as any unforced pass.
+        if not tools_in_prompt or structured:
             tools = None
             tool_choice = None
 
