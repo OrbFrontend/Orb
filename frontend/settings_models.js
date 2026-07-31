@@ -66,6 +66,16 @@ const SETTING_FIELDS = [
   },
 ];
 
+// Field grouping for both forms (agent keys derived by prefixing). Keys not
+// listed here render flat at the top -- the connection basics you always need.
+// ponytail: native <details> is the whole expander; no JS, no persistence code.
+// renderEndpoints() runs once per load, so open/closed survives on its own.
+const FIELD_GROUPS = [
+  { l: "Prompts", cls: " ep-chat-only", keys: ["shared_system_prompt", "system_prompt"] },
+  { l: "Sampling", open: true, keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] },
+  { l: "Advanced", keys: ["reasoning_effort", "extra_headers", "extra_body"] },
+];
+
 const AGENT_MODEL_HYPERPARAM_KEYS = [
   "agent_shared_system_prompt",
   "agent_temperature",
@@ -234,11 +244,30 @@ export function renderEndpoints() {
             </div>`;
   }
 
+  function renderForm(fields, isAgent) {
+    const p = isAgent ? "agent_" : "";
+    const byKey = new Map(fields.map((f) => [f.k, f]));
+    const grouped = new Set(FIELD_GROUPS.flatMap((g) => g.keys.map((k) => p + k)));
+    let html = fields
+      .filter((f) => !grouped.has(f.k))
+      .map((f) => renderField(f, isAgent))
+      .join("");
+    for (const g of FIELD_GROUPS) {
+      const members = g.keys.map((k) => byKey.get(p + k)).filter(Boolean);
+      if (!members.length) continue;
+      html += `<details class="ep-group${g.cls || ""}"${g.open ? " open" : ""}>
+        <summary>${g.l}</summary>
+        ${members.map((f) => renderField(f, isAgent)).join("")}
+      </details>`;
+    }
+    return html;
+  }
+
   const agentHidden = S.agentSameAsWriter ? ' style="display:none"' : "";
 
   // The whole Agent block is chat-only: hidden in document mode (see document.css).
   $("endpoints-form").innerHTML = `
-    ${SETTING_FIELDS.map((f) => renderField(f, false)).join("")}
+    ${renderForm(SETTING_FIELDS, false)}
     <div class="ep-chat-only">
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Agent</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
       <div class="tool-card" style="margin-bottom:12px">
@@ -252,7 +281,7 @@ export function renderEndpoints() {
         <div class="tool-card-desc">Use the same endpoint and model for Agent passes as the Writer.</div>
       </div>
       <div id="agent-fields"${agentHidden}>
-        ${AGENT_SETTING_FIELDS.map((f) => renderField(f, true)).join("")}
+        ${renderForm(AGENT_SETTING_FIELDS, true)}
       </div>
     </div>
   `;
