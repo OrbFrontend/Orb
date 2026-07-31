@@ -63,7 +63,12 @@ async def pre_pipeline(ctx):
     pass_id = f"{WORKFLOW_ID}:analyze" if cfg.get("stream_reasoning") else None
     values: dict = {}
     async for ev in run_analyzer(
-        ctx, state.get("schema", {}), pass_id=pass_id, kv_tracker=ctx.kv_tracker, reasoning_on=reasoning_on
+        ctx,
+        state.get("schema", {}),
+        pass_id=pass_id,
+        kv_tracker=ctx.kv_tracker,
+        reasoning_on=reasoning_on,
+        client=ctx.client,
     ):
         if ev.get("type") == "result":
             values = ev["values"]
@@ -133,10 +138,25 @@ async def on_demand(ctx, body):
         # regardless of stream_reasoning (pass_id stays None) -- the model still
         # thinks when reasoning is on. auto_analyzed is left untouched: this is the
         # manual refresh, not the one auto attempt.
+        #
+        # Off-turn tool-calling work runs on the agent lane, matching the other
+        # off-turn workflow hooks. In a dual-model setup that puts this analyzer on
+        # a different model than the pre-pipeline one, which reads the same prose
+        # and writes the same slot: PreCtx carries no agent lane, so the automatic
+        # attempt cannot follow. The two can therefore record different conventions
+        # for one conversation.
         cfg = await get_workflow_config(WORKFLOW_ID)
         reasoning_on = bool(cfg.get("reasoning", False))
         values: dict = {}
-        async for ev in run_analyzer(ctx, state.get("schema", {}), pass_id=None, kv_tracker=None, reasoning_on=reasoning_on):
+        async for ev in run_analyzer(
+            ctx,
+            state.get("schema", {}),
+            pass_id=None,
+            kv_tracker=None,
+            reasoning_on=reasoning_on,
+            client=ctx.agent_client,
+            model_name=ctx.agent_model_name,
+        ):
             if ev.get("type") == "result":
                 values = ev["values"]
         merged = {**state, "values": {**state.get("values", {}), **values}}

@@ -191,7 +191,7 @@ def make_enforce_fn(ctx, spec, mode, reasoning_on, stream):
     return enforce_fn
 
 
-async def run_analyzer(ctx, schema, *, pass_id, kv_tracker, reasoning_on):
+async def run_analyzer(ctx, schema, *, pass_id, kv_tracker, reasoning_on, client, model_name=None):
     """Infer the convention from recent prose and yield a terminal
     ``{"type":"result","values":{...}}``.
 
@@ -199,12 +199,17 @@ async def run_analyzer(ctx, schema, *, pass_id, kv_tracker, reasoning_on):
     on-demand paths produce the same prompt -- ``OnDemandCtx`` exposes no pipeline
     prefix or kv_tracker, and the analyzer runs at most once per conversation, so
     pipeline cache reuse is moot.
+
+    The lane is the caller's to choose rather than read off ``ctx``: only the
+    off-turn contexts resolve an agent lane, so the in-turn caller has no choice
+    to make and passes its single client with ``model_name=None`` (which falls
+    back to ``settings["model_name"]``).
     """
     prefix = [{"role": "system", "content": ANALYZER_PREAMBLE}]
     tail = [{"role": "user", "content": analyze_instruction(schema, ctx.history, TOOL_ANALYZE)}]
     args: dict = {}
     async for ev in forced_tool_call(
-        client=ctx.client,
+        client=client,
         prefix=prefix,
         tail_messages=tail,
         tool_name=TOOL_ANALYZE,
@@ -212,6 +217,7 @@ async def run_analyzer(ctx, schema, *, pass_id, kv_tracker, reasoning_on):
         pass_id=pass_id,
         enabled_tools=None,
         kv_tracker=kv_tracker,
+        model_name=model_name,
         reasoning_on=reasoning_on,
         temperature=_ANALYZE_TEMPERATURE,
     ):
