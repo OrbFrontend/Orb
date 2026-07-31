@@ -7,7 +7,8 @@ system message vs a trailing user message, per prompt mode) lives in ``loop.py``
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 # Recent assistant messages the analyzer reads to infer the convention. The
 # format is conventionally stable across a conversation, so a small window is

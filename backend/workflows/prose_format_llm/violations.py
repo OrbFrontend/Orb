@@ -8,7 +8,8 @@ malformed reply yields fewer/empty results, never an exception.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 
 def validate_violations(raw: Any, draft: str, filled_keys: Iterable[str]) -> list[dict]:
