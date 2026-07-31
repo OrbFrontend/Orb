@@ -229,7 +229,9 @@ CREATE TABLE IF NOT EXISTS model_configs (
     role TEXT NOT NULL DEFAULT 'writer' CHECK (role IN ('writer', 'agent')),
     reasoning_effort TEXT NOT NULL DEFAULT '',
     reasoning_effort_param TEXT NOT NULL DEFAULT '',
-    reasoning_effort_value TEXT NOT NULL DEFAULT ''
+    reasoning_effort_value TEXT NOT NULL DEFAULT '',
+    extra_headers TEXT NOT NULL DEFAULT '',
+    extra_body TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS worlds (

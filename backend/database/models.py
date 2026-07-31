@@ -159,6 +159,15 @@ class SettingsRow(_SettingsBase, total=False):
     agent_reasoning_effort: str
     agent_reasoning_effort_param: str
     agent_reasoning_effort_value: str
+    # Arbitrary per-model request additions, surfaced by the same overlay
+    # (default ''). extra_headers is "Name: value" lines merged into the
+    # outbound headers; extra_body is a JSON object merged into the chat body.
+    # The agent_* variants fall back to the writer's values when the agent
+    # shares the writer endpoint.
+    extra_headers: str
+    extra_body: str
+    agent_extra_headers: str
+    agent_extra_body: str
     # Agent-endpoint cascade overlays (present only when it resolves).
     agent_endpoint_url: str
     agent_api_key: str
@@ -327,6 +336,8 @@ class ModelConfigRow(TypedDict):
     reasoning_effort: str
     reasoning_effort_param: str
     reasoning_effort_value: str
+    extra_headers: str
+    extra_body: str
 
 
 class WorldRow(TypedDict):

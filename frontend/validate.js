@@ -482,6 +482,18 @@ export function validateSetting(key, value) {
       }
       return { valid: true };
     }
+    case "extra_headers": {
+      if (typeof value === "string") {
+        return maxLength(value, 4096, "Extra request headers");
+      }
+      return { valid: true };
+    }
+    case "extra_body": {
+      if (typeof value === "string") {
+        return maxLength(value, 4096, "Extra request body");
+      }
+      return { valid: true };
+    }
     default:
       return { valid: true };
   }

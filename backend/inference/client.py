@@ -105,6 +105,60 @@ def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str 
     body["reasoning"] = {**reasoning, "effort": effort}
 
 
+# RFC 7230 token: the only characters a header name may contain. Must stay
+# identical to the API-layer check in schemas.py, so a row saved through the API
+# is never silently dropped here.
+_HEADER_NAME_RE = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
+
+
+def parse_extra_headers(text: str) -> dict[str, str]:
+    """Parse ``Name: value`` lines into a header dict.
+
+    Blank lines and ``#`` comments are skipped; a malformed line is dropped with
+    a warning rather than raised on. The API layer rejects malformed input at
+    save time, so this tolerance only ever covers a row that predates that
+    validation or was edited in the DB by hand -- such a row degrades to "send
+    fewer headers" instead of killing every turn.
+    """
+    out: dict[str, str] = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, sep, value = line.partition(":")
+        name, value = name.strip(), value.strip()
+        if not sep:
+            logger.warning("Ignoring extra header line, no colon: %r", line)
+            continue
+        if not _HEADER_NAME_RE.fullmatch(name):
+            logger.warning("Ignoring extra header line, name is not an HTTP token: %r", line)
+            continue
+        if not value.isascii() or any(ord(c) < 0x20 and c != "\t" for c in value):
+            logger.warning("Ignoring extra header line, value is not printable ASCII: %r", line)
+            continue
+        out[name] = value
+    return out
+
+
+def parse_extra_body(text: str) -> dict:
+    """Parse a JSON object of extra body fields; ``{}`` when absent or unusable.
+
+    Permissive for the same reason as :func:`parse_extra_headers`.
+    """
+    text = (text or "").strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        logger.warning("Ignoring extra body: not valid JSON")
+        return {}
+    if not isinstance(parsed, dict):
+        logger.warning("Ignoring extra body: expected a JSON object, got %s", type(parsed).__name__)
+        return {}
+    return parsed
+
+
 def strictify_schema(schema: dict) -> dict:
     """Copy *schema* into OpenAI strict-mode shape, recursively.
 
@@ -178,6 +232,8 @@ class LLMClient:
         reasoning_effort: str = "",
         reasoning_effort_param: str = "",
         reasoning_effort_value: str = "",
+        extra_headers: str = "",
+        extra_body: str = "",
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -194,6 +250,9 @@ class LLMClient:
         # Empty string (the settings default = "no proxy") normalizes to None so
         # httpx connects directly; httpx rejects "" as a proxy URL.
         self.proxy = proxy or None
+        # Parsed once here rather than on every request.
+        self.extra_headers = parse_extra_headers(extra_headers)
+        self.extra_body = parse_extra_body(extra_body)
         # Shared across the turn's clients when passed in; otherwise a private
         # token so a standalone client (e.g. a workflow hook) is still abortable.
         self.abort_token = abort_token or AbortToken()
@@ -209,9 +268,17 @@ class LLMClient:
         return self.abort_token.is_aborted
 
     def _headers(self) -> dict:
+        base: dict = {}
         if self.api_key:
-            return {"Authorization": f"Bearer {self.api_key}"}
-        return {}
+            base["Authorization"] = f"Bearer {self.api_key}"
+        # HTTP header names are case-insensitive but dict keys are not, so drop a
+        # base header the configured set respells: a lowercase 'authorization'
+        # override -- the form most provider docs use -- would otherwise send the
+        # Bearer key alongside it. These ride every transport, unlike extra_body.
+        configured = {k.lower() for k in self.extra_headers}
+        headers = {k: v for k, v in base.items() if k.lower() not in configured}
+        headers.update(self.extra_headers)
+        return headers
 
     def _url(self) -> str:
         return f"{self.base_url}/chat/completions"
@@ -405,6 +472,13 @@ class LLMClient:
         body.setdefault("stream_options", {"include_usage": True})
 
         apply_reasoning_effort(body, self.reasoning_effort, self.reasoning_effort_param, self.reasoning_effort_value)
+
+        # Same ordering as apply_reasoning_effort above, for the reason its
+        # docstring gives. Chat-only by design: the text transport builds its
+        # params from an allowlist.
+        if self.extra_body:
+            body.update(self.extra_body)
+            logger.info("LLM extra body fields: %s", sorted(self.extra_body))
 
         # Provider-specific body translation (profiles + session-learned
         # workarounds) lives entirely in endpoint_profiles; the client just
@@ -930,6 +1004,8 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
         reasoning_effort=settings.get("reasoning_effort", ""),
         reasoning_effort_param=settings.get("reasoning_effort_param", ""),
         reasoning_effort_value=settings.get("reasoning_effort_value", ""),
+        extra_headers=settings.get("extra_headers", ""),
+        extra_body=settings.get("extra_body", ""),
     )
 
 
@@ -948,6 +1024,8 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
         reasoning_effort=settings.get("agent_reasoning_effort", settings.get("reasoning_effort", "")),
         reasoning_effort_param=settings.get("agent_reasoning_effort_param", settings.get("reasoning_effort_param", "")),
         reasoning_effort_value=settings.get("agent_reasoning_effort_value", settings.get("reasoning_effort_value", "")),
+        extra_headers=settings.get("agent_extra_headers", settings.get("extra_headers", "")),
+        extra_body=settings.get("agent_extra_body", settings.get("extra_body", "")),
     )
 
 

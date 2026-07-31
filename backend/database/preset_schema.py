@@ -84,6 +84,12 @@ SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("settings", "agent_shared_system_prompt"): "",
     ("endpoints", "api_key"): "",
     ("endpoints", "proxy"): "",
+    # Free-form and user-supplied, so its contents are unknown and may be
+    # sensitive; declared secret alongside endpoints.proxy. model_configs is not
+    # a singleton table, so these rows are dropped by the cascade when configs is
+    # not exported rather than blanked in place. extra_body is deliberately not
+    # declared -- it holds routing and tuning config worth carrying across.
+    ("model_configs", "extra_headers"): "",
 }
 
 # Touch when: exporting one domain only makes sense alongside another (a product
