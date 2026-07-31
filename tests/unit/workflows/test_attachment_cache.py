@@ -13,6 +13,7 @@ import tempfile
 
 from backend.workflows.attachment_cache import (
     EVICTED_MARKER,
+    plan_eviction,
     select_lru3_victim,
     validate_workflow_attachment_shape,
 )
@@ -83,6 +84,16 @@ def test_select_lru3_victim_ties_break_deterministically():
 
 def test_select_lru3_victim_one_candidate_returns_it():
     assert select_lru3_victim([{"id": 7, "size": 100, "recent_accesses": [3]}]) == 7
+
+
+def test_eviction_helpers_skip_unrecoverable_candidates():
+    candidates = [
+        {"id": 1, "size": 10, "recent_accesses": [1], "rehydratable": False},
+        {"id": 2, "size": 4, "recent_accesses": [2], "rehydratable": True},
+    ]
+
+    assert select_lru3_victim(candidates) == 2
+    assert [candidate["id"] for candidate in plan_eviction(candidates, 20)] == [2]
 
 
 def _valid_bytes_att() -> dict:

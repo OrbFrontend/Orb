@@ -1,7 +1,8 @@
 import { api } from "./api.js";
+import { createChipInput } from "./chips.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
-import { S } from "./state.js";
-import { $, esc, toast } from "./utils.js";
+import { charactersView } from "./state.js";
+import { $, boolFlag, downloadBlob, esc, toast } from "./utils.js";
 
 // ── Module state
 let _worlds = [];
@@ -18,15 +19,64 @@ const _entries = {}; // worldId -> entry[]
 let _entrySearch = ""; // substring filter over entry names and content
 let _selectedEntryId = null;
 let _dirty = false;
-let _draft = {
+
+const _emptyDraft = () => ({
   name: "",
   content: "",
   keywords: [],
   priority: 100,
   case_insensitive: true,
   constant: false,
+  at_depth: false,
   enabled: true,
-};
+  use_regex: false,
+  selective: false,
+  secondary_keys: [],
+});
+
+const _draftFromEntry = (e) => ({
+  name: e.name,
+  content: e.content || "",
+  keywords: [...(e.keywords || [])],
+  priority: e.priority ?? 100,
+  case_insensitive: boolFlag(e.case_insensitive),
+  constant: boolFlag(e.constant),
+  at_depth: boolFlag(e.at_depth),
+  enabled: boolFlag(e.enabled),
+  use_regex: boolFlag(e.use_regex),
+  selective: boolFlag(e.selective),
+  secondary_keys: [...(e.secondary_keys || [])],
+});
+
+let _draft = _emptyDraft();
+
+// The keyword chip editor. Reads/writes the live `_draft.keywords`, marks the
+// entry dirty on any change, and disables (Constant entries take no keywords).
+const _keywordChips = createChipInput({
+  wrapId: "lb-chip-wrap",
+  inputId: "lb-chip-text",
+  placeholder: "Add keyword…",
+  disabledPlaceholder: "Keywords disabled — Constant entry",
+  getItems: () => _draft.keywords,
+  setItems: (v) => {
+    _draft.keywords = v;
+  },
+  onChange: _markDirty,
+  isDisabled: () => _draft.constant,
+});
+
+// Secondary keys (V3 `selective`): a primary keyword must hit *and* one of these.
+// Only rendered while Selective is on.
+const _secondaryChips = createChipInput({
+  wrapId: "lb-sec-chip-wrap",
+  inputId: "lb-sec-chip-text",
+  placeholder: "Add secondary keyword…",
+  getItems: () => _draft.secondary_keys,
+  setItems: (v) => {
+    _draft.secondary_keys = v;
+  },
+  onChange: _markDirty,
+});
 
 // ── Worlds API
 export async function loadWorlds() {
@@ -43,7 +93,7 @@ async function _loadEntries(worldId) {
 }
 
 // ── Sidebar rendering
-const _isWorldEnabled = (w) => w.enabled === true || w.enabled === 1;
+const _isWorldEnabled = (w) => boolFlag(w.enabled);
 const _worldRecencyTs = (w) => Date.parse(w.updated_at || w.created_at || "") || 0;
 const _byRecency = (a, b) => _worldRecencyTs(b) - _worldRecencyTs(a);
 
@@ -80,10 +130,10 @@ function _worldItemHtml(w) {
       <span class="world-name">${esc(w.name)}</span>
     </div>
     <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
-      <label class="frag-toggle" for="${toggleId}">
+      <label class="tog" for="${toggleId}">
         <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
                onchange="toggleWorldEnabled('${w.id}', this.checked)">
-        <span class="frag-toggle-slider"></span>
+        <span class="tog-slider"></span>
       </label>
     </div>
   </div>`;
@@ -150,7 +200,7 @@ export async function activateAndPrioritizeWorld(worldId) {
   const idx = _worlds.findIndex((w) => w.id === worldId);
   if (idx === -1) return;
   const world = _worlds[idx];
-  const enabled = world.enabled === true || world.enabled === 1;
+  const enabled = boolFlag(world.enabled);
   if (!enabled) {
     try {
       const updated = await api.put(`/worlds/${worldId}`, { enabled: true });
@@ -169,7 +219,7 @@ export async function activateAndPrioritizeWorld(worldId) {
 export async function deactivateWorld(worldId) {
   const world = _worlds.find((w) => w.id === worldId);
   if (!world) return;
-  const enabled = world.enabled === true || world.enabled === 1;
+  const enabled = boolFlag(world.enabled);
   if (!enabled) return;
   try {
     const updated = await api.put(`/worlds/${worldId}`, { enabled: false });
@@ -217,7 +267,7 @@ export async function renameWorld(worldId) {
     closeModal();
     renderWorldsSidebar();
     if (_focusWorldId === worldId) renderLorebookDrawer();
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to rename lorebook", true);
   }
 }
@@ -248,7 +298,7 @@ export async function createWorld() {
     closeModal();
     renderWorldsSidebar();
     openLorebook(w.id);
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to create world", true);
   }
 }
@@ -259,13 +309,13 @@ export async function toggleWorldEnabled(worldId, enabled) {
     const idx = _worlds.findIndex((w) => w.id === worldId);
     if (idx !== -1) _worlds[idx] = { ..._worlds[idx], ...updated };
     renderWorldsSidebar();
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to update world", true);
   }
 }
 
 export async function deleteWorld(worldId) {
-  const linked = (S.allCharacters || S.characters || []).filter((c) => c.world_id === worldId);
+  const linked = charactersView().filter((c) => c.world_id === worldId);
   let extraHtml = "";
   if (linked.length) {
     const names = linked.map((c) => `<li>${esc(c.name)}</li>`).join("");
@@ -287,12 +337,12 @@ export async function deleteWorld(worldId) {
         _worlds = _worlds.filter((w) => w.id !== worldId);
         delete _entries[worldId];
         // Backend sets character_cards.world_id to NULL on delete; mirror that locally
-        for (const c of S.allCharacters || S.characters || []) {
+        for (const c of charactersView()) {
           if (c.world_id === worldId) c.world_id = null;
         }
         if (_focusWorldId === worldId) closeLorebook();
         renderWorldsSidebar();
-      } catch (e) {
+      } catch (_e) {
         toast("Failed to delete lorebook", true);
       }
     },
@@ -306,19 +356,11 @@ export async function openLorebook(worldId) {
   _selectedEntryId = null;
   _entrySearch = "";
   _dirty = false;
-  _draft = {
-    name: "",
-    content: "",
-    keywords: [],
-    priority: 100,
-    case_insensitive: true,
-    constant: false,
-    enabled: true,
-  };
+  _draft = _emptyDraft();
   renderWorldsSidebar();
   try {
     await _loadEntries(worldId);
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to load entries", true);
   }
   renderLorebookDrawer();
@@ -355,7 +397,7 @@ function renderLorebookDrawer() {
   }
 
   const allEntries = _entries[_focusWorldId] || [];
-  const activeCount = allEntries.filter((e) => e.enabled === true || e.enabled === 1).length;
+  const activeCount = allEntries.filter((e) => boolFlag(e.enabled)).length;
 
   const q = _entrySearch.trim().toLowerCase();
   const entries = q
@@ -365,7 +407,7 @@ function renderLorebookDrawer() {
   const entryListHtml = entries.length
     ? entries
         .map((e) => {
-          const enabled = e.enabled === true || e.enabled === 1;
+          const enabled = boolFlag(e.enabled);
           const sel = _selectedEntryId === e.id;
           const toggleId = `lb-entry-toggle-${e.id}`;
           const dirtyDot = _dirty && _selectedEntryId === e.id ? `<span class="lb-dirty-dot"></span>` : "";
@@ -374,10 +416,10 @@ function renderLorebookDrawer() {
         ${dirtyDot}
         <span class="lb-entry-name">${esc(e.name || e.keywords?.[0] || "")}</span>
         <div class="frag-toggle-wrapper" onclick="event.stopPropagation()">
-          <label class="frag-toggle" for="${toggleId}">
+          <label class="tog" for="${toggleId}">
             <input type="checkbox" id="${toggleId}" ${enabled ? "checked" : ""}
                    onchange="lbToggleEntry(${e.id}, this.checked)">
-            <span class="frag-toggle-slider"></span>
+            <span class="tog-slider"></span>
           </label>
         </div>
       </div>`;
@@ -413,7 +455,10 @@ function renderLorebookDrawer() {
         </div>
         <div class="lb-entry-list-footer">
           <button class="btn btn-sm btn-block" onclick="lbAddEntry()">+ New Entry</button>
-<button class="btn btn-sm btn-block" style="color:var(--red);margin-top:4px" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <button class="btn btn-sm lb-export-btn" style="flex:1;justify-content:center" title="Export lorebook as JSON">⬇ Export JSON</button>
+            <button class="btn btn-sm" style="flex:1;justify-content:center;color:var(--red)" onclick="deleteWorld('${_focusWorldId}')">Delete Lorebook</button>
+          </div>
         </div>
       </div>
       <div class="lb-editor" id="lb-editor" data-has-selection="${!!_selectedEntryId}">
@@ -424,7 +469,26 @@ function renderLorebookDrawer() {
   const scrollEl = drawer.querySelector(".lb-entries-scroll");
   if (scrollEl) scrollEl.scrollTop = prevScrollTop;
 
-  if (_selectedEntryId) _renderKeywordChips();
+  // Bound in JS rather than inline on*= — the frontend layer check ratchets those.
+  const exportBtn = drawer.querySelector(".lb-export-btn");
+  if (exportBtn) exportBtn.onclick = lbExportJson;
+  const regexCb = $("lb-use-regex");
+  if (regexCb) regexCb.onchange = (e) => lbDraftChange("use_regex", e.target.checked);
+  const selectiveCb = $("lb-selective");
+  if (selectiveCb) selectiveCb.onchange = (e) => lbToggleSelective(e.target.checked);
+  const atDepthCb = $("lb-at-depth");
+  if (atDepthCb) atDepthCb.onchange = (e) => lbDraftChange("at_depth", e.target.checked);
+
+  if (_selectedEntryId) {
+    const kwWrap = $("lb-chip-wrap");
+    if (kwWrap && !_draft.constant) kwWrap.onclick = () => $("lb-chip-text")?.focus();
+    _keywordChips.render();
+    if (_draft.selective && !_draft.constant) {
+      const secWrap = $("lb-sec-chip-wrap");
+      if (secWrap) secWrap.onclick = () => $("lb-sec-chip-text")?.focus();
+      _secondaryChips.render();
+    }
+  }
 }
 
 function _buildEditorHtml() {
@@ -444,7 +508,7 @@ function _buildEditorHtml() {
       </div>
       <div class="lb-editor-keywords${_draft.constant ? " lb-keywords-disabled" : ""}">
         <div class="lb-field-label">Trigger Keywords</div>
-        <div class="lb-chip-wrap" id="lb-chip-wrap" onclick="${_draft.constant ? "" : "document.getElementById('lb-chip-text')?.focus()"}"></div>
+        <div class="lb-chip-wrap" id="lb-chip-wrap"></div>
         <div class="lb-keyword-footer">
           <label class="lb-case-check">
             <input type="checkbox" id="lb-case-insensitive" ${_draft.case_insensitive ? "checked" : ""}
@@ -452,14 +516,43 @@ function _buildEditorHtml() {
                    onchange="lbDraftChange('case_insensitive', this.checked)">
             <span>Case-insensitive</span>
           </label>
+          <label class="lb-case-check" title="Treat each keyword as a regular expression">
+            <input type="checkbox" id="lb-use-regex" ${_draft.use_regex ? "checked" : ""}
+                   ${_draft.constant ? "disabled" : ""}>
+            <span>Regex</span>
+          </label>
+          <label class="lb-case-check" title="Also require one of the secondary keywords to match">
+            <input type="checkbox" id="lb-selective" ${_draft.selective ? "checked" : ""}
+                   ${_draft.constant ? "disabled" : ""}>
+            <span>Selective</span>
+          </label>
           <label class="lb-case-check" title="Always inject this entry, regardless of keywords">
             <input type="checkbox" id="lb-constant" ${_draft.constant ? "checked" : ""}
                    onchange="lbToggleConstant(this.checked)">
             <span>Constant</span>
           </label>
+          ${
+            _draft.constant
+              ? `<label class="lb-case-check" title="Inject after the latest message instead of the system prompt — {{roll}} re-rolls every turn">
+            <input type="checkbox" id="lb-at-depth" ${_draft.at_depth ? "checked" : ""}>
+            <span>@ Depth</span>
+          </label>`
+              : ""
+          }
           <span class="lb-keyword-hint">${_draft.constant ? "Always injected" : "Enter or , to add · Backspace to remove"}</span>
         </div>
       </div>
+      ${
+        _draft.selective && !_draft.constant
+          ? `<div class="lb-editor-keywords">
+        <div class="lb-field-label">Secondary Keywords</div>
+        <div class="lb-chip-wrap" id="lb-sec-chip-wrap"></div>
+        <div class="lb-keyword-footer">
+          <span class="lb-keyword-hint">One of these must also match</span>
+        </div>
+      </div>`
+          : ""
+      }
       <div class="lb-editor-content">
         <div class="lb-field-label">Injected Content</div>
         <textarea id="lb-content" class="lb-content-textarea"
@@ -473,23 +566,6 @@ function _buildEditorHtml() {
         </div>
       </div>
     </div>`;
-}
-
-function _renderKeywordChips() {
-  const wrap = $("lb-chip-wrap");
-  if (!wrap) return;
-  const chips = _draft.keywords;
-  const disabled = _draft.constant;
-  const chipHtml = chips
-    .map((c, i) => {
-      const removeBtn = disabled ? "" : `<button class="lb-chip-remove" onclick="lbRemoveChip(${i})">×</button>`;
-      return `<span class="lb-chip">${esc(c)}${removeBtn}</span>`;
-    })
-    .join("");
-  const inputHtml = disabled
-    ? `<span class="lb-chip-placeholder">${chips.length ? "" : "Keywords disabled — Constant entry"}</span>`
-    : `<input id="lb-chip-text" class="lb-chip-text" placeholder="${chips.length ? "" : "Add keyword…"}" onkeydown="lbChipKeydown(event)" oninput="lbChipInput(this)">`;
-  wrap.innerHTML = chipHtml + inputHtml;
 }
 
 // ── Dirty state — surgical DOM updates to avoid losing input focus
@@ -538,46 +614,16 @@ export function lbToggleConstant(checked) {
   renderLorebookDrawer();
 }
 
-// ── Keyword chip handlers
-export function lbChipKeydown(e) {
-  const input = e.target;
-  if ((e.key === "Enter" || e.key === ",") && input.value.trim()) {
-    e.preventDefault();
-    const val = input.value.replace(/,$/, "").trim();
-    if (val && !_draft.keywords.includes(val)) {
-      _draft.keywords = [..._draft.keywords, val];
-      _markDirty();
-      _renderKeywordChips();
-      setTimeout(() => $("lb-chip-text")?.focus(), 0);
-    }
-    return;
-  }
-  if (e.key === "Backspace" && !input.value && _draft.keywords.length) {
-    _draft.keywords = _draft.keywords.slice(0, -1);
-    _markDirty();
-    _renderKeywordChips();
-    setTimeout(() => $("lb-chip-text")?.focus(), 0);
-  }
-}
-
-export function lbChipInput(input) {
-  if (input.value.endsWith(",")) {
-    const val = input.value.slice(0, -1).trim();
-    if (val && !_draft.keywords.includes(val)) {
-      _draft.keywords = [..._draft.keywords, val];
-      _markDirty();
-      _renderKeywordChips();
-      setTimeout(() => $("lb-chip-text")?.focus(), 0);
-    }
-  }
-}
-
-export function lbRemoveChip(i) {
-  _draft.keywords = _draft.keywords.filter((_, j) => j !== i);
+// Re-renders because the secondary-keyword chip field only exists while on.
+// Bound in renderLorebookDrawer, so it needs no window bridge.
+function lbToggleSelective(checked) {
+  _draft.selective = checked;
   _markDirty();
-  _renderKeywordChips();
-  setTimeout(() => $("lb-chip-text")?.focus(), 0);
+  renderLorebookDrawer();
 }
+
+// Keyword chips are handled by the shared chips.js widget (`_keywordChips`, above);
+// its listeners are (re)attached on each `.render()`.
 
 // ── Entry search
 export function lbEntrySearch(value) {
@@ -636,17 +682,7 @@ function _doSelectEntry(entryId) {
   _selectedEntryId = entryId;
   _dirty = false;
   const entry = _getEntry(entryId);
-  if (entry) {
-    _draft = {
-      name: entry.name,
-      content: entry.content || "",
-      keywords: [...(entry.keywords || [])],
-      priority: entry.priority ?? 100,
-      case_insensitive: entry.case_insensitive === true || entry.case_insensitive === 1,
-      constant: entry.constant === true || entry.constant === 1,
-      enabled: entry.enabled === true || entry.enabled === 1,
-    };
-  }
+  if (entry) _draft = _draftFromEntry(entry);
   renderLorebookDrawer();
 }
 
@@ -658,10 +694,10 @@ export async function lbToggleEntry(entryId, enabled) {
     const idx = (_entries[worldId] || []).findIndex((e) => e.id === entryId);
     if (idx !== -1) _entries[worldId][idx] = { ..._entries[worldId][idx], ...updated };
     if (_selectedEntryId === entryId) _draft.enabled = enabled;
-    const activeCount = (_entries[worldId] || []).filter((e) => e.enabled === true || e.enabled === 1).length;
+    const activeCount = (_entries[worldId] || []).filter((e) => boolFlag(e.enabled)).length;
     const countEl = document.querySelector(".lb-active-count");
     if (countEl) countEl.textContent = `${activeCount} active`;
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to update entry", true);
   }
 }
@@ -677,6 +713,10 @@ export async function lbSaveEntry() {
       keywords: _draft.keywords,
       case_insensitive: _draft.case_insensitive,
       constant: _draft.constant,
+      at_depth: _draft.at_depth,
+      use_regex: _draft.use_regex,
+      selective: _draft.selective,
+      secondary_keys: _draft.secondary_keys,
       priority: _draft.priority,
       enabled: _draft.enabled,
     });
@@ -685,7 +725,7 @@ export async function lbSaveEntry() {
     _dirty = false;
     renderLorebookDrawer();
     toast("Entry saved");
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to save entry", true);
   }
 }
@@ -693,17 +733,7 @@ export async function lbSaveEntry() {
 // ── Discard
 export function lbDiscardChanges() {
   const entry = _getEntry(_selectedEntryId);
-  if (entry) {
-    _draft = {
-      name: entry.name,
-      content: entry.content || "",
-      keywords: [...(entry.keywords || [])],
-      priority: entry.priority ?? 100,
-      case_insensitive: entry.case_insensitive === true || entry.case_insensitive === 1,
-      constant: entry.constant === true || entry.constant === 1,
-      enabled: entry.enabled === true || entry.enabled === 1,
-    };
-  }
+  if (entry) _draft = _draftFromEntry(entry);
   _dirty = false;
   renderLorebookDrawer();
 }
@@ -727,7 +757,7 @@ export function lbDeleteEntry() {
         _dirty = false;
         renderLorebookDrawer();
         toast("Entry deleted");
-      } catch (e) {
+      } catch (_e) {
         toast("Failed to delete entry", true);
       }
     },
@@ -750,9 +780,16 @@ export async function lbAddEntry() {
     if (!_entries[worldId]) _entries[worldId] = [];
     _entries[worldId].push(entry);
     _doSelectEntry(entry.id);
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to create entry", true);
   }
+}
+
+// ── Export the focused lorebook as a standalone JSON file
+function lbExportJson() {
+  const world = _worlds.find((w) => w.id === _focusWorldId);
+  if (!world) return;
+  downloadBlob(`${world.name}.json`, `/api/worlds/${world.id}/export`);
 }
 
 // ── Import lorebook from JSON file (always creates a new world)
@@ -789,7 +826,7 @@ export function lbImportJson() {
       renderWorldsSidebar();
       openLorebook(world.id);
       toast(`Imported ${result.imported} ${result.imported === 1 ? "entry" : "entries"}`);
-    } catch (e) {
+    } catch (_e) {
       toast("Import failed", true);
     }
   };

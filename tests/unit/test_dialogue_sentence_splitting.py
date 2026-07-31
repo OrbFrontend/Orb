@@ -9,6 +9,7 @@ are reported with an unusably long sentence context that the editor can't locate
 in the draft.
 """
 
+from backend.analysis.audit import format_report, run_audit
 from backend.analysis.detectors.contrastive_negation import (
     _split_sentences as neg_split,
 )
@@ -81,10 +82,14 @@ class TestSlopSplitterDialogueQuotes:
         sentences = slop_split("He yelled! She ran. They stopped.")
         assert sentences == ["He yelled!", "She ran.", "They stopped."]
 
-    def test_mid_sentence_quote_no_spurious_split(self):
-        """A quoted word inside a sentence must not cause a spurious split."""
-        sentences = slop_split('She said "hello" to him. He nodded.')
-        assert sentences == ['She said "hello" to him.', "He nodded."]
+    def test_mid_sentence_quote_separates_segments(self):
+        """A quoted word inside a sentence is its own segment — dialogue and
+        narration never share a segment, and each segment is a contiguous
+        substring of the source (the editor's patching relies on that)."""
+        text = 'She said "hello" to him. He nodded.'
+        sentences = slop_split(text)
+        assert sentences == ["She said", '"hello"', "to him.", "He nodded."]
+        assert all(s in text for s in sentences)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -133,3 +138,25 @@ class TestContrastiveNegationSplitterDialogueQuotes:
     def test_mid_sentence_quote_no_spurious_split(self):
         sentences = neg_split('She said "hello" to him. He nodded.')
         assert sentences == ['She said "hello" to him.', "He nodded."]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Audit report — reported dialogue snippet must not carry a dangling quote
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestReportStripsDanglingQuotes:
+    def test_banned_phrase_in_dialogue_reported_without_dangling_quote(self):
+        # The splitter keeps the opening `"` but eats the closing one, so the raw
+        # snippet is `"…vulnerability.` — the report must strip the outer quote so
+        # the model copies a search string it can locate in the draft.
+        draft = '"Do not mistake my compliance for vulnerability." She remains still.'
+        report = format_report(run_audit(draft, [["vulnerability"]]))
+        assert "Do not mistake my compliance for vulnerability." in report
+        assert '"Do not mistake' not in report
+
+    def test_apostrophe_survives_in_report(self):
+        # Straight ' is not an outer marker — contractions must stay intact.
+        draft = "She said the plan wouldn't fail this time."
+        report = format_report(run_audit(draft, [["wouldn't fail"]]))
+        assert "wouldn't fail" in report

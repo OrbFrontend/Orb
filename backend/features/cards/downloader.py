@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 _CHUB_PAGE_SIZE = 24
 _CHUB_AVATARS_BASE = "https://avatars.charhub.io/avatars"
 _CHUB_RANDOM_MAX_PAGE = 40
+# The detail API 403s a bare "Mozilla/5.0"; a full browser UA passes.
+_CHUB_SITE_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"),
+}
 
 SOURCES: dict[str, dict] = {}
 
@@ -66,6 +70,57 @@ async def download_card(source: str, full_path: str) -> dict:
         card_dict["avatar_b64"] = avatar_b64
         card_dict["avatar_mime"] = avatar_mime
     return card_dict
+
+
+def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, str]:
+    """Parse downloaded PNG card bytes through the same tavern_cards pipeline as file import.
+
+    Returns ``(card_dict, avatar_b64, avatar_mime, card_id)`` — the PNG itself
+    doubles as the avatar, and ``card_id`` is the embedded orb id when present,
+    else a stable hash of the bytes so re-importing the same card relinks history.
+    """
+    if not content[:8].startswith(b"\x89PNG"):
+        raise HTTPException(status_code=400, detail="Downloaded file does not appear to be a PNG card")
+
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        orb_id = parsing.read_orb_id(tmp_path)
+        card = parsing.parse(tmp_path)
+        card_dict = parsing.card_to_dict(card)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.exception("Failed to parse tavern card from %s", source_label)
+        raise HTTPException(status_code=400, detail=f"Failed to parse character card: {e}") from e
+    finally:
+        os.unlink(tmp_path)
+
+    card_id = orb_id if orb_id else str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
+    avatar_b64 = base64.b64encode(content).decode("ascii")
+    return card_dict, avatar_b64, "image/png", card_id
+
+
+async def _fetch_avatar(avatar_url: object, source_label: str) -> tuple[str | None, str | None, bytes]:
+    """Best-effort fetch of a card's avatar image from a CDN URL.
+
+    Returns ``(avatar_b64, avatar_mime, avatar_bytes)``. A missing or broken
+    avatar degrades to ``(None, None, b"")`` — it must not block importing the
+    card text.
+    """
+    if not (isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://"))):
+        return None, None, b""
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            a = await client.get(avatar_url)
+            a.raise_for_status()
+            mime = (a.headers.get("content-type") or "image/png").split(";")[0] or "image/png"
+            return base64.b64encode(a.content).decode("ascii"), mime, a.content
+    except httpx.HTTPError:
+        logger.warning("Failed to fetch %s avatar from %s", source_label, avatar_url)
+        return None, None, b""
 
 
 # ── CharacterHub ──────────────────────────────────────────────────────
@@ -136,6 +191,28 @@ async def _randomize_characterhub(q: str) -> dict:
     return data
 
 
+async def _chub_expression_pack(full_path: str) -> dict | None:
+    """Best-effort fetch of a CharacterHub card's expression pack.
+
+    The pack (``{compressed, expressions}``) lives only in the detail API — the
+    CDN card PNG carries ``expressions: null`` — so we fetch it separately and
+    let the caller merge it into the card's extensions. Never raises: expressions
+    are a nice-to-have and must not block importing the card.
+    """
+    url = f"https://api.chub.ai/api/characters/{full_path}?full=true"
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True, headers=_CHUB_SITE_HEADERS) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            node = resp.json().get("node") or {}
+        ext = (node.get("definition") or {}).get("extensions") or {}
+        pack = (ext.get("chub") or {}).get("expressions")
+        return pack if isinstance(pack, dict) else None
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("Failed to fetch CharacterHub expression pack for %s: %s", full_path, e)
+        return None
+
+
 async def _download_characterhub_card(full_path: str):
     """Download the PNG character card from CharacterHub's CDN and parse it
     through the same tavern_cards pipeline as file import.
@@ -159,29 +236,13 @@ async def _download_characterhub_card(full_path: str):
         logger.exception("Failed to download CharacterHub card PNG")
         raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
 
-    if not content[:8].startswith(b"\x89PNG"):
-        raise HTTPException(status_code=400, detail="Downloaded file does not appear to be a PNG card")
-
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
-
-    try:
-        orb_id = parsing.read_orb_id(tmp_path)
-        card = parsing.parse(tmp_path)
-        card_dict = parsing.card_to_dict(card)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        logger.exception("Failed to parse tavern card from CharacterHub")
-        raise HTTPException(status_code=400, detail=f"Failed to parse character card: {e}") from e
-    finally:
-        os.unlink(tmp_path)
-
-    card_id = orb_id if orb_id else str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
-    avatar_b64 = base64.b64encode(content).decode("ascii")
-    avatar_mime = "image/png"
-
+    card_dict, avatar_b64, avatar_mime, card_id = _parse_png_card(content, "CharacterHub")
+    # The embedded card's expression pack is null; the detail API has it. Merge
+    # it into extensions so the shared create-time auto-import can pick it up.
+    pack = await _chub_expression_pack(full_path)
+    if pack:
+        ext = card_dict.setdefault("extensions", {})
+        ext.setdefault("chub", {})["expressions"] = pack
     return card_dict, avatar_b64, avatar_mime, card_id
 
 
@@ -352,22 +413,8 @@ async def _download_chararc_card(token: str):
     if not card_dict.get("mes_example") and data.get("example_dialogue"):
         card_dict["mes_example"] = data["example_dialogue"]
 
-    # Pull the avatar image (a CDN URL embedded in the definition). Best effort:
-    # a missing/broken avatar shouldn't block importing the card text.
-    avatar_b64: str | None = None
-    avatar_mime: str | None = None
-    avatar_bytes = b""
-    avatar_url = data.get("avatar")
-    if isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://")):
-        try:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-                a = await client.get(avatar_url)
-                a.raise_for_status()
-                avatar_bytes = a.content
-                avatar_mime = (a.headers.get("content-type") or "image/png").split(";")[0] or "image/png"
-                avatar_b64 = base64.b64encode(avatar_bytes).decode("ascii")
-        except httpx.HTTPError:
-            logger.warning("Failed to fetch Character Archive avatar from %s", avatar_url)
+    # Pull the avatar image (a CDN URL embedded in the definition).
+    avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(data.get("avatar"), "Character Archive")
 
     # Stable id so re-importing the same card relinks history: hash the avatar
     # bytes when present, else the card path.
@@ -491,30 +538,7 @@ async def _download_botbooru_card(full_path: str):
         logger.exception("Failed to download Botbooru card PNG")
         raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
 
-    if not content[:8].startswith(b"\x89PNG"):
-        raise HTTPException(status_code=400, detail="Downloaded file does not appear to be a PNG card")
-
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
-
-    try:
-        orb_id = parsing.read_orb_id(tmp_path)
-        card = parsing.parse(tmp_path)
-        card_dict = parsing.card_to_dict(card)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        logger.exception("Failed to parse tavern card from Botbooru")
-        raise HTTPException(status_code=400, detail=f"Failed to parse character card: {e}") from e
-    finally:
-        os.unlink(tmp_path)
-
-    card_id = orb_id if orb_id else str(uuid.UUID(bytes=hashlib.sha256(content).digest()[:16], version=5))
-    avatar_b64 = base64.b64encode(content).decode("ascii")
-    avatar_mime = "image/png"
-
-    return card_dict, avatar_b64, avatar_mime, card_id
+    return _parse_png_card(content, "Botbooru")
 
 
 register_source(
@@ -734,22 +758,8 @@ async def _download_wyvern_card(full_path: str):
         logger.exception("Failed to parse Wyvern character")
         raise HTTPException(status_code=400, detail=f"Failed to parse character card: {e}") from e
 
-    # Pull the avatar image (Cloudflare Images CDN URL). Best effort: a
-    # missing/broken avatar shouldn't block importing the card text.
-    avatar_b64: str | None = None
-    avatar_mime: str | None = None
-    avatar_bytes = b""
-    avatar_url = obj.get("avatar")
-    if isinstance(avatar_url, str) and avatar_url.startswith(("http://", "https://")):
-        try:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-                a = await client.get(avatar_url)
-                a.raise_for_status()
-                avatar_bytes = a.content
-                avatar_mime = (a.headers.get("content-type") or "image/png").split(";")[0] or "image/png"
-                avatar_b64 = base64.b64encode(avatar_bytes).decode("ascii")
-        except httpx.HTTPError:
-            logger.warning("Failed to fetch Wyvern avatar from %s", avatar_url)
+    # Pull the avatar image (Cloudflare Images CDN URL).
+    avatar_b64, avatar_mime, avatar_bytes = await _fetch_avatar(obj.get("avatar"), "Wyvern")
 
     # Stable id so re-importing the same card relinks history: hash the avatar
     # bytes when present, else the character id.

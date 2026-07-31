@@ -26,12 +26,16 @@ CREATE TABLE IF NOT EXISTS settings (
     length_guard_enforce INTEGER NOT NULL DEFAULT 0,
     agentic_lorebook_enabled INTEGER NOT NULL DEFAULT 0,
     reasoning_enabled_passes TEXT NOT NULL DEFAULT '{"director":false,"writer":false,"editor":false}',
+    reasoning_prefill_passes TEXT NOT NULL DEFAULT '{"director":"","writer":"","editor":""}',
     active_persona_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
     active_endpoint_id INTEGER REFERENCES endpoints(id) ON DELETE SET NULL,
     character_library_view TEXT NOT NULL DEFAULT 'grid',
     character_library_sort TEXT NOT NULL DEFAULT 'time-added',
     show_editor_diff INTEGER NOT NULL DEFAULT 1,
     editor_audit_toggles TEXT NOT NULL DEFAULT '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true,"anti_echo":true}',
+    document_audit_enabled INTEGER NOT NULL DEFAULT 1,
+    document_audit_autopatch INTEGER NOT NULL DEFAULT 0,
+    document_audit_toggles TEXT NOT NULL DEFAULT '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true}',
     hide_streaming_until_baked INTEGER NOT NULL DEFAULT 0,
     prevent_prompt_overrides INTEGER NOT NULL DEFAULT 0,
     agent_same_as_writer INTEGER NOT NULL DEFAULT 1,
@@ -45,6 +49,7 @@ CREATE TABLE IF NOT EXISTS settings (
     workflow_config TEXT NOT NULL DEFAULT '{}',
     workflows_globally_enabled INTEGER NOT NULL DEFAULT 1,
     workflow_enabled TEXT NOT NULL DEFAULT '{}',
+    local_ml_enabled TEXT NOT NULL DEFAULT '{}',
     attachment_cache_budget_bytes INTEGER NOT NULL DEFAULT 524288000,
     attachment_access_counter INTEGER NOT NULL DEFAULT 0,
     generated_chars INTEGER DEFAULT NULL
@@ -71,7 +76,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     last_accessed_at TEXT,
     active_leaf_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
     workflow_state TEXT DEFAULT NULL,
-    persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
+    persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
+    macro_seed TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS character_cards (
@@ -96,7 +102,16 @@ CREATE TABLE IF NOT EXISTS character_cards (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     workflow_state TEXT DEFAULT NULL,
-    persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL
+    persona_lock_id INTEGER REFERENCES user_personas(id) ON DELETE SET NULL,
+    extensions TEXT DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS character_expressions (
+    character_card_id TEXT NOT NULL REFERENCES character_cards(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    data_b64 TEXT NOT NULL,
+    mime TEXT NOT NULL DEFAULT 'image/png',
+    PRIMARY KEY (character_card_id, label)
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -115,7 +130,8 @@ CREATE TABLE IF NOT EXISTS director_state (
     conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE,
     active_moods TEXT NOT NULL DEFAULT '[]',
     keywords TEXT NOT NULL DEFAULT '[]',
-    progressive_fields TEXT NOT NULL DEFAULT '{}'
+    progressive_fields TEXT NOT NULL DEFAULT '{}',
+    macro_choices TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS interactive_fragments (
@@ -134,10 +150,8 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     turn_index INTEGER NOT NULL,
-    agent_raw_output TEXT,
     tool_calls TEXT,
     active_moods_after TEXT,
-    progressive_fields_after TEXT NOT NULL DEFAULT '{}',
     injection_block TEXT,
     agent_latency_ms INTEGER,
     created_at TEXT NOT NULL,
@@ -162,21 +176,6 @@ CREATE TABLE IF NOT EXISTS user_personas (
     avatar_color TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
-);
-
--- Required on fresh install by migration 0002, which deletes orphan rows
--- from this table before any migration could create it. Migration
--- 0020_workflows copies surviving rows into user_attachments and
--- drops this table at the end of the chain. No rows persist in a
--- fully-migrated database.
-CREATE TABLE IF NOT EXISTS message_attachments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
-    mime_type TEXT NOT NULL,
-    data_b64 TEXT NOT NULL,
-    filename TEXT,
-    size INTEGER,
-    created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS user_attachments (
@@ -211,7 +210,9 @@ CREATE TABLE IF NOT EXISTS endpoints (
     url TEXT NOT NULL,
     api_key TEXT NOT NULL DEFAULT '',
     active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
-    agent_active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL
+    agent_active_model_config_id INTEGER REFERENCES model_configs(id) ON DELETE SET NULL,
+    completion_mode TEXT NOT NULL DEFAULT 'chat' CHECK (completion_mode IN ('chat', 'text')),
+    proxy TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS model_configs (
@@ -225,7 +226,10 @@ CREATE TABLE IF NOT EXISTS model_configs (
     top_p REAL NOT NULL DEFAULT 0.95,
     repetition_penalty REAL NOT NULL DEFAULT 1.0,
     max_tokens INTEGER NOT NULL DEFAULT 4096,
-    role TEXT NOT NULL DEFAULT 'writer' CHECK (role IN ('writer', 'agent'))
+    role TEXT NOT NULL DEFAULT 'writer' CHECK (role IN ('writer', 'agent')),
+    reasoning_effort TEXT NOT NULL DEFAULT '',
+    reasoning_effort_param TEXT NOT NULL DEFAULT '',
+    reasoning_effort_value TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS worlds (
@@ -244,6 +248,10 @@ CREATE TABLE IF NOT EXISTS lorebook_entries (
     keywords TEXT NOT NULL DEFAULT '[]',
     case_insensitive BOOLEAN NOT NULL DEFAULT 1,
     constant BOOLEAN NOT NULL DEFAULT 0,
+    at_depth INTEGER NOT NULL DEFAULT 0,
+    use_regex INTEGER NOT NULL DEFAULT 0,
+    selective INTEGER NOT NULL DEFAULT 0,
+    secondary_keys TEXT NOT NULL DEFAULT '[]',
     priority INTEGER NOT NULL DEFAULT 100,
     enabled BOOLEAN NOT NULL DEFAULT 1,
     sort_order INTEGER NOT NULL DEFAULT 0,
@@ -263,6 +271,15 @@ CREATE TABLE IF NOT EXISTS direction_notes (
 
 CREATE INDEX IF NOT EXISTS idx_dirnote_message ON direction_notes(message_id);
 CREATE INDEX IF NOT EXISTS idx_dirnote_conversation ON direction_notes(conversation_id);
+
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT 'Untitled',
+    content TEXT NOT NULL DEFAULT '',
+    generated_spans TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 
 """
 

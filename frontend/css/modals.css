@@ -214,6 +214,59 @@
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
+/* Character modal · Fragments tab: roomier card-style rows than the sidebar list */
+.card-frag-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+#ce-card-frag-list .frag-divider {
+  margin: 14px 0 6px;
+  padding: 0 2px;
+}
+/* Card-editor dividers stay plain text — no rules. */
+#ce-card-frag-list .frag-divider::before,
+#ce-card-frag-list .frag-divider::after { display: none; }
+#ce-card-frag-list .frag-divider:first-child { margin-top: 0; }
+
+#ce-card-frag-list .fragment-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+#ce-card-frag-list .fragment-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-light);
+}
+
+#ce-card-frag-list .frag-desc {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-frag-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 16px 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.card-frag-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* Character avatar (large, in modals) */
 .char-avatar-lg {
   width: 80px;
@@ -468,10 +521,17 @@
   white-space: nowrap;
 }
 
+/* Kind/count chip ("regex" / "3 variants"). Sits on the row like the
+   .phrase-variant chips — --bg-deep is a page background in some themes
+   (Litestep's desktop slate) and swallows muted text there. */
 .phrase-group-count {
   font-size: 10px;
-  color: var(--text-muted);
-  background: var(--bg-deep);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   padding: 2px 6px;
   border-radius: 10px;
   margin-left: 8px;
@@ -583,7 +643,6 @@
   flex: 1;
   padding: 6px 8px;
   font-size: 12px;
-  background: var(--bg-base);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-primary);
@@ -666,12 +725,5 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
-}
-
-.phrase-kind-badge {
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
-  color: var(--accent);
 }
 

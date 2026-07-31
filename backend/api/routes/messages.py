@@ -3,20 +3,24 @@ SSE-streaming regenerate / rewrite endpoints."""
 
 from __future__ import annotations
 
-from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from fastapi import APIRouter, HTTPException, Request
-
+from ...core.macros import Macros, resolve_inline
 from ...database import (
     delete_message_with_descendants,
-    get_conversation,
+    get_character_card,
     get_message_by_id,
     get_messages,
     get_messages_with_branch_info,
+    get_settings,
+    get_user_persona,
+    reroll_unfrozen_greetings,
+    set_workflow_message_state,
     switch_to_branch,
     update_message_content,
 )
-from ...inference import AbortToken
+from ...database.models import ConversationRow
+from ...inference import local_ml
 from ...pipeline import (
     handle_fork_edit,
     handle_magic_rewrite,
@@ -24,26 +28,45 @@ from ...pipeline import (
     handle_super_regenerate,
     handle_turn,
 )
-from ..deps import _CleanupStreamingResponse, _conversation_stream_lock, _sse_stream
-from ..schemas import EditMessage, MagicRewriteMsg, RegenerateMsg, SendMessage
+from ...pipeline.predicates import resolve_persona_id
+from ..deps import (
+    _conversation_stream_lock,
+    _pipeline_sse_response,
+    require_conversation,
+    stream_idle_lock,
+)
+from ..schemas import (
+    AutocompleteInput,
+    EditMessage,
+    MagicRewriteMsg,
+    RegenerateMsg,
+    SendMessage,
+)
 
 router = APIRouter()
 
 
 @router.get("/api/conversations/{cid}/messages")
-async def api_get_messages(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return await get_messages_with_branch_info(cid)
+async def api_get_messages(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
+    # Greetings with inline macros re-roll freely on every fetch until the
+    # first user message freezes them. The try-lock (never queued) makes the
+    # re-roll mutually exclusive with a whole pipeline stream — skipped when
+    # one is running — so a fetch can never commit a re-roll between the
+    # stream's history read and its freeze, and the frozen bytes are always
+    # the ones the model saw.
+    async with stream_idle_lock(cid) as idle:
+        if idle:
+            await reroll_unfrozen_greetings(cid)
+        return await get_messages_with_branch_info(cid)
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/edit")
-async def api_edit_message(cid: str, msg_id: int, data: EditMessage):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
+async def api_edit_message(
+    cid: str,
+    msg_id: int,
+    data: EditMessage,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     # Serialize against an in-flight streaming pipeline on this cid: the
     # pipeline reads message content into the LLM prefix early and persists
     # the assistant reply late, so a mid-stream edit would make the on-disk
@@ -53,35 +76,31 @@ async def api_edit_message(cid: str, msg_id: int, data: EditMessage):
         if not original or original["conversation_id"] != cid:
             raise HTTPException(status_code=404, detail="Message not found")
 
-        await update_message_content(msg_id, data.content)
+        # Plain edits bypass the pipeline's persist boundary, so inline macros
+        # ({{roll}}/{{random}}) typed into an edit fire once here.
+        await update_message_content(msg_id, resolve_inline(data.content))
+        # Editing an unfrozen greeting drops its stashed template — otherwise
+        # the next fetch would re-roll from it and clobber the manual edit.
+        if original["role"] == "assistant" and original["parent_id"] is None:
+            await set_workflow_message_state(msg_id, "macros", None)
         return {"ok": True}
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/fork-edit")
-async def api_fork_edit_message(cid: str, msg_id: int, data: EditMessage, request: Request):
+async def api_fork_edit_message(
+    cid: str,
+    msg_id: int,
+    data: EditMessage,
+    request: Request,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Fork at a user message: persist an edited sibling and stream a fresh reply."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    abort_token = AbortToken()
-    return _CleanupStreamingResponse(
-        _sse_stream(
-            handle_fork_edit(cid, msg_id, data.content, abort_token=abort_token),
-            request,
-            abort_token=abort_token,
-            cid=cid,
-        ),
-        media_type="text/event-stream",
-    )
+    return _pipeline_sse_response(lambda tok: handle_fork_edit(cid, msg_id, data.content, abort_token=tok), request, cid)
 
 
 @router.delete("/api/conversations/{cid}/messages/{msg_id}")
-async def api_delete_message(cid: str, msg_id: int):
+async def api_delete_message(cid: str, msg_id: int, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     """Delete a message and all its descendants. Returns updated message list."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
     # Serialize against an in-flight streaming pipeline on this cid: ON
     # DELETE CASCADE on messages.parent_id would otherwise wipe the
     # in-flight assistant row mid-INSERT (IntegrityError) or right after
@@ -93,11 +112,8 @@ async def api_delete_message(cid: str, msg_id: int):
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/switch-branch")
-async def api_switch_branch(cid: str, msg_id: int):
+async def api_switch_branch(cid: str, msg_id: int, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     """Switch to the branch containing msg_id (sets active leaf to deepest descendant)."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
     # Serialize against an in-flight streaming pipeline on this cid: the
     # pipeline's terminal set_active_leaf would otherwise overwrite the
     # branch the user just selected.
@@ -109,98 +125,103 @@ async def api_switch_branch(cid: str, msg_id: int):
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/regenerate")
-async def api_regenerate_msg(cid: str, msg_id: int, request: Request, data: Optional[RegenerateMsg] = None):
+async def api_regenerate_msg(
+    cid: str,
+    msg_id: int,
+    request: Request,
+    data: RegenerateMsg | None = None,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Regenerate a specific assistant message as a new sibling branch."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    abort_token = AbortToken()
-    return _CleanupStreamingResponse(
-        _sse_stream(
-            handle_regenerate(cid, msg_id, abort_token=abort_token),
-            request,
-            abort_token=abort_token,
-            cid=cid,
-        ),
-        media_type="text/event-stream",
-    )
+    return _pipeline_sse_response(lambda tok: handle_regenerate(cid, msg_id, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/super_regenerate")
-async def api_super_regenerate_msg(cid: str, msg_id: int, request: Request, data: Optional[RegenerateMsg] = None):
+async def api_super_regenerate_msg(
+    cid: str,
+    msg_id: int,
+    request: Request,
+    data: RegenerateMsg | None = None,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Super-regenerate: keeps prior response as context, asks model for a different direction."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    abort_token = AbortToken()
-    return _CleanupStreamingResponse(
-        _sse_stream(
-            handle_super_regenerate(cid, msg_id, abort_token=abort_token),
-            request,
-            abort_token=abort_token,
-            cid=cid,
-        ),
-        media_type="text/event-stream",
-    )
+    return _pipeline_sse_response(lambda tok: handle_super_regenerate(cid, msg_id, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/messages/{msg_id}/magic_rewrite")
-async def api_magic_rewrite_msg(cid: str, msg_id: int, request: Request, data: MagicRewriteMsg):
+async def api_magic_rewrite_msg(
+    cid: str,
+    msg_id: int,
+    request: Request,
+    data: MagicRewriteMsg,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Magic rewrite: runs the full pipeline as a new sibling steered by a user-supplied direction."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    abort_token = AbortToken()
-    return _CleanupStreamingResponse(
-        _sse_stream(
-            handle_magic_rewrite(cid, msg_id, data.direction, abort_token=abort_token),
-            request,
-            abort_token=abort_token,
-            cid=cid,
-        ),
-        media_type="text/event-stream",
-    )
+    return _pipeline_sse_response(lambda tok: handle_magic_rewrite(cid, msg_id, data.direction, abort_token=tok), request, cid)
 
 
 @router.post("/api/conversations/{cid}/send")
-async def api_send_message(cid: str, data: SendMessage, request: Request):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
+async def api_send_message(
+    cid: str,
+    data: SendMessage,
+    request: Request,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     attachments = [a.model_dump() for a in data.attachments]
-    abort_token = AbortToken()
-    return _CleanupStreamingResponse(
-        _sse_stream(
-            handle_turn(cid, data.content, attachments=attachments, abort_token=abort_token),
-            request,
-            abort_token=abort_token,
-            cid=cid,
-        ),
-        media_type="text/event-stream",
+    return _pipeline_sse_response(
+        lambda tok: handle_turn(cid, data.content, attachments=attachments, abort_token=tok), request, cid
     )
 
 
 @router.post("/api/conversations/{cid}/continue")
-async def api_continue_from_user(cid: str, request: Request, data: Optional[RegenerateMsg] = None):
+async def api_continue_from_user(
+    cid: str,
+    request: Request,
+    data: RegenerateMsg | None = None,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Generate an assistant response for the current user turn without creating a new message."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
     messages = await get_messages(cid)
     if not messages or messages[-1]["role"] != "user":
         raise HTTPException(status_code=400, detail="Last message is not a user message")
     user_content = messages[-1]["content"]
-    abort_token = AbortToken()
-    return _CleanupStreamingResponse(
-        _sse_stream(
-            handle_turn(cid, user_content, skip_user_persist=True, abort_token=abort_token),
-            request,
-            abort_token=abort_token,
-            cid=cid,
-        ),
-        media_type="text/event-stream",
+    return _pipeline_sse_response(
+        lambda tok: handle_turn(cid, user_content, skip_user_persist=True, abort_token=tok), request, cid
     )
+
+
+@router.post("/api/conversations/{cid}/autocomplete")
+async def api_autocomplete(
+    cid: str,
+    data: AutocompleteInput,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
+    """Predict a short continuation of the user's in-progress draft (CPU, in-process).
+
+    Opt-in: 503 unless the llama-cpp-python extra and the GGUF are present. Uses a
+    trimmed context (char/persona names + last few messages), NOT the Director pipeline.
+    """
+    settings = await get_settings()
+    if not settings.get("local_ml_enabled", {}).get("autocomplete", True):
+        raise HTTPException(status_code=503, detail="Autocomplete unavailable: disabled")
+    ok, reason = local_ml.available()
+    if not ok:
+        raise HTTPException(status_code=503, detail=f"Autocomplete unavailable: {reason}")
+    if not data.draft.strip():
+        return {"completion": ""}
+
+    card_id = conv.get("character_card_id")
+    card = await get_character_card(card_id) if card_id else None
+    persona_id = resolve_persona_id(conv, card, settings)
+    persona = await get_user_persona(persona_id) if persona_id else None
+    user_name = (persona or {}).get("name") or settings.get("user_name") or "User"
+    char_name = conv.get("character_name") or (card or {}).get("name") or "Character"
+
+    macros = Macros(user=user_name, char=char_name)
+    messages = await get_messages(cid)
+    recent = [{"role": m["role"], "content": macros.resolve_prompt(m["content"] or "")} for m in messages[-4:]]
+    summary = macros.resolve_prompt((card or {}).get("description") or "")
+    prompt = local_ml.build_prompt(char_name, user_name, summary, recent, macros.resolve_prompt(data.draft))
+
+    completion = await local_ml.complete(prompt)
+    return {"completion": completion}

@@ -1,0 +1,378 @@
+/* Document mode — free-form LLM-assisted writing surface. Orthogonal to chat:
+   the class toggle on #app hides the chat UI and reveals #document-main. */
+
+/* ── Mode toggle (no router; class on #app). ─────────────────────────────── */
+#document-main { display: none; }
+#app.document-mode #main,
+#app.document-mode #inspector,
+#app.document-mode #direction-notes-panel { display: none !important; }
+#app.document-mode #document-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+/* Document mode is about writing, not RP setup: hide the character/world/fragment
+   sections plus Settings; Documents and Endpoints stay. Documents is the inverse —
+   only meaningful in document mode, so hide it in chat mode. */
+#app.document-mode .sidebar-section.chat-only { display: none; }
+#app:not(.document-mode) .sidebar-section.doc-only { display: none; }
+/* Endpoints stays visible in doc mode, but its system-prompt fields and Agent
+   block are chat-only concerns — hide them there. */
+#app.document-mode .ep-chat-only { display: none; }
+
+/* ── Doc-mode Workflow panel. The shared #tools-panel slot stays alive in doc
+   mode but swaps its content: the chat tabs/panes hide and the doc-tailored
+   Output Auditor pane (#tools-pane-doc, owned by document_audit.js) shows —
+   the inverse in chat mode. The panel title stays "Workflows". */
+#tools-pane-doc { display: none; }
+#app.document-mode #tools-panel .tab-row,
+#app.document-mode #tools-pane-main,
+#app.document-mode #tools-pane-secondary { display: none; }
+#app.document-mode #tools-pane-doc { display: block; }
+
+/* Audit results inside the doc pane. Cards reuse the shared .tool-card look. */
+.doc-audit-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 8px 2px 4px;
+}
+.doc-audit-status.busy { color: var(--accent); }
+.doc-audit-section { margin: 8px 0; }
+.doc-audit-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+.doc-audit-item {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--border);
+  margin-bottom: 3px;
+  overflow-wrap: anywhere;
+}
+.doc-audit-item b { color: var(--text-primary); }
+.doc-audit-snippet { display: block; padding-left: 8px; }
+.doc-audit-actions { display: flex; gap: 6px; margin-top: 8px; }
+.doc-audit-hint { font-size: 10px; color: var(--text-muted); margin-top: 4px; font-style: italic; }
+.doc-audit-phrasebank { margin: 12px 0; }
+
+#mode-switch-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--radius);
+  opacity: 0.8;
+}
+#mode-switch-btn:hover { opacity: 1; }
+#app.document-mode #mode-switch-btn { opacity: 1; }
+
+/* ── Sidebar documents list. ─────────────────────────────────────────────── */
+.doc-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  margin-bottom: 2px;
+  transition: background .1s;
+}
+.doc-item:hover { background: var(--bg-hover); }
+.doc-item.active {
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-dim);
+}
+.doc-item-info { flex: 1; min-width: 0; }
+.doc-item-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-item-meta { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+.doc-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.doc-item:hover .doc-item-actions { opacity: 1; }
+.doc-item-actions button { font-size: 18px; padding: 2px 6px; color: var(--text-muted); }
+.doc-item-actions button:hover { color: var(--text-primary); }
+.doc-item-actions .del-btn:hover { color: var(--red); }
+
+/* ── Header. ─────────────────────────────────────────────────────────────── */
+#doc-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+#doc-header .doc-title {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.doc-header-status {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.doc-title-edit {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 2px;
+  display: inline-flex;
+}
+.doc-title-edit:hover { color: var(--text-primary); }
+#doc-mobile-sidebar-toggle {
+  display: none; /* shown < 900px */
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+/* Compact ⋯ workflow trigger — mirrors the chat header's mobile actions button.
+   Hidden on desktop (the labelled pill shows instead); swapped in < 900px. */
+#doc-workflow-mobile-btn {
+  display: none;
+  width: var(--mobile-header-button-size);
+  height: var(--mobile-header-button-size);
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+#doc-workflow-mobile-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── Editor page (Word-like sheet inside a scroller). ────────────────────── */
+#doc-editor-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* centre the sheet horizontally */
+  padding: 28px 20px;
+  background: var(--bg-deep);
+}
+#doc-page {
+  width: 100%;
+  max-width: 760px;
+  flex: 1 0 auto; /* fill the desk vertically so there's no dead space below */
+  padding: 56px 68px;
+  background: var(--bg-elevated); /* lift the sheet above the --bg-deep desk */
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 32px rgba(0, 0, 0, 0.35);
+  font-family: var(--font-prose);
+  font-size: var(--font-prose-size, 16px);
+  line-height: 1.7;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  outline: none;
+  caret-color: var(--accent);
+}
+#doc-page:empty::before {
+  content: "Start writing…";
+  color: var(--text-muted);
+  pointer-events: none;
+}
+/* No document open: the sheet isn't editable, so make the empty state say so and
+   drop the rename ✎ (nothing to rename). #app gets .doc-open in openDocument. */
+#app:not(.doc-open) #doc-page:empty::before { content: "Create or select a document from the sidebar."; }
+#app:not(.doc-open) #doc-title-edit-btn { display: none; }
+#doc-page.generating { opacity: 0.92; cursor: progress; }
+
+/* Collapsed-by-default prompting help; no JS, no mode detection (labelled "text mode"). */
+#doc-help { border-bottom: 1px solid var(--border); font-size: 13px; }
+#doc-help > summary {
+  cursor: pointer;
+  padding: 8px 16px;
+  color: var(--text-muted);
+  user-select: none;
+}
+#doc-help .doc-help-body { padding: 0 16px 12px; color: var(--text-secondary); max-width: 820px; }
+#doc-help pre {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  background: var(--bg-deep);
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+#doc-help code { font-family: monospace; }
+#doc-help ul { margin: 8px 0 0; padding-left: 18px; }
+#doc-help li { margin: 3px 0; }
+#doc-help p + p { margin-top: 10px; }
+#doc-help strong { color: var(--text-primary); }
+#doc-help .doc-help-cap { margin-top: 12px; font-size: 12px; color: var(--text-muted); }
+
+/* Generated-text tint (advisory; serializer records whatever spans remain).
+   box-decoration-break:clone keeps the highlight rounded per wrapped line instead
+   of drawing one full-width band with hard edges. No underline/inset shadow. */
+#doc-page .gen-text {
+  background: var(--accent-glow);
+  border-radius: 3px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+#doc-page .gen-text.gen-active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* ── Footer (status + actions). ──────────────────────────────────────────── */
+#doc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.doc-footer-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.doc-save-state { color: var(--text-secondary); }
+.doc-footer-actions { display: flex; gap: 8px; }
+
+/* Prompting-strategy segmented toggle (Raw ⇄ Assisted). */
+.doc-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.doc-mode-opt {
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.doc-mode-opt + .doc-mode-opt { border-left: 1px solid var(--border); }
+.doc-mode-opt:hover { color: var(--text-primary); }
+.doc-mode-opt.active {
+  background: var(--accent-glow);
+  color: var(--text-primary);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* Per-token alternatives toggle (opt-in; mikupad-style token swapping). */
+.doc-probs-toggle {
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.doc-probs-toggle:hover { color: var(--text-primary); }
+.doc-probs-toggle.active {
+  background: var(--accent-glow);
+  color: var(--text-primary);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* ── Per-token alternatives popup (hover a generated token). ──────────────── */
+#doc-prob-popup {
+  position: fixed;
+  z-index: 60;
+  min-width: 120px;
+  max-width: 280px;
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+#doc-prob-popup.hidden { display: none; }
+.prob-alt {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+}
+.prob-alt:hover { background: var(--bg-hover); }
+.prob-alt.current { background: var(--accent-glow); }
+.prob-tok {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre;
+}
+.prob-pct {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Mobile. ─────────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  #doc-mobile-sidebar-toggle { display: inline-block; }
+  #doc-editor-scroll { padding: 12px 10px; }
+  #doc-page { padding: 28px 20px; border-radius: 0; }
+  #doc-header { padding: 10px 14px; }
+  #doc-footer { padding: 8px 12px; }
+
+  /* Swap the labelled Workflow pill for the compact ⋯ trigger. */
+  #doc-workflow-btn { display: none; }
+  #doc-workflow-mobile-btn { display: inline-flex; }
+
+  /* Save-status is noise on a phone; keep the token count. */
+  #doc-save-state { display: none; }
+
+  /* Keep the toggle + actions on one row instead of wrapping: tighter gaps and
+     button padding, and don't wrap. */
+  #doc-footer { gap: 8px; flex-wrap: nowrap; }
+  .doc-footer-info { gap: 8px; min-width: 0; }
+  .doc-footer-actions { gap: 6px; flex-shrink: 0; }
+  #doc-footer .btn-sm { padding-left: 8px; padding-right: 8px; }
+}

@@ -3,9 +3,10 @@
 // Mirrors the Inspector's right-rail panel -- the model authors notes during a
 // turn; the user curates them here.
 import { api } from "./api.js";
-import { closeModal, showConfirmModal, showModal } from "./modal.js";
+import { closeModal, confirmDelete, showModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { S } from "./state.js";
+import { requestSendPermission } from "./tabLock.js";
 import { $, convUrl, esc, toast } from "./utils.js";
 
 // interactive_fragment_id stamped on user-authored notes (vs the model's real fragment ids).
@@ -124,6 +125,7 @@ export function addUserDirectionNote(msgId) {
 }
 
 export async function saveUserDirectionNote(msgId) {
+  if (!requestSendPermission()) return;
   const label = document.getElementById("user-note-label").value.trim() || "Note";
   const content = document.getElementById("user-note-content").value.trim();
   if (!content) {
@@ -170,16 +172,13 @@ export async function saveDirectionNote(fid) {
 }
 
 export function deleteDirectionNote(fid) {
-  showConfirmModal(
-    { title: "Delete Direction Note", message: "Delete this direction note?", confirmText: "Delete" },
-    async () => {
-      try {
-        await api.del(convUrl(S.activeConvId, "direction-notes", fid));
-        await renderDirectionNotesPanel();
-        toast("Note deleted");
-      } catch (e) {
-        toast(e.message, true);
-      }
-    },
-  );
+  confirmDelete("Direction Note", "Delete this direction note?", async () => {
+    try {
+      await api.del(convUrl(S.activeConvId, "direction-notes", fid));
+      await renderDirectionNotesPanel();
+      toast("Note deleted");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  });
 }

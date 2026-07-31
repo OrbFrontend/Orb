@@ -18,14 +18,22 @@ import json
 import logging
 import os
 import re
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Mapping, cast
+from typing import Any, cast
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from ..database import get_lorebook_entry, get_world
+from ..database import (
+    get_conversation,
+    get_lorebook_entry,
+    get_workflow_attachment_by_id,
+    get_world,
+)
+from ..database.models import ConversationRow
 from ..inference import AbortToken
+from ..workflows import WorkflowEventStream, public_event_error
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +41,14 @@ FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.p
 
 
 # Per-root_id serialization for mutations of workflow_attachments groups.
-# Regenerate, reroll-gen, and activate all write the root's
-# active_sibling_id. BEGIN IMMEDIATE prevents data corruption, but commit
-# order across concurrent transactions is indeterminate; the loser's API
-# response can name a sibling whose active-pointer status the winner has
-# already overwritten. The lock turns concurrent requests into sequential
-# ones so the loser proceeds against post-winner state.
+# Regenerate, reroll-gen, rehydrate, and delete all mutate the sibling tree.
+# BEGIN IMMEDIATE prevents data corruption, but commit order across
+# concurrent transactions is indeterminate; the loser's API response can name
+# a sibling whose active-pointer status the winner has already overwritten.
+# The lock turns concurrent requests into sequential ones so the loser
+# proceeds against post-winner state. /activate stays out of it: these holders
+# run for the whole render, and queuing a swipe behind one blocks artifact
+# navigation for its duration (see api_activate_workflow_attachment).
 #
 # Dict grows over the process lifetime, bounded by distinct root_ids the
 # user has interacted with. Single-user localhost app, so cap is small
@@ -53,6 +63,60 @@ async def _workflow_root_lock(root_id: int):
     lock = _workflow_root_locks.setdefault(root_id, asyncio.Lock())
     async with lock:
         yield
+
+
+@asynccontextmanager
+async def locked_attachment_group(aid: int, expected_message_id: int) -> AsyncIterator[tuple[Mapping[str, Any], int]]:
+    """Hold the group-root lock for attachment ``aid``, stable against root promotion.
+
+    The group root id (``parent_attachment_id or id``) is a *mutable* identity:
+    deleting a root variant promotes the oldest surviving sibling to a new root
+    (see ``delete_workflow_attachments``). Resolving the root from a pre-lock
+    snapshot and then locking it has a time-of-check/time-of-use gap -- a
+    concurrent delete can promote the root between the read and the acquire,
+    leaving the caller holding an obsolete lock and mutating the group under a
+    stale identity (two callers on the same logical group could even hold
+    different keys, defeating serialization).
+
+    This resolves the root, acquires its lock, then RE-READS ``aid`` under the
+    lock. If the canonical root moved while acquiring, the held lock is stale, so
+    it releases and retries on the new root. On success it yields the attachment
+    snapshot read *under the held lock* together with the canonical root id, so a
+    caller feeds its hook / insert a snapshot consistent with the lock it holds.
+
+    Raises ``HTTPException`` 404 if the target does not exist or is not attached
+    to ``expected_message_id`` (raised here, in the API layer, exactly as
+    ``require_conversation`` does, so callers need no error mapping).
+    ``BEGIN IMMEDIATE`` in the cache layer remains the final integrity boundary;
+    this only stabilizes the process-local lock identity so its *holders'*
+    same-group mutations serialize and a generative hook never runs against a
+    since-deleted parent. Retry is unbounded, which is safe here: promotion
+    requires this same lock, so churn cannot outrun acquisition on a single-user
+    local app.
+
+    ``/activate`` is not a holder (see ``api_activate_workflow_attachment``), so
+    a swipe can commit between two holders' transactions. Only the active-pointer
+    commit order is at stake there, and ``set_active_sibling``'s own
+    ``BEGIN IMMEDIATE`` keeps the pointer it writes valid regardless.
+    """
+    while True:
+        before = await get_workflow_attachment_by_id(aid)
+        if before is None or before["message_id"] != expected_message_id:
+            raise HTTPException(status_code=404, detail="Attachment not found on this message")
+        candidate_root = before["parent_attachment_id"] or before["id"]
+        async with _workflow_root_lock(candidate_root):
+            current = await get_workflow_attachment_by_id(aid)
+            if current is None or current["message_id"] != expected_message_id:
+                raise HTTPException(status_code=404, detail="Attachment not found on this message")
+            current_root = current["parent_attachment_id"] or current["id"]
+            if current_root != candidate_root:
+                # A concurrent delete promoted the group's root between the
+                # snapshot and this acquire; the lock we hold is for a stale
+                # root. Release (exiting this `async with`) and retry on the
+                # now-canonical root.
+                continue
+            yield current, current_root
+            return
 
 
 # Per-conversation serialization for the streaming pipeline. The five chat
@@ -72,6 +136,29 @@ async def _conversation_stream_lock(cid: str):
     lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
     async with lock:
         yield
+
+
+@asynccontextmanager
+async def stream_idle_lock(cid: str) -> AsyncGenerator[bool, None]:
+    """Try-acquire the conversation stream lock without ever queuing.
+
+    Yields ``True`` holding the lock when no pipeline stream is running on
+    *cid*, ``False`` without it when one is. locked()/acquire() are atomic
+    across coroutines (no await between — see the note in ``_sse_stream``), so
+    the check cannot lose the lock to a stream and then block behind it. Lets
+    read paths do stream-consistent side writes (greeting re-rolls) that must
+    never wait out a running stream and must never interleave with its
+    prompt-building reads.
+    """
+    lock = _conversation_stream_locks.setdefault(cid, asyncio.Lock())
+    if lock.locked():
+        yield False
+        return
+    await lock.acquire()
+    try:
+        yield True
+    finally:
+        lock.release()
 
 
 # Per-conversation abort token for the active LLM generation. Set when streaming
@@ -115,6 +202,17 @@ class _CleanupStreamingResponse(StreamingResponse):
                 await _safe_aclose(cast(AsyncGenerator[Any, None], self.body_iterator))
 
 
+# Seconds of stream silence after which we emit an SSE comment to keep the
+# connection warm. A turn has long token-free stretches — the reasoning-off
+# director pass, and (worst) the text-mode editor's prefill loop, which fires
+# many forced /completion calls back-to-back while emitting nothing to the
+# browser. An idle-timeout proxy in front of Orb (nginx proxy_read_timeout
+# defaults to 60s) tears down such a silent SSE, which strands the still-running
+# backend and drops the frontend to a stale draft. 15s stays comfortably under
+# common proxy timeouts.
+_SSE_KEEPALIVE_SECS = 15
+
+
 async def _sse_stream(
     gen,
     request: Request,
@@ -131,6 +229,11 @@ async def _sse_stream(
 
     A background watcher also polls request.is_disconnected() as a fallback
     for cases like the user closing the browser tab without clicking Stop.
+
+    During long token-free stretches (director/editor thinking silently) a
+    ``: keepalive`` SSE comment is emitted every ``_SSE_KEEPALIVE_SECS`` so an
+    idle-timeout proxy can't drop the connection mid-turn. The comment carries no
+    event/data line, so the frontend parser ignores it.
     """
 
     async def _watch_disconnect() -> None:
@@ -166,7 +269,24 @@ async def _sse_stream(
             if abort_token is not None:
                 _active_aborts[cid] = abort_token
         watcher = asyncio.create_task(_watch_disconnect())
-        async for event in gen:
+        gen_iter = gen.__aiter__()
+        while True:
+            nxt = asyncio.ensure_future(gen_iter.__anext__())
+            try:
+                # Race the next event against the keepalive interval: a silent
+                # gap emits a comment frame and keeps waiting on the same task.
+                while True:
+                    done_set, _ = await asyncio.wait({nxt}, timeout=_SSE_KEEPALIVE_SECS)
+                    if nxt in done_set:
+                        break
+                    yield ": keepalive\n\n"
+            except BaseException:
+                nxt.cancel()
+                raise
+            try:
+                event = nxt.result()
+            except StopAsyncIteration:
+                break
             evt_type = event["event"]
             evt_data = event.get("data", "")
             if isinstance(evt_data, dict):
@@ -189,7 +309,96 @@ async def _sse_stream(
         await _safe_aclose(gen)
 
 
-# ── Worlds / Lorebooks: shared Depends providers ─────────────────────────────
+async def _encode_workflow_event_stream(events: AsyncIterator[dict]) -> AsyncGenerator[str, None]:
+    """Serialize a workflow ``WorkflowEventStream`` as SSE frames -- API-owned wire encoding.
+
+    Each event is validated against the shared public-event contract
+    (:func:`public_event_error`); a malformed event is logged and dropped rather
+    than corrupting the frame stream. The ``finally`` closes the underlying
+    domain iterator, so on normal completion *and* on client disconnect (the
+    wrapping :class:`_CleanupStreamingResponse` calls ``aclose`` on this
+    generator) the workflow's own teardown -- e.g. cancelling an in-flight
+    external render in its generator ``finally`` -- always runs.
+    """
+    try:
+        it = events.__aiter__()
+        while True:
+            nxt = asyncio.ensure_future(it.__anext__())
+            try:
+                # Same keepalive race as _sse_stream: a long silent ComfyUI
+                # render yields no labels for stretches, so emit comment frames
+                # to keep an idle-timeout proxy/browser from dropping the stream
+                # (which surfaced as a frontend "Error in input stream" while the
+                # backend rendered on and persisted the image unseen).
+                while True:
+                    done_set, _ = await asyncio.wait({nxt}, timeout=_SSE_KEEPALIVE_SECS)
+                    if nxt in done_set:
+                        break
+                    yield ": keepalive\n\n"
+            except BaseException:
+                nxt.cancel()
+                raise
+            try:
+                ev = nxt.result()
+            except StopAsyncIteration:
+                break
+            reason = public_event_error(ev)
+            if reason is not None:
+                logger.warning("workflow on-demand stream yielded an invalid public event (%s); dropping", reason)
+                continue
+            name = ev["event"]
+            data = ev.get("data", "")
+            if isinstance(data, dict):
+                data = json.dumps(data, separators=(",", ":"))
+            else:
+                data = data.replace("\n", "\\n")
+            yield f"event: {name}\ndata: {data}\n\n"
+    finally:
+        if hasattr(events, "aclose"):
+            await _safe_aclose(cast(AsyncGenerator[Any, None], events))
+
+
+def _workflow_event_stream_response(stream: WorkflowEventStream) -> _CleanupStreamingResponse:
+    """API-owned SSE response for a workflow ``WorkflowEventStream`` domain result.
+
+    The workflow hook returns *what* to emit (validated event dicts); the API
+    layer owns *how* it reaches the client. ``_CleanupStreamingResponse``
+    guarantees the domain iterator is closed on client disconnect so the
+    workflow can cancel in-flight work.
+    """
+    return _CleanupStreamingResponse(
+        _encode_workflow_event_stream(stream.events),
+        media_type="text/event-stream",
+    )
+
+
+def _pipeline_sse_response(
+    make_gen: Callable[[AbortToken], AsyncIterator[Any]],
+    request: Request,
+    cid: str,
+) -> _CleanupStreamingResponse:
+    """Standard SSE response for a turn-lifecycle event generator.
+
+    *make_gen* receives a fresh :class:`AbortToken` and returns the event
+    generator; the same token is registered with the stream so POST /stop can
+    signal it.
+    """
+    abort_token = AbortToken()
+    return _CleanupStreamingResponse(
+        _sse_stream(make_gen(abort_token), request, abort_token=abort_token, cid=cid),
+        media_type="text/event-stream",
+    )
+
+
+# ── Shared Depends providers ─────────────────────────────────────────────────
+
+
+async def require_conversation(cid: str) -> ConversationRow:
+    """404 guard shared by the ``/api/conversations/{cid}/...`` routes."""
+    conv = await get_conversation(cid)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
 
 
 async def require_world(world_id: str) -> Mapping[str, Any]:
@@ -206,27 +415,89 @@ async def require_lorebook_entry(entry_id: int, world: dict = Depends(require_wo
     return entry
 
 
+# A V3 entry may open with decorator lines (`@@depth 4`, `@@@fallback`, …).
+_DECORATOR_PREAMBLE = re.compile(r"\A\s*(?:@@[^\n]*\n?)+")
+
+
+def _strip_decorators(content: str) -> str:
+    """Drop the V3 decorator preamble from an entry's content."""
+    stripped = _DECORATOR_PREAMBLE.sub("", content)
+    return stripped.lstrip("\n") if stripped != content else content
+
+
+def _str_list(value: Any) -> list[str]:
+    return [str(k) for k in value if k] if isinstance(value, list) else []
+
+
 def _normalise_lorebook_entry(item: dict) -> dict:
-    keywords = item.get("keys") or item.get("key") or []
-    if not isinstance(keywords, list):
-        keywords = []
-    keywords = [str(k) for k in keywords if k]
+    keywords = _str_list(item.get("keys") or item.get("key") or [])
+    secondary_keys = _str_list(item.get("secondary_keys") or item.get("keysecondary") or [])
     name = item.get("name") or item.get("comment") or ""
     if "disable" in item:
         enabled = not item["disable"]
     else:
         enabled = bool(item.get("enabled", True))
-    priority = int(item.get("insertion_order") or item.get("order") or 100)
+    priority = int(item.get("priority") or item.get("insertion_order") or item.get("order") or 100)
     case_sensitive = item.get("caseSensitive") or item.get("case_sensitive")
     constant = bool(item.get("constant", False))
     return {
         "name": str(name),
-        "content": str(item.get("content") or ""),
+        "content": _strip_decorators(str(item.get("content") or "")),
         "keywords": keywords,
         "enabled": enabled,
         "priority": priority,
+        # `priority` keeps its own fallback chain above (rewriting it would
+        # reshuffle already-imported V2 books); sort_order carries the spec field.
+        "sort_order": int(item.get("insertion_order") or 0),
         "case_insensitive": not bool(case_sensitive),
         "constant": constant,
+        # SillyTavern World Info's `position: 4` is "@ Depth" — injected after the
+        # latest message instead of into the character defs. V2/V3 `character_book`
+        # spells position as a string ("before_char"/"after_char"), which is never 4.
+        # `at_depth` is our own export key, read back so an Orb round-trip is lossless.
+        "at_depth": bool(item.get("at_depth")) or item.get("position") == 4,
+        "use_regex": bool(item.get("use_regex", False)),
+        # Cards in the wild set `selective` on every entry while leaving
+        # secondary_keys empty; honouring that literally would make the whole
+        # book match nothing, so an unbacked flag stores as false.
+        "selective": bool(item.get("selective")) and bool(secondary_keys),
+        "secondary_keys": secondary_keys,
+    }
+
+
+def lorebook_to_book(world_name: str, entries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Serialise lorebook entry rows as a Tavern ``character_book`` dict.
+
+    Export counterpart of :func:`_normalise_lorebook_entry` — keep the two
+    field mappings in sync. The V3-only keys are additive, and readers that
+    ignore unknown entry fields (Orb's own parser included) still see a valid
+    V2 book.
+    """
+    return {
+        "name": world_name,
+        "extensions": {},
+        "entries": [
+            {
+                "keys": e["keywords"],
+                "content": e["content"],
+                "extensions": {},
+                "enabled": bool(e["enabled"]),
+                "insertion_order": e["sort_order"],
+                "case_sensitive": not bool(e["case_insensitive"]),
+                "constant": bool(e.get("constant", False)),
+                # Additive, like the V3 keys below. A round-trip through
+                # SillyTavern loses the depth placement — ST reads its own
+                # `position` field, whose V2 spelling has no @Depth value.
+                "at_depth": bool(e.get("at_depth", False)),
+                "name": e["name"],
+                "priority": e["priority"],
+                "id": e["id"],
+                "use_regex": bool(e.get("use_regex", False)),
+                "selective": bool(e.get("selective", False)),
+                "secondary_keys": e.get("secondary_keys") or [],
+            }
+            for e in entries
+        ],
     }
 
 

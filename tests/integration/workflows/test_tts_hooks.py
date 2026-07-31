@@ -7,6 +7,7 @@ stands in for a real TTS backend.
 
 from __future__ import annotations
 
+import base64
 import json
 from types import MappingProxyType
 from unittest.mock import patch
@@ -23,10 +24,13 @@ from backend.database import (
 from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.orchestrator import _run_pipeline
 from backend.workflows import (
+    HookType,
     PostCtx,
     RegenCtx,
+    get_workflow,
     set_workflow_character_state,
     set_workflow_config,
+    workflow_has_hook,
 )
 from backend.workflows.tts import hooks
 from backend.workflows.tts.engine.base import SynthesisResult, TTSAdapter
@@ -226,6 +230,8 @@ async def test_regenerate_uses_current_profile_not_stored_metadata(client, fake_
         last_user_message="",
         settings=MappingProxyType({}),
         client=None,
+        agent_client=None,
+        agent_model_name="",
         character_id=char_id,
     )
 
@@ -245,8 +251,6 @@ async def test_rehydrate_regenerates_consumption_metadata(client, fake_adapter):
     timings must be rebuilt to match the new bytes -- not left describing the
     evicted ones. Pins that the rehydrate route persists the metadata the
     reroll_gen hook returns, overwriting the stale stored value."""
-    import base64
-
     from backend.database import insert_workflow_attachment_row, set_active_leaf
     from backend.database.connection import get_db
     from backend.workflows.attachment_cache import evict
@@ -298,9 +302,18 @@ async def test_config_round_trip(client):
     payload = {"config": {"auto_play": True, "volume": 0.4}}
     put = await client.put("/api/workflows/tts/config", json=payload)
     assert put.status_code == 200
-    assert put.json() == payload
+    expected = {
+        "config": {
+            "auto_play": True,
+            "volume": 0.4,
+            "click_granularity": "block",
+            "click_play_scope": "unit",
+            "show_karaoke": True,
+        }
+    }
+    assert put.json() == expected
     got = await client.get("/api/workflows/tts/config")
-    assert got.json() == payload
+    assert got.json() == expected
 
 
 async def test_config_defaults_on_fresh_slot(client):
@@ -336,3 +349,54 @@ async def test_profile_get_set_round_trip(client):
     assert profile["enabled"] is True
     assert profile["voice_id"] == "v9"
     assert profile["rate"] == 1.2
+
+
+def test_tts_binds_both_dispatch_hooks():
+    # QUERY (conversation-less discovery) and ON_DEMAND (conversation-scoped
+    # create / profile) are distinct single-dispatch slots; TTS binds both.
+    workflow = get_workflow("tts")
+    assert workflow is not None
+    assert workflow_has_hook(workflow, HookType.QUERY)
+    assert workflow_has_hook(workflow, HookType.ON_DEMAND)
+
+
+async def test_query_route_lists_backends_without_a_conversation(client):
+    # list_backends reads the static backend registry: no conversation, no
+    # character, no backend probe -- exactly what QUERY exists to answer, and
+    # why it moved off the per-conversation trigger.
+    resp = await client.post("/api/workflows/tts/query", json={"action": "list_backends"})
+    assert resp.status_code == 200
+    backends = resp.json()["backends"]
+    assert isinstance(backends, list) and backends
+    assert all("id" in b for b in backends)
+
+
+async def test_query_route_previews_from_the_request_profile(client, fake_adapter):
+    # Preview synthesizes the unsaved profile carried in the body -- no message,
+    # no character -- and returns the audio inline for the config panel to play.
+    resp = await client.post(
+        "/api/workflows/tts/query",
+        json={"action": "preview", "backend": "edge", "voice_id": "v1", "text": "Hi."},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert base64.b64decode(body["audio_b64"]) == b"FAKEAUDIO"
+    assert body["mime"] == "audio/mpeg"
+
+
+async def test_query_route_rejects_unknown_action_in_band(client):
+    resp = await client.post("/api/workflows/tts/query", json={"action": "does_not_exist"})
+    assert resp.status_code == 200
+    assert "unknown action" in resp.json()["error"]
+
+
+async def test_discovery_actions_left_the_conversation_trigger(client):
+    # The migrated actions are no longer served by on_demand: the trigger router
+    # reports them as unknown, which is the proof they moved to QUERY rather than
+    # being answered by both surfaces.
+    cid, _ = await _seed()
+    base = f"/api/conversations/{cid}/workflows/tts/trigger"
+    for action in ("list_backends", "list_voices", "list_models", "preview"):
+        resp = await client.post(base, json={"action": action})
+        assert resp.status_code == 200
+        assert "unknown action" in resp.json()["error"], action

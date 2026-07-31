@@ -4,7 +4,7 @@
 // body (see buildWorkflowToggleRows in settings.js). Registering it also stops the
 // boot loader logging an expected 404 for a missing module.
 
-import { registerWorkflowToolsPanelCard } from "/static/state.js";
+import { registerWorkflowToolsPanelCard } from "/static/workflow_api.js";
 
 registerWorkflowToolsPanelCard(
   "format_consistency",

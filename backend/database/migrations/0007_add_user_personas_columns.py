@@ -7,7 +7,7 @@ were added.
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def migrate(conn: sqlite3.Connection) -> None:
@@ -19,7 +19,7 @@ def migrate(conn: sqlite3.Connection) -> None:
         print("[migrations] 0007: added avatar_color column to user_personas")
 
     if "updated_at" not in columns:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute("ALTER TABLE user_personas ADD COLUMN updated_at TEXT")
         # Backfill existing rows with current timestamp
         conn.execute("UPDATE user_personas SET updated_at = ? WHERE updated_at IS NULL", (now,))

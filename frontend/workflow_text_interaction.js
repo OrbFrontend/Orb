@@ -6,8 +6,8 @@
 // specifically so a quick tap stays a single action and a horizontal drag stays
 // branch-swipe (the gesture this UI must not collide with).
 
-import { segDescriptor } from "./workflow_segmentation.js";
 import { S } from "./state.js";
+import { segDescriptor } from "./workflow_segmentation.js";
 
 const HOLD_MS = 500;
 const MOVE_CANCEL_PX = 10;
@@ -139,8 +139,8 @@ function _showCaret(span) {
   clearTimeout(_caretHideTimer);
   _caretSpan = span;
   const r = span.getBoundingClientRect();
-  _caretEl.style.left = r.right + "px";
-  _caretEl.style.top = r.top + "px";
+  _caretEl.style.left = `${r.right}px`;
+  _caretEl.style.top = `${r.top}px`;
   _caretEl.style.display = "inline-flex";
 }
 
@@ -165,7 +165,7 @@ function _onMouseOut(e) {
 
 function _openPopover(claimants, ctx, anchorRect) {
   _closePopover();
-  if (!claimants || !claimants.length) return;
+  if (!claimants?.length) return;
   if (claimants.length === 1) {
     _fire(claimants[0], ctx);
     return;
@@ -192,8 +192,8 @@ function _openPopover(claimants, ctx, anchorRect) {
   let top = anchorRect.bottom + 4;
   if (left + pr.width > window.innerWidth - 8) left = window.innerWidth - pr.width - 8;
   if (top + pr.height > window.innerHeight - 8) top = anchorRect.top - pr.height - 4;
-  pop.style.left = Math.max(8, left) + "px";
-  pop.style.top = Math.max(8, top) + "px";
+  pop.style.left = `${Math.max(8, left)}px`;
+  pop.style.top = `${Math.max(8, top)}px`;
   // Defer the outside-click listener so the opening interaction does not close it.
   _onDocClick = (e) => {
     if (_popoverEl && !_popoverEl.contains(e.target)) _closePopover();

@@ -4,7 +4,7 @@ This doc explains, in plain English, how Orb keeps each LLM call fast and cheap 
 
 Audience: someone who can read code but isn't deep in LLM internals. No tokenisation math, no transformer diagrams.
 
-> **Animation:** [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) is a stepped, self-contained walkthrough of the mechanism across all three passes and two turns — and of the reasoning-mode fork that silently splits the cache when `reasoning_enabled_passes` differs across passes (the default: director on, writer/editor off). Open it in a browser.
+> **Animation:** [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html) is a stepped, self-contained walkthrough of the mechanism across all three passes and two turns — and of the reasoning-mode fork that silently splits the cache when `reasoning_enabled_passes` differs across passes (it walks through a director-on, writer/editor-off configuration; the shipped default is all three off, so no fork out of the box — see §9). Open it in a browser.
 
 ---
 
@@ -49,15 +49,16 @@ Within a single turn, Orb makes 2–4+ LLM calls. Here's what each one looks lik
 + user's actual message
 ```
 
-`tool_choice` is forced to `direct_scene` (or `rewrite_user_prompt`). The model returns a tool call, never raw prose.
+`tool_choice` is forced to `direct_scene`. The model returns a tool call, never raw prose.
 
 ### Writer pass (1 call)
 
 ```
   system + history                ← cached prefix (same as director's)
-+ lorebook block
++ lorebook block                  ← keyword hits + Director picks only; constants sit in the system prompt
 + "**Scene Direction**\n<Mood content>"   ← injected from director's output
 + user's actual message
++ lorebook depth block            ← `constant` + `at_depth` entries (SillyTavern's @ Depth)
 ```
 
 `tool_choice="none"`. The model writes prose.
@@ -81,7 +82,11 @@ The editor's prompt **extends** the writer's prompt: the writer's trailing user 
 
 ### Invariant 1 — One system prompt, shared by every pass
 
-Character card, persona, scenario, example dialogue, post-history instructions, and user description are concatenated into a single system message once per turn. The same string is sent to all three passes. No pass adds, edits, or reorders anything.
+Character card, persona, constant lorebook entries (the `## Lorebook` section, rendered right after the character description), scenario, example dialogue, post-history instructions, and user description are concatenated into a single system message once per turn. The same string is sent to all three passes. No pass adds, edits, or reorders anything.
+
+Inline macros in these fields are resolved during that per-turn build, so they must be byte-stable across turns: `{{random}}` is — it resolves through a per-conversation seed (`Macros.seed`: the conversation id, or the carried `conversations.macro_seed` on checkpoint/compress copies so picks match the copied history), always yielding the same pick — but `{{roll}}` re-rolls every turn and will silently change the system-prompt bytes; avoid `{{roll}}` in card prefix fields and constant lorebook entry names/content. A constant entry that *needs* fresh rolls sets `at_depth` instead — that moves it out of the prefix into the per-turn tail, where it is resolved unseeded and costs no cache (see the writer diagram above).
+
+Constant lorebook entries are the deliberate mirror image of Invariant 4: they are byte-identical every turn (canonical `priority DESC, sort_order, id` sort in `render_lorebook_block` keeps the section stable regardless of query order), so they live here in the cached prefix rather than re-billing in the trailing block of every director *and* writer call. The flip side: editing a constant entry, toggling its `constant`/`enabled` flag, or disabling its world changes prefix bytes and re-bills from that point on the next turn — the same class of (rare, accepted) cache bust as editing the card itself. Keyword-triggered and Director-picked entries change per turn and stay in the trailing block, as do constant entries flagged `at_depth`, which opt out of the prefix in exchange for per-turn macro resolution.
 
 ### Invariant 2 — One history list, shared by every pass
 
@@ -98,9 +103,13 @@ This has two consequences worth knowing about:
 - **The post-writer feedback step is not a cache exception.** `give_feedback` produces the out-of-character note shown to the player. It rides the shared per-turn tools blob exactly like `direct_scene` (built once from the enabled `feedback`-type fragments, threaded to every pass), so the feedback step reuses the same frozen cached base as the director/writer/editor and merely forces `tool_choice=give_feedback`. It used to swap the tools blob onto a copy of the base, making one deliberate cache miss — that is gone. The step must also extend the stack on the *message* side: it replays the writer's exact user message and the reply as a real `assistant` turn (mirroring the editor), so it continues the warm writer/editor prefix. Appending a single fresh user message after `base.prefix` instead — the original feedback shape — forks the stack and collapses the provider's prefix-cache hit to just the system+tools block, even though the prefix bytes are identical; servers reuse a prefix you *continue from*, not one you fork off. (It also leaves a clean turn continuation for the next turn's director to extend, so a forked feedback call busts the following director too.)
 - **The direction-note step is the same shape.** `record_direction_note` persists the Director's running notes (see [Direction Notes](../features/direction-notes.md)); its post-turn placement rides the shared blob and replays the writer exchange exactly like the feedback step, so it is not a cache exception either. The before-writer placement appends only its request to the shared prefix, since there is no written reply to replay yet.
 
+**Text-completion mode dissolves this invariant.** When an endpoint runs in `text` mode (`completion_mode='text'`, llama.cpp's native `/apply-template` + `/completion`), tool schemas are **never rendered into the prompt** — forced passes constrain output with a `json_schema` grammar instead, and non-forced passes ride the client-side `parse_tool_calls` recovery chain. So the cached prefix is system + history only (strictly *better* caching than chat mode, which must serialise the shared tool blob into the prefix). The shared `CachedBase.tools` blob still exists and is still byte-identical across passes — it just isn't part of the cached bytes in text mode. Invariants 1/2/4/5 are unaffected; llama.cpp caches by token prefix, so the per-pass reasoning-split fork (§9) doesn't apply. Two mode-specific mechanics live in `backend/inference/text_completion.py`: the reasoning-tag triple is sniffed once per server from `/props` and cached module-level, and provider `usage` is synthesised from the final `/completion` chunk (`cached_tokens = tokens_evaluated − timings.prompt_n`) so the tracker's provider-truth path works unchanged.
+
+**Document mode's Output Auditor follows the same extend-don't-fork rule.** The patch call (`features/documents/audit.py`) byte-extends the generation prompt rather than building its own conversation: text mode appends draft + audit report to the exact prompt string the generation sent (re-running the `/apply-template` render for assisted docs — a closed assistant turn can render *different* bytes than the open generation prompt the draft actually followed, e.g. Qwen's injected `<think></think>` block) and forces JSON via `json_schema` on `/completion`; chat mode replays the generation messages verbatim and forces via `tools_in_prompt=False` → `response_format`, keeping the tool schema out of the server-rendered prompt the generation never had. Regression-tested by `tests/unit/test_document_kv_parity.py`.
+
 ### Invariant 4 — Director output rides on the trailing message, never on the system prompt
 
-The director picks moods, plot direction, progressive state, etc. None of that mutates the system prompt or the history. The style injection block is bolted onto the writer's trailing user message, at the top of the stack where cache misses are cheap and bounded to a single pancake.
+The director picks moods, plot direction, progressive state, etc. None of that mutates the system prompt or the history. The style injection block is bolted onto the writer's trailing user message, at the top of the stack where cache misses are cheap and bounded to a single pancake. The trailing lorebook block follows the same rule — it carries only the per-turn selections (keyword hits + Director picks); constant entries are the one lorebook piece that lives in the prefix instead (see Invariant 1), precisely because they never change.
 
 ### Invariant 5 — When the agent uses a separate model, the writer drops tools
 
@@ -176,6 +185,8 @@ Turn N+1 director:     [system, m1, m2, ..., m_k, user_N, asst_N, director_panca
 
 The bottom `[system, m1, ..., m_k]` is byte-identical. The cached portion of turn N's writer call carries over to turn N+1's director call. That's why long sessions don't get linearly slower per turn — most of the prompt is already in the server's KV cache.
 
+Message content upholds this because inline macros (`{{roll}}`/`{{random}}`) fire once at the persist boundary — the row already holds the final text, so `user_N` replayed as history in turn N+1 is byte-identical to the trailing pancake that carried it in turn N.
+
 ---
 
 ## 7. The editor's ReAct loop
@@ -188,7 +199,7 @@ How well that bottom is *already* cached when the loop starts depends on whether
 
 The editor's iteration-1 bottom is already hot: system + history + the writer's trailing user message + draft were cached when the writer streamed its response. Iteration 1 only pays a cache miss for the editor instruction itself; iterations 2+ pay a miss only for the new tool-call/tool-result turn at the top.
 
-This holds because the editor and writer default to the **same reasoning mode** (both thinking-off), so they share a cache lane. The director does *not* contribute to this warmth: with the default `reasoning_enabled_passes` it runs thinking-on, in a separate lane (see §9). So the pre-warming credit here belongs to the writer, not the director.
+This holds because the editor and writer share a **reasoning mode** (both thinking-off), so they share a cache lane. Either way the pre-warming credit for the writer-pancake-and-draft slice belongs to the writer, not the director — the director's call never contained those bytes. And if the director is switched to thinking-on (a non-default setting; the default ships all three off), it rides a *separate* lane and shares nothing with the writer/editor within the turn at all (see §9).
 
 ### Dual-model mode (`agent_same_as_writer = false`)
 
@@ -215,9 +226,9 @@ The tracker also remembers the previous turn's snapshot per conversation, so the
 
 ## 9. Caveat: a per-pass reasoning split forks the cache
 
-Everything above assumes that passes sharing a base also share a **reasoning mode**. By default they don't. `reasoning_enabled_passes` ships as `{"director": true, "writer": false, "editor": false}` — the director thinks, the writer and editor don't.
+Everything above assumes that passes sharing a base also share a **reasoning mode**. By default they do: `reasoning_enabled_passes` ships as `{"director": false, "writer": false, "editor": false}` — all three thinking-off, one shared lane, no fork. But the setting is per-pass, so a non-default configuration that turns reasoning on for some passes and not others breaks that assumption. Take the canonical example — director thinking-on, writer and editor off (`{"director": true, "writer": false, "editor": false}`):
 
-On a backend that routes thinking-on and thinking-off down different paths with **separate KV caches** (DeepSeek is the one we've measured), that single setting splits the single-model cache in two:
+On a backend that routes thinking-on and thinking-off down different paths with **separate KV caches** (DeepSeek is the one we've measured), that split configuration splits the single-model cache in two:
 
 - **thinking-ON lane** — the director.
 - **thinking-OFF lane** — the writer and the editor.
@@ -231,9 +242,42 @@ writer                  cached=2176/4297 tok (50.6%)   ← from the previous tur
 
 The tell is the gap between the two tracker views (§8): the local `msgs_overlap` reads ~91% (the prefix bytes *are* shared) while the provider `cached` sits far lower — exactly the "msgs_overlap high, provider lower, template-dependent" case the tracker is built to surface. The counter-intuitive result — the director showing *more* cached than the writer that ran right after it — is not cross-pass reuse at all; it's two independent lineages, each warmed by its own prior-turn call.
 
-**This is intentional, not a bug.** The director reasons on purpose, and the cache still pays off **across turns within each lane** — you're just keeping two warm prefixes instead of one. To collapse the lanes back into a single shared cache, make the reasoning mode uniform across the passes (set all three the same in `reasoning_enabled_passes`), accepting the trade-off: either the director loses its reasoning, or the writer pays for thinking on the main generation. On backends that *don't* fork the cache by thinking mode, the split is free and this whole section is moot.
+**When you opt into it, this is a trade-off, not a bug.** A pass you've set to reason (here the director) does so on purpose, and the cache still pays off **across turns within each lane** — you're just keeping two warm prefixes instead of one. The shipped default sidesteps it entirely by keeping all three passes off (uniform → one lane). To collapse the lanes back after diverging them, make the reasoning mode uniform across the passes again (set all three the same in `reasoning_enabled_passes`), accepting the trade-off: either the director loses its reasoning, or the writer pays for thinking on the main generation. On backends that *don't* fork the cache by thinking mode, the split is free and this whole section is moot.
 
 A stepped, click-through walkthrough of the mechanism and this fork lives in [kv-cache-animation.html](https://orbfrontend.github.io/Orb/architecture/kv-cache-animation.html).
+
+### Off-turn image prompter
+
+Image generation's `analyze_scene` and `compose_image_prompt` calls run on the
+resolved Agent lane: the shared Writer/Agent client in single-model mode, or the
+Director/Editor endpoint, model, and agent system prefix in dual-model mode. The
+off-turn prefix builder must therefore reproduce the corresponding pipeline
+prefix byte-for-byte; parity for both model topologies is regression-tested.
+
+The prompter has its own `prompter_reasoning` switch rather than inheriting a
+pipeline pass. Both calls always use the same switch value and the same
+order-stable two-tool schema blob, so they stay in one reasoning lane and reuse
+one another — *unless* the provider won't honor a forced `tool_choice` (DeepSeek
+with thinking on rejects it; OpenRouter and llama.cpp's chat endpoint sometimes
+ignore it). Forcing is what makes the shared blob safe: without it the model
+picks from the array and answers `analyze_scene` when `compose_image_prompt` was
+asked for. So on those providers `forced_tool_call` ships only the forced tool,
+and the two calls no longer share a prefix. That costs one extra cache miss per
+image, only on the analysis path (without analysis there is just one call) — and
+it is a *whole-prefix* miss, not a tail miss: templates render the tool
+declarations ahead of the conversation (llama.cpp's Gemma 4 template emits them
+inside the first system turn), so a different tools array diverges at the front
+and `compose` re-prefills the entire conversation rather than resuming after it.
+Shipping one tool rules out the wrong tool; a provider that ignores `tool_choice`
+is still free to answer with no tool call at all, which degrades to empty args as
+before. The trade buys a composed prompt at all — the previous behavior was a
+hard failure, not a cheaper success.
+
+Matching Editor reasoning is a useful cross-pass heuristic because
+it is the same Agent server and often the latest Agent-side call, but it is not
+an invariant: the Editor may be skipped, providers differ, and the prompter's
+standalone tools can create a distinct templated prefix. Keeping the prompter
+setting stable is the only portable cache rule.
 
 ---
 
@@ -245,4 +289,4 @@ A stepped, click-through walkthrough of the mechanism and this fork lives in [kv
 - The editor extends the writer's stack, not the bare prefix — that's where most editor-pass savings come from.
 - Across turns, the new prefix is "old prefix + one (user, assistant) pair," so cache flows naturally turn-over-turn.
 - Provider `usage` is the truth; the local tracker is an indicator, deliberately unfused so it doesn't lie.
-- A per-pass reasoning split forks the cache on backends that separate thinking-on/off (DeepSeek): the director (thinking on) rides one lane, the writer + editor (thinking off) another, so they don't share *within* a turn — only across turns within each lane. Make `reasoning_enabled_passes` uniform to collapse them. See §9.
+- The shipped default runs all three passes thinking-off (`reasoning_enabled_passes` all false) — uniform, so one shared lane and no fork. A non-default config that diverges the passes (e.g. director thinking-on, writer + editor off) forks the cache on backends that separate thinking-on/off (DeepSeek): each mode rides its own lane, so passes in different modes don't share *within* a turn — only across turns within each lane. Keep `reasoning_enabled_passes` uniform to avoid the split. See §9.

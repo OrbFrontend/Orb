@@ -6,8 +6,9 @@ import { api } from "./api.js";
 import { renderContextSize, renderMessages } from "./chat_core.js";
 import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
-import { S, effectiveWorkflowEnabled } from "./state.js";
-import { $, esc } from "./utils.js";
+import { preserveScroll } from "./scroll_follow.js";
+import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, S } from "./state.js";
+import { $, esc, sentenceTail } from "./utils.js";
 
 // ── Inspector — Reasoning stepper rail
 
@@ -16,6 +17,21 @@ export const REASONING_PASSES = [
   { key: "writer", label: "Writer", color: "var(--accent-dim)" },
   { key: "editor", label: "Editor", color: "var(--accent-dim)" },
 ];
+
+const REASONING_BOTTOM_THRESHOLD = 20;
+
+// A reasoning box follows new text only while it is pinned to the bottom.
+// preserveScroll reads the pin state right before mutating the DOM (wheel,
+// touch, keyboard, and scrollbar dragging all just move scrollTop, so there's
+// no separate state machine to keep in sync) and restores it after.
+export function appendReasoningDelta(box, delta) {
+  if (!box) return;
+  preserveScroll(
+    () => box,
+    REASONING_BOTTOM_THRESHOLD,
+    () => box.appendChild(document.createTextNode(delta)),
+  );
+}
 
 // Advance the streaming-progress dot to `targetIdx` when it is further ahead.
 // Auto-follows the streaming pass into the selected view only while the user
@@ -45,7 +61,7 @@ function _buildReasoningHtml() {
   const streamIdx = S.reasoningPassActive;
   const selectedIdx = S.reasoningPassSelected;
   const dotsHtml = REASONING_PASSES.map((p, i) => {
-    const hasText = !!S["reasoning" + p.key.charAt(0).toUpperCase() + p.key.slice(1)];
+    const hasText = !!S[`reasoning${p.key.charAt(0).toUpperCase()}${p.key.slice(1)}`];
     const isStreaming = i === streamIdx;
     const isSelected = i === selectedIdx;
     const lit = hasText || isStreaming;
@@ -61,20 +77,29 @@ function _buildReasoningHtml() {
       .join(";");
     const lineColor = i < streamIdx ? REASONING_PASSES[i + 1].color : "var(--border)";
     const checkId = `reasoning-enabled-${p.key}`;
-    return (
-      `<div class="reasoning-dot-col">
+    return `<div class="reasoning-dot-col">
         <button class="reasoning-dot" onclick="selectReasoningPass(${i})" style="${dotStyle}">${i + 1}</button>
         <label class="reasoning-enabled-label" for="${checkId}">
           <input type="checkbox" id="${checkId}" ${enabled ? "checked" : ""} onchange="toggleReasoningPass('${p.key}')">
           <span>on</span>
         </label>
-      </div>` + (i < 2 ? `<div class="reasoning-rail-line" style="background:${lineColor}"></div>` : "")
-    );
+      </div>${i < 2 ? `<div class="reasoning-rail-line" style="background:${lineColor}"></div>` : ""}`;
   }).join("");
 
   const selectedPass = REASONING_PASSES[selectedIdx];
-  const currentText = S["reasoning" + selectedPass.key.charAt(0).toUpperCase() + selectedPass.key.slice(1)] || "";
+  const currentText = S[`reasoning${selectedPass.key.charAt(0).toUpperCase()}${selectedPass.key.slice(1)}`] || "";
   const openAttr = S.reasoningOpen ? " open" : "";
+
+  // Reasoning prefill: text mode only — chat endpoints give no seam to write
+  // inside the thought channel. Hidden when the pass's reasoning is off, since
+  // prefill has no effect there. Handlers are delegated at module scope below.
+  const key = selectedPass.key;
+  const prefillHtml =
+    _passTextMode(key) && S.reasoningEnabled[key] !== false
+      ? `<textarea class="reasoning-box reasoning-prefill" id="reasoning-prefill" data-pass="${key}" rows="3"
+         placeholder="Prefill this pass's reasoning… (macros resolved)"
+       >${esc(S.reasoningPrefill[key] || "")}</textarea>`
+      : "";
 
   return `<details class="inspector-block reasoning-section" id="reasoning-section"${openAttr} ontoggle="S.reasoningOpen=this.open;saveInspectorOpenStates()">
     <summary class="reasoning-summary">
@@ -87,19 +112,48 @@ function _buildReasoningHtml() {
         <span class="reasoning-pass-label">${esc(selectedPass.label)}</span>
       </div>
       <div class="reasoning-box" id="reasoning-box">${esc(currentText)}</div>
+      ${prefillHtml}
     </div>
   </details>`;
 }
 
+// Text mode is an endpoint property. Director/editor ride the agent lane only
+// when a separate agent endpoint is actually configured; otherwise they run on
+// the writer's client (config.py: agent_lane = writer_lane).
+function _passTextMode(key) {
+  const separate = !S.agentSameAsWriter && !!S.agentEndpointId;
+  const id = key === "writer" || !separate ? S.activeEndpointId : S.agentEndpointId;
+  return S.endpoints.find((e) => e.id === id)?.completion_mode === "text";
+}
+
+// Delegated (no inline on*= handler — the frontend layer check ratchets those down).
+// Syncing S on input and rendering from S means a _refreshReasoningSection()
+// rebuild cannot eat typed text.
+document.addEventListener("input", (e) => {
+  if (e.target.id !== "reasoning-prefill") return;
+  S.reasoningPrefill[e.target.dataset.pass] = e.target.value;
+  // Typing is an explicit pass selection: pin the rail so a mid-stream
+  // _advanceReasoningPass can't swap the box out from under the cursor.
+  S.reasoningUserOverride = true;
+});
+document.addEventListener("change", (e) => {
+  // Fires on blur for a textarea.
+  if (e.target.id === "reasoning-prefill")
+    api.put("/settings", { reasoning_prefill_passes: { ...S.reasoningPrefill } });
+});
+
 function _refreshReasoningSection() {
   const existing = document.getElementById("reasoning-section");
   if (!existing) return;
-  existing.outerHTML = _buildReasoningHtml();
-  // Auto-scroll the newly rendered box to bottom only when viewing the streaming pass
-  if (!S.reasoningUserOverride) {
-    const box = document.getElementById("reasoning-box");
-    if (box) box.scrollTop = box.scrollHeight;
-  }
+  // Rebuilding the rail (most notably at pass boundaries) must not re-enable
+  // following after the user has scrolled up.
+  preserveScroll(
+    () => document.getElementById("reasoning-box"),
+    REASONING_BOTTOM_THRESHOLD,
+    () => {
+      existing.outerHTML = _buildReasoningHtml();
+    },
+  );
 }
 
 export function selectReasoningPass(idx) {
@@ -294,7 +348,7 @@ export function setWorkflowPhase(channel, label) {
     const wid = channel.split(":")[1];
     if (wid && !effectiveWorkflowEnabled(wid)) return;
   }
-  if (label && label.trim()) S.workflowPhases[channel] = label;
+  if (label?.trim()) S.workflowPhases[channel] = label;
   else delete S.workflowPhases[channel];
   _renderWorkflowPhasesPill();
   _syncGenerationStatusVisibility();
@@ -311,7 +365,7 @@ export function clearWorkflowPhase(channel) {
 // when the id is absent from the manifest.
 export function workflowPhaseLabel(wid, verb) {
   const entry = S.workflowManifest.find((w) => w.id === wid);
-  return `${(entry && entry.display_name) || "Workflow"}: ${verb}`;
+  return `${entry?.display_name || "Workflow"}: ${verb}`;
 }
 
 export async function loadWorkflowManifest() {
@@ -348,12 +402,12 @@ function _buildToolCallsHtml(tc) {
 // defensive against a model that returns a list anyway.
 export function feedbackRows(values) {
   if (!values || typeof values !== "object") return [];
-  const frags = S.interactiveFragments || [];
+  const frags = interactiveFragmentsView();
   return Object.entries(values)
     .filter(([, v]) => v && (Array.isArray(v) ? v.length : true))
     .map(([id, v]) => {
       const frag = frags.find((f) => f.id === id);
-      const label = (frag && frag.injection_label) || (frag && frag.label) || id;
+      const label = frag?.injection_label || frag?.label || id;
       return { label, value: v };
     });
 }
@@ -444,13 +498,19 @@ export function renderInspector() {
 }
 
 function _renderInspectorMain() {
+  const withReasoningScroll = (mutate) =>
+    preserveScroll(() => document.getElementById("reasoning-box"), REASONING_BOTTOM_THRESHOLD, mutate);
+
   if (S.isStreaming && S.lastDirectorData === null) {
     // Reserve slots in the canonical (after-stream) order so blocks fill in
     // place rather than reordering when director data lands. Activation is
     // unknown mid-stream, so every mood renders inactive (greyed); the "active"
     // class lands in place once the director resolves.
-    const pendingMoodsHtml = S.moodFragments.map((f) => `<span class="style-tag">${esc(f.label)}</span>`).join("");
-    $("inspector-content").innerHTML = `
+    const pendingMoodsHtml = moodFragmentsView()
+      .map((f) => `<span class="style-tag">${esc(f.label)}</span>`)
+      .join("");
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
        <div class="inspector-block"><h4>Moods</h4>
          <div>${pendingMoodsHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
@@ -459,8 +519,7 @@ function _renderInspectorMain() {
        <div style="color:var(--text-muted);font-size:12px;display:flex;align-items:center;gap:8px">
          <span class="typing-indicator"><span></span><span></span><span></span></span> Director thinking…
        </div>`;
-    const _rb = document.getElementById("reasoning-box");
-    if (_rb) _rb.scrollTop = _rb.scrollHeight;
+    });
     renderContextSize();
     return;
   }
@@ -469,13 +528,14 @@ function _renderInspectorMain() {
 
   if (insp) {
     const activeIds = insp.active_moods || [];
-    const stylesHtml = S.moodFragments
+    const stylesHtml = moodFragmentsView()
       .map((f) => `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""}">${esc(f.label)}</span>`)
       .join("");
     const lat = insp.agent_latency_ms || 0;
     const tc = insp.tool_calls || [];
     const inj = insp.injection_block || "";
-    $("inspector-content").innerHTML = `
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
       <div class="inspector-block" id="inspector-context-size"></div>
       <div class="inspector-block">
         <h4>Moods</h4>
@@ -492,8 +552,7 @@ function _renderInspectorMain() {
                  <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
           : ""
       }`;
-    const _rb = document.getElementById("reasoning-box");
-    if (_rb) _rb.scrollTop = _rb.scrollHeight;
+    });
     renderContextSize();
     return;
   }
@@ -504,16 +563,18 @@ function _renderInspectorMain() {
     (S.lastDirectorData && Object.keys(S.lastDirectorData).length > 0);
 
   if (!hasDirectorData) {
-    const fbHtml = buildFeedbackHtml(S.lastFeedback && S.lastFeedback.values);
-    const pnHtml = buildDirectionNotesHtml(S.lastDirectionNotes && S.lastDirectionNotes.notes);
+    const fbHtml = buildFeedbackHtml(S.lastFeedback?.values);
+    const pnHtml = buildDirectionNotesHtml(S.lastDirectionNotes?.notes);
     // Canonical order: context-size, reasoning, feedback (matches the settled
     // director-data branch so nothing shifts once director output arrives).
-    $("inspector-content").innerHTML = `
+    withReasoningScroll(() => {
+      $("inspector-content").innerHTML = `
        <div class="inspector-block" id="inspector-context-size"></div>
        ${_buildReasoningHtml()}
        ${fbHtml}
        ${pnHtml}
        ${fbHtml || pnHtml ? "" : `<div style="color:var(--text-muted);font-size:12px;">Send a message to see director output</div>`}`;
+    });
     renderContextSize();
     return;
   }
@@ -521,20 +582,21 @@ function _renderInspectorMain() {
   const ds = S.directorState || {};
   const ld = S.lastDirectorData || {};
   const activeIds = ld.active_moods || ds.active_moods || [];
-  const stylesHtml = S.moodFragments
+  const stylesHtml = moodFragmentsView()
     .map((f) => `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""}">${esc(f.label)}</span>`)
     .join("");
   const lat = ld.agent_latency_ms || 0;
   const tc = ld.tool_calls || [];
   const inj = ld.injection_block || "";
-  $("inspector-content").innerHTML = `
+  withReasoningScroll(() => {
+    $("inspector-content").innerHTML = `
     <div class="inspector-block" id="inspector-context-size"></div>
     <div class="inspector-block"><h4>Moods</h4>
       <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
     </div>
     ${_buildReasoningHtml()}
-    ${buildFeedbackHtml(S.lastFeedback && S.lastFeedback.values)}
-    ${buildDirectionNotesHtml(S.lastDirectionNotes && S.lastDirectionNotes.notes)}
+    ${buildFeedbackHtml(S.lastFeedback?.values)}
+    ${buildDirectionNotesHtml(S.lastDirectionNotes?.notes)}
     ${tc.length ? _buildToolCallsHtml(tc) : ""}
     ${inj ? _buildInjectionBlockHtml(inj) : ""}
     ${
@@ -543,13 +605,76 @@ function _renderInspectorMain() {
                <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
         : ""
     }`;
-  // Scroll the freshly rendered reasoning box to bottom
-  const _rb = document.getElementById("reasoning-box");
-  if (_rb) _rb.scrollTop = _rb.scrollHeight;
+  });
   renderContextSize();
 }
 
-export function showAvatarPopup() {
+// Expression polling: while the avatar popup is open and the character has an
+// uploaded expression pack, watch the latest assistant message on a 1s tick and
+// swap the popup image to the matching expression. The tick is only a scheduler:
+// the classified unit is the last few *sentences*, but because generation speed
+// is unknowable, cadence is normalized in time:
+// never more than one call per _EXPR_MIN_INTERVAL_MS, and if no sentence has
+// completed for _EXPR_STALE_MS while text keeps streaming in, the partial
+// sentence is classified rather than leaving the expression frozen.
+const _EXPR_TAIL_SENTENCES = 7;
+const _EXPR_MIN_INTERVAL_MS = 1000;
+const _EXPR_STALE_MS = 5000;
+const _EXPR_MIN_GROWTH_CHARS = 40; // don't classify a fragment like "She"
+let _exprTimer = null;
+let _exprLastCallAt = 0;
+
+async function _expressionTick(charId) {
+  const img = document.getElementById("avatar-popup-image");
+  if (!img) return;
+  const full = S.isStreaming
+    ? S.streamingContent
+    : [...S.messages].reverse().find((m) => m.role === "assistant" && m.id)?.content;
+  if (!full) return;
+  const now = Date.now();
+  if (now - _exprLastCallAt < _EXPR_MIN_INTERVAL_MS) return; // fast models: rate floor
+  // Classify only the sentence tail: recency is enforced here by input selection
+  // (the model never sees older moods), not by trusting the classifier to weight
+  // late text. While streaming, the trailing fragment is dropped so `text` only
+  // changes — and the API only fires — when a sentence completes.
+  let text = sentenceTail(full, _EXPR_TAIL_SENTENCES, S.isStreaming);
+  if (
+    (!text || img._exprText === text) &&
+    S.isStreaming &&
+    now - _exprLastCallAt >= _EXPR_STALE_MS &&
+    full.length - (img._exprFullLen || 0) >= _EXPR_MIN_GROWTH_CHARS
+  ) {
+    // Slow models: a sentence has been streaming for a while without completing —
+    // classify it anyway, fragment included.
+    text = sentenceTail(full, _EXPR_TAIL_SENTENCES, false);
+  }
+  if (!text || img._exprText === text) return;
+  img._exprText = text;
+  img._exprFullLen = full.length;
+  _exprLastCallAt = now;
+  let label;
+  try {
+    ({ label } = await api.post("/local-ml/classify-emotion", { text }));
+  } catch (_e) {
+    // 503 = feature off / model missing; anything else — stop silently.
+    clearInterval(_exprTimer);
+    _exprTimer = null;
+    return;
+  }
+  const labels = img._exprLabels || [];
+  const resolved = labels.includes(label) ? label : labels.includes("neutral") ? "neutral" : null;
+  if (!resolved) {
+    img.src = `/api/characters/${charId}/avatar`; // no matching expression → plain avatar
+    return;
+  }
+  const next = `/api/characters/${charId}/expressions/${resolved}`;
+  if (img._exprSrc !== next) {
+    img._exprSrc = next; // swap only on change (ETag handles caching; no ?t= flicker)
+    img.src = next;
+  }
+}
+
+export async function showAvatarPopup() {
   if (!S.activeCharId) return;
   const popup = document.getElementById("avatar-popup");
   if (!popup) return;
@@ -557,12 +682,47 @@ export function showAvatarPopup() {
     hideAvatarPopup();
     return;
   }
+  const charId = S.activeCharId;
   const img = document.getElementById("avatar-popup-image");
-  if (img) img.src = `/api/characters/${S.activeCharId}/avatar?t=${Date.now()}`;
+  const hasExpr = (S.characters || []).find((c) => c.id === charId)?.has_expressions;
+  if (img) {
+    // With a pack, hold off on the plain avatar (its dimensions usually differ
+    // from the pack's, resizing the frame ~1s later) and show neutral instead
+    // once labels arrive below.
+    if (!hasExpr) img.src = `/api/characters/${charId}/avatar?t=${Date.now()}`;
+    img._exprSrc = null;
+    img._exprText = null;
+    img._exprFullLen = 0;
+  }
+  _exprLastCallAt = 0; // fresh popup: first tick classifies immediately
   popup.classList.remove("hidden");
+
+  let labels = [];
+  if (hasExpr) {
+    try {
+      ({ labels } = await api.get(`/characters/${charId}/expressions`));
+    } catch {
+      labels = [];
+    }
+  }
+  if (img && hasExpr && !popup.classList.contains("hidden")) {
+    if (labels.includes("neutral")) {
+      img._exprSrc = `/api/characters/${charId}/expressions/neutral`;
+      img.src = img._exprSrc;
+    } else {
+      img.src = `/api/characters/${charId}/avatar?t=${Date.now()}`;
+    }
+  }
+  // Popup may have been closed while the fetch was in flight.
+  if (popup.classList.contains("hidden") || !labels.length || !img) return;
+  img._exprLabels = labels;
+  _expressionTick(charId);
+  _exprTimer = setInterval(() => _expressionTick(charId), 1000);
 }
 
 export function hideAvatarPopup() {
   const popup = document.getElementById("avatar-popup");
   if (popup) popup.classList.add("hidden");
+  clearInterval(_exprTimer);
+  _exprTimer = null;
 }

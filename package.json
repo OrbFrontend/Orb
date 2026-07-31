@@ -1,6 +1,7 @@
 {
   "name": "orb",
   "private": true,
+  "type": "module",
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
     "@evilmartians/lefthook": "^2.1.9"

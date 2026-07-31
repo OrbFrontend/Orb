@@ -13,7 +13,6 @@
 // engine invokes (setBarChangeHook), keeping the dependency one-way
 // transport -> engine.
 
-import { S } from "./state.js";
 import {
   buildSchedule,
   locateSegment,
@@ -22,6 +21,7 @@ import {
   rescheduleFrom,
   shouldStopOn,
 } from "./audio_schedule.js";
+import { S } from "./state.js";
 
 // Mirrors the backend attachment-cache sentinel. Duplicated rather than imported
 // from chat.js to keep the dependency one-directional (chat.js imports the
@@ -132,10 +132,10 @@ function _b64ToArrayBuffer(b64) {
 function _prepareSource(source) {
   if (source.row != null) {
     const att = _findAttachment(source.row);
-    if (!att) return { skip: "row " + source.row + " not in loaded messages" };
+    if (!att) return { skip: `row ${source.row} not in loaded messages` };
     const b64 = att.b64 || att.data_b64;
-    if (b64 === EVICTED_MARKER) return { skip: "row " + source.row + " evicted" };
-    if (!b64) return { skip: "row " + source.row + " has no bytes" };
+    if (b64 === EVICTED_MARKER) return { skip: `row ${source.row} evicted` };
+    if (!b64) return { skip: `row ${source.row} has no bytes` };
     return { thunk: () => _b64ToArrayBuffer(b64) };
   }
   return { thunk: () => _b64ToArrayBuffer(source.b64) };
@@ -176,7 +176,7 @@ function _stopSources(ch) {
       node.onended = null;
       node.stop();
       node.disconnect();
-    } catch (e) {
+    } catch (_e) {
       // already stopped or never started
     }
   }
@@ -279,14 +279,14 @@ async function _startPlan(ch, token, channel, normalized) {
       const prep = _prepareSource(seg.source);
       if (prep.skip) {
         skipped.add(key);
-        console.warn("[audio] channel " + channel + ": skipped (" + prep.skip + ")");
+        console.warn(`[audio] channel ${channel}: skipped (${prep.skip})`);
         return;
       }
       try {
         bufByKey.set(key, await _decode(key, prep.thunk));
       } catch (e) {
         skipped.add(key);
-        console.warn("[audio] channel " + channel + ": decode failed for " + key + ": " + (e?.message || e));
+        console.warn(`[audio] channel ${channel}: decode failed for ${key}: ${e?.message || e}`);
       }
     }),
   );
@@ -359,7 +359,7 @@ export function playAudio({ channel, segments, loop = false, volume, stopOn } = 
   for (let i = 0; i < raw.length; i++) {
     const n = normalizeSegment(raw[i]);
     if (n) normalized.push(n);
-    else console.warn("[audio] channel " + channel + ": segment " + i + " is malformed, skipped");
+    else console.warn(`[audio] channel ${channel}: segment ${i} is malformed, skipped`);
   }
   _startPlan(ch, token, channel, normalized);
 
@@ -425,7 +425,7 @@ export function channelUserVolume(channel) {
 // rendered.
 export function channelState(channel) {
   const ch = _channels.get(channel);
-  if (!ch || !ch.plan) return null;
+  if (!ch?.plan) return null;
   const elapsed = _position(ch);
   const seg = locateSegment(ch.steps, elapsed);
   const streamRemaining = ch.totalDuration - elapsed;
@@ -454,7 +454,7 @@ export function channelState(channel) {
 // plan is intact, so the originating play session stays valid.
 export function pauseChannel(channel) {
   const ch = _channels.get(channel);
-  if (!ch || !ch.playing || ch.paused) return;
+  if (!ch?.playing || ch.paused) return;
   ch.pausedOffset = _position(ch);
   _stopSources(ch);
   ch.paused = true;
@@ -467,7 +467,7 @@ export function pauseChannel(channel) {
 // rather than leaving a playing-but-silent channel.
 export function resumeChannel(channel) {
   const ch = _channels.get(channel);
-  if (!ch || !ch.paused) return;
+  if (!ch?.paused) return;
   const survived = _scheduleStepsFrom(ch, ch.token, channel, ch.pausedOffset);
   ch.paused = false;
   ch.pausedOffset = 0;
@@ -490,7 +490,7 @@ export function resumeChannel(channel) {
 // a paused channel still has playing true.
 export function seekChannel(channel, offsetSec) {
   const ch = _channels.get(channel);
-  if (!ch || !ch.plan || ch.steps == null) return;
+  if (!ch?.plan || ch.steps == null) return;
   const total = ch.totalDuration;
   const clamped = Math.min(Math.max(Number(offsetSec) || 0, 0), total);
   const fromSec = _position(ch);
@@ -572,7 +572,7 @@ export function setChannelRepeat(channel, on) {
 // overlap.
 export function replayChannel(channel) {
   const ch = _channels.get(channel);
-  if (!ch || !ch.plan || ch.steps == null) return;
+  if (!ch?.plan || ch.steps == null) return;
   _closeChannel(ch, channel, "superseded");
   _stopSources(ch);
   ch.token = ++_seq;
@@ -615,7 +615,7 @@ function _emit(type, channel, extra = {}) {
     try {
       handler(event);
     } catch (e) {
-      console.warn("[audio] channel " + channel + ": subscriber threw on " + type + ": " + (e?.message || e));
+      console.warn(`[audio] channel ${channel}: subscriber threw on ${type}: ${e?.message || e}`);
     }
   }
 }
@@ -671,7 +671,7 @@ function _notifyBar() {
   try {
     _barChangeHook();
   } catch (e) {
-    console.warn("[audio] transport repaint hook threw: " + (e?.message || e));
+    console.warn(`[audio] transport repaint hook threw: ${e?.message || e}`);
   }
 }
 

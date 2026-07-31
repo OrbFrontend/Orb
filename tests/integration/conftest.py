@@ -23,7 +23,7 @@ from httpx import ASGITransport
 import backend.database.connection as db_connection
 from backend.database import init_db
 
-from ._llm_mock import FakeLLMClient, llm_factory
+from ._llm_mock import FakeLLMClient, llm_factory, verify_kv_prefix_invariants
 
 
 @pytest.fixture(autouse=True)
@@ -90,25 +90,34 @@ async def db(db_path: Path):
 
 
 @pytest.fixture
-def llm_mock(monkeypatch):
-    """Substitute the streaming LLM client across every bound import.
+def llm_mock(monkeypatch, request):
+    """Substitute the streaming LLM client everywhere.
 
-    ``from ..inference import LLMClient`` binds a local name at import
-    time, so patching only ``backend.inference.client.LLMClient`` is not
-    enough -- the route modules that construct a client
-    (``backend.api.routes.conversations`` for /summarize and
-    ``backend.api.routes.workflows`` for the workflow hooks) and
-    ``backend.pipeline.context`` (which builds the writer/agent clients in
-    ``_load_pipeline_context``) retain pre-patch references. The fixture
-    patches every bound name.
+    Every production construction goes through
+    ``backend.inference.client.client_from_settings`` /
+    ``agent_client_from_settings``, which resolve ``LLMClient`` from their
+    module's globals at call time — so this single patch covers all of them.
+
+    Teardown enforces the global KV-prefix invariant over every captured call
+    (see ``verify_kv_prefix_invariants``): any test that drives an LLM call
+    site is a KV-cache test whether it meant to be or not, so a new entry
+    point cannot ship uncovered the way magic_rewrite and the image-gen
+    off-turn calls did. Deliberate prompt divergence (persona/settings switch
+    mid-conversation) opts out with ``@pytest.mark.kv_divergence_expected``.
     """
     fake = FakeLLMClient()
     factory = llm_factory(fake)
     monkeypatch.setattr("backend.inference.client.LLMClient", factory)
-    monkeypatch.setattr("backend.api.routes.conversations.LLMClient", factory)
-    monkeypatch.setattr("backend.api.routes.workflows.LLMClient", factory)
-    monkeypatch.setattr("backend.pipeline.context.LLMClient", factory)
-    return fake
+    yield fake
+    if request.node.get_closest_marker("kv_divergence_expected"):
+        return
+    violations = verify_kv_prefix_invariants(fake.captured)
+    if violations:
+        pytest.fail(
+            "KV-cache prefix invariant violated (checked for every llm_mock test at teardown):\n"
+            + "\n".join(f"  - {v}" for v in violations),
+            pytrace=False,
+        )
 
 
 @pytest.fixture
@@ -166,7 +175,7 @@ async def streaming_client(db_path: Path, monkeypatch):
         server.should_exit = True
         try:
             await asyncio.wait_for(serve_task, timeout=2.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # uvicorn's force_exit path skips the connection-drain polls
             # but the trailing server.wait_closed() call is not gated by
             # it. The second bounded wait gives uvicorn's own graceful
@@ -175,7 +184,7 @@ async def streaming_client(db_path: Path, monkeypatch):
             server.force_exit = True
             try:
                 await asyncio.wait_for(serve_task, timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 serve_task.cancel()
                 await asyncio.gather(serve_task, return_exceptions=True)
         # uvicorn closes the socket itself on a normal exit; cover the

@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Mapping
+from typing import Any
 
 from .. import database as db
-from ..workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
+from ..core import resolve_inline
+from ..workflows.attachment_cache import project_rejected_attachment
 from .predicates import agent_enabled
 from .state import TurnState
 
@@ -38,12 +40,10 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
         await db.add_conversation_log(
             conversation_id,
             log_turn_index,
-            res.agent_raw,
             res.calls,
             res.active_moods,
             res.inj_block,
             res.latency,
-            res.progressive_fields,
             message_id=asst_id,
             reasoning_director=res.reasoning_director,
             reasoning_writer=res.reasoning_writer,
@@ -52,15 +52,6 @@ def _conversation_log_writer(conversation_id: str, log_turn_index: int):
         )
 
     return _on_result
-
-
-async def _persist_rewrite(res: TurnState, user_msg_id: int | None) -> None:
-    """Overwrite the stored user message with the director's rewrite, if any.
-
-    No-op when no rewrite happened. Shared by the normal and fallback paths.
-    """
-    if res.rewritten_msg and user_msg_id:
-        await db.update_message_content(user_msg_id, res.effective_msg)
 
 
 async def _persist_result(
@@ -85,11 +76,13 @@ async def _persist_result(
             conversation_id,
             res.active_moods,
             progressive_fields=res.progressive_fields,
+            macro_choices=res.macro_choices,
         )
-    await _persist_rewrite(res, user_msg_id)
 
     # Skip persistence if the LLM produced no content tokens (e.g. reasoning-only).
-    resp_text = res.resp_text
+    # Inline macros the model emitted (copied from context) fire once here — the
+    # persist boundary — so the stored history holds the final text.
+    resp_text = resolve_inline(res.resp_text)
     if resp_text.strip():
         # Attachments ride the same INSERT transaction; aborted turns leave no orphans.
         staged = res.staged_attachments or None
@@ -158,10 +151,12 @@ async def _fallback_persist(
                 conversation_id,
                 res.active_moods,
                 progressive_fields=res.progressive_fields,
+                macro_choices=res.macro_choices,
             )
-        await _persist_rewrite(res, user_msg_id)
 
         # accumulated_text holds only writer tokens (not reasoning deltas).
+        # Same persist-boundary macro resolution as _persist_result.
+        accumulated_text = resolve_inline(accumulated_text)
         if accumulated_text.strip():
             asst_id, _ = await db.add_message(
                 conversation_id,
@@ -276,16 +271,7 @@ async def _consume_pipeline(
                         "event": "workflow_attachments_rejected",
                         "data": {
                             "message_id": asst_id,
-                            "rejected": [
-                                {
-                                    "filename": a.get("filename"),
-                                    "workflow_id": a.get("workflow_id"),
-                                    "mime": a.get("mime"),
-                                    "reason": a.get("reason") or OVERSIZE_NO_METADATA_REASON,
-                                    "originating_attachment_id": None,
-                                }
-                                for a in rejected
-                            ],
+                            "rejected": [project_rejected_attachment(a, None) for a in rejected],
                         },
                     }
             else:

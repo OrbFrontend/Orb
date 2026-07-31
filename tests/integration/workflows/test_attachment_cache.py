@@ -14,8 +14,8 @@ from backend.workflows.attachment_cache import (
     EVICTED_MARKER,
     OVERSIZE_NO_METADATA_REASON,
     WORKFLOW_NOT_PRODUCES_ARTIFACTS_REASON,
+    _get_budget_bytes_on,
     evict,
-    get_budget_bytes,
     insert_workflow_attachment,
     record_access,
     rehydrate_attachment,
@@ -55,8 +55,17 @@ async def _seed_message(client) -> tuple[str, int]:
     return cid, mid
 
 
-async def _seed_row(mid: int, *, wid: str = "wf", data: bytes = b"X", parent: int | None = None) -> int:
+async def _seed_row(
+    mid: int,
+    *,
+    wid: str = "wf",
+    data: bytes = b"X",
+    parent: int | None = None,
+    recoverable: bool = True,
+) -> int:
     att = {"filename": "x", "mime": "application/octet-stream", "data": data, "workflow_id": wid}
+    if recoverable:
+        att.update({"seed": f"seed-{wid}", "generation_metadata": {}})
     if parent is not None:
         att["parent_attachment_id"] = parent
     return await insert_workflow_attachment_row(mid, att)
@@ -69,7 +78,7 @@ async def _set_budget(db, bytes_limit: int) -> None:
 
 async def test_get_budget_bytes_reads_settings_value(client, db):
     await _set_budget(db, 12345)
-    assert await get_budget_bytes() == 12345
+    assert await _get_budget_bytes_on(db) == 12345
 
 
 async def test_record_access_no_ids_no_counter_advance(client, db):
@@ -288,6 +297,75 @@ async def test_insert_workflow_attachment_oversize_rehydratable_inserts_as_marke
     assert new_row["data_b64"] == EVICTED_MARKER, "rehydratable oversize stored as marker"
     existing_row = await must_get_workflow_attachment(existing)
     assert existing_row["data_b64"] != EVICTED_MARKER, "marker insert must not evict existing real bytes"
+
+
+async def test_insert_oversize_nonserializable_generation_metadata_is_rejected(client, db):
+    cid, mid = await _seed_message(client)
+    await _set_budget(db, 1)
+    new_id, rejected = await insert_workflow_attachment(
+        mid,
+        {
+            "filename": "huge",
+            "mime": "image/png",
+            "data": b"HHHHH",
+            "workflow_id": "wf",
+            "seed": "seed",
+            "generation_metadata": {"bad": {1, 2, 3}},
+        },
+    )
+    assert new_id is None
+    assert rejected is not None
+    assert rejected["reason"] == OVERSIZE_NO_METADATA_REASON
+
+
+async def test_non_rehydratable_existing_row_is_not_an_eviction_candidate(client, db):
+    cid, mid = await _seed_message(client)
+    pinned = await _seed_row(mid, data=b"PINNED", recoverable=False)
+    evictable = await _seed_row(mid, data=b"OLD", recoverable=True)
+    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([1]), pinned))
+    await db.execute("UPDATE workflow_attachments SET recent_accesses = ? WHERE id = ?", (json.dumps([2]), evictable))
+    await db.commit()
+    await _set_budget(db, 7)
+
+    new_id, rejected = await insert_workflow_attachment(
+        mid,
+        {
+            "filename": "new",
+            "mime": "image/png",
+            "data": b"NEW",
+            "workflow_id": "wf",
+            "seed": "new-seed",
+            "generation_metadata": {},
+        },
+    )
+
+    assert new_id is not None and rejected is None
+    assert (await must_get_workflow_attachment(pinned))["data_b64"] != EVICTED_MARKER
+    assert (await must_get_workflow_attachment(evictable))["data_b64"] == EVICTED_MARKER
+
+
+async def test_explicit_evict_refuses_to_destroy_unrecoverable_bytes(client):
+    cid, mid = await _seed_message(client)
+    aid = await _seed_row(mid, data=b"ONLY-COPY", recoverable=False)
+
+    with pytest.raises(ValueError, match="no usable recovery metadata"):
+        await evict(aid)
+
+    assert (await must_get_workflow_attachment(aid))["data_b64"] != EVICTED_MARKER
+
+
+async def test_rehydrate_refuses_when_only_unrecoverable_bytes_could_make_room(client, db):
+    cid, mid = await _seed_message(client)
+    target = await _seed_row(mid, data=b"TARGET")
+    await evict(target)
+    pinned = await _seed_row(mid, data=b"PINNED", recoverable=False)
+    await _set_budget(db, 6)
+
+    with pytest.raises(ValueError, match="cannot fit without evicting unrecoverable artifacts"):
+        await rehydrate_attachment(target, b"NEW")
+
+    assert (await must_get_workflow_attachment(target))["data_b64"] == EVICTED_MARKER
+    assert (await must_get_workflow_attachment(pinned))["data_b64"] != EVICTED_MARKER
 
 
 async def test_insert_workflow_attachment_mark_active_writes_root_pointer(client):

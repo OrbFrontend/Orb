@@ -7,6 +7,7 @@
 }
 
 .sidebar-header-top { margin-bottom: 8px; }
+.sidebar-header-top .title-row { display: flex; align-items: center; gap: 6px; }
 
 .sidebar-header h1 {
   font-family: var(--font-prose);
@@ -180,6 +181,14 @@
 
 .char-avatar-sm img { width: 100%; height: 100%; object-fit: cover; }
 
+/* Halo marking characters that have an expression pack (shared: sidebar + chat header) */
+.has-expr-halo {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px var(--accent, #6c8),
+    0 0 6px 1px var(--accent-glow, rgba(102, 204, 136, 0.6));
+}
+
 .char-item-info {
   flex: 1;
   min-width: 0;
@@ -327,8 +336,41 @@
 
 /* Fragment whose backing agent feature (e.g. Editor Feedback) is disabled. */
 .fragment-item.frag-feature-disabled .frag-label,
-.fragment-item.frag-feature-disabled .frag-type-badge {
+.fragment-item.frag-feature-disabled .frag-type-badge,
+.frag-card-list .frag-feature-disabled {
   opacity: 0.4;
+}
+
+/* Read-only inline list of the active character's card-embedded fragments:
+   deliberately NOT .fragment-item so the drag/reorder machinery never matches it. */
+.frag-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Divider between global fragments and the character's card-embedded ones. */
+.frag-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 10px 0 4px;
+  padding: 0 10px;
+}
+/* Rules on both sides center the label within the line. */
+.frag-divider::before,
+.frag-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }
 
 .frag-drag-handle {
@@ -363,7 +405,7 @@
   padding: 0 4px;
   vertical-align: middle;
 }
-/* Fragment toggle */
+/* Fragment toggle: layout only — the switch itself is .tog in forms.css */
 .frag-toggle-wrapper {
   display: flex;
   align-items: center;
@@ -373,61 +415,4 @@
   z-index: 1;
   margin-top: 4px;
 }
-
-.frag-toggle {
-  position: relative;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
-}
-
-.frag-toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-  position: absolute;
-}
-
-.frag-toggle-slider {
-  position: relative;
-  display: inline-block;
-  width: 36px;
-  height: 18px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  transition: all .2s ease;
-}
-
-.frag-toggle-slider:before {
-  content: "";
-  position: absolute;
-  height: 12px;
-  width: 12px;
-  left: 2px;
-  bottom: 2px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  transition: all .2s ease;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .1);
-}
-
-.frag-toggle input:checked + .frag-toggle-slider {
-  background: var(--accent-dim);
-  border-color: var(--accent);
-}
-
-.frag-toggle input:checked + .frag-toggle-slider:before {
-  transform: translateX(18px);
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
-}
-
-.frag-toggle input:focus + .frag-toggle-slider {
-  box-shadow: 0 0 0 2px var(--accent-glow);
-}
-
-.frag-toggle:hover .frag-toggle-slider { border-color: var(--border-light); }
-.frag-toggle input:checked:hover + .frag-toggle-slider { border-color: var(--accent); }
 

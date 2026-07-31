@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
-from typing import Any, List, Mapping, Optional, Protocol, Sequence, cast
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Any, Protocol, cast
 
+from ...core.domain_types import MessageRole
 from ..connection import get_db
 from ..models import (
     MessageRow,
@@ -33,10 +35,10 @@ class _WorkflowAttachmentPersister(Protocol):
 # Left None in DB-only contexts that never produce workflow attachments; in
 # that state a workflow attachment reaching ``add_message`` is a wiring bug, so
 # we fail loudly rather than silently dropping bytes.
-_workflow_attachment_persister: "_WorkflowAttachmentPersister | None" = None
+_workflow_attachment_persister: _WorkflowAttachmentPersister | None = None
 
 
-def register_workflow_attachment_persister(fn: "_WorkflowAttachmentPersister") -> None:
+def register_workflow_attachment_persister(fn: _WorkflowAttachmentPersister) -> None:
     """Wire the workflow-attachment persister into ``add_message``.
 
     Called once, at import of ``backend.workflows.attachment_cache``.
@@ -72,51 +74,43 @@ async def get_path_to_leaf(cid: str, leaf_id: int) -> list[MessageWithAttachment
         return path
 
 
-async def _attach_user_attachments(messages: list[MessageWithAttachments]) -> None:
-    if not messages:
-        return
+_USER_ATTACHMENT_COLUMNS = "id, message_id, mime_type, data_b64, filename, size, created_at"
+_WORKFLOW_ATTACHMENT_COLUMNS = (
+    "id, message_id, mime_type, data_b64, filename, created_at, "
+    "workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
+    "consumption_metadata, active_sibling_id, recent_accesses"
+)
+
+
+async def _child_rows_by_message(messages: list[MessageWithAttachments], *, table: str, columns: str) -> dict[int, list]:
+    """Fetch per-message child rows from *table* grouped by ``message_id``.
+
+    Every message id gets an entry (empty list when it has no children), so
+    callers can assign unconditionally.
+    """
     ids = [m["id"] for m in messages]
     placeholders = ",".join("?" * len(ids))
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                f"SELECT id, message_id, mime_type, data_b64, filename, size, created_at "
-                f"FROM user_attachments WHERE message_id IN ({placeholders}) ORDER BY id",  # nosec B608
+                f"SELECT {columns} FROM {table} WHERE message_id IN ({placeholders}) ORDER BY id",  # nosec B608 -- table/columns are module literals; values parameterised
                 ids,
             )
         )
     by_msg: dict[int, list] = {m["id"]: [] for m in messages}
     for r in rows:
         by_msg[r["message_id"]].append(dict(r))
-    for m in messages:
-        m["user_attachments"] = by_msg[m["id"]]
-
-
-async def _attach_workflow_attachments(messages: list[MessageWithAttachments]) -> None:
-    if not messages:
-        return
-    ids = [m["id"] for m in messages]
-    placeholders = ",".join("?" * len(ids))
-    async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                f"SELECT id, message_id, mime_type, data_b64, filename, created_at, "
-                f"workflow_id, parent_attachment_id, annotation, seed, generation_metadata, "
-                f"consumption_metadata, active_sibling_id, recent_accesses "
-                f"FROM workflow_attachments WHERE message_id IN ({placeholders}) ORDER BY id",  # nosec B608
-                ids,
-            )
-        )
-    by_msg: dict[int, list] = {m["id"]: [] for m in messages}
-    for r in rows:
-        by_msg[r["message_id"]].append(dict(r))
-    for m in messages:
-        m["workflow_attachments"] = by_msg[m["id"]]
+    return by_msg
 
 
 async def _attach_attachments(messages: list[MessageWithAttachments]) -> None:
-    await _attach_user_attachments(messages)
-    await _attach_workflow_attachments(messages)
+    if not messages:
+        return
+    user_by_msg = await _child_rows_by_message(messages, table="user_attachments", columns=_USER_ATTACHMENT_COLUMNS)
+    wf_by_msg = await _child_rows_by_message(messages, table="workflow_attachments", columns=_WORKFLOW_ATTACHMENT_COLUMNS)
+    for m in messages:
+        m["user_attachments"] = user_by_msg[m["id"]]
+        m["workflow_attachments"] = wf_by_msg[m["id"]]
 
 
 async def get_messages(cid: str) -> list[MessageWithAttachments]:
@@ -215,11 +209,11 @@ def user_attachment_payloads(msg: Mapping[str, Any]) -> list[dict] | None:
 
 async def add_message(
     cid: str,
-    role: str,
+    role: MessageRole,
     content: str,
     turn_index: int,
     parent_id: int | None = None,
-    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
+    attachments: Sequence[Mapping[str, Any]] | None = None,
     progressive_fields: dict | None = None,
 ) -> tuple[int, list[dict]]:
     """Add a message. Returns ``(message_id, rejected_workflow_atts)``.
@@ -265,7 +259,7 @@ async def add_message(
         # message INSERT. The cache helper enforces this -- it raises
         # if its conn is not already in a transaction.
         await db.execute("BEGIN IMMEDIATE")
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         try:
             cur = await db.execute(
                 "INSERT INTO messages (conversation_id, role, content, turn_index, parent_id, progressive_fields, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -312,7 +306,7 @@ async def add_message(
     return message_id, rejected_workflow_atts
 
 
-async def get_user_attachments_for_message(message_id: int) -> List[UserAttachmentRow]:
+async def get_user_attachments_for_message(message_id: int) -> list[UserAttachmentRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -324,7 +318,7 @@ async def get_user_attachments_for_message(message_id: int) -> List[UserAttachme
         return [cast(UserAttachmentRow, dict(r)) for r in rows]
 
 
-async def get_workflow_attachments_for_message(message_id: int) -> List[WorkflowAttachmentRowBase]:
+async def get_workflow_attachments_for_message(message_id: int) -> list[WorkflowAttachmentRowBase]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
@@ -422,6 +416,10 @@ async def set_workflow_message_state(message_id: int, workflow_id: str, payload:
 
     payload=None removes the slot. Empty dict stores {}. No-op if message
     missing (UPDATE matches zero rows).
+
+    The slot id "macros" is reserved: it carries a greeting's raw inline-macro
+    template (``{"template": ...}``) for ``reroll_unfrozen_greetings``, not a
+    registered workflow's state. Don't register a workflow under that id.
 
     Read-modify-write callers must hold
     ``backend.core.locks.workflow_state_lock(conversation_id, workflow_id)`` (the

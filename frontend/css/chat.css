@@ -91,9 +91,20 @@
 
 #chat-messages {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
+  /* Orb owns restoration/follow behavior. Native anchoring races innerHTML
+     replacement and explicit target scrolls, moving the viewport a second time. */
+  overflow-anchor: none;
   padding: 24px 20px 16px;
   scroll-behavior: smooth;
+}
+
+/* Keep a short conversation attached to the composer. Once the messages exceed
+   the viewport the auto margin resolves to zero and normal scrolling takes over. */
+#chat-messages > .message:first-child {
+  margin-top: auto;
 }
 
 #chat-messages.streaming {
@@ -113,11 +124,23 @@
 
 /* ── Messages ── */
 .message {
+  flex-shrink: 0;
   margin-bottom: 0px;
   margin-top: 0px;
+  width: 100%;
   max-width: 95%;
   animation: msgIn .2s ease;
   position: relative;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px;
+}
+
+/* renderMessages() replaces every message node, so content-visibility has no
+   remembered size for the new nodes yet. Keep the replacement fully measurable
+   until scroll restoration is complete; otherwise long off-screen messages use
+   the 300px intrinsic fallback and the viewport restores to the wrong message. */
+#chat-messages.measuring-render .message {
+  content-visibility: visible;
 }
 
 @keyframes msgIn {
@@ -265,6 +288,34 @@
   50% { background: var(--accent-glow); }
 }
 
+/* Slop scorer: tint flagged sentences (alpha scaled by confidence via --slop-a),
+   a small superscript % after each, and a summary chip under the toolbar. */
+.message .msg-body .seg.slop-flag {
+  background: color-mix(in srgb, var(--red, #c45d5d) var(--slop-a, 30%), transparent);
+  border-radius: 2px;
+}
+.message .msg-body .slop-badge {
+  font-size: .7em;
+  opacity: .75;
+  margin-left: 1px;
+  color: var(--red, #c45d5d);
+  vertical-align: super;
+}
+.msg-toolbar .msg-btn-slop {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+.slop-chip {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 8px;
+  font-size: .75rem;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border-radius: 10px;
+}
+
 .wf-seg-caret {
   position: fixed;
   display: none;
@@ -381,7 +432,6 @@
   min-width: 0;
   padding: 3px 8px;
   font-size: 12px;
-  background: var(--bg-input, var(--bg-secondary));
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-primary);
@@ -730,8 +780,16 @@
   margin: 2px 0;
 }
 
+#chat-input-field {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+
 #chat-input {
   flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   min-height: 42px;
   max-height: 150px;
   padding: 10px 14px;
@@ -745,6 +803,55 @@
 }
 
 #chat-input:focus { border-color: var(--accent-dim); }
+
+/* Ghost-text overlay: a mirror sized exactly like the textarea. The draft is
+   re-rendered transparent so the gray suggestion lands right after the caret.
+   Only shown when the caret is at the end of the draft (see chat_composer.js). */
+#chat-ghost {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  font-family: var(--font-prose);
+  font-size: calc(var(--font-prose-size) - 1px);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  pointer-events: none;
+  color: transparent;
+}
+
+#chat-ghost .ghost-suggestion { color: var(--text-secondary); opacity: .55; }
+
+/* Tap-to-accept chip for the ghost suggestion: mobile keyboards have no Tab,
+   so on coarse-pointer devices the suggestion also floats above the input bar
+   as a tappable pill (predictive-keyboard pattern). Desktop stays Tab-only. */
+#chat-ghost-chip { display: none; }
+
+@media (pointer: coarse) {
+  #chat-ghost-chip:not([hidden]) {
+    display: block;
+    position: absolute;
+    bottom: calc(100% - 4px);
+    left: 64px;
+    max-width: calc(100% - 140px);
+    padding: 10px 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+    font-family: var(--font-prose);
+    font-size: calc(var(--font-prose-size) - 1px);
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+    z-index: 40;
+  }
+}
 
 #send-btn,
 #stop-btn {
@@ -967,4 +1074,3 @@
   color: var(--text-muted);
   margin-top: 2px;
 }
-

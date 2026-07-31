@@ -31,7 +31,8 @@ _split_sentences = split_sentences
 
 
 def _tokenize(sent: str) -> list[str]:
-    return re.findall(r"\w+(?:'\w+)?|[^\s\w]", sent)
+    # Curly apostrophe → straight so contractions ("doesn’t") tokenize as one word.
+    return re.findall(r"\w+(?:'\w+)?|[^\s\w]", sent.replace("’", "'"))
 
 
 _PRONOUNS = frozenset("i me my he him his she her it its we us our they them their this that these those you your".split())
@@ -125,6 +126,9 @@ _NEGATED_DO_CONTRACTIONS = frozenset({"doesn't", "don't", "didn't"})
 _NEGATED_HAVE_CONTRACTIONS = frozenset({"hasn't", "haven't", "hadn't"})
 _SAME_SUBJECT_PRONOUNS = frozenset("it this that".split())
 _PERSONAL_PRONOUNS = frozenset("i me he him she her we us they them you".split())
+# Object-form pronouns can't open a clause; in do-support X they're objects
+# ("doesn't just hit it"), not clause signals.
+_OBJECT_PRONOUNS = frozenset("me him her it us them".split())
 
 
 # ── guard helpers ─────────────────────────────────────────────────────────────
@@ -145,11 +149,11 @@ def _is_infinitive_not(lowers: list[str], not_idx: int) -> bool:
     return not_idx + 1 < len(lowers) and lowers[not_idx + 1] == "to"
 
 
-def _x_looks_like_clause(x_tokens: list[str]) -> bool:
+def _x_looks_like_clause(x_tokens: list[str], ignore: frozenset[str] = frozenset()) -> bool:
     """True if the span between 'not' and 'but' reads like a full clause
     rather than a short noun or adjective complement."""
     x_lower = {t.lower() for t in x_tokens}
-    if x_lower & _CLAUSE_SIGNALS:
+    if (x_lower - ignore) & _CLAUSE_SIGNALS:
         return True
     content = [t for t in x_tokens if t.lower() not in ("a", "an", "the", ",")]
     return len(content) > 5
@@ -281,6 +285,13 @@ def _find_do_support_pattern(tokens: list[str], tags: list[str], lowers: list[st
             aff_verb_idx = i
             break
 
+    if aff_verb_idx is None and boundary + 2 < len(tokens) and tokens[boundary + 2] not in ".!?,;:":
+        # Repeated subject right after the boundary means the next word is the
+        # predicate verb even when suffix tagging can't see it ("we time it").
+        subj = tokens[boundary + 1].lower()
+        if subj in _SAME_SUBJECT_PRONOUNS or (neg_subject is not None and subj == neg_subject.lower()):
+            aff_verb_idx = boundary + 2
+
     if aff_verb_idx is None:
         return None
 
@@ -324,7 +335,7 @@ def _find_do_support_pattern(tokens: list[str], tags: list[str], lowers: list[st
 
     if not x_tags:
         return None
-    if _x_looks_like_clause(x_tokens):
+    if _x_looks_like_clause(x_tokens, ignore=_OBJECT_PRONOUNS):
         return None
     if _y_looks_like_clause(y_tokens, exclude_it=True):
         return None

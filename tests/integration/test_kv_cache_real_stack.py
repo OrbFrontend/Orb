@@ -47,8 +47,9 @@ def _wire_tools(tools) -> str:
 
 
 async def _configure_all_features(client) -> None:
-    """Enable agent + every cache-relevant tool, with a tight length guard so
-    director (two calls), writer, and editor all fire in one turn."""
+    """Enable agent + every cache-relevant tool, with per-fragment director calls
+    and a tight length guard so director (multiple calls), writer, and editor all
+    fire in one turn."""
     resp = await client.put(
         "/api/settings",
         json={
@@ -56,9 +57,9 @@ async def _configure_all_features(client) -> None:
             "enable_agent": True,
             "enabled_tools": {
                 "direct_scene": True,
-                "rewrite_user_prompt": True,  # → director makes TWO calls
                 "editor_apply_patch": True,
             },
+            "director_individual_fragments": True,  # → one director call per fragment + a moods call
             "length_guard_enabled": True,
             "length_guard_max_words": 5,  # _LONG_DRAFT (60 words) always trips it
         },
@@ -102,7 +103,7 @@ def _enqueue_turn(llm_mock) -> None:
 
 
 async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefix(client, llm_mock):
-    """One real turn: every pass (both director calls, writer, editor) must ship
+    """One real turn: every pass (each director call, writer, editor) must ship
     the byte-identical system+history prefix produced by the real ``build_prefix``
     and an identical tools blob; the editor must extend the writer's full prompt."""
     await _configure_all_features(client)
@@ -111,7 +112,7 @@ async def test_within_turn_all_passes_share_prefix_and_tools_through_build_prefi
     await _send(client, cid, "I draw my sword.")
 
     calls = llm_mock.captured
-    assert [c["pass"] for c in calls].count("director") == 2, "expected two director calls (rewrite + direct_scene)"
+    assert [c["pass"] for c in calls].count("director") >= 2, "expected per-fragment director calls (fragments + moods)"
     writer = next(c for c in calls if c["pass"] == "writer")
     editor = next(c for c in calls if c["pass"] == "editor")
 

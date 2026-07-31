@@ -7,23 +7,24 @@ import { api } from "./api.js";
 import { onTurnStart } from "./audio_player.js";
 import { updateAttachmentPreview } from "./chat_composer.js";
 import {
-  ICON_DEL,
-  ICON_EDIT,
-  ICON_REGEN,
   _applyWorkflowTextSegments,
   buildMsgToolbar,
   canStartGeneration,
   getCharName,
+  ICON_DEL,
+  ICON_EDIT,
+  ICON_REGEN,
   renderMessages,
   setMessages,
   updateContextCounter,
 } from "./chat_core.js";
 import {
-  REASONING_PASSES,
   _advanceReasoningPass,
   _relightWorkflowPipelinePass,
   _syncGenerationStatusVisibility,
+  appendReasoningDelta,
   clearWorkflowPhase,
+  REASONING_PASSES,
   renderInspector,
   setWorkflowPhase,
 } from "./chat_inspector.js";
@@ -34,37 +35,31 @@ import {
   optimisticDropDirectionNotesFrom,
   renderDirectionNotesPanel,
 } from "./direction_notes_panel.js";
-import { isUtilityPanelOpen } from "./panels.js";
 import { refreshCharacters } from "./library.js";
+import { isUtilityPanelOpen } from "./panels.js";
 // Imported directly rather than via settings.js to avoid an import cycle
 // (settings.js → chat.js → this module), as chat_conversations.js does.
 import { ensurePersonaPinned } from "./settings_personas.js";
-import { S, effectiveWorkflowEnabled } from "./state.js";
+import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
+import { effectiveWorkflowEnabled, S } from "./state.js";
 import {
   $,
   convUrl,
   esc,
   formatProse,
   formatProseWithDiff,
+  pinStreamingMessage,
   resolvePlaceholders,
   scrollToBottom,
   sentenceDiff,
+  setChatFollowing,
   toast,
 } from "./utils.js";
 
 // ── Streaming transport
-// These bypass the `api` helper deliberately: SSE responses must be read off
-// the raw `Response` (api._req would consume the body with .json()), and stop
-// is fire-and-forget. Domain-specific, so they live with the stream machinery.
-export function streamPost(path, body, signal) {
-  return fetch("/api" + path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
-}
-
+// The SSE parser and `streamPost` now live in sse.js (the app-wide single path);
+// this module keeps only the chat-specific stop call. `stopConversation` bypasses
+// the `api` helper deliberately: it is fire-and-forget.
 export function stopConversation(convId) {
   fetch(`/api/conversations/${convId}/stop`, { method: "POST" }).catch(() => {});
 }
@@ -90,7 +85,7 @@ export function setGenerationPhase(phase) {
   const el = $("generation-status");
   if (!S.generationPhase || !el) return;
   el.querySelector(".gen-text").textContent = PHASE_LABELS[S.generationPhase] || "Processing…";
-  el.querySelector(".gen-dot").className = "gen-dot" + (S.generationPhase === "refining" ? " spin" : "");
+  el.querySelector(".gen-dot").className = `gen-dot${S.generationPhase === "refining" ? " spin" : ""}`;
 }
 
 function smoothUpdateBody(el, newHtml, onComplete) {
@@ -99,11 +94,11 @@ function smoothUpdateBody(el, newHtml, onComplete) {
   el.innerHTML = newHtml;
   const next = el.scrollHeight;
   if (Math.abs(next - prev) > 4) {
-    el.style.height = prev + "px";
+    el.style.height = `${prev}px`;
     el.style.overflow = "hidden";
     el.offsetHeight; // force reflow
     el.style.transition = "height 0.3s ease";
-    el.style.height = next + "px";
+    el.style.height = `${next}px`;
     let settled = false;
     const done = () => {
       if (settled) return;
@@ -124,8 +119,11 @@ function finalizeStreamingDiv(lastMsg) {
   const body = S.streamingBodyEl;
   if (!body) return false;
   const div = body.closest(".message");
-  if (!div || !div.isConnected || !lastMsg || lastMsg.role !== "assistant" || !lastMsg.id) return false;
+  if (!div?.isConnected || !lastMsg || lastMsg.role !== "assistant" || !lastMsg.id) return false;
 
+  // Target pinning is only for the in-flight replacement. Once committed,
+  // restore ordinary bottom-follow behavior and leave no synthetic tail space.
+  div.classList.remove("stream-scroll-target");
   div.setAttribute("data-msg-id", lastMsg.id);
   body.removeAttribute("id");
 
@@ -252,7 +250,7 @@ export async function afterStream() {
       if (conv) conv.updated_at = new Date().toISOString();
     }
   } catch (e) {
-    toast("Failed to sync messages: " + e.message, true);
+    toast(`Failed to sync messages: ${e.message}`, true);
   }
 
   if (pendingUserMsg) {
@@ -289,7 +287,7 @@ export async function afterStream() {
     if (target) target.content = content;
     api
       .post(convUrl(S.activeConvId, "messages", Number(id), "edit"), { content, regenerate: false })
-      .catch((e) => toast("Failed to save edit: " + e.message, true));
+      .catch((e) => toast(`Failed to save edit: ${e.message}`, true));
   }
   S.queuedEdits = {};
 
@@ -349,16 +347,14 @@ export async function afterStream() {
 }
 
 export async function processSSEStream(resp, container, msgDiv, signal) {
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "",
-    fullResponse = "",
+  let fullResponse = "",
     rewrittenResponse = null,
     firstToken = true,
-    currentEvent = null;
+    dispatchErrorToasted = false;
 
   // Clear any diff from the previous turn
   S.pendingRefineDiff = null;
+  S.editorDraftBaseline = null;
 
   // Reset reasoning state for this generation turn
   S.reasoningDirector = "";
@@ -371,51 +367,42 @@ export async function processSSEStream(resp, container, msgDiv, signal) {
   S.reasoningPassSelected = 0; // tracks what the user is viewing
   S.reasoningUserOverride = false; // true when user has manually clicked a dot
 
-  if (signal) signal.addEventListener("abort", () => reader.cancel());
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done || signal?.aborted) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop();
-
-    for (const line of lines) {
-      if (line.startsWith("event: ")) {
-        currentEvent = line.slice(7).trim();
-      } else if (line.startsWith("data: ") && currentEvent) {
-        const data = line.slice(6);
-        handleSSEEvent(
-          currentEvent,
-          data,
-          container,
-          msgDiv,
-          () => {
-            if (firstToken) {
-              firstToken = false;
-              if (!msgDiv.isConnected && !S.hideUntilBaked) container.appendChild(msgDiv);
-              if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = "";
-            }
-            fullResponse += data.replace(/\\n/g, "\n");
-            S.streamingContent = rewrittenResponse || fullResponse;
-            if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = formatProse(rewrittenResponse || fullResponse);
-            scrollToBottom();
-          },
-          (text) => {
-            rewrittenResponse = text;
-            S.streamingContent = text;
-            if (S.streamingBodyEl) {
-              const html =
-                S.pendingRefineDiff && S.showEditorDiff
-                  ? formatProseWithDiff(S.pendingRefineDiff.ops)
-                  : formatProse(text);
-              smoothUpdateBody(S.streamingBodyEl, html, scrollToBottom);
-            } else {
-              scrollToBottom();
-            }
-          },
-        );
-        currentEvent = null;
+  // sse.js owns the transport (frames, keepalives, chunk-boundary splits); this
+  // loop owns the chat event vocabulary. The token/rewrite callbacks close over
+  // the current frame's `data`, so they are minted per event.
+  for await (const { event, data } of sseEvents(resp.body, { signal })) {
+    const onToken = () => {
+      if (firstToken) {
+        firstToken = false;
+        if (!msgDiv.isConnected && !S.hideUntilBaked) container.appendChild(msgDiv);
+        if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = "";
+      }
+      fullResponse += unescapeSSE(data);
+      S.streamingContent = rewrittenResponse || fullResponse;
+      if (S.streamingBodyEl) S.streamingBodyEl.innerHTML = formatProse(rewrittenResponse || fullResponse);
+      scrollToBottom();
+    };
+    const onRewrite = (text) => {
+      rewrittenResponse = text;
+      S.streamingContent = text;
+      if (S.streamingBodyEl) {
+        const html =
+          S.pendingRefineDiff && S.showEditorDiff ? formatProseWithDiff(S.pendingRefineDiff.ops) : formatProse(text);
+        smoothUpdateBody(S.streamingBodyEl, html, scrollToBottom);
+      } else {
+        scrollToBottom();
+      }
+    };
+    // A throwing handler must not kill the read loop: the fetch would stay open
+    // but unread, leaving the backend generating headless. Contain it, log the
+    // culprit event + stack, and keep reading.
+    try {
+      handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite);
+    } catch (e) {
+      console.error(`SSE handler for "${event}" threw:`, e);
+      if (!dispatchErrorToasted) {
+        dispatchErrorToasted = true;
+        toast(`Stream handler error on "${event}": ${e.message}`, true);
       }
     }
   }
@@ -424,7 +411,17 @@ export async function processSSEStream(resp, container, msgDiv, signal) {
   if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 }
 
-function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
+// Shared draft-bubble swap for draft_update/writer_rewrite: diffs against the
+// writer's original text (stashed on first use — S.streamingContent still holds
+// it then), so successive editor updates don't chain diffs off each other.
+function swapStreamingDraft(text, onRewrite) {
+  if (S.editorDraftBaseline === null) S.editorDraftBaseline = S.streamingContent || "";
+  const original = resolvePlaceholders(S.editorDraftBaseline);
+  S.pendingRefineDiff = { original, ops: sentenceDiff(original, resolvePlaceholders(text)) };
+  onRewrite(text);
+}
+
+function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
   switch (event) {
     case "director_start":
       setGenerationPhase("directing");
@@ -441,23 +438,6 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
       renderInspector();
       break;
     }
-    case "prompt_rewritten":
-      try {
-        const d = JSON.parse(data);
-        const lastUser =
-          [...S.messages].reverse().find((m) => m.role === "user" && !m.id) ||
-          [...S.messages].reverse().find((m) => m.role === "user");
-        if (lastUser) lastUser.content = d.refined_message;
-        if (S.pendingUserMsg) S.pendingUserMsg.content = d.refined_message;
-        if (S.isStreaming) {
-          const userBodies = document.querySelectorAll("#chat-messages .message.user .msg-body");
-          const last = userBodies[userBodies.length - 1];
-          if (last) last.innerHTML = formatProse(d.refined_message);
-        } else {
-          renderMessages();
-        }
-      } catch (_) {}
-      break;
     case "token":
       setGenerationPhase("generating");
       onToken();
@@ -471,16 +451,19 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
         if (JSON.parse(data).editor_will_run) setGenerationPhase("refining");
       } catch (_) {}
       break;
+    case "draft_update":
+      // Intermediate editor paint (per iteration, or per forced patch call in
+      // text mode). Cosmetic: writer_rewrite/afterStream stay authoritative.
+      try {
+        const draft = JSON.parse(data).draft;
+        if (draft !== S.streamingContent) swapStreamingDraft(draft, onRewrite);
+      } catch (_) {}
+      break;
     case "writer_rewrite":
       setGenerationPhase("refining");
       _advanceReasoningPass(2); // writer done, editor starting → move to Editor dot
       try {
-        const refined = JSON.parse(data).refined_text;
-        // S.streamingContent still holds the writer's unrefined text at this point
-        const original = resolvePlaceholders(S.streamingContent || "");
-        const refinedResolved = resolvePlaceholders(refined);
-        S.pendingRefineDiff = { original, ops: sentenceDiff(original, refinedResolved) };
-        onRewrite(refined);
+        swapStreamingDraft(JSON.parse(data).refined_text, onRewrite);
       } catch (_) {}
       break;
     case "reasoning": {
@@ -491,7 +474,7 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
         const builtinIdx = REASONING_PASSES.findIndex((p) => p.key === passKey);
         if (builtinIdx >= 0) {
           // Built-in pass: append delta to the named state and update the Main reasoning box.
-          const stateKey = "reasoning" + passKey.charAt(0).toUpperCase() + passKey.slice(1);
+          const stateKey = `reasoning${passKey.charAt(0).toUpperCase()}${passKey.slice(1)}`;
           S[stateKey] = (S[stateKey] || "") + delta;
           const rebuilt = _advanceReasoningPass(builtinIdx);
           const viewingThisPass = S.reasoningPassSelected === builtinIdx;
@@ -501,8 +484,7 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
             // from the (now-current) state; appending again would duplicate this delta.
             // Text node append (not `textContent += ...`) avoids the DOM re-serialisation
             // that produced the visible scrollbar wobble on long streams.
-            if (!rebuilt) box.appendChild(document.createTextNode(delta));
-            box.scrollTop = box.scrollHeight;
+            if (!rebuilt) appendReasoningDelta(box, delta);
           }
           // When the box is absent (Inspector closed, or user is on the Secondary tab)
           // state accumulates silently; renderInspector will paint the full text the
@@ -517,10 +499,9 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
           S.reasoningByPass[passKey] = (S.reasoningByPass[passKey] || "") + delta;
           if (S.inspectorTab === "secondary") {
             if (firstDelta) _relightWorkflowPipelinePass(pipeline, passKey);
-            const wbox = document.getElementById("reasoning-box-" + pipeline.id);
+            const wbox = document.getElementById(`reasoning-box-${pipeline.id}`);
             if (wbox && wbox.dataset.passId === passKey) {
-              wbox.appendChild(document.createTextNode(delta));
-              wbox.scrollTop = wbox.scrollHeight;
+              appendReasoningDelta(wbox, delta);
             }
           }
           break;
@@ -580,18 +561,29 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
         if (!realId) break;
         // Find the pending user message (most recent user message without an id)
         const pendingIdx = S.messages.findLastIndex((m) => m.role === "user" && !m.id);
+        const prevContent = pendingIdx >= 0 ? S.messages[pendingIdx].content : null;
         if (pendingIdx >= 0) {
           S.messages[pendingIdx].id = realId;
         }
         if (S.pendingUserMsg) {
           S.pendingUserMsg.id = realId;
         }
+        // The backend resolves inline macros ({{roll}}/{{random}}) before
+        // persisting, so the stored text can differ from what was typed. Sync
+        // the local copies so content-keyed matching (patchPendingUserMessage,
+        // afterStream) holds. An edit in flight supersedes the server text.
+        const editing = S.editingPendingUserMsg || S.pendingUserMsgEdit != null;
+        const resolved = typeof d.content === "string" && !editing ? d.content : null;
+        if (resolved !== null) {
+          if (pendingIdx >= 0) S.messages[pendingIdx].content = resolved;
+          if (S.pendingUserMsg) S.pendingUserMsg.content = resolved;
+        }
         // If the user is currently editing the pending message, transition to normal edit mode
         if (S.editingPendingUserMsg) {
           S.editingPendingUserMsg = false;
           S.editingMsgId = realId;
           renderMessages();
-          const ta = $("edit-textarea-" + realId);
+          const ta = $(`edit-textarea-${realId}`);
           if (ta) {
             ta.focus();
             ta.selectionStart = ta.selectionEnd = ta.value.length;
@@ -603,6 +595,11 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
             div.setAttribute("data-msg-id", realId);
             const tb = div.querySelector(".msg-toolbar");
             if (tb) tb.innerHTML = buildMsgToolbar({ id: realId, role: "user" });
+            // Repaint only when macro resolution actually changed the text.
+            if (resolved !== null && resolved !== prevContent) {
+              const body = div.querySelector(".msg-body");
+              if (body) body.innerHTML = formatProse(resolvePlaceholders(resolved));
+            }
           }
         }
         // A queued edit (S.pendingUserMsgEdit) is intentionally NOT POSTed here:
@@ -612,7 +609,7 @@ function handleSSEEvent(event, data, container, msgDiv, onToken, onRewrite) {
       break;
     }
     case "error":
-      toast("Error: " + data, true);
+      toast(`Error: ${data}`, true);
       break;
     case "workflow_attachments_rejected": {
       // Stash for the post-stream renderMessages paint. Do NOT call
@@ -655,7 +652,23 @@ export function agentPayload() {
   return { enable_agent: S.agentEnabled };
 }
 
-async function runStreamRequest(path, body, cutoffMsgId = null) {
+// The ONE chat generation lifecycle. Every send/continue/regenerate/super-
+// regenerate/fork-edit/magic-rewrite path streams through this: it flips the UI
+// into streaming, optionally sets the render cutoff, runs an optional caller
+// hook to splice an optimistic message, mounts the streaming bubble, reads the
+// SSE stream, and reconciles via afterStream. `opts`:
+//   • cutoffMsgId   — hide this message and its descendants while streaming
+//                     (regenerate family); the refetch in afterStream restores.
+//   • beforeRender  — sync hook run just before the first paint, for callers
+//                     that splice an optimistic user message + set pendingUserMsg.
+//   • anchorStream  — pin the replacement streaming bubble to its target until
+//                     its content grows beyond the viewport.
+//   • afterDone     — async hook run after afterStream (persona pin, fork repaint).
+export async function runStreamRequest(
+  path,
+  body,
+  { cutoffMsgId = null, beforeRender = null, anchorStream = false, afterDone = null } = {},
+) {
   setStreaming(true);
   setGenerationPhase("pending");
   $("send-btn").disabled = true;
@@ -663,23 +676,35 @@ async function runStreamRequest(path, body, cutoffMsgId = null) {
   if (cutoffMsgId != null) {
     const idx = S.messages.findIndex((m) => m.id === cutoffMsgId);
     S.streamCutoffIndex = idx >= 0 ? idx : S.messages.length;
-    S.autoscrollEnabled = true;
+    setChatFollowing(true);
   }
+
+  if (beforeRender) beforeRender();
 
   renderMessages();
   const ct = $("chat-messages");
   const msgDiv = createStreamingDiv();
   if (!S.hideUntilBaked) ct.appendChild(msgDiv);
-  scrollToBottom();
+  if (cutoffMsgId != null || anchorStream) pinStreamingMessage(msgDiv);
+  else scrollToBottom();
   S.abortController = new AbortController();
   try {
     const resp = await streamPost(path, body, S.abortController.signal);
     await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
   } catch (e) {
-    if (e.name === "AbortError") S.wasAborted = true;
-    else toast("Error: " + e.message, true);
+    if (e.name === "AbortError") {
+      S.wasAborted = true;
+    } else {
+      // Client-side stream failure: the backend may still be generating into
+      // an unread connection. Abort it (fetch + POST /stop) so it doesn't run
+      // headless; its fallback persistence keeps whatever streamed so far.
+      console.error("Stream failed client-side:", e);
+      toast(`Error: ${e.message}`, true);
+      stopGeneration();
+    }
   }
   await afterStream();
+  if (afterDone) await afterDone();
 }
 
 export async function continueFromUser() {
@@ -713,12 +738,8 @@ export async function sendMessage() {
 
   // Resolve {{user}} and {{char}} placeholders before sending
   content = resolvePlaceholders(content);
-
-  setStreaming(true);
-  setGenerationPhase("pending");
   inp.value = "";
   inp.style.height = "auto";
-  $("send-btn").disabled = true;
 
   const attachments = [...S.attachments];
   S.attachments.length = 0;
@@ -736,48 +757,38 @@ export async function sendMessage() {
     // not just after afterStream() re-fetches the server-shaped message.
     user_attachments: attachments,
   };
-  S.messages.push(userMsg);
-  S.pendingUserMsg = userMsg;
-  renderMessages();
 
-  const ct = $("chat-messages");
-  const msgDiv = createStreamingDiv();
-  if (!S.hideUntilBaked) ct.appendChild(msgDiv);
-  scrollToBottom();
-
-  S.abortController = new AbortController();
-  try {
-    const resp = await streamPost(
-      convUrl(S.activeConvId, "send"),
-      { content, attachments, ...agentPayload() },
-      S.abortController.signal,
-    );
-    await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
-  } catch (e) {
-    if (e.name === "AbortError") {
-      S.wasAborted = true;
-    } else {
-      toast("Connection error: " + e.message, true);
-    }
-  }
-  await afterStream();
-  // Any send in an unpinned chat pins the effective persona to it (no-op once
-  // pinned), so legacy and freshly-unpinned chats regain an author on send.
-  await ensurePersonaPinned();
+  await runStreamRequest(
+    convUrl(S.activeConvId, "send"),
+    { content, attachments, ...agentPayload() },
+    {
+      beforeRender() {
+        S.messages.push(userMsg);
+        S.pendingUserMsg = userMsg;
+      },
+      // Any send in an unpinned chat pins the effective persona to it (no-op
+      // once pinned), so legacy and freshly-unpinned chats regain an author.
+      afterDone: ensurePersonaPinned,
+    },
+  );
 }
 
 // ── Regenerate
 export async function regenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
   optimisticDropDirectionNotesFrom(msgId);
-  await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), msgId);
+  await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "regenerate"), agentPayload(), {
+    cutoffMsgId: msgId,
+  });
 }
 
 // ── Super Regenerate
 export async function superRegenerate(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
   optimisticDropDirectionNotesFrom(msgId);
-  await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "super_regenerate"), agentPayload(), msgId);
+  await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "super_regenerate"), agentPayload(), {
+    cutoffMsgId: msgId,
+  });
 }
 
 // ── Magic Rewrite
@@ -794,8 +805,9 @@ export function toggleMagicInput(msgId) {
   const onMouseDown = (e) => {
     const wrap = document.getElementById(`magic-wrap-${msgId}`);
     if (wrap?.contains(e.target)) return;
-    // If the magic button itself was clicked, its onclick will handle the toggle.
-    if (e.target.closest(`[onclick="toggleMagicInput(${msgId})"]`)) {
+    // If the magic button itself was clicked, its handler will manage the toggle.
+    // Select by semantic class rather than coupling behavior to serialized JS.
+    if (e.target.closest(".msg-btn-magic")) {
       document.removeEventListener("mousedown", onMouseDown);
       return;
     }
@@ -826,5 +838,11 @@ export async function submitMagicRewrite(msgId) {
   if (!S.activeConvId || !canStartGeneration()) return;
   S.magicInputMsgId = null;
   optimisticDropDirectionNotesFrom(msgId);
-  await runStreamRequest(convUrl(S.activeConvId, "messages", msgId, "magic_rewrite"), { direction }, msgId);
+  await runStreamRequest(
+    convUrl(S.activeConvId, "messages", msgId, "magic_rewrite"),
+    { direction },
+    {
+      cutoffMsgId: msgId,
+    },
+  );
 }

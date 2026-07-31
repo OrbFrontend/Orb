@@ -18,14 +18,15 @@ To add a new quirk:
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any
 
 # Body keys always sent; never subject to allowlist filtering.
 ALWAYS_ALLOWED: frozenset[str] = frozenset({"model", "messages", "stream", "tools", "tool_choice"})
 
 # Mutates body in place. Returns a log line to surface the action, or None.
-Transform = Callable[[dict], Optional[str]]
+Transform = Callable[[dict], str | None]
 
 
 def is_forced_tool_choice(tc: object) -> bool:
@@ -54,6 +55,13 @@ class ModelProfile:
     # If False, coerce forced-function tool_choice dicts and "required" to
     # "auto". True means the caller's value passes through unchanged.
     allow_forced_tool_choice: bool = True
+
+    # If True, the chat transport rewrites forced-function tool calls as
+    # strict ``response_format`` structured-output requests (the chat analogue
+    # of text mode's forced grammar), guaranteeing byte-exact argument keys.
+    # Opt-in per provider: only set after verifying the endpoint honors
+    # ``response_format: {"type": "json_schema", "strict": true}``.
+    structured_tool_calls: bool = False
 
     # Bespoke transforms applied after typed knobs, in order. Each callable
     # mutates body in place and may return a log line (or None for silent).
@@ -111,7 +119,7 @@ _DEEPSEEK_REASONER_EXTRA: frozenset[str] = _DEEPSEEK_DEFAULT_EXTRA - {
 }
 
 
-def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> Optional[str]:
+def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> str | None:
     """Coerce forced ``tool_choice`` to ``"auto"`` when thinking is enabled.
 
     DeepSeek routes any thinking-on request through reasoner semantics, which
@@ -134,7 +142,7 @@ def _deepseek_coerce_tool_choice_when_thinking(body: dict) -> Optional[str]:
 # -- the more specific one must come first).
 # Inner None key: endpoint default profile. Inner str keys: exact-match
 # per-model overrides (replace, not merge).
-PROFILES: dict[str, dict[Optional[str], ModelProfile]] = {
+PROFILES: dict[str, dict[str | None, ModelProfile]] = {
     "api.deepseek.com": {
         # deepseek-chat supports forced-function tool_choice in chat mode but
         # rejects it whenever the request also carries thinking=enabled (the
@@ -164,10 +172,61 @@ PROFILES: dict[str, dict[Optional[str], ModelProfile]] = {
             allow_forced_tool_choice=False,  # forced -> "auto"
         ),
     },
+    # NanoGPT proxies to per-model providers whose tool-argument decoding is
+    # unconstrained (observed: GLM-5.2 TEE mangles hyphenated argument keys
+    # under a forced call), but its documented response_format json_schema
+    # strict mode is honored -- so forced calls go out as structured output.
+    "nano-gpt.com": {
+        None: ModelProfile(
+            allow_extra=None,  # lenient passthrough; drop nothing
+            structured_tool_calls=True,
+        ),
+    },
 }
 
 
-def profile_for(endpoint_url: str, model: str = "") -> Optional[ModelProfile]:
+# (endpoint_url, model) pairs observed to answer a forced tool_choice with a
+# different tool this session — either a profile coerced the choice to "auto"
+# or the provider ignored it silently (OpenRouter + a thinking-on model,
+# llama.cpp's chat endpoint, …). In-memory only, like _TOOL_CHOICE_UNSUPPORTED.
+_FORCED_CHOICE_IGNORED: set[tuple[str, str]] = set()
+
+
+def note_forced_tool_choice_ignored(endpoint_url: str, model: str) -> None:
+    """Record that *model* answered a forced tool_choice with some other tool."""
+    _FORCED_CHOICE_IGNORED.add((endpoint_url, model))
+
+
+def honors_forced_tool_choice(endpoint_url: str, model: str = "", params: Mapping[str, Any] | None = None) -> bool:
+    """True when a forced-function ``tool_choice`` is expected to actually force.
+
+    Dry-runs :func:`prepare_request_body` over a throwaway body rather than
+    re-stating any provider rule, so profile knobs, conditional transforms
+    (DeepSeek's thinking check) and session-learned drops all count. *params*
+    is the rest of the intended body — pass the reasoning params, since
+    whether forcing survives can depend on them.
+
+    Providers that ignore the field instead of rejecting it can't be known up
+    front; they get learned via :func:`note_forced_tool_choice_ignored`.
+
+    Callers that assembled a multi-tool array only as a cache optimization
+    should ship just the forced tool when this returns ``False``: an unforced
+    array turns every rival schema into a coin flip.
+    """
+    if (endpoint_url, model) in _FORCED_CHOICE_IGNORED:
+        return False
+    body: dict = {**(dict(params) if params else {}), "tool_choice": {"type": "function", "function": {"name": "_probe"}}}
+    prepare_request_body(endpoint_url, model, body)
+    return is_forced_tool_choice(body.get("tool_choice"))
+
+
+def supports_structured_tool_calls(endpoint_url: str, model: str = "") -> bool:
+    """True when the (endpoint, model) profile opts into structured forced calls."""
+    profile = profile_for(endpoint_url, model)
+    return profile is not None and profile.structured_tool_calls
+
+
+def profile_for(endpoint_url: str, model: str = "") -> ModelProfile | None:
     """Resolve (endpoint_url, model) to a ``ModelProfile``, or ``None`` for pass-through.
 
     A blank *model* falls through to the endpoint default. An unmatched URL
@@ -238,7 +297,7 @@ def prepare_request_body(endpoint_url: str, model: str, body: dict) -> list[str]
     return actions
 
 
-def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, text: str) -> Optional[str]:
+def recover_from_error(endpoint_url: str, model: str, body: dict, status: int, text: str) -> str | None:
     """Handle a >=400 response. If a known provider quirk explains it, mutate
     *body* in place, record the quirk for the session, and return a log line
     (triggering one retry). Returns ``None`` to propagate the error.

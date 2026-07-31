@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 
 from ...database import (
     create_lorebook_entry,
@@ -16,7 +19,12 @@ from ...database import (
     update_lorebook_entry,
     update_world,
 )
-from ..deps import _normalise_lorebook_entry, require_lorebook_entry, require_world
+from ..deps import (
+    _normalise_lorebook_entry,
+    lorebook_to_book,
+    require_lorebook_entry,
+    require_world,
+)
 from ..schemas import (
     LorebookEntryCreate,
     LorebookEntryUpdate,
@@ -121,6 +129,23 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
         created.append(await create_lorebook_entry(world_id, entry_data))
 
     return {"imported": len(created), "entries": created}
+
+
+@router.get("/api/worlds/{world_id}/export")
+async def api_export_lorebook(world_id: str):
+    """Export a lorebook as a standalone Tavern V2 ``character_book`` JSON file."""
+    world = await get_world(world_id)
+    if not world:
+        raise HTTPException(status_code=404, detail="World not found")
+
+    entries = await get_lorebook_entries(world_id)
+    book = lorebook_to_book(world["name"], entries)
+    safe_name = "".join(c for c in world["name"] if c.isalnum() or c in " _-").strip() or "lorebook"
+    return Response(
+        content=json.dumps(book, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}.json"'},
+    )
 
 
 @router.get("/api/lorebook-entries/active")

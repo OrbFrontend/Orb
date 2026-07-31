@@ -3,7 +3,7 @@
 
 import { api } from "./api.js";
 import { closeSubModal, showModal, showSubConfirmModal, showSubModal } from "./modal.js";
-import { $, esc, toast } from "./utils.js";
+import { $, downloadBlob, esc, escHandlerArg, toast } from "./utils.js";
 
 const DOMAINS = [
   { id: "characters", label: "Characters" },
@@ -11,6 +11,7 @@ const DOMAINS = [
   { id: "lorebooks", label: "Lorebooks" },
   { id: "fragments", label: "Fragments (mood & director)" },
   { id: "phrase_bank", label: "Phrase bank" },
+  { id: "documents", label: "Documents" },
   { id: "configs", label: "Settings & endpoints" },
 ];
 
@@ -19,15 +20,15 @@ const DOMAINS = [
 let libraryByName = {};
 
 function fmtSize(bytes) {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
-  return (bytes / 1024 / 1024).toFixed(1) + " MB";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function fmtDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
 export function showPresetsModal() {
@@ -124,7 +125,7 @@ export async function doCreateSnapshot() {
     toast("Snapshot saved");
     refreshPresetLibrary();
   } catch (e) {
-    toast("Snapshot failed: " + e.message, true);
+    toast(`Snapshot failed: ${e.message}`, true);
   }
 }
 
@@ -144,17 +145,12 @@ export async function handlePresetImportFile(inp) {
     toast("Added to library");
     refreshPresetLibrary();
   } catch (e) {
-    toast("Import failed: " + e.message, true);
+    toast(`Import failed: ${e.message}`, true);
   }
 }
 
 export function downloadPreset(name) {
-  const a = document.createElement("a");
-  a.href = `/api/presets/${encodeURIComponent(name)}/download`;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  downloadBlob(name, `/api/presets/${encodeURIComponent(name)}/download`);
 }
 
 export function applyPreset(name) {
@@ -171,7 +167,7 @@ export function applyPreset(name) {
         const r = await api.post(`/presets/${encodeURIComponent(name)}/apply`, {});
         finishApply(r);
       } catch (e) {
-        toast("Apply failed: " + e.message, true);
+        toast(`Apply failed: ${e.message}`, true);
       }
     },
   );
@@ -198,7 +194,7 @@ export function restorePreset(name) {
         toast("Restored — reloading");
         setTimeout(() => location.reload(), 600);
       } catch (e) {
-        toast("Restore failed: " + e.message, true);
+        toast(`Restore failed: ${e.message}`, true);
       }
     },
   );
@@ -222,7 +218,7 @@ function finishApply(r) {
   const counts = Object.entries(r.summary || {})
     .map(([k, v]) => `${v} ${k}`)
     .join(", ");
-  toast(`Imported${counts ? ": " + counts : ""} — reloading`);
+  toast(`Imported${counts ? `: ${counts}` : ""} — reloading`);
   setTimeout(() => location.reload(), 800);
 }
 
@@ -261,10 +257,10 @@ function presetRow(it) {
           <div class="preset-item-meta">${fmtDate(it.created_at)} · ${fmtSize(it.size)}</div>
         </div>
         <div class="preset-item-actions">
-          <button class="btn btn-sm" onclick="downloadPreset('${esc(it.name)}')" title="Download">⬇</button>
-          <button class="btn btn-sm" onclick="applyPreset('${esc(it.name)}')" title="Merge into current data">Apply</button>
-          <button class="btn btn-sm" onclick="restorePreset('${esc(it.name)}')" title="Replace everything">Restore</button>
-          <button class="btn btn-sm btn-danger" onclick="deletePreset('${esc(it.name)}')" title="Delete">✕</button>
+          <button class="btn btn-sm" onclick="downloadPreset('${escHandlerArg(it.name)}')" title="Download">⬇</button>
+          <button class="btn btn-sm" onclick="applyPreset('${escHandlerArg(it.name)}')" title="Merge into current data">Apply</button>
+          <button class="btn btn-sm" onclick="restorePreset('${escHandlerArg(it.name)}')" title="Replace everything">Restore</button>
+          <button class="btn btn-sm btn-danger" onclick="deletePreset('${escHandlerArg(it.name)}')" title="Delete">✕</button>
         </div>
       </div>
       <div class="preset-chips">${chips}</div>

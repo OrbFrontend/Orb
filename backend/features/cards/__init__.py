@@ -1,4 +1,4 @@
-"""Cards slice — TavernCard V2 parsing + remote card download.
+"""Cards slice — TavernCard V3/V2/V1 parsing + remote card download.
 
 ``parsing`` is the pure card (de)serialization logic; ``downloader`` wraps it
 with remote-source browse/randomize/download (``downloader`` imports ``parsing``).

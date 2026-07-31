@@ -14,8 +14,9 @@ that dict to drive the saves.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from ..core import ContentPart, Macros
 from ..features.lorebook import (
@@ -27,7 +28,7 @@ from ..inference import CachedBase, LLMClient
 from .passes.editor.length_guard import LengthGuard
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ModelLane:
     """One model's call surface for a turn: an LLM client paired with its
     cached base (prefix + tool blob + model name + macro resolver).
@@ -46,7 +47,7 @@ class ModelLane:
     base: CachedBase
 
 
-@dataclass
+@dataclass(slots=True)
 class _PipelineConfig:
     """Resolved per-turn flags, lanes, and prefixes for ``_run_pipeline``."""
 
@@ -55,10 +56,19 @@ class _PipelineConfig:
     director_reasoning_on: bool
     writer_reasoning_on: bool
     editor_reasoning_on: bool
+    # Macro-resolved reasoning prefill per pass (text mode only; ignored when
+    # that pass's reasoning is off — see reasoning_cfg).
+    director_reasoning_prefill: str
+    writer_reasoning_prefill: str
+    editor_reasoning_prefill: str
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
     writer_enabled_tools: Mapping[str, bool]
+    # True when the writer endpoint is in text-completion mode: suppress the
+    # no-tools nudge (meaningless without a rendered tool harness). The shared
+    # tool blob is untouched — director/editor keep their schemas.
+    writer_text_mode: bool
     # The two call surfaces for the turn. ``writer_lane`` runs the writer pass;
     # ``agent_lane`` runs director + editor. In single-model mode they are the
     # same object by construction (see :class:`ModelLane`).
@@ -76,7 +86,6 @@ _RESULT_FIELDS = (
     "agent_raw",
     "calls",
     "latency",
-    "rewritten_msg",
     "effective_msg",
     "resp_text",
     "inj_block",
@@ -89,6 +98,7 @@ _RESULT_FIELDS = (
     "direction_notes",
     "staged_attachments",
     "staged_message_state",
+    "macro_choices",
 )
 
 
@@ -101,13 +111,12 @@ _DIRECTOR_OUTPUT_FIELDS = (
     "agent_raw",
     "calls",
     "latency",
-    "rewritten_msg",
     "extra_fields",
     "progressive_fields",
 )
 
 
-@dataclass
+@dataclass(slots=True)
 class TurnState:
     """Mutable state threaded through all three pass stages, then consumed by persistence.
 
@@ -128,12 +137,15 @@ class TurnState:
     user_message: str = ""
     effective_msg: str = ""
     active_moods: list[str] = field(default_factory=list)
+    # Per-conversation {{random}} picks for fragment text: seeded from the
+    # committed director state, extended by the director stage when a fragment
+    # with a fresh macro renders, persisted back with the rest of the state.
+    macro_choices: dict[str, str] = field(default_factory=dict)
 
     # --- director outputs ---
     agent_raw: str = ""
     calls: list[dict] = field(default_factory=list)
     latency: int = 0
-    rewritten_msg: str | None = None
     extra_fields: dict = field(default_factory=dict)
     progressive_fields: dict = field(default_factory=dict)
     selected_lorebook_entries: list[str] = field(default_factory=list)
@@ -145,7 +157,7 @@ class TurnState:
 
     # --- writer / editor outputs ---
     resp_text: str = ""
-    writer_content: "str | list[ContentPart]" = ""
+    writer_content: str | list[ContentPart] = ""
     reasoning_director: str = ""
     reasoning_writer: str = ""
     reasoning_editor: str = ""
@@ -173,18 +185,21 @@ class TurnState:
         return {name: getattr(self, name) for name in _DIRECTOR_OUTPUT_FIELDS}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LorebookTurn:
     """The lorebook inputs for one main-pipeline turn.
 
-    Bundles what was previously five loose parameters threaded through the
-    pipeline. ``block`` and ``catalog`` are the Director-facing context and are
+    Bundles the per-turn lorebook inputs threaded through the pipeline.
+    ``block`` and ``catalog`` are the Director-facing context and are
     mutually exclusive by mode (kept separate because they inject at different
     positions in the Director prompt). ``writer_block`` derives the final block
-    shown to the writer.
+    shown to the writer. Constant entries are not part of any trailing block —
+    they ride the cached system prefix (``context._build_prefix_from_ctx``), or
+    ``depth_block`` when they set ``at_depth``; ``entries`` still carries the
+    full pool so the catalog/selection layer sees everything.
 
     The selection/rendering it delegates to lives in the pure ``lorebook`` layer
-    (``backend/features/lorebook/activation.py``); this bundle is the pipeline-turn view
+    (``backend/inference/lorebook.py``); this bundle is the pipeline-turn view
     that threads those inputs from ``_prepare_turn`` to ``director_stage``.
     """
 
@@ -193,18 +208,23 @@ class LorebookTurn:
     agentic: bool
     block: str = ""  # Director-facing lore context (substring mode; "" when agentic)
     catalog: str = ""  # Director-facing pick catalog (agentic mode; "" otherwise)
+    # Rendered once per turn by ``_prepare_turn``: the ``constant`` + ``at_depth``
+    # entries, macros resolved unseeded. Frozen here so the writer and the editor
+    # replaying its content see the same {{roll}} values.
+    depth_block: str = ""
 
     @property
     def scan_depth(self) -> int:
         return AGENTIC_LOREBOOK_SCAN_DEPTH if self.agentic else LOREBOOK_SCAN_DEPTH
 
     def writer_block(self, director_selected: Sequence[str], macros: Macros | None = None) -> str:
-        """The lorebook block injected into the writer prompt.
+        """The trailing lorebook block injected into the writer prompt.
 
         In substring mode this equals the Director-facing ``block`` already
         computed up front (same entries/messages/depth), so it is reused rather
-        than recomputed. In agentic mode it is the union of constants, the
-        current-turn keyword scan, and the Director's *director_selected* picks.
+        than recomputed. In agentic mode it is the union of the current-turn
+        keyword scan and the Director's *director_selected* picks. Constant
+        entries never appear here — they ride the cached system prefix.
         """
         if not self.agentic:
             return self.block

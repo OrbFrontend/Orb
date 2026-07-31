@@ -15,7 +15,7 @@ settings-row shape.
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 from .registry import list_workflows
 

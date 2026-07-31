@@ -12,3 +12,6 @@ fi
 
 echo "Formatting JavaScript with Biome..."
 biome format frontend/ --write "$@"
+
+echo "Checking JavaScript with Biome..."
+biome check frontend/ "$@"

@@ -6,15 +6,15 @@
 // share by reference.
 
 import {
-  S,
+  api,
+  registerAttachmentRenderer,
   registerWorkflowEventHandler,
   registerWorkflowMessageButton,
   registerWorkflowToolsPanelCard,
-} from "/static/state.js";
-import { api } from "/static/api.js";
-import { initWidget, createButtonRenderer, attachmentRenderer, autoplayHandler } from "./widget.js";
+} from "/static/workflow_api.js";
+import { configPanelRenderer, initConfigPanel } from "./config_panel.js";
 import { initKaraoke } from "./karaoke.js";
-import { initConfigPanel, configPanelRenderer } from "./config_panel.js";
+import { attachmentRenderer, autoplayHandler, createButtonRenderer, initWidget } from "./widget.js";
 
 const WORKFLOW_ID = "tts";
 
@@ -26,7 +26,7 @@ function injectStyles() {
   const link = document.createElement("link");
   link.id = "tts-workflow-styles";
   link.rel = "stylesheet";
-  link.href = "/static/workflows/" + WORKFLOW_ID + "/tts.css";
+  link.href = `/static/workflows/${WORKFLOW_ID}/tts.css`;
   document.head.appendChild(link);
 }
 
@@ -43,8 +43,8 @@ const config = {
 
 async function loadConfig() {
   try {
-    const res = await api.get("/workflows/" + WORKFLOW_ID + "/config");
-    const c = (res && res.config) || {};
+    const res = await api.get(`/workflows/${WORKFLOW_ID}/config`);
+    const c = res?.config || {};
     if (typeof c.auto_play === "boolean") config.auto_play = c.auto_play;
     if (typeof c.volume === "number") config.volume = c.volume;
     if (typeof c.click_granularity === "string") config.click_granularity = c.click_granularity;
@@ -62,9 +62,10 @@ initConfigPanel(config);
 
 registerWorkflowMessageButton(WORKFLOW_ID, createButtonRenderer);
 // The attachment renderer is a consumption surface (it replays already-produced
-// bytes), so it stays keyed by workflow id and is never gated by the toggle.
-S.workflowAttachmentRenderers[WORKFLOW_ID] = attachmentRenderer;
+// bytes), so it is never gated by the toggle (registerAttachmentRenderer is
+// ungated by design).
+registerAttachmentRenderer(WORKFLOW_ID, attachmentRenderer);
 registerWorkflowToolsPanelCard(WORKFLOW_ID, configPanelRenderer);
-registerWorkflowEventHandler(WORKFLOW_ID, WORKFLOW_ID + "_autoplay", autoplayHandler);
+registerWorkflowEventHandler(WORKFLOW_ID, `${WORKFLOW_ID}_autoplay`, autoplayHandler);
 
 loadConfig();

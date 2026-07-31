@@ -2,8 +2,8 @@
 // and persona create / edit / delete / activate. Split out of settings.js; the
 // public surface is re-exported from settings.js.
 import { api } from "./api.js";
-import { closeModal, showConfirmModal, showModal } from "./modal.js";
-import { S } from "./state.js";
+import { closeModal, confirmDelete, showModal } from "./modal.js";
+import { charactersView, S } from "./state.js";
 import { $, effectivePersonaId, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
@@ -42,18 +42,18 @@ export function updateUserBtn() {
         : card?.persona_lock_id
           ? CHAR_LOCK_ICON
           : PERSONA_ICON;
-  const label = glyph + " " + displayName;
+  const label = `${glyph} ${displayName}`;
   $("user-profile-btn").textContent = label;
   const mobileBtn = $("mobile-user-profile-btn");
   if (mobileBtn) mobileBtn.textContent = label;
 }
 
 // The active conversation / character card a persona lock would attach to.
-// The card lookup goes through S.allCharacters: S.characters is the
-// recent-filtered subset and may not contain the active card.
+// The card lookup goes through charactersView() (the full set): S.characters is
+// the recent-filtered subset and may not contain the active card.
 export function activeLockContext() {
   const conv = S.conversations.find((c) => c.id === S.activeConvId);
-  const card = conv?.character_card_id ? (S.allCharacters || []).find((c) => c.id === conv.character_card_id) : null;
+  const card = conv?.character_card_id ? charactersView().find((c) => c.id === conv.character_card_id) : null;
   const charName = conv?.character_name || card?.name || "";
   return { conv, card, charName };
 }
@@ -155,7 +155,7 @@ export async function saveUserProfile() {
     closeModal();
     toast("User profile saved");
   } catch (e) {
-    toast("Failed: " + e.message, true);
+    toast(`Failed: ${e.message}`, true);
   }
 }
 
@@ -197,7 +197,7 @@ export async function savePersona(personaId) {
   try {
     let newId;
     if (personaId && personaId !== "null") {
-      await api.put("/user-personas/" + personaId, { name, description });
+      await api.put(`/user-personas/${personaId}`, { name, description });
       newId = parseInt(personaId, 10);
     } else {
       const result = await api.post("/user-personas", { name, description });
@@ -207,36 +207,30 @@ export async function savePersona(personaId) {
     // Same path as clicking the row: sets the default and re-pins the open
     // chat when it was pinned to someone else.
     if (setActive) await activatePersona(newId);
+    updateUserBtn();
     showUserModal();
     toast("Persona saved");
   } catch (e) {
-    toast("Failed: " + e.message, true);
+    toast(`Failed: ${e.message}`, true);
   }
 }
 
 export async function deletePersona(personaId) {
-  showConfirmModal(
-    {
-      title: "Delete Persona",
-      message: "Are you sure you want to delete this persona?",
-      confirmText: "Delete",
-    },
-    async () => {
-      try {
-        await api.del("/user-personas/" + personaId);
-        if (S.activePersonaId === personaId) {
-          await api.put("/settings", { active_persona_id: null });
-          S.activePersonaId = null;
-          updateUserBtn();
-        }
-        await loadPersonas();
-        showUserModal();
-        toast("Persona deleted");
-      } catch (e) {
-        toast("Failed: " + e.message, true);
+  confirmDelete("Persona", "Are you sure you want to delete this persona?", async () => {
+    try {
+      await api.del(`/user-personas/${personaId}`);
+      if (S.activePersonaId === personaId) {
+        await api.put("/settings", { active_persona_id: null });
+        S.activePersonaId = null;
+        updateUserBtn();
       }
-    },
-  );
+      await loadPersonas();
+      showUserModal();
+      toast("Persona deleted");
+    } catch (e) {
+      toast(`Failed: ${e.message}`, true);
+    }
+  });
 }
 
 export async function activatePersona(personaId) {
@@ -252,7 +246,7 @@ export async function activatePersona(personaId) {
     await api.put("/settings", { active_persona_id: personaId });
     S.activePersonaId = personaId;
     if (repin) {
-      await api.put("/conversations/" + conv.id, { persona_lock_id: personaId });
+      await api.put(`/conversations/${conv.id}`, { persona_lock_id: personaId });
       conv.persona_lock_id = personaId;
       const name = S.personas.find((p) => p.id === personaId)?.name || "persona";
       toast(`Re-pinned this chat to "${name}"`);
@@ -260,7 +254,7 @@ export async function activatePersona(personaId) {
     updateUserBtn();
     showUserModal();
   } catch (e) {
-    toast("Failed: " + e.message, true);
+    toast(`Failed: ${e.message}`, true);
   }
 }
 
@@ -277,7 +271,7 @@ export async function setPersonaConversationLock(personaId, locked) {
   const replacing = locked && !!conv.persona_lock_id && conv.persona_lock_id !== personaId;
   const val = locked ? personaId : null;
   try {
-    await api.put("/conversations/" + conv.id, { persona_lock_id: val });
+    await api.put(`/conversations/${conv.id}`, { persona_lock_id: val });
     conv.persona_lock_id = val; // keep S in sync so the buttons re-read correctly
     updateUserBtn(); // pinning the open conversation may flip the button glyph
     toast(
@@ -285,7 +279,7 @@ export async function setPersonaConversationLock(personaId, locked) {
     );
     showUserModal();
   } catch (e) {
-    toast("Failed: " + e.message, true);
+    toast(`Failed: ${e.message}`, true);
   }
 }
 
@@ -298,7 +292,7 @@ export async function ensurePersonaPinned() {
   const val = card?.persona_lock_id || S.activePersonaId;
   if (!conv || conv.persona_lock_id || !val) return;
   try {
-    await api.put("/conversations/" + conv.id, { persona_lock_id: val });
+    await api.put(`/conversations/${conv.id}`, { persona_lock_id: val });
     conv.persona_lock_id = val; // keep S in sync so the buttons re-read correctly
     updateUserBtn();
   } catch (e) {
@@ -312,7 +306,7 @@ export async function setPersonaCharacterLock(personaId, locked) {
   const replacing = locked && !!card.persona_lock_id && card.persona_lock_id !== personaId;
   const val = locked ? personaId : null;
   try {
-    await api.put("/characters/" + card.id, { persona_lock_id: val });
+    await api.put(`/characters/${card.id}`, { persona_lock_id: val });
     card.persona_lock_id = val; // keep S in sync so the buttons re-read correctly
     updateUserBtn(); // pairing with the open character may flip the button glyph
     toast(
@@ -320,6 +314,6 @@ export async function setPersonaCharacterLock(personaId, locked) {
     );
     showUserModal();
   } catch (e) {
-    toast("Failed: " + e.message, true);
+    toast(`Failed: ${e.message}`, true);
   }
 }

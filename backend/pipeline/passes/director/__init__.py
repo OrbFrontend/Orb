@@ -11,6 +11,7 @@ from .director import (
     director_pass,
     director_stage,
 )
+from .lorebook_select import LorebookSelectResult, lorebook_select_step
 
 __all__ = [
     "DirectorResult",
@@ -22,4 +23,6 @@ __all__ = [
     "DirectionNoteResult",
     "extract_direction_notes",
     "direction_note_step",
+    "LorebookSelectResult",
+    "lorebook_select_step",
 ]

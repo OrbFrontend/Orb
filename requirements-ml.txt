@@ -1,0 +1,7 @@
+# Opt-in ML extras for in-process CPU features (input-box autocomplete;
+# later, the AI-slop classifier). Base Orb runs without these.
+#   pip install -r requirements-ml.txt
+# Then use Settings → Local ML to download the model (orb-human-tpeahead gguf)
+# into backend/data/models/, or set ORB_AUTOCOMPLETE_MODEL to an existing GGUF's path.
+llama-cpp-python>=0.3.0
+huggingface_hub

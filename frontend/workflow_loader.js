@@ -1,5 +1,5 @@
-import { S } from "./state.js";
 import { renderToolsPanel } from "./settings.js";
+import { S } from "./state.js";
 
 // Imports run sequentially (await in the loop, not Promise.all) so each
 // module's top-level registry pushes land in manifest order; the renderer

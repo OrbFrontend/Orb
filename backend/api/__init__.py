@@ -24,28 +24,40 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from ..database import DB_PATH, init_db
-from ..database.migrations import run_pending
+from ..database.migrations import run_pending, stamp_all
 from ..features.presets import schema_safety_problems as preset_schema_safety_problems
 from .deps import FRONTEND_DIR
 from .routes import ROUTERS
+from .routes.storage import VACUUM_FREE_BYTES, free_bytes
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # A fresh install gets the latest schema + seeds straight from init_db, so
+    # the migration chain has nothing to do — stamp it instead of running ~50
+    # guarded no-op migrations on first boot. Checked before init_db, which
+    # creates the file. (Zero-size covers a file touched but never written.)
+    fresh = not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0
     await init_db()
-    if run_pending(DB_PATH):
-        # A rebuild-style migration (0027's drop/rename, 0028's DROP COLUMN /
-        # DROP TABLE) leaves the old table's pages on the freelist, and the live
-        # DB runs auto_vacuum=NONE, so nothing returns them: the file stays
-        # bloated by the rebuilt tables' size (~25 -> ~39 MiB) until the next
-        # restore happens to VACUUM. restore_full already reclaims on its private
-        # copy (see presets.restore_full); this is the same reclaim for the
-        # normal startup-migration path. Gated on run_pending's return so a
-        # boot with no pending migration doesn't rewrite the whole DB. Safe
-        # here: we're before `yield`, so no request connection is open to
-        # contend with the VACUUM.
+    if fresh:
+        stamp_all(DB_PATH)
+    # A rebuild-style migration (0027's drop/rename, 0028's DROP COLUMN /
+    # DROP TABLE) leaves the old table's pages on the freelist, and the live
+    # DB runs auto_vacuum=NONE, so nothing returns them: the file stays
+    # bloated by the rebuilt tables' size (~25 -> ~39 MiB) until the next
+    # restore happens to VACUUM. restore_full already reclaims on its private
+    # copy (see presets.restore_full); this is the same reclaim for the
+    # normal startup-migration path.
+    #
+    # The second arm covers dead space that arrives without a migration --
+    # deleted conversations, cleaned-up Agent logs, a cleanup whose own
+    # VACUUM lost its race with a live reader. Without it those pages are
+    # stranded until a migration happens to come along. Both arms are gated so
+    # an ordinary boot never rewrites the whole file. Safe here: we're before
+    # `yield`, so no request connection is open to contend with the VACUUM.
+    elif run_pending(DB_PATH) or free_bytes(DB_PATH) > VACUUM_FREE_BYTES:
         vac = sqlite3.connect(DB_PATH, isolation_level=None)
         try:
             vac.execute("VACUUM")

@@ -96,3 +96,28 @@ async def test_put_write_serializes_under_config_lock(client):
     resp = await task
     assert resp.status_code == 200
     assert (await get_workflow_config("cfg_a")) == {"start": 2}
+
+
+async def test_tts_config_is_normalized_at_the_http_boundary(client):
+    resp = await client.put(
+        "/api/workflows/tts/config",
+        json={
+            "config": {
+                "auto_play": "false",
+                "volume": 9,
+                "click_granularity": "sentence",
+                "click_play_scope": "everything",
+                "show_karaoke": 0,
+            }
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "config": {
+            "auto_play": False,
+            "volume": 1.0,
+            "click_granularity": "block",
+            "click_play_scope": "unit",
+            "show_karaoke": True,
+        }
+    }

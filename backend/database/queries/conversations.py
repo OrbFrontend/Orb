@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 
 from ..connection import _build_set_clause, get_db
@@ -54,14 +54,15 @@ async def create_conversation(
     post_history_instructions: str = "",
     character_card_id: str | None = None,
     persona_lock_id: int | None = None,
+    macro_seed: str = "",
 ) -> ConversationRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         await db.execute(
             """INSERT INTO conversations
                (id, title, character_card_id, character_name, character_scenario,
-                post_history_instructions, persona_lock_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                post_history_instructions, persona_lock_id, macro_seed, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 cid,
                 title,
@@ -70,6 +71,7 @@ async def create_conversation(
                 char_scenario,
                 post_history_instructions,
                 persona_lock_id,
+                macro_seed,
                 now,
                 now,
             ),
@@ -93,6 +95,11 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
     conversation id.
     Messages, branches, director state and logs are *not* copied -- the caller
     appends whatever slice of the source it intends to carry.
+
+    The copy pins ``macro_seed`` to the source's effective seed so seeded
+    {{random}} picks in per-turn-rebuilt prompt fields (persona, scenario)
+    stay byte-identical to the history being carried, instead of re-rolling
+    under the new conversation id.
     """
     new_cid = str(uuid.uuid4())
     await create_conversation(
@@ -103,6 +110,7 @@ async def fork_conversation(source: ConversationRow, new_title: str) -> str:
         post_history_instructions=source.get("post_history_instructions", "") or "",
         character_card_id=source.get("character_card_id"),
         persona_lock_id=source.get("persona_lock_id"),
+        macro_seed=source.get("macro_seed") or source["id"],
     )
     return new_cid
 
@@ -118,7 +126,7 @@ async def touch_conversation(cid: str) -> bool:
     """Mark a conversation accessed (opened/selected) — bumps last_accessed_at,
     not updated_at. updated_at means content changed; opening isn't an edit."""
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cur = await db.execute("UPDATE conversations SET last_accessed_at = ? WHERE id = ?", (now, cid))
         await db.commit()
         return cur.rowcount > 0
@@ -134,7 +142,7 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
             # activity, so a persona_lock_id-only update must not bump it.
             if any(k in data for k in allowed if k != "persona_lock_id"):
                 sets.append("updated_at = ?")
-                vals.append(datetime.now(timezone.utc).isoformat())
+                vals.append(datetime.now(UTC).isoformat())
             vals.append(cid)
             await db.execute(
                 f"UPDATE conversations SET {', '.join(sets)} WHERE id = ?",

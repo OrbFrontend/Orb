@@ -19,7 +19,9 @@ export function openUtilityPanel(panelId, btnId, render) {
   const others = UTILITY_PANELS.filter(([p]) => p !== panelId);
   const swapping = others.some(([p]) => $(p).classList.contains("open"));
   const animated = swapping ? [target, ...others.map(([p]) => $(p))] : [];
-  animated.forEach((el) => el.classList.add("no-anim"));
+  animated.forEach((el) => {
+    el.classList.add("no-anim");
+  });
   for (const [p, b] of others) {
     $(p).classList.remove("open");
     clearActive(b);
@@ -30,7 +32,9 @@ export function openUtilityPanel(panelId, btnId, render) {
   if (render) render();
   if (swapping) {
     void target.offsetWidth; // commit the swapped state before re-enabling transitions
-    animated.forEach((el) => el.classList.remove("no-anim"));
+    animated.forEach((el) => {
+      el.classList.remove("no-anim");
+    });
   }
 }
 

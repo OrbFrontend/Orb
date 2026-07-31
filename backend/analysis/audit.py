@@ -97,7 +97,7 @@ class AuditReport:
         self.echo_result = echo_result
 
     @classmethod
-    def clean(cls) -> "AuditReport":
+    def clean(cls) -> AuditReport:
         """Return a clean report with zero issues (used when audit is disabled)."""
         return cls(
             cliche_result=DetectionResult([], [], 0, 0),
@@ -250,11 +250,19 @@ def run_audit(
 # Format into text report
 
 
-def _strip_asterisks(s: str) -> str:
-    """Strip leading/trailing asterisks (and surrounding whitespace) from a
-    snippet. Markdown emphasis markers like ``**`` confuse the rewrite model,
-    which only needs the underlying text."""
-    return s.strip().strip("*").strip()
+# Outer markers the sentence splitter can leave dangling on a reported snippet:
+# emphasis (* _) and quotes. The splitter eats a closing marker off a sentence
+# end but keeps the opening one, so a quoted line surfaces as `"…done.` — an
+# unbalanced snippet the rewrite model then copies verbatim into its search
+# string. Stripping outer markers gives the model the underlying text to match.
+# Straight ' is excluded so contractions/possessives survive.
+_OUTER_MARKERS = '*_"“”‘’'
+
+
+def _strip_markers(s: str) -> str:
+    """Strip leading/trailing emphasis (*, _) and quote markers, plus surrounding
+    whitespace, from a snippet. Internal markers are left untouched."""
+    return s.strip().strip(_OUTER_MARKERS).strip()
 
 
 def format_report(report: AuditReport) -> str:
@@ -269,7 +277,7 @@ def format_report(report: AuditReport) -> str:
         lines = ["Banned Phrases"]
         for fs in cr.flagged_sentences:
             for hit in fs.cliches:
-                lines.append(f'   - "{_strip_asterisks(hit.phrase)}" in sentence: {_strip_asterisks(fs.sentence)}')
+                lines.append(f'   - "{_strip_markers(hit.phrase)}" in sentence: {_strip_markers(fs.sentence)}')
         sections.append("\n".join(lines))
 
     # 2. Repetitive openers
@@ -277,9 +285,9 @@ def format_report(report: AuditReport) -> str:
     if mr.flagged_openers:
         lines = ["Repetitive Openers"]
         for fo in mr.flagged_openers:
-            lines.append(f'   - "{_strip_asterisks(fo.opener)}" ({fo.max_run} consecutive sentences):')
+            lines.append(f'   - "{_strip_markers(fo.opener)}" ({fo.max_run} consecutive sentences):')
             for s in fo.sentences[:4]:
-                lines.append(f"     • {_strip_asterisks(s)}")
+                lines.append(f"     • {_strip_markers(s)}")
         sections.append("\n".join(lines))
 
     # 3. Repetitive templates
@@ -287,16 +295,16 @@ def format_report(report: AuditReport) -> str:
     if tr.flagged_templates:
         lines = ["Repetitive Templates"]
         for ft in tr.flagged_templates:
-            lines.append(f'   - "{_strip_asterisks(ft.template)}" ({ft.count} sentences):')
+            lines.append(f'   - "{_strip_markers(ft.template)}" ({ft.count} sentences):')
             for s in ft.sentences[:4]:
-                lines.append(f"     • {_strip_asterisks(s)}")
+                lines.append(f"     • {_strip_markers(s)}")
         sections.append("\n".join(lines))
 
     # 4. Not-but patterns
     if report.not_but_result:
         lines = ["Contrastive Negation Patterns (Not X, but Y)"]
         for nb in report.not_but_result:
-            sentence = _strip_asterisks(nb.get("sentence", ""))
+            sentence = _strip_markers(nb.get("sentence", ""))
             is_parallel = nb.get("is_parallel", False)
             parallel_note = " (parallel structure)" if is_parallel else ""
             lines.append(f'   - Sentence: "{sentence}"{parallel_note}')
@@ -314,9 +322,9 @@ def format_report(report: AuditReport) -> str:
         for sentence, fps in groups.items():
             for j, fp in enumerate(fps):
                 suffix = ":" if sentence and j == len(fps) - 1 else ""
-                lines.append(f'   - "{_strip_asterisks(fp.phrase)}" (in {fp.count} previous messages){suffix}')
+                lines.append(f'   - "{_strip_markers(fp.phrase)}" (in {fp.count} previous messages){suffix}')
             if sentence:
-                lines.append(f"     • {_strip_asterisks(sentence)}")
+                lines.append(f"     • {_strip_markers(sentence)}")
         sections.append("\n".join(lines))
 
     # 6. Structural repetition
@@ -325,7 +333,7 @@ def format_report(report: AuditReport) -> str:
         lines = ["Structural Repetition"]
         lines.append(f"   - All {len(sr.messages)} messages share a similar block structure")
         if sr.shared_skeleton:
-            skeleton_str = " → ".join(_strip_asterisks(part) for part in sr.shared_skeleton)
+            skeleton_str = " → ".join(_strip_markers(part) for part in sr.shared_skeleton)
             lines.append(f'   - Shared skeleton: "{skeleton_str}"')
         sections.append("\n".join(lines))
 
@@ -333,10 +341,87 @@ def format_report(report: AuditReport) -> str:
     if report.echo_result and report.echo_result.flagged_echoes:
         lines = ["Interrogative Dialogue (parroting the user's dialogue back as a question)"]
         for fe in report.echo_result.flagged_echoes:
-            lines.append(
-                f'   - "{_strip_asterisks(fe.echo)}" repeats the user\'s words: "{_strip_asterisks(fe.matched_phrase)}"'
-            )
+            lines.append(f'   - "{_strip_markers(fe.echo)}" repeats the user\'s words: "{_strip_markers(fe.matched_phrase)}"')
         sections.append("\n".join(lines))
 
     sections.append("\n*** END OF REPORT ***")
     return "\n\n".join(sections)
+
+
+def report_to_dict(report: AuditReport) -> dict:
+    """JSON-shape *report* for API consumers — :func:`format_report`'s structural
+    twin for machine consumption.
+
+    Same grouping and snippet selection as the text report: one section per
+    scanner keyed by its AUDIT_TYPES name, present only when it has findings,
+    plus the ``total_issues`` / ``is_clean`` rollups. Snippets are
+    marker-stripped exactly like the text report so both surfaces show the
+    same strings.
+    """
+    sections: dict[str, list[dict]] = {}
+
+    cr = report.cliche_result
+    if cr.flagged_count > 0:
+        sections["banned_phrases"] = [
+            {"phrase": _strip_markers(hit.phrase), "sentence": _strip_markers(fs.sentence)}
+            for fs in cr.flagged_sentences
+            for hit in fs.cliches
+        ]
+
+    mr = report.monotony_result
+    if mr.flagged_openers:
+        sections["repetitive_openers"] = [
+            {
+                "opener": _strip_markers(fo.opener),
+                "count": fo.max_run,
+                "sentences": [_strip_markers(s) for s in fo.sentences[:4]],
+            }
+            for fo in mr.flagged_openers
+        ]
+
+    tr = report.template_result
+    if tr.flagged_templates:
+        sections["repetitive_templates"] = [
+            {
+                "template": _strip_markers(ft.template),
+                "count": ft.count,
+                "sentences": [_strip_markers(s) for s in ft.sentences[:4]],
+            }
+            for ft in tr.flagged_templates
+        ]
+
+    if report.not_but_result:
+        sections["contrastive_negation"] = [
+            {
+                "sentence": _strip_markers(nb.get("sentence", "")),
+                "parallel": bool(nb.get("is_parallel", False)),
+            }
+            for nb in report.not_but_result
+        ]
+
+    if report.phrase_result and report.phrase_result.flagged_phrases:
+        sections["phrase_repetition"] = [
+            {
+                "phrase": _strip_markers(fp.phrase),
+                "count": fp.count,
+                "sentence": _strip_markers(fp.example_sentences[-1]) if fp.example_sentences else "",
+            }
+            for fp in report.phrase_result.flagged_phrases
+        ]
+
+    sr = report.structural_repetition_result
+    if sr is not None and sr.is_repetitive:
+        sections["structural_repetition"] = [
+            {
+                "message_count": len(sr.messages),
+                "skeleton": [_strip_markers(part) for part in (sr.shared_skeleton or [])],
+            }
+        ]
+
+    if report.echo_result and report.echo_result.flagged_echoes:
+        sections["anti_echo"] = [
+            {"echo": _strip_markers(fe.echo), "matched": _strip_markers(fe.matched_phrase)}
+            for fe in report.echo_result.flagged_echoes
+        ]
+
+    return {"total_issues": report.total_issues, "is_clean": report.is_clean, "sections": sections}

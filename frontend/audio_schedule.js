@@ -21,14 +21,14 @@ function _clamp(value, lo, hi) {
 // long clips key on length plus a sampled FNV-1a hash, so a recurring multi-
 // megabyte clip is matched without rehashing every byte on every play.
 function inlineKey(b64) {
-  if (b64.length <= 256) return "b64:" + b64;
+  if (b64.length <= 256) return `b64:${b64}`;
   let h = 2166136261;
   const step = Math.max(1, Math.floor(b64.length / 256));
   for (let i = 0; i < b64.length; i += step) {
     h ^= b64.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  return "b64:" + b64.length + ":" + (h >>> 0).toString(36);
+  return `b64:${b64.length}:${(h >>> 0).toString(36)}`;
 }
 
 // Validates one raw segment and returns a canonical form, or null when the
@@ -52,7 +52,7 @@ export function normalizeSegment(seg) {
   if (start < 0) return null;
   const end = seg.end == null ? null : _finite(seg.end, null);
   if (hasRow) {
-    return { sourceKey: "row:" + seg.row, source: { row: seg.row }, start, end };
+    return { sourceKey: `row:${seg.row}`, source: { row: seg.row }, start, end };
   }
   const mime = typeof seg.mime === "string" ? seg.mime : "";
   return { sourceKey: inlineKey(seg.b64), source: { b64: seg.b64, mime }, start, end };

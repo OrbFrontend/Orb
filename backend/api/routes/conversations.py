@@ -3,20 +3,26 @@ stop, and Inspector (director / logs / director-log) routes."""
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ...core import Macros, estimate_tokens, scrub_log
+from ...core import (
+    estimate_tokens,
+    has_inline_macros,
+    resolve_inline,
+    scrub_log,
+)
 from ...database import (
     add_conversation_log,
     add_message,
+    card_embedded_fragments,
     create_conversation,
     create_direction_notes,
     delete_conversation,
     delete_direction_note,
+    direction_note_projection,
     fork_conversation,
     get_active_lorebook_entries,
     get_character_card,
@@ -37,6 +43,7 @@ from ...database import (
     list_conversations,
     resolve_char_context,
     set_active_leaf,
+    set_workflow_message_state,
     touch_conversation,
     update_conversation,
     update_direction_note,
@@ -46,9 +53,19 @@ from ...database import (
 from ...database.models import ConversationRow
 from ...features import lorebook
 from ...features.summarization import ConversationSummarizer
-from ...inference import AbortToken, LLMClient, prompt_builder
-from ...pipeline import agent_enabled, resolve_persona_id
-from ..deps import _active_aborts, _CleanupStreamingResponse, _sse_stream
+from ...inference import AbortToken, client_from_settings, prompt_builder
+from ...pipeline import (
+    agent_enabled,
+    conversation_macro_seed,
+    persona_macros,
+    resolve_card_and_persona,
+)
+from ..deps import (
+    _active_aborts,
+    _CleanupStreamingResponse,
+    _sse_stream,
+    require_conversation,
+)
 from ..schemas import (
     CheckpointRequest,
     CompressRequest,
@@ -106,10 +123,16 @@ async def api_create_conversation(data: ConversationCreate):
         character_card_id=card_id,
     )
 
-    # If there's a first message, auto-add it as the first assistant turn
+    # If there's a first message, auto-add it as the first assistant turn.
+    # Content is stored macro-resolved; the raw template rides the per-message
+    # "macros" slot so the greeting can re-roll freely until the first user
+    # message freezes it (see reroll_unfrozen_greetings).
     if first_mes.strip():
-        msg_id, _ = await add_message(cid, "assistant", first_mes.strip(), 0, attachments=None)
+        raw_greeting = first_mes.strip()
+        msg_id, _ = await add_message(cid, "assistant", resolve_inline(raw_greeting), 0, attachments=None)
         await set_active_leaf(cid, msg_id)
+        if has_inline_macros(raw_greeting):
+            await set_workflow_message_state(msg_id, "macros", {"template": raw_greeting})
 
         # If we have a character card with alternate greetings, create swipe versions
         if card_id:
@@ -138,10 +161,11 @@ async def api_touch_conversation(cid: str):
 
 
 @router.put("/api/conversations/{cid}")
-async def api_update_conversation(cid: str, data: ConversationUpdate):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_update_conversation(
+    cid: str,
+    data: ConversationUpdate,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     update_data = data.model_dump(exclude_unset=True)
     # Migrated DBs carry no FK on the ALTER-added persona_lock_id column, so
     # the API is the only guard against locking to a nonexistent persona.
@@ -152,14 +176,15 @@ async def api_update_conversation(cid: str, data: ConversationUpdate):
 
 
 @router.post("/api/conversations/{cid}/summarize")
-async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: Request):
+async def api_summarize_conversation(
+    cid: str,
+    data: SummarizeRequest,
+    request: Request,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Stream a narrative summary of the conversation history, excluding the last keep_count messages."""
     if data.keep_count not in (2, 4, 6, 8):
         raise HTTPException(status_code=400, detail="keep_count must be one of 2, 4, 6, 8")
-
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
 
     messages = await get_messages_with_branch_info(cid)
     history_slice = messages[: max(0, len(messages) - data.keep_count)]
@@ -171,20 +196,12 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
     char_name = conv.get("character_name", "Character") or "Character"
     # Resolve the same effective persona the chat would use (conversation/character
     # lock overrides the global active persona) so a summary stays consistent.
-    card_id = conv.get("character_card_id")
-    card = await get_character_card(card_id) if card_id else None
-    active_persona_id = resolve_persona_id(conv, card, settings)
-    active_persona = await get_user_persona(active_persona_id) if active_persona_id else None
+    card, active_persona = await resolve_card_and_persona(conv, settings)
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
-    macros = Macros.from_settings(settings, char_name, active_persona)
-    user_description = active_persona.get("description", "") if active_persona else settings.get("user_description", "")
+    macros, user_description = persona_macros(settings, char_name, active_persona, seed=conversation_macro_seed(conv))
 
     abort_token = AbortToken()
-    client = LLMClient(
-        settings["endpoint_url"],
-        api_key=settings.get("api_key", ""),
-        abort_token=abort_token,
-    )
+    client = client_from_settings(settings, abort_token=abort_token)
     summarizer = ConversationSummarizer(client, settings)
     llm_messages = summarizer.build_messages(
         system_prompt,
@@ -214,16 +231,16 @@ async def api_summarize_conversation(cid: str, data: SummarizeRequest, request: 
 
 
 @router.post("/api/conversations/{cid}/compress")
-async def api_compress_conversation(cid: str, data: CompressRequest):
+async def api_compress_conversation(
+    cid: str,
+    data: CompressRequest,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Create a new conversation seeded with a summary, then re-append the last keep_count messages."""
     if data.keep_count not in (2, 4, 6, 8):
         raise HTTPException(status_code=400, detail="keep_count must be one of 2, 4, 6, 8")
     if not data.summary.strip():
         raise HTTPException(status_code=400, detail="summary must not be empty")
-
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
 
     messages = await get_messages_with_branch_info(cid)
     tail = messages[max(0, len(messages) - data.keep_count) :]
@@ -305,6 +322,7 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
         director.get("active_moods", []),
         keywords=director.get("keywords", []),
         progressive_fields=director.get("progressive_fields", {}),
+        macro_choices=director.get("macro_choices", {}),
     )
 
     # Carry the per-turn inspector logs, re-pointing message_id onto the copied
@@ -318,12 +336,10 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
         await add_conversation_log(
             new_cid,
             log["turn_index"],
-            log.get("agent_raw_output") or "",
             log.get("tool_calls") or [],
             log.get("active_moods_after") or [],
             log.get("injection_block") or "",
             log.get("agent_latency_ms") or 0,
-            progressive_fields=json.loads(log.get("progressive_fields_after") or "{}"),
             message_id=new_msg_id,
             reasoning_director=log.get("reasoning_director") or "",
             reasoning_writer=log.get("reasoning_writer") or "",
@@ -335,14 +351,14 @@ async def _checkpoint_conversation(source_cid: str, new_title: str) -> Conversat
 
 
 @router.post("/api/conversations/{cid}/checkpoint")
-async def api_checkpoint_conversation(cid: str, data: CheckpointRequest):
+async def api_checkpoint_conversation(
+    cid: str,
+    data: CheckpointRequest,
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Duplicate the conversation's active path into a new 'checkpoint'
     conversation (SillyTavern-style). See :func:`_checkpoint_conversation` for
     exactly what is and isn't carried."""
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
     if data.title and data.title.strip():
         new_title = data.title.strip()
     else:
@@ -366,27 +382,23 @@ async def api_stop_generation(cid: str):
 
 
 @router.get("/api/conversations/{cid}/context-size")
-async def api_get_context_size(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
+async def api_get_context_size(cid: str, conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     settings = await get_settings()
     messages = await get_messages(cid)
     director = await get_director_state(cid) or {}
-    director_frags = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
-    mood_frags = [f for f in await get_mood_fragments() if f.get("enabled", True)]
-    lorebook_entries = await get_active_lorebook_entries()
 
     # Resolve the same effective persona generation would use (conversation/
     # character lock overrides the global active persona) so the size
     # breakdown matches the prompt that is actually sent.
-    card_id = conv.get("character_card_id")
-    card = await get_character_card(card_id) if card_id else None
-    persona_id = resolve_persona_id(conv, card, settings)
-    active_persona = await get_user_persona(persona_id) if persona_id else None
-    macros = Macros.from_settings(settings, conv["character_name"], active_persona)
-    user_desc = active_persona.get("description", "") if active_persona else settings.get("user_description", "")
+    card, active_persona = await resolve_card_and_persona(conv, settings)
+    # Same card-fragment merge as _load_pipeline_context (globals win on id collision).
+    card_moods, card_interactive = card_embedded_fragments(card)
+    director_frags = [f for f in await get_interactive_fragments() if f.get("enabled", True)]
+    director_frags += [f for f in card_interactive if f["id"] not in {g["id"] for g in director_frags}]
+    mood_frags = [f for f in await get_mood_fragments() if f.get("enabled", True)]
+    mood_frags += [f for f in card_moods if f["id"] not in {g["id"] for g in mood_frags}]
+    lorebook_entries = await get_active_lorebook_entries()
+    macros, user_desc = persona_macros(settings, conv["character_name"], active_persona, seed=conversation_macro_seed(conv))
 
     # Resolve character context
     system_prompt, char_persona, mes_example = await resolve_char_context(conv, settings, card=card)
@@ -403,21 +415,27 @@ async def api_get_context_size(cid: str):
     user_persona_text = f"## User: {macros.user}\n{resolved_user_desc}" if resolved_user_desc.strip() else ""
     msg_chars = sum(len(m.get("content", "") or "") for m in messages)
 
-    # Director injection
+    # Director injection — fragment {{random}} resolves against a throwaway
+    # copy of the stored choice map so the estimate matches the prompt bytes a
+    # real turn would inject, without recording new picks.
     active_moods = director.get("active_moods", []) if director else []
+    est_choices = dict(director.get("macro_choices", {}) if director else {})
+    est_mood_frags = prompt_builder.resolve_mood_fragment_randoms(mood_frags, active_moods, est_choices)
     inj_block = prompt_builder.compute_style_injection_block(
         active_moods,
         active_moods,
-        mood_frags,
+        est_mood_frags,
         director_frags,
         agent_enabled(settings),
         {},
     )
 
-    # Lorebook injection
+    # Lorebook: trailing keyword-scanned block + constant prefix section + @Depth tail
     scan_depth = lorebook.LOREBOOK_SCAN_DEPTH
     recent_messages = messages[-scan_depth:] if len(messages) >= scan_depth else messages
     lorebook_block = lorebook.compute_lorebook_injection_block(recent_messages, lorebook_entries, macros)
+    constant_lorebook_block = lorebook.compute_constant_lorebook_block(lorebook_entries, macros)
+    depth_lorebook_block = lorebook.compute_depth_lorebook_block(lorebook_entries, macros)
 
     breakdown = {}
     for label, chars in [
@@ -430,6 +448,8 @@ async def api_get_context_size(cid: str):
         ("post_history", len(post_text)),
         ("director_injection", len(inj_block)),
         ("lorebook", len(lorebook_block)),
+        ("lorebook_constant", len(constant_lorebook_block)),
+        ("lorebook_depth", len(depth_lorebook_block)),
     ]:
         breakdown[label] = {"chars": chars, "tokens_est": estimate_tokens(chars)}
 
@@ -446,37 +466,25 @@ async def api_get_context_size(cid: str):
 
 
 @router.get("/api/conversations/{cid}/director")
-async def api_get_director_state(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_get_director_state(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     return await get_director_state(cid)
 
 
 @router.get("/api/conversations/{cid}/logs")
-async def api_get_logs(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_get_logs(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     return await get_conversation_logs(cid)
 
 
 @router.get("/api/conversations/{cid}/messages/{msg_id}/director-log")
-async def api_get_message_director_log(cid: str, msg_id: int):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_get_message_director_log(
+    cid: str,
+    msg_id: int,
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     msg = await get_message_by_id(msg_id)
     if not msg or msg.get("conversation_id") != cid:
         raise HTTPException(status_code=404, detail="Message not found")
-    direction_notes = [
-        {
-            "interactive_fragment_id": r["interactive_fragment_id"],
-            "interactive_fragment_label": r["interactive_fragment_label"],
-            "content": r["content"],
-        }
-        for r in await get_direction_notes_for_message(msg_id)
-    ]
+    direction_notes = [direction_note_projection(r) for r in await get_direction_notes_for_message(msg_id)]
     log = await get_director_log_for_message(msg_id)
     if not log:
         return {
@@ -504,19 +512,14 @@ async def api_get_message_director_log(cid: str, msg_id: int):
 
 
 @router.get("/api/conversations/{cid}/direction-notes")
-async def api_list_direction_notes(cid: str):
-    conv = await get_conversation(cid)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+async def api_list_direction_notes(cid: str, _conv: ConversationRow = Depends(require_conversation)):  # noqa: B008
     messages = await get_messages(cid)
     by_id = {m["id"]: m for m in messages}
     rows = await get_direction_notes_for_path(cid, list(by_id))
     return [
         {
             "id": r["id"],
-            "interactive_fragment_id": r["interactive_fragment_id"],
-            "interactive_fragment_label": r["interactive_fragment_label"],
-            "content": r["content"],
+            **direction_note_projection(r),
             "message_id": r["message_id"],
             "turn_index": by_id[r["message_id"]]["turn_index"],
         }

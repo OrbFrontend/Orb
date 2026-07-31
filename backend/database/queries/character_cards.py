@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import datetime, timezone
-from typing import Any, Mapping, cast
+import re
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any, cast
 
 import aiosqlite
 
+from ...core import has_inline_macros, resolve_inline
 from ..connection import _build_set_clause, get_db
-from ..models import CharacterCardRow
+from ..models import CharacterCardRow, InteractiveFragmentRow, MoodFragmentRow
 
 
 async def list_character_cards() -> list[CharacterCardRow]:
@@ -22,7 +25,9 @@ async def list_character_cards() -> list[CharacterCardRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, name, creator_notes, tags, creator, source_format, created_at, updated_at, avatar_mime, world_id, persona_lock_id FROM character_cards ORDER BY updated_at DESC"
+                "SELECT c.id, c.name, c.creator_notes, c.tags, c.creator, c.source_format, c.created_at, c.updated_at, c.avatar_mime, c.world_id, c.persona_lock_id, "
+                "EXISTS(SELECT 1 FROM character_expressions e WHERE e.character_card_id = c.id) AS has_expressions "
+                "FROM character_cards c ORDER BY c.updated_at DESC"
             )
         )
         result: list[CharacterCardRow] = []
@@ -31,6 +36,7 @@ async def list_character_cards() -> list[CharacterCardRow]:
             d["tags"] = json.loads(d["tags"]) if d["tags"] else []
             d["has_avatar"] = d["avatar_mime"] is not None
             del d["avatar_mime"]
+            d["has_expressions"] = bool(d["has_expressions"])
             result.append(cast(CharacterCardRow, d))
         return result
 
@@ -43,7 +49,8 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> Char
             else (
                 "id, name, description, personality, scenario, first_mes, mes_example, "
                 "creator_notes, system_prompt, post_history_instructions, tags, creator, "
-                "character_version, alternate_greetings, avatar_mime, source_format, world_id, persona_lock_id, created_at, updated_at"
+                "character_version, alternate_greetings, avatar_mime, source_format, world_id, persona_lock_id, "
+                "extensions, created_at, updated_at"
             )
         )
         rows = list(
@@ -57,21 +64,115 @@ async def get_character_card(card_id: str, include_avatar: bool = False) -> Char
         d = dict(rows[0])
         d["tags"] = json.loads(d["tags"]) if d.get("tags") else []
         d["alternate_greetings"] = json.loads(d["alternate_greetings"]) if d.get("alternate_greetings") else []
+        d["extensions"] = json.loads(d["extensions"]) if d.get("extensions") else {}
         d["has_avatar"] = d.get("avatar_mime") is not None
         return cast(CharacterCardRow, d)
 
 
+# Server-side mirror of frontend FRAGMENT_ID_REGEX, plus a length cap: card
+# fragment ids become LLM tool-schema property names, and some backends
+# enforce a strict charset/length on those.
+_CARD_FRAGMENT_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_INTERACTIVE_FIELD_TYPES = {"string", "array", "progressive", "feedback", "direction_note"}
+
+
+def _card_fragment_entries(raw: Any) -> list[dict]:
+    """Filter a raw fragments list down to well-formed, enabled, unique entries."""
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+    for entry in raw[:50]:
+        if not isinstance(entry, dict):
+            continue
+        fid, label = entry.get("id"), entry.get("label")
+        if not (isinstance(fid, str) and _CARD_FRAGMENT_ID.match(fid)):
+            continue
+        if not (isinstance(label, str) and label.strip()):
+            continue
+        if fid in seen or not entry.get("enabled", True):
+            continue
+        seen.add(fid)
+        out.append(entry)
+    return out
+
+
+def _text(entry: Mapping[str, Any], key: str, default: str = "") -> str:
+    v = entry.get(key, default)
+    return v if isinstance(v, str) else default
+
+
+def card_embedded_fragments(
+    card: Mapping[str, Any] | None,
+) -> tuple[list[MoodFragmentRow], list[InteractiveFragmentRow]]:
+    """Decode a card's ``extensions.orb.fragments`` into fragment-row shapes.
+
+    This is the trust boundary for card-embedded fragments: cards come from
+    arbitrary imported PNGs, so every nesting level is type-checked, ids are
+    validated, unknown enum values fall back to safe defaults, and malformed,
+    disabled, or duplicate (first wins) entries are skipped. Callers merge the
+    result into the global fragment lists; on id collision the global wins so
+    a card can never hijack a user-configured fragment.
+    """
+    ext = (card or {}).get("extensions")
+    orb = ext.get("orb") if isinstance(ext, dict) else None
+    frags = orb.get("fragments") if isinstance(orb, dict) else None
+    if not isinstance(frags, dict):
+        return [], []
+
+    moods: list[MoodFragmentRow] = []
+    for entry in _card_fragment_entries(frags.get("mood")):
+        moods.append(
+            cast(
+                MoodFragmentRow,
+                {
+                    "id": entry["id"],
+                    "label": entry["label"],
+                    "description": _text(entry, "description"),
+                    "prompt_text": _text(entry, "prompt_text"),
+                    "negative_prompt": _text(entry, "negative_prompt"),
+                    "enabled": 1,
+                },
+            )
+        )
+
+    interactive: list[InteractiveFragmentRow] = []
+    for i, entry in enumerate(_card_fragment_entries(frags.get("interactive"))):
+        field_type = _text(entry, "field_type", "string")
+        timing = _text(entry, "direction_note_timing", "post_turn")
+        interactive.append(
+            cast(
+                InteractiveFragmentRow,
+                {
+                    "id": entry["id"],
+                    "label": entry["label"],
+                    "description": _text(entry, "description"),
+                    "field_type": field_type if field_type in _INTERACTIVE_FIELD_TYPES else "string",
+                    "required": int(bool(entry.get("required"))),
+                    "enabled": 1,
+                    "injection_label": _text(entry, "injection_label") or entry["label"],
+                    # Array order in the card is authoritative; the offset keeps
+                    # card fragments after globals on any sort_order re-sort.
+                    "sort_order": 10_000 + i,
+                    "direction_note_timing": timing if timing in ("pre_writer", "post_turn") else "post_turn",
+                },
+            )
+        )
+
+    return moods, interactive
+
+
 async def create_character_card(data: dict) -> CharacterCardRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         try:
             await db.execute(
                 """INSERT INTO character_cards
                    (id, name, description, personality, scenario, first_mes, mes_example,
                     creator_notes, system_prompt, post_history_instructions, tags, creator,
                     character_version, alternate_greetings, avatar_b64, avatar_mime,
-                    source_format, world_id, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    source_format, world_id, extensions, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     data["id"],
                     data["name"],
@@ -91,6 +192,7 @@ async def create_character_card(data: dict) -> CharacterCardRow:
                     data.get("avatar_mime"),
                     data.get("source_format", "manual"),
                     data.get("world_id"),
+                    json.dumps(data["extensions"]) if data.get("extensions") else None,
                     now,
                     now,
                 ),
@@ -107,25 +209,61 @@ async def insert_alternate_greeting_swipes(cid: str, alternate_greetings: list[s
     """Insert alternate greetings as sibling root messages (turn_index=0, parent_id=NULL).
 
     These become branch siblings of the primary greeting and are navigable via
-    switch_to_branch. Returns the number of greetings inserted.
+    switch_to_branch. Content is stored macro-resolved; greetings with inline
+    macros keep their raw template in the per-message "macros" slot so they can
+    re-roll until the conversation's first user message (see
+    :func:`reroll_unfrozen_greetings`). Returns the number of greetings inserted.
     """
     if not alternate_greetings:
         return 0
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         count = 0
         for greeting in alternate_greetings:
             if greeting and greeting.strip():
                 count += 1
+                raw = greeting.strip()
+                workflow_state = json.dumps({"macros": {"template": raw}}) if has_inline_macros(raw) else None
                 await db.execute(
                     "INSERT INTO messages "
-                    "(conversation_id, role, content, turn_index, parent_id, created_at) "
-                    "VALUES (?, ?, ?, 0, NULL, ?)",
-                    (cid, "assistant", greeting.strip(), now),
+                    "(conversation_id, role, content, turn_index, parent_id, created_at, workflow_state) "
+                    "VALUES (?, ?, ?, 0, NULL, ?, ?)",
+                    (cid, "assistant", resolve_inline(raw), now, workflow_state),
                 )
         if count:
             await db.commit()
         return count
+
+
+async def reroll_unfrozen_greetings(cid: str) -> None:
+    """Re-roll inline macros in the conversation's root greetings while unfrozen.
+
+    A greeting row stores macro-resolved text in ``content`` and its raw
+    template in the "macros" per-message slot. Until the conversation has a
+    user message, every fetch may re-resolve freely; once one exists the
+    NOT EXISTS guard matches nothing and the last-displayed resolution stays
+    fixed forever (display, DB, and the first turn's prompt all read the same
+    bytes). Rows without a stashed template (no macros, or copies made by
+    checkpoint — which drops workflow_state) are left untouched.
+    """
+    async with get_db() as db:
+        greetings = list(
+            await db.execute_fetchall(
+                "SELECT id, json_extract(workflow_state, '$.macros.template') AS template "
+                "FROM messages "
+                "WHERE conversation_id = ? AND parent_id IS NULL "
+                "  AND json_extract(workflow_state, '$.macros.template') IS NOT NULL "
+                "  AND NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = ? AND role = 'user')",
+                (cid, cid),
+            )
+        )
+        for row in greetings:
+            await db.execute(
+                "UPDATE messages SET content = ? WHERE id = ?",
+                (resolve_inline(row["template"]), row["id"]),
+            )
+        if greetings:
+            await db.commit()
 
 
 async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | None:
@@ -153,6 +291,9 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
         if "alternate_greetings" in data:
             sets.append("alternate_greetings = ?")
             vals.append(json.dumps(data["alternate_greetings"]))
+        if "extensions" in data:
+            sets.append("extensions = ?")
+            vals.append(json.dumps(data["extensions"]))
         # Avatar
         if "avatar_b64" in data:
             sets.append("avatar_b64 = ?")
@@ -162,7 +303,7 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
 
         if sets:
             sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(datetime.now(UTC).isoformat())
             vals.append(card_id)
             await db.execute(
                 f"UPDATE character_cards SET {', '.join(sets)} WHERE id = ?",

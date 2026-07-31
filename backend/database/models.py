@@ -9,7 +9,9 @@ architectural inversion; put the shape here instead.
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict, Union
+from typing import Literal, TypedDict
+
+from ..core.domain_types import AgentLane, CompletionMode, MessageRole
 
 
 # A phrase-bank group is one of three shapes. ``get_phrase_bank()`` emits the
@@ -31,7 +33,7 @@ class RegexPhraseGroup(TypedDict):
     pattern: str
 
 
-PhraseGroup = Union[list[str], LiteralPhraseGroup, RegexPhraseGroup]
+PhraseGroup = list[str] | LiteralPhraseGroup | RegexPhraseGroup
 
 
 class PhraseBankRow(TypedDict):
@@ -92,6 +94,9 @@ class _SettingsBase(TypedDict):
     character_library_sort: str
     show_editor_diff: int
     editor_audit_toggles: dict  # decoded to its in-memory shape by get_settings()
+    document_audit_enabled: int
+    document_audit_autopatch: int
+    document_audit_toggles: dict  # decoded by get_settings(); doc-applicable scanner subset only
     hide_streaming_until_baked: int
     prevent_prompt_overrides: int
     agent_same_as_writer: bool
@@ -128,9 +133,32 @@ class SettingsRow(_SettingsBase, total=False):
     # SELECT * branch only (DEFAULT_SETTINGS omits them).
     enabled_tools: dict[str, bool]
     reasoning_enabled_passes: dict
+    reasoning_prefill_passes: dict
     inspector_open_states: dict
     workflow_config: str  # left raw; decoded per-slot by get_workflow_config()
     workflow_enabled: dict[str, bool]  # decoded by get_settings(); per-workflow on/off, missing key => on
+    local_ml_enabled: dict[str, bool]  # decoded by get_settings(); per-local-ML-feature on/off, missing key => on
+    # Per-endpoint transport mode, surfaced by the get_settings() overlay from
+    # the active/agent endpoint row (default 'chat'). agent_completion_mode
+    # falls back to completion_mode when the agent shares the writer endpoint.
+    completion_mode: CompletionMode
+    agent_completion_mode: CompletionMode
+    # Per-endpoint proxy URL, surfaced by the same overlay (default ''); empty
+    # means a direct connection. agent_proxy falls back to proxy when the agent
+    # shares the writer endpoint.
+    proxy: str
+    agent_proxy: str
+    # Per-model reasoning effort, surfaced by the same overlay (default '');
+    # empty means no effort param is sent and the provider default governs.
+    # 'custom' sends {reasoning_effort_param: reasoning_effort_value} instead
+    # of the standard param. The agent_* variants fall back to the writer's
+    # values when the agent shares the writer endpoint.
+    reasoning_effort: str
+    reasoning_effort_param: str
+    reasoning_effort_value: str
+    agent_reasoning_effort: str
+    agent_reasoning_effort_param: str
+    agent_reasoning_effort_value: str
     # Agent-endpoint cascade overlays (present only when it resolves).
     agent_endpoint_url: str
     agent_api_key: str
@@ -163,6 +191,9 @@ class ConversationRow(TypedDict):
     active_leaf_id: int | None
     workflow_state: str | None
     persona_lock_id: int | None
+    # {{random}} seed override; '' = use the conversation's own id. Set by
+    # checkpoint/compress so seeded picks match the copied history.
+    macro_seed: str
 
 
 class ConversationListRow(ConversationRow, total=False):
@@ -186,7 +217,7 @@ class MessageRow(TypedDict):
 
     id: int
     conversation_id: str
-    role: Literal["user", "assistant"]
+    role: MessageRole
     content: str
     turn_index: int
     parent_id: int | None
@@ -268,13 +299,15 @@ class MessageWithAttachments(MessageRow, total=False):
 
 class EndpointRow(TypedDict):
     """A row from the ``endpoints`` table. Every query selects exactly these
-    five columns (avatar/secret columns are never projected here)."""
+    columns (avatar/secret columns are never projected here)."""
 
     id: int
     url: str
     api_key: str
     active_model_config_id: int | None
     agent_active_model_config_id: int | None
+    completion_mode: CompletionMode
+    proxy: str
 
 
 class ModelConfigRow(TypedDict):
@@ -290,7 +323,10 @@ class ModelConfigRow(TypedDict):
     top_p: float
     repetition_penalty: float
     max_tokens: int
-    role: Literal["writer", "agent"]
+    role: AgentLane
+    reasoning_effort: str
+    reasoning_effort_param: str
+    reasoning_effort_value: str
 
 
 class WorldRow(TypedDict):
@@ -304,8 +340,9 @@ class WorldRow(TypedDict):
 
 
 class LorebookEntryRow(TypedDict):
-    """A row from ``lorebook_entries``. ``keywords`` is the JSON-*decoded* list
-    (every reader runs it through _parse_lorebook_entry / an inline decode)."""
+    """A row from ``lorebook_entries``. ``keywords`` and ``secondary_keys`` are
+    the JSON-*decoded* lists (every reader runs the row through
+    _parse_lorebook_entry / an inline decode)."""
 
     id: int
     world_id: str
@@ -314,6 +351,10 @@ class LorebookEntryRow(TypedDict):
     keywords: list
     case_insensitive: int
     constant: int
+    at_depth: int
+    use_regex: int
+    selective: int
+    secondary_keys: list
     priority: int
     enabled: int
     sort_order: int
@@ -385,23 +426,24 @@ class DirectorStateRow(TypedDict):
     """The director-state dict returned by ``get_director_state()``.
 
     The JSON columns are decoded before return: ``active_moods`` and
-    ``keywords`` to lists, ``progressive_fields`` to a dict. When no row exists
-    the query synthesizes the same shape with empty containers.
+    ``keywords`` to lists, ``progressive_fields`` and ``macro_choices`` to
+    dicts. When no row exists the query synthesizes the same shape with empty
+    containers.
     """
 
     conversation_id: str
     active_moods: list
     keywords: list
     progressive_fields: dict
+    macro_choices: dict[str, str]
 
 
 class ConversationLogRow(TypedDict):
     """A ``conversation_logs`` row as get_conversation_logs() /
     get_director_log_for_message() expose it.
 
-    ``tool_calls`` and ``active_moods_after`` are JSON-*decoded* to lists;
-    ``progressive_fields_after`` is left as the raw JSON string (neither reader
-    decodes it). The nullable TEXT/INTEGER columns come back ``None`` when unset
+    ``tool_calls`` and ``active_moods_after`` are JSON-*decoded* to lists.
+    The nullable TEXT/INTEGER columns come back ``None`` when unset
     -- get_director_log_for_message() additionally defaults the ``reasoning_*``
     keys to ``""``, but get_conversation_logs() leaves them as stored.
     ``feedback`` is the JSON-*decoded* dict (the editor feedback sub-step's
@@ -413,10 +455,8 @@ class ConversationLogRow(TypedDict):
     id: int
     conversation_id: str
     turn_index: int
-    agent_raw_output: str | None
     tool_calls: list
     active_moods_after: list
-    progressive_fields_after: str
     injection_block: str | None
     agent_latency_ms: int | None
     created_at: str
@@ -438,7 +478,8 @@ class CharacterCardRow(TypedDict, total=False):
     large library's payload small; ``get_character_card`` returns the full row
     (and includes ``avatar_b64`` only when ``include_avatar``).
     ``tags`` and ``alternate_greetings`` are the JSON-*decoded* lists;
-    ``has_avatar`` is a derived bool, not a column.
+    ``extensions`` is the JSON-*decoded* V2 card extensions dict (present only
+    on ``get_character_card``); ``has_avatar`` is a derived bool, not a column.
     """
 
     id: str
@@ -463,4 +504,42 @@ class CharacterCardRow(TypedDict, total=False):
     updated_at: str
     workflow_state: str | None
     persona_lock_id: int | None
+    extensions: dict
     has_avatar: bool
+    has_expressions: bool
+
+
+class CharacterExpressionRow(TypedDict):
+    """A row from ``character_expressions`` — one expression image per (card, label)."""
+
+    character_card_id: str
+    label: str
+    data_b64: str
+    mime: str
+
+
+class DocumentListRow(TypedDict):
+    """The lightweight ``documents`` projection the sidebar list consumes
+    (``get_documents``): identity + timestamps, never the full ``content``.
+
+    NOTE: this is deliberately the *inverse* of the
+    ``ConversationListRow(ConversationRow)`` relationship. There the list row
+    *adds* join columns to the full base row; here the list view is a strict
+    *column projection* (it must not drag every document's full body into a list
+    payload), so the full :class:`DocumentRow` extends this projection instead.
+    """
+
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class DocumentRow(DocumentListRow):
+    """A full ``documents`` row as ``get_document`` returns it. Extends the list
+    projection with the body and the decoded spans. ``generated_spans`` is the
+    JSON-*decoded* list (only ``get_document`` decodes it — the list query never
+    selects the column)."""
+
+    content: str
+    generated_spans: list

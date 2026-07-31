@@ -3,20 +3,24 @@
 // chat.js; the public surface is re-exported from chat.js.
 import { api } from "./api.js";
 import { onConvSwitch, stopAll as stopAllAudio } from "./audio_player.js";
-import { stopConversation } from "./chat_stream.js";
 import { renderMessages, resetRenderWindow, setMessages } from "./chat_core.js";
 import { renderInspector } from "./chat_inspector.js";
 import { clearInspectedMessage, inspectMessage } from "./chat_messages.js";
+import { stopConversation } from "./chat_stream.js";
 import { resetWorkflowViewportState } from "./chat_workflow.js";
 import { renderDirectionNotesPanel } from "./direction_notes_panel.js";
-import { loadCharacters, refreshCharacters, renderCharacters } from "./library.js";
+import { refreshCharacters, renderCharacters } from "./library.js";
+// Imported from library_fragments.js directly (like settings.js does): going
+// through library.js would widen the library.js → chat.js import cycle.
+import { renderInteractiveFragments, renderMoodFragments } from "./library_fragments.js";
 import { activateAndPrioritizeWorld, deactivateWorld } from "./lorebooks.js";
 import { closeModal, showConfirmModal, showModal } from "./modal.js";
 import { isUtilityPanelOpen } from "./panels.js";
 // Imported from settings_personas.js directly: going through settings.js would
 // close an import cycle (settings.js → chat.js → this module).
 import { updateUserBtn } from "./settings_personas.js";
-import { S } from "./state.js";
+import { sseEvents, streamPost, unescapeSSE } from "./sse.js";
+import { charactersView, S } from "./state.js";
 import {
   $,
   avatarCell,
@@ -26,6 +30,7 @@ import {
   esc,
   formatRelativeDate,
   scrollToBottom,
+  setChatFollowing,
   toast,
 } from "./utils.js";
 import { validate } from "./validate.js";
@@ -36,10 +41,26 @@ export async function loadConversations() {
   S.conversations = await api.get("/conversations");
 }
 
+// Stash (or clear, with null) the active character's card-embedded fragments
+// for the sidepanel/inspector. Mirrors the backend merge rule: enabled only,
+// and a card fragment whose id collides with a global one is skipped.
+export function stashCardFragments(card) {
+  const frags = card?.extensions?.orb?.fragments;
+  const keep = (list, globals) =>
+    (Array.isArray(list) ? list : []).filter(
+      (f) => f?.id && f.enabled !== false && !globals.some((g) => g.id === f.id),
+    );
+  S.cardMoodFragments = keep(frags?.mood, S.moodFragments);
+  S.cardInteractiveFragments = keep(frags?.interactive, S.interactiveFragments);
+  renderMoodFragments();
+  renderInteractiveFragments();
+}
+
 export function resetChatUI() {
   stopAllAudio();
   S.activeCharId = null;
   S.activeConvId = null;
+  stashCardFragments(null);
   S.messages = [];
   S.lastDirectorData = null;
   S.directorState = null;
@@ -62,8 +83,8 @@ export async function selectChar(id, source = "recent") {
   if (S.activeCharId === id || S._selectCharLock) return;
   S._selectCharLock = true;
   try {
-    const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
-    const newWorldId = (S.allCharacters || []).find((c) => c.id === id)?.world_id || null;
+    const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
+    const newWorldId = charactersView().find((c) => c.id === id)?.world_id || null;
     S.activeCharId = id;
     renderCharacters();
     if (oldWorldId && oldWorldId !== newWorldId) {
@@ -105,8 +126,8 @@ export async function newConvForChar(id) {
     return;
   }
   try {
-    const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
-    const newWorldId = (S.allCharacters || []).find((c) => c.id === id)?.world_id || null;
+    const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
+    const newWorldId = charactersView().find((c) => c.id === id)?.world_id || null;
     const conv = await api.post("/conversations", { character_card_id: id });
     await loadConversations();
     S.activeCharId = id;
@@ -125,7 +146,7 @@ export async function selectConversation(id) {
     toast("Stop generation before switching conversations", true);
     return;
   }
-  const oldWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
+  const oldWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
   S.activeConvId = id;
   S.lastDirectorData = null;
   S.reasoningDirector = "";
@@ -152,26 +173,34 @@ export async function selectConversation(id) {
   } else {
     av.textContent = CHAT_AVATAR_ICON;
   }
+  const hasExpr = (S.characters || []).find((c) => c.id === conv?.character_card_id)?.has_expressions;
+  av.classList.toggle("has-expr-halo", !!hasExpr);
   $("chat-input").disabled = false;
   $("send-btn").disabled = false;
 
   // If the character has a linked lorebook, activate it and move it to the top
   if (conv?.character_card_id) {
-    const char = (S.allCharacters || []).find((c) => c.id === conv.character_card_id);
+    const char = charactersView().find((c) => c.id === conv.character_card_id);
     if (char?.world_id) {
       await activateAndPrioritizeWorld(char.world_id);
     }
   }
 
-  const newWorldId = (S.allCharacters || []).find((c) => c.id === S.activeCharId)?.world_id || null;
+  const newWorldId = charactersView().find((c) => c.id === S.activeCharId)?.world_id || null;
   if (oldWorldId && oldWorldId !== newWorldId) {
     await deactivateWorld(oldWorldId);
   }
 
-  // Fetch messages and director state in parallel — neither depends on the other.
-  const [msgs, directorState] = await Promise.all([api.get(convUrl(id, "messages")), api.get(convUrl(id, "director"))]);
+  // Fetch messages, director state, and the full card (for its embedded
+  // fragments — the list projection omits extensions) in parallel.
+  const [msgs, directorState, card] = await Promise.all([
+    api.get(convUrl(id, "messages")),
+    api.get(convUrl(id, "director")),
+    conv?.character_card_id ? api.get(`/characters/${conv.character_card_id}`).catch(() => null) : null,
+  ]);
   setMessages(msgs);
   S.directorState = directorState;
+  stashCardFragments(card);
   // Render only the trailing window first; older messages backfill on scroll-up
   // and during idle time, so switch latency no longer scales with history length.
   resetRenderWindow();
@@ -185,7 +214,7 @@ export async function selectConversation(id) {
   // Fresh conversation: re-enable autoscroll (the prior conv may have disabled it
   // by scrolling up) and snap to the bottom on the first synchronous paint so the
   // chat opens at the latest message with no visible top-to-bottom scroll.
-  S.autoscrollEnabled = true;
+  setChatFollowing(true);
   renderMessages(true);
   scrollToBottom();
   // Fetch the director-log for the inspector after first paint — it's a separate
@@ -215,7 +244,7 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
     },
     async () => {
       try {
-        await api.del("/conversations/" + id);
+        await api.del(`/conversations/${id}`);
         if (S.activeConvId === id) {
           S.activeConvId = null;
           S.messages = [];
@@ -231,7 +260,7 @@ function confirmDeleteConversation(id, msgCount, afterDelete) {
   );
 }
 
-async function deleteConversation(id) {
+async function _deleteConversation(id) {
   const conv = S.conversations.find((c) => c.id === id);
   confirmDeleteConversation(
     id,
@@ -310,7 +339,7 @@ export async function createCheckpoint() {
     toast(`Checkpoint created: ${conv.title}`);
     await showConvHistoryModal();
   } catch (e) {
-    toast("Failed to create checkpoint: " + e.message, true);
+    toast(`Failed to create checkpoint: ${e.message}`, true);
   }
 }
 
@@ -343,7 +372,7 @@ export function showCompressModal() {
     <div style="margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.95em">
         Keep last
-        <select id="compress-keep-select" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg-input,var(--bg-secondary));color:var(--text)">
+        <select id="compress-keep-select" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border)">
           ${validOptions.map((n) => `<option value="${n}"${defaultKeep === n ? " selected" : ""}>${n} messages</option>`).join("")}
         </select>
       </label>
@@ -366,17 +395,6 @@ export function cancelCompression() {
   }
   if (S.activeConvId) stopConversation(S.activeConvId);
   closeModal();
-}
-
-// Streams an SSE summary, so it returns the raw Response for resp.body.getReader()
-// and takes an abort signal — neither of which the `api` helper supports.
-function summarizeConversation(convId, { keepCount, customInstructions }, signal) {
-  return fetch(`/api/conversations/${convId}/summarize`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keep_count: keepCount, custom_instructions: customInstructions }),
-    signal,
-  });
 }
 
 export async function generateCompressionSummary() {
@@ -420,42 +438,24 @@ export async function generateCompressionSummary() {
   let summaryText = "";
 
   try {
-    const resp = await summarizeConversation(
-      S.activeConvId,
-      { keepCount: _compressKeepCount, customInstructions },
+    // Streams an SSE token summary over the app-wide sse.js path. The summarize
+    // route emits only `token` (text, newline-escaped) and `error` events.
+    const resp = await streamPost(
+      `/conversations/${S.activeConvId}/summarize`,
+      { keep_count: _compressKeepCount, custom_instructions: customInstructions },
       _compressAbort.signal,
     );
-
     if (!resp.ok) {
       const detail = await resp.text();
       throw new Error(detail);
     }
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let currentEvent = null;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (line.startsWith("event: ")) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith("data: ") && currentEvent) {
-          const data = line.slice(6);
-          if (currentEvent === "token") {
-            summaryText += data.replace(/\\n/g, "\n");
-            if (textarea) textarea.value = summaryText;
-          } else if (currentEvent === "error") {
-            throw new Error(data);
-          }
-          currentEvent = null;
-        }
+    for await (const { event, data } of sseEvents(resp.body, { signal: _compressAbort.signal })) {
+      if (event === "token") {
+        summaryText += unescapeSSE(data);
+        if (textarea) textarea.value = summaryText;
+      } else if (event === "error") {
+        throw new Error(data);
       }
     }
 
@@ -465,7 +465,7 @@ export async function generateCompressionSummary() {
   } catch (e) {
     if (e.name === "AbortError") return;
     if (statusEl) statusEl.textContent = `Error: ${e.message}`;
-    toast("Summary generation failed: " + e.message, true);
+    toast(`Summary generation failed: ${e.message}`, true);
     if (regenBtn) regenBtn.disabled = false;
   } finally {
     _compressAbort = null;
@@ -496,7 +496,7 @@ export async function applyCompression() {
     await selectConversation(result.new_conversation_id);
     toast("New conversation created from compression");
   } catch (e) {
-    toast("Failed to apply compression: " + e.message, true);
+    toast(`Failed to apply compression: ${e.message}`, true);
     if (applyBtn) applyBtn.disabled = false;
     if (regenBtn) regenBtn.disabled = false;
   }
@@ -556,7 +556,7 @@ export async function saveTitleEdit() {
     return;
   }
   try {
-    const updated = await api.put("/conversations/" + S.activeConvId, { title: newTitle });
+    const updated = await api.put(`/conversations/${S.activeConvId}`, { title: newTitle });
     const conv = S.conversations.find((c) => c.id === S.activeConvId);
     if (conv) conv.title = updated.title;
     const div = document.createElement("div");

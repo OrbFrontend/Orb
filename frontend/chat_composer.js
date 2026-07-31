@@ -99,16 +99,138 @@ function _resizeChatInput() {
   _resizeScheduled = false;
   const el = $("chat-input");
   el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, 150)}px`;
+  // Grow to fit the ghost suggestion too — it's an inset:0 overlay, so its
+  // scrollHeight reflects draft+ghost content the textarea alone doesn't know about.
+  const ghost = $("chat-ghost");
+  const ghostH = _ghostText && ghost ? ghost.scrollHeight : 0;
+  el.style.height = `${Math.min(Math.max(el.scrollHeight, ghostH), 150)}px`;
+}
+
+function _scheduleResize() {
+  if (!_resizeScheduled) {
+    _resizeScheduled = true;
+    requestAnimationFrame(_resizeChatInput);
+  }
+}
+
+// ── Inline autocomplete (ghost text)
+// A debounced POST to /autocomplete predicts a short continuation, shown as gray
+// ghost text and accepted with Tab. Only fires at the end of a non-empty draft
+// and never mid-generation. A server 503 (ML extra not installed) disables it
+// for the session so we stop polling.
+const GHOST_DEBOUNCE_MS = 180;
+let _ghostText = "";
+let _ghostTimer = null;
+let _ghostAbort = null;
+let _ghostDisabled = false;
+
+function _renderGhost() {
+  const g = $("chat-ghost");
+  const inp = $("chat-input");
+  if (!g) return;
+  const chip = $("chat-ghost-chip");
+  if (chip) {
+    chip.textContent = _ghostText;
+    chip.hidden = !_ghostText;
+  }
+  g.textContent = "";
+  if (!_ghostText) {
+    _scheduleResize(); // suggestion gone — shrink back to the draft's own height
+    return;
+  }
+  g.appendChild(document.createTextNode(inp.value)); // transparent prefix pushes the suggestion to the caret
+  const s = document.createElement("span");
+  s.className = "ghost-suggestion";
+  s.textContent = _ghostText;
+  g.appendChild(s);
+  g.scrollTop = inp.scrollTop;
+  _scheduleResize(); // grow the box to fit a multi-line suggestion
+}
+
+function clearGhost() {
+  if (_ghostTimer) {
+    clearTimeout(_ghostTimer);
+    _ghostTimer = null;
+  }
+  if (_ghostText) {
+    _ghostText = "";
+    _renderGhost();
+  }
+}
+
+function acceptGhost() {
+  const inp = $("chat-input");
+  // insertText (not `inp.value +=`) so the browser keeps this in the native
+  // undo stack — a direct .value assignment wipes it and breaks Ctrl+Z.
+  inp.focus();
+  inp.setSelectionRange(inp.value.length, inp.value.length);
+  if (!document.execCommand("insertText", false, _ghostText)) {
+    inp.value += _ghostText;
+  }
+  _ghostText = "";
+  _renderGhost();
+  onComposerInput(); // resize + schedule the next suggestion
+}
+
+function scheduleGhost() {
+  if (_ghostDisabled) return;
+  if (_ghostTimer) clearTimeout(_ghostTimer);
+  _ghostTimer = setTimeout(_requestGhost, GHOST_DEBOUNCE_MS);
+}
+
+async function _requestGhost() {
+  _ghostTimer = null;
+  if (_ghostDisabled) return;
+  const inp = $("chat-input");
+  const draft = inp.value;
+  const cid = S.activeConvId;
+  if (!cid || !draft.trim() || S.isStreaming || inp.selectionStart !== draft.length) return;
+  // Toggle takes effect live (no reload); the 503 path below still backstops deps/model-missing.
+  if (S.settings?.local_ml_enabled?.autocomplete === false) return;
+  if (_ghostAbort) _ghostAbort.abort();
+  _ghostAbort = new AbortController();
+  try {
+    const r = await fetch(`/api/conversations/${cid}/autocomplete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ draft }),
+      signal: _ghostAbort.signal,
+    });
+    if (r.status === 503) {
+      _ghostDisabled = true; // ML extra not installed — stop trying this session
+      return;
+    }
+    if (!r.ok) return;
+    const { completion } = await r.json();
+    if (inp.value !== draft) return; // draft moved on while we waited
+    _ghostText = completion || "";
+    _renderGhost();
+  } catch {
+    /* AbortError (superseded) or network error: ignore */
+  }
 }
 
 function onComposerInput() {
-  if (_resizeScheduled) return;
-  _resizeScheduled = true;
-  requestAnimationFrame(_resizeChatInput);
+  _scheduleResize();
+  clearGhost();
+  scheduleGhost();
 }
 
 function onComposerKeydown(e) {
+  if (_ghostText) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      acceptGhost();
+      return;
+    }
+    if (e.key === "Escape") {
+      clearGhost();
+      return;
+    }
+    // Any other key (typing, caret move) invalidates the shown suggestion;
+    // typing then reschedules a fresh one via onComposerInput.
+    if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) clearGhost();
+  }
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     const validation = validate.validateChatInput(this.value);
@@ -116,6 +238,7 @@ function onComposerKeydown(e) {
       toast(validation.error, true);
       return;
     }
+    clearGhost();
     sendMessage();
   }
 }
@@ -127,4 +250,19 @@ export function initComposer() {
   const input = $("chat-input");
   input.addEventListener("input", onComposerInput);
   input.addEventListener("keydown", onComposerKeydown);
+  // Clear ghost text when focus leaves (e.g. clicking Send) and keep the
+  // overlay scrolled in step with the textarea.
+  input.addEventListener("blur", clearGhost);
+  input.addEventListener("scroll", () => {
+    const g = $("chat-ghost");
+    if (g) g.scrollTop = input.scrollTop;
+  });
+
+  // Mobile tap-to-accept: pointerdown (not click) + preventDefault keeps the
+  // textarea focused, so the tap neither fires blur→clearGhost nor collapses
+  // the on-screen keyboard. Visible only on coarse-pointer devices (see CSS).
+  $("chat-ghost-chip").addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    acceptGhost();
+  });
 }

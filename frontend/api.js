@@ -1,6 +1,6 @@
 export const api = {
   async _req(path, opts = {}) {
-    const r = await fetch("/api" + path, opts);
+    const r = await fetch(`/api${path}`, opts);
     if (!r.ok) {
       const body = await r.text();
       const err = new Error(body);

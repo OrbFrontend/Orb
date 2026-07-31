@@ -14,14 +14,22 @@ from backend.features.lorebook import (
     agentic_lorebook_active,
     build_lorebook_catalog,
     compute_agentic_lorebook_block,
+    compute_constant_lorebook_block,
     compute_lorebook_block,
     compute_lorebook_injection_block,
     render_lorebook_block,
     select_active_entries,
     select_keyword_entries,
 )
-from backend.inference import build_direct_scene_tool
+from backend.inference import (
+    SELECT_LOREBOOK_CHOICE,
+    TOOLS,
+    build_direct_scene_tool,
+    build_lorebook_select_prompt,
+)
 from backend.pipeline import LorebookTurn
+from backend.pipeline.passes.director import lorebook_select_step
+from backend.pipeline.passes.writer import build_writer_content
 
 
 def _entry(
@@ -45,50 +53,48 @@ def _entry(
     }
 
 
-# ── build_direct_scene_tool: active_lorebook arg ─────────────────────────────
+# ── direct_scene never carries lorebook (decoupled) ──────────────────────────
 
 
-class TestDirectSceneActiveLorebookArg:
-    def test_absent_by_default(self):
+class TestDirectSceneNoLorebookArg:
+    def test_absent_for_empty_fragments(self):
         props = build_direct_scene_tool([])["function"]["parameters"]["properties"]
         assert "selected_lorebook_entries" not in props
+        assert "moods" in props
 
-    def test_absent_when_false(self):
-        props = build_direct_scene_tool([], agentic_lorebook=False)["function"]["parameters"]["properties"]
+    def test_absent_with_fragments(self):
+        frags = [{"id": "kw", "field_type": "array", "description": "d", "required": False}]
+        props = build_direct_scene_tool(frags)["function"]["parameters"]["properties"]
+        assert "moods" in props and "kw" in props
         assert "selected_lorebook_entries" not in props
 
-    def test_present_when_true(self):
-        props = build_direct_scene_tool([], agentic_lorebook=True)["function"]["parameters"]["properties"]
+
+# ── select_lorebook tool: the standalone selection schema ────────────────────
+
+
+class TestSelectLorebookTool:
+    def test_schema_exposes_param(self):
+        props = TOOLS["select_lorebook"]["schema"]["function"]["parameters"]["properties"]
         assert "selected_lorebook_entries" in props
         assert props["selected_lorebook_entries"]["type"] == "array"
         assert props["selected_lorebook_entries"]["items"] == {"type": "string"}
 
     def test_optional_not_required(self):
-        tool = build_direct_scene_tool([], agentic_lorebook=True)
-        assert "selected_lorebook_entries" not in tool["function"]["parameters"]["required"]
+        tool = TOOLS["select_lorebook"]["schema"]
+        assert tool["function"]["parameters"]["required"] == []
 
-    def test_moods_and_fragments_unaffected(self):
-        frags = [{"id": "kw", "field_type": "array", "description": "d", "required": False}]
-        props = build_direct_scene_tool(frags, agentic_lorebook=True)["function"]["parameters"]["properties"]
-        assert "moods" in props and "kw" in props and "selected_lorebook_entries" in props
-
-    def test_byte_stable_for_identical_input(self):
-        import json
-
-        a = build_direct_scene_tool([], agentic_lorebook=True)
-        b = build_direct_scene_tool([], agentic_lorebook=True)
-        assert json.dumps(a, sort_keys=False) == json.dumps(b, sort_keys=False)
+    def test_choice_targets_tool(self):
+        assert SELECT_LOREBOOK_CHOICE["function"]["name"] == "select_lorebook"
 
 
 # ── compute_agentic_lorebook_block ───────────────────────────────────────────
 
 
 class TestComputeAgenticLorebookBlock:
-    def test_constants_always_included(self):
+    def test_constants_excluded_from_trailing(self):
+        # Constants ride the system prefix, never the trailing block.
         entries = [_entry("Const", constant=True), _entry("Other")]
-        block = compute_agentic_lorebook_block(entries, [])
-        assert "Const: Const content" in block
-        assert "Other" not in block
+        assert compute_agentic_lorebook_block(entries, []) == ""
 
     def test_name_match(self):
         entries = [_entry("Dragon"), _entry("Castle")]
@@ -110,20 +116,32 @@ class TestComputeAgenticLorebookBlock:
         block = compute_agentic_lorebook_block(entries, ["Dup"])
         assert "Dup: A" in block and "Dup: B" in block
 
-    def test_constant_and_selected_not_duplicated(self):
-        block = compute_agentic_lorebook_block([_entry("Both", constant=True)], ["Both"])
-        assert block.count("Both: Both content") == 1
+    def test_director_pick_naming_constant_stays_excluded(self):
+        # A pick that names a constant entry must not duplicate it into the
+        # trailing block — the entry already rides the system prefix.
+        assert compute_agentic_lorebook_block([_entry("Both", constant=True)], ["Both"]) == ""
 
     def test_empty_entries(self):
         assert compute_agentic_lorebook_block([], ["x"]) == ""
 
-    def test_no_selection_no_constants_is_empty(self):
+    def test_no_selection_is_empty(self):
         assert compute_agentic_lorebook_block([_entry("A")], []) == ""
 
     def test_priority_sort_desc(self):
         entries = [_entry("Low", priority=10), _entry("High", priority=200)]
         block = compute_agentic_lorebook_block(entries, ["Low", "High"])
         assert block.index("High") < block.index("Low")
+
+    def test_render_order_stable_under_input_permutation(self):
+        # Equal priority: order must come from sort_order/id, not input order,
+        # so a fixed active set renders byte-identically across turns (KV cache).
+        a = {**_entry("Raiden"), "id": 1, "sort_order": 0}
+        b = {**_entry("Inazuma"), "id": 2, "sort_order": 0}
+        c = {**_entry("Yae"), "id": 3, "sort_order": 0}
+        first = render_lorebook_block([a, b, c])
+        second = render_lorebook_block([b, c, a])  # permuted input
+        assert first == second
+        assert first.index("Raiden") < first.index("Inazuma") < first.index("Yae")
 
     def test_substring_scan_activates_in_parallel(self):
         # Director overlooks "Natlan", but the keyword scan catches it.
@@ -212,12 +230,12 @@ class TestBuildLorebookCatalog:
 
 
 class TestKeywordScanParity:
-    def test_constant_always_included(self):
-        msgs = [{"role": "user", "content": "hello"}]
+    def test_constant_excluded_keyword_still_matches(self):
+        msgs = [{"role": "user", "content": "I draw my sword"}]
         entries = [_entry("Const", constant=True), _entry("Var", keywords=["sword"])]
         block = compute_lorebook_injection_block(msgs, entries)
-        assert "Const: Const content" in block
-        assert "Var" not in block
+        assert "Const" not in block
+        assert "Var: Var content" in block
 
     def test_keyword_match(self):
         msgs = [{"role": "user", "content": "I draw my sword"}]
@@ -278,6 +296,61 @@ class TestRenderMacros:
         assert "NAME: BODY" in block
 
 
+# ── compute_constant_lorebook_block: the system-prefix section ───────────────
+
+
+class TestComputeConstantLorebookBlock:
+    def test_starts_with_section_header(self):
+        block = compute_constant_lorebook_block([_entry("Const", constant=True)])
+        assert block.startswith("## Lorebook")
+
+    def test_only_constants_included(self):
+        entries = [_entry("Const", constant=True), _entry("Var", keywords=["v"])]
+        block = compute_constant_lorebook_block(entries)
+        assert "Const: Const content" in block
+        assert "Var" not in block
+
+    def test_empty_when_no_constants(self):
+        assert compute_constant_lorebook_block([_entry("Var", keywords=["v"])]) == ""
+        assert compute_constant_lorebook_block([]) == ""
+
+    def test_byte_stable_under_input_permutation(self):
+        # The prefix section must render byte-identically across turns
+        # regardless of input order (KV cache).
+        a = {**_entry("Raiden", constant=True), "id": 1, "sort_order": 0}
+        b = {**_entry("Inazuma", constant=True), "id": 2, "sort_order": 0}
+        c = {**_entry("Yae", constant=True), "id": 3, "sort_order": 0}
+        assert compute_constant_lorebook_block([a, b, c]) == compute_constant_lorebook_block([b, c, a])
+
+    def test_macros_resolved(self):
+        class _Upper:
+            def resolve_message(self, text):
+                return text.upper()
+
+        block = compute_constant_lorebook_block([_entry("name", content="body", constant=True)], _Upper())
+        assert "NAME: BODY" in block
+
+
+# ── constants-only pool: trailing block stays empty ──────────────────────────
+
+
+class TestConstantsOnlyTrailing:
+    _entries = [_entry("Const", constant=True)]
+
+    def test_wrappers_return_empty(self):
+        msgs = [{"role": "user", "content": "hello"}]
+        assert compute_lorebook_injection_block(msgs, self._entries) == ""
+        assert compute_agentic_lorebook_block(self._entries, ["Const"], None, msgs) == ""
+
+    def test_writer_block_empty_and_no_separator(self):
+        lt = LorebookTurn(entries=self._entries, messages=[], agentic=True)
+        block = lt.writer_block(["Const"])
+        assert block == ""
+        # An empty block must not leave a stray ___ separator in the writer content.
+        content = build_writer_content(block, "", {}, "hi", None, None)
+        assert content == "___\n\nhi\n\n"
+
+
 # ── select_active_entries: the unified three-source core ─────────────────────
 
 
@@ -304,10 +377,9 @@ class TestSelectActiveEntries:
         selected = select_active_entries(entries, [], scan_depth=2, director_selected=["dragon"])
         assert selected == [entries[0]]
 
-    def test_constant_always_selected(self):
+    def test_constants_never_selected(self):
         entries = [_entry("Const", constant=True), _entry("Other", keywords=["nope"])]
-        selected = select_active_entries(entries, [], scan_depth=6)
-        assert selected == [entries[0]]
+        assert select_active_entries(entries, [], scan_depth=6) == []
 
 
 # ── LorebookTurn ──────────────────────────────────────────────────────────────
@@ -352,19 +424,70 @@ class TestLorebookTurn:
 
 class TestAgenticLorebookActive:
     _on = {"agentic_lorebook_enabled": 1}
-    _tools = {"direct_scene": True}
 
     def test_enabled_when_all_conditions_met(self):
-        assert agentic_lorebook_active(self._on, self._tools, [_entry("A")], agent_on=True)
+        assert agentic_lorebook_active(self._on, [_entry("A")], agent_on=True)
+
+    def test_enabled_independent_of_direct_scene(self):
+        # The whole point of the decoupling: no direct_scene needed.
+        assert agentic_lorebook_active(self._on, [_entry("A")], agent_on=True)
 
     def test_disabled_when_flag_off(self):
-        assert not agentic_lorebook_active({}, self._tools, [_entry("A")], agent_on=True)
+        assert not agentic_lorebook_active({}, [_entry("A")], agent_on=True)
 
     def test_disabled_when_agent_off(self):
-        assert not agentic_lorebook_active(self._on, self._tools, [_entry("A")], agent_on=False)
-
-    def test_disabled_when_direct_scene_off(self):
-        assert not agentic_lorebook_active(self._on, {"direct_scene": False}, [_entry("A")], agent_on=True)
+        assert not agentic_lorebook_active(self._on, [_entry("A")], agent_on=False)
 
     def test_disabled_when_only_constants(self):
-        assert not agentic_lorebook_active(self._on, self._tools, [_entry("C", constant=True)], agent_on=True)
+        assert not agentic_lorebook_active(self._on, [_entry("C", constant=True)], agent_on=True)
+
+
+# ── lorebook_select_step + build_lorebook_select_prompt ───────────────────────
+
+
+class _FakeSelectBase:
+    """Stands in for ``CachedBase``: serves one canned ``select_lorebook`` completion."""
+
+    prefix: list = []
+
+    def __init__(self, args: dict):
+        self._args = args
+
+    async def complete(self, *_args, **_kwargs):
+        import json
+
+        yield {
+            "type": "done",
+            "message": {
+                "role": "assistant",
+                "tool_calls": [{"function": {"name": "select_lorebook", "arguments": json.dumps(self._args)}}],
+            },
+        }
+
+
+class _FakeClient:
+    is_aborted = False
+
+
+def test_select_prompt_includes_catalog_and_user_message():
+    # The pending user message must ride the prompt: during the director pass it is not
+    # yet in the shared history, so without it the model can't judge scene relevance.
+    out = build_lorebook_select_prompt("THE CATALOG", "WHAT THE USER ASKED", reasoning_on=False)
+    assert "THE CATALOG" in out
+    assert "WHAT THE USER ASKED" in out
+    assert "select_lorebook" in out
+
+
+async def test_select_step_extracts_names():
+    base = _FakeSelectBase({"selected_lorebook_entries": ["Dragon", "Castle"]})
+    events = [e async for e in lorebook_select_step(_FakeClient(), base, settings={}, catalog="cat", user_message="hi")]  # type: ignore[arg-type]
+    result = events[-1]["result"]
+    assert result.selected == ["Dragon", "Castle"]
+    assert result.calls and result.calls[0]["name"] == "select_lorebook"
+
+
+async def test_select_step_empty_catalog_skips():
+    # No catalog → no call, empty selection (deterministic lorebook still applies downstream).
+    base = _FakeSelectBase({"selected_lorebook_entries": ["X"]})
+    events = [e async for e in lorebook_select_step(_FakeClient(), base, settings={}, catalog="", user_message="hi")]  # type: ignore[arg-type]
+    assert events[-1]["result"].selected == []

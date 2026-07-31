@@ -9,7 +9,7 @@ reasons. This test pins the SSE event shape -- specifically the
 
 from __future__ import annotations
 
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import pytest
 

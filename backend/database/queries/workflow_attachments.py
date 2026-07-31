@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 
 from ...core import scrub_log
@@ -53,15 +53,15 @@ def _encode_metadata_field(value: object, field_name: str, workflow_id: str, fil
 
     Non-dict values produce None silently -- the row helper accepts these from
     callers that have already coerced them and from defensive paths upstream.
-    A dict containing non-serializable contents (e.g. nested ``set``) trips
-    ``TypeError`` from ``json.dumps``; the error is logged and the column is
-    written as NULL so the row insert still lands.
+    A dict containing non-serializable contents (e.g. nested ``set``) or
+    non-finite numbers trips strict JSON encoding; the error is logged and the
+    column is written as NULL so the row insert still lands.
     """
     if not isinstance(value, dict):
         return None
     try:
-        return json.dumps(value)
-    except TypeError:
+        return json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError):
         logger.warning(
             "workflow %r attachment %r %s contains non-JSON-serializable values; storing NULL",
             scrub_log(workflow_id),
@@ -191,7 +191,7 @@ async def insert_workflow_attachment_row(
         rows = list(await conn.execute_fetchall("SELECT id FROM messages WHERE id = ?", (message_id,)))
         if not rows:
             raise LookupError(f"message_id {message_id!r} does not exist")
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cur = await conn.execute(
             """INSERT INTO workflow_attachments
                (message_id, mime_type, data_b64, filename, created_at,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import cast
 
 from ..connection import _build_set_clause, get_db
@@ -29,7 +29,7 @@ async def get_world_by_name(name: str) -> WorldRow | None:
 
 async def create_world(data: dict) -> WorldRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         world_id = data.get("id") or str(uuid.uuid4())
         await db.execute(
             "INSERT INTO worlds (id, name, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -53,7 +53,7 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
         sets, vals = _build_set_clause(allowed, data)
         if sets:
             sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(datetime.now(UTC).isoformat())
             vals.append(world_id)
             await db.execute(
                 f"UPDATE worlds SET {', '.join(sets)} WHERE id = ?",
@@ -72,7 +72,8 @@ async def delete_world(world_id: str) -> bool:
 
 def _parse_lorebook_entry(row) -> LorebookEntryRow:
     d = dict(row)
-    d["keywords"] = json.loads(d["keywords"]) if d.get("keywords") else []
+    for col in ("keywords", "secondary_keys"):
+        d[col] = json.loads(d[col]) if d.get(col) else []
     return cast(LorebookEntryRow, d)
 
 
@@ -95,9 +96,9 @@ async def get_lorebook_entry(entry_id: int) -> LorebookEntryRow | None:
 
 async def create_lorebook_entry(world_id: str, data: dict) -> LorebookEntryRow:
     async with get_db() as db:
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         cur = await db.execute(
-            "INSERT INTO lorebook_entries (world_id, name, content, keywords, case_insensitive, constant, priority, enabled, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO lorebook_entries (world_id, name, content, keywords, case_insensitive, constant, at_depth, use_regex, selective, secondary_keys, priority, enabled, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 world_id,
                 data["name"],
@@ -105,6 +106,10 @@ async def create_lorebook_entry(world_id: str, data: dict) -> LorebookEntryRow:
                 json.dumps(data.get("keywords", [])),
                 1 if data.get("case_insensitive", True) else 0,
                 1 if data.get("constant", False) else 0,
+                1 if data.get("at_depth", False) else 0,
+                1 if data.get("use_regex", False) else 0,
+                1 if data.get("selective", False) else 0,
+                json.dumps(data.get("secondary_keys", [])),
                 data.get("priority", 100),
                 1 if data.get("enabled", True) else 0,
                 data.get("sort_order", 0),
@@ -127,14 +132,18 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
             "keywords",
             "case_insensitive",
             "constant",
+            "at_depth",
+            "use_regex",
+            "selective",
+            "secondary_keys",
             "priority",
             "enabled",
             "sort_order",
         ]
-        sets, vals = _build_set_clause(allowed, data, json_fields={"keywords"})
+        sets, vals = _build_set_clause(allowed, data, json_fields={"keywords", "secondary_keys"})
         if sets:
             sets.append("updated_at = ?")
-            vals.append(datetime.now(timezone.utc).isoformat())
+            vals.append(datetime.now(UTC).isoformat())
             vals.append(entry_id)
             await db.execute(
                 f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",

@@ -37,7 +37,7 @@ function _endsSentence(text, start, end) {
 // every newline.
 export function tokenizeRun(text, carry, opts) {
   let { wordIndex, sentIndex, midWord, pendingTerminator, breakPending } = carry;
-  if (opts && opts.lineBreakBefore) {
+  if (opts?.lineBreakBefore) {
     midWord = false;
     pendingTerminator = false;
     breakPending = true;
@@ -112,8 +112,8 @@ export function segmentBody(bodyEl) {
   // Collect before mutating; replacing a text node mid-walk invalidates the walker.
   const items = [];
   let breakBefore = false;
-  let node;
-  while ((node = walker.nextNode())) {
+  let node = walker.nextNode();
+  for (; node; node = walker.nextNode()) {
     if (node.nodeType === Node.ELEMENT_NODE) {
       breakBefore = true;
       continue;

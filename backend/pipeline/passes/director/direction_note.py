@@ -25,8 +25,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Mapping, Sequence
+from typing import Any
 
 from ....core import ChatMessage, ContentPart, extract_hyperparams
 from ....inference import (
@@ -42,7 +43,7 @@ from ....inference import (
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(slots=True)
 class DirectionNoteResult:
     """Typed result of the direction-note step, yielded as the ``done`` payload.
 
@@ -88,9 +89,10 @@ async def direction_note_step(
     placement: str,
     inj_block: str | None = None,
     reply_text: str | None = None,
-    writer_user_msg: "str | list[ContentPart] | None" = None,
+    writer_user_msg: str | list[ContentPart] | None = None,
     kv_tracker=None,
     reasoning_on: bool = False,
+    reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
     """Yield reasoning chunks during the call(s), then a single done dict.
 
@@ -148,7 +150,7 @@ async def direction_note_step(
                 tool_choice=RECORD_DIRECTION_NOTE_CHOICE,
                 kv_tracker=kv_tracker,
                 **hyperparams,
-                **reasoning_cfg(reasoning_on),
+                **reasoning_cfg(reasoning_on, reasoning_prefill),
             ):
                 if event["type"] == "reasoning":
                     yield {"type": "reasoning", "delta": event["delta"]}

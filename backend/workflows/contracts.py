@@ -1,6 +1,6 @@
 """Boundary contracts for the workflow subsystem.
 
-Defines the five context dataclasses passed to workflow hooks, the
+Defines the six context dataclasses passed to workflow hooks, the
 ``ToolSpec`` declaration carried on a ``Workflow``, and the ``_readonly``
 recursive wrapper that turns mutable orchestrator-derived structures into
 deeply read-only views.
@@ -15,10 +15,12 @@ and ``frozenset.add``, ``TypeError`` from tuple item assignment.
 
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any
 
 
 def _readonly(obj: Any) -> Any:
@@ -166,7 +168,9 @@ class OnDemandCtx:
 
     No ``turn_scratch`` or ``kv_tracker``: on-demand handlers run outside
     any turn, Python locals serve in place of scratch, and on-demand LLM
-    calls do not participate in turn cache accounting.
+    calls do not participate in turn cache accounting. ``client`` is the
+    Writer lane; ``agent_client`` and ``agent_model_name`` are the resolved
+    Agent lane, reusing that same client in single-model mode.
     """
 
     conversation_id: str
@@ -174,6 +178,8 @@ class OnDemandCtx:
     last_user_message: str
     settings: MappingProxyType
     client: Any
+    agent_client: Any
+    agent_model_name: str
     character_id: str | None = None
     character: MappingProxyType | None = None
 
@@ -191,7 +197,9 @@ class RegenCtx:
     ``original_attachment`` carries the workflow_attachments row currently
     being regenerated; ``history`` is the conversation as sliced for this
     regenerate call. No ``turn_scratch`` or ``kv_tracker``: regen runs
-    outside any turn.
+    outside any turn. ``client`` is the Writer lane; ``agent_client`` and
+    ``agent_model_name`` are the resolved Agent lane, reusing that same client
+    in single-model mode.
     """
 
     conversation_id: str
@@ -202,6 +210,8 @@ class RegenCtx:
     last_user_message: str
     settings: MappingProxyType
     client: Any
+    agent_client: Any
+    agent_model_name: str
     character_id: str | None = None
     character: MappingProxyType | None = None
 
@@ -236,12 +246,89 @@ class RerollGenCtx:
     prior_consumption_metadata: MappingProxyType | None = None
 
 
+@dataclass(frozen=True)
+class QueryCtx:
+    """Inputs available to a workflow's conversation-less query hook.
+
+    QUERY is the off-turn, single-dispatch slot for a workflow's *global*
+    configuration and capability-discovery surface -- operations that answer
+    from the workflow's own config slot or by probing an external backend,
+    with no conversation, message, or character in scope (image generation's
+    readiness check, style list, remote model enumeration, and connection
+    probe are the shipped uses). It carries only the global ``settings``
+    snapshot; a workflow reads its own config via the toolkit's
+    ``get_workflow_config`` exactly as its other hooks do, so config is never
+    a Ctx field.
+
+    No ``client`` by design: query handlers are the first-run setup surface
+    and must answer *before* any LLM endpoint is configured, so they never
+    perform inference. This is the one Ctx a handler may receive during
+    bootstrap, and building an LLM client from possibly-absent endpoint
+    settings is exactly the failure that surface must not have.
+    """
+
+    settings: MappingProxyType
+
+
+@dataclass(frozen=True)
+class WorkflowEventStream:
+    """A transport-neutral stream of public workflow events.
+
+    The domain-layer result an on-demand hook returns when its output is a
+    sequence of SSE-style events rather than a single JSON object. ``events``
+    yields ``{"event": <name>, "data": <str | JSON-serializable dict>}`` dicts
+    (the shape :func:`public_event_error` validates); the API layer -- never
+    the workflow -- owns turning them into HTTP/SSE frames and closing the
+    iterator on client disconnect. This keeps ``workflows/`` free of any
+    HTTP-transport dependency: a hook describes *what* to emit, the transport
+    decides *how*.
+
+    ``frozen=True`` freezes the reference to the iterator, not the stream's
+    own cursor state -- ``events`` is single-use, consumed exactly once by the
+    transport.
+    """
+
+    events: AsyncIterator[dict]
+
+
+def public_event_error(ev: object) -> str | None:
+    """Validate a public workflow event; return ``None`` if valid, else a short reason.
+
+    A public event is a dict ``{"event": <name>, "data": <payload>}`` where
+    ``name`` is a non-empty, single-line string that does not start with ``_``
+    (the reserved prefix for internal control events) and ``payload`` is a
+    string or a JSON-serializable (``allow_nan=False``) dict. ``data`` defaults
+    to ``""`` when absent.
+
+    One definition of the wire shape, shared by the pipeline bridge (pre/post
+    hook pass-through events) and the API on-demand SSE encoder, so the two
+    consumers cannot drift into subtly different notions of a valid event.
+    """
+    if not isinstance(ev, dict):
+        return f"not a dict (type={type(ev).__name__})"
+    name = ev.get("event")
+    if not isinstance(name, str) or not name.strip() or "\r" in name or "\n" in name:
+        return "event name must be a non-empty single-line string"
+    if name.startswith("_"):
+        return f"event name {name!r} uses the reserved internal prefix"
+    data = ev.get("data", "")
+    if not isinstance(data, (str, dict)):
+        return f"data must be str or dict (type={type(data).__name__})"
+    if isinstance(data, dict):
+        try:
+            json.dumps(data, allow_nan=False)
+        except (TypeError, ValueError):
+            return "data dict is not JSON-serializable"
+    return None
+
+
 class HookType(Enum):
     """Identifies which pipeline slot a subscription binds to.
 
     PRE_PIPELINE and POST_PIPELINE fan out over every subscribed workflow
-    per turn; ON_DEMAND, REGENERATE, and REROLL_GEN are single-dispatch
-    slots resolved by workflow id from an HTTP route.
+    per turn; ON_DEMAND, REGENERATE, REROLL_GEN, and QUERY are single-dispatch
+    slots resolved by workflow id from an HTTP route. QUERY is the only one
+    with no conversation in scope -- the global config/discovery surface.
     """
 
     PRE_PIPELINE = "pre_pipeline"
@@ -249,10 +336,15 @@ class HookType(Enum):
     ON_DEMAND = "on_demand"
     REGENERATE = "regenerate"
     REROLL_GEN = "reroll_gen"
+    QUERY = "query"
 
 
 PreHook = Callable[[PreCtx], AsyncIterator[dict]]
 PostHook = Callable[[PostCtx], AsyncIterator[dict]]
-OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[dict]]
+# An on-demand hook returns either a plain JSON object (the API renders it as a
+# JSON response) or a WorkflowEventStream (the API renders it as an SSE stream).
+OnDemandResult = dict | WorkflowEventStream
+OnDemandHook = Callable[[OnDemandCtx, dict], Awaitable[OnDemandResult]]
 RegenHook = Callable[[RegenCtx, dict], Awaitable[list[dict]]]
 RerollGenHook = Callable[[RerollGenCtx, dict, str], Awaitable["bytes | tuple[bytes, dict | None]"]]
+QueryHook = Callable[[QueryCtx, dict], Awaitable[dict]]

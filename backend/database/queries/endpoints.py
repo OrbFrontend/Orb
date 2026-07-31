@@ -10,7 +10,7 @@ async def get_endpoints() -> list[EndpointRow]:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints ORDER BY id ASC"
+                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints ORDER BY id ASC"
             )
         )
         return [cast(EndpointRow, dict(r)) for r in rows]
@@ -20,7 +20,7 @@ async def get_endpoint(endpoint_id: int) -> EndpointRow | None:
     async with get_db() as db:
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints WHERE id = ?",
+                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints WHERE id = ?",
                 (endpoint_id,),
             )
         )
@@ -46,7 +46,7 @@ async def create_endpoint(url: str, api_key: str = "") -> EndpointRow:
         await db.commit()
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints WHERE id = ?",
+                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints WHERE id = ?",
                 (endpoint_id,),
             )
         )
@@ -60,6 +60,8 @@ async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
             "api_key",
             "active_model_config_id",
             "agent_active_model_config_id",
+            "completion_mode",
+            "proxy",
         ]
         sets, vals = _build_set_clause(allowed, data)
         if sets:
@@ -71,7 +73,7 @@ async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
             await db.commit()
         rows = list(
             await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints WHERE id = ?",
+                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints WHERE id = ?",
                 (endpoint_id,),
             )
         )
@@ -99,7 +101,7 @@ async def get_model_configs(endpoint_id: int) -> list[ModelConfigRow]:
 async def create_model_config(endpoint_id: int, data: dict) -> ModelConfigRow:
     async with get_db() as db:
         cur = await db.execute(
-            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role, reasoning_effort, reasoning_effort_param, reasoning_effort_value) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 endpoint_id,
                 data.get("model_name", "default"),
@@ -111,6 +113,9 @@ async def create_model_config(endpoint_id: int, data: dict) -> ModelConfigRow:
                 data.get("repetition_penalty", 1.0),
                 data.get("max_tokens", 4096),
                 data.get("role", "writer"),
+                data.get("reasoning_effort", ""),
+                data.get("reasoning_effort_param", ""),
+                data.get("reasoning_effort_value", ""),
             ),
         )
         await db.commit()
@@ -129,6 +134,9 @@ async def update_model_config(config_id: int, data: dict) -> ModelConfigRow | No
             "top_p",
             "repetition_penalty",
             "max_tokens",
+            "reasoning_effort",
+            "reasoning_effort_param",
+            "reasoning_effort_value",
         ]
         sets, vals = _build_set_clause(allowed, data)
         if sets:

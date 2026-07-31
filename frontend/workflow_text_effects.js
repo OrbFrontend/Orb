@@ -4,8 +4,6 @@
 // applies a curated CSS class, so a workflow can never inject styling or
 // fight for screen space.
 
-import { S } from "./state.js";
-
 const SANCTIONED_VARIANTS = new Set(["highlight", "underline", "pulse"]);
 
 // { token, msgId, variant, grain, lastUnit } | null
@@ -18,7 +16,7 @@ let _seq = 0;
 export function startTextEffect({ msgId, effectId, grain = "word", variant = "highlight" } = {}) {
   clearTextEffect();
   if (!SANCTIONED_VARIANTS.has(variant)) {
-    console.error("startTextEffect: unknown variant", variant, "(effect", effectId + ") -- using highlight");
+    console.error("startTextEffect: unknown variant", variant, "(effect", `${effectId}) -- using highlight`);
     variant = "highlight";
   }
   const token = ++_seq;
@@ -47,7 +45,7 @@ function _paint(unitIndex, on) {
   const body = document.querySelector(`#chat-messages .message[data-msg-id="${_active.msgId}"] .msg-body`);
   if (!body) return;
   const attr = _active.grain === "sentence" ? "data-sent" : "data-seg";
-  const cls = "fx-" + _active.variant;
+  const cls = `fx-${_active.variant}`;
   for (const span of body.querySelectorAll(`.seg[${attr}="${unitIndex}"]`)) {
     span.classList.toggle(cls, on);
   }

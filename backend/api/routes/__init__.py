@@ -10,8 +10,10 @@ from __future__ import annotations
 from . import (
     characters,
     conversations,
+    documents,
     endpoints,
     fragments,
+    local_ml,
     messages,
     misc,
     personas,
@@ -19,6 +21,7 @@ from . import (
     presets,
     settings,
     stats,
+    storage,
     workflows,
     worlds,
 )
@@ -34,9 +37,12 @@ ROUTERS = [
     phrase_bank.router,
     personas.router,
     stats.router,
+    storage.router,
     conversations.router,
     characters.router,
     presets.router,
     messages.router,
     workflows.router,
+    local_ml.router,
+    documents.router,
 ]

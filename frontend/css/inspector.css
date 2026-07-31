@@ -218,6 +218,19 @@ details.inspector-block[open] .reasoning-summary-arrow {
   scroll-behavior: auto;
 }
 
+/* The prefill input carries `.reasoning-box` too, so it picks up that block AND
+   any theme's override of it (litestep restyles .reasoning-box with !important)
+   — consistency with the read-only box above is structural, not copied. Only the
+   editable-field deltas live here; they win on source order. */
+.reasoning-prefill {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  height: auto;
+  min-height: 0;
+  resize: vertical;
+}
+
 .reasoning-box::-webkit-scrollbar { width: 3px; }
 .reasoning-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 

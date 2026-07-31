@@ -10,9 +10,7 @@
 // real decoded length. The browser's decode stays the single duration source --
 // no server-side audio parsing.
 
-import { registerTextEffect } from "/static/state.js";
-import { startTextEffect } from "/static/workflow_text_effects.js";
-import { channelState, onChannel } from "/static/audio_player.js";
+import { channelState, onChannel, registerTextEffect, startTextEffect } from "/static/workflow_api.js";
 
 const CHANNEL = "tts";
 const EFFECT_ID = "tts";
@@ -69,7 +67,7 @@ function onEv(ev) {
     // preview, or a transport replay that minted a fresh token -- fails
     // isActive() and is ignored; it has already cleared `cur` through its
     // preceding close.
-    if (cur.play && cur.play.isActive() && cfg.show_karaoke) {
+    if (cur.play?.isActive() && cfg.show_karaoke) {
       if (!cur.session) {
         cur.session = startTextEffect({ msgId: cur.msgId, effectId: EFFECT_ID, grain: "word", variant: "highlight" });
       }
@@ -95,7 +93,7 @@ function _arm() {
 }
 
 function _cancel() {
-  if (cur && cur.raf) {
+  if (cur?.raf) {
     cancelAnimationFrame(cur.raf);
     cur.raf = 0;
   }
@@ -103,7 +101,7 @@ function _cancel() {
 
 function _tick() {
   if (cur) cur.raf = 0;
-  if (!cur || !cur.session) return;
+  if (!cur?.session) return;
   if (!cur.play.isActive()) {
     // Our clip ended, or a foreign play took the channel.
     _stop();
@@ -116,7 +114,7 @@ function _tick() {
     return;
   }
   const st = channelState(CHANNEL);
-  if (!st || !st.playing) {
+  if (!st?.playing) {
     _arm();
     return;
   }
@@ -134,8 +132,8 @@ function _tick() {
     return;
   }
   const block = cur.blocks[slot.block];
-  const words = block && block.words;
-  if (!words || !words.length) {
+  const words = block?.words;
+  if (!words?.length) {
     _arm();
     return;
   }

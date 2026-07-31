@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
 <title>Orb</title>
 <link rel="stylesheet" href="/static/fonts.css">
 <link id="theme-link" rel="stylesheet" href="/static/themes/dark.css">
@@ -15,7 +15,7 @@
 <div id="app">
   <div id="sidebar">
     <div class="sidebar-header">
-      <div class="sidebar-header-top"><h1>Orb</h1><div class="subtitle">Agentic Writing</div></div>
+      <div class="sidebar-header-top"><div class="title-row"><h1>Orb</h1><button id="mode-switch-btn" onclick="toggleDocumentMode()" title="Switch to Document mode">💬</button></div><div class="subtitle">Agentic Writing</div></div>
       <div class="theme-row">
         <label for="theme-select" class="theme-label">Theme</label>
         <select id="theme-select" class="theme-select" onchange="applyTheme(this.value)">
@@ -23,7 +23,7 @@
       </div>
     </div>
     <div class="sidebar-scroll">
-      <div class="sidebar-section">
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Worlds<span id="worlds-active-count" style="display:none;margin-left:6px;font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-muted,color-mix(in srgb,var(--accent) 18%,transparent));padding:1px 6px;border-radius:8px;"></span> <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="worlds-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
@@ -36,7 +36,7 @@
           <div id="worlds-list"></div>
         </div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Characters <span class="arrow">▼</span></div>
         <div class="sidebar-section-body" id="char-section">
           <div class="btn-row" style="margin-bottom:8px;gap:8px">
@@ -48,25 +48,33 @@
           <div id="char-list"></div>
         </div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section doc-only">
+        <div class="sidebar-section-header" onclick="toggleSection(this)">Documents <span class="arrow collapsed">▼</span></div>
+        <div class="sidebar-section-body collapsed" id="documents-section">
+          <button class="btn btn-block btn-sm" style="margin-bottom:8px" onclick="createDocument()">+ New Document</button>
+          <div id="documents-search-wrap" style="display:none;margin-bottom:8px">
+            <input id="documents-search" class="worlds-search" type="text" placeholder="Search documents…" autocomplete="off" oninput="onDocSearch(this.value)">
+          </div>
+          <div id="documents-list"></div>
+        </div>
+      </div>
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Interactive Fragments <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="interactive-frag-section">
           <div id="interactive-frag-list"></div>
-          <button class="btn btn-block btn-sm" onclick="showInteractiveFragmentModal()" style="margin-top:6px">+ Add Interactive Fragment</button>
         </div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Mood Fragments <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="frag-section">
           <div id="frag-list"></div>
-          <button class="btn btn-block btn-sm" onclick="showMoodFragmentModal()" style="margin-top:6px">+ Add Mood Fragment</button>
         </div>
       </div>
       <div class="sidebar-section">
         <div class="sidebar-section-header" onclick="toggleSection(this)"><span id="endpoints-label">Endpoints</span> <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="endpoints-section"><div id="endpoints-form"></div></div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section chat-only">
         <div class="sidebar-section-header" onclick="toggleSection(this)">Settings <span class="arrow collapsed">▼</span></div>
         <div class="sidebar-section-body collapsed" id="settings-section">
           <div id="settings-form"></div>
@@ -76,7 +84,7 @@
   </div>
   <div id="main">
     <div id="lorebook-drawer" class="hidden"></div>
-    <div id="tab-lock-banner" class="tab-lock-banner hidden">
+    <div id="tab-lock-banner" class="tab-lock-banner">
       <span class="tab-lock-icon">⚠️</span>
       <span class="tab-lock-text">Multiple tabs detected. Close other tabs to send messages.</span>
     </div>
@@ -91,13 +99,13 @@
         <button class="btn btn-sm" id="user-profile-btn" onclick="showUserModal()" title="User profile">👤 User</button>
         <button class="btn btn-sm" id="tools-panel-btn" onclick="toggleToolsPanel()" title="Agentic Tools & Workflows">✨ Workflow</button>
         <button class="btn btn-sm" id="inspector-toggle" onclick="toggleInspector()">🔍 Inspector</button>
-        <button class="btn btn-sm hidden" id="direction-notes-panel-btn" onclick="toggleDirectionNotesPanel()" title="Direction Notes">Notes</button>
+        <button class="btn btn-sm hidden" id="direction-notes-panel-btn" onclick="toggleDirectionNotesPanel()" title="Direction Notes">📝 Notes</button>
         <button id="mobile-chat-actions-toggle" onclick="toggleMobileHeaderActions()" title="Quick actions">⋯</button>
         <div id="mobile-chat-actions-menu">
           <div class="burger-menu-item" id="mobile-user-profile-btn" onclick="closeMobileHeaderActions();showUserModal()">👤 User</div>
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleToolsPanel()">✨ Workflow</div>
           <div class="burger-menu-item" onclick="closeMobileHeaderActions();toggleInspector()">🔍 Inspector</div>
-          <div class="burger-menu-item hidden" id="mobile-direction-notes-btn" onclick="closeMobileHeaderActions();toggleDirectionNotesPanel()">Notes</div>
+          <div class="burger-menu-item hidden" id="mobile-direction-notes-btn" onclick="closeMobileHeaderActions();toggleDirectionNotesPanel()">📝 Notes</div>
         </div>
       </div>
     </div>
@@ -118,13 +126,77 @@
       </div>
       <input type="file" id="attach-image-input" accept="image/*" multiple style="display:none">
       <div id="attachment-preview" class="attachment-preview"></div>
+      <button id="chat-ghost-chip" type="button" aria-label="Insert suggestion" hidden></button>
       <div id="chat-input-wrap">
         <button id="burger-btn" onclick="toggleBurger()" title="Menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
-        <textarea id="chat-input" placeholder="Write your message..." rows="1" disabled></textarea>
+        <div id="chat-input-field">
+          <textarea id="chat-input" placeholder="Write your message..." rows="1" disabled></textarea>
+          <div id="chat-ghost" aria-hidden="true"></div>
+        </div>
         <button id="send-btn" onclick="sendMessage()" disabled title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
         <button id="stop-btn" onclick="stopGeneration()" title="Stop generation"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
       </div>
     </div>
+  </div>
+  <div id="document-main">
+    <div id="doc-header">
+      <button id="doc-mobile-sidebar-toggle" onclick="event.stopPropagation();toggleMobileSidebar()" title="Toggle sidebar">☰</button>
+      <div class="doc-title" id="doc-title-text">No document</div>
+      <button class="doc-title-edit" id="doc-title-edit-btn" onclick="renameActiveDocument()" title="Rename document"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+      <div class="doc-header-status">
+        <span id="doc-token-count">~0 tokens</span>
+        <span id="doc-save-state" class="doc-save-state"></span>
+      </div>
+      <!-- Wired via addEventListener in document_audit.js (no new inline handlers).
+           Desktop shows the labelled pill; < 900px swaps to the ⋯ icon (document.css). -->
+      <button class="btn btn-sm" id="doc-workflow-btn" title="Output Auditor &amp; Phrase Bank">✨ Workflow</button>
+      <button id="doc-workflow-mobile-btn" title="Output Auditor &amp; Phrase Bank" aria-label="Workflow">⋯</button>
+    </div>
+    <details id="doc-help">
+      <summary id="doc-help-summary">How to prompt</summary>
+      <div class="doc-help-body">
+        <div id="doc-help-assisted">
+          <p>Write role notes in plain text — the server wraps them in the model's own chat template, so you never type turn markers or BOS/EOS. Lines starting <code>### SYSTEM:</code>, <code>### USER:</code> or <code>### ASSISTANT:</code> are notes; every other line is your prose. Generate continues from the cursor.</p>
+          <pre>### SYSTEM: You are a co-writer. Match the voice and style.
+### USER: Write a story about a monkey. Ornate prose.
+Once upon a time, beneath the gilded canopy…
+### USER: Write tersely now. Short sentences.
+The monkey woke. He▮</pre>
+          <ul>
+            <li>Wrapping a note over several lines? Repeat the tag on each line.</li>
+            <li>Output stops when the model ends its turn — often a sentence or two. Hit Generate again to keep going.</li>
+          </ul>
+        </div>
+        <div id="doc-help-raw" hidden>
+          <p>The document is sent verbatim — type the model's chat-template turn markers yourself, then Generate with the cursor after the open assistant turn (ChatML shown; Llama-3 uses <code>&lt;|start_header_id|&gt;…&lt;|eot_id|&gt;</code>).</p>
+          <pre>&lt;|im_start|&gt;system
+You are a helpful assistant.&lt;|im_end|&gt;
+&lt;|im_start|&gt;user
+Write a haiku about the sea.&lt;|im_end|&gt;
+&lt;|im_start|&gt;assistant
+</pre>
+        </div>
+        <p class="doc-help-cap">Each Generate adds up to <span id="doc-help-maxtok">512</span> tokens (set by the writer model's Max Tokens).</p>
+      </div>
+    </details>
+    <div id="doc-editor-scroll">
+      <div id="doc-page" contenteditable="false" spellcheck="true"></div>
+    </div>
+    <div id="doc-footer">
+      <div class="doc-footer-info">
+        <div class="doc-mode-toggle" role="group" aria-label="Prompting mode">
+          <button type="button" class="doc-mode-opt active" id="doc-mode-raw" onclick="setDocAssisted(false)" title="Raw: send the document verbatim — you type any chat-template tokens">Raw</button>
+          <button type="button" class="doc-mode-opt" id="doc-mode-assisted" onclick="setDocAssisted(true)" title="Assisted: write ### SYSTEM / ### USER notes and the model's chat template is applied for you">Assisted</button>
+        </div>
+        <button type="button" class="doc-probs-toggle" id="doc-probs-btn" onclick="setDocProbs(!this.classList.contains('active'))" title="Capture per-token alternatives (may slow local generation)">Probs</button>
+      </div>
+      <div class="doc-footer-actions">
+        <button class="btn btn-sm" id="doc-undo-btn" onclick="docUndo()" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+        <button class="btn btn-sm" id="doc-generate-btn" onclick="docGenerate()" title="Continue from cursor (Ctrl/⌘+Enter)">✨ Generate</button>
+        <button class="btn btn-sm hidden" id="doc-stop-btn" onclick="docStop()" title="Stop (Esc)">■ Stop</button>
+      </div>
+    </div>
+    <div id="doc-prob-popup" class="hidden"></div>
   </div>
   <div id="tools-panel"><div class="tools-inner">
     <div class="inspector-title">Workflows</div>
@@ -140,14 +212,15 @@
         </div>
         <div class="tool-card-desc">Enables the tools below.</div>
       </div>
-      <div style="font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);margin-bottom:8px;">Available Tools</div>
       <div id="tools-list"></div>
-      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+      <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
         <button class="btn btn-sm btn-block" onclick="showPhraseBankModal()" style="margin-bottom: 8px;">📚 Phrase Bank</button>
         <div style="font-size: 10px; color: var(--text-muted); text-align: center;">Manage banned/overused phrases</div>
       </div>
     </div>
     <div id="tools-pane-secondary" class="hidden"><div id="tools-list-secondary"></div></div>
+    <!-- Doc-mode pane: shown/hidden by mode CSS (document.css), rendered by document_audit.js. -->
+    <div id="tools-pane-doc"></div>
   </div></div>
   <div id="inspector"><div class="inspector-inner">
     <div class="inspector-title">Inspector</div>

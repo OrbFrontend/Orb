@@ -139,24 +139,6 @@
 
 /* ---- config panel (Tools "Secondary" tab) ---- */
 
-/* Card button that opens the settings modal; matches Orb's small buttons. */
-.tts-settings-btn {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12px;
-  padding: 3px 11px;
-  margin-top: 6px;
-  cursor: pointer;
-}
-
-.tts-settings-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
 .tts-config {
   display: flex;
   flex-direction: column;

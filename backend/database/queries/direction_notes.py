@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Mapping, Sequence, cast
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from typing import Any, cast
 
 from ..connection import get_db
 from ..models import DirectionNoteRow
@@ -13,7 +14,7 @@ async def create_direction_notes(conversation_id: str, message_id: int, notes: S
     recorded notes key to the turn's assistant reply, a user-authored note to the message the
     Notes button sat on (user or assistant)."""
     ids: list[int] = []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     async with get_db() as db:
         for n in notes:
             cur = await db.execute(
@@ -27,6 +28,19 @@ async def create_direction_notes(conversation_id: str, message_id: int, notes: S
             ids.append(row_id)
         await db.commit()
     return ids
+
+
+def direction_note_projection(r: Mapping[str, Any]) -> dict:
+    """Client-facing base projection of a direction-note row.
+
+    The fragment id / label / content triple every consumer surfaces; callers
+    spread in their own extras (``id``, ``message_id``, ``turn_index``).
+    """
+    return {
+        "interactive_fragment_id": r["interactive_fragment_id"],
+        "interactive_fragment_label": r["interactive_fragment_label"],
+        "content": r["content"],
+    }
 
 
 async def get_direction_notes_for_path(conversation_id: str, path_message_ids: Sequence[int]) -> list[DirectionNoteRow]:

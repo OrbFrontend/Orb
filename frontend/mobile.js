@@ -11,6 +11,7 @@ const IDS = Object.freeze({
   burgerMenu: "burger-dropdown",
   mobileActionsToggle: "mobile-chat-actions-toggle",
   mobileActionsMenu: "mobile-chat-actions-menu",
+  docWorkflowMobileToggle: "doc-workflow-mobile-btn",
   mobileSidebarToggle: "mobile-sidebar-toggle",
   sidebar: "sidebar",
   toolsPanel: "tools-panel",
@@ -34,6 +35,10 @@ const MOBILE_SIDE_PANELS = Object.freeze([
   {
     elementId: IDS.toolsPanel,
     toggleId: IDS.toolsPanelToggle,
+    // Doc mode opens the same #tools-panel from its own ⋯ button; without this
+    // the outside-click handler would treat the opening tap as "outside" and
+    // close the panel the instant it opened.
+    altToggleId: IDS.docWorkflowMobileToggle,
     appStateClass: APP_STATE.toolsOpen,
   },
   {
@@ -222,7 +227,7 @@ function handleDocumentClick(event) {
   // Tapping a character or a world/lorebook opens content in the main pane, so
   // get the off-canvas sidebar out of the way. (The world toggle switch lives
   // outside .world-item-main, so flipping a lorebook on/off won't close it.)
-  if (sidebarOpen && matcher.matches(".char-item, .world-item-main")) {
+  if (sidebarOpen && matcher.matches(".char-item, .world-item-main, .doc-item")) {
     setTimeout(closeMobileSidebar, 0);
   }
 
@@ -239,7 +244,13 @@ function handleDocumentClick(event) {
   let closedUtilityPanel = false;
   for (const panel of MOBILE_SIDE_PANELS) {
     if (!isElementOpen(panel.elementId)) continue;
-    if (matcher.hasId(panel.elementId) || matcher.hasId(panel.toggleId) || clickedMobileActionsMenu) continue;
+    if (
+      matcher.hasId(panel.elementId) ||
+      matcher.hasId(panel.toggleId) ||
+      (panel.altToggleId && matcher.hasId(panel.altToggleId)) ||
+      clickedMobileActionsMenu
+    )
+      continue;
 
     setElementOpen(panel.elementId, false);
     closedUtilityPanel = true;
@@ -295,11 +306,31 @@ function bindViewportListener(handler) {
   MOBILE_VIEWPORT.addListener(handler);
 }
 
+// Mobile keyboards shrink the visual viewport but leave 100vh at full height, so
+// the footer buttons get stranded under the keyboard. Mirror the visible height
+// into --app-height (the shell keys off it) so the app shrinks to fit instead.
+function trackVisualViewport() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const apply = () => {
+    const root = document.documentElement.style;
+    root.setProperty("--app-height", `${Math.round(vv.height)}px`);
+    // Browsers that don't resize the layout viewport (iOS Safari; Chrome without
+    // interactive-widget support) pan it instead — offsetTop shifts the visible
+    // window down and the shrunken app slides off-screen. Pull it back in line.
+    root.setProperty("--app-offset", `${Math.round(vv.offsetTop)}px`);
+  };
+  apply();
+  vv.addEventListener("resize", apply);
+  vv.addEventListener("scroll", apply); // offsetTop changes fire scroll, not resize
+}
+
 // ── Init
 export function initMobileUi(deps) {
   if (_initialized) return;
   _initialized = true;
   _closeBurger = deps.closeBurger;
+  trackVisualViewport();
 
   document.addEventListener("click", handleDocumentClick);
   window.addEventListener("keydown", handleEscape);

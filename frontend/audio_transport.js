@@ -47,13 +47,13 @@ function _mmss(sec) {
   const s = Math.max(0, Math.floor(sec));
   const m = Math.floor(s / 60);
   const r = s % 60;
-  return m + ":" + (r < 10 ? "0" + r : "" + r);
+  return `${m}:${r < 10 ? `0${r}` : `${r}`}`;
 }
 
 // Whole-stream "m:ss / m:ss", plus the current chunk's index and timing when the
 // stream has more than one chunk.
 function _formatTime(st) {
-  let out = _mmss(st.stream.elapsedSec) + " / " + _mmss(st.stream.durationSec);
+  let out = `${_mmss(st.stream.elapsedSec)} / ${_mmss(st.stream.durationSec)}`;
   if (st.segmentCount > 1 && st.segmentIndex >= 0) {
     out +=
       "  " +
@@ -75,7 +75,7 @@ function _streamPct(st) {
 function _anyAudible() {
   for (const name of activeChannels()) {
     const s = channelState(name);
-    if (s && s.playing && !s.paused) return true;
+    if (s?.playing && !s.paused) return true;
   }
   return false;
 }
@@ -112,13 +112,13 @@ function _syncBarLayout() {
   const padL = parseFloat(ccs.paddingLeft) || 0;
   const padR = parseFloat(ccs.paddingRight) || 0;
   const scrollbar = cm.offsetWidth - cm.clientWidth;
-  _barEl.style.marginLeft = padL + "px";
-  _barEl.style.marginRight = padR + scrollbar + "px";
+  _barEl.style.marginLeft = `${padL}px`;
+  _barEl.style.marginRight = `${padR + scrollbar}px`;
   // Read height after the side margins settle the bar's width (they drive control
   // wrapping); top/bottom margins still come from the stylesheet.
   const bcs = getComputedStyle(_barEl);
   const my = (parseFloat(bcs.marginTop) || 0) + (parseFloat(bcs.marginBottom) || 0);
-  cm.style.paddingBottom = _barEl.offsetHeight + my + "px";
+  cm.style.paddingBottom = `${_barEl.offsetHeight + my}px`;
 }
 
 // #chat-messages changes geometry from several sources -- window resize, the
@@ -190,7 +190,7 @@ function _refreshBar() {
   for (const name of names) {
     const tab = document.createElement("button");
     tab.type = "button";
-    tab.className = "audio-transport-tab" + (name === _selectedChannel ? " selected" : "");
+    tab.className = `audio-transport-tab${name === _selectedChannel ? " selected" : ""}`;
     tab.dataset.channel = name;
     tab.setAttribute("aria-pressed", name === _selectedChannel ? "true" : "false");
     tab.textContent = name;
@@ -235,20 +235,20 @@ function _buildControls(channel, st) {
   if (!st.playing) {
     playpause.dataset.action = "replay";
     playpause.textContent = "Replay";
-    playpause.setAttribute("aria-label", "Replay " + channel);
+    playpause.setAttribute("aria-label", `Replay ${channel}`);
   } else if (st.paused) {
     playpause.dataset.action = "resume";
     playpause.textContent = "Play";
-    playpause.setAttribute("aria-label", "Play " + channel);
+    playpause.setAttribute("aria-label", `Play ${channel}`);
   } else {
     playpause.dataset.action = "pause";
     playpause.textContent = "Pause";
-    playpause.setAttribute("aria-label", "Pause " + channel);
+    playpause.setAttribute("aria-label", `Pause ${channel}`);
   }
 
   const repeat = document.createElement("button");
   repeat.type = "button";
-  repeat.className = "audio-transport-repeat" + (st.loop ? " on" : "");
+  repeat.className = `audio-transport-repeat${st.loop ? " on" : ""}`;
   repeat.dataset.channel = channel;
   repeat.setAttribute("aria-pressed", st.loop ? "true" : "false");
   repeat.textContent = "Repeat";
@@ -258,7 +258,7 @@ function _buildControls(channel, st) {
   progress.dataset.channel = channel;
   const fill = document.createElement("div");
   fill.className = "audio-transport-fill";
-  fill.style.width = _streamPct(st) + "%";
+  fill.style.width = `${_streamPct(st)}%`;
   progress.appendChild(fill);
 
   const time = document.createElement("span");
@@ -277,7 +277,7 @@ function _buildControls(channel, st) {
   stop.type = "button";
   stop.className = "audio-transport-stop";
   stop.dataset.channel = channel;
-  stop.setAttribute("aria-label", "Stop " + channel);
+  stop.setAttribute("aria-label", `Stop ${channel}`);
   stop.textContent = "Stop";
 
   // Seek bar on its own full-width line above a wrapping control strip, so the
@@ -300,7 +300,7 @@ function _tick() {
     const row = _barEl.querySelector(".audio-transport-row");
     if (row) {
       const fill = row.querySelector(".audio-transport-fill");
-      if (fill) fill.style.width = _streamPct(st) + "%";
+      if (fill) fill.style.width = `${_streamPct(st)}%`;
       const time = row.querySelector(".audio-transport-time");
       if (time) time.textContent = _formatTime(st);
     }
@@ -325,7 +325,7 @@ function _applyDrag(e) {
   frac = frac < 0 ? 0 : frac > 1 ? 1 : frac;
   _dragFraction = frac;
   const fill = _dragProgressEl.querySelector(".audio-transport-fill");
-  if (fill) fill.style.width = frac * 100 + "%";
+  if (fill) fill.style.width = `${frac * 100}%`;
 }
 
 function _onDragMove(e) {
@@ -353,31 +353,31 @@ function _onBarClick(e) {
     return;
   }
   const tab = e.target.closest(".audio-transport-tab");
-  if (tab && tab.dataset.channel) {
+  if (tab?.dataset.channel) {
     _selectedChannel = tab.dataset.channel;
     _refreshBar();
     return;
   }
   const pp = e.target.closest(".audio-transport-playpause");
-  if (pp && pp.dataset.channel) {
+  if (pp?.dataset.channel) {
     if (pp.dataset.action === "pause") pauseChannel(pp.dataset.channel);
     else if (pp.dataset.action === "resume") resumeChannel(pp.dataset.channel);
     else if (pp.dataset.action === "replay") replayChannel(pp.dataset.channel);
     return;
   }
   const rep = e.target.closest(".audio-transport-repeat");
-  if (rep && rep.dataset.channel) {
+  if (rep?.dataset.channel) {
     const st = channelState(rep.dataset.channel);
-    setChannelRepeat(rep.dataset.channel, !(st && st.loop));
+    setChannelRepeat(rep.dataset.channel, !st?.loop);
     return;
   }
   const stop = e.target.closest(".audio-transport-stop");
-  if (stop && stop.dataset.channel) stopChannel(stop.dataset.channel);
+  if (stop?.dataset.channel) stopChannel(stop.dataset.channel);
 }
 
 function _onBarPointerDown(e) {
   const prog = e.target.closest(".audio-transport-progress");
-  if (!prog || !prog.dataset.channel) return;
+  if (!prog?.dataset.channel) return;
   const st = channelState(prog.dataset.channel);
   // Scrubbable while playing, paused, or naturally ended: dragging an ended channel
   // re-arms playback from the drop point (seekChannel). Only a channel with no
@@ -395,7 +395,7 @@ function _onBarPointerDown(e) {
 
 function _onBarInput(e) {
   const slider = e.target.closest(".audio-transport-vol");
-  if (slider && slider.dataset.channel) {
+  if (slider?.dataset.channel) {
     setChannelUserVolume(slider.dataset.channel, Number(slider.value) / 100);
   }
 }
@@ -407,7 +407,7 @@ function _bindResumeOnGesture() {
   const resume = () => {
     if (isContextSuspended()) {
       resumeContext()
-        .then(() => _barEl && _barEl.classList.remove("audio-transport-suspended"))
+        .then(() => _barEl?.classList.remove("audio-transport-suspended"))
         .catch(() => {});
     }
   };

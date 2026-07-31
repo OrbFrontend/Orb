@@ -20,6 +20,9 @@ async def get_settings() -> SettingsRow:
         )
         # Remove stale scripter key from reasoning_enabled_passes if present.
         s["reasoning_enabled_passes"].pop("scripter", None)
+        s["reasoning_prefill_passes"] = json.loads(
+            s.get("reasoning_prefill_passes") or '{"director":"","writer":"","editor":""}'
+        )
         s["inspector_open_states"] = json.loads(
             s.get("inspector_open_states")
             or '{"reasoning":true,"tool_calls":false,"injection_block":false,"context_size":true}'
@@ -29,7 +32,12 @@ async def get_settings() -> SettingsRow:
             or '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,'
             '"contrastive_negation":true,"phrase_repetition":true,"structural_repetition":true}'
         )
+        s["document_audit_toggles"] = json.loads(
+            s.get("document_audit_toggles")
+            or '{"banned_phrases":true,"repetitive_openers":true,"repetitive_templates":true,"contrastive_negation":true}'
+        )
         s["workflow_enabled"] = json.loads(s.get("workflow_enabled") or "{}")
+        s["local_ml_enabled"] = json.loads(s.get("local_ml_enabled") or "{}")
         # Overlay endpoint_url, api_key, model_name, and hyperparameters from the
         # active endpoint's active model config so callers always get live values
         # rather than the stale flat columns.
@@ -37,12 +45,14 @@ async def get_settings() -> SettingsRow:
         if active_ep_id:
             ep_rows = list(
                 await db.execute_fetchall(
-                    "SELECT id, url, api_key, active_model_config_id FROM endpoints WHERE id = ?",
+                    "SELECT id, url, api_key, active_model_config_id, completion_mode, proxy FROM endpoints WHERE id = ?",
                     (active_ep_id,),
                 )
             )
             if ep_rows:
                 ep = dict(ep_rows[0])
+                s["completion_mode"] = ep.get("completion_mode", "chat")
+                s["proxy"] = ep.get("proxy", "")
                 mc_id = ep.get("active_model_config_id")
                 if mc_id:
                     mc_rows = list(
@@ -66,6 +76,9 @@ async def get_settings() -> SettingsRow:
                             "top_p",
                             "repetition_penalty",
                             "max_tokens",
+                            "reasoning_effort",
+                            "reasoning_effort_param",
+                            "reasoning_effort_value",
                         ):
                             if mc.get(field) is not None:
                                 s[field] = mc[field]
@@ -80,12 +93,14 @@ async def get_settings() -> SettingsRow:
         if not s["agent_same_as_writer"] and agent_ep_id:
             agent_ep_rows = list(
                 await db.execute_fetchall(
-                    "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id FROM endpoints WHERE id = ?",
+                    "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints WHERE id = ?",
                     (agent_ep_id,),
                 )
             )
             if agent_ep_rows:
                 agent_ep = dict(agent_ep_rows[0])
+                s["agent_completion_mode"] = agent_ep.get("completion_mode", "chat")
+                s["agent_proxy"] = agent_ep.get("proxy", "")
                 agent_mc_id = agent_ep.get("agent_active_model_config_id")
                 if agent_mc_id:
                     agent_mc_rows = list(
@@ -109,11 +124,23 @@ async def get_settings() -> SettingsRow:
                             "top_p",
                             "repetition_penalty",
                             "max_tokens",
+                            "reasoning_effort",
+                            "reasoning_effort_param",
+                            "reasoning_effort_value",
                         ):
                             if amc.get(field) is not None:
                                 s[f"agent_{field}"] = amc[field]
                         if amc.get("system_prompt") is not None:
                             s["agent_system_prompt"] = amc["system_prompt"]
+        # Transport mode defaults: no active endpoint => 'chat'; agent sharing the
+        # writer endpoint inherits the writer's mode (its own overlay never ran).
+        s.setdefault("completion_mode", "chat")
+        s.setdefault("agent_completion_mode", s["completion_mode"])
+        s.setdefault("proxy", "")
+        s.setdefault("agent_proxy", s["proxy"])
+        for field in ("reasoning_effort", "reasoning_effort_param", "reasoning_effort_value"):
+            s.setdefault(field, "")
+            s.setdefault(f"agent_{field}", s[field])
         return cast(SettingsRow, s)
 
 
@@ -189,18 +216,33 @@ async def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
         await db.commit()
 
 
+async def set_local_ml_enabled(feature: str, enabled: bool) -> None:
+    """Set one local-ML feature's on/off flag via a per-key JSON1 write.
+
+    Near-identical to ``set_workflow_enabled``: a single atomic ``json_set`` on
+    the named key only, so concurrent tabs flipping different features can't
+    clobber each other and no application lock is needed. Missing key => enabled.
+    """
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE settings "
+            "SET local_ml_enabled = json_set(COALESCE(local_ml_enabled, '{}'), '$.' || ?, json(?)) "
+            "WHERE id = 1",
+            (feature, json.dumps(bool(enabled))),
+        )
+        await db.commit()
+
+
 async def update_settings(data: dict) -> SettingsRow:
     async with get_db() as db:
         allowed = [
             "endpoint_url",
             "api_key",
             "model_name",
-            "temperature",
-            "min_p",
-            "top_k",
-            "top_p",
-            "repetition_penalty",
-            "max_tokens",
+            # Hyperparameters (temperature, min_p, top_k, top_p, repetition_penalty,
+            # max_tokens) are deliberately excluded: get_settings() always overlays
+            # them from the active model_config, so writing them here is a dead path.
+            # They are edited via /models/{id}. See SettingsUpdate for the contract.
             "shared_system_prompt",
             "system_prompt",
             "user_name",
@@ -213,12 +255,16 @@ async def update_settings(data: dict) -> SettingsRow:
             "length_guard_enforce",
             "agentic_lorebook_enabled",
             "reasoning_enabled_passes",
+            "reasoning_prefill_passes",
             "active_persona_id",
             "character_library_view",
             "character_library_sort",
             "active_endpoint_id",
             "show_editor_diff",
             "editor_audit_toggles",
+            "document_audit_enabled",
+            "document_audit_autopatch",
+            "document_audit_toggles",
             "hide_streaming_until_baked",
             "prevent_prompt_overrides",
             "agent_same_as_writer",
@@ -230,11 +276,23 @@ async def update_settings(data: dict) -> SettingsRow:
             "direction_notes_inject",
             "inspector_open_states",
             "workflows_globally_enabled",
+            # The artifact cache's size cap. Editable so artifacts self-trim at a
+            # size the user picked; the LRU-3 eviction that enforces it already
+            # runs on every attachment write. Stays in PRESERVED_COLUMNS, so an
+            # imported preset never overwrites this machine's storage limit.
+            "attachment_cache_budget_bytes",
         ]
         sets, vals = _build_set_clause(
             allowed,
             data,
-            json_fields={"enabled_tools", "reasoning_enabled_passes", "inspector_open_states", "editor_audit_toggles"},
+            json_fields={
+                "enabled_tools",
+                "reasoning_enabled_passes",
+                "reasoning_prefill_passes",
+                "inspector_open_states",
+                "editor_audit_toggles",
+                "document_audit_toggles",
+            },
         )
         if sets:
             await db.execute(

@@ -5,7 +5,7 @@
 // character-edit modal from library.js.
 import { api } from "./api.js";
 import { _avatarBust, showCharEditModal } from "./library.js";
-import { closeModal, setModalCloseCallback, showModal } from "./modal.js";
+import { setModalCloseCallback, showModal } from "./modal.js";
 import { S } from "./state.js";
 import {
   $,
@@ -288,7 +288,7 @@ function renderCharBrowserItems() {
 
   // Capture the natural full-set height so the panel doesn't collapse/jump when
   // a filter hides most cards.
-  container.style.minHeight = container.offsetHeight + "px";
+  container.style.minHeight = `${container.offsetHeight}px`;
 
   applyBrowserFilter();
 }
@@ -312,7 +312,7 @@ function renderCharBrowserCard(c) {
 function renderCharBrowserListItem(c) {
   const bust = _avatarBust.has(c.id) ? `?v=${_avatarBust.get(c.id)}` : "";
   const av = avatarCell(c.has_avatar ? avatarUrl(c.id) + bust : "", { attrs: 'loading="lazy"' });
-  const notes = c.creator_notes || (c.tags && c.tags.length ? c.tags.slice(0, 6).join(", ") : "");
+  const notes = c.creator_notes || (c.tags?.length ? c.tags.slice(0, 6).join(", ") : "");
   const tags = notes ? `<div class="char-browser-list-tags">${esc(notes)}</div>` : "";
   return `
     <div class="char-browser-list-item" ${charItemMatchAttrs(c)} onclick="selectChar('${c.id}', 'library');closeModal()">
@@ -367,8 +367,8 @@ function renderInternetResultCard(item) {
   const av = avatarCell(item.avatar_url ? escAttr(item.avatar_url) : "", { attrs: 'loading="lazy" decoding="async"' });
   const fullPath = escHandlerArg(item.full_path || "");
   const topics = (item.topics || []).slice(0, 12);
-  const updated = item.date_updated ? "Updated: " + formatRelativeDate(item.date_updated) : "";
-  const tooltipParts = [item.name, item.tagline, updated, topics.length ? "Tags: " + topics.join(", ") : ""].filter(
+  const updated = item.date_updated ? `Updated: ${formatRelativeDate(item.date_updated)}` : "";
+  const tooltipParts = [item.name, item.tagline, updated, topics.length ? `Tags: ${topics.join(", ")}` : ""].filter(
     Boolean,
   );
   const tooltip = tooltipParts.map(esc).join("\n");
@@ -409,7 +409,7 @@ export async function searchInternet(nextPage = false) {
     else _internetResults = [..._internetResults, ...results];
     _internetHasMore = !!data?.has_more;
   } catch (e) {
-    toast("Search failed: " + e.message, true);
+    toast(`Search failed: ${e.message}`, true);
   } finally {
     _internetLoading = false;
     refreshInternetResults();
@@ -440,7 +440,7 @@ export async function randomizeInternet() {
     _internetResults = Array.isArray(data?.results) ? data.results : [];
     _internetHasMore = !!data?.has_more;
   } catch (e) {
-    toast("Randomize failed: " + e.message, true);
+    toast(`Randomize failed: ${e.message}`, true);
   } finally {
     _internetLoading = false;
     refreshInternetResults();
@@ -466,7 +466,7 @@ export async function importInternetChar(fullPath) {
     });
     showCharEditModal(r);
   } catch (e) {
-    toast("Import failed: " + e.message, true);
+    toast(`Import failed: ${e.message}`, true);
   }
 }
 

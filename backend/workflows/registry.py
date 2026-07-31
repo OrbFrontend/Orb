@@ -15,8 +15,10 @@ exception that adds behavior: it falls back to the workflow's
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Callable, Mapping, Optional
+from typing import Any
 
 from ..database import (
     get_workflow_character_state as _db_get_workflow_character_state,
@@ -60,15 +62,23 @@ class Workflow:
     blocks artifact-hook bindings on workflows that disclaim the contract,
     and ``finalize_registry`` blocks the process from starting when one
     side is declared without the other.
+
+    ``config_normalizer`` is the workflow's own strict normalization of its
+    global config slot, applied by the config GET/PUT routes. ``config_schema``
+    is UI metadata and enforces nothing, so without this the API would persist
+    and echo back a shape the workflow's own hooks then silently repair or drop
+    on read -- leaving a settings panel showing entries the backend ignores.
+    Optional: a workflow with no normalizer keeps the raw round-trip.
     """
 
     id: str
     display_name: str
     tools: list[ToolSpec] = field(default_factory=list)
     config_defaults: dict = field(default_factory=dict)
-    config_schema: Optional[dict] = None
+    config_schema: dict | None = None
     produces_artifacts: bool = False
-    subscriptions: list["Subscription"] = field(default_factory=list)
+    subscriptions: list[Subscription] = field(default_factory=list)
+    config_normalizer: Callable[[Any], dict] | None = None
 
 
 @dataclass(frozen=True)
@@ -98,7 +108,22 @@ class WorkflowMandateError(ValueError):
     artifact workflow into production."""
 
 
+class WorkflowDeclarationError(ValueError):
+    """Raised when a workflow's static declaration is internally invalid."""
+
+
+_WORKFLOW_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_TOOL_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
 _WORKFLOWS_BY_ID: dict[str, Workflow] = {}
+
+
+def _declared_function_name(payload: object) -> object:
+    if not isinstance(payload, dict):
+        return None
+    function = payload.get("function")
+    return function.get("name") if isinstance(function, dict) else None
 
 
 def register_workflow(w: Workflow) -> None:
@@ -112,15 +137,40 @@ def register_workflow(w: Workflow) -> None:
         ``STANDALONE_TOOLS`` so the workflow's declaration stays the
         single source of truth for what it owns
 
-    Validation order: built-in name reservation first (more informative
-    error wins over a cross-workflow collision on the same name), then
+    Validation order: declaration shape (id grammar, unique tool names,
+    schema/choice name symmetry), built-in name reservation, then
     cross-workflow collision on names this registration is newly claiming.
-    Both raise ``ToolNameCollision`` before any state mutation, so a
-    rejected call leaves the registry, ``TOOLS``, and ``STANDALONE_TOOLS``
-    exactly as they were. Re-registration preserves the original
-    insertion position so manifest ordering stays stable across reloads.
+    Every check runs before state mutation, so a rejected call leaves the
+    registry, ``TOOLS``, and ``STANDALONE_TOOLS`` exactly as they were.
+    Re-registration preserves the original insertion position so manifest
+    ordering stays stable across reloads.
     """
+    if not isinstance(w.id, str) or _WORKFLOW_ID_RE.fullmatch(w.id) is None:
+        raise WorkflowDeclarationError(
+            f"workflow id {w.id!r} must be 1-64 ASCII letters, digits, underscores, or hyphens and start with a letter or digit"
+        )
+
+    seen_tool_names: set[str] = set()
     for spec in w.tools:
+        if not isinstance(spec.name, str) or _TOOL_NAME_RE.fullmatch(spec.name) is None:
+            raise WorkflowDeclarationError(
+                f"workflow {w.id!r} tool name {spec.name!r} must be 1-64 ASCII letters, digits, underscores, or hyphens"
+            )
+        if spec.name in seen_tool_names:
+            raise WorkflowDeclarationError(f"workflow {w.id!r} declares duplicate tool name {spec.name!r}")
+        seen_tool_names.add(spec.name)
+
+        schema_name = _declared_function_name(spec.schema)
+        if schema_name != spec.name:
+            raise WorkflowDeclarationError(
+                f"workflow {w.id!r} tool {spec.name!r} schema function name must match the declared name"
+            )
+        choice_name = _declared_function_name(spec.choice)
+        if choice_name != spec.name:
+            raise WorkflowDeclarationError(
+                f"workflow {w.id!r} tool {spec.name!r} choice function name must match the declared name"
+            )
+
         if spec.name in BUILTIN_TOOL_NAMES:
             raise ToolNameCollision(f"workflow {w.id!r} cannot claim built-in tool name {spec.name!r}")
 
@@ -174,7 +224,7 @@ def iter_subscriptions(hook_type: HookType) -> list[Subscription]:
     return subs
 
 
-def get_subscription(workflow_id: str, hook_type: HookType) -> Optional[Subscription]:
+def get_subscription(workflow_id: str, hook_type: HookType) -> Subscription | None:
     """Return the workflow's subscription for ``hook_type``, or None.
 
     Collapses "unregistered" and "no binding" into one None -- the routes
@@ -218,7 +268,7 @@ def list_workflows() -> list[Workflow]:
     return list(_WORKFLOWS_BY_ID.values())
 
 
-def get_workflow(workflow_id: str) -> Optional[Workflow]:
+def get_workflow(workflow_id: str) -> Workflow | None:
     """Look up a workflow by id, or None if not registered."""
     return _WORKFLOWS_BY_ID.get(workflow_id)
 

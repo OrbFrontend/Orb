@@ -55,6 +55,33 @@ def test_build_prefix_extras_appear_after_existing_body():
     assert out_with == out_no_extras + "\n\nTAIL"
 
 
+# -- build_prefix(constant_lorebook_block=...) ----------------------------
+
+
+def test_build_prefix_no_constant_lorebook_matches_unspecified():
+    base = build_prefix(**_BASE_KWARGS)
+    explicit_empty = build_prefix(constant_lorebook_block="", **_BASE_KWARGS)
+    assert _system_body(base) == _system_body(explicit_empty)
+
+
+def test_build_prefix_constant_lorebook_between_persona_and_scenario():
+    body = _system_body(build_prefix(constant_lorebook_block="## Lorebook\n\nFact: value", **_BASE_KWARGS))
+    assert "## Lorebook" in body
+    assert body.index("A test character.") < body.index("## Lorebook") < body.index("## Scenario")
+
+
+def test_build_prefix_constant_lorebook_appended_verbatim():
+    # The block is opaque, pre-rendered data — no second macro expansion.
+    class _Upper:
+        char = ""
+
+        def resolve_message(self, text):
+            return text.upper()
+
+    body = _system_body(build_prefix(macros=_Upper(), constant_lorebook_block="## Lorebook\n\n{{char}} fact", **_BASE_KWARGS))
+    assert "## Lorebook\n\n{{char}} fact" in body
+
+
 # -- user persona section gating ------------------------------------------
 
 

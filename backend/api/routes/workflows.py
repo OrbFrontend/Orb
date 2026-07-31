@@ -6,9 +6,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ...core import (
     scrub_log,
@@ -27,12 +28,16 @@ from ...database import (
     get_workflow_attachment_by_id,
     set_workflow_enabled,
 )
-from ...inference import LLMClient
+from ...database.models import ConversationRow
+from ...inference import agent_lane_from_settings, client_from_settings
 from ...workflows import (
     HookType,
     OnDemandCtx,
+    QueryCtx,
     RegenCtx,
     RerollGenCtx,
+    Subscription,
+    WorkflowEventStream,
     _readonly,
     get_subscription,
     get_workflow,
@@ -42,23 +47,44 @@ from ...workflows import (
 )
 from ...workflows.attachment_cache import (
     EVICTED_MARKER,
-    OVERSIZE_NO_METADATA_REASON,
     RehydrateAlreadyDoneError,
     delete_workflow_attachments,
     insert_workflow_attachment,
     insert_workflow_attachments,
+    project_rejected_attachment,
     record_access,
     rehydrate_attachment,
     set_active_sibling,
     validate_workflow_attachment_shape,
 )
 from ...workflows.enablement import effective_workflow_enabled
-from ..deps import _workflow_root_lock
+from ..deps import (
+    _workflow_event_stream_response,
+    locked_attachment_group,
+    require_conversation,
+)
 from ..schemas import WorkflowConfigUpdate, WorkflowEnabledUpdate
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _gate_workflow_sub(
+    sub: Subscription | None, wid: str, settings: Mapping[str, Any], *, action: str, detail: str
+) -> Subscription:
+    """Shared missing-handler / disabled gate, applied before any lock is taken.
+
+    Returns the live subscription; raises 404 otherwise. A disabled workflow is
+    indistinguishable from a missing handler to the caller (both 404); the log
+    disambiguates server-side. Gating before the lock means a disabled-workflow
+    request never contends for the same lock the live consumption routes hold.
+    """
+    if sub is None or not effective_workflow_enabled(wid, settings):
+        if sub is not None:
+            logger.info("workflow %r %s suspended (disabled)", scrub_log(wid), action)
+        raise HTTPException(status_code=404, detail=detail)
+    return sub
 
 
 @router.get("/api/workflows")
@@ -75,18 +101,32 @@ async def api_list_workflows():
     ]
 
 
+def _normalized(workflow_id: str, config: Any) -> Any:
+    """Apply the workflow's own config normalizer, when it declares one.
+
+    Both directions go through here so the panel edits, and then re-reads, the
+    exact shape the workflow's hooks will use -- a value the normalizer clamps
+    or an entry it drops must not survive in the UI as a setting that appears to
+    have taken effect.
+    """
+    workflow = get_workflow(workflow_id)
+    normalizer = getattr(workflow, "config_normalizer", None) if workflow else None
+    return normalizer(config) if normalizer else config
+
+
 @router.put("/api/workflows/{workflow_id}/config")
 async def api_set_workflow_config(workflow_id: str, data: WorkflowConfigUpdate):
     """Persist a workflow's global config slot as a full replacement."""
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    config = _normalized(workflow_id, data.config)
     # Serialize the replacement with workflow code that updates the same slot via
     # a locked read-modify-write; a lock-free write here could be lost mid-RMW.
     async with workflow_config_lock():
-        await set_workflow_config(workflow_id, data.config)
+        await set_workflow_config(workflow_id, config)
         effective = await get_workflow_config(workflow_id)
     logger.info("workflow %r config updated (%d keys)", scrub_log(workflow_id), len(data.config))
-    return {"config": effective}
+    return {"config": _normalized(workflow_id, effective)}
 
 
 @router.get("/api/workflows/{workflow_id}/config")
@@ -94,7 +134,35 @@ async def api_get_workflow_config(workflow_id: str):
     """Return a workflow's effective config: persisted slot, else its defaults."""
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
-    return {"config": await get_workflow_config(workflow_id)}
+    return {"config": _normalized(workflow_id, await get_workflow_config(workflow_id))}
+
+
+@router.post("/api/workflows/{workflow_id}/query")
+async def api_query_workflow(workflow_id: str, body: dict = Body(default={})):  # noqa: B008
+    """Run a workflow's conversation-less QUERY hook: global config / discovery.
+
+    The off-turn counterpart to ``/trigger`` for operations with no conversation
+    in scope -- readiness, capability discovery, external-backend probing.
+    Ungated by enablement, the same policy and reason as the config routes: these
+    answer setup and capability questions that must work *before* a workflow is
+    enabled (an artifact backend is configured, then switched on). Single-dispatch
+    by workflow id; 404 when the workflow declares no QUERY handler. No lock -- the
+    contract is read-only (queries never mutate workflow state). The handler's dict
+    is returned verbatim; it reports its own failures in-band as ``{"error": ...}``,
+    so a probe failure is a 200 the caller can degrade on, not an HTTP error. An
+    *unexpected* raise still becomes a 500, mirroring ``/trigger``.
+    """
+    if get_workflow(workflow_id) is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
+    sub = get_subscription(workflow_id, HookType.QUERY)
+    if sub is None:
+        raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} has no query handler")
+    settings_snapshot = await get_settings()
+    try:
+        return await sub.callable(QueryCtx(settings=_readonly(settings_snapshot)), body)
+    except Exception:
+        logger.exception("query hook %r failed", scrub_log(workflow_id))
+        raise HTTPException(status_code=500, detail="Query handler raised; see server logs") from None
 
 
 @router.post("/api/workflows/{workflow_id}/enabled")
@@ -119,18 +187,15 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
     """Run a workflow's on_demand hook against the current conversation state."""
     if get_workflow(workflow_id) is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} is not registered")
-    sub = get_subscription(workflow_id, HookType.ON_DEMAND)
-    # Gate before the lock so a disabled-workflow request does no DB work. A
-    # disabled workflow is indistinguishable from a missing handler to the caller
-    # (both 404); the log disambiguates server-side.
+    # Gate before the lock so a disabled-workflow request does no DB work.
     settings_snapshot = await get_settings()
-    if sub is None or not effective_workflow_enabled(workflow_id, settings_snapshot):
-        if sub is not None:
-            logger.info("workflow %r on-demand trigger suspended (disabled)", scrub_log(workflow_id))
-        raise HTTPException(
-            status_code=404,
-            detail=f"Workflow {workflow_id!r} has no on_demand handler",
-        )
+    sub = _gate_workflow_sub(
+        get_subscription(workflow_id, HookType.ON_DEMAND),
+        workflow_id,
+        settings_snapshot,
+        action="on-demand trigger",
+        detail=f"Workflow {workflow_id!r} has no on_demand handler",
+    )
     # Serialize against the pre/post hook iteration of an in-flight pipeline and
     # against any other /trigger for the same (cid, workflow_id), so the prior
     # workflow_state read the hook depends on cannot be clobbered between read
@@ -143,10 +208,8 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
         card = await get_character_card(card_id) if card_id else None
         msgs = await get_messages(cid)
         last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
-        client = LLMClient(
-            settings_snapshot["endpoint_url"],
-            api_key=settings_snapshot.get("api_key", ""),
-        )
+        client = client_from_settings(settings_snapshot)
+        agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
         async with workflow_character_state_lock(conv.get("character_card_id") or "", workflow_id):
             try:
                 od_ctx = OnDemandCtx(
@@ -155,50 +218,60 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                     last_user_message=last_user,
                     settings=_readonly(settings_snapshot),
                     client=client,
+                    agent_client=agent_client,
+                    agent_model_name=agent_model_name,
                     character_id=conv.get("character_card_id"),
                     character=_readonly(card),
                 )
-                return await sub.callable(od_ctx, body)
+                result = await sub.callable(od_ctx, body)
             except Exception:
                 logger.exception("on_demand hook %r failed", scrub_log(workflow_id))
                 raise HTTPException(status_code=500, detail="On-demand handler raised; see server logs") from None
+    # A streaming result is wrapped by the API layer -- the workflow returns a
+    # transport-neutral WorkflowEventStream, never an HTTP response. The response
+    # is built after the workflow locks release: the event iterator is lazy, so
+    # the hook's DB/prefix prep ran under the locks while the stream itself runs
+    # lock-free (matching the pre-refactor behavior). A dict is a plain JSON body.
+    if isinstance(result, WorkflowEventStream):
+        return _workflow_event_stream_response(result)
+    return result
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/regenerate")
-async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008
+async def api_regenerate_attachment(
+    cid: str,
+    mid: int,
+    aid: int,
+    body: dict = Body(default={}),  # noqa: B008
+    conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Append a new sibling variant under a workflow-produced attachment's root."""
-    conv = await get_conversation(cid)
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
         raise HTTPException(status_code=404, detail="Attachment not found on this message")
     wid = att.get("workflow_id")
-    sub = get_subscription(wid, HookType.REGENERATE) if wid else None
-    # Gate before the root lock so a disabled-workflow request never contends for
-    # the same lock the live activate/delete consumption routes hold.
     settings_snapshot = await get_settings()
-    if sub is None or not effective_workflow_enabled(wid, settings_snapshot):
-        if sub is not None:
-            logger.info("workflow %r regenerate suspended (disabled)", scrub_log(wid))
-        raise HTTPException(
-            status_code=404,
-            detail=f"Workflow {wid!r} is not registered or has no regenerate handler",
-        )
-    # Single hop suffices: the dispatcher itself assigns parent_attachment_id = root_id
-    # on every write, so the variant tree is flat by construction (root + N siblings).
-    root_id = att["parent_attachment_id"] or aid
-
-    async with _workflow_root_lock(root_id):
+    sub = _gate_workflow_sub(
+        get_subscription(wid, HookType.REGENERATE) if wid else None,
+        wid,
+        settings_snapshot,
+        action="regenerate",
+        detail=f"Workflow {wid!r} is not registered or has no regenerate handler",
+    )
+    # The group root is a mutable identity (deleting a root promotes a sibling to
+    # root), so root resolution and locking happen together under
+    # locked_attachment_group: it re-reads `att` under the canonical-root lock and
+    # retries if a concurrent delete moved the root, so the hook never runs against
+    # a since-deleted parent. The dispatcher assigns parent_attachment_id = root_id
+    # on every write, so the variant tree stays flat (root + N siblings).
+    async with locked_attachment_group(aid, mid) as (att, root_id):
         anchor = await get_message_by_id(mid)
         if anchor is None or anchor["conversation_id"] != cid:
             raise HTTPException(status_code=404, detail="Message not found in conversation")
         msgs = await get_messages_before(cid, mid)
         last_user = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
-        client = LLMClient(
-            settings_snapshot["endpoint_url"],
-            api_key=settings_snapshot.get("api_key", ""),
-        )
+        client = client_from_settings(settings_snapshot)
+        agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
 
         card_id = conv.get("character_card_id")
         card = await get_character_card(card_id) if card_id else None
@@ -212,6 +285,8 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
                 last_user_message=last_user,
                 settings=_readonly(settings_snapshot),
                 client=client,
+                agent_client=agent_client,
+                agent_model_name=agent_model_name,
                 character_id=conv.get("character_card_id"),
                 character=_readonly(card),
             )
@@ -267,16 +342,7 @@ async def api_regenerate_attachment(cid: str, mid: int, aid: int, body: dict = B
             logger.exception("regenerate hook %r batch insert failed", wid)
             raise HTTPException(status_code=500, detail="Regenerate batch insert failed; see server logs") from None
 
-        helper_rejected_projected = [
-            {
-                "filename": a.get("filename"),
-                "workflow_id": a.get("workflow_id"),
-                "mime": a.get("mime"),
-                "reason": a.get("reason") or OVERSIZE_NO_METADATA_REASON,
-                "originating_attachment_id": root_id,
-            }
-            for a in helper_rejected
-        ]
+        helper_rejected_projected = [project_rejected_attachment(a, root_id) for a in helper_rejected]
         return {
             "attachments": new_ids,
             "rejected_workflow_atts": rejected_pre + helper_rejected_projected,
@@ -296,6 +362,36 @@ def _decode_stored_consumption_metadata(att: Mapping[str, Any]) -> dict | None:
     except (TypeError, ValueError):
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _decode_generation_params(att: Mapping[str, Any]) -> dict:
+    """Decode an attachment's stored generation_metadata into a params dict.
+
+    Malformed or non-dict values coerce to ``{}`` so a reroll/rehydrate
+    proceeds with defaults instead of failing on bad stored metadata.
+    """
+    raw = att.get("generation_metadata")
+    try:
+        params = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        return {}
+    return params if isinstance(params, dict) else {}
+
+
+def _apply_param_overrides(params: dict, body: Mapping[str, Any] | None) -> None:
+    """Merge caller-supplied overrides into an attachment's stored generation params.
+
+    Replaces only keys the artifact already recorded, and only string-for-string, so a
+    client can retarget a render it can see (an edited prompt, today's style) without
+    inventing parameters the workflow never wrote. Reached only from /reroll-gen:
+    /rehydrate must replay its row exactly to recover the bytes it lost.
+    """
+    overrides = body.get("params") if isinstance(body, Mapping) else None
+    if not isinstance(overrides, Mapping):
+        return
+    for key, value in overrides.items():
+        if isinstance(value, str) and isinstance(params.get(key), str):
+            params[key] = value
 
 
 def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, dict | None]:
@@ -342,17 +438,25 @@ def _generated_seed() -> str:
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen")
-async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008, ARG001
+async def api_reroll_gen_attachment(
+    cid: str,
+    mid: int,
+    aid: int,
+    body: dict = Body(default={}),  # noqa: B008
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Generate a new sibling using the original's stored generation_metadata
     with a freshly minted seed.
 
     The new sibling persists the new seed alongside the inherited
     generation_metadata so it is itself rehydratable; without that, an
     evict-then-rehydrate cycle would lose the rerolled output.
+
+    An optional ``{"params": {...}}`` body retargets the render (see
+    `_apply_param_overrides`). The params dict is handed to the hook in place and
+    the hook may amend it; the amended dict is what the new sibling records, so an
+    override sticks for the sibling's own future rerolls.
     """
-    conv = await get_conversation(cid)
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
         raise HTTPException(status_code=404, detail="Attachment not found on this message")
@@ -360,34 +464,22 @@ async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = B
     if anchor is None or anchor["conversation_id"] != cid:
         raise HTTPException(status_code=404, detail="Message not found in conversation")
     wid = att.get("workflow_id")
-    sub = get_subscription(wid, HookType.REROLL_GEN) if wid else None
-    # Gate before the root lock so a disabled-workflow request never contends for
-    # the same lock the live activate/delete consumption routes hold.
     settings_snapshot = await get_settings()
-    if sub is None or not effective_workflow_enabled(wid, settings_snapshot):
-        if sub is not None:
-            logger.info("workflow %r reroll-gen suspended (disabled)", scrub_log(wid))
-        raise HTTPException(
-            status_code=404,
-            detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
-        )
+    sub = _gate_workflow_sub(
+        get_subscription(wid, HookType.REROLL_GEN) if wid else None,
+        wid,
+        settings_snapshot,
+        action="reroll-gen",
+        detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
+    )
 
-    metadata_raw = att.get("generation_metadata")
-    try:
-        params = json.loads(metadata_raw) if metadata_raw else {}
-    except (TypeError, ValueError):
-        params = {}
-    if not isinstance(params, dict):
-        params = {}
-
-    root_id = att["parent_attachment_id"] or aid
-
-    async with _workflow_root_lock(root_id):
+    # Resolve-and-lock the canonical root together (see regenerate): the in-lock
+    # snapshot and root id are read under the same lock the write will hold.
+    async with locked_attachment_group(aid, mid) as (att, root_id):
+        params = _decode_generation_params(att)
+        _apply_param_overrides(params, body)
         seed = _generated_seed()
-        client = LLMClient(
-            settings_snapshot["endpoint_url"],
-            api_key=settings_snapshot.get("api_key", ""),
-        )
+        client = client_from_settings(settings_snapshot)
 
         try:
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
@@ -420,24 +512,18 @@ async def api_reroll_gen_attachment(cid: str, mid: int, aid: int, body: dict = B
 
         return {
             "attachment_id": new_id,
-            "rejected_workflow_atts": (
-                [
-                    {
-                        "filename": rejected.get("filename"),
-                        "workflow_id": rejected.get("workflow_id"),
-                        "mime": rejected.get("mime"),
-                        "reason": rejected.get("reason") or OVERSIZE_NO_METADATA_REASON,
-                        "originating_attachment_id": root_id,
-                    }
-                ]
-                if rejected is not None
-                else []
-            ),
+            "rejected_workflow_atts": ([project_rejected_attachment(rejected, root_id)] if rejected is not None else []),
         }
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/rehydrate")
-async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008, ARG001
+async def api_rehydrate_attachment(
+    cid: str,
+    mid: int,
+    aid: int,
+    body: dict = Body(default={}),  # noqa: B008, ARG001
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Recover bytes for an evicted attachment using its stored seed + params.
 
     Preconditions:
@@ -448,9 +534,6 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
     params and stored seed, then writes the returned bytes back into the
     same row's data_b64. No new sibling is created.
     """
-    conv = await get_conversation(cid)
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
     att = await get_workflow_attachment_by_id(aid)
     if att is None or att["message_id"] != mid:
         raise HTTPException(status_code=404, detail="Attachment not found on this message")
@@ -470,31 +553,27 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
     # row and seed persist). workflow_id is stable across the in-lock re-read, so
     # the pre-lock att is a safe source for the gate.
     wid = att.get("workflow_id")
-    rg_sub = get_subscription(wid, HookType.REROLL_GEN) if wid else None
     settings_snapshot = await get_settings()
-    if rg_sub is None or not effective_workflow_enabled(wid, settings_snapshot):
-        if rg_sub is not None:
-            logger.info("workflow %r rehydrate suspended (disabled)", scrub_log(wid))
-        raise HTTPException(
-            status_code=404,
-            detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
-        )
+    _gate_workflow_sub(
+        get_subscription(wid, HookType.REROLL_GEN) if wid else None,
+        wid,
+        settings_snapshot,
+        action="rehydrate",
+        detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
+    )
 
-    # Serialize same-root rehydrates the way /regenerate, /reroll-gen, and
-    # /activate already do for their sibling-tree mutations. Without this,
-    # two concurrent callers would each run the full reroll_gen LLM call
-    # before the cache helper's transactional recheck deduplicates them at
-    # the DB layer -- doubling LLM cost even though the row stays consistent.
-    # parent_attachment_id is NULL on root rows, so `or aid` resolves to the
-    # root id whether the request targets a sibling or the root itself.
-    root_id = att["parent_attachment_id"] or aid
-    async with _workflow_root_lock(root_id):
-        # Re-read inside the lock so a concurrent caller that already
-        # rehydrated cannot slip past the snapshot check above and double
-        # the reroll_gen LLM call before the cache helper's transactional
-        # recheck deduplicates the bytes write.
-        att = await get_workflow_attachment_by_id(aid)
-        if att is None or att.get("data_b64") != EVICTED_MARKER:
+    # Serialize same-root rehydrates the way /regenerate and /reroll-gen already
+    # do for their sibling-tree mutations. Without this, two concurrent callers
+    # would each run the full reroll_gen LLM call before the cache helper's
+    # transactional recheck deduplicates them at the DB layer -- doubling LLM cost
+    # even though the row stays consistent. locked_attachment_group holds the
+    # canonical-root lock and re-reads `att` under it.
+    async with locked_attachment_group(aid, mid) as (att, _root_id):
+        # Re-check the eviction precondition on the in-lock snapshot so a
+        # concurrent caller that already rehydrated cannot slip past the pre-lock
+        # check and double the reroll_gen LLM call before the cache helper's
+        # transactional recheck deduplicates the bytes write.
+        if att.get("data_b64") != EVICTED_MARKER:
             raise HTTPException(status_code=409, detail="Attachment bytes are present; nothing to rehydrate")
         wid = att.get("workflow_id")
         sub = get_subscription(wid, HookType.REROLL_GEN) if wid else None
@@ -504,18 +583,9 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
                 detail=f"Workflow {wid!r} is not registered or has no reroll_gen handler",
             )
 
-        metadata_raw = att.get("generation_metadata")
-        try:
-            params = json.loads(metadata_raw) if metadata_raw else {}
-        except (TypeError, ValueError):
-            params = {}
-        if not isinstance(params, dict):
-            params = {}
+        params = _decode_generation_params(att)
 
-        client = LLMClient(
-            settings_snapshot["endpoint_url"],
-            api_key=settings_snapshot.get("api_key", ""),
-        )
+        client = client_from_settings(settings_snapshot)
 
         try:
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
@@ -544,16 +614,19 @@ async def api_rehydrate_attachment(cid: str, mid: int, aid: int, body: dict = Bo
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/activate")
-async def api_activate_workflow_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008
+async def api_activate_workflow_attachment(
+    cid: str,
+    mid: int,
+    aid: int,
+    body: dict = Body(default={}),  # noqa: B008
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Persist the user's active-sibling choice for a workflow attachment group.
 
     ``aid`` is the ROOT attachment id (``parent_attachment_id IS NULL``).
     Body shape: ``{"sibling_id": int | null}`` -- ``null`` clears the
     column, which reverts to "newest sibling wins" in the renderer.
     """
-    conv = await get_conversation(cid)
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
     anchor = await get_message_by_id(mid)
     if anchor is None or anchor["conversation_id"] != cid:
         raise HTTPException(status_code=404, detail="Message not found in conversation")
@@ -562,9 +635,17 @@ async def api_activate_workflow_attachment(cid: str, mid: int, aid: int, body: d
     if raw_sibling_id is not None and (not isinstance(raw_sibling_id, int) or isinstance(raw_sibling_id, bool)):
         raise HTTPException(status_code=400, detail="sibling_id must be an integer or null")
 
+    # Not under locked_attachment_group: /regenerate and /reroll-gen hold that
+    # root lock for the whole render (a minute+ for image gen), so queuing the
+    # user's swipe behind it hangs the arrow POST and freezes artifact navigation
+    # for the duration. set_active_sibling validates root, message, and group
+    # membership inside its own BEGIN IMMEDIATE, so a row a concurrent
+    # delete/promotion removed still 404s (LookupError below) and no invalid
+    # pointer can be written. What is given up is commit ordering against an
+    # in-flight render: whichever of "user's swipe" and "new sibling wins" lands
+    # last is what the next refetch shows.
     try:
-        async with _workflow_root_lock(aid):
-            await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
+        await set_active_sibling(aid, raw_sibling_id, expected_message_id=mid)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except ValueError as e:
@@ -573,28 +654,32 @@ async def api_activate_workflow_attachment(cid: str, mid: int, aid: int, body: d
 
 
 @router.post("/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/delete")
-async def api_delete_workflow_attachment(cid: str, mid: int, aid: int, body: dict = Body(default={})):  # noqa: B008
+async def api_delete_workflow_attachment(
+    cid: str,
+    mid: int,
+    aid: int,
+    body: dict = Body(default={}),  # noqa: B008
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Delete a workflow attachment: one variant, or the whole group.
 
     ``aid`` is the acted-on row. Body: ``{"scope": "variant" | "group"}``.
     Deleting the root variant of a multi-variant group promotes the oldest
     survivor to root; the response ``root_id`` reports the resulting root.
     """
-    conv = await get_conversation(cid)
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
     anchor = await get_message_by_id(mid)
     if anchor is None or anchor["conversation_id"] != cid:
         raise HTTPException(status_code=404, detail="Message not found in conversation")
     scope = body.get("scope") if isinstance(body, dict) else None
     if scope not in ("variant", "group"):
         raise HTTPException(status_code=400, detail="scope must be 'variant' or 'group'")
-    att = await get_workflow_attachment_by_id(aid)
-    if att is None or att["message_id"] != mid:
-        raise HTTPException(status_code=404, detail="Attachment not found on this message")
-    root_id = att["parent_attachment_id"] or aid
+    # locked_attachment_group resolves the canonical root and locks it, retrying if
+    # a concurrent delete promotes the root mid-acquire -- so a delete that promotes
+    # a sibling and a delete racing it never end up holding different keys for what
+    # is now one group. delete_workflow_attachments re-derives the root in its own
+    # BEGIN IMMEDIATE, which remains the integrity boundary.
     try:
-        async with _workflow_root_lock(root_id):
+        async with locked_attachment_group(aid, mid) as (_att, _root_id):
             result = await delete_workflow_attachments(aid, scope=scope, expected_message_id=mid)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -604,7 +689,11 @@ async def api_delete_workflow_attachment(cid: str, mid: int, aid: int, body: dic
 
 
 @router.post("/api/conversations/{cid}/workflow-attachments/access")
-async def api_record_workflow_attachment_access(cid: str, body: dict = Body(default={})):  # noqa: B008
+async def api_record_workflow_attachment_access(
+    cid: str,
+    body: dict = Body(default={}),  # noqa: B008
+    _conv: ConversationRow = Depends(require_conversation),  # noqa: B008
+):
     """Record access events for workflow attachments.
 
     Body shape: ``{"ids": [int, ...]}``. Counter values are assigned in
@@ -615,10 +704,6 @@ async def api_record_workflow_attachment_access(cid: str, body: dict = Body(defa
     swipe / regen race, and a 400 there would be a user-visible failure
     on an ignorable client/server skew.
     """
-    conv = await get_conversation(cid)
-    if conv is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
     raw_ids = body.get("ids") if isinstance(body, dict) else None
     if not isinstance(raw_ids, list):
         raise HTTPException(status_code=400, detail="ids must be a list of integers")

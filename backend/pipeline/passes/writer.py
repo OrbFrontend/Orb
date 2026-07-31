@@ -7,7 +7,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 from ...core import (
     ChatMessage,
@@ -31,23 +32,32 @@ def build_writer_content(
     effective_msg: str,
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard: LengthGuard | None,
-) -> "str | list[ContentPart]":
+    text_mode: bool = False,
+    depth_block: str = "",
+) -> str | list[ContentPart]:
     """Build the writer's user-message content (string or multimodal list).
 
     Built once and threaded into both the writer pass and the editor, which
     replays it verbatim to extend the writer's KV-cached prefix. The length-guard
     nudge (preventive arm) fires only in enforce mode; a non-None *length_guard*
-    already means the feature is enabled.
+    already means the feature is enabled. In *text_mode* the no-tools nudge is
+    dropped — no tool harness is rendered, so the instruction is meaningless.
+
+    *depth_block* (``at_depth`` lorebook entries) goes last, *after* the user
+    message — SillyTavern's ``@ Depth`` position, which is the whole point of the
+    flag: the directives sit at the generation boundary.
     """
     tail = ""
     if lorebook_block:
         tail += "___\n\n" + lorebook_block + "\n\n"
     if inj_block:
         tail += "___\n\n" + inj_block + "\n\n"
-    if enabled_tools:
+    if enabled_tools and not text_mode:
         tail += "**Do not use tool or function calls this turn.**\n\n"
     tail += writer_nudge(length_guard)
     tail += "___\n\n" + effective_msg + "\n\n"
+    if depth_block:
+        tail += "___\n\n" + depth_block + "\n\n"
 
     return build_multimodal_content(tail, attachments)
 
@@ -56,10 +66,11 @@ async def writer_pass(
     client: LLMClient,
     base: CachedBase,
     settings: Mapping[str, Any],
-    content: "str | list[ContentPart]",
+    content: str | list[ContentPart],
     *,
     kv_tracker=None,
     reasoning_on: bool = True,
+    reasoning_prefill: str = "",
 ) -> AsyncIterator[dict]:
     """Yield ``{"type": "content"|"reasoning", "delta": str}`` dicts.
 
@@ -84,7 +95,7 @@ async def writer_pass(
         # from calling anything.
         tool_choice="none" if base.tools else None,
         kv_tracker=kv_tracker,
-        **reasoning_cfg(reasoning_on),
+        **reasoning_cfg(reasoning_on, reasoning_prefill),
         **hyperparams,
     ):
         if item["type"] == "done":
@@ -93,12 +104,13 @@ async def writer_pass(
 
 
 async def writer_stage(
-    cfg: "_PipelineConfig",
-    state: "TurnState",
+    cfg: _PipelineConfig,
+    state: TurnState,
     *,
     settings: Mapping[str, Any],
     attachments: Sequence[Mapping[str, Any]],
     kv_tracker: _KVCacheTracker,
+    depth_block: str = "",
 ) -> AsyncIterator[dict]:
     """Input-prep + writer pass + event translation.
 
@@ -114,6 +126,8 @@ async def writer_stage(
         state.effective_msg,
         attachments,
         cfg.length_guard,
+        cfg.writer_text_mode,
+        depth_block=depth_block,
     )
     writer_t0 = time.monotonic()
     async for item in writer_pass(
@@ -123,6 +137,7 @@ async def writer_stage(
         state.writer_content,
         kv_tracker=kv_tracker,
         reasoning_on=cfg.writer_reasoning_on,
+        reasoning_prefill=cfg.writer_reasoning_prefill,
     ):
         if item["type"] == "reasoning":
             state.reasoning_writer += item["delta"]

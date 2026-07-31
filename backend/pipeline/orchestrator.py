@@ -13,7 +13,8 @@ public entry points in ``entrypoints``. ``_run_pipeline`` is called by
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, Mapping, Optional, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
+from typing import Any
 
 from ..core import ChatMessage, Macros
 from ..database.models import PhraseGroup
@@ -66,7 +67,7 @@ async def _run_pipeline(
     mood_fragments: Sequence[Mapping[str, Any]],
     interactive_fragments: Sequence[Mapping[str, Any]],
     user_message: str,
-    attachments: Optional[Sequence[Mapping[str, Any]]] = None,
+    attachments: Sequence[Mapping[str, Any]] | None = None,
     phrase_bank: list[PhraseGroup] | None = None,
     editor_audit_msgs: list[str] | None = None,
     agent_client: LLMClient | None = None,
@@ -127,10 +128,13 @@ async def _run_pipeline(
     post_turn_notes = [df for df in direction_note_fragments if df.get("direction_note_timing") != "pre_writer"]
 
     # Mutable state threaded through the three passes; seeded from director + user message.
+    # macro_choices is copied so mutations stay turn-local until persistence
+    # commits them (regenerates then re-read the committed map, like moods).
     state = TurnState(
         user_message=user_message,
         effective_msg=user_message,
         active_moods=director["active_moods"],
+        macro_choices=dict(director.get("macro_choices") or {}),
     )
 
     # --- Director pass (+ rewrite, style injection, agentic-lorebook block) ---
@@ -169,6 +173,7 @@ async def _run_pipeline(
                 inj_block=state.scene_direction,
                 kv_tracker=kv_tracker,
                 reasoning_on=cfg.director_reasoning_on,
+                reasoning_prefill=cfg.director_reasoning_prefill,
             ),
             state,
             "director",
@@ -182,6 +187,7 @@ async def _run_pipeline(
         settings=settings,
         attachments=attachments,
         kv_tracker=kv_tracker,
+        depth_block=lorebook.depth_block,
     ):
         yield ev
 
@@ -252,6 +258,7 @@ async def _run_pipeline(
                 writer_user_msg=state.writer_content,
                 kv_tracker=kv_tracker,
                 reasoning_on=cfg.editor_reasoning_on,
+                reasoning_prefill=cfg.editor_reasoning_prefill,
             ),
             state,
             "editor",

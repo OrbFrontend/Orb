@@ -17,11 +17,11 @@ _PREV1 = "His shadowed red eyes flickered in the firelight as the storm rolled i
 _PREV2 = "Behind the iron mask, his shadowed red eyes burned with quiet fury."
 
 
-def test_phrase_repetition_detected_through_contextual_audit():
+async def test_phrase_repetition_detected_through_contextual_audit():
     """A distinctive phrase echoed across three messages must be flagged."""
     draft = "She met the shadowed red eyes across the crowded table without a word."
 
-    report, text = _run_contextual_audit(
+    report, text = await _run_contextual_audit(
         draft=draft,
         phrase_bank=[],
         previous_assistant_msgs=[_PREV1, _PREV2],
@@ -33,9 +33,9 @@ def test_phrase_repetition_detected_through_contextual_audit():
     assert draft in text
 
 
-def test_phrase_repetition_no_false_positive_when_draft_is_distinct():
+async def test_phrase_repetition_no_false_positive_when_draft_is_distinct():
     """A draft that shares no distinctive phrase must not be flagged."""
-    report, _ = _run_contextual_audit(
+    report, _ = await _run_contextual_audit(
         draft="A wholly unrelated sentence about the weather today.",
         phrase_bank=[],
         previous_assistant_msgs=[_PREV1, _PREV2],
@@ -46,14 +46,14 @@ def test_phrase_repetition_no_false_positive_when_draft_is_distinct():
     )
 
 
-def test_phrase_repetition_two_word_pair_below_threshold_not_flagged():
+async def test_phrase_repetition_two_word_pair_below_threshold_not_flagged():
     """A two-word pair echoed across only two messages (draft + one previous)
     must NOT be flagged: short phrases keep the higher three-message threshold,
     since a 2-word match is easily a coincidence."""
     prev1 = "His eyes burned with quiet fury at the news."
     draft = "A quiet fury settled over the room as he left."
 
-    report, _ = _run_contextual_audit(
+    report, _ = await _run_contextual_audit(
         draft=draft,
         phrase_bank=[],
         previous_assistant_msgs=[prev1],
@@ -65,13 +65,13 @@ def test_phrase_repetition_two_word_pair_below_threshold_not_flagged():
     )
 
 
-def test_phrase_repetition_long_phrase_flagged_at_two_messages():
+async def test_phrase_repetition_long_phrase_flagged_at_two_messages():
     """A three-word phrase echoed across only two messages (draft + one previous)
     MUST be flagged: longer phrases are distinctive enough that a single repeat is
     damning, so they use the lower two-message threshold."""
     draft = "She met the shadowed red eyes across the crowded table without a word."
 
-    report, _ = _run_contextual_audit(
+    report, _ = await _run_contextual_audit(
         draft=draft,
         phrase_bank=[],
         previous_assistant_msgs=[_PREV1],
@@ -83,7 +83,7 @@ def test_phrase_repetition_long_phrase_flagged_at_two_messages():
     )
 
 
-def test_phrase_repetition_detects_two_word_pair():
+async def test_phrase_repetition_detects_two_word_pair():
     """A distinctive two-content-word pair echoed across three messages must be
     flagged even when the messages share no 3-word overlap. Proves min_n=2 is in
     effect end-to-end."""
@@ -91,7 +91,7 @@ def test_phrase_repetition_detects_two_word_pair():
     prev2 = "She spoke with quiet fury, voice low and even."
     draft = "A quiet fury settled over the room as he left."
 
-    report, _ = _run_contextual_audit(
+    report, _ = await _run_contextual_audit(
         draft=draft,
         phrase_bank=[],
         previous_assistant_msgs=[prev1, prev2],
@@ -101,7 +101,7 @@ def test_phrase_repetition_detects_two_word_pair():
     assert "quiet fury" in phrases, f"Expected 'quiet fury' to be flagged, got {phrases}"
 
 
-def test_phrase_repetition_two_word_pair_needs_two_content_words():
+async def test_phrase_repetition_two_word_pair_needs_two_content_words():
     """A bigram echoed across three messages that is one stopword + one content
     word (e.g. 'his gaze') must NOT be flagged. The min_content_words=2 floor
     keeps 2-word detection from degenerating into a single-word match."""
@@ -109,7 +109,7 @@ def test_phrase_repetition_two_word_pair_needs_two_content_words():
     prev2 = "She felt his gaze settle on her shoulders."
     draft = "I returned his gaze without a single word."
 
-    report, _ = _run_contextual_audit(
+    report, _ = await _run_contextual_audit(
         draft=draft,
         phrase_bank=[],
         previous_assistant_msgs=[prev1, prev2],
@@ -121,14 +121,14 @@ def test_phrase_repetition_two_word_pair_needs_two_content_words():
     )
 
 
-def test_phrase_repetition_only_flags_echoes_in_draft():
+async def test_phrase_repetition_only_flags_echoes_in_draft():
     """A phrase repeated only among previous messages (absent from the draft)
     must not be flagged, since require_last_message focuses on the draft."""
     prev1 = "His shadowed red eyes flickered in the firelight as the storm rolled in."
     prev2 = "Behind the iron mask, his shadowed red eyes burned with quiet fury."
     draft = "The morning brought soft rain and the smell of wet stone."
 
-    report, _ = _run_contextual_audit(
+    report, _ = await _run_contextual_audit(
         draft=draft,
         phrase_bank=[],
         previous_assistant_msgs=[prev1, prev2],

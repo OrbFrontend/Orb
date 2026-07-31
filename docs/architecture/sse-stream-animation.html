@@ -378,19 +378,7 @@ const STEPS = [
     narr: `If a pass runs with reasoning on, its chain-of-thought streams as <span class="mw">reasoning</span> events — each tagged with the <code>pass</code> it came from. The FE appends the <code>delta</code> to that pass's reasoning buffer and, if the inspector is open on that pass, paints it live. The <span class="k">Director dot</span> lights to show the pass is in flight. These never enter the visible reply.`,
   }),
 
-  // 5 ── prompt_rewritten (optional)
-  step({
-    phase: "Turn", title: "prompt_rewritten — the Director rephrased the user line",
-    ev: "event: prompt_rewritten", evKw: "event:", data: '{ "refined_message": "..." }',
-    dir: "tofe", kind: "meta", arrow: "BE → FE", optional: true,
-    passDone: ["user"], passActive: "director", fePhase: "directing", fePhaseText: "Director analyzing scene…",
-    dots: ["active", "", ""], bubble: null,
-    feline: `rewrite the <b>user bubble</b> in place`,
-    beNote: `Optional — only when <code>rewrite_user_prompt</code> fired. Carries the refined user text.`,
-    narr: `<span class="mw">prompt_rewritten</span> is <em>optional</em>: it appears only when the Director chose to refine the user's wording. The FE rewrites the displayed <span class="fw">user message</span> in place (and updates the pending copy) so what's on screen matches what the Writer will actually receive. Many turns skip this event entirely — a recurring theme: <strong>the FE must tolerate any event being absent.</strong>`,
-  }),
-
-  // 6 ── director_done
+  // 5 ── director_done
   step({
     phase: "Turn", title: "director_done — scene direction is ready",
     ev: "event: director_done", evKw: "event:", data: '{ "tool_calls": [ { "name": "direct_scene", ... } ], ... }',
@@ -402,7 +390,7 @@ const STEPS = [
     narr: `<span class="mw">director_done</span> closes the pass and ships its full payload — the parsed tool calls that drive the inspector's "Director" panel. The FE stores it and advances the reasoning indicator to the <span class="k">Writer dot</span>. The backend now folds that scene direction into the Writer's prompt and starts generating prose.`,
   }),
 
-  // 7 ── first token
+  // 6 ── first token
   step({
     phase: "Turn", title: "token — prose begins streaming",
     ev: "event: token", evKw: "event:", data: 'data: Eli',
@@ -414,7 +402,7 @@ const STEPS = [
     narr: `Now the payoff. Each <span class="tw">token</span> event carries a raw text <code>delta</code> of the assistant's reply. The very first one flips the phase to <span class="k">"Generating…"</span>, reveals the streaming bubble, and clears its placeholder. This is the only event whose <code>data</code> is <em>not</em> JSON — it's bare text, with literal newlines escaped as <code>\\n</code> and un-escaped on arrival.`,
   }),
 
-  // 8 ── more tokens (+ interleaved writer reasoning)
+  // 7 ── more tokens (+ interleaved writer reasoning)
   step({
     phase: "Turn", title: "token ×N — appended as they arrive",
     ev: "event: token  (×N)", evKw: "event:", data: 'data:  leans in, voice dropping to a near-whisper…',
@@ -426,7 +414,7 @@ const STEPS = [
     narr: `Tokens stream in a tight loop — the FE accumulates them into <code>fullResponse</code> and re-renders the bubble on each one, auto-scrolling to follow. If the Writer is a thinking pass, <span class="mw">reasoning</span> (<code>pass: "writer"</code>) events interleave with the prose tokens on the <em>same</em> wire; the dispatcher routes each by name, so reasoning lands in the inspector while prose lands in the bubble.`,
   }),
 
-  // 9 ── writer_done
+  // 8 ── writer_done
   step({
     phase: "Turn", title: "writer_done — the Writer→Editor boundary",
     ev: "event: writer_done", evKw: "event:", data: '{ "editor_will_run": true }',
@@ -438,7 +426,7 @@ const STEPS = [
     narr: `<span class="mw">writer_done</span> is the backend telling the FE, authoritatively, that prose is finished and whether an editor pass follows. If <code>editor_will_run</code> is true, the phase flips to <span class="k">"Refining…"</span>; otherwise the FE stays on "Generating" until the stream closes. This replaced a brittle client-side timer that used to guess the boundary from token gaps.`,
   }),
 
-  // 10 ── writer_rewrite (optional)
+  // 9 ── writer_rewrite (optional)
   step({
     phase: "Turn", title: "writer_rewrite — the Editor patched the prose",
     ev: "event: writer_rewrite", evKw: "event:", data: '{ "refined_text": "..." }',
@@ -450,7 +438,7 @@ const STEPS = [
     narr: `<span class="mw">writer_rewrite</span> (optional) delivers the Editor's <code>refined_text</code>. The FE diffs it against the streamed draft, stores the diff, and swaps the bubble to the refined version — showing a <span class="tw">sentence-level diff</span> if the editor-diff toggle is on. This is the moment the reasoning indicator advances to the <span class="k">Editor dot</span>.`,
   }),
 
-  // 11 ── editor_done + feedback
+  // 10 ── editor_done + feedback
   step({
     phase: "Turn", title: "editor_done & feedback — inspector + user note",
     ev: "event: editor_done   ·   event: feedback", evKw: "event:", data: '{ "tool_calls": [...] }   /   { "values": { ... } }',
@@ -462,7 +450,7 @@ const STEPS = [
     narr: `Two more meta events close the refining stage. <span class="mw">editor_done</span> merges the editor's tool calls into the inspector. <span class="mw">feedback</span> carries optional user-facing notes (the values shown in the inspector's Feedback block). Both are <strong>display-only</strong> — they re-render the inspector but don't touch the reply bubble. All three dots are now green.`,
   }),
 
-  // 12 ── workflow events
+  // 11 ── workflow events
   step({
     phase: "Turn", title: "Workflow events — passthrough on the same wire",
     ev: "event: phase_status   ·   tts_autoplay   ·   …", evKw: "event:", data: '{ "channel": "workflow:tts", "label": "Synthesizing…", "state": "running" }',
@@ -474,7 +462,7 @@ const STEPS = [
     narr: `Beyond the core set, secondary workflows push their own events down the same stream — <span class="mw">phase_status</span> (a pill like "Synthesizing…"), <span class="mw">tts_autoplay</span>, <span class="mw">workflow_attachments_rejected</span>, and any custom event a workflow registers. The dispatcher's <code>default</code> branch looks these up in <code>S.workflowEventHandlers</code> by name, so a workflow can extend the protocol <strong>without touching the core switch</strong>. See the secondary-workflow doc.`,
   }),
 
-  // 13 ── _result (internal, not forwarded)
+  // 12 ── _result (internal, not forwarded)
   step({
     phase: "Turn", title: "_result — internal, never reaches the browser",
     ev: "event: _result", evKw: "event:", data: '{ final reply, tool calls, reasoning, ... }',
@@ -486,7 +474,7 @@ const STEPS = [
     narr: `One event never crosses the wire. The pipeline emits a terminal <span class="warnword">_result</span> carrying the assembled reply; <code>_consume_pipeline</code> catches it, <strong>persists the assistant message and conversation log</strong>, then swallows it. The underscore prefix marks it internal. The browser already has every token, so it doesn't need this — but the backend needs it to commit the turn to disk before the stream ends.`,
   }),
 
-  // 14 ── done
+  // 13 ── done
   step({
     phase: "Turn", title: "done — the terminal event",
     ev: "event: done", evKw: "event:", data: '(no data)',
@@ -498,7 +486,7 @@ const STEPS = [
     narr: `<span class="fw">done</span> is yielded last, right before the connection closes. The FE doesn't even need a handler for it — the reader simply hits end-of-stream. What matters is what happens <em>after</em>: the reply was persisted server-side during <code>_result</code>, so the browser can now trust the database.`,
   }),
 
-  // 15 ── afterStream reconcile
+  // 14 ── afterStream reconcile
   step({
     phase: "Turn", title: "afterStream() — reconcile optimistic UI with truth",
     ev: "GET  /conversations/{cid}/messages", evKw: "GET", data: '(refetch persisted turn)',
@@ -510,7 +498,7 @@ const STEPS = [
     narr: `With the stream closed, <code>afterStream</code> reconciles the optimistic UI against the server: it <strong>refetches the message list and director state</strong>, finalizes the streaming bubble in place (stamping the real assistant id, no DOM flash), flushes any edits that were queued while the stream lock was held, and clears the phase chip. The turn is complete and durable.`,
   }),
 
-  // 16 ── stop / disconnect path
+  // 15 ── stop / disconnect path
   step({
     phase: "Edge cases", title: "Stop & disconnect — closing the stream early",
     ev: "POST  /conversations/{cid}/stop", evKw: "POST", data: '(signals the abort token)',
@@ -522,7 +510,7 @@ const STEPS = [
     narr: `A turn can end early. Clicking Stop sends <span class="fw">POST /stop</span>, which fires the conversation's <code>abort_token</code> — the backend breaks its LLM loop and closes the upstream connection cleanly. If the user just closes the tab, a background watcher polling <code>is_disconnected()</code> trips the same token. Either way, <code>_consume_pipeline</code>'s <code>finally</code> still runs, persisting whatever prose streamed so far. A per-conversation <strong>lock</strong> ensures only one stream runs at a time; a second concurrent <code>/send</code> gets an immediate <span class="warnword">error</span> event.`,
   }),
 
-  // 17 ── error
+  // 16 ── error
   step({
     phase: "Edge cases", title: "error — a single failure event",
     ev: "event: error", evKw: "event:", data: 'data: Conversation not found',
@@ -534,7 +522,7 @@ const STEPS = [
     narr: `Failures arrive as a plain <span class="mw">error</span> event whose <code>data</code> is a human-readable string. The FE just toasts it. Because cleanup lives in <code>afterStream</code> and the backend's <code>finally</code>, an error mid-turn still leaves both sides consistent — partial prose is persisted, the lock is released, the phase chip clears. The protocol has exactly one error channel; there's no separate HTTP error code mid-stream.`,
   }),
 
-  // 18 ── summary
+  // 17 ── summary
   step({
     phase: "Recap", title: "The whole contract on one wire",
     ev: "event: <name>", evKw: "event:", data: 'name routes; payload fills in detail',

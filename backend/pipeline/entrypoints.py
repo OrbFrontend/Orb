@@ -18,9 +18,11 @@ message they inject.
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, List, Mapping, Optional, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from typing import Any
 
 from .. import database as db
+from ..core import resolve_inline
 from ..inference import AbortToken
 from .context import (
     PipelineContext,
@@ -30,7 +32,6 @@ from .context import (
 )
 from .orchestrator import _run_pipeline
 from .passes.director import progressive
-from .passes.director.prompt_rewrite import disable_rewrite
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
 from .persistence import _consume_pipeline, _conversation_log_writer
 
@@ -40,6 +41,31 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 # Shared turn driver + regenerate helpers
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+async def _run_turn_handler(
+    conversation_id: str,
+    abort_token: AbortToken | None,
+    body: Callable[[PipelineContext], AsyncIterator[dict]],
+    *,
+    log_label: str,
+) -> AsyncIterator[dict]:
+    """Shared wrapper for the public turn handlers.
+
+    Loads the pipeline context, guards the missing-conversation case, and
+    converts any pipeline exception into the terminal SSE error event — one
+    place defines the error wire contract for every handler.
+    """
+    try:
+        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
+        if ctx is None:
+            yield {"event": "error", "data": "Conversation not found"}
+            return
+        async for event in body(ctx):
+            yield event
+    except Exception:
+        logger.exception("%s error", log_label)
+        yield {"event": "error", "data": "Generation failed; see server logs"}
 
 
 async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]]) -> None:
@@ -54,13 +80,7 @@ async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path
     rows = await db.get_direction_notes_for_path(conversation_id, [m["id"] for m in path])
     turn_by_message = {m["id"]: m.get("turn_index") for m in path}
     ctx.director["direction_notes"] = [
-        {
-            "interactive_fragment_id": r["interactive_fragment_id"],
-            "interactive_fragment_label": r["interactive_fragment_label"],
-            "content": r["content"],
-            "turn_index": turn_by_message.get(r["message_id"]),
-        }
-        for r in rows
+        {**db.direction_note_projection(r), "turn_index": turn_by_message.get(r["message_id"])} for r in rows
     ]
 
 
@@ -111,7 +131,7 @@ async def _generate_reply(
     conversation_id: str,
     *,
     history: Sequence[Mapping[str, Any]],
-    pipeline_settings: Mapping[str, Any],
+    settings: Mapping[str, Any],
     last_user_message: str,
     lorebook_messages: Sequence[Mapping[str, Any]],
     user_message: str,
@@ -120,26 +140,21 @@ async def _generate_reply(
     asst_turn_index: int,
     log_turn_index: int,
     editor_audit_msgs: list[str] | None = None,
-    consume_settings: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict]:
     """Run setup → pipeline → persist and stream all SSE events.
 
     The user message row must already be persisted before this is called.
 
-    *pipeline_settings* drives the passes; *consume_settings* (defaults to the
-    same) is used during persistence. They differ for the steered-regenerate
-    paths (super-regenerate and magic-rewrite), which pass a rewrite-disabled
-    copy to the pipeline but persist under the original settings. *user_message*
-    is what the writer actually receives; it may differ from *last_user_message*
-    (the steered paths send an OOC message as the writer input while
-    *last_user_message* carries the original).
+    *user_message* is what the writer actually receives; it may differ from
+    *last_user_message* (the steered paths send an OOC message as the writer
+    input while *last_user_message* carries the original).
     """
     setup: _TurnSetup | None = None
     async for ev in _prepare_turn(
         ctx,
         conversation_id,
         history=history,
-        settings=pipeline_settings,
+        settings=settings,
         last_user_message=last_user_message,
         lorebook_messages=lorebook_messages,
     ):
@@ -151,7 +166,7 @@ async def _generate_reply(
 
     pipeline = _run_pipeline(
         ctx.client,
-        pipeline_settings,
+        settings,
         ctx.director,
         ctx.mood_fragments,
         ctx.interactive_fragments,
@@ -176,7 +191,7 @@ async def _generate_reply(
     async for event in _consume_pipeline(
         pipeline,
         conversation_id,
-        consume_settings if consume_settings is not None else pipeline_settings,
+        settings,
         user_msg_id,
         asst_turn_index,
         extra_on_result=_conversation_log_writer(conversation_id, log_turn_index),
@@ -193,7 +208,7 @@ async def handle_turn(
     conversation_id: str,
     user_message: str,
     skip_user_persist: bool = False,
-    attachments: Optional[List[dict]] = None,
+    attachments: list[dict] | None = None,
     abort_token: AbortToken | None = None,
 ) -> AsyncIterator[dict]:
     """Save the user message, run the pipeline, and stream the reply.
@@ -205,13 +220,15 @@ async def handle_turn(
     Streams: ``user_message_created``, then pipeline events (``director_done``,
     ``token``, ``editor_done``, etc.), and finally ``done``.
     """
-    try:
-        if attachments is None:
-            attachments = []
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
-        if ctx is None:
-            yield {"event": "error", "data": "Conversation not found"}
-            return
+    if attachments is None:
+        attachments = []
+
+    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+        # Inline macros ({{roll}}/{{random}}) resolve exactly once, before the
+        # row is persisted, so history holds the final text and never re-rolls.
+        # For /continue the content came from the DB and is already resolved.
+        nonlocal user_message
+        user_message = resolve_inline(user_message)
 
         settings = ctx.settings
         messages = await db.get_messages(conversation_id)
@@ -253,7 +270,9 @@ async def handle_turn(
                 attachments=db_attachments,
             )
             await db.set_active_leaf(conversation_id, user_msg_id)
-            yield {"event": "user_message_created", "data": {"id": user_msg_id}}
+            # content carries the macro-resolved text so the frontend can sync
+            # the optimistic bubble with what was actually persisted.
+            yield {"event": "user_message_created", "data": {"id": user_msg_id, "content": user_message}}
 
         asst_turn = user_turn + 1
 
@@ -262,7 +281,7 @@ async def handle_turn(
             ctx,
             conversation_id,
             history=history,
-            pipeline_settings=settings,
+            settings=settings,
             last_user_message=user_message,
             lorebook_messages=history + [{"role": "user", "content": user_message}],
             user_message=user_message,
@@ -273,9 +292,8 @@ async def handle_turn(
         ):
             yield event
 
-    except Exception:
-        logger.exception("Pipeline error")
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label="Pipeline"):
+        yield event
 
 
 async def handle_fork_edit(
@@ -294,11 +312,12 @@ async def handle_fork_edit(
     Logs at the assistant turn (not the user turn) so this branch's log row is
     distinct from the original turn's log.
     """
-    try:
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
-        if ctx is None:
-            yield {"event": "error", "data": "Conversation not found"}
-            return
+
+    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
+        # Same persist-boundary rule as handle_turn: inline macros in the
+        # edited text fire once, before the new sibling row is written.
+        nonlocal new_content
+        new_content = resolve_inline(new_content)
 
         settings = ctx.settings
         original = await db.get_message_by_id(user_msg_id)
@@ -328,13 +347,13 @@ async def handle_fork_edit(
             attachments=carried_atts,
         )
         await db.set_active_leaf(conversation_id, new_user_id)
-        yield {"event": "user_message_created", "data": {"id": new_user_id}}
+        yield {"event": "user_message_created", "data": {"id": new_user_id, "content": new_content}}
 
         async for event in _generate_reply(
             ctx,
             conversation_id,
             history=history,
-            pipeline_settings=settings,
+            settings=settings,
             last_user_message=new_content,
             lorebook_messages=history + [{"role": "user", "content": new_content}],
             user_message=new_content,
@@ -345,9 +364,8 @@ async def handle_fork_edit(
         ):
             yield event
 
-    except Exception:
-        logger.exception("Fork edit error")
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label="Fork edit"):
+        yield event
 
 
 async def handle_regenerate(
@@ -362,12 +380,8 @@ async def handle_regenerate(
     producing a new reply at the same turn index. The original is kept; branch
     navigation shows both.
     """
-    try:
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
-        if ctx is None:
-            yield {"event": "error", "data": "Conversation not found"}
-            return
 
+    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
@@ -382,7 +396,7 @@ async def handle_regenerate(
             ctx,
             conversation_id,
             history=history,
-            pipeline_settings=settings,
+            settings=settings,
             last_user_message=user_msg["content"],
             lorebook_messages=[
                 *history,
@@ -396,9 +410,8 @@ async def handle_regenerate(
         ):
             yield event
 
-    except Exception:
-        logger.exception("Regenerate error")
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label="Regenerate"):
+        yield event
 
 
 _SUPER_REGEN_MSG = "[OOC: Your response was kind of meh, rewrite it in a slightly different but still realistic direction.]"
@@ -417,15 +430,10 @@ async def _regenerate_with_steering(
     Extends history with the original exchange so the model sees what it wrote,
     then runs the full pipeline with *steer_msg* as the current-turn user
     message: the director reads it when shaping the scene and the writer rewrites
-    against it. The prompt-rewrite tool is disabled so the director cannot alter
-    the steering message. The original reply is left intact on its own branch.
+    against it. The original reply is left intact on its own branch.
     """
-    try:
-        ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
-        if ctx is None:
-            yield {"event": "error", "data": "Conversation not found"}
-            return
 
+    async def _body(ctx: PipelineContext) -> AsyncIterator[dict]:
         settings = ctx.settings
         result = await _resolve_target_and_parent(conversation_id, assistant_msg_id)
         if isinstance(result, str):
@@ -442,10 +450,6 @@ async def _regenerate_with_steering(
             {"role": "user", "content": user_msg["content"]},
             {"role": "assistant", "content": target["content"]},
         ]
-        steer_settings = {
-            **settings,
-            "enabled_tools": disable_rewrite(settings.get("enabled_tools") or {}),
-        }
 
         # From history, not extended_history: the reply being replaced is excluded
         # from the audit so the new draft isn't penalised for resembling it.
@@ -457,7 +461,7 @@ async def _regenerate_with_steering(
             ctx,
             conversation_id,
             history=extended_history,
-            pipeline_settings=steer_settings,
+            settings=settings,
             last_user_message=user_msg["content"],
             lorebook_messages=extended_history,
             user_message=steer_msg,
@@ -466,13 +470,11 @@ async def _regenerate_with_steering(
             asst_turn_index=target["turn_index"],
             log_turn_index=target["turn_index"],
             editor_audit_msgs=editor_audit_msgs,
-            consume_settings=settings,
         ):
             yield event
 
-    except Exception:
-        logger.exception("%s error", log_label)
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+    async for event in _run_turn_handler(conversation_id, abort_token, _body, log_label=log_label):
+        yield event
 
 
 async def handle_super_regenerate(

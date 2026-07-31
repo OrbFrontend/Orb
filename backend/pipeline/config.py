@@ -13,7 +13,8 @@ why the dependency-free predicates live in ``predicates.py`` rather than here.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from ..core import ChatMessage, Macros
 from ..database.models import PhraseGroup
@@ -60,6 +61,14 @@ def _resolve_pipeline_config(
 
     agent_on = agent_enabled(settings)
     reasoning_passes = settings.get("reasoning_enabled_passes") or {}
+    prefills = settings.get("reasoning_prefill_passes") or {}
+
+    def _prefill(key: str) -> str:
+        # resolve_message is seeded by conversation id, so {{random}}/{{roll}} pin
+        # per conversation exactly like fragment text — the tail stays byte-stable
+        # turn over turn.
+        raw = str(prefills.get(key) or "")
+        return macros.resolve_message(raw) if raw else ""
 
     audit_enabled = agent_on and bool(enabled_tools.get("editor_apply_patch", False)) and phrase_bank is not None
 
@@ -101,10 +110,14 @@ def _resolve_pipeline_config(
         director_reasoning_on=bool(reasoning_passes.get("director", False)),
         writer_reasoning_on=bool(reasoning_passes.get("writer", False)),
         editor_reasoning_on=bool(reasoning_passes.get("editor", False)),
+        director_reasoning_prefill=_prefill("director"),
+        writer_reasoning_prefill=_prefill("writer"),
+        editor_reasoning_prefill=_prefill("editor"),
         audit_enabled=audit_enabled,
         length_guard=length_guard,
         do_edit=audit_enabled or length_guard is not None,
         writer_enabled_tools=writer_enabled_tools,
+        writer_text_mode=getattr(client, "completion_mode", "chat") == "text",
         writer_lane=writer_lane,
         agent_lane=agent_lane,
     )
@@ -135,15 +148,26 @@ def _build_writer_tools_blob(
     """Build the dynamic tool-schema overrides shared across all cached calls.
 
     Mutates *enabled_tools* in place to enable ``give_feedback`` when the feedback
-    step is active and ``record_direction_note`` when the direction-note step is.
-    Returns a ``schema_overrides`` dict (``direct_scene`` and optionally
-    ``give_feedback``) held byte-stable across every cached call in a turn so the
-    LLM's KV cache is not busted.
+    step is active, ``record_direction_note`` when the direction-note step is, and
+    ``select_lorebook`` when agentic lorebook is active. Returns a ``schema_overrides``
+    dict (``direct_scene`` and optionally ``give_feedback``/``record_direction_note``)
+    held byte-stable across every cached call in a turn so the LLM's KV cache is not
+    busted. (``select_lorebook`` needs no override -- its schema is fixed, so enabling
+    it lets ``enabled_schemas`` emit the registry schema into the shared blob.)
 
     Called by ``_prepare_turn``.
     """
     writer_fragments, feedback_fragments, direction_note_fragments = _split_interactive_fragments(interactive_fragments)
-    overrides: dict = {"direct_scene": build_direct_scene_override(writer_fragments, agentic_lorebook=agentic_lorebook)}
+    direct_scene = build_direct_scene_override(writer_fragments)
+    # Per-fragment mode fills one field per call, so requiredness on the shared blob
+    # is meaningless -- and a non-empty `required` contradicts the "Fill ONLY X, leave
+    # others empty" step prompt, which confuses the reasoning pass on endpoints that
+    # can't grammar-narrow the call (no structured-tool-calls profile). Drop it.
+    if bool(settings.get("director_individual_fragments", 0)):
+        direct_scene["function"]["parameters"]["required"] = []
+    overrides: dict = {"direct_scene": direct_scene}
+    if agentic_lorebook:
+        enabled_tools["select_lorebook"] = True
     if _feedback_active(settings, feedback_fragments, agent_on=agent_enabled(settings)):
         overrides["give_feedback"] = build_feedback_override(feedback_fragments)
         enabled_tools["give_feedback"] = True

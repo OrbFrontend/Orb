@@ -9,7 +9,7 @@
 
 const MAX_CHAT_INPUT = 100000;
 const MAX_CHARACTER_NAME = 200;
-const MAX_CHARACTER_FIELD = 10000;
+const MAX_CHARACTER_FIELD = 100000;
 const MAX_CHARACTER_ADVANCED = 5000;
 const MAX_ALT_GREETING = 10000;
 const MAX_ALT_GREETINGS_COUNT = 30;
@@ -18,7 +18,6 @@ const MAX_FRAGMENT_LABEL = 100;
 const MAX_FRAGMENT_DESCRIPTION = 1000;
 const MAX_FRAGMENT_PROMPT = 10000;
 const MAX_FRAGMENT_NEGATIVE_PROMPT = 5000;
-const MAX_SETTINGS_TEXT = 2048;
 const MAX_SETTINGS_PROMPT = 50000;
 const MAX_USER_PROFILE_NAME = 50;
 const MAX_USER_PROFILE_DESC = 1000;
@@ -28,11 +27,11 @@ const MAX_PHRASE_VARIANT = 100;
 const MAX_BROWSE_SEARCH = 200;
 const MAX_CONVERSATION_TITLE = 100;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10 MB
-const MAX_AVATAR_SIZE = 5 * 1024 * 1024; // 5 MB
-const MIN_AVATAR_DIMENSION = 200;
 const ALLOWED_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 const FRAGMENT_ID_REGEX = /^[a-z0-9][a-z0-9_-]*$/;
 const VALID_URL_REGEX = /^https?:\/\/.+$/;
+// _MAX_SETTINGS_TEXT / _MAX_AVATAR_SIZE / _MIN_AVATAR_DIMENSION were dead
+// (declared, never read) and have been removed.
 
 // ── Generic Validators ──
 
@@ -89,7 +88,7 @@ export function minLength(value, min, fieldName = "Field") {
 export function isNumber(value, fieldName = "Field") {
   if (value === "" || value == null) return { valid: true }; // handled by required/empty checks
   const num = typeof value === "string" ? parseFloat(value) : value;
-  if (isNaN(num)) {
+  if (Number.isNaN(num)) {
     return { valid: false, error: `${fieldName} must be a valid number` };
   }
   return { valid: true, parsed: num };
@@ -104,7 +103,7 @@ export function isNumber(value, fieldName = "Field") {
  * @returns {{ valid: boolean, error?: string }}
  */
 export function numberRange(value, min, max, fieldName = "Field") {
-  if (typeof value !== "number" || isNaN(value)) return { valid: true };
+  if (typeof value !== "number" || Number.isNaN(value)) return { valid: true };
   if (value < min || value > max) {
     return { valid: false, error: `${fieldName} must be between ${min} and ${max}` };
   }
@@ -118,7 +117,7 @@ export function numberRange(value, min, max, fieldName = "Field") {
  * @returns {{ valid: boolean, error?: string }}
  */
 export function isInteger(value, fieldName = "Field") {
-  if (typeof value !== "number" || isNaN(value)) return { valid: true };
+  if (typeof value !== "number" || Number.isNaN(value)) return { valid: true };
   if (!Number.isInteger(value)) {
     return { valid: false, error: `${fieldName} must be a whole number` };
   }
@@ -132,7 +131,7 @@ export function isInteger(value, fieldName = "Field") {
  * @param {"url"|"email"} format - The format to validate against
  * @returns {{ valid: boolean, error?: string }}
  */
-export function formatMatch(value, fieldName, format = "url") {
+export function formatMatch(value, _fieldName, format = "url") {
   if (typeof value !== "string" || !value.trim()) return { valid: true };
   const regex = format === "url" ? VALID_URL_REGEX : /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!regex.test(value.trim())) {
@@ -471,6 +470,18 @@ export function validateSetting(key, value) {
       if (!range.valid) return range;
       return isInteger(numCheck.parsed, "Max paragraphs");
     }
+    case "reasoning_effort_param": {
+      if (typeof value === "string") {
+        return maxLength(value, 128, "Reasoning param name");
+      }
+      return { valid: true };
+    }
+    case "reasoning_effort_value": {
+      if (typeof value === "string") {
+        return maxLength(value, 4096, "Reasoning param value");
+      }
+      return { valid: true };
+    }
     default:
       return { valid: true };
   }
@@ -595,21 +606,9 @@ export function validateConversationTitle(title) {
   return { valid: true };
 }
 
-/**
- * Validate an edit message.
- * @param {string} content - The message content
- * @returns {{ valid: boolean, error?: string }}
- */
-export function validateEditMessage(content) {
-  const trimmed = (content || "").trim();
-  if (!trimmed) {
-    return { valid: false, error: "Message cannot be empty" };
-  }
-  if (trimmed.length > MAX_CHAT_INPUT) {
-    return { valid: false, error: `Message must be ${MAX_CHAT_INPUT} characters or less` };
-  }
-  return { valid: true };
-}
+// An edit message obeys the identical rules to a fresh chat message; alias so
+// there is one implementation (and one place to change the limit).
+export const validateEditMessage = validateChatInput;
 
 // ── Export all validators to window for inline handler access ──
 

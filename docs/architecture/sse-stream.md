@@ -36,12 +36,15 @@ data: <payload>
             ← blank line terminates the frame
 ```
 
-On the backend, `handle_turn` is an `async` generator that `yield`s `{"event": ..., "data": ...}` dicts. The `_sse_stream` wrapper in `main.py` serialises each one:
+On the backend, `handle_turn` is an `async` generator that `yield`s `{"event": ..., "data": ...}` dicts. The `_sse_stream` wrapper in `backend/api/deps.py` serialises each one:
 
-- `data` that is a `dict` is JSON-encoded.
+- `data` that is a `dict` is JSON-encoded (single-line `json.dumps`).
 - `data` that is a string has its newlines escaped to literal `\n` (so a multi-line frame can't break the parser).
+- Silent stretches emit a `: keepalive\n\n` comment frame so proxies don't drop the connection.
 
-On the frontend, `processSSEStream` (in `chat_stream.js`) reads the byte stream, splits on `\n`, collects the `event:` and `data:` lines, and hands each `(event, data)` pair to `handleSSEEvent` — one big `switch` keyed on the **event name**. The name is the entire contract; the payload just fills in detail.
+Because string data is newline-escaped and dict data is single-line JSON, a payload **never contains a real newline** — which makes `\n\n` an unambiguous frame terminator and `\n` an unambiguous line terminator inside a frame.
+
+On the frontend, one module parses this wire format for **every** streaming route: `sse.js`. Its `sseEvents(body, {signal})` async generator splits the byte stream into frames, skips keepalive comments, and yields `{event, data}` pairs — where `data` is the **raw** payload string. It is transport-only: it knows the frame shape and nothing about event names, and it **never un-escapes** `data` (a string channel's `\n` escaping and a JSON channel's raw payload are opposite rules, so un-escaping is the consumer's call via `unescapeSSE`). The chat dispatcher (`processSSEStream` → `handleSSEEvent` in `chat_stream.js`) consumes `sseEvents` and routes each pair through one big `switch` keyed on the **event name**; the conversation-summary and document-generate readers consume the same `sseEvents` with their own tiny event handling. The name is the entire contract; the payload just fills in detail.
 
 ---
 
@@ -51,19 +54,18 @@ A typical `/send` turn with reasoning on (Director + Writer), an Editor pass, an
 
 | # | Event | Dir | Data | What the frontend does |
 |---|-------|-----|------|------------------------|
-| 1 | `user_message_created` | BE→FE | `{ "id": 412 }` | Patches the optimistic user bubble (`id: null`) with the real DB id. `/send` only — `/continue` skips it. |
+| 1 | `user_message_created` | BE→FE | `{ "id": 412, "content": "…" }` | Patches the optimistic user bubble (`id: null`) with the real DB id. `content` is the persisted text after inline-macro resolution (`{{roll}}`/`{{random}}`); the frontend syncs its local copy and repaints the bubble when it differs. `/send` only — `/continue` skips it. |
 | 2 | `director_start` | BE→FE | *(none)* | Phase → **directing**; clears stale inspector data. |
 | 3 | `reasoning` | BE→FE | `{ "pass": "director", "delta": "…" }` | Appends thinking tokens to the named pass's buffer; lights its dot. |
-| 4 | `prompt_rewritten` | BE→FE | `{ "refined_message": "…" }` | *Optional.* Rewrites the displayed user message in place. |
-| 5 | `director_done` | BE→FE | `{ "tool_calls": [...], ... }` | Stores director data for the inspector; advances dot to Writer. |
-| 6 | `token` (×N) | BE→FE | bare text `delta` | The visible reply. First token reveals the bubble + phase → **generating**; each one is appended and re-rendered. |
-| 7 | `writer_done` | BE→FE | `{ "editor_will_run": true }` | Authoritative end-of-writer marker; phase → **refining** if an editor pass follows. |
-| 8 | `writer_rewrite` | BE→FE | `{ "refined_text": "…" }` | *Optional.* Editor's patched prose; FE diffs vs. the draft and swaps the bubble. |
-| 9 | `editor_done` | BE→FE | `{ "tool_calls": [...] }` | Merges editor tool calls into the inspector. |
-| 10 | `feedback` | BE→FE | `{ "values": {...} }` | *Optional.* User-facing notes; display-only, re-renders the inspector. |
-| 11 | `direction_notes` | BE→FE | `{ "notes": [...] }` | *Optional.* The Director's persistent notes recorded this turn; display-only, re-renders the inspector's Direction Notes block. |
-| 12 | `phase_status`, `tts_autoplay`, … | BE→FE | varies | Secondary-workflow passthrough (see §6). |
-| 13 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
+| 4 | `director_done` | BE→FE | `{ "tool_calls": [...], ... }` | Stores director data for the inspector; advances dot to Writer. |
+| 5 | `token` (×N) | BE→FE | bare text `delta` | The visible reply. First token reveals the bubble + phase → **generating**; each one is appended and re-rendered. |
+| 6 | `writer_done` | BE→FE | `{ "editor_will_run": true }` | Authoritative end-of-writer marker; phase → **refining** if an editor pass follows. |
+| 7 | `writer_rewrite` | BE→FE | `{ "refined_text": "…" }` | *Optional.* Editor's patched prose; FE diffs vs. the draft and swaps the bubble. |
+| 8 | `editor_done` | BE→FE | `{ "tool_calls": [...] }` | Merges editor tool calls into the inspector. |
+| 9 | `feedback` | BE→FE | `{ "values": {...} }` | *Optional.* User-facing notes; display-only, re-renders the inspector. |
+| 10 | `direction_notes` | BE→FE | `{ "notes": [...] }` | *Optional.* The Director's persistent notes recorded this turn; display-only, re-renders the inspector's Direction Notes block. |
+| 11 | `phase_status`, `tts_autoplay`, … | BE→FE | varies | Secondary-workflow passthrough (see §6). |
+| 12 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
 
 The only event whose `data` is **not** JSON is `token` — it's a raw text delta, with newlines escaped to `\n` and un-escaped on arrival.
 

@@ -56,11 +56,18 @@ async def _seed_message(client) -> tuple[str, int]:
     return cid, mid
 
 
-async def _seed_row(mid: int, *, wid: str = "wf", data: bytes = b"X", recent: list[int] | None = None) -> int:
-    rid = await insert_workflow_attachment_row(
-        mid,
-        {"filename": "x", "mime": "application/octet-stream", "data": data, "workflow_id": wid},
-    )
+async def _seed_row(
+    mid: int,
+    *,
+    wid: str = "wf",
+    data: bytes = b"X",
+    recent: list[int] | None = None,
+    recoverable: bool = True,
+) -> int:
+    att = {"filename": "x", "mime": "application/octet-stream", "data": data, "workflow_id": wid}
+    if recoverable:
+        att.update({"seed": f"seed-{wid}", "generation_metadata": {}})
+    rid = await insert_workflow_attachment_row(mid, att)
     if recent is not None:
         async with get_db() as db:
             await db.execute(
@@ -82,7 +89,7 @@ def _make_att(
     *,
     wid: str = "wf",
     parent: int | None = None,
-    seed: str | None = None,
+    seed: str | None = "seed",
     generation_metadata: dict | None = None,
 ) -> dict:
     a: dict = {"filename": name, "mime": "image/png", "data": data, "workflow_id": wid}
@@ -90,8 +97,7 @@ def _make_att(
         a["parent_attachment_id"] = parent
     if seed is not None:
         a["seed"] = seed
-    if generation_metadata is not None:
-        a["generation_metadata"] = generation_metadata
+        a["generation_metadata"] = generation_metadata or {}
     return a
 
 
@@ -279,6 +285,19 @@ async def test_runtime_over_budget_existing_evicted_to_converge(client, db):
     n_row = await must_get_workflow_attachment(new_ids[0])
     assert e_row["data_b64"] == EVICTED_MARKER, "over-budget existing evicted on next write"
     assert n_row["data_b64"] == EVICTED_MARKER
+
+
+async def test_batch_never_evicts_existing_unrecoverable_bytes(client, db):
+    cid, mid = await _seed_message(client)
+    pinned = await _seed_row(mid, data=b"PINNED", recent=[1], recoverable=False)
+    evictable = await _seed_row(mid, data=b"OLD", recent=[2])
+    await _set_budget(db, 7)
+
+    new_ids, rejected = await insert_workflow_attachments(mid, [_make_att("new", b"NEW")])
+
+    assert len(new_ids) == 1 and rejected == []
+    assert (await must_get_workflow_attachment(pinned))["data_b64"] != EVICTED_MARKER
+    assert (await must_get_workflow_attachment(evictable))["data_b64"] == EVICTED_MARKER
 
 
 async def test_mark_active_per_att_with_parent(client):

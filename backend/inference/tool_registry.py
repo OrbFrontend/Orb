@@ -4,7 +4,8 @@ tool_registry.py — Built-in tool schemas and the tool registry.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 # ── Agent tool definitions (OpenAI function-calling format)
 
@@ -20,10 +21,10 @@ _DIRECT_SCENE_FIXED_PROPERTIES = {
 
 _DIRECT_SCENE_FIXED_REQUIRED: list[str] = []
 
-# Optional activation parameter added when the Agentic Lorebook feature is on.
-# The schema declares only the *parameter*; the catalog of selectable values
-# lives in the director OOC trailing (so the cached tools blob grows by a fixed
-# ~1 property). Kept out of `required` so the Director may select none.
+# The Agentic Lorebook selection parameter. It is the sole parameter of the
+# standalone `select_lorebook` tool (see below); the schema declares only the
+# *parameter* — the catalog of selectable values rides the select step's OOC
+# trailing. Kept out of `required` so the Director may select none.
 _ACTIVE_LOREBOOK_PROPERTY = {
     "selected_lorebook_entries": {
         "type": "array",
@@ -40,15 +41,12 @@ _DIRECT_SCENE_DESCRIPTION = (
 
 def build_direct_scene_tool(
     interactive_fragments: Sequence[Mapping[str, Any]],
-    *,
-    agentic_lorebook: bool = False,
 ) -> dict:
     """Build the ``direct_scene`` tool schema from the enabled interactive fragments.
 
     Fragments add dynamic string/array parameters beyond the fixed ``moods``
-    field. When *agentic_lorebook* is ``True``, a ``selected_lorebook_entries``
-    array parameter is appended (the selectable catalog rides the director OOC
-    message, not this schema). Returns an OpenAI function-calling format dict.
+    field. Returns an OpenAI function-calling format dict. (Lorebook selection is
+    a separate concern handled by the standalone ``select_lorebook`` tool.)
     """
     properties: dict = {}
     required: list[str] = []
@@ -69,8 +67,6 @@ def build_direct_scene_tool(
             required.append(fid)
 
     properties.update(_DIRECT_SCENE_FIXED_PROPERTIES)
-    if agentic_lorebook:
-        properties.update(_ACTIVE_LOREBOOK_PROPERTY)
     required.extend(_DIRECT_SCENE_FIXED_REQUIRED)
 
     return {
@@ -85,6 +81,30 @@ def build_direct_scene_tool(
             },
         },
     }
+
+
+_SELECT_LOREBOOK_DESCRIPTION = (
+    "Pick the lorebook entries relevant to the current scene from the catalog provided. "
+    "Activate the ones that genuinely apply; leave the selection empty if none do."
+)
+
+# The agentic-lorebook selection tool: a fixed, fragment-independent schema, so it
+# is registered statically (unlike direct_scene, which is rebuilt per turn from the
+# enabled fragments). Its single parameter is the shared `_ACTIVE_LOREBOOK_PROPERTY`.
+SELECT_LOREBOOK_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "select_lorebook",
+        "description": _SELECT_LOREBOOK_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": dict(_ACTIVE_LOREBOOK_PROPERTY),
+            "required": [],
+        },
+    },
+}
+
+SELECT_LOREBOOK_CHOICE = {"type": "function", "function": {"name": "select_lorebook"}}
 
 
 _GIVE_FEEDBACK_DESCRIPTION = (
@@ -175,24 +195,6 @@ def build_direction_note_tool(direction_note_fragments: Sequence[Mapping[str, An
 RECORD_DIRECTION_NOTE_CHOICE = {"type": "function", "function": {"name": "record_direction_note"}}
 
 
-REWRITE_PROMPT_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "rewrite_user_prompt",
-        "description": 'Rewrite the user\'s message into a more detailed action or dialogue. Use ONLY when the input is too short or vague (e.g. "I laugh.", "Sure, what is it?", "I nod.") to generate a compelling response. Write 2 sentences max, be succinct. If the message is already detailed enough, leave empty. Do NOT call direct_scene even if it is available!',
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "refined_message": {
-                    "type": "string",
-                    "description": "An improved, more detailed version of the user's message, keep the same perspective. Leave empty or omit if already rich enough.",
-                },
-            },
-            "required": [],
-        },
-    },
-}
-
 EDITOR_REWRITE_TOOL = {
     "type": "function",
     "function": {
@@ -251,10 +253,6 @@ TOOLS: dict[str, dict] = {
         "choice": {"type": "function", "function": {"name": "direct_scene"}},
         "schema": build_direct_scene_tool([]),
     },
-    "rewrite_user_prompt": {
-        "choice": {"type": "function", "function": {"name": "rewrite_user_prompt"}},
-        "schema": REWRITE_PROMPT_TOOL,
-    },
     "editor_apply_patch": {
         "choice": {"type": "function", "function": {"name": "editor_apply_patch"}},
         "schema": EDITOR_APPLY_PATCH_TOOL,
@@ -280,6 +278,14 @@ TOOLS: dict[str, dict] = {
         "choice": RECORD_DIRECTION_NOTE_CHOICE,
         "schema": build_direction_note_tool([]),
     },
+    # Internal, flag-gated (never user-toggleable). Enabled for the turn when the
+    # Agentic Lorebook feature is active (see _build_writer_tools_blob); its fixed
+    # schema rides the shared blob so the select step reuses the cached base. The
+    # selectable catalog rides the select step's OOC trailing, not this schema.
+    "select_lorebook": {
+        "choice": SELECT_LOREBOOK_CHOICE,
+        "schema": SELECT_LOREBOOK_TOOL,
+    },
 }
 
 # Built-in tool names declared as a literal and asserted equal to TOOLS keys at
@@ -288,21 +294,25 @@ TOOLS: dict[str, dict] = {
 BUILTIN_TOOL_NAMES: frozenset[str] = frozenset(
     {
         "direct_scene",
-        "rewrite_user_prompt",
         "editor_apply_patch",
         "editor_rewrite",
         "give_feedback",
         "record_direction_note",
+        "select_lorebook",
     }
 )
 assert BUILTIN_TOOL_NAMES == frozenset(TOOLS.keys()), "BUILTIN_TOOL_NAMES drift vs TOOLS literal keys"
 
-# Built-in tools partitioned by pipeline phase. PRE = director (pre-writer) tools;
-# POST = editor + feedback (post-writer) tools. give_feedback is a post-writer
-# feedback-step tool (pipeline/passes/editor/feedback.py): it rides the shared per-turn tools
-# blob (Invariant 3) but must NOT be offered to or triggered by the director.
-PRE_WRITER_TOOLS = {"direct_scene", "rewrite_user_prompt"}
-POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite", "give_feedback", "record_direction_note"}
+# Built-in tools partitioned into two sets so the director's interactive loop knows
+# which tools it may offer. PRE = the director loop's own tools (it iterates these
+# and calls them itself). POST = everything else: the post-writer editor tools AND
+# the internal forced-step tools that ride the shared per-turn blob (Invariant 3)
+# but must NOT be offered to or triggered by the director loop — give_feedback
+# (post-writer feedback step), record_direction_note (its own step, pre- or
+# post-writer), and select_lorebook (the pre-writer agentic-lorebook select step).
+# So "POST" here means "not a director-loop tool," not a literal pipeline phase.
+PRE_WRITER_TOOLS = {"direct_scene"}
+POST_WRITER_TOOLS = {"editor_apply_patch", "editor_rewrite", "give_feedback", "record_direction_note", "select_lorebook"}
 
 assert PRE_WRITER_TOOLS.isdisjoint(POST_WRITER_TOOLS), "phase sets overlap"
 assert PRE_WRITER_TOOLS | POST_WRITER_TOOLS == BUILTIN_TOOL_NAMES, "phase sets must partition built-ins"

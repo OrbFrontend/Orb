@@ -34,14 +34,14 @@ __all__ = ["detect_structural_repetition", "StructuralResult", "MessageStructure
 # ---------- dataclasses ----------
 
 
-@dataclass
+@dataclass(slots=True)
 class MessageStructure:
     index: int
     signature: list[str]
     blocks: list[tuple[str, str]] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(slots=True)
 class StructuralResult:
     is_repetitive: bool
     min_similarity: float

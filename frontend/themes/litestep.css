@@ -1,0 +1,318 @@
+/* ═══════════════════════════════════════════════════════════
+   LiteStep — early-2000s Windows shell replacement. Slate-blue
+   desktop, beige widget boxes with hard 3D bevels, navy
+   titlebars, Tahoma at small sizes, amber-dot accents.
+
+   No blur, no glow, no rounded corners — 2003 hardware
+   couldn't afford them and neither does this theme. Bevels are
+   faked with two-tone borders (light top-left, dark
+   bottom-right), the classic Win2k trick.
+   ═══════════════════════════════════════════════════════════ */
+
+/* Fixedsys Excelsior — public-domain remake of the classic
+   pre-XP Windows Notepad/terminal font. Designed for 16px;
+   fractional sizes will look soft, keep multiples crisp. */
+@font-face {
+  font-family: 'Fixedsys Excelsior';
+  src: url('/static/fonts/fixedsys.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+  /* Fixedsys runs small for its px size — scale glyphs up so
+     the base CSS's 10-13px UI text stays readable. Prose size
+     below is reduced to compensate. */
+  size-adjust: 125%;
+}
+
+:root {
+  /* Classic Windows widget beige over a slate desktop */
+  --bg-deep:#7188a3;
+  --bg-primary:#d4d0c8;
+  --bg-surface:#dcd8d0;
+  --bg-elevated:#e4e0d8;
+  --bg-hover:#c8ccd4;
+  --border:#808080;
+  --border-light:#a8a8a0;
+
+  --text-primary:#1a1a1a;
+  --text-secondary:#3c4a5c;
+  --text-muted:#6e7a88;
+
+  /* LiteStep amber dots */
+  --accent:#c46418;
+  --accent-dim:#8c480c;
+  --accent-glow:rgba(196,100,24,0.2);
+  --accent-muted:rgba(196,100,24,0.15);
+
+  --red:#c03020;
+
+  --font-prose:'Fixedsys Excelsior','Lucida Console',monospace;
+  --font-ui:'Fixedsys Excelsior','Lucida Console',monospace;
+  --font-mono:'Fixedsys Excelsior','Lucida Console',monospace;
+  --radius:0px;
+  /* 13px × the 125% size-adjust ≈ the 16px chat text you see */
+  --font-prose-size:13px;
+  --sidebar-width:300px;--inspector-width:340px;--tools-width:260px;
+}
+
+*, *::before, *::after { border-radius: 0 !important; }
+
+/* ── The desktop: flat slate blue with a faint vertical fade,
+   exactly like the stock wallpaper-less LiteStep desktop. */
+body {
+  background: linear-gradient(180deg, #7e94ad 0%, #6a82a0 40%, #5d7695 100%) !important;
+  background-attachment: fixed !important;
+}
+
+/* ── Panels: beige widget boxes with the raised-bevel edge. */
+#sidebar, #inspector, #tools-panel {
+  background: #d4d0c8 !important;
+  box-shadow: inset 1px 1px 0 #f4f2ee, inset -1px -1px 0 #808080 !important;
+}
+#sidebar { border-right: 1px solid #404040 !important; }
+#inspector.open, #tools-panel.open { border-left: 1px solid #404040 !important; }
+
+/* Headers: the navy gradient titlebar. */
+.sidebar-header, #chat-header {
+  background: linear-gradient(90deg, #33507a 0%, #5a7ba6 100%) !important;
+  border-bottom: 1px solid #22344e !important;
+}
+/* Fixedsys has no bold — synthetic bold smears the bitmap
+   shapes, so titles stay normal weight at the native 16px. */
+.sidebar-header h1 {
+  color: #ffffff !important;
+  font-size: 16px !important;
+  font-weight: normal !important;
+  letter-spacing: 0;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.4) !important;
+}
+#chat-header, #chat-header * { color: #ffffff !important; }
+
+.sidebar-section-header { color: #3c4a5c !important; }
+.sidebar-section-header:hover { color: #1a1a1a !important; background: #c8ccd4 !important; }
+
+/* ── Buttons: the raised gray button. Light top-left, dark
+   bottom-right; inverts when pressed. */
+.btn {
+  background: #d4d0c8 !important;
+  border: 1px solid !important;
+  border-color: #f4f2ee #606060 #606060 #f4f2ee !important;
+  color: #1a1a1a !important;
+  box-shadow: 1px 1px 0 #404040 !important;
+  transition: none !important;
+}
+.btn:hover { background: #dcd8d0 !important; }
+.btn:active {
+  background: #c4c0b8 !important;
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
+  box-shadow: inset 1px 1px 2px rgba(0,0,0,0.2) !important;
+}
+
+/* Primary buttons: same chrome, amber face — the litestep dots. */
+.btn-accent, .btn-active, #send-btn {
+  background: linear-gradient(180deg, #d88a34 0%, #c46418 100%) !important;
+  border: 1px solid !important;
+  border-color: #e0b470 #683008 #683008 #e0b470 !important;
+  color: #2a1804 !important;
+  font-weight: normal;
+  text-shadow: none !important;
+  box-shadow: 1px 1px 0 #404040 !important;
+}
+.btn-accent:hover, .btn-active:hover, #send-btn:hover {
+  background: linear-gradient(180deg, #e09844 0%, #d07024 100%) !important;
+}
+.btn-accent:active, .btn-active:active, #send-btn:active {
+  border-color: #683008 #e0b470 #e0b470 #683008 !important;
+}
+
+/* Danger: the "Cancel at your peril" red. */
+.btn-danger, #stop-btn {
+  background: linear-gradient(180deg, #d05040 0%, #b03424 100%) !important;
+  border: 1px solid !important;
+  border-color: #e89080 #702014 #702014 #e89080 !important;
+  color: #ffffff !important;
+  box-shadow: 1px 1px 0 #404040 !important;
+}
+.btn-danger:hover, #stop-btn:hover {
+  background: linear-gradient(180deg, #d85c4c 0%, #bc4030 100%) !important;
+}
+
+#burger-btn {
+  background: #d4d0c8 !important;
+  border: 1px solid !important;
+  border-color: #f4f2ee #606060 #606060 #f4f2ee !important;
+  color: #1a1a1a !important;
+}
+#burger-btn:hover { background: #dcd8d0 !important; }
+
+/* ── Composer dock: the taskbar. */
+#chat-input-area {
+  background: #d4d0c8 !important;
+  border-top: 1px solid #f4f2ee !important;
+  box-shadow: 0 -1px 0 #404040 !important;
+}
+#chat-input-area textarea, #chat-input-area input {
+  background: #ffffff !important;
+  border: 1px solid !important;
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
+  color: #1a1a1a !important;
+}
+
+/* Inputs everywhere: sunken white wells. */
+input[type="text"], input[type="number"], input[type="password"], textarea, select {
+  background: #ffffff !important;
+  border: 1px solid !important;
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
+  color: #1a1a1a !important;
+}
+
+/* Image-gen prompt rows read as plain text while readonly; the sunken
+   well only appears once the pencil unlocks the field. */
+.image-gen-edit[readonly] {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: inherit !important;
+}
+
+/* Combobox hybrids: the wrapper IS the sunken well; the inner
+   input stays chromeless so there's no double border ring. */
+.cb-control {
+  background: #ffffff !important;
+  border: 1px solid !important;
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
+  box-shadow: none !important;
+}
+.cb-control:hover, .cb-control.open, .cb-control:focus-within {
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
+  box-shadow: none !important;
+}
+.cb-root .cb-input {
+  background: transparent !important;
+  border: none !important;
+  color: #1a1a1a !important;
+}
+.cb-arrow { color: #3c4a5c !important; }
+.cb-dropdown {
+  background: #e4e0d8 !important;
+  border: 1px solid #404040 !important;
+  box-shadow: 2px 2px 0 rgba(0,0,0,0.3) !important;
+}
+.cb-option.active, .cb-option:hover { background: #33507a !important; color: #ffffff !important; }
+
+/* ── Toggle: a checkbox-era slider — sunken track, square
+   button knob, amber when on. */
+.tog-slider {
+  background: #b8b4ac !important;
+  border: 1px solid !important;
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
+  box-shadow: none !important;
+}
+/* Knob: square, beveled with shadows only — a border would
+   inflate it past the 2px track inset. */
+.tog-slider:before {
+  background: #d4d0c8 !important;
+  box-shadow: inset 1px 1px 0 #f4f2ee, inset -1px -1px 0 #606060 !important;
+}
+.tog input:checked + .tog-slider {
+  background: #c46418 !important;
+  border-color: #683008 #e0b470 #e0b470 #683008 !important;
+  box-shadow: none !important;
+}
+.tog input:checked + .tog-slider:before { background: #f4f2ee !important; }
+
+/* ── Messages: little dialog boxes on the desktop. Assistant
+   gets plain widget beige; user gets the pale selection blue. */
+.message .msg-body {
+  background: #dcd8d0 !important;
+  border: 1px solid #404040 !important;
+  box-shadow: inset 1px 1px 0 #f4f2ee, 2px 2px 0 rgba(0,0,0,0.25) !important;
+}
+.message.user .msg-body {
+  background: #cdd6e2 !important;
+  border-color: #404040 !important;
+}
+
+/* Code blocks: Lucida Console on white, sunken. */
+.message .msg-body pre,
+.message .msg-body code.inline-code {
+  background: #ffffff !important;
+  border: 1px solid !important;
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
+}
+
+/* ── Modals: a proper dialog — navy titlebar comes from
+   .modal-header if present, beige body, hard drop shadow. */
+.modal-overlay { background: rgba(40,50,64,0.45) !important; }
+.modal, .modal-crop {
+  background: #d4d0c8 !important;
+  border: 1px solid #404040 !important;
+  box-shadow: inset 1px 1px 0 #f4f2ee, 4px 4px 0 rgba(0,0,0,0.35) !important;
+}
+.modal-header, .modal h2, .modal h3 {
+  background: linear-gradient(90deg, #33507a 0%, #5a7ba6 100%) !important;
+  color: #ffffff !important;
+}
+
+/* Phrase-bank kind chip: full amber washes out at 10px on the beige
+   chip — use the dim amber, and no synthetic bold (Fixedsys). */
+.phrase-group-count {
+  color: #8c480c !important;
+  font-weight: normal !important;
+}
+
+/* ── Injection & reasoning blocks: base paints them desktop-blue with
+   slate text (invisible here) — restyle as sunken white readouts. */
+.injection-box,
+.reasoning-box {
+  background: #ffffff !important;
+  border: 1px solid !important;
+  border-color: #606060 #f4f2ee #f4f2ee #606060 !important;
+  color: #1a1a1a !important;
+  font-size: 12px !important;
+}
+
+/* ── Toast: a tooltip-yellow notification slip. */
+.toast {
+  background: #fdfbd8 !important;
+  border: 1px solid #404040 !important;
+  color: #1a1a1a !important;
+  box-shadow: 2px 2px 0 rgba(0,0,0,0.3) !important;
+}
+
+/* ── Scrollbars: chunky gray with beveled thumb. */
+::-webkit-scrollbar { width: 14px; height: 14px; }
+::-webkit-scrollbar-track { background: #c4c8cc; }
+::-webkit-scrollbar-thumb {
+  background: #d4d0c8;
+  border: 1px solid;
+  border-color: #f4f2ee #606060 #606060 #f4f2ee;
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover { background: #dcd8d0; }
+* { scrollbar-width: auto; scrollbar-color: #a8a8a0 #c4c8cc; }
+
+/* Classic navy selection. */
+::selection { background: #33507a; color: #ffffff; }
+
+/* ── Text sitting directly on the slate desktop reads like
+   desktop icon labels: white with a hard 1px dark shadow. */
+.msg-role {
+  color: #ffffff !important;
+  font-weight: normal !important;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.5) !important;
+}
+.swipe-counter, .swipe-nav, .swipe-nav button {
+  color: #dce4ec !important;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.45) !important;
+}
+.swipe-nav button:hover { color: #ffffff !important; background: rgba(255,255,255,0.15) !important; }
+.empty-state { color: #dce4ec !important; text-shadow: 1px 1px 0 rgba(0,0,0,0.45) !important; }
+/* Toolbar icons sit on the slate desktop — light like the
+   desktop icon labels, not widget-gray. */
+.msg-toolbar { color: #e6ecf2 !important; text-shadow: 1px 1px 0 rgba(0,0,0,0.4) !important; }
+.msg-toolbar button, .msg-toolbar .msg-tool { color: inherit !important; }
+.msg-toolbar button:hover, .msg-toolbar .msg-tool:hover { color: #ffffff !important; }
+.msg-toolbar .msg-btn-del, .msg-toolbar .msg-btn-del:hover { color: #e86a58 !important; }
+
+textarea { appearance: none; -webkit-appearance: none; }
+textarea::-webkit-resizer { background: transparent; }

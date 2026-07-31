@@ -97,22 +97,21 @@ class TestEnabledSchemasBaseline:
         names = [s["function"]["name"] for s in schemas]
         assert names == [
             "direct_scene",
-            "rewrite_user_prompt",
             "editor_apply_patch",
             "editor_rewrite",
             "give_feedback",
             "record_direction_note",
+            "select_lorebook",
         ]
 
     def test_dict_filter_returns_insertion_order_subset(self):
         gated = {
+            "editor_rewrite": True,
             "editor_apply_patch": True,
-            "rewrite_user_prompt": True,
-            "editor_rewrite": False,
             "direct_scene": False,
         }
         names = [s["function"]["name"] for s in enabled_schemas(gated)]
-        assert names == ["rewrite_user_prompt", "editor_apply_patch"]
+        assert names == ["editor_apply_patch", "editor_rewrite"]
 
     def test_empty_dict_returns_nothing(self):
         assert enabled_schemas({}) == []
@@ -154,9 +153,9 @@ class TestRegisterTool:
         assert names[-1] == "z_late_tool"
         assert names[:-1] == [
             "direct_scene",
-            "rewrite_user_prompt",
             "editor_apply_patch",
             "editor_rewrite",
             "give_feedback",
             "record_direction_note",
+            "select_lorebook",
         ]

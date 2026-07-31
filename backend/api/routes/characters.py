@@ -8,6 +8,7 @@ import logging
 import os
 import tempfile
 import uuid
+import zipfile
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -19,19 +20,24 @@ from ...database import (
     create_lorebook_entry,
     create_world,
     delete_character_card,
+    delete_character_expressions,
     get_character_avatar,
     get_character_card,
+    get_character_expression,
     get_lorebook_entries,
     get_user_persona,
     get_world,
     get_world_by_name,
     list_character_cards,
+    list_expression_labels,
+    set_character_expressions,
     sync_conversations_for_card,
     update_character_card,
 )
 from ...features.cards import downloader as card_downloader
+from ...features.cards import expressions as card_expressions
 from ...features.cards import parsing as tavern_cards
-from ..deps import _normalise_lorebook_entry
+from ..deps import _normalise_lorebook_entry, lorebook_to_book
 from ..schemas import CharacterCardCreate, CharacterCardUpdate, ImportUrlRequest
 
 logger = logging.getLogger(__name__)
@@ -66,9 +72,18 @@ async def api_create_character(data: CharacterCardCreate):
             card_data["world_id"] = world["id"]
 
     try:
-        return await create_character_card(card_data)
+        created = await create_character_card(card_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # Auto-import an embedded expression pack (chub extension) so cards imported
+    # from the internet — or from a PNG that carries one — arrive with their
+    # sprites, no manual zip upload. Best-effort: a no-op for cards without a pack.
+    imgs = await card_expressions.fetch_embedded_expressions(card_data)
+    if imgs:
+        await set_character_expressions(card_data["id"], imgs)
+
+    return created
 
 
 @router.post("/api/characters/import")
@@ -218,25 +233,7 @@ async def api_export_character(card_id: str):
     if world_id and not export_card.get("character_book"):
         world = await get_world(world_id)
         entries = await get_lorebook_entries(world_id)
-        export_card["character_book"] = {
-            "name": world["name"] if world else "",
-            "extensions": {},
-            "entries": [
-                {
-                    "keys": e["keywords"],
-                    "content": e["content"],
-                    "extensions": {},
-                    "enabled": bool(e["enabled"]),
-                    "insertion_order": e["sort_order"],
-                    "case_sensitive": not bool(e["case_insensitive"]),
-                    "constant": bool(e.get("constant", False)),
-                    "name": e["name"],
-                    "priority": e["priority"],
-                    "id": e["id"],
-                }
-                for e in entries
-            ],
-        }
+        export_card["character_book"] = lorebook_to_book(world["name"] if world else "", entries)
 
     png_bytes = tavern_cards.to_png(export_card, avatar_bytes)
 
@@ -246,3 +243,50 @@ async def api_export_character(card_id: str):
         media_type="image/png",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}.png"'},
     )
+
+
+# ── Character expressions (SillyTavern-style expression packs) ────────────────
+
+
+@router.post("/api/characters/{card_id}/expressions")
+async def api_upload_expressions(card_id: str, file: Annotated[UploadFile, File(...)]):
+    """Upload a .zip of expression images; replaces the card's whole set."""
+    if not await get_character_card(card_id):
+        raise HTTPException(status_code=404, detail="Character card not found")
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Upload exceeds 50 MB")
+    try:
+        images = card_expressions.extract_expressions_zip(content)
+    except (zipfile.BadZipFile, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Bad zip: {e}") from e
+    if not images:
+        raise HTTPException(status_code=400, detail="No files matched a go-emotions expression label")
+    await set_character_expressions(card_id, images)
+    return {"labels": sorted(images)}
+
+
+@router.get("/api/characters/{card_id}/expressions")
+async def api_list_expressions(card_id: str):
+    return {"labels": await list_expression_labels(card_id)}
+
+
+@router.get("/api/characters/{card_id}/expressions/{label}")
+async def api_get_expression(card_id: str, label: str, request: Request):
+    result = await get_character_expression(card_id, label)
+    if not result:
+        raise HTTPException(status_code=404, detail="No expression found")
+    image_bytes, mime = result
+    # Same private-cache + conditional-GET block as avatars: expressions change
+    # only on re-upload, and the popup swaps src on label change without a buster.
+    etag = '"' + hashlib.md5(image_bytes, usedforsecurity=False).hexdigest() + '"'
+    cache_headers = {"Cache-Control": "private, max-age=300", "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=cache_headers)
+    return Response(content=image_bytes, media_type=mime or "image/png", headers=cache_headers)
+
+
+@router.delete("/api/characters/{card_id}/expressions")
+async def api_delete_expressions(card_id: str):
+    await delete_character_expressions(card_id)
+    return {"ok": True}

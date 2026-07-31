@@ -10,11 +10,14 @@ truth so all detectors split text the same way.
 
 Two splitting functions serve two families of consumers:
 
-- split_sentences — keeps dialogue intact. Used by detectors that need to match
-  inside quotes (slop_detector) or analyze clause grammar (contrastive_negation).
+- split_sentences — keeps dialogue intact. Used by detectors that analyze
+  clause grammar (contrastive_negation).
 - split_narration_sentences — strips dialogue first. Used by detectors that only
   care about narration prose (opening_monotony, template_repetition,
   phrase_repetition).
+- split_segment_sentences — separates dialogue from narration but keeps both.
+  Used by detectors that match inside quotes yet must report snippets that
+  never mix the two (slop_detector).
 
 find_quote_spans and count_sentences support structural_repetition, which
 classifies blocks rather than stripping them but still needs the same quote and
@@ -39,6 +42,7 @@ __all__ = [
     "EMPHASIS_RE",
     "split_paragraphs",
     "split_sentences",
+    "split_segment_sentences",
     "extract_narration",
     "split_narration_sentences",
     "strip_ooc",
@@ -68,9 +72,9 @@ OPEN_QUOTES = frozenset({"\u201c", "\u2018"})  # " '
 CLOSE_QUOTES = frozenset({"\u201d", "\u2019"})  # " '
 # Straight double quote has no direction; we toggle on each occurrence.
 # The straight single quote is intentionally excluded from every set so that
-# contractions like I'm and don't survive. (Note: U+2019 also doubles as a
-# typographic apostrophe, so curly-apostrophe contractions may be clipped —
-# an accepted trade-off for recognizing single-quoted dialogue.)
+# contractions like I'm and don't survive. U+2019 also doubles as a typographic
+# apostrophe; extract_narration keeps it intact when it sits between two word
+# characters (castle's, don't) and only treats it as a closing quote otherwise.
 TOGGLE_QUOTES = frozenset({'"'})
 
 
@@ -112,19 +116,27 @@ def extract_narration(paragraph: str) -> str:
     inside = False
     prev_was_quote = False
 
-    for ch in paragraph:
-        if ch in TOGGLE_QUOTES:
-            inside = not inside
-            prev_was_quote = True
-            continue
-        if ch in OPEN_QUOTES:
-            inside = True
-            prev_was_quote = True
-            continue
-        if ch in CLOSE_QUOTES:
-            inside = False
-            prev_was_quote = True
-            continue
+    for i, ch in enumerate(paragraph):
+        # U+2019 doubles as the typographic apostrophe. When it sits between two
+        # word characters (don't, castle's, it's) it's a contraction/possessive,
+        # not a closing single-quote — keep it so the word survives intact rather
+        # than being clipped to "castle s".
+        is_apostrophe = (
+            ch == "’" and i > 0 and paragraph[i - 1].isalnum() and i + 1 < len(paragraph) and paragraph[i + 1].isalnum()
+        )
+        if not is_apostrophe:
+            if ch in TOGGLE_QUOTES:
+                inside = not inside
+                prev_was_quote = True
+                continue
+            if ch in OPEN_QUOTES:
+                inside = True
+                prev_was_quote = True
+                continue
+            if ch in CLOSE_QUOTES:
+                inside = False
+                prev_was_quote = True
+                continue
 
         if not inside:
             # Insert a space where a quote was stripped, to prevent fusion.
@@ -310,6 +322,29 @@ def extract_block_spans(para: str) -> list[tuple[str, int, int]]:
     if idx < len(para):
         spans.append(("NARRATION", idx, len(para)))
     return spans
+
+
+def split_segment_sentences(text: str) -> list[str]:
+    """Split text into sentences with dialogue, emphasis, and narration kept in
+    separate segments — no segment ever mixes quoted speech with narration.
+
+    Paragraph → blocks (SPEECH / EMPHASIS / NARRATION via extract_block_spans)
+    → sentences within each block. So the attribution tail of a dialogue line
+    ('she says, her voice dropping.') comes back as its own segment, and a
+    multi-sentence quote is split inside the quote marks.
+
+    Every returned segment is a contiguous substring of *text* (blocks tile the
+    paragraph at raw offsets), which downstream substring checks — the editor's
+    flagged-sentence filter and its search/replace patching — rely on.
+    """
+    segments: list[str] = []
+    for para in split_paragraphs(text):
+        for _typ, s, e in extract_block_spans(para):
+            for raw in SENT_SPLIT.split(para[s:e]):
+                seg = raw.strip()
+                if seg:
+                    segments.append(seg)
+    return segments
 
 
 def extract_blocks(para: str) -> list[tuple[str, str]]:

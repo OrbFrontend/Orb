@@ -9,6 +9,7 @@ from __future__ import annotations
 from .bootstrap import init_db, reset_to_defaults
 from .connection import DB_PATH, get_db
 from .queries.character_cards import (
+    card_embedded_fragments,
     create_character_card,
     delete_character_card,
     get_character_avatar,
@@ -16,16 +17,25 @@ from .queries.character_cards import (
     get_workflow_character_state,
     insert_alternate_greeting_swipes,
     list_character_cards,
+    reroll_unfrozen_greetings,
     resolve_char_context,
     set_workflow_character_state,
     sync_conversations_for_card,
     update_character_card,
+)
+from .queries.character_expressions import (
+    delete_character_expressions,
+    get_character_expression,
+    list_expression_labels,
+    set_character_expressions,
 )
 from .queries.conversation_logs import (
     add_conversation_log,
     get_conversation_logs,
     get_director_log_for_message,
     get_moods_before_turn,
+    logs_size_before,
+    wipe_logs_older_than,
 )
 from .queries.conversations import (
     create_conversation,
@@ -41,11 +51,19 @@ from .queries.conversations import (
 from .queries.direction_notes import (
     create_direction_notes,
     delete_direction_note,
+    direction_note_projection,
     get_direction_notes_for_message,
     get_direction_notes_for_path,
     update_direction_note,
 )
 from .queries.director_state import get_director_state, update_director_state
+from .queries.documents import (
+    create_document,
+    delete_document,
+    get_document,
+    get_documents,
+    update_document,
+)
 from .queries.endpoints import (
     create_endpoint,
     create_model_config,
@@ -99,6 +117,7 @@ from .queries.phrase_bank import (
 from .queries.settings import (
     get_settings,
     get_workflow_config,
+    set_local_ml_enabled,
     set_workflow_config,
     set_workflow_enabled,
     update_settings,
@@ -148,6 +167,7 @@ __all__ = [
     "add_generated_chars",
     "add_message",
     "add_phrase_group",
+    "card_embedded_fragments",
     "create_character_card",
     "create_conversation",
     "create_interactive_fragment",
@@ -156,9 +176,11 @@ __all__ = [
     "create_model_config",
     "create_mood_fragment",
     "create_direction_notes",
+    "create_document",
     "create_user_persona",
     "create_world",
     "delete_character_card",
+    "delete_character_expressions",
     "delete_conversation",
     "delete_interactive_fragment",
     "delete_endpoint",
@@ -167,13 +189,16 @@ __all__ = [
     "delete_model_config",
     "delete_mood_fragment",
     "delete_direction_note",
+    "delete_document",
     "delete_phrase_group",
     "delete_user_persona",
     "delete_world",
+    "direction_note_projection",
     "fork_conversation",
     "get_active_lorebook_entries",
     "get_character_avatar",
     "get_character_card",
+    "get_character_expression",
     "get_conversation",
     "get_conversation_logs",
     "get_db",
@@ -182,6 +207,8 @@ __all__ = [
     "get_interactive_fragments",
     "get_director_log_for_message",
     "get_director_state",
+    "get_document",
+    "get_documents",
     "get_endpoint",
     "get_endpoints",
     "get_lorebook_entries",
@@ -217,11 +244,17 @@ __all__ = [
     "init_db",
     "insert_alternate_greeting_swipes",
     "insert_workflow_attachment_row",
+    "logs_size_before",
+    "wipe_logs_older_than",
     "list_character_cards",
     "list_conversations",
+    "list_expression_labels",
+    "reroll_unfrozen_greetings",
     "reset_to_defaults",
     "resolve_char_context",
     "set_active_leaf",
+    "set_character_expressions",
+    "set_local_ml_enabled",
     "set_workflow_character_state",
     "set_workflow_config",
     "set_workflow_enabled",
@@ -240,6 +273,7 @@ __all__ = [
     "update_model_config",
     "update_mood_fragment",
     "update_direction_note",
+    "update_document",
     "update_phrase_group",
     "update_settings",
     "update_user_persona",

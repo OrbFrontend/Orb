@@ -5,9 +5,10 @@ injections, and tool-call request messages for the pipeline passes.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from collections.abc import Collection, Mapping, MutableMapping, Sequence
+from typing import Any
 
-from ..core import ChatMessage, ContentPart, Macros
+from ..core import ChatMessage, ContentPart, Macros, resolve_stored_random
 from .tool_registry import TOOLS
 
 
@@ -67,6 +68,7 @@ def build_prefix(
     macros: Macros | None = None,
     user_description: str = "",
     *,
+    constant_lorebook_block: str = "",
     extra_system_blocks: list[str] | None = None,
 ) -> list[ChatMessage]:
     resolve = macros.resolve_message if macros else (lambda t: t)
@@ -86,6 +88,10 @@ def build_prefix(
         parts.append(f"\n\n## Character: {macros.char}")
     if resolved["persona"]:
         parts.append(f"\n{resolved['persona']}")
+    # Opaque, pre-rendered (header + macros already resolved by the caller) —
+    # not passed through resolve, to avoid double macro expansion.
+    if constant_lorebook_block:
+        parts.append(f"\n\n{constant_lorebook_block}")
     if resolved["scenario"]:
         parts.append(f"\n\n## Scenario\n{resolved['scenario']}")
     if resolved["mes_example"]:
@@ -206,20 +212,6 @@ STRUCTURAL_REWRITE_INSTRUCTIONS = (
     "response is laid out distinctly from the previous ones."
 )
 
-#: Per-turn request tail handed to the director when running the rewrite tool: the
-#: user's raw message, quoted for the model to refine. Lives here (not in the tools
-#: blob) so it can vary per turn without busting the KV cache — mirroring
-#: ``LENGTH_GUARD_INSTRUCTIONS`` leaving ``tool_registry.py``.
-REWRITE_PROMPT_PROMPT = 'User\'s message:\n"""[{user_message}]"""'
-
-
-def build_rewrite_prompt(user_message: str) -> str:
-    """Format :data:`REWRITE_PROMPT_PROMPT` with the raw *user_message*.
-
-    Used by :func:`build_director_tool_prompt` for the ``rewrite_user_prompt`` branch.
-    """
-    return REWRITE_PROMPT_PROMPT.format(user_message=user_message)
-
 
 def build_director_tool_prompt(
     tool_name: str,
@@ -230,7 +222,6 @@ def build_director_tool_prompt(
     interactive_fragments: Sequence[Mapping[str, Any]] | None = None,
     progressive_state: dict | None = None,
     tool_schema: dict | None = None,
-    lorebook_catalog: str = "",
 ) -> str:
     tool = TOOLS.get(tool_name)
     if not tool:
@@ -242,13 +233,8 @@ def build_director_tool_prompt(
         _tool_call_instruction(tool_name, schema),
     ]
     if tool_name == "direct_scene":
-        moods = ", ".join(active_moods) or "none"
-        frags = "\n".join(f"* [{f['id']}] - use in case: {f['description']}" for f in mood_fragments)
-        parts.append(f"Previously active moods: {moods}\n\nAvailable writing moods:\n{frags}")
-        # Agentic lorebook catalog rides the OOC trailing (not the system prompt /
-        # tools blob) so the Writer reuses the shared history KV the Director warms.
-        if lorebook_catalog:
-            parts.append(lorebook_catalog)
+        # Scene context (progressive/interactive) before the mood options, mirroring
+        # the per-fragment builder: settle the scene, then pick moods that fit it.
         progressive_lines = [
             f"* [{df['id']}] ({df['description']}): {(progressive_state or {}).get(df['id'])}"
             for df in (interactive_fragments or [])
@@ -256,15 +242,21 @@ def build_director_tool_prompt(
         ]
         if progressive_lines:
             parts.append("Previous progressive fields - dynamically update these:\n" + "\n".join(progressive_lines))
+        parts.append(_moods_options_block(active_moods, mood_fragments))
         parts.append(f'User\'s next message (for context, take this into account when directing):\n"""{user_message}"""')
-    elif tool_name == "rewrite_user_prompt":
-        parts.append(build_rewrite_prompt(user_message))
     # Close the [OOC: aside opened in DIRECTOR_PREAMBLE; the whole instruction is the aside.
     return "\n\n".join(parts) + "]"
 
 
 def _render_decided(value: Any) -> str:
     return ", ".join(str(x) for x in value) if isinstance(value, list) else str(value)
+
+
+def _moods_options_block(active_moods: Sequence[str], mood_fragments: Sequence[Mapping[str, Any]]) -> str:
+    """The "previously active + available moods" block shared by both director prompts."""
+    moods = ", ".join(active_moods) or "none"
+    frags = "\n".join(f"* [{f['id']}] - use in case: {f['description']}" for f in mood_fragments)
+    return f"Previously active moods: {moods}\n\nAvailable writing moods:\n{frags}"
 
 
 def build_director_scene_step_prompt(
@@ -277,26 +269,26 @@ def build_director_scene_step_prompt(
     target_fragment: Mapping[str, Any] | None = None,
     decided_fields: Sequence[tuple[str, Any]] = (),
     progressive_prior: Any = None,
-    lorebook_catalog: str = "",
 ) -> str:
     """Build one ``direct_scene`` request that targets a single output.
 
-    With ``target_fragment`` None the model is asked only for ``moods`` and the
-    lorebook selection; otherwise only for the named fragment, with the values
-    already chosen this turn (``decided_fields``) shown so it can build on them.
+    With ``target_fragment`` None the model is asked only for ``moods``; otherwise
+    only for the named fragment, with the values already chosen this turn
+    (``decided_fields``) shown so it can build on them.
     """
     schema = tool_schema if tool_schema is not None else TOOLS["direct_scene"]["schema"]
     desc = schema["function"]["description"]
     parts = [DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")]
 
     if target_fragment is None:
-        wanted = "moods" + (", selected_lorebook_entries" if lorebook_catalog else "")
-        parts.append(f"Call ONLY direct_scene - {desc}\nFill ONLY: {wanted}. Leave every scene-direction field empty.")
-        moods = ", ".join(active_moods) or "none"
-        frags = "\n".join(f"* [{f['id']}] - use in case: {f['description']}" for f in mood_fragments)
-        parts.append(f"Previously active moods: {moods}\n\nAvailable writing moods:\n{frags}")
-        if lorebook_catalog:
-            parts.append(lorebook_catalog)
+        parts.append(f"Call ONLY direct_scene - {desc}\nFill ONLY: moods.")
+        # Moods run last this turn, so show the scene already directed and let the
+        # model pick moods that fit it (distinct heading from the interactive
+        # branch's "build on / do not contradict" — moods only need to match).
+        scene = [f"- {label}: {_render_decided(value)}" for label, value in decided_fields if value]
+        if scene:
+            parts.append("Scene direction decided this turn (pick moods that fit it):\n" + "\n".join(scene))
+        parts.append(_moods_options_block(active_moods, mood_fragments))
     else:
         fid = target_fragment["id"]
         hint = {"array": "list of strings", "progressive": "single value, evolves across turns"}.get(
@@ -313,6 +305,29 @@ def build_director_scene_step_prompt(
             parts.append(f"Previous value (update it): {progressive_prior}")
 
     parts.append(f'User\'s next message (context):\n"""{user_message}"""')
+    # Close the [OOC: aside opened in DIRECTOR_PREAMBLE; the whole instruction is the aside.
+    return "\n\n".join(parts) + "]"
+
+
+def build_lorebook_select_prompt(catalog: str, user_message: str, *, reasoning_on: bool = False) -> str:
+    """Build the request for the standalone agentic-lorebook ``select_lorebook`` step.
+
+    The catalog of selectable entries rides this OOC trailing (not the system prompt
+    or the tools blob), so the call reuses the shared history KV the other passes warm.
+    The pending *user_message* trails the catalog: during the director pass it is not
+    yet in the shared history, so without it the model can't judge relevance (it would
+    only see the prior turn). Placed last so the stable preamble+catalog prefix caches.
+    """
+    parts = [
+        DIRECTOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else ""),
+        (
+            "Call ONLY select_lorebook. From the catalog below, choose ONLY the entries relevant to the "
+            "current scene and the user's next message (quoted after the catalog); leave the selection "
+            "empty if none apply."
+        ),
+        catalog,
+        f'User\'s next message:\n"""{user_message}"""',
+    ]
     # Close the [OOC: aside opened in DIRECTOR_PREAMBLE; the whole instruction is the aside.
     return "\n\n".join(parts) + "]"
 
@@ -436,7 +451,49 @@ def build_editor_prompt(
     return "\n\n".join(parts) + "]"
 
 
+def build_patch_target_prompt(span: str, why: str) -> str:
+    """Per-finding editor request for the text-mode prefill path.
+
+    One flagged sentence per call; the ``search`` string is prefilled
+    transport-side, so the model only writes the replacement. Self-contained
+    (names the sentence and the issue) so the chat-transport fallback still
+    yields a usable patch.
+    """
+    return (
+        EDITOR_PREAMBLE
+        + f"\n\nFlagged issue: {why}."
+        + f"\n\nFlagged sentence:\n{span}"
+        + "\n\nCall `editor_apply_patch` with exactly one patch whose `search` is that sentence, "
+        "copied EXACTLY from the draft. Rewrite it boldly to fix the issue — do not just swap in "
+        "similar words. Keep the surrounding narrative flow; an empty `replace` deletes the sentence.]"
+    )
+
+
 # ── Style injection block
+
+
+def resolve_mood_fragment_randoms(
+    mood_fragments: Sequence[Mapping[str, Any]],
+    renderable_ids: Collection[str],
+    choices: MutableMapping[str, str],
+) -> list[Mapping[str, Any]]:
+    """Resolve {{random}} in the renderable mood fragments' prompt fields.
+
+    Picks come from / are recorded into *choices*, the per-conversation map
+    (``director_state.macro_choices`` — see :func:`core.macros.resolve_stored_random`),
+    so a fragment's macros roll once per conversation and stay fixed. Fragments
+    not in *renderable_ids* pass through untouched, keeping the map free of
+    picks for moods that were never activated.
+    """
+    resolved: list[Mapping[str, Any]] = []
+    for f in mood_fragments:
+        if f["id"] in renderable_ids:
+            prompt_text, negative_prompt = resolve_stored_random(
+                [f.get("prompt_text", ""), f.get("negative_prompt", "")], choices, f"mood:{f['id']}"
+            )
+            f = {**f, "prompt_text": prompt_text, "negative_prompt": negative_prompt}
+        resolved.append(f)
+    return resolved
 
 
 def compute_style_injection_block(
@@ -490,6 +547,16 @@ def build_style_injection(
     """
     parts = ["**Scene Direction**"]
 
+    # Moods first, interactive fragments last: the writer reads this block, and
+    # the concrete scene steer (interactive) belongs closest to the end for
+    # recency/attention. (The director's *processing* order is the opposite —
+    # it decides interactive first, then moods; see build_director_scene_step_prompt.)
+    for f in active:
+        parts.append(f["prompt_text"])
+    for f in deactivated or []:
+        if neg := f.get("negative_prompt", "").strip():
+            parts.append(neg)
+
     for df in sorted(interactive_fragments or [], key=lambda x: x.get("sort_order", 0)):
         val = (extra_fields or {}).get(df["id"])
         if not val:
@@ -503,11 +570,5 @@ def build_style_injection(
             parts.append(f"{label} ({df['description']}): {transition}")
         else:
             parts.append(f"{label}: {val}")
-
-    for f in active:
-        parts.append(f["prompt_text"])
-    for f in deactivated or []:
-        if neg := f.get("negative_prompt", "").strip():
-            parts.append(neg)
 
     return "\n\n".join(parts)

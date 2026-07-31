@@ -6,12 +6,12 @@
 import { api } from "./api.js";
 import { renderInspectorSecondary, renderMessages } from "./chat.js";
 import { renderInteractiveFragments } from "./library_fragments.js";
-import { closeModal, showConfirmModal, showModal } from "./modal.js";
+import { closeModal, confirmDelete, showModal, showSubConfirmModal } from "./modal.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
-import { S, effectiveWorkflowEnabled } from "./state.js";
-import { $, esc, toast } from "./utils.js";
+import { effectiveWorkflowEnabled, S } from "./state.js";
+import { $, esc, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // Re-export the sub-module public surfaces so "./settings.js" remains the stable
@@ -45,7 +45,7 @@ let _themes = null;
 
 export function applyTheme(name) {
   if (_themes && !_themes.includes(name)) name = "dark";
-  $("theme-link").href = "/static/themes/" + name + ".css";
+  $("theme-link").href = `/static/themes/${name}.css`;
   localStorage.setItem("ar-theme", name);
   const sel = $("theme-select");
   if (sel) sel.value = name;
@@ -97,6 +97,8 @@ export async function loadSettings() {
   if (S.settings.length_guard_max_paragraphs) S.lengthGuardMaxParagraphs = S.settings.length_guard_max_paragraphs;
   if (S.settings.reasoning_enabled_passes)
     S.reasoningEnabled = { ...S.reasoningEnabled, ...S.settings.reasoning_enabled_passes };
+  if (S.settings.reasoning_prefill_passes)
+    S.reasoningPrefill = { ...S.reasoningPrefill, ...S.settings.reasoning_prefill_passes };
 
   if (S.settings.inspector_open_states) {
     const ios = S.settings.inspector_open_states;
@@ -150,6 +152,10 @@ export async function loadSettings() {
   updateUserBtn();
 }
 
+// Labelled hairline separator used by the settings panel and its modals.
+const divider = (label) =>
+  `<div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">${label}</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>`;
+
 export function renderSettings() {
   $("settings-form").innerHTML = `
     <div class="tool-card ${S.hideUntilBaked ? "tool-on" : ""}">
@@ -172,25 +178,116 @@ export function renderSettings() {
       </div>
       <div class="tool-card-desc">Ignore system prompt and post-history instructions from character cards.</div>
     </div>
-    <div style="display:flex;align-items:center;gap:12px;margin:16px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Data</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
+    ${divider("Local ML")}
+    <div id="local-ml-section"><div class="tool-card-desc">Loading…</div></div>
+    ${divider("Data")}
     <div class="field" style="display:flex;flex-direction:column;gap:8px">
+      <button class="btn btn-block btn-sm" id="cleanup-btn">🧹 Data Hygiene</button>
       <button class="btn btn-block btn-sm" onclick="showPresetsModal()">💾 Backup &amp; Presets</button>
-      <button class="btn btn-danger" onclick="showResetConfirmModal()" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>
     </div>
   `;
+  // Wired here rather than as inline on*= handlers: check_frontend_layers.py
+  // ratchets the inline-handler count and it is already at its ceiling.
+  $("cleanup-btn").addEventListener("click", showCleanupModal);
+  loadLocalMLSection();
+}
+
+// Human labels for local-ML features (keys match backend local_ml.MODELS).
+const LOCAL_ML_LABELS = {
+  autocomplete: "Input Autocomplete",
+  slop_classifier: "AI-Slop Classifier",
+  emotion_classifier: "Character Expressions",
+  pov_classifier: "Image POV",
+};
+const LOCAL_ML_DESCS = {
+  autocomplete: "Autocomplete input as you type.",
+  slop_classifier: "Unlock AI slop scorer.",
+  emotion_classifier: "Track a character's mood with expression images in the avatar popup.",
+  pov_classifier: "Auto POV for image-gen.",
+};
+
+// Tri-state per feature: deps missing → grayed Download + hint; deps ok & model
+// absent → active Download; model present → enable/disable toggle. Fetched fresh
+// (not from S.settings) because deps/present are server-filesystem facts.
+async function loadLocalMLSection() {
+  const el = $("local-ml-section");
+  if (!el) return;
+  let st;
+  try {
+    st = await api.get("/local-ml/status");
+  } catch (_e) {
+    el.innerHTML = '<div class="tool-card-desc">Could not load Local ML status.</div>';
+    return;
+  }
+  // Deps missing → one grouped opt-in card instead of repeating the install
+  // command on every feature.
+  if (!st.deps_ok) {
+    const names = Object.keys(st.features)
+      .map((f) => `<li>${esc(LOCAL_ML_LABELS[f] || f)}</li>`)
+      .join("");
+    el.innerHTML = `<div class="tool-card" style="opacity:0.5">
+      <div class="tool-card-desc">Opt in to unlock:<ul style="margin:4px 0 0;padding-left:18px">${names}</ul></div>
+      <div class="tool-card-desc" style="user-select:all;word-break:break-all">${esc(st.install_cmd || "pip install -r requirements-ml.txt")}</div>
+    </div>`;
+    return;
+  }
+  el.innerHTML = Object.entries(st.features)
+    .map(([f, info]) => {
+      const name = esc(LOCAL_ML_LABELS[f] || f);
+      if (!info.present) {
+        return `<div class="tool-card">
+          <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+            <button class="btn btn-sm" id="local-ml-dl-${f}" onclick="downloadLocalMlModel('${f}')">Download</button></div>
+          <div class="tool-card-desc">Model not downloaded yet (~${info.size_mb} MB).</div>
+        </div>`;
+      }
+      const desc = LOCAL_ML_DESCS[f] || "";
+      return `<div class="tool-card ${info.enabled ? "tool-on" : ""}">
+        <div class="tool-card-header"><span class="tool-card-name">${name}</span>
+          <label class="tog" onclick="event.stopPropagation()">
+            <input type="checkbox" ${info.enabled ? "checked" : ""} onchange="toggleLocalMlEnabled('${f}', this.checked)">
+            <span class="tog-slider"></span>
+          </label></div>
+        ${desc ? `<div class="tool-card-desc">${desc}</div>` : ""}
+      </div>`;
+    })
+    .join("");
+}
+
+export async function downloadLocalMlModel(feature) {
+  const btn = $(`local-ml-dl-${feature}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Downloading…";
+  }
+  try {
+    await api.post(`/local-ml/${feature}/download`, {});
+    await loadLocalMLSection(); // flips the card to a toggle
+  } catch (_e) {
+    toast("Download failed", true);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Download";
+    }
+  }
+}
+
+export async function toggleLocalMlEnabled(feature, on) {
+  try {
+    const res = await api.post(`/local-ml/${feature}/enabled`, { enabled: on });
+    if (res && typeof res.local_ml_enabled === "object") S.settings.local_ml_enabled = res.local_ml_enabled;
+  } catch (_e) {
+    toast("Failed to toggle", true);
+  }
+  loadLocalMLSection();
 }
 
 // ── Agent Tools Panel
 const TOOL_DEFS = [
   {
     id: "direct_scene",
-    name: "Director",
+    name: "Direction",
     desc: "Gives written direction and manages fragments based on scene context.",
-  },
-  {
-    id: "rewrite_user_prompt",
-    name: "Prompt Rewriter",
-    desc: "Expands user's vague or lazy messages into richer input.",
   },
   {
     id: "editor_apply_patch",
@@ -200,7 +297,9 @@ const TOOL_DEFS = [
 ];
 
 // Individual scanners the Output Auditor can run; keys match backend AUDIT_TYPES.
-const AUDIT_TYPE_DEFS = [
+// Exported so the doc-mode pane (document_audit.js) reuses the same labels and
+// tooltips, filtered to its four doc-applicable keys.
+export const AUDIT_TYPE_DEFS = [
   { key: "banned_phrases", label: "Banned phrases", title: "Flag phrases from the Phrase Bank." },
   {
     key: "repetitive_openers",
@@ -229,7 +328,7 @@ const AUDIT_TYPE_DEFS = [
 async function persistSettings(payload) {
   try {
     S.settings = await api.put("/settings", payload);
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to save setting", true);
   }
 }
@@ -245,6 +344,7 @@ export function toggleToolsPanel() {
 export async function setAgentEnabled(on) {
   S.agentEnabled = on;
   $("tools-panel-btn").style.opacity = on ? "1" : "0.5";
+  renderToolsPanel();
   await persistSettings({ enable_agent: on });
 }
 
@@ -361,7 +461,7 @@ export async function saveLengthGuardConfig() {
   try {
     S.settings = await api.put("/settings", { length_guard_max_words: words, length_guard_max_paragraphs: paras });
     toast("Length guard saved");
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to save length guard config", true);
   }
 }
@@ -383,9 +483,9 @@ export async function toggleWorkflowsGlobal(on) {
 
 export async function toggleWorkflowEnabled(wid, on) {
   try {
-    const res = await api.post("/workflows/" + wid + "/enabled", { enabled: on });
+    const res = await api.post(`/workflows/${wid}/enabled`, { enabled: on });
     if (res && typeof res.workflow_enabled === "object") S.settings.workflow_enabled = res.workflow_enabled;
-  } catch (e) {
+  } catch (_e) {
     toast("Failed to toggle workflow", true);
   }
   // Re-render regardless: on success the reassigned map drives the new state; on
@@ -456,23 +556,23 @@ export function renderToolsPanel() {
   $("agent-master-card").classList.toggle("tool-on", S.agentEnabled);
   $("tools-panel-btn").style.opacity = S.agentEnabled ? "1" : "0.5";
 
-  // Agentic Lorebook depends on the Director (direct_scene). When the Director
-  // is off, the toggle is greyed out / disabled with a "requires Director" hint,
-  // and the backend falls back to the keyword scan regardless of this flag.
+  // Agentic Lorebook is independent of Direction (direct_scene): the picks run in
+  // their own select_lorebook call, so it works whenever the Agent is on with at
+  // least one non-constant lorebook entry.
   const alOn = S.agenticLorebookEnabled;
-  const directorOn = !!S.enabledTools.direct_scene;
-  const agenticLorebookCard = `<div class="tool-card ${alOn ? "tool-on" : ""}"${directorOn ? "" : ' style="opacity:0.5"'}>
+  const agenticLorebookCard = `<div class="tool-card ${alOn ? "tool-on" : ""}">
     <div class="tool-card-header">
       <span class="tool-card-name">Agentic Lorebook</span>
       <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${alOn ? "checked" : ""} ${directorOn ? "" : "disabled"} onchange="toggleAgenticLorebook(this.checked)">
+        <input type="checkbox" ${alOn ? "checked" : ""} onchange="toggleAgenticLorebook(this.checked)">
         <span class="tog-slider"></span>
       </label>
     </div>
-    <div class="tool-card-desc">Let Director manage Lorebook entries.${directorOn ? "" : " <em>Requires Director.</em>"}</div>
+    <div class="tool-card-desc">Let the Agent pick relevant Lorebook entries each turn.</div>
   </div>`;
 
-  const toolCards = TOOL_DEFS.map((t) => {
+  const cardById = {};
+  for (const t of TOOL_DEFS) {
     const on = !!S.enabledTools[t.id];
     const auditChecks = AUDIT_TYPE_DEFS.map(
       (a) => `<label class="lg-enforce-label" title="${a.title}">
@@ -480,17 +580,23 @@ export function renderToolsPanel() {
                ${a.label}
              </label>`,
     ).join("");
-    const extras =
-      t.id === "editor_apply_patch" && on
-        ? `<div class="lg-config">
+    let extras = "";
+    if (t.id === "editor_apply_patch" && on)
+      extras = `<div class="lg-config">
              <div class="audit-types">${auditChecks}</div>
              <label class="lg-enforce-label" title="Highlight edited sentences with green/red strikethrough when the editor pass rewrites the writer's output.">
                <input type="checkbox" ${S.showEditorDiff ? "checked" : ""} onchange="toggleShowEditorDiff(this.checked)">
                Show diff highlights
              </label>
-           </div>`
-        : "";
-    const card = `<div class="tool-card ${on ? "tool-on" : ""}">
+           </div>`;
+    else if (t.id === "direct_scene" && on)
+      extras = `<div class="lg-config">
+             <label class="lg-enforce-label" title="Director fills each interactive fragment in its own LLM call. More focused output; higher latency.">
+               <input type="checkbox" ${S.directorIndividualFragments ? "checked" : ""} onchange="toggleDirectorIndividualFragments(this.checked)">
+               Individual fragment processing
+             </label>
+           </div>`;
+    cardById[t.id] = `<div class="tool-card ${on ? "tool-on" : ""}">
       <div class="tool-card-header">
         <span class="tool-card-name">${t.name}</span>
         <label class="tog" onclick="event.stopPropagation()">
@@ -501,9 +607,7 @@ export function renderToolsPanel() {
       <div class="tool-card-desc">${t.desc}</div>
       ${extras}
     </div>`;
-    // The Agentic Lorebook card sits directly below the Prompt Rewriter card.
-    return t.id === "rewrite_user_prompt" ? card + agenticLorebookCard : card;
-  }).join("");
+  }
 
   const lgOn = S.lengthGuardEnabled;
   const lgEnforce = S.lengthGuardEnforce;
@@ -551,18 +655,6 @@ export function renderToolsPanel() {
     <div class="tool-card-desc">After each reply, surfaces a note to you (e.g. what you could do next). Runs only when at least one interactive fragment has its Field Type set to "feedback".</div>
   </div>`;
 
-  const ifpOn = S.directorIndividualFragments;
-  const individualFragmentsCard = `<div class="tool-card ${ifpOn ? "tool-on" : ""}">
-    <div class="tool-card-header">
-      <span class="tool-card-name">Individual Fragment Processing</span>
-      <label class="tog" onclick="event.stopPropagation()">
-        <input type="checkbox" ${ifpOn ? "checked" : ""} onchange="toggleDirectorIndividualFragments(this.checked)">
-        <span class="tog-slider"></span>
-      </label>
-    </div>
-    <div class="tool-card-desc">Director fills each interactive fragment in its own LLM call. More focused output; higher latency.</div>
-  </div>`;
-
   const dnRecord = S.directionNotesRecord === true;
   const dnInject = S.directionNotesInject || "off";
   const directionNotesCard = `<div class="tool-card ${dnRecord || dnInject !== "off" ? "tool-on" : ""}">
@@ -583,10 +675,21 @@ export function renderToolsPanel() {
         <option value="both" ${dnInject === "both" ? "selected" : ""}>Director and writer</option>
       </select>
     </div>
-    <div class="tool-card-desc">Recording writes a lasting note per enabled "direction_note" fragment, kept on this branch; each fragment sets when it records (before the writer, or end of turn). Injection feeds stored notes back to the director, the writer, or both, and is independent of recording.</div>
+    <div class="tool-card-desc">Lets the AI keep lasting notes as the story unfolds. <b>Recording</b> saves them; <b>Injection</b> feeds saved notes back to the director, writer, or both.</div>
   </div>`;
 
-  $("tools-list").innerHTML = toolCards + lengthGuardCard + feedbackCard + individualFragmentsCard + directionNotesCard;
+  // Grouped by pipeline stage: Director (before the writer) vs Editor (post-writing cleanup).
+  const divider = (label) => `<div class="tools-divider"><span>${label}</span></div>`;
+  $("tools-list").classList.toggle("workflows-off", !S.agentEnabled);
+  $("tools-list").innerHTML =
+    divider("Director") +
+    cardById.direct_scene +
+    agenticLorebookCard +
+    directionNotesCard +
+    divider("Editor") +
+    cardById.editor_apply_patch +
+    lengthGuardCard +
+    feedbackCard;
 
   const secEl = $("tools-list-secondary");
   if (secEl) {
@@ -607,9 +710,7 @@ export async function showPhraseBankModal() {
       const body = isRegex
         ? `<code class="phrase-regex-pattern">${esc(g.pattern)}</code>`
         : g.variants.map((v) => `<span class="phrase-variant">${esc(v)}</span>`).join("");
-      const count = isRegex
-        ? `<span class="phrase-kind-badge">regex</span>`
-        : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
+      const count = isRegex ? "regex" : `${g.variants.length} variant${g.variants.length !== 1 ? "s" : ""}`;
       return `
     <div class="phrase-group-item" onclick="editPhraseGroup(${g.id})" data-id="${g.id}">
       <div class="phrase-group-variants">${body}</div>
@@ -782,22 +883,15 @@ window.editPhraseGroup = async (groupId) => {
 };
 
 window.deletePhraseGroup = async (groupId) => {
-  showConfirmModal(
-    {
-      title: "Delete Phrase Group",
-      message: "Are you sure you want to delete this phrase group?",
-      confirmText: "Delete",
-    },
-    async () => {
-      try {
-        await api.del(`/phrase-bank/${groupId}`);
-        toast("Phrase group deleted");
-        showPhraseBankModal();
-      } catch (e) {
-        toast("Failed to delete: " + e.message, true);
-      }
-    },
-  );
+  confirmDelete("Phrase Group", "Are you sure you want to delete this phrase group?", async () => {
+    try {
+      await api.del(`/phrase-bank/${groupId}`);
+      toast("Phrase group deleted");
+      showPhraseBankModal();
+    } catch (e) {
+      toast(`Failed to delete: ${e.message}`, true);
+    }
+  });
 };
 
 window.savePhraseGroup = async (editId) => {
@@ -841,14 +935,130 @@ window.savePhraseGroup = async (editId) => {
     }
     showPhraseBankModal(); // Refresh the main modal
   } catch (e) {
-    toast("Failed to save: " + e.message, true);
+    toast(`Failed to save: ${e.message}`, true);
   }
 };
 
+// ── Data cleanup ──
+//
+// Two axes: which categories to clean, and how far back. Sizes are fetched per
+// cutoff so the age choice is made against real numbers rather than a guess.
+const CLEANUP_AGES = [
+  [0, "Now (everything)"],
+  [7, "7 days"],
+  [30, "30 days"],
+  [90, "90 days"],
+];
+
+// The cap the LRU-3 eviction in the backend already enforces on every artifact
+// write — setting it is what makes artifacts self-trim without pressing anything.
+async function saveAttachmentBudget(el) {
+  const mb = Math.max(50, Math.round(Number(el.value) || 0));
+  el.value = String(mb);
+  await persistSettings({ attachment_cache_budget_bytes: mb * 1048576 });
+}
+
+export async function showCleanupModal() {
+  showModal(`
+    <h2>Data Hygiene</h2>
+    <div class="field">
+      <label class="tool-card-desc" style="display:flex;align-items:center;gap:8px;margin:0">
+        <span style="flex:1">Artifact cache limit before auto-eviction</span>
+        <input id="attach-budget-mb" type="number" min="50" step="50" style="width:90px"
+               value="${Math.round((S.settings?.attachment_cache_budget_bytes ?? 524288000) / 1048576)}"> MB
+      </label>
+    </div>
+    ${divider("Reclaim Space")}
+    <div class="field">
+      <label for="cleanup-days">Older than</label>
+      <select id="cleanup-days">
+        ${CLEANUP_AGES.map(([d, label]) => `<option value="${d}">${label}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field" style="display:flex;flex-direction:column;gap:10px">
+      <label style="display:flex;gap:8px;align-items:flex-start">
+        <input type="checkbox" id="cleanup-artifacts" checked>
+        <span>Image &amp; audio artifacts (regenerable)<br><span class="tool-card-desc" id="cleanup-artifacts-size">…</span></span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:flex-start">
+        <input type="checkbox" id="cleanup-logs">
+        <span>Agent logs (deleted for good)<br><span class="tool-card-desc" id="cleanup-logs-size">…</span></span>
+      </label>
+    </div>
+    <p class="tool-card-desc" id="cleanup-db">…</p>
+    <div class="modal-actions">
+      <button class="btn" id="cleanup-cancel">Cancel</button>
+      <button class="btn btn-danger" id="cleanup-go">Clean Up</button>
+    </div>
+    ${divider("Danger Zone")}
+    <button class="btn btn-danger" id="cleanup-reset" style="width:100%;justify-content:center">⚠️ Reset to Defaults</button>`);
+
+  // e.target, not the bare handler: saveAttachmentBudget wants the input, and
+  // addEventListener hands it an Event (the old wiring silently saved 50 MB).
+  $("attach-budget-mb").addEventListener("change", (e) => saveAttachmentBudget(e.target));
+  $("cleanup-reset").addEventListener("click", showResetConfirmModal);
+
+  const daysEl = $("cleanup-days");
+  // free_bytes is dead space *already* on the freelist, not what this run frees
+  // — right after a cleanup it is 0 while the checkboxes still show data, which
+  // read as a bug. The estimate is what the boxes select plus that freelist,
+  // since the cleanup VACUUMs either way.
+  let stats = null;
+  const paint = () => {
+    if (!stats) return;
+    const picked =
+      ($("cleanup-artifacts").checked ? stats.artifacts.bytes : 0) + ($("cleanup-logs").checked ? stats.logs.bytes : 0);
+    const total = picked + stats.free_bytes;
+    $("cleanup-db").textContent = `Database ${formatBytes(stats.db_bytes)} · this cleanup frees ~${formatBytes(total)}`;
+    $("cleanup-go").disabled = total === 0;
+  };
+  const refresh = async () => {
+    try {
+      stats = await api.get(`/storage?days=${daysEl.value}`);
+      $("cleanup-artifacts-size").textContent =
+        `${formatBytes(stats.artifacts.bytes)} · ${stats.artifacts.count} items`;
+      $("cleanup-logs-size").textContent = `${formatBytes(stats.logs.bytes)} · ${stats.logs.count} entries`;
+      paint();
+    } catch (_e) {
+      toast("Failed to read storage usage", true);
+    }
+  };
+
+  daysEl.addEventListener("change", refresh);
+  $("cleanup-artifacts").addEventListener("change", paint);
+  $("cleanup-logs").addEventListener("change", paint);
+  $("cleanup-cancel").addEventListener("click", closeModal);
+  $("cleanup-go").addEventListener("click", async () => {
+    const btn = $("cleanup-go");
+    btn.disabled = true;
+    btn.textContent = "Cleaning…";
+    try {
+      const r = await api.post("/storage/cleanup", {
+        artifacts: $("cleanup-artifacts").checked,
+        logs: $("cleanup-logs").checked,
+        days: Number(daysEl.value),
+      });
+      closeModal();
+      // A lost VACUUM race still frees the pages, it just cannot hand them back
+      // to the OS until the next boot — say so rather than report a smaller win.
+      const tail = r.compacted ? "" : " — disk space is returned on next restart";
+      toast(`Freed ${formatBytes(r.bytes_reclaimed)}${tail}`);
+      renderMessages();
+    } catch (e) {
+      toast(`Cleanup failed: ${e.message}`, true);
+      btn.disabled = false;
+      btn.textContent = "Clean Up";
+    }
+  });
+  await refresh();
+}
+
 // ── Reset to Defaults ──
 
+// Sub-modal layer: opened from inside Data Hygiene, so a cancel leaves that
+// modal standing instead of tearing it down.
 export async function showResetConfirmModal() {
-  showConfirmModal(
+  showSubConfirmModal(
     {
       title: "Reset to Defaults",
       message:
@@ -861,11 +1071,8 @@ export async function showResetConfirmModal() {
         toast("Reset successful — reloading…");
         window.location.reload();
       } catch (e) {
-        toast("Failed to reset: " + e.message, true);
+        toast(`Failed to reset: ${e.message}`, true);
       }
     },
   );
 }
-
-// Expose to global scope for inline onclick handlers
-window.showResetConfirmModal = showResetConfirmModal;

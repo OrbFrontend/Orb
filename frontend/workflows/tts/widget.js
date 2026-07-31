@@ -4,12 +4,24 @@
 // by row id, never written. The widget reflects live playback state by toggling
 // classes on the clip whose row the channel is playing.
 
-import { S, registerClickHandler } from "/static/state.js";
-import { api } from "/static/api.js";
-import { convUrl } from "/static/utils.js";
-import { channelState, onChannel, pauseChannel, playAudio, resumeChannel } from "/static/audio_player.js";
-import { clearWorkflowPhase, refreshConversationMessages, setWorkflowPhase } from "/static/chat.js";
-import { messageSegments } from "/static/workflow_segmentation.js";
+import {
+  api,
+  canMutate,
+  channelState,
+  clearWorkflowPhase,
+  convUrl,
+  getActiveConvId,
+  getMessages,
+  messageSegments,
+  onChannel,
+  pauseChannel,
+  playAudio,
+  refreshConversationMessages,
+  registerAction,
+  registerClickHandler,
+  resumeChannel,
+  setWorkflowPhase,
+} from "/static/workflow_api.js";
 import { extractBlocks } from "./extract.js";
 import { startKaraoke } from "./karaoke.js";
 
@@ -40,8 +52,10 @@ let autoplayTimer = null;
 
 export function initWidget(sharedConfig) {
   cfg = sharedConfig;
-  window.ttsCreate = create;
-  window.ttsToggle = toggle;
+  // Buttons wire via data-wf-action (see the button renderers) resolved by the
+  // framework's delegated dispatcher — no window globals, no inline onclick.
+  registerAction(WORKFLOW_ID, "create", (el) => create(Number(el.dataset.msgId), el));
+  registerAction(WORKFLOW_ID, "toggle", (el) => toggle(Number(el.dataset.att)));
   registerClickHandler({ id: WORKFLOW_ID, label: "Speak", claims: speakClaims, onClick: speakOnClick });
 }
 
@@ -76,7 +90,7 @@ function applyPlayingMark() {
 // Callers hand the widget an attachment id, but playback needs the row's bytes
 // and block metadata; resolve the live row out of S.messages.
 function attById(attId) {
-  for (const m of S.messages || []) {
+  for (const m of getMessages()) {
     for (const a of m.workflow_attachments || []) {
       if (a.id === attId && a.workflow_id === WORKFLOW_ID) return a;
     }
@@ -87,7 +101,7 @@ function attById(attId) {
 // The id of the message owning a speech attachment, for binding karaoke to that
 // message's rendered word units; null when the attachment is not loaded.
 function msgIdForAtt(attId) {
-  for (const m of S.messages || []) {
+  for (const m of getMessages()) {
     for (const a of m.workflow_attachments || []) {
       if (a.id === attId && a.workflow_id === WORKFLOW_ID) return m.id;
     }
@@ -123,7 +137,7 @@ function buildSegPlan(blocks) {
 // whose metadata carries no blocks (absent or unparseable) holds a single
 // complete file and plays whole by row id.
 function wholeSegments(att) {
-  const blocks = att.consumption_metadata && att.consumption_metadata.blocks;
+  const blocks = att.consumption_metadata?.blocks;
   if (!Array.isArray(blocks) || !blocks.length) return [{ row: att.id }];
   return buildSegPlan(blocks).map((step) =>
     step.gap ? { silence: blocks[step.block].pause_after_ms / 1000 } : sliceClip(att, step.block),
@@ -139,7 +153,7 @@ function playBlock(att, i) {
 }
 
 function blocksOf(att) {
-  const blocks = att.consumption_metadata && att.consumption_metadata.blocks;
+  const blocks = att.consumption_metadata?.blocks;
   return Array.isArray(blocks) ? blocks : [];
 }
 
@@ -189,7 +203,7 @@ function toggle(attId) {
 // Null when the active sibling is evicted ([evicted] sentinel): an evicted row
 // is present but its bytes are gone, so it cannot be played.
 function ttsAttachmentForMessage(msgId) {
-  const msg = (S.messages || []).find((m) => m.id === msgId);
+  const msg = getMessages().find((m) => m.id === msgId);
   if (!msg) return null;
   const atts = (msg.workflow_attachments || []).filter((a) => a.workflow_id === WORKFLOW_ID);
   if (!atts.length) return null;
@@ -207,8 +221,8 @@ function ttsAttachmentForMessage(msgId) {
 let _blockMap = { msgId: null, content: null, map: null, wordIndices: null };
 
 function _alignmentFor(msgId) {
-  const msg = (S.messages || []).find((m) => m.id === msgId);
-  const content = (msg && msg.content) || "";
+  const msg = getMessages().find((m) => m.id === msgId);
+  const content = msg?.content || "";
   if (_blockMap.msgId === msgId && _blockMap.content === content) return _blockMap;
   const built = msg ? computeBlockMap(msg) : { map: {}, wordIndices: {}, ready: true };
   // A streamed reply appears in S.messages (so autoplay can target it) before its
@@ -241,7 +255,7 @@ function computeBlockMap(msg) {
   const map = {};
   const wordIndices = {};
   const att = ttsAttachmentForMessage(msg.id);
-  const cm = att && att.consumption_metadata;
+  const cm = att?.consumption_metadata;
   const clipCount = cm && Array.isArray(cm.blocks) ? cm.blocks.length : 0;
   if (!clipCount) return { map, wordIndices, ready: true };
   const segs = messageSegments(msg.id);
@@ -307,16 +321,16 @@ function speakOnClick(seg, msgId) {
 }
 
 async function create(msgId, btn) {
-  if (!S.activeConvId || S.hasMultipleTabs) return;
+  if (!getActiveConvId() || !canMutate()) return;
   if (btn) btn.disabled = true;
-  const ch = "workflow:tts:create:" + msgId;
+  const ch = `workflow:tts:create:${msgId}`;
   try {
     setWorkflowPhase(ch, "Synthesizing speech...");
-    const res = await api.post(convUrl(S.activeConvId, "workflows", WORKFLOW_ID, "trigger"), {
+    const res = await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
       action: "create",
       message_id: msgId,
     });
-    if (res && res.error) {
+    if (res?.error) {
       console.warn("tts create:", res.error);
       if (btn) btn.disabled = false;
       return;
@@ -340,10 +354,10 @@ function hasOwnAttachment(msg) {
 export function createButtonRenderer(msg) {
   if (!msg || msg.role !== "assistant" || !msg.id) return "";
   if (hasOwnAttachment(msg)) return "";
-  if (S.hasMultipleTabs) {
+  if (!canMutate()) {
     return `<button class="tts-create-btn" disabled title="Close other tabs to generate speech">${ICON_SPEAK}</button>`;
   }
-  return `<button class="tts-create-btn" title="Generate speech" onclick="event.stopPropagation();window.ttsCreate(${msg.id},this)">${ICON_SPEAK}</button>`;
+  return `<button class="tts-create-btn" title="Generate speech" data-wf-action="tts:create" data-msg-id="${msg.id}">${ICON_SPEAK}</button>`;
 }
 
 // Swipe-widget body for a speech attachment. The regen/reroll buttons are
@@ -353,7 +367,7 @@ export function attachmentRenderer(ctx) {
   const live = att.id === playingAttId && playingClass ? ` ${playingClass}` : "";
   const bars = WAVE.map((h, i) => `<span class="tts-bar" style="height:${h}px;--i:${i}"></span>`).join("");
   return `<div class="tts-clip${live}" data-att="${att.id}">
-    <button class="tts-toggle" title="Play speech" aria-label="Play speech" onclick="event.stopPropagation();window.ttsToggle(${att.id})">${ICON_PLAY}${ICON_PAUSE}</button>
+    <button class="tts-toggle" title="Play speech" aria-label="Play speech" data-wf-action="tts:toggle" data-att="${att.id}">${ICON_PLAY}${ICON_PAUSE}</button>
     <span class="tts-wave" aria-hidden="true">${bars}</span>
     <span class="tts-clip-actions">${ctx.buttons.regen}${ctx.buttons.reroll}</span>
   </div>`;
@@ -372,7 +386,7 @@ function activeSibling(atts) {
 // The newest playable speech attachment not present when auto-play was armed --
 // i.e. the one this turn produced, once the post-turn refetch lands.
 function freshAttachmentId(seen) {
-  const msgs = S.messages || [];
+  const msgs = getMessages();
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i];
     if (m.role !== "assistant") continue;
@@ -397,7 +411,7 @@ export function autoplayHandler() {
     autoplayTimer = null;
   }
   const seen = new Set();
-  for (const m of S.messages || []) {
+  for (const m of getMessages()) {
     for (const a of m.workflow_attachments || []) {
       if (a.workflow_id === WORKFLOW_ID) seen.add(a.id);
     }

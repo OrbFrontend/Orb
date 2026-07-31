@@ -16,7 +16,7 @@ const RE_QUOTED = /[\u201c"]([^\u201d"]+)[\u201d"]/g;
 const RE_EMDASH = /\u2014([^\u2014]+?)\u2014/g;
 
 export function extractBlocks(content) {
-  if (!content || !content.trim()) return [];
+  if (!content?.trim()) return [];
   const cleaned = content.replace(RE_PARENTHETICAL, "");
 
   // Asterisks inside quotes are emphasis, not action beats; mask the quoted

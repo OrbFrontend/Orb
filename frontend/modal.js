@@ -36,12 +36,16 @@ export function setModalCloseCallback(cb) {
 }
 
 export function switchTab(tab, contentId) {
-  tab.parentElement.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+  tab.parentElement.querySelectorAll(".tab").forEach((x) => {
+    x.classList.remove("active");
+  });
   tab.classList.add("active");
   tab
     .closest(".modal")
     .querySelectorAll(".tab-content")
-    .forEach((x) => x.classList.remove("active"));
+    .forEach((x) => {
+      x.classList.remove("active");
+    });
   $(contentId).classList.add("active");
 }
 
@@ -65,6 +69,15 @@ export function runConfirmCb() {
   window._confirmCb = null;
   if (cb) cb();
   closeModal();
+}
+
+// Thin wrapper over showConfirmModal for the common "Delete <thing>?" dialog: a
+// titled confirm with the default red Delete button. Collapses the copy-pasted
+// `{ title: "Delete X", message, confirmText: "Delete" }` bodies scattered across
+// features. For a delete that needs extra body markup (a checkbox, a count note,
+// a linked-item list), call showConfirmModal directly.
+export function confirmDelete(label, message, onOk) {
+  showConfirmModal({ title: `Delete ${label}`, message, confirmText: "Delete" }, onOk);
 }
 
 // ── Secondary modal layer (#modal-sub-root)
@@ -320,7 +333,7 @@ function _attachCropEvents(canvas) {
   canvas.addEventListener("touchend", onEnd);
 }
 
-function _confirmCrop(canvas) {
+function _confirmCrop(_canvas) {
   if (!_cs) return;
   const { img, cx, cy, cw, ch, scale, onConfirm, aspect } = _cs;
   const OUT_W = 400;

@@ -9,9 +9,9 @@ import { ICON_CHEVRON, ICON_DEL, ICON_REGEN, ICON_REROLL, renderMessages, setMes
 import { clearWorkflowPhase, setWorkflowPhase, workflowPhaseLabel } from "./chat_inspector.js";
 import { renderDefaultWidget } from "./default_widget.js";
 import { closeModal, showModal } from "./modal.js";
-import { S, effectiveWorkflowEnabled } from "./state.js";
+import { effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
-import { convUrl, esc, toast } from "./utils.js";
+import { $, convUrl, esc, markChatProgrammaticScroll, toast } from "./utils.js";
 
 // Eviction sentinel for workflow attachment bytes -- must match
 // `EVICTED_MARKER` in backend/workflows/attachment_cache.py.
@@ -33,8 +33,6 @@ function _evictedAttachmentHtml(msg, att) {
     // off), so the action is suppressed; the evicted-card display is consumption
     // and stays. Restoring the bytes requires re-enabling the workflow.
     btn = `<span class="workflow-rehydrate-disabled" title="Re-enable ${esc(_workflowLabel(att))} to restore">Workflow off</span>`;
-  } else if (S.hasMultipleTabs) {
-    btn = `<button class="workflow-rehydrate-button" disabled title="Close other tabs to rehydrate">Rehydrate</button>`;
   } else {
     btn = `<button class="workflow-rehydrate-button" onclick="event.stopPropagation();workflowRehydrate(${msg.id},${att.id},this)">Rehydrate</button>`;
   }
@@ -50,9 +48,6 @@ function _workflowRegenButtonHtml(msg, att) {
   const entry = S.workflowManifest.find((w) => w.id === wid);
   if (!entry) return "";
   if (!effectiveWorkflowEnabled(wid)) return "";
-  if (S.hasMultipleTabs) {
-    return `<button class="workflow-regen-button" disabled title="Close other tabs to regenerate">${ICON_REGEN}</button>`;
-  }
   return `<button class="workflow-regen-button" title="Regenerate" onclick="event.stopPropagation();workflowRegenerate(${msg.id},${att.id},this)">${ICON_REGEN}</button>`;
 }
 
@@ -62,9 +57,6 @@ function _workflowRerollButtonHtml(msg, att) {
   const entry = S.workflowManifest.find((w) => w.id === wid);
   if (!entry) return "";
   if (!effectiveWorkflowEnabled(wid)) return "";
-  if (S.hasMultipleTabs) {
-    return `<button class="workflow-reroll-button" disabled title="Close other tabs to reroll">${ICON_REROLL}</button>`;
-  }
   return `<button class="workflow-reroll-button" title="Reroll" onclick="event.stopPropagation();workflowReroll(${msg.id},${att.id},this)">${ICON_REROLL}</button>`;
 }
 
@@ -73,7 +65,7 @@ function _activeAttachmentForGroup(atts, root) {
   // newest sibling as active.
   if (!atts.length) return null;
   if (atts.length === 1) return atts[0];
-  const activeId = root && root.active_sibling_id;
+  const activeId = root?.active_sibling_id;
   if (activeId == null) return atts[atts.length - 1];
   const found = atts.find((a) => a.id === activeId);
   return found || atts[atts.length - 1];
@@ -102,7 +94,7 @@ function _workflowRejectionChipHtml(entries) {
 // "speech.mp3" is noise next to the workflow that produced it.
 function _workflowLabel(att) {
   const entry = S.workflowManifest.find((w) => w.id === att.workflow_id);
-  return (entry && entry.display_name) || att.workflow_id || "artifact";
+  return entry?.display_name || att.workflow_id || "artifact";
 }
 
 // Minimized workflow-artifact groups, keyed by root attachment id. Persisted to
@@ -145,7 +137,10 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
   // author-owned widget body and the regen/reroll buttons that live inside it.
   // Minimize is a local view toggle (no tab lock); delete mutates server state
   // and routes through a confirm dialog.
-  const header = `<div class="workflow-artifact-header">
+  // The whole strip is the collapse hit box; the chevron stays a real button so
+  // the control is still keyboard/AT reachable, and both chrome buttons stop
+  // propagation so the strip's handler cannot double-fire.
+  const header = `<div class="workflow-artifact-header" onclick="workflowToggleMinimize('${instanceId}')">
       <span class="workflow-artifact-label" title="${label}">${label}${countBadge}</span>
       <div class="workflow-artifact-controls">
         <button class="workflow-chrome-btn workflow-min-btn${minimized ? " collapsed" : ""}" title="${minimized ? "Expand" : "Minimize"}" aria-expanded="${minimized ? "false" : "true"}" onclick="event.stopPropagation();workflowToggleMinimize('${instanceId}')">${ICON_CHEVRON}</button>
@@ -187,18 +182,16 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
     bodyHtml = `<div class="workflow-widget" data-workflow-id="${esc(active.workflow_id)}" data-attachment-id="${active.id}">${widgetHtml}</div>`;
   }
   const indicator = total > 1 ? `<span class="workflow-artifact-counter">${idx + 1} / ${total}</span>` : "";
-  // No cycling: each arrow dies at its end of the list (also when other tabs are
-  // open, or there is only one sibling).
-  const navLocked = total <= 1 || S.hasMultipleTabs;
-  const prevDisabled = navLocked || idx === 0 ? " disabled" : "";
-  const nextDisabled = navLocked || idx === total - 1 ? " disabled" : "";
-  const navTitle = S.hasMultipleTabs ? ` title="Close other tabs to swipe"` : "";
+  // No cycling: each arrow dies at its end of the list (also when there is only
+  // one sibling).
+  const prevDisabled = total <= 1 || idx === 0 ? " disabled" : "";
+  const nextDisabled = total <= 1 || idx === total - 1 ? " disabled" : "";
   return `<div class="workflow-artifact-swipe" id="${instanceId}" data-msg-id="${msg.id}" data-root-id="${rootId}">
     ${header}
     <div class="workflow-artifact-nav">
-      <button class="workflow-swipe-btn"${prevDisabled}${navTitle} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',-1)">&#9664;</button>
+      <button class="workflow-swipe-btn prev"${prevDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',-1)">${ICON_CHEVRON}</button>
       <div class="workflow-artifact-body">${bodyHtml}</div>
-      <button class="workflow-swipe-btn"${nextDisabled}${navTitle} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',1)">&#9654;</button>
+      <button class="workflow-swipe-btn next"${nextDisabled} onclick="event.stopPropagation();workflowArtifactStep('${instanceId}',1)">${ICON_CHEVRON}</button>
     </div>
     ${indicator}
   </div>${rejectionChip}`;
@@ -253,7 +246,22 @@ export function _renderWorkflowRejection(msg) {
 // after any wholesale setMessages it issues.
 const _workflowSwipeInFlight = new Map();
 
-window.workflowArtifactStep = async function (instanceId, delta) {
+// Re-apply every in-flight swipe's optimistic active_sibling_id. Call after ANY
+// wholesale setMessages in this module: the swipe paints its new active sibling
+// locally before its POST resolves, so a refetch landing in that window drops
+// the value and snaps the widget off the variant the user is looking at. A
+// resurrected pointer to a since-deleted sibling is safe --
+// _activeAttachmentForGroup falls back to the newest row when the id is absent.
+function _reapplyInFlightSwipes() {
+  for (const [rootId, { msgId, activeId }] of _workflowSwipeInFlight) {
+    const m = S.messages.find((x) => x.id === msgId);
+    if (!m || !Array.isArray(m.workflow_attachments)) continue;
+    const root = m.workflow_attachments.find((a) => a.id === rootId);
+    if (root) root.active_sibling_id = activeId;
+  }
+}
+
+window.workflowArtifactStep = async (instanceId, delta) => {
   const el = document.getElementById(instanceId);
   if (!el) return;
   const msgId = Number(el.dataset.msgId);
@@ -276,6 +284,7 @@ window.workflowArtifactStep = async function (instanceId, delta) {
   // server fetch if the POST fails.
   if (root) root.active_sibling_id = newActiveId;
   el.outerHTML = _renderWorkflowSwipeContainer(msg, rootId, group.atts);
+  _scrollArtifactIntoView(msgId, rootId);
   try {
     await api.post(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", rootId, "activate"), {
       sibling_id: newActiveId,
@@ -303,7 +312,7 @@ window.workflowArtifactStep = async function (instanceId, delta) {
 // the cross-tab refetch guard.
 const _workflowRehydrateInFlight = new Map();
 
-window.workflowRehydrate = async function (msgId, attId, btn) {
+window.workflowRehydrate = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
   if (!requestSendPermission()) return;
   if (_workflowRehydrateInFlight.has(attId)) return;
@@ -311,11 +320,12 @@ window.workflowRehydrate = async function (msgId, attId, btn) {
   btn.disabled = true;
   const container = btn.closest(".workflow-artifact-swipe");
   const wid = _resolveWorkflowId(msgId, attId);
-  const ch = "workflow:" + (wid || "op") + ":rehydrate:" + attId;
+  const ch = `workflow:${wid || "op"}:rehydrate:${attId}`;
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "restoring..."));
     await api.post(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "rehydrate"), {});
     setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+    _reapplyInFlightSwipes();
     renderMessages();
     broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
   } catch (e) {
@@ -325,6 +335,7 @@ window.workflowRehydrate = async function (msgId, attId, btn) {
     if (e && e.status === 409) {
       try {
         setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+        _reapplyInFlightSwipes();
         renderMessages();
         broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
       } catch (e2) {
@@ -357,12 +368,19 @@ window.workflowRehydrate = async function (msgId, attId, btn) {
 // message id, consumed by the cross-tab refetch guard.
 const _workflowActionInFlight = new Map();
 
+// Per-rootId in-flight lock for delete, separate from the regen/reroll one so a
+// trash click during a render is accepted rather than dropped. It only has to
+// stop a second delete on the same root, reachable because the POST can sit a
+// minute behind a render on the server's root lock. Value is the owning message
+// id, consumed by the cross-tab refetch guard.
+const _workflowDeleteInFlight = new Map();
+
 // Falls back to attId when the message or attachment is no longer locally
 // known (closure outlived a refetch). attId is always a real id at click
 // time, so the fallback still yields a key serializable against itself.
 function _resolveWorkflowRootId(msgId, attId) {
   const msg = S.messages.find((m) => m.id === msgId);
-  const atts = msg && msg.workflow_attachments;
+  const atts = msg?.workflow_attachments;
   if (!atts) return attId;
   const att = atts.find((a) => a.id === attId);
   if (!att) return attId;
@@ -373,8 +391,8 @@ function _resolveWorkflowRootId(msgId, attId) {
 // null when the row has left local state (a closure outliving a refetch).
 function _resolveWorkflowId(msgId, attId) {
   const msg = S.messages.find((m) => m.id === msgId);
-  const att = msg && msg.workflow_attachments && msg.workflow_attachments.find((a) => a.id === attId);
-  return (att && att.workflow_id) || null;
+  const att = msg?.workflow_attachments?.find((a) => a.id === attId);
+  return att?.workflow_id || null;
 }
 
 // Drops existing entries whose (message_id, originating_attachment_id)
@@ -388,7 +406,154 @@ export function _mergeWorkflowRejections(msgId, originatingId, incoming) {
     .concat(incoming.map((e) => ({ ...e, message_id: msgId })));
 }
 
-window.workflowRegenerate = async function (msgId, attId, btn) {
+// Regenerate/reroll are plain POSTs that hold one connection open for the whole
+// render (a minute+ for image gen, zero bytes until it returns). The browser can
+// give up waiting before the backend finishes -- but the server persists the new
+// sibling regardless. So a network-class failure is NOT proof the op failed; the
+// render is likely still landing. fetch() rejects with a bare TypeError on
+// connection loss/timeout, whereas api._req attaches `.status` to real HTTP
+// errors (validation, 500) -- those are genuine and must not trigger recovery.
+function _isNetworkError(e) {
+  return e instanceof TypeError && e.status === undefined;
+}
+
+function _rootSiblingIds(msg, rootId) {
+  const atts = msg?.workflow_attachments || [];
+  return new Set(atts.filter((a) => (a.parent_attachment_id || a.id) === rootId).map((a) => a.id));
+}
+
+// Poll GET messages until the root gains a sibling id absent from `before` (the
+// one the backend is still writing), then refresh. Returns true if it landed or
+// the user navigated away (no failure chip owed either way), false on timeout.
+async function _recoverWorkflowSibling(convId, msgId, rootId, before) {
+  const deadline = Date.now() + 200_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (S.activeConvId !== convId) return true; // left the conversation; nothing to render
+    let msgs;
+    try {
+      msgs = await api.get(convUrl(convId, "messages"));
+    } catch {
+      continue; // transient; keep waiting for the render to land
+    }
+    const now = _rootSiblingIds(
+      msgs.find((m) => m.id === msgId),
+      rootId,
+    );
+    if ([...now].some((id) => !before.has(id))) {
+      if (S.activeConvId !== convId) return true;
+      setMessages(msgs);
+      _reapplyInFlightSwipes();
+      renderMessages();
+      _scrollArtifactIntoView(msgId, rootId);
+      broadcastWorkflowMutation({ convId, msgId });
+      return true;
+    }
+  }
+  return false;
+}
+
+// Same shape for delete: a delete queued behind a render on the server's root
+// lock can outlive the browser's patience, and the backend performs it anyway
+// once the lock frees -- so a network-class failure is not proof it failed. Poll
+// for `aid` to vanish, then refresh. Returns true if it landed or the user
+// navigated away, false on timeout.
+async function _recoverWorkflowDeletion(convId, msgId, rootId, aid) {
+  const deadline = Date.now() + 200_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (S.activeConvId !== convId) return true; // left the conversation; nothing to render
+    let msgs;
+    try {
+      msgs = await api.get(convUrl(convId, "messages"));
+    } catch {
+      continue; // transient; keep waiting for the delete to land
+    }
+    const msg = msgs.find((m) => m.id === msgId);
+    if ((msg?.workflow_attachments || []).some((a) => a.id === aid)) continue;
+    if (S.activeConvId !== convId) return true;
+    setMessages(msgs);
+    // Group fully gone: its rejection chips and collapsed state are stale.
+    if (!_rootSiblingIds(msg, rootId).size) {
+      _workflowMinimized.delete(rootId);
+      _persistWorkflowMinimized();
+      _mergeWorkflowRejections(msgId, rootId, []);
+    }
+    _reapplyInFlightSwipes();
+    renderMessages();
+    broadcastWorkflowMutation({ convId, msgId });
+    return true;
+  }
+  return false;
+}
+
+// Bring a just-rendered artifact back into view. renderMessages restores scroll
+// by distance-from-bottom, measured BEFORE the new image has any height, so a
+// fresh render or a differently-sized reroll lands off-screen either way: at the
+// bottom the image grows past the fold, in the middle the growing tail pushes the
+// message up out of the viewport.
+//
+// So the measurement has to happen once the image occupies its real height, and
+// `load` + one frame is the signal for that -- NOT decode(), which can resolve
+// before the intrinsic size reaches the layout box. Measuring a still-0px-tall
+// widget is precisely what left the newest message unscrolled: centring a
+// zero-height box sitting at the end of the document clamps to the scroll
+// position we were already at, and the image then grew below the fold.
+//
+// Already fully visible => no scroll, so repeated rerolls of a same-size image
+// don't nudge the viewport. Taller than the viewport => top-align (you want the
+// top of the image, not its bottom edge); otherwise centre it -- which the
+// browser clamps to "scrolled to the bottom" for the newest message, exactly
+// what that case wants.
+//
+// A backgrounded tab pauses rAF outright and throttles timers, so a render that
+// finishes while the user is away must not measure or scroll then; the whole tail
+// waits for the tab to come back, and re-finds the widget when it does (a repaint
+// may have replaced the node meanwhile, and scrolling a detached node is a no-op
+// -- which looked exactly like the bug this function fixes).
+function _scrollArtifactIntoView(msgId, rootId = null) {
+  // Without a rootId (the plugin-driven first render, which knows only the
+  // message) the newest group is the last one painted for that message.
+  const sel = rootId != null ? `#ws-${msgId}-${rootId}` : `.message[data-msg-id="${msgId}"] .workflow-artifact-swipe`;
+  const find = () => {
+    const found = $("chat-messages")?.querySelectorAll(sel) || [];
+    return found[found.length - 1] || null;
+  };
+  const el = find();
+  if (!el) return;
+  const show = () => {
+    const ct = $("chat-messages");
+    const target = find();
+    if (!ct || !target) return;
+    const r = target.getBoundingClientRect();
+    const box = ct.getBoundingClientRect();
+    if (r.top >= box.top && r.bottom <= box.bottom) return;
+    markChatProgrammaticScroll(400);
+    target.scrollIntoView({ behavior: "smooth", block: r.height <= ct.clientHeight ? "center" : "start" });
+  };
+  // One frame after load, so the new intrinsic height is in the layout box --
+  // and only once the tab is visible, since that frame never comes while hidden.
+  const showWhenVisible = () => {
+    if (document.hidden)
+      document.addEventListener("visibilitychange", () => requestAnimationFrame(show), { once: true });
+    else requestAnimationFrame(show);
+  };
+  const pending = [...el.querySelectorAll("img")].filter((i) => !i.complete);
+  if (!pending.length) return showWhenVisible();
+  const loaded = pending.map((img) => {
+    // The artifact renders `loading="lazy"`; while it sits below the fold that
+    // load never starts, so its `load` never fires and we would wait out the cap
+    // below on an image the user is waiting for. Flipping to eager resumes it.
+    img.loading = "eager";
+    return new Promise((res) => {
+      img.addEventListener("load", res, { once: true });
+      img.addEventListener("error", res, { once: true });
+    });
+  });
+  Promise.race([Promise.all(loaded), new Promise((res) => setTimeout(res, 2000))]).then(showWhenVisible);
+}
+
+window.workflowRegenerate = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
   if (!requestSendPermission()) return;
   const rootId = _resolveWorkflowRootId(msgId, attId);
@@ -397,27 +562,37 @@ window.workflowRegenerate = async function (msgId, attId, btn) {
   const container = btn.closest(".workflow-artifact-swipe");
   btn.disabled = true;
   const wid = _resolveWorkflowId(msgId, attId);
-  const ch = "workflow:" + (wid || "op") + ":regen:" + rootId;
+  const ch = `workflow:${wid || "op"}:regen:${rootId}`;
+  const convId = S.activeConvId;
+  const beforeSiblings = _rootSiblingIds(
+    S.messages.find((m) => m.id === msgId),
+    rootId,
+  );
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "regenerating..."));
-    const result = await api.post(
-      convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "regenerate"),
-      {},
-    );
+    const result = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", attId, "regenerate"), {});
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
     // Dispatcher writes active_sibling_id = new sibling for each new row,
     // so the refreshed state already points the renderer at the latest.
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+    setMessages(await api.get(convUrl(convId, "messages")));
+    _reapplyInFlightSwipes();
     renderMessages();
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    _scrollArtifactIntoView(msgId, rootId);
+    broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    console.error("Regenerate failed:", e);
-    if (container && !container.querySelector(".workflow-regen-error")) {
-      const cap = document.createElement("div");
-      cap.className = "workflow-regen-error";
-      cap.textContent = "Regenerate failed";
-      container.appendChild(cap);
+    // The client can give up mid-render while the backend renders on and
+    // persists the sibling; poll for it before declaring failure.
+    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+      // Recovered (or navigated away) -- no failure chip owed.
+    } else {
+      console.error("Regenerate failed:", e);
+      if (container && !container.querySelector(".workflow-regen-error")) {
+        const cap = document.createElement("div");
+        cap.className = "workflow-regen-error";
+        cap.textContent = "Regenerate failed";
+        container.appendChild(cap);
+      }
     }
   } finally {
     clearWorkflowPhase(ch);
@@ -426,7 +601,7 @@ window.workflowRegenerate = async function (msgId, attId, btn) {
   }
 };
 
-window.workflowReroll = async function (msgId, attId, btn) {
+window.workflowReroll = async (msgId, attId, btn) => {
   if (!S.activeConvId) return;
   if (!requestSendPermission()) return;
   const rootId = _resolveWorkflowRootId(msgId, attId);
@@ -435,25 +610,46 @@ window.workflowReroll = async function (msgId, attId, btn) {
   const container = btn.closest(".workflow-artifact-swipe");
   btn.disabled = true;
   const wid = _resolveWorkflowId(msgId, attId);
-  const ch = "workflow:" + (wid || "op") + ":reroll:" + rootId;
+  const ch = `workflow:${wid || "op"}:reroll:${rootId}`;
+  const convId = S.activeConvId;
+  const beforeSiblings = _rootSiblingIds(
+    S.messages.find((m) => m.id === msgId),
+    rootId,
+  );
   try {
     setWorkflowPhase(ch, workflowPhaseLabel(wid, "rerolling..."));
+    // The owning plugin gets one chance to retarget the render (an edited prompt,
+    // today's style). A throw here must not cost the user their reroll.
+    let extra = null;
+    try {
+      extra = S.workflowRerollParams[wid]?.(msgId, attId) || null;
+    } catch (e) {
+      console.error("reroll params callback threw:", e);
+    }
     const result = await api.post(
-      convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"),
-      {},
+      convUrl(convId, "messages", msgId, "workflow-attachments", attId, "reroll-gen"),
+      extra ? { params: extra } : {},
     );
     const incoming = result && Array.isArray(result.rejected_workflow_atts) ? result.rejected_workflow_atts : [];
     _mergeWorkflowRejections(msgId, rootId, incoming);
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+    setMessages(await api.get(convUrl(convId, "messages")));
+    _reapplyInFlightSwipes();
     renderMessages();
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    _scrollArtifactIntoView(msgId, rootId);
+    broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    console.error("Reroll failed:", e);
-    if (container && !container.querySelector(".workflow-reroll-error")) {
-      const cap = document.createElement("div");
-      cap.className = "workflow-reroll-error";
-      cap.textContent = "Reroll failed";
-      container.appendChild(cap);
+    // Same recovery as regenerate: a network-class failure isn't proof the
+    // reroll failed -- the backend persists the sibling even if we stopped waiting.
+    if (_isNetworkError(e) && (await _recoverWorkflowSibling(convId, msgId, rootId, beforeSiblings))) {
+      // Recovered (or navigated away) -- no failure chip owed.
+    } else {
+      console.error("Reroll failed:", e);
+      if (container && !container.querySelector(".workflow-reroll-error")) {
+        const cap = document.createElement("div");
+        cap.className = "workflow-reroll-error";
+        cap.textContent = "Reroll failed";
+        container.appendChild(cap);
+      }
     }
   } finally {
     clearWorkflowPhase(ch);
@@ -467,7 +663,7 @@ window.workflowReroll = async function (msgId, attId, btn) {
 // localStorage), touching no server state -- so unlike regenerate/reroll/swipe
 // it is not gated on the single-writer tab lock. Re-renders just this widget in
 // place, the same surgical outerHTML swap workflowArtifactStep uses.
-window.workflowToggleMinimize = function (instanceId) {
+window.workflowToggleMinimize = (instanceId) => {
   const el = document.getElementById(instanceId);
   if (!el) return;
   const msgId = Number(el.dataset.msgId);
@@ -488,7 +684,7 @@ window.workflowToggleMinimize = function (instanceId) {
 // target is parked in _wfDeleteTarget for workflowConfirmDelete to consume.
 let _wfDeleteTarget = null;
 
-window.workflowDeleteAttachment = function (instanceId) {
+window.workflowDeleteAttachment = (instanceId) => {
   const el = document.getElementById(instanceId);
   if (!el) return;
   const msgId = Number(el.dataset.msgId);
@@ -523,7 +719,7 @@ window.workflowDeleteAttachment = function (instanceId) {
     </div>`);
 };
 
-window.workflowConfirmDelete = function (scope) {
+window.workflowConfirmDelete = (scope) => {
   const t = _wfDeleteTarget;
   _wfDeleteTarget = null;
   closeModal();
@@ -535,17 +731,30 @@ window.workflowConfirmDelete = function (scope) {
 // "group"). The path id is the acted-on attachment; the backend derives the
 // group root, and when the root variant of a multi-variant group is removed it
 // promotes a survivor and returns the resulting root id.
+//
+// Not gated on an in-flight regen/reroll: the server's root lock orders this
+// after the render, which is what keeps the render's pending insert from landing
+// on a deleted parent (parent_attachment_id is a real FK). That wait can be a
+// minute, so the phase pill carries it. No optimistic "gone" paint, unlike the
+// swipe: the render's own refetch would resurrect the group mid-wait and the
+// POST would then re-delete it, i.e. flicker.
 async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope) {
   if (!S.activeConvId) return;
   if (!requestSendPermission()) return;
-  if (_workflowActionInFlight.has(rootId)) return;
-  _workflowActionInFlight.set(rootId, msgId);
+  if (_workflowDeleteInFlight.has(rootId)) return;
+  _workflowDeleteInFlight.set(rootId, msgId);
   const aid = scope === "group" ? rootId : activeId;
+  const wid = _resolveWorkflowId(msgId, activeId);
+  const ch = `workflow:${wid || "op"}:delete:${rootId}`;
+  // Captured: this POST can sit a minute behind a render, so S.activeConvId may
+  // have moved on by the time it resolves.
+  const convId = S.activeConvId;
   try {
-    const res = await api.post(convUrl(S.activeConvId, "messages", msgId, "workflow-attachments", aid, "delete"), {
+    setWorkflowPhase(ch, workflowPhaseLabel(wid, "deleting..."));
+    const res = await api.post(convUrl(convId, "messages", msgId, "workflow-attachments", aid, "delete"), {
       scope,
     });
-    if (res && res.group_empty) {
+    if (res?.group_empty) {
       _workflowMinimized.delete(rootId);
       _persistWorkflowMinimized();
     } else if (res && typeof res.root_id === "number" && res.root_id !== rootId && _workflowMinimized.has(rootId)) {
@@ -554,15 +763,27 @@ async function _deleteWorkflowAttachment(msgId, rootId, activeId, scope) {
       _workflowMinimized.add(res.root_id);
       _persistWorkflowMinimized();
     }
-    _mergeWorkflowRejections(msgId, rootId, []);
-    setMessages(await api.get(convUrl(S.activeConvId, "messages")));
+    // Only a fully deleted group's rejection chips are stale; a surviving group
+    // keeps its warnings. Clearing unconditionally would also drop the chips a
+    // concurrent regen/reroll appends under the same (msg, root) merge key --
+    // the server's root lock lands this response after theirs.
+    if (res?.group_empty) _mergeWorkflowRejections(msgId, rootId, []);
+    setMessages(await api.get(convUrl(convId, "messages")));
+    _reapplyInFlightSwipes();
     renderMessages();
-    broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
+    broadcastWorkflowMutation({ convId, msgId });
   } catch (e) {
-    console.error("Delete failed:", e);
-    toast("Delete failed", true);
+    // The client can give up while the delete is still queued behind a render;
+    // poll for it before declaring failure.
+    if (_isNetworkError(e) && (await _recoverWorkflowDeletion(convId, msgId, rootId, aid))) {
+      // Recovered (or navigated away) -- no toast owed.
+    } else {
+      console.error("Delete failed:", e);
+      toast("Delete failed", true);
+    }
   } finally {
-    _workflowActionInFlight.delete(rootId);
+    clearWorkflowPhase(ch);
+    _workflowDeleteInFlight.delete(rootId);
   }
 }
 
@@ -575,27 +796,20 @@ export function initWorkflowMutationListener() {
     if (S.isStreaming) return;
     if (S.editingMsgId != null || S.forkEditMsgId != null || S.editingPendingUserMsg || S.magicInputMsgId != null)
       return;
-    // All three in-flight maps gate per-msgId: refetching mid-POST on
-    // the same message races with the op's own reconcile. Swipe also
-    // paints active_sibling_id locally before its POST awaits, so the
-    // wholesale setMessages below would drop that optimistic value for
-    // any in-flight swipe on a different msgId in the same conversation.
-    // The re-apply pass after setMessages restores those optimistic ids
-    // until each swipe POST lands and the next refetch carries them.
+    // Every in-flight map gates per-msgId: refetching mid-POST on the same
+    // message races with the op's own reconcile. The wholesale setMessages below
+    // would also drop the optimistic active_sibling_id of an in-flight swipe on
+    // a different msgId in the same conversation (see _reapplyInFlightSwipes).
     const inFlightMsgIds = new Set([
       ..._workflowRehydrateInFlight.values(),
       ..._workflowActionInFlight.values(),
+      ..._workflowDeleteInFlight.values(),
       ...Array.from(_workflowSwipeInFlight.values(), (v) => v.msgId),
     ]);
     if (inFlightMsgIds.has(msgId)) return;
     try {
       setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-      for (const [rootId, { msgId: swipeMsgId, activeId }] of _workflowSwipeInFlight) {
-        const m = S.messages.find((x) => x.id === swipeMsgId);
-        if (!m || !Array.isArray(m.workflow_attachments)) continue;
-        const root = m.workflow_attachments.find((a) => a.id === rootId);
-        if (root) root.active_sibling_id = activeId;
-      }
+      _reapplyInFlightSwipes();
       renderMessages();
     } catch (e) {
       console.warn("cross-tab workflow refetch failed", e);
@@ -618,21 +832,18 @@ export async function refreshConversationMessages(msgId = null) {
   const inFlight = new Set([
     ..._workflowRehydrateInFlight.values(),
     ..._workflowActionInFlight.values(),
+    ..._workflowDeleteInFlight.values(),
     ...Array.from(_workflowSwipeInFlight.values(), (v) => v.msgId),
   ]);
   if (msgId != null && inFlight.has(msgId)) return false;
   try {
     setMessages(await api.get(convUrl(S.activeConvId, "messages")));
-    // A swipe writes its new active_sibling_id locally before its POST
-    // resolves; the refetch above drops that optimistic value, so reapply it
-    // for any swipe still in flight.
-    for (const [rootId, { msgId: swipeMsgId, activeId }] of _workflowSwipeInFlight) {
-      const m = S.messages.find((x) => x.id === swipeMsgId);
-      if (!m || !Array.isArray(m.workflow_attachments)) continue;
-      const root = m.workflow_attachments.find((a) => a.id === rootId);
-      if (root) root.active_sibling_id = activeId;
-    }
+    _reapplyInFlightSwipes();
     renderMessages();
+    // The caller is a workflow whose generation just landed on msgId (a blanket
+    // refresh passes null), so the artifact it produced is what the user is
+    // waiting to see -- same scroll treatment as regenerate/reroll.
+    if (msgId != null) _scrollArtifactIntoView(msgId);
     broadcastWorkflowMutation({ convId: S.activeConvId, msgId });
     return true;
   } catch (e) {
@@ -731,7 +942,7 @@ export function _refreshWorkflowViewportObserver() {
   for (const el of document.querySelectorAll("#chat-messages .message[data-msg-id]")) {
     const msgId = Number(el.dataset.msgId);
     const msg = S.messages.find((m) => m.id === msgId);
-    if (msg && msg.workflow_attachments && msg.workflow_attachments.length) {
+    if (msg?.workflow_attachments?.length) {
       _workflowViewportObserver.observe(el);
     }
   }
