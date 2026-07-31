@@ -119,11 +119,22 @@ def collect_endpoints(conn: sqlite3.Connection) -> list[dict]:
 
 
 def collect_model_configs(conn: sqlite3.Connection) -> list[dict]:
-    """Per-model sampling and generation configs."""
+    """Per-model sampling and generation configs, with extra headers redacted."""
     rows = conn.execute(
         "SELECT * FROM model_configs ORDER BY id"
     ).fetchall()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        mc = dict(r)
+        # Free-form and user-supplied, so its contents are unknown and may be
+        # sensitive. Blanked rather than masked: redact_api_key's
+        # first-four/last-four shape would expose the start and end of a
+        # multi-line blob while hiding the middle. An empty value is left alone
+        # so the dump still shows whether the field is set.
+        if mc.get("extra_headers"):
+            mc["extra_headers"] = SENSITIVE_PLACEHOLDER
+        result.append(mc)
+    return result
 
 
 def collect_conversation_summary(conn: sqlite3.Connection) -> dict:

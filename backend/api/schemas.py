@@ -7,6 +7,8 @@ it needs and the shapes stay discoverable in one place.
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -120,6 +122,12 @@ class EndpointUpdate(BaseModel):
         return v
 
 
+# RFC 7230 token: the only characters a header name may contain. h11 rejects
+# anything else when the request is sent, and that exception is not retryable,
+# so an unchecked name kills every subsequent turn with an opaque error.
+_HEADER_NAME_RE = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
+
+
 class ModelConfigCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
 
@@ -135,6 +143,50 @@ class ModelConfigCreate(BaseModel):
     reasoning_effort: str = ""
     reasoning_effort_param: str = ""
     reasoning_effort_value: str = ""
+    extra_headers: str = ""
+    extra_body: str = ""
+
+    @field_validator("extra_headers")
+    @classmethod
+    def _validate_extra_headers(cls, v: str) -> str:
+        # Blank lines and '#' comments are allowed so the field can be annotated.
+        # Name and value are checked after stripping, matching what the client
+        # parser sends -- the separator whitespace is discarded before the header
+        # exists, so a non-breaking space pasted from a docs page is harmless.
+        # Rejecting a malformed line here means a typo fails at save time rather
+        # than on every turn, where it surfaces only as a generic failure.
+        v = v.strip()
+        if not v:
+            return ""
+        for raw in v.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, sep, value = line.partition(":")
+            name, value = name.strip(), value.strip()
+            if not sep or not name:
+                raise ValueError(f"each header line must be 'Name: value' (got {line!r})")
+            if not _HEADER_NAME_RE.fullmatch(name):
+                raise ValueError(f"header name must be an HTTP token (got {line!r})")
+            if not value.isascii() or any(ord(c) < 0x20 and c != "\t" for c in value):
+                raise ValueError(f"header value must be ASCII without control characters (got {line!r})")
+        return v
+
+    @field_validator("extra_body")
+    @classmethod
+    def _validate_extra_body(cls, v: str) -> str:
+        # Must be an object: it is merged into the request body, and a list or
+        # scalar has nothing to merge.
+        v = v.strip()
+        if not v:
+            return ""
+        try:
+            parsed = json.loads(v)
+        except ValueError as e:
+            raise ValueError(f"extra body must be valid JSON: {e}") from e
+        if not isinstance(parsed, dict):
+            raise ValueError(f"extra body must be a JSON object, not {type(parsed).__name__}")
+        return v
 
 
 class ModelConfigUpdate(BaseModel):
@@ -151,6 +203,54 @@ class ModelConfigUpdate(BaseModel):
     reasoning_effort: str | None = None
     reasoning_effort_param: str | None = None
     reasoning_effort_value: str | None = None
+    extra_headers: str | None = None
+    extra_body: str | None = None
+
+    @field_validator("extra_headers")
+    @classmethod
+    def _validate_extra_headers(cls, v: str | None) -> str | None:
+        # Blank lines and '#' comments are allowed so the field can be annotated.
+        # Name and value are checked after stripping, matching what the client
+        # parser sends -- the separator whitespace is discarded before the header
+        # exists, so a non-breaking space pasted from a docs page is harmless.
+        # Rejecting a malformed line here means a typo fails at save time rather
+        # than on every turn, where it surfaces only as a generic failure.
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return ""
+        for raw in v.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            name, sep, value = line.partition(":")
+            name, value = name.strip(), value.strip()
+            if not sep or not name:
+                raise ValueError(f"each header line must be 'Name: value' (got {line!r})")
+            if not _HEADER_NAME_RE.fullmatch(name):
+                raise ValueError(f"header name must be an HTTP token (got {line!r})")
+            if not value.isascii() or any(ord(c) < 0x20 and c != "\t" for c in value):
+                raise ValueError(f"header value must be ASCII without control characters (got {line!r})")
+        return v
+
+    @field_validator("extra_body")
+    @classmethod
+    def _validate_extra_body(cls, v: str | None) -> str | None:
+        # Must be an object: it is merged into the request body, and a list or
+        # scalar has nothing to merge.
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return ""
+        try:
+            parsed = json.loads(v)
+        except ValueError as e:
+            raise ValueError(f"extra body must be valid JSON: {e}") from e
+        if not isinstance(parsed, dict):
+            raise ValueError(f"extra body must be a JSON object, not {type(parsed).__name__}")
+        return v
 
 
 class MoodFragmentCreate(BaseModel):

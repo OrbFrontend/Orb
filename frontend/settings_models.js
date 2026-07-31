@@ -6,7 +6,7 @@ import { api } from "./api.js";
 import { renderInspector } from "./chat.js";
 import { showConfirmModal } from "./modal.js";
 import { S } from "./state.js";
-import { $, esc, toast } from "./utils.js";
+import { $, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 const MODEL_HYPERPARAM_KEYS = [
@@ -21,6 +21,8 @@ const MODEL_HYPERPARAM_KEYS = [
   "reasoning_effort",
   "reasoning_effort_param",
   "reasoning_effort_value",
+  "extra_headers",
+  "extra_body",
 ];
 
 // Standard OpenAI reasoning_effort levels: the union across current models
@@ -55,6 +57,13 @@ const SETTING_FIELDS = [
   { k: "top_k", l: "Top K", t: "number", s: "1", mn: "0", mx: "200" },
   { k: "repetition_penalty", l: "Rep. Penalty", t: "number", s: "0.05", mn: "1", mx: "2" },
   { k: "reasoning_effort", l: "Reasoning Effort", t: "reasoning_effort" },
+  { k: "extra_headers", l: "Extra Request Headers", t: "textarea", ph: "X-Provider: deepinfra" },
+  {
+    k: "extra_body",
+    l: "Extra Request Body (JSON, chat mode only)",
+    t: "textarea",
+    ph: '{"provider": {"only": ["deepinfra"]}}',
+  },
 ];
 
 const AGENT_MODEL_HYPERPARAM_KEYS = [
@@ -65,6 +74,8 @@ const AGENT_MODEL_HYPERPARAM_KEYS = [
   "agent_reasoning_effort",
   "agent_reasoning_effort_param",
   "agent_reasoning_effort_value",
+  "agent_extra_headers",
+  "agent_extra_body",
 ];
 
 const AGENT_SETTING_FIELDS = [
@@ -86,6 +97,13 @@ const AGENT_SETTING_FIELDS = [
   { k: "agent_top_p", l: "Agent Top P", t: "number", s: "0.05", mn: "0", mx: "1" },
   { k: "agent_repetition_penalty", l: "Agent Rep. Penalty", t: "number", s: "0.05", mn: "1", mx: "2" },
   { k: "agent_reasoning_effort", l: "Agent Reasoning Effort", t: "reasoning_effort" },
+  { k: "agent_extra_headers", l: "Agent Extra Request Headers", t: "textarea", ph: "X-Provider: deepinfra" },
+  {
+    k: "agent_extra_body",
+    l: "Agent Extra Request Body (JSON, chat mode only)",
+    t: "textarea",
+    ph: '{"provider": {"only": ["deepinfra"]}}',
+  },
 ];
 
 // Descriptor objects that parameterise all writer vs. agent differences.
@@ -148,8 +166,9 @@ export function renderEndpoints() {
       const rows = f.k === "system_prompt" || f.k === "agent_system_prompt" ? ' rows="2"' : "";
       // System-prompt fields are chat-only: hidden in document mode (see document.css).
       const cls = f.k === "system_prompt" || f.k === "shared_system_prompt" ? " ep-chat-only" : "";
+      const ph = f.ph ? ` placeholder="${escAttr(f.ph)}"` : "";
       return `<div class="field${cls}"><label>${f.l}</label>
-                <textarea data-key="${f.k}"${rows} onchange="${saveFn}(this)">${v}</textarea>
+                <textarea data-key="${f.k}"${rows}${ph} onchange="${saveFn}(this)">${v}</textarea>
               </div>`;
     }
     if (f.t === "api_key") {
@@ -719,6 +738,8 @@ async function _syncModelConfigRecord(ctx, modelName, hyperparams) {
       reasoning_effort: get("reasoning_effort", ""),
       reasoning_effort_param: get("reasoning_effort_param", ""),
       reasoning_effort_value: get("reasoning_effort_value", ""),
+      extra_headers: get("extra_headers", ""),
+      extra_body: get("extra_body", ""),
     });
     S[ctx.configsKey].push(mc);
     S[ctx.configIdKey] = mc.id;
