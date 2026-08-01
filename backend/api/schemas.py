@@ -333,7 +333,7 @@ class LorebookEntryUpdate(BaseModel):
 class LorebookImportPayload(BaseModel):
     # Accepts raw lorebook JSON as parsed by the frontend.
     # Supports three common formats:
-    #   - SillyTavern standalone lorebook: {"entries": {"0": {...}, "1": {...}}}
+    #   - standalone World Info export: {"entries": {"0": {...}, "1": {...}}}
     #     where each entry has `key` (list), `comment`, `content`, `disable`, `order`, `caseSensitive`,
     #     plus `selective` / `keysecondary` and `position` (4 = "@ Depth" → `at_depth`)
     #   - Tavern V2 character_book: {"entries": [...]}

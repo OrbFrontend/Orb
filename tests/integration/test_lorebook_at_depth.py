@@ -1,11 +1,11 @@
 """
-test_lorebook_at_depth.py — SillyTavern ``@ Depth`` lorebook entries, real stack.
+test_lorebook_at_depth.py — ``@ Depth`` lorebook entries, real stack.
 
 The community's "RPG-lite" lorebooks (V20 stat checks and friends) are always-on
 rule blocks that ship a pre-rolled dice pool: the frontend resolves N ×
 ``{{roll::1d10}}`` per turn so the model consumes real entropy instead of
 inventing a number. That only works if the entry is re-rendered *outside* the
-cached prefix, which is what ``at_depth`` buys — SillyTavern's ``position: 4``.
+cached prefix, which is what ``at_depth`` buys — ``position: 4`` on the wire.
 
 Drives ``POST /api/worlds/{id}/import`` with the shape those files actually use,
 then two real ``POST /send`` turns, and asserts on the bytes each pass shipped:
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 
-# The SillyTavern World Info export shape: entries as an object, `comment` as the
+# The World Info export shape: entries as an object, `comment` as the
 # title, `order` as priority, `position: 4` = "@ Depth", `disable` = opt-out.
 _ST_PAYLOAD = {
     "entries": {
@@ -104,7 +104,7 @@ async def test_at_depth_entry_rides_the_tail_with_fresh_dice_each_turn(client, l
         tail = _tail_text(call)
         system = call["messages"][0]["content"]
 
-        # The depth block is the last thing the model reads (ST's depth 0).
+        # The depth block is the last thing the model reads (depth 0).
         assert tail.index(user_text) < tail.index("**Lorebook (Depth)**")
         assert tail.rstrip().endswith("</v20>")
         # Depth entries leave the prefix; plain constants stay in it.

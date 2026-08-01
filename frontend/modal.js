@@ -129,7 +129,7 @@ export function runSubConfirmCb() {
 // Opens a file picker; on selection shows a canvas crop editor in #modal-crop-root
 // (a separate overlay so it stacks above the character create/edit modal).
 // onConfirm receives { b64, mime } where the cropped image is 400×600 PNG (2:3 ratio,
-// matching the SillyTavern character card standard).
+// matching the character card standard).
 
 export function showCropModal(onConfirm, aspect = 2 / 3) {
   const input = document.createElement("input");

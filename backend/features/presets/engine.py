@@ -784,8 +784,7 @@ def _break_self_cycles(pointer: dict) -> None:
     space, so a self-parented or otherwise cyclic chain in the source (a malformed
     import: ``messages.parent_id`` looping, a workflow-attachment self ref) would
     survive as a loop the app's tree-walk can spin on. Walk each chain and, the
-    moment it revisits a node, null that node's pointer so the chain reaches root
-    -- matching the old engine, which attached such messages to the root.
+    moment it revisits a node, null that node's pointer so the chain reaches root.
     """
     for start in pointer:
         seen: set = set()

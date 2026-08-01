@@ -1,14 +1,13 @@
 // One chip-input widget. A chip field renders an array of short strings as
 // removable pills followed by a text input; typing then Enter or comma adds an
 // item, Backspace on an empty input removes the last, and a per-item × button
-// removes it. The lorebook keyword editor and the character-tag editor each
-// carried a byte-for-byte copy of this (down to the shared `lb-chip*` CSS); this
-// is the single implementation they both drive.
+// removes it. The lorebook keyword editor and the character-tag editor both drive
+// this one implementation, sharing its `lb-chip*` CSS.
 //
 // State-agnostic: the caller owns the array via getItems/setItems and supplies an
 // optional onChange side effect (e.g. mark-dirty). The widget attaches its own DOM
-// listeners inside render(), so callers no longer need window-bridged inline
-// handlers — call render() wherever the wrap element is (re)created.
+// listeners inside render(), so callers need no window-bridged inline handlers —
+// call render() wherever the wrap element is (re)created.
 
 import { esc } from "./utils.js";
 

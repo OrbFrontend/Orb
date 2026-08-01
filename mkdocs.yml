@@ -74,6 +74,7 @@ nav:
       - Overview: features/index.md
       - Direction:
           - Scene Direction: features/director.md
+          - Lorebooks: features/lorebooks.md
           - Agentic Lorebook: features/agentic-lorebook.md
           - Feedback Fragments: features/feedback-fragments.md
           - Direction Notes: features/direction-notes.md

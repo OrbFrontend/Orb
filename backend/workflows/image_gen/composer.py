@@ -187,7 +187,7 @@ COMPOSE_TOOL_SCHEMA = {
 # invent continuity. All keys remain required for strict, predictable tool output.
 #
 # There is no `viewpoint` field: the camera is resolved before this call (pov.py),
-# so the analyzer no longer spends a decision on the question it was worst at.
+# the one question the analyzer is worst at.
 # `viewer_contact` is here in BOTH modes on purpose -- the two schemas ship as one
 # byte-stable tools blob shared by analyze and compose, and a field that appeared
 # only in first-person would evict the cached prefix on every camera switch. In
@@ -743,7 +743,7 @@ def _strip_prose_count_prefix(scene: str) -> str:
 
     A prose encoder can interpret ``1boy`` literally rather than as metadata.
     Keep natural language elsewhere untouched: this guard targets only the
-    leading location where the prompter was historically told to place tags.
+    leading position the tags leak into.
     """
     return _PROSE_COUNT_PREFIX_RE.sub("", scene).lstrip(" ,.;:-")
 

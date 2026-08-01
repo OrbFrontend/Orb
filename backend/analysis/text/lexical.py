@@ -5,10 +5,10 @@ These are the operations that work on individual words and token lists:
 tokenizing text, normalizing a single word, sliding an n-gram window, comparing
 two token sequences (longest shared run, contiguous containment), and the
 content-word floor (a match is only worth flagging if it carries enough
-non-stopword words). Detectors used to carry their own copies of these — the
-tokenizer regex, the stopword list, the n-gram helper, the sequence comparisons —
-and the copies had silently drifted apart. This module is the single source of
-truth so every detector tokenizes, normalizes, and judges "content" the same way.
+non-stopword words). This module is the single source of truth for all of them —
+the tokenizer regex, the stopword list, the n-gram helper, the sequence
+comparisons — so every detector tokenizes, normalizes, and judges "content"
+the same way.
 
 Note on tokenizers: slop_detector and contrastive_negation deliberately keep
 their own tokenizers — slop_detector needs phrase casing and punctuation

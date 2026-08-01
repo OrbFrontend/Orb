@@ -20,8 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 logger = logging.getLogger(__name__)
 
 
-# extra="ignore" mirrors the old dataclasses_json Undefined.EXCLUDE on the two
-# card-data entry points; nested models inherit pydantic's default (also ignore).
+# extra="ignore" on the two card-data entry points: unknown fields are dropped
+# rather than rejected; nested models inherit pydantic's default (also ignore).
 class TavernCardV1(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -160,7 +160,7 @@ def position_converter(data: Any) -> Any:
     """Coerce a lorebook entry's ``position`` to the V2 spec's literal values.
 
     The V2 spec only allows ``before_char``/``after_char``, but cards exported
-    from SillyTavern (and mirrored by sites like botbooru) store the numeric
+    by frontends (and mirrored by sites like botbooru) store the numeric
     world-info position instead — often as a string — where 0 = before char
     defs and 1 = after, plus higher values (author's note, at-depth, …) with no
     V2 equivalent. Map the two representable values and drop anything else so a
@@ -185,8 +185,8 @@ def first_text_chunk(image_path: str, key: str) -> str | None:
 
     PIL's ``img.info`` is a plain dict, so a card carrying *several* chunks under
     one key (some editors append instead of replacing) collapses to the **last**
-    one — often a stale copy missing alternate_greetings. SillyTavern and
-    chub.ai take the first match, so we do too.
+    one — often a stale copy missing alternate_greetings. Other card readers
+    take the first match, so we do too.
     """
     with open(image_path, "rb") as fh:
         data = fh.read()
@@ -234,7 +234,7 @@ def parse(image_path: str) -> TavernCard:
     for key in CARD_CHUNKS:
         if first := first_text_chunk(image_path, key):
             if first != metadata.get(key):
-                logger.warning(f"PNG carries multiple '{key}' chunks - using the first, as SillyTavern/chub do")
+                logger.warning(f"PNG carries multiple '{key}' chunks - using the first, as other card readers do")
             metadata[key] = first
 
     present = [k for k in CARD_CHUNKS if metadata.get(k)]

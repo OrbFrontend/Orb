@@ -1,10 +1,7 @@
 """Resolve the image camera to exactly one viewpoint, before any LLM call.
 
-POV used to be the prompter model's guess -- a soft sentence in the OOC tail plus
-a `viewpoint` enum on `analyze_scene`. That left every prompt hedging for both
-cases and the analyzer spending a decision on the question it is worst at. Here
-the camera is decided first, from four levers, so each mode gets instructions
-written for it alone.
+Three levers decide it, so each mode gets instructions written for it alone -- no prompt hedges for both cases, and the
+analyzer never spends a decision on the question it is worst at.
 
 The levers, first hit wins:
 
@@ -13,9 +10,8 @@ The levers, first hit wins:
    while it answers "ambiguous"
 3. ``DEFAULT_POV``
 
-A camera tag in the character's appearance prompt used to outrank all three. That
-was a workaround for having no picker; the picker exists now, so the tag is just
-appearance data again.
+A camera tag in the character's appearance prompt is not a lever -- the picker
+owns the camera, so the tag stays plain appearance data.
 
 Nothing here is persisted. "Use the previous message's POV" is served by
 re-classifying the actual previous messages (lever 2), which beats a cached value.

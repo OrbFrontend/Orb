@@ -357,7 +357,7 @@ async def api_checkpoint_conversation(
     conv: ConversationRow = Depends(require_conversation),  # noqa: B008
 ):
     """Duplicate the conversation's active path into a new 'checkpoint'
-    conversation (SillyTavern-style). See :func:`_checkpoint_conversation` for
+    conversation. See :func:`_checkpoint_conversation` for
     exactly what is and isn't carried."""
     if data.title and data.title.strip():
         new_title = data.title.strip()

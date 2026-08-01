@@ -4,6 +4,8 @@ Let the [Director](director.md) decide which lorebook entries belong in the scen
 
 ## Lorebooks in brief
 
+Full details — placement, triggering, macros, import quirks — are in [Lorebooks](lorebooks.md).
+
 A **lorebook** (grouped under a *World*) is a set of entries — named chunks of background lore, facts, or rules — that get injected into the Writer's context when they're relevant. Each entry can be triggered two ways:
 
 - **Trigger keywords** — the entry activates when one of its keywords appears in the recent messages (the keyword scan looks back 6 messages).

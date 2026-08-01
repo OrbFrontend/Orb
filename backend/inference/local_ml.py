@@ -67,7 +67,7 @@ MODELS: dict[str, ModelSpec] = {
 
 # The 28 go-emotions labels in standard id2label order (neutral last, index 27).
 # Order MUST match the GGUF head's logit order — the classifier reads argmax(v[0:28])
-# and maps back through this tuple. Also == SillyTavern's default expression set.
+# and maps back through this tuple. Also the standard expression-pack label set.
 GO_EMOTIONS: tuple[str, ...] = (
     "admiration",
     "amusement",

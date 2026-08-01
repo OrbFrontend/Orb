@@ -431,8 +431,7 @@ def _rewrite(draft: str, src: AxisStyle, target: AxisStyle) -> str:
     # Enforce a confidently-classified target on *every* span, not only when the
     # draft's dominant style differs. A draft can be dominantly asterisk narration yet
     # still hide a stray bare beat ('"…," she whispered.') or a whole bare paragraph
-    # that forgot its asterisks; the dominant-style match used to short-circuit those
-    # to a no-op. The rewrite is span-selective and idempotent on already-correct
+    # that forgot its asterisks. The rewrite is span-selective and idempotent on already-correct
     # spans, so running it normalizes that within-message drift and leaves the rest
     # byte-identical. The UNKNOWN guard still spares genuinely mixed drafts.
     change_narration = target.narration != Narration.UNKNOWN and src.narration != Narration.UNKNOWN

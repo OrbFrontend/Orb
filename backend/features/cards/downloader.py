@@ -710,7 +710,7 @@ def _wyvern_to_v2_jobj(obj: dict) -> dict:
         "mes_example": obj.get("mes_example", "") or "",
         "creator_notes": obj.get("creator_notes", "") or "",
         # Wyvern splits the system prompt into pre/post-history instructions,
-        # matching SillyTavern's system_prompt / post_history_instructions.
+        # matching the card spec's system_prompt / post_history_instructions.
         "system_prompt": obj.get("pre_history_instructions", "") or "",
         "post_history_instructions": obj.get("post_history_instructions", "") or "",
         "alternate_greetings": alt if isinstance(alt, list) else [],

@@ -1,4 +1,4 @@
-"""A PNG with two `chara` chunks must parse as the first one (SillyTavern/chub behavior)."""
+"""A PNG with two `chara` chunks must parse as the first one (what card readers do)."""
 
 import base64
 import io

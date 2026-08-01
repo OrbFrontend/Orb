@@ -9,6 +9,7 @@ Pre-writer steering: the Director reads the scene and assembles the injection bl
 | Feature | Summary |
 |---|---|
 | [Scene Direction](director.md) | Prompt injection automatically used by the Director model |
+| [Lorebooks](lorebooks.md) | Keyword and constant lore injection — and how it differs from SillyTavern |
 | [Agentic Lorebook](agentic-lorebook.md) | Let the Director pick which lorebook entries to inject |
 | [Feedback Fragments](feedback-fragments.md) | Out-of-character notes from the model, just for you |
 | [Direction Notes](direction-notes.md) | Lasting notes the Director (or you) keep across a branch |
