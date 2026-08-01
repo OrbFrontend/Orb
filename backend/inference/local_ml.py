@@ -164,11 +164,19 @@ def _import_llama():
     return Llama
 
 
+def _shell_quote(path: str) -> str:
+    """Quote only when needed — `C:\\Program Files\\...` breaks an unquoted paste."""
+    return f'"{path}"' if " " in path else path
+
+
 def install_cmd() -> str:
-    """Install command for THIS interpreter — a bare `pip` targets whatever's on
-    PATH, not the venv/uv env the server actually runs under, so the extras land
-    in the wrong Python and the button stays gray."""
-    return f"{sys.executable} -m pip install -r requirements-ml.txt"
+    """Install command for THIS interpreter, fully qualified — a bare `pip` targets
+    whatever's on PATH, not the venv/uv env the server actually runs under, so the
+    extras land in the wrong Python and the button stays gray; and a bare
+    requirements filename only resolves if the shell happens to be cwd'd into the
+    repo, which a fresh cmd prompt is not."""
+    req = os.path.join(_ROOT, "requirements-ml.txt")
+    return f"{_shell_quote(sys.executable)} -m pip install -r {_shell_quote(req)}"
 
 
 def deps_ok() -> tuple[bool, str]:
