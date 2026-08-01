@@ -22,6 +22,35 @@ const POV_SOURCE_LABELS = {
   default: "default (the narration read as ambiguous)",
 };
 
+// Where a reference image came from, phrased as the thing a user would go look at.
+const REFERENCE_SOURCE_LABELS = {
+  previous: "previous image",
+  character: "character reference",
+  previous_or_character: "previous image, else character reference",
+};
+// The origin is a machine key ("attachment:41", "upload:12:3", "character:<id>"),
+// and its useful half is which *kind* of thing was fed in — a wrong reference is
+// usually the wrong kind, not the wrong row.
+const REFERENCE_ORIGIN_LABELS = {
+  attachment: "a generated image in this chat",
+  upload: "an image you uploaded",
+  character: "the character",
+};
+
+// One row per mapped slot, so a workflow with no reference slots gets none.
+function referenceRows(cm, esc) {
+  return (Array.isArray(cm.references) ? cm.references : [])
+    .map((ref) => {
+      const node = Array.isArray(ref?.slot) ? `#${ref.slot[0]}` : "";
+      const from = REFERENCE_ORIGIN_LABELS[String(ref?.origin || "").split(":")[0]];
+      const detail = [REFERENCE_SOURCE_LABELS[ref?.source] || ref?.source || "", from && `from ${from}`]
+        .filter(Boolean)
+        .join(" — ");
+      return `<dt>Reference${node ? esc(` ${node}`) : ""}</dt><dd>${esc(detail)}</dd>`;
+    })
+    .join("");
+}
+
 export function hasAttachment(msg) {
   return (msg?.workflow_attachments || []).some((a) => a.workflow_id === WORKFLOW_ID);
 }
@@ -71,7 +100,7 @@ export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr, pending 
     : "";
   return `${defaultHtml}<details class="image-gen-details" open><summary>Render details</summary>
     <dl><dt>Style</dt><dd>${style}</dd>
-      <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${camera}
+      <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${camera}${referenceRows(cm, esc)}
       <dt>Seed</dt><dd><code>${esc(att?.seed || "")}</code></dd>
       <dt>Prompt ${pencil("prompt", "Prompt")}</dt><dd>${field("prompt", "Prompt", pending?.prompt ?? cm.prompt ?? "")}${marker}</dd>
       <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${notes}</dl>

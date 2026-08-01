@@ -19,9 +19,9 @@ const GRAPH = {
 // What the `node_types` query action answers with: the typing verdict only,
 // derived server-side from /object_info so the browser never receives that payload.
 const NODE_TYPES = {
-  CLIPTextEncode: { output_node: false, text_inputs: ["text"], seed_inputs: [] },
-  KSampler: { output_node: false, text_inputs: [], seed_inputs: ["seed"] },
-  SaveImage: { output_node: true, text_inputs: [], seed_inputs: [] },
+  CLIPTextEncode: { output_node: false, text_inputs: ["text"], seed_inputs: [], image_inputs: [] },
+  KSampler: { output_node: false, text_inputs: [], seed_inputs: ["seed"], image_inputs: [] },
+  SaveImage: { output_node: true, text_inputs: [], seed_inputs: [], image_inputs: [] },
 };
 
 function pngWith(payload) {
@@ -45,6 +45,27 @@ test("refuses a graph too large for the config slot", () => {
   const huge = {};
   for (let i = 0; i < 5000; i++) huge[i] = { class_type: "CLIPTextEncode", inputs: { text: "x".repeat(200) } };
   assert.throws(() => graphFromApiJson(JSON.stringify(huge)), /too large/);
+});
+
+// The picker must weigh a graph exactly as the normalizer does — UTF-8 bytes,
+// taken after `is_changed` is stripped. Measuring UTF-16 code units let a CJK
+// graph through at a third of its real size and the save came back one workflow
+// short; measuring before the strip bounced graphs the backend would have stored.
+test("measures the size cap the way the backend does", () => {
+  const cjk = JSON.stringify({
+    1: { class_type: "CLIPTextEncode", inputs: { text: "幻想的な風景、細部まで描写された".repeat(12000) } },
+    2: { class_type: "KSampler", inputs: { seed: 1 } },
+    3: { class_type: "SaveImage", inputs: { images: ["2", 0] } },
+  });
+  assert.ok(cjk.length < 512_000 && new TextEncoder().encode(cjk).length > 512_000, "precondition: under in UTF-16, over in bytes");
+  assert.throws(() => graphFromApiJson(cjk), /too large/);
+
+  const graph = { 1: { class_type: "CLIPTextEncode", inputs: { text: "" } }, 2: { class_type: "KSampler", inputs: { seed: 1 } } };
+  for (let i = 3; i < 800; i++) graph[i] = { class_type: "LoadImage", inputs: { image: `${i}.png` }, is_changed: ["a".repeat(600)] };
+  assert.ok(JSON.stringify(graph).length > 512_000, "precondition: over the cap only because of is_changed");
+  // Accepted, and the caller still gets the graph it passed in — the strip is for
+  // measurement only, and the backend repeats it on arrival.
+  assert.deepEqual(graphFromApiJson(JSON.stringify(graph))[3].is_changed, graph[3].is_changed);
 });
 
 test("builds explicit slot candidates", () => {
@@ -181,4 +202,49 @@ test("model-loader inputs are offered as model-override candidates", () => {
   assert.deepEqual(splitCandidate(c.checkpoint[0].value), ["1", "unet_name"]);
   // weight_dtype is a widget too, but not a model input.
   assert.equal(c.checkpoint.length, 1);
+});
+
+test("upload widgets become reference candidates from server typing", () => {
+  // Qwen-Image-Edit shape: LoadImage (#103) feeds a scale node, which feeds both
+  // encoders. The reference always enters through the LoadImage widget — the
+  // encoder's image1 is a link and has no widget to patch.
+  const edit = {
+    103: { class_type: "LoadImage", inputs: { image: "woman-in-black.jpeg" }, _meta: { title: "Load Image" } },
+    93: { class_type: "ImageScaleToTotalPixels", inputs: { image: ["103", 0], megapixels: 1 } },
+    104: { class_type: "TextEncodeQwenImageEditPlus", inputs: { prompt: "", image1: ["93", 0] } },
+    3: { class_type: "KSampler", inputs: { seed: 1 } },
+    60: { class_type: "SaveImage", inputs: { images: ["8", 0] } },
+  };
+  const typing = {
+    LoadImage: { output_node: false, text_inputs: [], seed_inputs: [], image_inputs: ["image"] },
+    ImageScaleToTotalPixels: { output_node: false, text_inputs: [], seed_inputs: [], image_inputs: [] },
+    TextEncodeQwenImageEditPlus: { output_node: false, text_inputs: ["prompt"], seed_inputs: [], image_inputs: [] },
+    KSampler: { output_node: false, text_inputs: [], seed_inputs: ["seed"], image_inputs: [] },
+    SaveImage: { output_node: true, text_inputs: [], seed_inputs: [], image_inputs: [] },
+  };
+  const c = slotCandidates(edit, typing);
+  assert.equal(c.image.length, 1);
+  assert.deepEqual(splitCandidate(c.image[0].value), ["103", "image"]);
+  assert.equal(c.image[0].label, "Load Image (#103)");
+  // The scale node's `image` input is a link, so it is never offered.
+  assert.deepEqual(missingRoles(c), []);
+});
+
+test("the unreachable-server fallback still finds stock loaders", () => {
+  const edit = {
+    72: { class_type: "LoadImage", inputs: { image: "scene.png" } },
+    90: { class_type: "LoadImageMask", inputs: { image: "identity.png", channel: "red" } },
+  };
+  // `channel` is a widget on the same node, but not an upload input.
+  assert.deepEqual(
+    slotCandidates(edit, {}).image.map((i) => splitCandidate(i.value)),
+    [
+      ["72", "image"],
+      ["90", "image"],
+    ],
+  );
+  // And example.png's shape has nothing to map, typed or not, so a plain
+  // text-to-image graph imports exactly the five slots it always did.
+  assert.deepEqual(slotCandidates(GRAPH, NODE_TYPES).image, []);
+  assert.deepEqual(slotCandidates(GRAPH, {}).image, []);
 });

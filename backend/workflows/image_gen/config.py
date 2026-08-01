@@ -13,10 +13,24 @@ from .pov import normalize_mode as normalize_pov_mode
 
 WORKFLOW_ID = "image_gen"
 MAX_STYLES = 32
-MAX_USER_GRAPHS = 16
+MAX_USER_GRAPHS = 32
 MAX_GRAPH_BYTES = 512_000
+MAX_REFERENCE_SLOTS = 4
+# Base64 cap for the per-character reference image: the profile lives on
+# `character_cards.workflow_state` and is read on every generate, so an unbounded
+# upload is paid for per render. The picker's 10 MB raw cap plus base64's 4/3.
+MAX_REFERENCE_IMAGE_B64 = 13_400_000
 PROMPT_FORMATS = ("tags", "hybrid", "prose")
 DEFAULT_PROMPT_FORMAT = "hybrid"
+# Where a mapped `LoadImage` gets its bytes, as an ordered resolution list. The
+# combined source is the default so the choice has no cold-start cliff: a slot
+# pinned to `previous` alone hard-fails on a new conversation's first Visualize.
+REFERENCE_SOURCES: dict[str, tuple[str, ...]] = {
+    "previous": ("previous",),
+    "character": ("character",),
+    "previous_or_character": ("previous", "character"),
+}
+DEFAULT_REFERENCE_SOURCE = "previous_or_character"
 
 CONFIG_DEFAULTS = {
     "source": "external_comfy",
@@ -100,6 +114,36 @@ def _slot(value: Any) -> list[str] | None:
     return [node_s, field_s]
 
 
+def _reference(raw: Any) -> dict | None:
+    """One `LoadImage` widget mapped to a reference source, or None to drop it."""
+    if not isinstance(raw, Mapping):
+        return None
+    slot = _slot(raw.get("slot"))
+    source = _text(raw.get("source"), 32)
+    if slot is None or source not in REFERENCE_SOURCES:
+        return None
+    label = _text(raw.get("label"), 120) or f"{slot[0]} — {slot[1]}"
+    return {"slot": slot, "source": source, "label": label}
+
+
+def _strip_machine_local_state(graph: dict) -> dict:
+    """A deep copy of `graph` with each node's top-level `is_changed` removed.
+
+    ComfyUI's API export embeds `is_changed` -- for a `LoadImage`, a hash of the
+    file on the *exporter's* disk. `IsChangedCache.get` returns a client-supplied
+    value verbatim (`execution.py`) as one component of the node's cache signature,
+    so a pinned hash masks a change of file *contents at an unchanged path* and the
+    render silently returns the previously decoded image (seen on ComfyUI 0.29.0).
+    Stripped at import, before the size cap is measured, so machine-local state
+    never reaches storage or a submission.
+    """
+    stripped = copy.deepcopy(graph)
+    for node in stripped.values():
+        if isinstance(node, dict):
+            node.pop("is_changed", None)
+    return stripped
+
+
 def _user_graph(raw: Any) -> dict | None:
     if not isinstance(raw, Mapping):
         return None
@@ -110,9 +154,10 @@ def _user_graph(raw: Any) -> dict | None:
         return None
     import json
 
+    graph = _strip_machine_local_state(graph)
     if len(json.dumps(graph, separators=(",", ":"), ensure_ascii=False).encode("utf-8")) > MAX_GRAPH_BYTES:
         return None
-    slots: dict[str, list[str]] = {}
+    slots: dict[str, Any] = {}
     for name in ("positive", "negative", "seed", "output", "checkpoint"):
         parsed = _slot(slots_raw.get(name))
         if parsed is not None:
@@ -122,10 +167,16 @@ def _user_graph(raw: Any) -> dict | None:
     # rather than mapping a checkpoint slot for Orb's selection to override.
     if not all(name in slots for name in ("positive", "seed", "output")):
         return None
+    # Never required, so a t2i graph normalizes exactly as before: an unmapped
+    # LoadImage is simply absent from the list, which is how "Not used" is encoded.
+    references_raw = slots_raw.get("references")
+    references = [item for item in map(_reference, references_raw) if item] if isinstance(references_raw, list) else []
+    if references:
+        slots["references"] = references[:MAX_REFERENCE_SLOTS]
     return {
         "id": gid,
         "label": _text(raw.get("label"), 100, gid) or gid,
-        "graph": copy.deepcopy(graph),
+        "graph": graph,
         "slots": slots,
     }
 
@@ -199,9 +250,24 @@ def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:
     return dict(style)
 
 
+REFERENCE_MIMES = ("image/png", "image/jpeg", "image/webp")
+
+
 def normalize_profile(raw: Mapping[str, Any] | None) -> dict:
     raw = raw if isinstance(raw, Mapping) else {}
+    # The per-character reference image, for slots resolving to `character`. Dropped
+    # rather than truncated when oversized -- half a base64 payload is not a smaller
+    # image. Both halves ride together: bytes with no mime cannot be read by ComfyUI.
+    image_raw = raw.get("reference_image_b64")
+    image = image_raw.strip() if isinstance(image_raw, str) else ""
+    mime = _text(raw.get("reference_mime"), 64).lower()
+    if len(image) > MAX_REFERENCE_IMAGE_B64 or mime not in REFERENCE_MIMES:
+        image, mime = "", ""
+    if not image:
+        mime = ""
     return {
         "appearance_prompt": _text(raw.get("appearance_prompt"), 2_000),
         "negative_prompt": _text(raw.get("negative_prompt"), 2_000),
+        "reference_image_b64": image,
+        "reference_mime": mime,
     }

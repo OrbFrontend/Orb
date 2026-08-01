@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from backend.workflows.image_gen.config import (
     DEFAULT_PROMPT_FORMAT,
+    MAX_REFERENCE_IMAGE_B64,
+    MAX_REFERENCE_SLOTS,
     MAX_USER_GRAPHS,
     PROMPT_FORMATS,
     normalize_config,
+    normalize_profile,
     resolve_style,
 )
 from backend.workflows.image_gen.hooks import fold_seed
@@ -130,3 +133,79 @@ def test_a_style_naming_the_removed_core_graph_migrates_to_unconfigured():
 def test_default_style_falls_back_when_it_no_longer_resolves():
     cfg = normalize_config({"default_style": "deleted", "external_comfy": {"styles": [{"id": "only", "label": "Only"}]}})
     assert cfg["default_style"] == "only"
+
+
+# ── reference slots ──────────────────────────────────────────────────────────
+
+_BASE_SLOTS = {"positive": ["0", "text"], "seed": ["s", "seed"], "output": ["o", "images"]}
+
+
+def _stored(user_graph: dict) -> dict:
+    return normalize_config({"external_comfy": {"user_graphs": [user_graph]}})["external_comfy"]["user_graphs"][0]
+
+
+def _references(*entries: dict) -> dict:
+    return _stored(_user_graph(slots={**_BASE_SLOTS, "references": list(entries)}))["slots"].get("references", [])
+
+
+def test_reference_slots_survive_normalization():
+    stored = _references(
+        {"slot": ["72", "image"], "source": "previous_or_character", "label": "Load Image (#72)"},
+        {"slot": [90, "image"], "source": "character"},
+    )
+    assert stored[0] == {"slot": ["72", "image"], "source": "previous_or_character", "label": "Load Image (#72)"}
+    # A numeric node id normalizes to a string, and a missing label gets a usable one.
+    assert stored[1]["slot"] == ["90", "image"]
+    assert stored[1]["label"]
+
+
+def test_unstorable_reference_slots_are_dropped_and_the_rest_capped():
+    unknown = _references(
+        {"slot": ["72", "image"], "source": "whatever_the_user_typed"},
+        {"slot": ["90", "image"], "source": "character"},
+    )
+    assert [r["slot"] for r in unknown] == [["90", "image"]]
+
+    entries = [{"slot": [str(i), "image"], "source": "character"} for i in range(MAX_REFERENCE_SLOTS + 3)]
+    assert len(_references(*entries)) == MAX_REFERENCE_SLOTS
+
+
+def test_a_graph_with_no_references_round_trips_unchanged():
+    """A plain text-to-image graph must normalize exactly as it did before
+    references existed -- no empty key introduced into its slot map."""
+    stored = _stored(_user_graph(slots=dict(_BASE_SLOTS)))
+    assert stored["slots"] == _BASE_SLOTS
+    assert "references" not in stored["slots"]
+
+
+def test_is_changed_is_stripped_from_every_node_at_import():
+    """A client-supplied `is_changed` is returned verbatim by IsChangedCache, so a
+    hash of the exporter's disk makes ComfyUI miss a file whose *contents* changed
+    under an unchanged path and hand back the previously decoded image."""
+    graph = _graph()
+    graph["0"]["is_changed"] = ["b80d1d64deadbeef"]
+    graph["s"]["is_changed"] = ["another"]
+    stored = _stored({"id": "user_a", "label": "a", "graph": graph, "slots": dict(_BASE_SLOTS)})
+    assert all("is_changed" not in node for node in stored["graph"].values())
+    # Only the machine-local key goes; the node itself is intact.
+    assert stored["graph"]["0"]["inputs"]["text"]
+
+
+# ── per-character reference image ────────────────────────────────────────────
+
+
+def test_a_character_reference_image_survives_only_with_both_halves():
+    """Bytes Orb cannot tell ComfyUI how to read are not a reference, a mime with
+    no bytes is not a half-set field, and an oversized payload is dropped rather
+    than truncated -- half a base64 payload is a corrupt image, not a smaller one."""
+    kept = normalize_profile({"reference_image_b64": "aGk=", "reference_mime": "image/png"})
+    assert (kept["reference_image_b64"], kept["reference_mime"]) == ("aGk=", "image/png")
+
+    for raw in (
+        {"reference_image_b64": "aGk=", "reference_mime": "text/plain"},
+        {"reference_image_b64": "aGk="},
+        {"reference_mime": "image/png"},
+        {"reference_image_b64": "A" * (MAX_REFERENCE_IMAGE_B64 + 1), "reference_mime": "image/png"},
+    ):
+        profile = normalize_profile(raw)
+        assert (profile["reference_image_b64"], profile["reference_mime"]) == ("", "")

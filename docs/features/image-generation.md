@@ -92,15 +92,71 @@ To import the workflow, do these steps:
 3. Select the API-format JSON file or the ComfyUI PNG file.
 4. Enter a name for the workflow.
 5. Check the selected prompt, seed, image output, and model slots.
-6. Select **Confirm slots and add workflow**.
-7. In a style, select the imported workflow.
-8. If your workflow is complex, review the nodes - make sure Orb points to the right node numbers.
-9. Select a checkpoint if Orb must replace the model in the workflow.
-10. Select **Test connection** to validate everything works.
-11. Select **Save**.
+6. If the workflow loads images, set each row under **Reference images**. See
+   [Reference images](#reference-images) below. Leave a row as **Not used** to
+   keep the file the workflow was exported with.
+7. Select **Confirm slots and add workflow**.
+8. In a style, select the imported workflow.
+9. If your workflow is complex, review the nodes - make sure Orb points to the right node numbers.
+10. Select a checkpoint if Orb must replace the model in the workflow.
+11. Select **Test connection** to validate everything works.
+12. Select **Save**.
 
 If a PNG does not contain workflow metadata, export an API-format JSON file
 from ComfyUI instead.
+
+## Reference images
+
+Edit workflows - Qwen-Image-Edit, Flux Kontext, Krea Identity Edit, IPAdapter -
+take one or more input images through **Load Image** nodes. Orb fills those
+nodes for you: each render uploads the image to ComfyUI and points the node at
+the uploaded file. Orb fills only the **Load Image** nodes the workflow already
+contains and never adds nodes, so a workflow that takes two reference images
+must be exported with two **Load Image** nodes.
+
+Each reference row offers these sources:
+
+| Source | What Orb sends |
+|--------|----------------|
+| **Previous image, else character reference** | The most recent image in the chat. If the chat has none, the character reference image. |
+| **Previous image in the chat** | The most recent image in the chat. |
+| **Character reference image** | The character reference image. |
+
+The previous image is the most recent generated image or uploaded image before
+the reply you are visualizing. If a reply has image variants, Orb sends the
+variant that is currently shown. Orb never sends the image already attached to
+the reply you are visualizing. When no source resolves, the render fails and
+names the slot - Orb does not substitute a different image.
+
+!!! note
+    These workflows take the output size from the reference image or from a
+    resolution node. **Render details** shows no width or height for them, and
+    the output aspect ratio follows the reference image.
+
+### Set the character reference image
+
+1. Open a conversation with the character, then open **Image Generation**
+   settings and find **This Character Only**.
+2. Under **Reference image**, select an image file. The limit is 10 MB.
+3. Select **Save**.
+
+When you set no reference image, Orb sends the character card's avatar.
+
+### Reference images and reroll
+
+Reroll changes the seed only. Orb records where each reference came from and
+fetches the same image again, so the picture keeps its subject. A character
+reference is re-read from the character profile, so changing it and rerolling
+applies the new image. If the source image was deleted or its bytes were
+evicted, or the reroll targets a different style whose workflow uses reference
+images, the reroll fails - use **Regenerate** instead.
+
+!!! warning
+    A ComfyUI server that is not on this machine receives your conversation
+    images and your character reference image, not only your prompts. Orb asks
+    you to confirm this the first time you save a remote server with a workflow
+    that uses reference images. Uploaded files stay in that server's
+    `input/orb/` directory - ComfyUI has no delete API for them.
 
 ## Make an image
 
@@ -167,7 +223,7 @@ is name of a non-OC character, some image models do better with canon character 
 
 1. Open a conversation with the character.
 2. Open **Image Generation** settings.
-3. Find **Per-character Prompt**.
+3. Find **This Character Only**.
 4. Enter comma-separated appearance tags in **Positive prompt**.
 5. Enter unwanted character features in **Negative prompt**.
 6. Select **Save**.
@@ -178,6 +234,9 @@ character count from the scene.
 
 Negative tags apply only to this character profile. Style and scene negative
 tags are separate.
+
+This section also holds the character's reference image. See
+[Set the character reference image](#set-the-character-reference-image).
 
 ## Change a style
 
@@ -290,6 +349,9 @@ guaranteed.
 | Orb cannot find a checkpoint. | Add the checkpoint to ComfyUI. Restart or refresh ComfyUI. Test the connection again. |
 | ComfyUI rejects the workflow. | Check that the server has all required nodes. Check the selected checkpoint and imported slots. |
 | The render times out. | Check the ComfyUI queue. Increase **Render timeout**. The allowed range is 10 to 900 seconds. |
+| A render says it needs a reference image. | Generate or upload an image in the chat first. Or set a character reference image, and set the slot to a source that includes it. |
+| A reroll says the reference image is gone. | The source image was deleted or its bytes were evicted. Select **Regenerate**. |
+| The connection test says a node needs an image on the server. | Map that node under **Reference images**, or put the file in ComfyUI's `input` directory. |
 | ComfyUI completes without an image. | Select a valid image-output node in the imported workflow. |
 | Orb cannot write an image prompt. | Check the Orb LLM endpoint. Use a model that can make tool calls. |
 | An old image shows **Bytes evicted**. | Select **Rehydrate**. Orb uses the stored prompt, settings, and seed to make the image again. |

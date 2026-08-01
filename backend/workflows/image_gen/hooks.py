@@ -31,11 +31,13 @@ from .engine import (
     ImageRequest,
     ProgressCallback,
     graph_has_negative,
+    graph_reference_slots,
     list_models,
     node_roles,
     resolve_and_generate,
     validate_connection,
 )
+from .references import refetch_references, resolve_references
 
 logger = logging.getLogger(__name__)
 SEED_MODULUS = 2**64
@@ -105,6 +107,8 @@ def _failed_stream(message: str) -> WorkflowEventStream:
 
 def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
     """Render an adapter progress event as a user-facing phase label."""
+    if stage == "uploading":
+        return "Uploading reference image..."
     if stage == "rendering":
         return "Rendering in ComfyUI..."
     if stage == "queued":
@@ -159,6 +163,9 @@ def _metadata(
         "pov_source": pov_source,
         "prompt": prompt,
         "negative_prompt": negative_prompt,
+        # Which reference images went in, and where each came from. A reroll
+        # re-fetches strictly by these origins, so only the seed moves.
+        "references": info.get("references") or [],
         # Read back off the graph that executed, so replay can compare what an
         # image was actually rendered with rather than what its ids imply.
         **{key: info.get(key) for key in ("width", "height", "steps", "cfg", "sampler", "scheduler")},
@@ -166,7 +173,7 @@ def _metadata(
 
 
 def _consumption(
-    style: Mapping[str, Any], prompt: str, negative_prompt: str, result=None, camera: Mapping[str, Any] | None = None
+    style: Mapping[str, Any], prompt: str, negative_prompt: str, result=None, record: Mapping[str, Any] | None = None
 ) -> dict:
     notes = list(getattr(result, "backend_info", {}).get("notes") or []) if result is not None else []
     payload = {
@@ -176,15 +183,20 @@ def _consumption(
         "prompt": prompt,
         "negative_prompt": negative_prompt,
     }
-    # The camera rides both halves. generation_metadata is the replay record the
-    # UI never reads; a wrong POV is the failure this feature exists to fix, so
-    # which camera ran and which lever chose it belong where the user is looking
-    # at the bad image. *camera* is whichever dict already carries them -- the
-    # fresh metadata on a generate, the stored parameters on a reroll.
+    # The camera and the references ride both halves. generation_metadata is the
+    # replay record the UI never reads; a wrong POV or reference is exactly the
+    # failure a user needs traced, so both belong where they are looking at the bad
+    # image. *record* is whichever dict already carries them -- the fresh metadata
+    # on a generate, the stored parameters on a reroll.
     for key in ("pov", "pov_source"):
-        value = (camera or {}).get(key)
+        value = (record or {}).get(key)
         if value:
             payload[key] = value
+    references = (record or {}).get("references")
+    if isinstance(references, (list, tuple)) and references:
+        payload["references"] = [
+            {key: entry.get(key) for key in ("slot", "source", "origin")} for entry in references if isinstance(entry, Mapping)
+        ]
     # Disclosure lives in the display-safe half: a replay that could not be
     # honoured exactly says so on the attachment the user is looking at.
     if notes:
@@ -246,6 +258,17 @@ async def _generate_fresh(
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()
+    # Resolved from the branch as it stands, here rather than in the engine: this
+    # is conversation state, and `engine/` stays ComfyUI-only. An edit workflow
+    # with nothing to reference fails loudly -- rendering it without one would
+    # produce a picture of whatever the graph's stale filename pointed at.
+    references = await resolve_references(
+        graph_reference_slots(config, selected_style["workflow"]),
+        history=history,
+        anchor_id=int(message["id"]),
+        character_id=getattr(ctx, "character_id", None),
+        profile=profile,
+    )
     result = await resolve_and_generate(
         config,
         ImageRequest(
@@ -254,6 +277,7 @@ async def _generate_fresh(
             seed=seed,
             style_id=style_id,
             timeout_seconds=config["timeout_seconds"],
+            references=references,
         ),
         progress=progress,
     )
@@ -267,7 +291,7 @@ async def _generate_fresh(
         pov=pov,
         pov_source=pov_source,
     )
-    return _attachment(seed, result, md, _consumption(style, prompt, negative, result, camera=md))
+    return _attachment(seed, result, md, _consumption(style, prompt, negative, result, record=md))
 
 
 async def on_demand(ctx, body):
@@ -554,6 +578,8 @@ class _RegenCompositionCtx:
         self.agent_client = ctx.agent_client
         self.agent_model_name = ctx.agent_model_name
         self.character = ctx.character
+        # Carried for reference resolution: `character` reads the card by id.
+        self.character_id = ctx.character_id
 
 
 async def reroll_gen(ctx, params, seed):
@@ -580,6 +606,18 @@ async def reroll_gen(ctx, params, seed):
     if style_changed:
         params.pop("workflow_id", None)
         params.pop("backend_model", None)
+        # The recorded references name node ids in the OLD graph, and this ctx has
+        # no history to re-resolve from -- so a new graph that needs references is
+        # refused rather than submitted with its exporter's filenames still pinned.
+        params.pop("references", None)
+        if graph_reference_slots(config, style["workflow"]):
+            raise ImageGenerationError(
+                f"{style['label']} uses reference images, which a reroll cannot carry over from another style. "
+                "Regenerate the image under this style instead."
+            )
+    # Strictly by recorded origin: a reroll promises only the seed changes, so
+    # re-resolving from a branch that may have moved on is what must not happen.
+    references = await refetch_references(params.get("references"))
     resolved_seed = fold_seed(seed)
     result = await resolve_and_generate(
         config,
@@ -589,6 +627,7 @@ async def reroll_gen(ctx, params, seed):
             seed=resolved_seed,
             style_id=style_id,
             timeout_seconds=config["timeout_seconds"],
+            references=references,
         ),
         # Reroll and rehydrate reproduce a stored image's parameters. Routing
         # them through the style would re-render an old attachment on whatever
@@ -598,7 +637,7 @@ async def reroll_gen(ctx, params, seed):
     )
     # A reroll re-renders the stored prompt under a new seed, so the camera cannot
     # have changed: carry the one `params` already records rather than re-resolving.
-    consumption = _consumption(style, prompt, negative, result, camera=params)
+    consumption = _consumption(style, prompt, negative, result, record=params)
     if style_changed:
         # Only the assembled prompt is stored, never the scene/avoid halves it was built
         # from, so a style swap cannot re-word it -- say so rather than substitute silently.

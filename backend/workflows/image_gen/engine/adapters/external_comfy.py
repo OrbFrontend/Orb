@@ -14,6 +14,7 @@ from ..contracts import (
 )
 from ..graph import (
     describe_render_params,
+    is_image_upload,
     patch_graph,
     resolve_graph,
     validate_graph_structure,
@@ -113,27 +114,38 @@ async def list_models(config: Mapping[str, Any]) -> list[str]:
     return await _client(config).models("checkpoints")
 
 
+def _declared_inputs(info: Mapping[str, Any]) -> dict[str, Any]:
+    """Every declared input of one node class, required and optional alike."""
+    spec = info.get("input")
+    declared: dict[str, Any] = {}
+    for group in ("required", "optional"):
+        values = spec.get(group) if isinstance(spec, Mapping) else None
+        if isinstance(values, Mapping):
+            declared.update(values)
+    return declared
+
+
 def _typed_inputs(info: Mapping[str, Any], wanted: str) -> list[str]:
-    """Input names on one node class whose declared type is `wanted`.
+    """Input names whose declared type is the scalar kind `wanted`.
 
     `/object_info` declares an input as `[type, options]`, where `type` is a
     string for scalars and a list for combos. Only scalars are role candidates:
     a combo is a fixed menu, and a linked slot has no widget to patch.
     """
-    spec = info.get("input")
-    if not isinstance(spec, Mapping):
-        return []
-    declared: dict[str, Any] = {}
-    for group in ("required", "optional"):
-        values = spec.get(group)
-        if isinstance(values, Mapping):
-            declared.update(values)
-    names = []
-    for name, value in declared.items():
-        kind = value[0] if isinstance(value, (list, tuple)) and value else None
-        if kind == wanted:
-            names.append(name)
-    return names
+    return [
+        name
+        for name, value in _declared_inputs(info).items()
+        if isinstance(value, (list, tuple)) and value and value[0] == wanted
+    ]
+
+
+def _image_upload_inputs(info: Mapping[str, Any]) -> list[str]:
+    """Input names that accept an uploaded image file.
+
+    Separate from `_typed_inputs` because an upload widget's declared type is the
+    *combo* of files already on the server, so no kind comparison can match it.
+    """
+    return [name for name, value in _declared_inputs(info).items() if is_image_upload(value)]
 
 
 async def node_roles(config: Mapping[str, Any], class_types: Sequence[str]) -> dict:
@@ -156,6 +168,7 @@ async def node_roles(config: Mapping[str, Any], class_types: Sequence[str]) -> d
             "output_node": bool(entry.get("output_node")),
             "text_inputs": _typed_inputs(entry, "STRING"),
             "seed_inputs": [name for name in _typed_inputs(entry, "INT") if "seed" in name.lower()],
+            "image_inputs": _image_upload_inputs(entry),
         }
     return roles
 
@@ -175,6 +188,20 @@ async def generate(
     # the attachment rather than let the user wonder why the negation had no effect.
     if "negative" not in slots and request.negative_prompt.strip():
         notes = (*notes, "this workflow has no negative prompt input; negative prompt was not applied")
+    client = _client(config)
+    # Resolution happened above the engine (it reads conversation state); the upload
+    # belongs here, where everything else that talks to ComfyUI lives. Distinct
+    # digests only: two slots pointing at the same image are one file on the server.
+    uploaded: dict[str, str] = {}
+    for reference in request.references:
+        if reference.digest not in uploaded:
+            uploaded[reference.digest] = await client.upload_image(
+                reference.data,
+                reference.mime,
+                digest=reference.digest,
+                timeout=min(120.0, request.timeout_seconds),
+                progress=progress,
+            )
     patched, output_node = patch_graph(
         graph,
         slots,
@@ -182,8 +209,9 @@ async def generate(
         negative_prompt=request.negative_prompt,
         seed=request.seed,
         checkpoint=checkpoint,
+        references=[(reference.slot, uploaded[reference.digest]) for reference in request.references],
     )
-    result = await _client(config).generate(
+    result = await client.generate(
         patched,
         output_node,
         timeout_seconds=request.timeout_seconds,
@@ -197,6 +225,18 @@ async def generate(
             **describe_render_params(patched, slots),
             "source": "external_comfy",
             "workflow_id": graph_id,
+            # What a reroll re-fetches by: `origin` names the row or card the bytes
+            # came from, so replay reproduces the *same* reference.
+            "references": [
+                {
+                    "slot": list(r.slot),
+                    "source": r.source,
+                    "origin": r.origin,
+                    "digest": r.digest,
+                    "comfy_name": uploaded[r.digest],
+                }
+                for r in request.references
+            ],
             # Record the model only when the graph actually applied it. A
             # self-contained graph (no checkpoint slot) ignores the value, and
             # replay reads a null here as "the graph carried its own model".

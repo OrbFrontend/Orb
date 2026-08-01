@@ -2,7 +2,10 @@ import io
 
 from PIL import Image
 
-from backend.workflows.image_gen.engine.display_encode import shrink_for_display
+from backend.workflows.image_gen.engine.display_encode import (
+    normalize_reference,
+    shrink_for_display,
+)
 
 
 def _png(w, h):
@@ -26,3 +29,20 @@ def test_reencodes_to_webp_at_full_resolution():
 def test_non_image_bytes_pass_through_untouched():
     junk = b"not an image"
     assert shrink_for_display(junk, "image/png") == (junk, "image/png")
+
+
+def test_a_normal_reference_is_uploaded_byte_for_byte():
+    """Identity-edit workflows are the ones that lose face detail to a downscale,
+    so the cap only exists to stop a 12 MP phone upload."""
+    src = _png(1024, 1536)
+    assert normalize_reference(src, "image/png") == (src, "image/png")
+    # And a reference Orb cannot read is still one ComfyUI probably can.
+    assert normalize_reference(b"not an image", "image/png") == (b"not an image", "image/png")
+
+
+def test_an_oversized_reference_is_bounded():
+    out, mime = normalize_reference(_png(5000, 3000), "image/png")
+    assert mime == "image/webp"
+    with Image.open(io.BytesIO(out)) as img:
+        assert max(img.size) == 4096
+        assert abs(img.size[0] / img.size[1] - 5000 / 3000) < 0.01  # aspect preserved

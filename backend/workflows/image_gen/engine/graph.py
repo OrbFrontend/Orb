@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .contracts import ImageGenerationError
@@ -42,6 +42,25 @@ def graph_has_negative(config: Mapping[str, Any], graph_id: str) -> bool:
     spending the model's effort on a negation the workflow throws away.
     """
     return any(item["id"] == graph_id and "negative" in item["slots"] for item in config["external_comfy"]["user_graphs"])
+
+
+def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The mapped reference entries, as normalization stored them.
+
+    A graph with no mapped `LoadImage` has no `references` key at all, so every
+    caller can treat "no references" and "not an edit workflow" as one case.
+    """
+    entries = slots.get("references")
+    return [entry for entry in entries if isinstance(entry, Mapping)] if isinstance(entries, list) else []
+
+
+def graph_reference_slots(config: Mapping[str, Any], graph_id: str) -> list[Mapping[str, Any]]:
+    """The reference slots `graph_id` maps, config-level so the hook can resolve
+    conversation images without deep-copying a graph it will not patch."""
+    for item in config["external_comfy"]["user_graphs"]:
+        if item["id"] == graph_id:
+            return copy.deepcopy(reference_slots(item["slots"]))
+    return []
 
 
 def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> Any:
@@ -106,6 +125,7 @@ def patch_graph(
     negative_prompt: str,
     seed: int,
     checkpoint: str,
+    references: Sequence[tuple[tuple[str, str], str]] = (),
 ) -> tuple[dict, str]:
     patched = copy.deepcopy(dict(graph))
     for role, value in (
@@ -125,6 +145,11 @@ def patch_graph(
         if not checkpoint:
             raise ImageGenerationError("Select a checkpoint before generating")
         inputs[name] = checkpoint
+    # Each reference is the widget value the caller already uploaded ("orb/<name>"),
+    # written through the same slot helper the checkpoint override uses.
+    for slot, value in references:
+        inputs, name = _input_slot(patched, slot, "reference image")
+        inputs[name] = value
     # Imported graphs often wire the prompt text into a save node's filename_prefix
     # ("name files by prompt"). Orb's long scene prompts overflow the OS 255-byte
     # filename limit (OSError 36). Orb fetches the image by the name ComfyUI reports,
@@ -139,9 +164,25 @@ def patch_graph(
     return patched, str(output[0])
 
 
+def is_image_upload(spec: Any) -> bool:
+    """Whether an `/object_info` input spec is an upload widget.
+
+    Marked as ``[[...files...], {"image_upload": true}]`` -- the combo lists the
+    server's input directory. That flag is the typing rule for a reference slot,
+    exactly as a STRING/INT kind is the rule for the others.
+    """
+    if not isinstance(spec, (list, tuple)) or len(spec) < 2 or not isinstance(spec[0], list):
+        return False
+    return isinstance(spec[1], Mapping) and spec[1].get("image_upload") is True
+
+
 def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any], object_info: Mapping[str, Any]) -> None:
     if not graph:
         raise ImageGenerationError("The selected workflow is empty")
+    # A mapped reference's widget value is replaced per render with a file this
+    # server does not have yet, so its combo membership says nothing. Without the
+    # exemption, Test connection rejects every edit workflow.
+    mapped = {(str(entry["slot"][0]), str(entry["slot"][1])) for entry in reference_slots(slots) if entry.get("slot")}
     for node_id, node in graph.items():
         if (
             not isinstance(node, Mapping)
@@ -162,14 +203,26 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
         for name, value in node["inputs"].items():
             spec = declared.get(name)
             if isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list) and not isinstance(value, list):
-                if value not in spec[0]:
-                    raise ImageGenerationError(f"Node {node_id} input {name!r} is no longer available on this server")
+                if (str(node_id), name) in mapped or value in spec[0]:
+                    continue
+                # An unmapped upload widget carries the exporting machine's filename.
+                # "No longer available" reads as a broken install; the actionable
+                # answer is to upload it there or map the slot.
+                if is_image_upload(spec):
+                    raise ImageGenerationError(
+                        f"Node {node_id} needs image {value!r} on the ComfyUI server, or map it as a reference image"
+                    )
+                raise ImageGenerationError(f"Node {node_id} input {name!r} is no longer available on this server")
     for role in ("positive", "negative", "seed"):
         if role == "negative" and "negative" not in slots:
             continue
         _input_slot(graph, slots.get(role), role)
     if "checkpoint" in slots:
         _input_slot(graph, slots["checkpoint"], "checkpoint")
+    # A dangling reference would otherwise only surface mid-render, after the
+    # upload and a minute of queue time.
+    for entry in reference_slots(slots):
+        _input_slot(graph, entry.get("slot"), "reference image")
     output = slots.get("output")
     if not isinstance(output, (list, tuple)) or len(output) != 2 or str(output[0]) not in graph:
         raise ImageGenerationError("The workflow has no configured output node")

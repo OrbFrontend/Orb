@@ -168,6 +168,39 @@ async def test_unavailable_queue_endpoint_does_not_fail_the_render():
 
 
 @pytest.mark.asyncio
+async def test_reference_upload_posts_multipart_and_returns_the_widget_value():
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/upload/image"
+        seen["auth"] = request.headers.get("authorization") or ""
+        seen["body"] = request.content.decode("latin-1")
+        return httpx.Response(200, json={"name": "orb_0123456789abcdef.webp", "subfolder": "orb", "type": "input"})
+
+    client = ComfyClient("http://comfy.test", "sekrit", transport=httpx.MockTransport(handler))
+    value = await client.upload_image(b"RIFFxxxxWEBP", "image/webp", digest="0123456789abcdef" + "f" * 48)
+
+    # `folder_paths.get_annotated_filepath` resolves a bare "<subfolder>/<name>"
+    # under the input directory, which is what the LoadImage widget must carry.
+    assert value == "orb/orb_0123456789abcdef.webp"
+    assert seen["auth"] == "Bearer sekrit"
+    body = seen["body"]
+    assert 'name="image"; filename="orb_0123456789abcdef.webp"' in body
+    assert 'name="subfolder"' in body and "orb" in body
+    assert 'name="type"' in body and "input" in body
+    # ComfyUI compares `overwrite` against the strings "true"/"1"; a bool would
+    # silently mean "no" and leave a new file behind on every render.
+    assert 'name="overwrite"' in body and "true" in body
+
+
+@pytest.mark.asyncio
+async def test_a_refused_reference_upload_funnels_through_the_one_error_type():
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(lambda _: httpx.Response(413)))
+    with pytest.raises(ImageGenerationError, match="reference image"):
+        await client.upload_image(b"x", "image/png", digest="a" * 64)
+
+
+@pytest.mark.asyncio
 async def test_malformed_queue_entries_are_ignored():
     client = ComfyClient(
         "http://comfy.test",
