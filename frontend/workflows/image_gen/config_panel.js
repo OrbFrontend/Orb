@@ -18,14 +18,21 @@ import {
   splitCandidate,
 } from "./graph_import.js";
 import { modelPickerState } from "./model_picker.js";
-import { isLoopbackUrl, povChoices } from "./policy.js";
+import {
+  DEFAULT_PROMPT_FORMAT,
+  isLoopbackUrl,
+  normalizePromptFormat,
+  PROMPT_FORMATS,
+  povChoices,
+  promptFormatLabel,
+} from "./policy.js";
 
 const WORKFLOW_ID = "image_gen";
-const PROMPT_FORMATS = [
-  ["tags", "Tags"],
-  ["hybrid", "Hybrid"],
-  ["prose", "Prose"],
-];
+
+// How a style's prompt format reads next to its name, in both pickers. One
+// builder, because the summary below is written twice -- once at render, once as
+// the field is edited -- and two spellings of the same badge would drift.
+const promptFormatBadge = (value) => `(${promptFormatLabel(value)})`;
 let cfg;
 let pendingGraph = null;
 // The styles and imported graphs being edited. A working copy rather than cfg
@@ -76,11 +83,15 @@ let cardPov = { classifier: true, fallback: "third" };
 // chosen once instead of in a modal on every generate.
 let cardStyles = [];
 
+// The card names each style's prompt format alongside it -- an <option> carries no
+// markup, so it rides the text as "Krea-Alt (Prose)". Picking a style here is
+// picking a format too, and that is not visible anywhere else on the card.
 function cardStyleOptions() {
   const selected = cfg?.default_style || "";
   return cardStyles
     .map(
-      (s) => `<option value="${escAttr(s.id)}"${s.id === selected ? " selected" : ""}>${esc(s.label || s.id)}</option>`,
+      (s) =>
+        `<option value="${escAttr(s.id)}"${s.id === selected ? " selected" : ""}>${esc(s.label || s.id)} ${promptFormatBadge(s.prompt_format)}</option>`,
     )
     .join("");
 }
@@ -202,7 +213,7 @@ function checkpointField(value) {
 }
 
 function promptFormatOptions(value) {
-  const selected = PROMPT_FORMATS.some(([id]) => id === value) ? value : "hybrid";
+  const selected = normalizePromptFormat(value);
   return PROMPT_FORMATS.map(
     ([id, label]) => `<option value="${id}"${id === selected ? " selected" : ""}>${label}</option>`,
   ).join("");
@@ -215,6 +226,7 @@ function styleRows(expandIds = "") {
       return `<details class="ig-style" data-style-index="${i}"${expanded.has(s.id) ? " open" : ""}>
         <summary>
           <span class="ig-style-name">${esc(s.label || s.id)}</span>
+          <span class="ig-style-format">${promptFormatBadge(s.prompt_format)}</span>
         </summary>
         <div class="ig-style-body">
           <label>Name<input data-ig-field="label" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(s.label || "")}"></label>
@@ -244,7 +256,7 @@ function captureStyles() {
     return {
       ...s,
       label: get("label").trim() || s.label || s.id,
-      prompt_format: get("prompt_format") || "hybrid",
+      prompt_format: normalizePromptFormat(get("prompt_format") || s.prompt_format),
       prompt: get("prompt"),
       negative_prompt: get("negative_prompt"),
       extra_instructions: get("extra_instructions"),
@@ -265,7 +277,7 @@ function addStyle() {
   draft.styles.push({
     id,
     label: "New style",
-    prompt_format: "hybrid",
+    prompt_format: DEFAULT_PROMPT_FORMAT,
     prompt: "",
     negative_prompt: "",
     extra_instructions: "",
@@ -289,12 +301,19 @@ function removeStyle(index) {
 }
 
 // Recomputes the summary badge from the row's live field values.
-// Keep the collapsed summary's name in sync as the label field is edited.
+// Keep the collapsed summary's name and prompt format in sync as they are edited,
+// so a row collapsed straight after a change does not read as the old format.
 function refreshStyleState(el) {
   const row = el.closest("[data-style-index]");
-  const name = row?.querySelector('[data-ig-field="label"]')?.value.trim();
+  const field = (name) => row?.querySelector(`[data-ig-field="${name}"]`)?.value;
+  const name = field("label")?.trim();
   const nameEl = row?.querySelector(".ig-style-name");
+  const formatEl = row?.querySelector(".ig-style-format");
+  // A blank name keeps the last one -- captureStyles falls back the same way, so
+  // an empty field never reads as a nameless style. The format cannot be blanked:
+  // it is a select, and an unknown value normalizes to the default.
   if (nameEl && name) nameEl.textContent = name;
+  if (formatEl) formatEl.textContent = promptFormatBadge(field("prompt_format"));
 }
 
 // The per-style workflow control. With nothing imported there is nothing to

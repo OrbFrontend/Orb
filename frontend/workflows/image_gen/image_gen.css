@@ -51,7 +51,12 @@
 .ig-style[open]>summary::before,.ig-advanced[open]>summary::before{content:"▾"}
 .ig-style[open]>summary{border-bottom:1px solid var(--border)}
 .ig-style>summary:hover,.ig-advanced>summary:hover{color:var(--text-primary)}
-.ig-style-name{flex:1;min-width:0;font-weight:500;color:var(--text-primary)}
+/* The prompt format sits right after the name, not pushed to the far edge of a
+   wide row: it reads as part of the style's identity ("Krea-Alt (Prose)"). A long
+   name ellipsizes into it, like .ig-graph-name below, rather than pushing the
+   format -- the shorter and less guessable of the two -- out of the row. */
+.ig-style-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--text-primary)}
+.ig-style-format{flex:1;white-space:nowrap;color:var(--text-muted)}
 .ig-style-body{display:grid;gap:10px;padding:10px}
 .ig-style-body>.ig-danger{justify-self:start}
 .ig-danger{color:var(--danger,var(--accent))}

@@ -6,7 +6,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { isLoopbackUrl, povChoices } from "../../frontend/workflows/image_gen/policy.js";
+import {
+  isLoopbackUrl,
+  normalizePromptFormat,
+  povChoices,
+  promptFormatLabel,
+  PROMPT_FORMATS,
+} from "../../frontend/workflows/image_gen/policy.js";
 
 test("loopback in every form Orb can be configured with gets no notice", () => {
   for (const url of [
@@ -55,4 +61,20 @@ test("without the classifier Auto is dropped and the fallback shown in its place
 test("a hand-pinned camera survives the classifier going away", () => {
   const choices = povChoices({ classifier: false, mode: "first", fallback: "third" });
   assert.equal(choices.selected, "first");
+});
+
+// Both style pickers name the prompt format beside the style, so the label must
+// be the format the render path will actually use.
+test("every stored format has a label", () => {
+  for (const [id, label] of PROMPT_FORMATS) {
+    assert.equal(normalizePromptFormat(id), id);
+    assert.equal(promptFormatLabel(id), label);
+  }
+});
+
+test("an unset or unknown format reads as the default the backend substitutes", () => {
+  for (const value of [undefined, "", "booru", null]) {
+    assert.equal(normalizePromptFormat(value), "hybrid");
+    assert.equal(promptFormatLabel(value), "Hybrid");
+  }
 });

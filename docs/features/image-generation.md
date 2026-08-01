@@ -186,7 +186,7 @@ Orb ships **Realistic** and **Anime** styles out of the box. A style contains th
 | Item | Function |
 |---|---|
 | **Name** | Sets the name in the style list. |
-| **Prompt format** | Chooses tags, hybrid tags and clauses, or prose for the scene portion. Tags and Hybrid use `1girl`/`1boy` count tags; Prose never does. Match this to the text encoder in the imported workflow. |
+| **Prompt format** | Chooses tags, hybrid tags and clauses, or prose for the scene portion. Tags and Hybrid use `1girl`/`1boy` count tags; Prose never does. Match this to the text encoder in the imported workflow. The style list and the tools-panel picker show the format after the name, for example `Krea-Alt (Prose)`. |
 | **Positive style tags** | Adds visual properties near the start of the image prompt. |
 | **Negative style tags** | Appends properties that ComfyUI must avoid. |
 | **Extra instructions** | Gives composition or emphasis guidance to the prompter model. This is not copied into the image prompt. |

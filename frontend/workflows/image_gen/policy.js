@@ -25,6 +25,30 @@ export function isLoopbackUrl(apiUrl) {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
 
+// Prompt formats, mirroring backend config.PROMPT_FORMATS. The format decides how
+// the composer writes the scene -- booru tags, mixed, or plain sentences -- so two
+// styles with the same name produce very different prompts. Both pickers name it
+// beside the style rather than only inside the style's own form.
+export const PROMPT_FORMATS = [
+  ["tags", "Tags"],
+  ["hybrid", "Hybrid"],
+  ["prose", "Prose"],
+];
+export const DEFAULT_PROMPT_FORMAT = "hybrid";
+
+// What a stored value actually means, mirroring backend `_normalize_prompt_format`:
+// anything unknown or missing renders as the default, because that is what the
+// backend substitutes for it. Every surface reads the format through here, so the
+// picker, the summary and the card can never disagree about a style's format.
+export function normalizePromptFormat(value) {
+  return PROMPT_FORMATS.some(([id]) => id === value) ? value : DEFAULT_PROMPT_FORMAT;
+}
+
+export function promptFormatLabel(value) {
+  const id = normalizePromptFormat(value);
+  return PROMPT_FORMATS.find(([f]) => f === id)[1];
+}
+
 // Camera modes, mirroring backend pov.POV_MODES. "auto" runs the local POV
 // classifier; the other two pin the camera by hand. Global, like the style: it
 // lives in the workflow config, not on a conversation.

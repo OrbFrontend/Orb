@@ -57,6 +57,7 @@ _SHOT_COUNTED_FIRST = (
     "Start the image prompt with the count tags, separated by commas. The count tags give the number of persons. "
     "If the user looks at a subject, only describe the subject. "
     "Write the user's hand or arm only when the final instant explicitly puts it in frame. State its exact action or contact, "
+    "and its position at the frame's edge, such as lower foreground or a side corner, "
     'always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never as "the viewer grips" or other phrasing where viewer is '
     "the verb's subject. "
     "Never mention the user's face, body, or clothing. " + _SHOT_NO_CAMERA_WORD + _SHOT_SUBJECT_VISIBILITY
@@ -75,7 +76,8 @@ _SHOT_COUNTED_THIRD = (
 _SHOT_PROSE_FIRST = (
     "The pov is from the user's eyes, describe what they can **see**. Describe only the others visible to this pov. "
     "If the user looks at a subject, only describe the subject. Write the user's hand or arm only when the final instant explicitly "
-    'puts it in frame, and state its exact action or contact, always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never '
+    "puts it in frame, and state its exact action or contact and its position at the frame's edge, such as lower foreground or a "
+    'side corner, always as "viewer\'s hand ..." or "viewer\'s arm ..." -- never '
     "as \"the viewer grips\" or other phrasing where viewer is the verb's subject. NEVER mention the user's face, body, or clothing. "
     "If the subject is really close, mention only the dominating parts, e.g. head and torso visible, etc. "
     + _SHOT_NO_CAMERA_WORD
