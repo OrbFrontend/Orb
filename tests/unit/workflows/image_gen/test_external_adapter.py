@@ -194,11 +194,7 @@ async def test_node_roles_type_upload_widgets_off_the_image_upload_flag(monkeypa
         },
         "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["m.safetensors"], {}]}}},
     }
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=info)
-
-    _install_client(monkeypatch, handler)
+    _install_client(monkeypatch, lambda _request: httpx.Response(200, json=info))
     invalidate_object_info()
     roles = await external_comfy.node_roles(normalize_config({}), ["LoadImage", "CheckpointLoaderSimple"])
 
@@ -207,20 +203,14 @@ async def test_node_roles_type_upload_widgets_off_the_image_upload_flag(monkeypa
     assert roles["CheckpointLoaderSimple"]["image_inputs"] == []
 
 
+# USER_GRAPH plus a LoadImage pinning a filename from the exporting machine.
 EDIT_USER_GRAPH = {
+    **USER_GRAPH,
     "id": "user_edit",
-    "label": "Edit",
-    "graph": {
-        "1": {"class_type": "LoadImage", "inputs": {"image": "exported-from-another-machine.png"}},
-        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
-        "3": {"class_type": "KSampler", "inputs": {"seed": 0}},
-        "4": {"class_type": "SaveImage", "inputs": {"images": ["3", 0]}},
-    },
+    "graph": {**USER_GRAPH["graph"], "0": {"class_type": "LoadImage", "inputs": {"image": "exported-elsewhere.png"}}},
     "slots": {
-        "positive": ["2", "text"],
-        "seed": ["3", "seed"],
-        "output": ["4", "images"],
-        "references": [{"slot": ["1", "image"], "source": "character", "label": "Load Image (#1)"}],
+        **USER_GRAPH["slots"],
+        "references": [{"slot": ["0", "image"], "source": "character", "label": "Load Image (#0)"}],
     },
 }
 
@@ -234,38 +224,28 @@ async def test_generate_uploads_each_reference_once_and_patches_the_widget(monke
 
     uploads: list[str] = []
     submitted: dict = {}
-    png = b"\x89PNG\r\n\x1a\n" + b"out"
+    outputs = {"4": {"images": [{"filename": "x.png", "subfolder": "", "type": "output"}]}}
+    responses = {
+        "/prompt": httpx.Response(200, json={"prompt_id": "p1", "number": 1}),
+        "/queue": httpx.Response(200, json={"queue_running": [], "queue_pending": []}),
+        "/history/p1": httpx.Response(200, json={"p1": {"status": {"completed": True}, "outputs": outputs}}),
+        "/view": httpx.Response(200, content=b"\x89PNG\r\n\x1a\n" + b"out", headers={"content-type": "image/png"}),
+    }
 
     def handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path == "/upload/image":
+        if request.url.path == "/upload/image":
             uploads.append(request.content.decode("latin-1"))
             return httpx.Response(200, json={"name": "orb_deadbeefdeadbeef.png", "subfolder": "orb", "type": "input"})
-        if path == "/prompt":
+        if request.url.path == "/prompt":
             submitted.update(json.loads(request.content))
-            return httpx.Response(200, json={"prompt_id": "p1", "number": 1})
-        if path == "/queue":
-            return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
-        if path == "/history/p1":
-            return httpx.Response(
-                200,
-                json={
-                    "p1": {
-                        "status": {"completed": True},
-                        "outputs": {"4": {"images": [{"filename": "x.png", "subfolder": "", "type": "output"}]}},
-                    }
-                },
-            )
-        if path == "/view":
-            return httpx.Response(200, content=png, headers={"content-type": "image/png"})
-        return httpx.Response(404)
+        return responses.get(request.url.path, httpx.Response(404))
 
     _install_client(monkeypatch, handler)
     config = normalize_config(
         {"external_comfy": {"user_graphs": [EDIT_USER_GRAPH], "styles": [{"id": "s", "label": "S", "workflow": "user_edit"}]}}
     )
     reference = ResolvedReference(
-        slot=("1", "image"),
+        slot=("0", "image"),
         source="character",
         data=b"\x89PNG\r\n\x1a\n" + b"ref",
         mime="image/png",
@@ -279,13 +259,13 @@ async def test_generate_uploads_each_reference_once_and_patches_the_widget(monke
         style_id="s",
         timeout_seconds=5,
         # Two slots, one image: the adapter must upload once.
-        references=(reference, ResolvedReference(**{**reference.__dict__, "slot": ("1", "image")})),
+        references=(reference, reference),
     )
 
     result = await external_comfy.generate(config, request, checkpoint="", graph_id="user_edit")
 
     assert len(uploads) == 1
-    assert submitted["prompt"]["1"]["inputs"]["image"] == "orb/orb_deadbeefdeadbeef.png"
+    assert submitted["prompt"]["0"]["inputs"]["image"] == "orb/orb_deadbeefdeadbeef.png"
     # The replay record names where the bytes came from, not just what was sent.
     assert result.backend_info["references"][0]["origin"] == "character:card-1"
     assert result.backend_info["references"][0]["comfy_name"] == "orb/orb_deadbeefdeadbeef.png"

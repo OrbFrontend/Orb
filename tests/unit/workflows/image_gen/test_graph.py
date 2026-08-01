@@ -70,14 +70,6 @@ OBJECT_INFO = {
 }
 
 
-def _with_reference():
-    """The core graph plus a LoadImage carrying a filename from another machine."""
-    graph, slots = _core()
-    graph["11"] = {"class_type": "LoadImage", "inputs": {"image": "woman-in-black.jpeg"}}
-    slots["references"] = [{"slot": ["11", "image"], "source": "character", "label": "Load Image (#11)"}]
-    return graph, slots
-
-
 def _core():
     """A representative imported graph with a checkpoint filled in, as a real submission has."""
     graph = _base_graph()
@@ -192,6 +184,14 @@ def test_validation_requires_the_output_slot_to_name_a_present_node():
 # ── reference images ─────────────────────────────────────────────────────────
 
 
+def _with_reference():
+    """The core graph plus a LoadImage carrying a filename from another machine."""
+    graph, slots = _core()
+    graph["11"] = {"class_type": "LoadImage", "inputs": {"image": "woman-in-black.jpeg"}}
+    slots["references"] = [{"slot": ["11", "image"], "source": "character", "label": "Load Image (#11)"}]
+    return graph, slots
+
+
 def test_a_reference_slot_is_patched_with_the_uploaded_widget_value():
     graph, slots = _with_reference()
     patched, _ = patch_graph(
@@ -212,8 +212,7 @@ def test_a_mapped_reference_is_exempt_from_the_combo_membership_check():
     """The widget value is replaced per render with a file this server does not
     have yet, so its membership in the input-directory listing means nothing.
     Without the exemption, Test connection rejects every edit workflow."""
-    graph, slots = _with_reference()
-    validate_graph_structure(graph, slots, OBJECT_INFO)
+    validate_graph_structure(*_with_reference(), OBJECT_INFO)
 
 
 def test_an_unmapped_image_input_says_how_to_fix_it():

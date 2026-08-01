@@ -12,12 +12,9 @@ const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 // Mirrors MAX_GRAPH_BYTES in backend/workflows/image_gen/config.py. Checked here
 // too so an oversized graph is refused at the file picker, where the user can
 // still see which file they chose, instead of being dropped by normalization
-// after save and reported only as a count that came back short.
-//
-// The measurement has to match the backend's or the two gates disagree: it counts
-// UTF-8 bytes of the graph *after* `is_changed` is stripped. Counting UTF-16 code
-// units instead let a CJK graph through the picker at a third of its real size,
-// and counting before the strip bounced graphs the backend would have stored.
+// after save and reported only as a count that came back short. The measurement
+// must match the backend's -- UTF-8 bytes, taken *after* `is_changed` is stripped
+// -- or the two gates disagree in both directions.
 export const MAX_GRAPH_BYTES = 512_000;
 
 const FALLBACK_TEXT_INPUTS = ["text"];
@@ -25,8 +22,7 @@ const FALLBACK_SEED_INPUTS = ["seed", "noise_seed"];
 const FALLBACK_OUTPUT_CLASSES = ["SaveImage", "PreviewImage"];
 // Upload widgets are typed server-side off /object_info's `image_upload` flag.
 // Unreachable server or unknown class: only the stock loaders are guessed, since
-// the input is named `image` on both and a wrong guess here would offer a
-// reference slot that patches something else.
+// a wrong guess would offer a reference slot that patches something else.
 const FALLBACK_IMAGE_CLASSES = ["LoadImage", "LoadImageMask"];
 const FALLBACK_IMAGE_INPUTS = ["image"];
 // Widget inputs that name the diffusion model a loader reads. Offered as a
@@ -37,23 +33,17 @@ const MODEL_INPUTS = ["ckpt_name", "unet_name"];
 
 // Mirrors `_strip_machine_local_state` in the backend normalizer: ComfyUI's API
 // export embeds a per-node `is_changed` hash that is meaningless off the machine
-// that wrote it. Copies rather than mutates — the caller stores the graph it
-// passed in, and the backend does its own strip on arrival.
-function withoutMachineLocalState(graph) {
-  const stripped = {};
-  for (const [nodeId, node] of Object.entries(graph)) {
-    if (node && typeof node === "object" && !Array.isArray(node) && "is_changed" in node) {
-      const { is_changed: _drop, ...rest } = node;
-      stripped[nodeId] = rest;
-    } else {
-      stripped[nodeId] = node;
-    }
-  }
-  return stripped;
-}
-
+// that wrote it. Measured on a copy — the caller stores the graph it passed in,
+// and the backend does its own strip on arrival.
 function graphByteLength(graph) {
-  return new TextEncoder().encode(JSON.stringify(withoutMachineLocalState(graph))).length;
+  const stripped = Object.fromEntries(
+    Object.entries(graph).map(([nodeId, node]) => {
+      if (!node || typeof node !== "object" || Array.isArray(node)) return [nodeId, node];
+      const { is_changed: _drop, ...rest } = node;
+      return [nodeId, rest];
+    }),
+  );
+  return new TextEncoder().encode(JSON.stringify(stripped)).length;
 }
 
 function parseGraphJson(text) {
@@ -157,9 +147,8 @@ export function slotCandidates(graph, nodeTypes = {}) {
       if (!isOutput && textInputs.includes(name)) text.push(item);
       if (seedInputs.includes(name)) (isOutput ? seedTail : seed).push(item);
       if (MODEL_INPUTS.includes(name)) (isOutput ? checkpointTail : checkpoint).push(item);
-      // An upload widget is where an edit workflow takes its reference image. The
-      // row is labelled by node rather than by input name, because a two-reference
-      // graph asks the user which LoadImage is the identity and which is the scene.
+      // Labelled by node rather than by input name: a two-reference graph asks the
+      // user which LoadImage is the identity and which is the scene.
       if (imageInputs.includes(name)) image.push({ ...item, label: label(nodeId, node) });
     }
     if (isOutput) {

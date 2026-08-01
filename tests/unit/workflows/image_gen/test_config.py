@@ -144,47 +144,30 @@ def _stored(user_graph: dict) -> dict:
     return normalize_config({"external_comfy": {"user_graphs": [user_graph]}})["external_comfy"]["user_graphs"][0]
 
 
+def _references(*entries: dict) -> dict:
+    return _stored(_user_graph(slots={**_BASE_SLOTS, "references": list(entries)}))["slots"].get("references", [])
+
+
 def test_reference_slots_survive_normalization():
-    stored = _stored(
-        _user_graph(
-            slots={
-                **_BASE_SLOTS,
-                "references": [
-                    {"slot": ["72", "image"], "source": "previous_or_character", "label": "Load Image (#72)"},
-                    {"slot": [90, "image"], "source": "character"},
-                ],
-            }
-        )
+    stored = _references(
+        {"slot": ["72", "image"], "source": "previous_or_character", "label": "Load Image (#72)"},
+        {"slot": [90, "image"], "source": "character"},
     )
-    assert stored["slots"]["references"][0] == {
-        "slot": ["72", "image"],
-        "source": "previous_or_character",
-        "label": "Load Image (#72)",
-    }
+    assert stored[0] == {"slot": ["72", "image"], "source": "previous_or_character", "label": "Load Image (#72)"}
     # A numeric node id normalizes to a string, and a missing label gets a usable one.
-    assert stored["slots"]["references"][1]["slot"] == ["90", "image"]
-    assert stored["slots"]["references"][1]["label"]
+    assert stored[1]["slot"] == ["90", "image"]
+    assert stored[1]["label"]
 
 
-def test_an_unknown_reference_source_is_dropped_not_stored():
-    stored = _stored(
-        _user_graph(
-            slots={
-                **_BASE_SLOTS,
-                "references": [
-                    {"slot": ["72", "image"], "source": "whatever_the_user_typed"},
-                    {"slot": ["90", "image"], "source": "character"},
-                ],
-            }
-        )
+def test_unstorable_reference_slots_are_dropped_and_the_rest_capped():
+    unknown = _references(
+        {"slot": ["72", "image"], "source": "whatever_the_user_typed"},
+        {"slot": ["90", "image"], "source": "character"},
     )
-    assert [r["slot"] for r in stored["slots"]["references"]] == [["90", "image"]]
+    assert [r["slot"] for r in unknown] == [["90", "image"]]
 
-
-def test_reference_slots_are_capped():
-    references = [{"slot": [str(i), "image"], "source": "character"} for i in range(MAX_REFERENCE_SLOTS + 3)]
-    stored = _stored(_user_graph(slots={**_BASE_SLOTS, "references": references}))
-    assert len(stored["slots"]["references"]) == MAX_REFERENCE_SLOTS
+    entries = [{"slot": [str(i), "image"], "source": "character"} for i in range(MAX_REFERENCE_SLOTS + 3)]
+    assert len(_references(*entries)) == MAX_REFERENCE_SLOTS
 
 
 def test_a_graph_with_no_references_round_trips_unchanged():
@@ -196,12 +179,9 @@ def test_a_graph_with_no_references_round_trips_unchanged():
 
 
 def test_is_changed_is_stripped_from_every_node_at_import():
-    """ComfyUI's API export embeds `is_changed` -- for a LoadImage node, a hash of
-    the file on the exporter's disk. IsChangedCache returns a client-supplied value
-    verbatim instead of computing the real one, so a stored hash makes ComfyUI miss
-    a file whose *contents* changed under an unchanged path and hand back the
-    previously decoded image. Machine-local state about another machine's disk has
-    no business in a stored graph regardless."""
+    """A client-supplied `is_changed` is returned verbatim by IsChangedCache, so a
+    hash of the exporter's disk makes ComfyUI miss a file whose *contents* changed
+    under an unchanged path and hand back the previously decoded image."""
     graph = _graph()
     graph["0"]["is_changed"] = ["b80d1d64deadbeef"]
     graph["s"]["is_changed"] = ["another"]
@@ -214,20 +194,18 @@ def test_is_changed_is_stripped_from_every_node_at_import():
 # ── per-character reference image ────────────────────────────────────────────
 
 
-def test_a_character_reference_image_needs_both_halves():
-    profile = normalize_profile({"reference_image_b64": "aGk=", "reference_mime": "image/png"})
-    assert (profile["reference_image_b64"], profile["reference_mime"]) == ("aGk=", "image/png")
+def test_a_character_reference_image_survives_only_with_both_halves():
+    """Bytes Orb cannot tell ComfyUI how to read are not a reference, a mime with
+    no bytes is not a half-set field, and an oversized payload is dropped rather
+    than truncated -- half a base64 payload is a corrupt image, not a smaller one."""
+    kept = normalize_profile({"reference_image_b64": "aGk=", "reference_mime": "image/png"})
+    assert (kept["reference_image_b64"], kept["reference_mime"]) == ("aGk=", "image/png")
 
-    # A payload Orb cannot tell ComfyUI how to read is not a reference.
-    assert normalize_profile({"reference_image_b64": "aGk=", "reference_mime": "text/plain"})["reference_image_b64"] == ""
-    assert normalize_profile({"reference_image_b64": "aGk="})["reference_image_b64"] == ""
-    # ...and a mime with no bytes is not a half-set field either.
-    assert normalize_profile({"reference_mime": "image/png"})["reference_mime"] == ""
-
-
-def test_an_oversized_reference_image_is_dropped_rather_than_truncated():
-    """Half a base64 payload is not a smaller image, it is a corrupt one -- and
-    this profile is read on every generate."""
-    oversized = "A" * (MAX_REFERENCE_IMAGE_B64 + 1)
-    profile = normalize_profile({"reference_image_b64": oversized, "reference_mime": "image/png"})
-    assert (profile["reference_image_b64"], profile["reference_mime"]) == ("", "")
+    for raw in (
+        {"reference_image_b64": "aGk=", "reference_mime": "text/plain"},
+        {"reference_image_b64": "aGk="},
+        {"reference_mime": "image/png"},
+        {"reference_image_b64": "A" * (MAX_REFERENCE_IMAGE_B64 + 1), "reference_mime": "image/png"},
+    ):
+        profile = normalize_profile(raw)
+        assert (profile["reference_image_b64"], profile["reference_mime"]) == ("", "")

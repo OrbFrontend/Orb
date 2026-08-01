@@ -47,33 +47,25 @@ test("refuses a graph too large for the config slot", () => {
   assert.throws(() => graphFromApiJson(JSON.stringify(huge)), /too large/);
 });
 
-// The cap is a UTF-8 byte count on the backend. Measuring JSON.stringify().length
-// here instead counted UTF-16 code units, so a CJK prompt weighed a third of what
-// the normalizer would weigh: the picker accepted the graph, the save silently
-// came back one workflow short.
-test("measures the size cap in UTF-8 bytes, not UTF-16 code units", () => {
-  const cjk = {
+// The picker must weigh a graph exactly as the normalizer does — UTF-8 bytes,
+// taken after `is_changed` is stripped. Measuring UTF-16 code units let a CJK
+// graph through at a third of its real size and the save came back one workflow
+// short; measuring before the strip bounced graphs the backend would have stored.
+test("measures the size cap the way the backend does", () => {
+  const cjk = JSON.stringify({
     1: { class_type: "CLIPTextEncode", inputs: { text: "幻想的な風景、細部まで描写された".repeat(12000) } },
     2: { class_type: "KSampler", inputs: { seed: 1 } },
     3: { class_type: "SaveImage", inputs: { images: ["2", 0] } },
-  };
-  const serialized = JSON.stringify(cjk);
-  assert.ok(serialized.length < 512_000, "precondition: under the cap when counted as UTF-16 code units");
-  assert.ok(new TextEncoder().encode(serialized).length > 512_000, "precondition: over the cap in real bytes");
-  assert.throws(() => graphFromApiJson(serialized), /too large/);
-});
+  });
+  assert.ok(cjk.length < 512_000 && new TextEncoder().encode(cjk).length > 512_000, "precondition: under in UTF-16, over in bytes");
+  assert.throws(() => graphFromApiJson(cjk), /too large/);
 
-// The backend strips `is_changed` before it measures, so measuring with the hashes
-// still attached bounced graphs the normalizer would have stored happily.
-test("strips is_changed before measuring, as the backend does", () => {
-  const node = (i) => ({ class_type: "LoadImage", inputs: { image: `${i}.png` }, is_changed: ["a".repeat(600)] });
   const graph = { 1: { class_type: "CLIPTextEncode", inputs: { text: "" } }, 2: { class_type: "KSampler", inputs: { seed: 1 } } };
-  for (let i = 3; i < 800; i++) graph[i] = node(i);
+  for (let i = 3; i < 800; i++) graph[i] = { class_type: "LoadImage", inputs: { image: `${i}.png` }, is_changed: ["a".repeat(600)] };
   assert.ok(JSON.stringify(graph).length > 512_000, "precondition: over the cap only because of is_changed");
-  const parsed = graphFromApiJson(JSON.stringify(graph));
   // Accepted, and the caller still gets the graph it passed in — the strip is for
   // measurement only, and the backend repeats it on arrival.
-  assert.deepEqual(parsed[3].is_changed, graph[3].is_changed);
+  assert.deepEqual(graphFromApiJson(JSON.stringify(graph))[3].is_changed, graph[3].is_changed);
 });
 
 test("builds explicit slot candidates", () => {
@@ -242,25 +234,17 @@ test("the unreachable-server fallback still finds stock loaders", () => {
   const edit = {
     72: { class_type: "LoadImage", inputs: { image: "scene.png" } },
     90: { class_type: "LoadImageMask", inputs: { image: "identity.png", channel: "red" } },
-    1: { class_type: "CLIPTextEncode", inputs: { text: "" } },
-    2: { class_type: "KSampler", inputs: { seed: 1 } },
-    3: { class_type: "SaveImage", inputs: { images: ["2", 0] } },
   };
-  const c = slotCandidates(edit, {});
+  // `channel` is a widget on the same node, but not an upload input.
   assert.deepEqual(
-    c.image.map((i) => splitCandidate(i.value)),
+    slotCandidates(edit, {}).image.map((i) => splitCandidate(i.value)),
     [
       ["72", "image"],
       ["90", "image"],
     ],
   );
-  // `channel` is a widget on the same node, but not an upload input.
-  assert.equal(c.image.length, 2);
-});
-
-test("a plain text-to-image graph yields no reference rows", () => {
-  // example.png's shape: nothing to map, so the importer renders exactly the five
-  // slots it always did and the stored slot map gains no `references` key.
+  // And example.png's shape has nothing to map, typed or not, so a plain
+  // text-to-image graph imports exactly the five slots it always did.
   assert.deepEqual(slotCandidates(GRAPH, NODE_TYPES).image, []);
   assert.deepEqual(slotCandidates(GRAPH, {}).image, []);
 });

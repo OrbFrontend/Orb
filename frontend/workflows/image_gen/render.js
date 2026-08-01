@@ -28,28 +28,24 @@ const REFERENCE_SOURCE_LABELS = {
   character: "character reference",
   previous_or_character: "previous image, else character reference",
 };
-
 // The origin is a machine key ("attachment:41", "upload:12:3", "character:<id>"),
 // and its useful half is which *kind* of thing was fed in — a wrong reference is
 // usually the wrong kind, not the wrong row.
-function originLabel(origin) {
-  const kind = String(origin || "").split(":")[0];
-  if (kind === "attachment") return "a generated image in this chat";
-  if (kind === "upload") return "an image you uploaded";
-  if (kind === "character") return "the character";
-  return "";
-}
+const REFERENCE_ORIGIN_LABELS = {
+  attachment: "a generated image in this chat",
+  upload: "an image you uploaded",
+  character: "the character",
+};
 
-// One row per mapped slot. Absent on images rendered by a workflow with no
-// reference slots, so the row is omitted rather than shown empty.
+// One row per mapped slot, so a workflow with no reference slots gets none.
 function referenceRows(cm, esc) {
-  const items = Array.isArray(cm.references) ? cm.references : [];
-  return items
+  return (Array.isArray(cm.references) ? cm.references : [])
     .map((ref) => {
       const node = Array.isArray(ref?.slot) ? `#${ref.slot[0]}` : "";
-      const source = REFERENCE_SOURCE_LABELS[ref?.source] || ref?.source || "";
-      const from = originLabel(ref?.origin);
-      const detail = [source, from && `from ${from}`].filter(Boolean).join(" — ");
+      const from = REFERENCE_ORIGIN_LABELS[String(ref?.origin || "").split(":")[0]];
+      const detail = [REFERENCE_SOURCE_LABELS[ref?.source] || ref?.source || "", from && `from ${from}`]
+        .filter(Boolean)
+        .join(" — ");
       return `<dt>Reference${node ? esc(` ${node}`) : ""}</dt><dd>${esc(detail)}</dd>`;
     })
     .join("");

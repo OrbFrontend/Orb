@@ -114,46 +114,38 @@ async def list_models(config: Mapping[str, Any]) -> list[str]:
     return await _client(config).models("checkpoints")
 
 
+def _declared_inputs(info: Mapping[str, Any]) -> dict[str, Any]:
+    """Every declared input of one node class, required and optional alike."""
+    spec = info.get("input")
+    declared: dict[str, Any] = {}
+    for group in ("required", "optional"):
+        values = spec.get(group) if isinstance(spec, Mapping) else None
+        if isinstance(values, Mapping):
+            declared.update(values)
+    return declared
+
+
 def _typed_inputs(info: Mapping[str, Any], wanted: str) -> list[str]:
-    """Input names on one node class whose declared type is `wanted`.
+    """Input names whose declared type is the scalar kind `wanted`.
 
     `/object_info` declares an input as `[type, options]`, where `type` is a
     string for scalars and a list for combos. Only scalars are role candidates:
     a combo is a fixed menu, and a linked slot has no widget to patch.
     """
-    spec = info.get("input")
-    if not isinstance(spec, Mapping):
-        return []
-    declared: dict[str, Any] = {}
-    for group in ("required", "optional"):
-        values = spec.get(group)
-        if isinstance(values, Mapping):
-            declared.update(values)
-    names = []
-    for name, value in declared.items():
-        kind = value[0] if isinstance(value, (list, tuple)) and value else None
-        if kind == wanted:
-            names.append(name)
-    return names
+    return [
+        name
+        for name, value in _declared_inputs(info).items()
+        if isinstance(value, (list, tuple)) and value and value[0] == wanted
+    ]
 
 
 def _image_upload_inputs(info: Mapping[str, Any]) -> list[str]:
-    """Input names on one node class that accept an uploaded image file.
+    """Input names that accept an uploaded image file.
 
-    A sibling to `_typed_inputs` rather than a case inside it: that one types by
-    string kind, and an upload widget's declared type is the *combo* of files
-    already in the server's input directory, so no kind comparison can match it.
+    Separate from `_typed_inputs` because an upload widget's declared type is the
+    *combo* of files already on the server, so no kind comparison can match it.
     """
-    spec = info.get("input")
-    if not isinstance(spec, Mapping):
-        return []
-    names = []
-    for group in ("required", "optional"):
-        values = spec.get(group)
-        if not isinstance(values, Mapping):
-            continue
-        names.extend(name for name, value in values.items() if is_image_upload(value))
-    return names
+    return [name for name, value in _declared_inputs(info).items() if is_image_upload(value)]
 
 
 async def node_roles(config: Mapping[str, Any], class_types: Sequence[str]) -> dict:
@@ -233,18 +225,17 @@ async def generate(
             **describe_render_params(patched, slots),
             "source": "external_comfy",
             "workflow_id": graph_id,
-            # What a reroll re-fetches by. `origin` names the row or card the bytes
-            # came from, so replay reproduces the *same* reference rather than
-            # re-resolving to whatever the branch looks like now.
+            # What a reroll re-fetches by: `origin` names the row or card the bytes
+            # came from, so replay reproduces the *same* reference.
             "references": [
                 {
-                    "slot": list(reference.slot),
-                    "source": reference.source,
-                    "origin": reference.origin,
-                    "digest": reference.digest,
-                    "comfy_name": uploaded[reference.digest],
+                    "slot": list(r.slot),
+                    "source": r.source,
+                    "origin": r.origin,
+                    "digest": r.digest,
+                    "comfy_name": uploaded[r.digest],
                 }
-                for reference in request.references
+                for r in request.references
             ],
             # Record the model only when the graph actually applied it. A
             # self-contained graph (no checkpoint slot) ignores the value, and

@@ -18,11 +18,9 @@ class ImageBackendCapabilities(TypedDict):
 class ResolvedReference:
     """One reference image, already fetched, for one mapped `LoadImage` widget.
 
-    Resolution happens above the engine (it reads conversation state); uploading
-    and patching happen inside it. `origin` names *where the bytes came from* in
-    a form a later replay can re-fetch by -- ``"attachment:<id>"`` or
-    ``"character:<card id>"`` -- and `digest` identifies the bytes themselves, so
-    two slots resolving to the same image upload once.
+    `origin` names *where the bytes came from* in a form a later replay can
+    re-fetch by (``"attachment:<id>"``, ``"character:<card id>"``); `digest`
+    identifies the bytes, so two slots resolving to the same image upload once.
     """
 
     slot: tuple[str, str]

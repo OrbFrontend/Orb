@@ -29,20 +29,17 @@ import {
 
 const WORKFLOW_ID = "image_gen";
 
-// What a mapped LoadImage node can be fed, in menu order. The combined choice is
-// the default for a first slot: a pure edit graph cannot render without a
-// reference, so a slot pinned to "previous" alone hard-fails on the first
-// Visualize of every new conversation.
+// What a mapped LoadImage node can be fed, in menu order — the combined choice
+// leads because it is the one with no cold-start cliff on a fresh conversation.
 const REFERENCE_SOURCES = [
   ["previous_or_character", "Previous image, else character reference"],
   ["previous", "Previous image in the chat"],
   ["character", "Character reference image"],
 ];
-// Ceiling mirrored from MAX_REFERENCE_SLOTS in the backend config normalizer.
+// Mirrored from the backend config normalizer. The count is enforced at the
+// picker for the same reason the size cap is: the normalizer truncates the
+// overflow, and a count that comes back short cannot say which graph went missing.
 const MAX_REFERENCE_SLOTS = 4;
-// Mirrored from MAX_USER_GRAPHS. Enforced at the picker for the same reason the
-// size cap is: the normalizer truncates the overflow, and a count that comes back
-// short cannot say which workflow went missing or why.
 const MAX_USER_GRAPHS = 32;
 const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
 
@@ -74,7 +71,9 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "save", () => saveSettings());
   registerAction(WORKFLOW_ID, "graphFile", (el) => importGraphFile(el));
   registerAction(WORKFLOW_ID, "referenceFile", (el) => pickReferenceImage(el));
-  registerAction(WORKFLOW_ID, "referenceClear", () => clearReferenceImage());
+  registerAction(WORKFLOW_ID, "referenceClear", () =>
+    setReferenceImage({ reference_image_b64: "", reference_mime: "" }),
+  );
   registerAction(WORKFLOW_ID, "graphAdd", () => addPendingGraph());
   registerAction(WORKFLOW_ID, "graphRemove", (el) => removeGraph(el.dataset.graphId));
   registerAction(WORKFLOW_ID, "styleAdd", () => addStyle());
@@ -506,20 +505,20 @@ async function graphNodeTypes(graph) {
   }
 }
 
-// One row per detected image-upload widget. Every row defaults to "Not used", so
-// a plain text-to-image graph imports exactly as it did before this existed and
-// an edit graph is opt-in per node — Orb never guesses which LoadImage is the
-// identity and which is the scene.
+// One row per detected image-upload widget, defaulting to "Not used": a plain
+// text-to-image graph imports exactly as it did before this existed, and an edit
+// graph is opt-in per node — Orb never guesses which LoadImage is the identity.
 function referenceRows(items) {
   if (!items.length) return "";
+  const options = [`<option value="" selected>Not used</option>`]
+    .concat(REFERENCE_SOURCES.map(([id, text]) => `<option value="${id}">${esc(text)}</option>`))
+    .join("");
   const rows = items
     .slice(0, MAX_REFERENCE_SLOTS)
-    .map((item, i) => {
-      const options = [`<option value="" selected>Not used</option>`]
-        .concat(REFERENCE_SOURCES.map(([id, text]) => `<option value="${id}">${esc(text)}</option>`))
-        .join("");
-      return `<label>${esc(item.label)}<select data-ig-ref="${i}" data-ig-ref-slot="${escAttr(item.value)}">${options}</select></label>`;
-    })
+    .map(
+      (item, i) =>
+        `<label>${esc(item.label)}<select data-ig-ref="${i}" data-ig-ref-slot="${escAttr(item.value)}">${options}</select></label>`,
+    )
     .join("");
   return `<div class="ig-heading ig-reference-heading">Reference images</div>
     <div class="image-gen-note">This workflow loads images. Point each one at what Orb should feed it, or leave it unused to keep the file the workflow was exported with.</div>
@@ -564,9 +563,9 @@ async function importGraphFile(input) {
   }
 }
 
-// Reads the reference rows back into the stored `slots.references` shape. An
-// unmapped row is simply absent — that is how "Not used" is encoded, and it keeps
-// a t2i graph's slot map byte-identical to what it was before.
+// Reads the rows back into the stored `slots.references` shape. An unmapped row is
+// simply absent — that is how "Not used" is encoded, and it keeps a t2i graph's
+// slot map byte-identical to what it was before.
 function readReferenceRows() {
   const references = [];
   for (const el of document.querySelectorAll("[data-ig-ref]")) {
@@ -646,10 +645,8 @@ async function saveSettings() {
     const droppedGraphs = next.external_comfy.user_graphs.length - (stored.external_comfy?.user_graphs?.length || 0);
     Object.assign(cfg, stored);
     await saveProfile();
-    // Deliberately does not name a cause. The picker already gates the two the
-    // user can act on (size, count), so anything the normalizer still drops here
-    // is a graph it would not store -- and this diff is a count, which cannot tell
-    // those apart. It used to blame every drop on size, including the count cap.
+    // Deliberately unattributed: the picker already gates the two causes the user
+    // can act on (size, count), and a bare count cannot tell the rest apart.
     toast(
       droppedGraphs > 0
         ? `Saved, but ${droppedGraphs} imported workflow${droppedGraphs > 1 ? "s" : ""} could not be stored`
@@ -670,13 +667,14 @@ async function saveSettings() {
 function confirmRemotePrivacy(apiUrl, graphs) {
   if (isLoopbackUrl(apiUrl)) return true;
   const sendsImages = (graphs || []).some((g) => (g?.slots?.references || []).length > 0);
-  const origin = new URL(apiUrl).origin;
-  const key = `orb:image-gen-privacy${sendsImages ? "-images" : ""}:${origin}`;
+  const key = `orb:image-gen-privacy${sendsImages ? "-images" : ""}:${new URL(apiUrl).origin}`;
   if (localStorage.getItem(key) === "acknowledged") return true;
   const accepted = window.confirm(
-    sendsImages
-      ? "This ComfyUI server is not on this machine. A workflow you assigned uses reference images, so images from your conversations and your character reference image are uploaded to that server along with your scene prompts. Other clients may read queued prompts, and uploaded and generated files remain on that server. Save this connection?"
-      : "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued prompts, and generated files remain on that server. Save this connection?",
+    "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued prompts, and generated files remain on that server. " +
+      (sendsImages
+        ? "A workflow you assigned uses reference images, so images from your conversations and your character reference image are uploaded there too. "
+        : "") +
+      "Save this connection?",
   );
   if (accepted) localStorage.setItem(key, "acknowledged");
   return accepted;
@@ -692,20 +690,21 @@ function referenceImageHtml() {
   const stored = !!referenceImage.reference_image_b64;
   // With no image there is no preview column, so the controls start at the same
   // left edge as the prompt fields above rather than floating inset.
-  const preview = stored
-    ? `<div class="ig-reference-preview"><img class="ig-reference-thumb" alt="Character reference image" src="data:${escAttr(referenceImage.reference_mime || "image/png")};base64,${escAttr(referenceImage.reference_image_b64)}"></div>`
-    : "";
   return `<div class="ig-reference-image">
-      ${preview}
+      ${stored ? `<div class="ig-reference-preview"><img class="ig-reference-thumb" alt="Character reference image" src="data:${escAttr(referenceImage.reference_mime || "image/png")};base64,${escAttr(referenceImage.reference_image_b64)}"></div>` : ""}
       <div class="ig-reference-controls">
         <input type="file" accept="image/png,image/jpeg,image/webp" data-wf-action="image_gen:referenceFile" data-wf-on="change">
-        ${stored ? `<button class="btn btn-sm" data-wf-action="image_gen:referenceClear">Clear</button>` : ""}
-        ${stored ? "" : `<span class="image-gen-note ig-reference-empty">No reference image — the character card's avatar is used.</span>`}
+        ${
+          stored
+            ? `<button class="btn btn-sm" data-wf-action="image_gen:referenceClear">Clear</button>`
+            : `<span class="image-gen-note ig-reference-empty">No reference image — the character card's avatar is used.</span>`
+        }
       </div>
     </div>`;
 }
 
-function renderReferenceImage() {
+function setReferenceImage(next) {
+  referenceImage = next;
   const host = document.getElementById("ig-reference-host");
   if (host) host.innerHTML = referenceImageHtml();
 }
@@ -719,25 +718,16 @@ async function pickReferenceImage(input) {
     return;
   }
   try {
-    const buffer = await file.arrayBuffer();
     // Chunked so a multi-MB image does not blow the argument limit of
     // String.fromCharCode, which a single spread of the whole array would.
-    const bytes = new Uint8Array(buffer);
+    const bytes = new Uint8Array(await file.arrayBuffer());
     let binary = "";
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    }
-    referenceImage = { reference_image_b64: btoa(binary), reference_mime: file.type || "image/png" };
-    renderReferenceImage();
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    setReferenceImage({ reference_image_b64: btoa(binary), reference_mime: file.type || "image/png" });
   } catch {
     toast("Could not read that image", "error");
   }
   input.value = "";
-}
-
-function clearReferenceImage() {
-  referenceImage = { reference_image_b64: "", reference_mime: "" };
-  renderReferenceImage();
 }
 
 async function populateProfile() {

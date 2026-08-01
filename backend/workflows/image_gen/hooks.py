@@ -164,8 +164,7 @@ def _metadata(
         "prompt": prompt,
         "negative_prompt": negative_prompt,
         # Which reference images went in, and where each came from. A reroll
-        # re-fetches strictly by these origins, so the picture keeps its subject
-        # and only the seed moves.
+        # re-fetches strictly by these origins, so only the seed moves.
         "references": info.get("references") or [],
         # Read back off the graph that executed, so replay can compare what an
         # image was actually rendered with rather than what its ids imply.
@@ -185,10 +184,10 @@ def _consumption(
         "negative_prompt": negative_prompt,
     }
     # The camera and the references ride both halves. generation_metadata is the
-    # replay record the UI never reads; a wrong POV or a wrong reference is exactly
-    # the failure a user needs traced, so both belong where they are looking at the
-    # bad image. *record* is whichever dict already carries them -- the fresh
-    # metadata on a generate, the stored parameters on a reroll.
+    # replay record the UI never reads; a wrong POV or reference is exactly the
+    # failure a user needs traced, so both belong where they are looking at the bad
+    # image. *record* is whichever dict already carries them -- the fresh metadata
+    # on a generate, the stored parameters on a reroll.
     for key in ("pov", "pov_source"):
         value = (record or {}).get(key)
         if value:
@@ -264,7 +263,7 @@ async def _generate_fresh(
     # with nothing to reference fails loudly -- rendering it without one would
     # produce a picture of whatever the graph's stale filename pointed at.
     references = await resolve_references(
-        {"references": graph_reference_slots(config, selected_style["workflow"])},
+        graph_reference_slots(config, selected_style["workflow"]),
         history=history,
         anchor_id=int(message["id"]),
         character_id=getattr(ctx, "character_id", None),
@@ -579,8 +578,7 @@ class _RegenCompositionCtx:
         self.agent_client = ctx.agent_client
         self.agent_model_name = ctx.agent_model_name
         self.character = ctx.character
-        # Carried for reference resolution: the `character` source reads the card's
-        # reference image (and its avatar) by id.
+        # Carried for reference resolution: `character` reads the card by id.
         self.character_id = ctx.character_id
 
 
@@ -608,19 +606,17 @@ async def reroll_gen(ctx, params, seed):
     if style_changed:
         params.pop("workflow_id", None)
         params.pop("backend_model", None)
-        # The recorded references name node ids in the OLD graph, so they cannot be
-        # replayed onto a different one. There is no history on this ctx to
-        # re-resolve from, so a new graph that needs references has to be refused
-        # here rather than submitted with its exporter's filenames still pinned.
+        # The recorded references name node ids in the OLD graph, and this ctx has
+        # no history to re-resolve from -- so a new graph that needs references is
+        # refused rather than submitted with its exporter's filenames still pinned.
         params.pop("references", None)
         if graph_reference_slots(config, style["workflow"]):
             raise ImageGenerationError(
                 f"{style['label']} uses reference images, which a reroll cannot carry over from another style. "
                 "Regenerate the image under this style instead."
             )
-    # Strictly by recorded origin -- a reroll promises that only the seed changes,
-    # so re-resolving from the branch (which may have moved on) is exactly what
-    # must not happen here.
+    # Strictly by recorded origin: a reroll promises only the seed changes, so
+    # re-resolving from a branch that may have moved on is what must not happen.
     references = await refetch_references(params.get("references"))
     resolved_seed = fold_seed(seed)
     result = await resolve_and_generate(

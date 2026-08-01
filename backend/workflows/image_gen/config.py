@@ -16,17 +16,15 @@ MAX_STYLES = 32
 MAX_USER_GRAPHS = 32
 MAX_GRAPH_BYTES = 512_000
 MAX_REFERENCE_SLOTS = 4
-# Base64 payload cap for the per-character reference image. The profile lives in a
-# JSON1 slot on `character_cards.workflow_state` that is read on every generate, so
-# an unbounded upload would be paid for on every render, not just once.
-# Sized off the picker's 10 MB raw-file cap plus base64's 4/3 inflation.
+# Base64 cap for the per-character reference image: the profile lives on
+# `character_cards.workflow_state` and is read on every generate, so an unbounded
+# upload is paid for per render. The picker's 10 MB raw cap plus base64's 4/3.
 MAX_REFERENCE_IMAGE_B64 = 13_400_000
 PROMPT_FORMATS = ("tags", "hybrid", "prose")
 DEFAULT_PROMPT_FORMAT = "hybrid"
-# Where a mapped `LoadImage` node gets its bytes from, as an ordered resolution
-# list. A pure edit graph cannot render without a reference, so a slot pinned to
-# `previous` alone hard-fails on the first Visualize of every new conversation;
-# the combined source exists so the default choice has no cold-start cliff.
+# Where a mapped `LoadImage` gets its bytes, as an ordered resolution list. The
+# combined source is the default so the choice has no cold-start cliff: a slot
+# pinned to `previous` alone hard-fails on a new conversation's first Visualize.
 REFERENCE_SOURCES: dict[str, tuple[str, ...]] = {
     "previous": ("previous",),
     "character": ("character",),
@@ -131,25 +129,13 @@ def _reference(raw: Any) -> dict | None:
 def _strip_machine_local_state(graph: dict) -> dict:
     """A deep copy of `graph` with each node's top-level `is_changed` removed.
 
-    ComfyUI's API export embeds `is_changed` -- for a `LoadImage` node, a hash of
-    the file on the *exporter's* disk. `IsChangedCache.get` returns a client-supplied
-    value verbatim and only computes the real hash when the key is absent
-    (`execution.py`), and that value is one component of the node's cache signature
-    alongside every input value (`comfy_execution/caching.py`).
-
-    So a stale hash does not mask a changed *filename* -- the filename is in the
-    signature itself. What it masks is a change of file *contents at an unchanged
-    path*, which is precisely what `LoadImage.IS_CHANGED`'s file hash exists to
-    detect: replace the file on the ComfyUI server and the render silently returns
-    the previously decoded image. Verified against ComfyUI 0.29.0, where a pinned
-    `is_changed` reproduces exactly that.
-
-    Orb's own uploads are content-addressed, so a mapped reference changes its name
-    whenever its bytes change and is safe either way. The exposure is an *unmapped*
-    loader still pointing at the exporter's filename. Stripped at import, like the
-    pinned filename it describes, so machine-local state can never reach storage or
-    a submission -- and the stored graph gets smaller before the size cap is
-    measured.
+    ComfyUI's API export embeds `is_changed` -- for a `LoadImage`, a hash of the
+    file on the *exporter's* disk. `IsChangedCache.get` returns a client-supplied
+    value verbatim (`execution.py`) as one component of the node's cache signature,
+    so a pinned hash masks a change of file *contents at an unchanged path* and the
+    render silently returns the previously decoded image (seen on ComfyUI 0.29.0).
+    Stripped at import, before the size cap is measured, so machine-local state
+    never reaches storage or a submission.
     """
     stripped = copy.deepcopy(graph)
     for node in stripped.values():
@@ -181,9 +167,8 @@ def _user_graph(raw: Any) -> dict | None:
     # rather than mapping a checkpoint slot for Orb's selection to override.
     if not all(name in slots for name in ("positive", "seed", "output")):
         return None
-    # `references` is never required, so a t2i graph normalizes exactly as before:
-    # an unmapped LoadImage is simply absent from the list, which is how "None"
-    # is encoded.
+    # Never required, so a t2i graph normalizes exactly as before: an unmapped
+    # LoadImage is simply absent from the list, which is how "Not used" is encoded.
     references_raw = slots_raw.get("references")
     references = [item for item in map(_reference, references_raw) if item] if isinstance(references_raw, list) else []
     if references:
@@ -270,10 +255,9 @@ REFERENCE_MIMES = ("image/png", "image/jpeg", "image/webp")
 
 def normalize_profile(raw: Mapping[str, Any] | None) -> dict:
     raw = raw if isinstance(raw, Mapping) else {}
-    # The per-character reference image, for graphs whose LoadImage slots resolve
-    # to `character`. Dropped rather than truncated when oversized -- half a base64
-    # payload is not a smaller image, it is a corrupt one. Both halves must survive
-    # together: bytes with no usable mime are data ComfyUI cannot be told how to read.
+    # The per-character reference image, for slots resolving to `character`. Dropped
+    # rather than truncated when oversized -- half a base64 payload is not a smaller
+    # image. Both halves ride together: bytes with no mime cannot be read by ComfyUI.
     image_raw = raw.get("reference_image_b64")
     image = image_raw.strip() if isinstance(image_raw, str) else ""
     mime = _text(raw.get("reference_mime"), 64).lower()

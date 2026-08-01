@@ -108,13 +108,11 @@ from ComfyUI instead.
 ## Reference images
 
 Edit workflows - Qwen-Image-Edit, Flux Kontext, Krea Identity Edit, IPAdapter -
-take one or more input images through **Load Image** nodes. Orb can fill those
-nodes for you. Each render uploads the image to ComfyUI and points the node at
-the uploaded file.
-
-Orb fills only the **Load Image** nodes that the workflow already contains. Orb
-never adds nodes. To use two reference images, export the workflow with two
-**Load Image** nodes.
+take one or more input images through **Load Image** nodes. Orb fills those
+nodes for you: each render uploads the image to ComfyUI and points the node at
+the uploaded file. Orb fills only the **Load Image** nodes the workflow already
+contains and never adds nodes, so a workflow that takes two reference images
+must be exported with two **Load Image** nodes.
 
 Each reference row offers these sources:
 
@@ -127,10 +125,8 @@ Each reference row offers these sources:
 The previous image is the most recent generated image or uploaded image before
 the reply you are visualizing. If a reply has image variants, Orb sends the
 variant that is currently shown. Orb never sends the image already attached to
-the reply you are visualizing.
-
-When no source resolves, the render fails and names the slot. Orb does not
-substitute a different image.
+the reply you are visualizing. When no source resolves, the render fails and
+names the slot - Orb does not substitute a different image.
 
 !!! note
     These workflows take the output size from the reference image or from a
@@ -139,25 +135,21 @@ substitute a different image.
 
 ### Set the character reference image
 
-1. Open a conversation with the character.
-2. Open **Image Generation** settings.
-3. Find **This Character Only**.
-4. Under **Reference image**, select an image file. The limit is 10 MB.
-5. Select **Save**.
+1. Open a conversation with the character, then open **Image Generation**
+   settings and find **This Character Only**.
+2. Under **Reference image**, select an image file. The limit is 10 MB.
+3. Select **Save**.
 
 When you set no reference image, Orb sends the character card's avatar.
 
 ### Reference images and reroll
 
 Reroll changes the seed only. Orb records where each reference came from and
-fetches the same image again, so the picture keeps its subject.
-
-- If the source image was deleted, or its bytes were evicted, the reroll fails.
-  Use **Regenerate** instead.
-- A character reference is read again from the character profile. Change the
-  reference image and reroll to apply it.
-- You cannot reroll onto a different style whose workflow uses reference
-  images. Use **Regenerate**.
+fetches the same image again, so the picture keeps its subject. A character
+reference is re-read from the character profile, so changing it and rerolling
+applies the new image. If the source image was deleted or its bytes were
+evicted, or the reroll targets a different style whose workflow uses reference
+images, the reroll fails - use **Regenerate** instead.
 
 !!! warning
     A ComfyUI server that is not on this machine receives your conversation

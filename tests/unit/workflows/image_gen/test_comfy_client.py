@@ -169,13 +169,12 @@ async def test_unavailable_queue_endpoint_does_not_fail_the_render():
 
 @pytest.mark.asyncio
 async def test_reference_upload_posts_multipart_and_returns_the_widget_value():
-    seen: dict[str, object] = {}
+    seen: dict[str, str] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/upload/image"
-        seen["auth"] = request.headers.get("authorization")
-        body = request.content.decode("latin-1")
-        seen["body"] = body
+        seen["auth"] = request.headers.get("authorization") or ""
+        seen["body"] = request.content.decode("latin-1")
         return httpx.Response(200, json={"name": "orb_0123456789abcdef.webp", "subfolder": "orb", "type": "input"})
 
     client = ComfyClient("http://comfy.test", "sekrit", transport=httpx.MockTransport(handler))
@@ -185,7 +184,7 @@ async def test_reference_upload_posts_multipart_and_returns_the_widget_value():
     # under the input directory, which is what the LoadImage widget must carry.
     assert value == "orb/orb_0123456789abcdef.webp"
     assert seen["auth"] == "Bearer sekrit"
-    body = str(seen["body"])
+    body = seen["body"]
     assert 'name="image"; filename="orb_0123456789abcdef.webp"' in body
     assert 'name="subfolder"' in body and "orb" in body
     assert 'name="type"' in body and "input" in body

@@ -17,9 +17,8 @@ from .display_encode import shrink_for_display
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ProgressCallback = Callable[[str, Mapping[str, Any]], Awaitable[None] | None]
 
-# Every reference Orb uploads lands in this one subfolder of ComfyUI's input
-# directory, so the files it leaves behind are identifiable as Orb's. Core ComfyUI
-# exposes no delete API for input files, so the directory grows by one file per
+# One subfolder of ComfyUI's input directory, so Orb's leftovers are identifiable.
+# Core ComfyUI exposes no delete API for input files, so it grows by one file per
 # distinct reference; content-addressed names keep repeats from adding to that.
 REFERENCE_SUBFOLDER = "orb"
 _UPLOAD_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
@@ -102,14 +101,12 @@ class ComfyClient:
         self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.transport = transport
 
+    def _http(self, timeout: float) -> httpx.AsyncClient:
+        return httpx.AsyncClient(base_url=self.api_url, headers=self.headers, timeout=timeout, transport=self.transport)
+
     async def _json(self, method: str, path: str, *, timeout: float = 15.0, json_body: Any = None) -> Any:
         try:
-            async with httpx.AsyncClient(
-                base_url=self.api_url,
-                headers=self.headers,
-                timeout=timeout,
-                transport=self.transport,
-            ) as client:
+            async with self._http(timeout) as client:
                 response = await client.request(method, path, json=json_body)
                 if response.status_code >= 400:
                     try:
@@ -159,24 +156,16 @@ class ComfyClient:
     ) -> str:
         """Upload one reference image and return the widget value for `LoadImage`.
 
-        ComfyUI's ``/upload/image`` takes multipart ``image``/``subfolder``/``type``/
-        ``overwrite`` and answers ``{name, subfolder, type}``; a bare
-        ``"<subfolder>/<name>"`` is what ``folder_paths.get_annotated_filepath``
-        resolves under the input directory, so that is what the widget carries.
-
-        The name is content-addressed off `digest`: repeat renders of the same
-        reference overwrite one file instead of filling the input directory, and a
-        reroll resolves to the same name it did the first time.
+        ``/upload/image`` takes multipart ``image``/``subfolder``/``type``/``overwrite``
+        and answers ``{name, subfolder, type}``; a bare ``"<subfolder>/<name>"`` is what
+        ``folder_paths.get_annotated_filepath`` resolves under the input directory, so
+        that is what the widget carries. The name is content-addressed off `digest`, so
+        repeat renders overwrite one file and a reroll resolves to the same name.
         """
         name = f"orb_{digest[:16]}.{_UPLOAD_EXTENSIONS.get(mime, 'png')}"
         await _emit(progress, "uploading", {"name": name, "bytes": len(data)})
         try:
-            async with httpx.AsyncClient(
-                base_url=self.api_url,
-                headers=self.headers,
-                timeout=timeout,
-                transport=self.transport,
-            ) as client:
+            async with self._http(timeout) as client:
                 response = await client.post(
                     "/upload/image",
                     files={"image": (name, data, mime or "application/octet-stream")},
@@ -291,12 +280,7 @@ class ComfyClient:
         if not image or not all(isinstance(image.get(k), str) for k in ("filename", "subfolder", "type")):
             raise ImageGenerationError("ComfyUI completed without the configured image output")
         try:
-            async with httpx.AsyncClient(
-                base_url=self.api_url,
-                headers=self.headers,
-                timeout=min(60.0, timeout_seconds),
-                transport=self.transport,
-            ) as client:
+            async with self._http(min(60.0, timeout_seconds)) as client:
                 response = await client.get(
                     "/view",
                     params={k: image[k] for k in ("filename", "subfolder", "type")},

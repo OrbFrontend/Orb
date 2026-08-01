@@ -40,8 +40,16 @@ def _msg(msg_id: int, *, workflow=(), user=()) -> dict:
     return {"id": msg_id, "workflow_attachments": list(workflow), "user_attachments": list(user)}
 
 
-def _slots(source: str = "previous", node: str = "72") -> dict:
-    return {"references": [{"slot": [node, "image"], "source": source, "label": f"Load Image (#{node})"}]}
+def _upload(att_id: int, data: bytes) -> dict:
+    return {"id": att_id, "mime_type": "image/jpeg", "data_b64": _b64(data)}
+
+
+def _entries(source: str = "previous", node: str = "72") -> list[dict]:
+    return [{"slot": [node, "image"], "source": source, "label": f"Load Image (#{node})"}]
+
+
+async def _resolve(entries, history, anchor_id=99, character_id=None):
+    return await refs.resolve_references(entries, history=history, anchor_id=anchor_id, character_id=character_id)
 
 
 @pytest.fixture(autouse=True)
@@ -58,124 +66,40 @@ def _no_db(monkeypatch):
 @pytest.mark.asyncio
 async def test_no_mapped_slots_resolves_to_nothing():
     """A plain text-to-image graph must not pay for any of this."""
-    assert await refs.resolve_references({}, history=[], anchor_id=1, character_id=None) == ()
+    assert await _resolve([], []) == ()
 
 
+# Every rule the walk back applies, as one table. `anchor` is the message being
+# visualized, and `origin` is the row those rules must land on.
 @pytest.mark.asyncio
-async def test_the_walk_back_picks_the_sibling_the_user_is_looking_at():
-    # Reroll siblings share a group root; active_sibling_id names the one on
-    # screen. Taking the newest instead would reference an image the user
-    # explicitly swiped away from.
-    root = _gen(10, PNG, active_sibling_id=10)
-    sibling = _gen(11, OTHER, parent_attachment_id=10)
-    history = [_msg(1, workflow=[root, sibling]), _msg(2)]
-
-    resolved = await refs.resolve_references(_slots(), history=history, anchor_id=2, character_id=None)
-
-    assert resolved[0].data == PNG
-    assert resolved[0].origin == "attachment:10"
-    assert resolved[0].slot == ("72", "image")
-
-
-@pytest.mark.asyncio
-async def test_a_group_with_no_active_sibling_uses_the_newest():
-    history = [_msg(1, workflow=[_gen(10, PNG), _gen(11, OTHER, parent_attachment_id=10)]), _msg(2)]
-    resolved = await refs.resolve_references(_slots(), history=history, anchor_id=2, character_id=None)
-    assert resolved[0].origin == "attachment:11"
-
-
-@pytest.mark.asyncio
-async def test_an_evicted_row_is_skipped_for_the_next_usable_image():
-    evicted = _gen(20, data=PNG)
-    evicted["data_b64"] = "[evicted]"
-    history = [_msg(1, workflow=[_gen(10, PNG)]), _msg(2, workflow=[evicted]), _msg(3)]
-
-    resolved = await refs.resolve_references(_slots(), history=history, anchor_id=3, character_id=None)
-
-    assert resolved[0].origin == "attachment:10"
-
-
-@pytest.mark.asyncio
-async def test_the_anchor_message_cannot_reference_its_own_image():
-    """Otherwise a regenerate edits the render already on the message instead of
-    the scene, and each pass drifts further from what the reply describes."""
-    history = [_msg(1, workflow=[_gen(10, PNG)]), _msg(2, workflow=[_gen(20, OTHER)])]
-    resolved = await refs.resolve_references(_slots(), history=history, anchor_id=2, character_id=None)
-    assert resolved[0].origin == "attachment:10"
-
-
-@pytest.mark.asyncio
-async def test_a_user_upload_counts_as_a_previous_image():
-    upload = {"id": 5, "mime_type": "image/jpeg", "data_b64": _b64(OTHER)}
-    history = [_msg(1, user=[upload]), _msg(2)]
-
-    resolved = await refs.resolve_references(_slots(), history=history, anchor_id=2, character_id=None)
-
-    # User attachments are only readable per-message, so the origin carries both ids.
-    assert resolved[0].origin == "upload:1:5"
-    assert resolved[0].data == OTHER
-
-
-@pytest.mark.asyncio
-async def test_a_generated_image_beats_an_upload_on_the_same_message():
-    upload = {"id": 5, "mime_type": "image/jpeg", "data_b64": _b64(OTHER)}
-    history = [_msg(1, workflow=[_gen(10, PNG)], user=[upload]), _msg(2)]
-    resolved = await refs.resolve_references(_slots(), history=history, anchor_id=2, character_id=None)
-    assert resolved[0].origin == "attachment:10"
-
-
-@pytest.mark.asyncio
-async def test_the_character_source_falls_back_to_the_card_avatar(monkeypatch):
-    async def avatar(card_id):
-        assert card_id == "card-1"
-        return AVATAR, "image/png"
-
-    monkeypatch.setattr(refs, "get_character_avatar", avatar)
-
-    resolved = await refs.resolve_references(_slots("character"), history=[], anchor_id=1, character_id="card-1")
-
-    assert resolved[0].data == AVATAR
-    assert resolved[0].origin == "character:card-1"
-
-
-@pytest.mark.asyncio
-async def test_an_explicit_character_reference_beats_the_avatar(monkeypatch):
-    async def avatar(_card_id):
-        return AVATAR, "image/png"
-
-    monkeypatch.setattr(refs, "get_character_avatar", avatar)
-    profile = {"reference_image_b64": _b64(OTHER), "reference_mime": "image/png"}
-
-    resolved = await refs.resolve_references(
-        _slots("character"), history=[], anchor_id=1, character_id="card-1", profile=profile
-    )
-
-    assert resolved[0].data == OTHER
-
-
-@pytest.mark.asyncio
-async def test_the_combined_source_prefers_the_previous_image(monkeypatch):
-    async def avatar(_card_id):
-        return AVATAR, "image/png"
-
-    monkeypatch.setattr(refs, "get_character_avatar", avatar)
-    history = [_msg(1, workflow=[_gen(10, PNG)]), _msg(2)]
-
-    resolved = await refs.resolve_references(
-        _slots("previous_or_character"), history=history, anchor_id=2, character_id="card-1"
-    )
-    assert resolved[0].data == PNG
-
-    # ...and falls through on the first Visualize of a new conversation, which is
-    # the cold-start cliff this source exists to remove.
-    cold = await refs.resolve_references(_slots("previous_or_character"), history=[_msg(1)], anchor_id=1, character_id="card-1")
-    assert cold[0].data == AVATAR
+@pytest.mark.parametrize(
+    ("history", "anchor", "origin"),
+    [
+        # Reroll siblings share a group root; active_sibling_id names the one on
+        # screen. Taking the newest would reference an image the user swiped away.
+        ([_msg(1, workflow=[_gen(10, active_sibling_id=10), _gen(11, OTHER, parent_attachment_id=10)])], 99, "attachment:10"),
+        ([_msg(1, workflow=[_gen(10), _gen(11, OTHER, parent_attachment_id=10)])], 99, "attachment:11"),
+        # An evicted row holds a sentinel, not bytes, so the walk keeps going.
+        ([_msg(1, workflow=[_gen(10)]), _msg(2, workflow=[_gen(20) | {"data_b64": "[evicted]"}])], 99, "attachment:10"),
+        # The anchor is excluded, or a regenerate would edit the render already on
+        # the message instead of the scene, drifting further from the reply each pass.
+        ([_msg(1, workflow=[_gen(10)]), _msg(2, workflow=[_gen(20, OTHER)])], 2, "attachment:10"),
+        # A user upload counts, and its origin carries the message id too, since
+        # user attachments are only readable per-message.
+        ([_msg(1, user=[_upload(5, OTHER)])], 99, "upload:1:5"),
+        ([_msg(1, workflow=[_gen(10)], user=[_upload(5, OTHER)])], 99, "attachment:10"),
+    ],
+    ids=["active sibling", "newest sibling", "evicted skipped", "anchor excluded", "upload counts", "generated wins"],
+)
+async def test_the_walk_back_lands_on_the_image_the_user_is_looking_at(history, anchor, origin):
+    resolved = await _resolve(_entries(), history, anchor_id=anchor)
+    assert (resolved[0].origin, resolved[0].slot) == (origin, ("72", "image"))
 
 
 @pytest.mark.asyncio
 async def test_both_sources_empty_names_the_slot_and_what_was_tried():
     with pytest.raises(ImageGenerationError) as raised:
-        await refs.resolve_references(_slots("previous_or_character"), history=[_msg(1)], anchor_id=1, character_id="card-1")
+        await _resolve(_entries("previous_or_character"), [_msg(1)], character_id="card-1")
     message = str(raised.value)
     assert "Load Image (#72)" in message
     assert "previous image" in message and "character reference" in message
@@ -187,21 +111,18 @@ async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
         return AVATAR, "image/png"
 
     monkeypatch.setattr(refs, "get_character_avatar", avatar)
-    slots = {
-        "references": [
-            {"slot": ["72", "image"], "source": "character", "label": "a"},
-            {"slot": ["90", "image"], "source": "character", "label": "b"},
-        ]
-    }
+    entries = _entries("character", "72") + _entries("character", "90")
 
-    resolved = await refs.resolve_references(slots, history=[], anchor_id=1, character_id="card-1")
+    resolved = await _resolve(entries, [], character_id="card-1")
 
-    assert len(resolved) == 2
     # One digest, so the adapter uploads one file and patches both slots with it.
+    assert len(resolved) == 2
     assert resolved[0].digest == resolved[1].digest
 
 
 # ── replay ───────────────────────────────────────────────────────────────────
+
+RECORDED = [{"slot": ["72", "image"], "source": "previous", "origin": "attachment:10", "digest": "x"}]
 
 
 @pytest.mark.asyncio
@@ -211,37 +132,25 @@ async def test_a_reroll_refetches_strictly_by_recorded_origin(monkeypatch):
         return {"id": 10, "mime_type": "image/png", "data_b64": _b64(PNG)}
 
     monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
-    recorded = [{"slot": ["72", "image"], "source": "previous", "origin": "attachment:10", "digest": "x"}]
 
-    resolved = await refs.refetch_references(recorded)
+    resolved = await refs.refetch_references(RECORDED)
 
-    assert resolved[0].data == PNG
-    assert resolved[0].origin == "attachment:10"
+    assert (resolved[0].data, resolved[0].origin) == (PNG, "attachment:10")
 
 
 @pytest.mark.asyncio
-async def test_a_deleted_origin_fails_rather_than_substituting(monkeypatch):
+@pytest.mark.parametrize("row", [None, {"id": 10, "mime_type": "image/png", "data_b64": "[evicted]"}])
+async def test_a_gone_or_evicted_origin_fails_rather_than_substituting(monkeypatch, row):
     """A reroll promises the same picture with a different seed. Re-resolving
     would hand back a different subject and report success."""
 
-    async def gone(_att_id):
-        return None
+    async def lookup(_att_id):
+        return row
 
-    monkeypatch.setattr(refs, "get_workflow_attachment_by_id", gone)
-    recorded = [{"slot": ["72", "image"], "source": "previous", "origin": "attachment:10", "digest": "x"}]
+    monkeypatch.setattr(refs, "get_workflow_attachment_by_id", lookup)
 
     with pytest.raises(ImageGenerationError, match="cannot be reproduced exactly"):
-        await refs.refetch_references(recorded)
-
-
-@pytest.mark.asyncio
-async def test_an_evicted_origin_fails_the_same_way(monkeypatch):
-    async def evicted(_att_id):
-        return {"id": 10, "mime_type": "image/png", "data_b64": "[evicted]"}
-
-    monkeypatch.setattr(refs, "get_workflow_attachment_by_id", evicted)
-    with pytest.raises(ImageGenerationError):
-        await refs.refetch_references([{"slot": ["72", "image"], "source": "previous", "origin": "attachment:10"}])
+        await refs.refetch_references(RECORDED)
 
 
 @pytest.mark.asyncio

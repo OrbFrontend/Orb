@@ -203,11 +203,9 @@ test("a reference row names the slot, the source, and where the bytes came from"
   assert.ok(html.includes("«previous image, else character reference — from a generated image in this chat»"));
   assert.ok(html.includes("<dt>Reference« #90»</dt>"));
   assert.ok(html.includes("«character reference — from the character»"));
-});
 
-test("an image rendered without references shows no reference row", () => {
-  const html = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, "", MARKERS);
-  assert.ok(!html.includes("<dt>Reference"));
+  // A workflow with no reference slots records none, so the row is omitted.
+  assert.ok(!attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, "", MARKERS).includes("<dt>Reference"));
 });
 
 test("a hostile recorded reference is escaped like every other field", () => {

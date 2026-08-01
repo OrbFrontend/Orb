@@ -55,11 +55,8 @@ def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def graph_reference_slots(config: Mapping[str, Any], graph_id: str) -> list[Mapping[str, Any]]:
-    """The reference slots the workflow `graph_id` maps, or [] for anything else.
-
-    The config-level read, so the hook can resolve conversation images before the
-    engine is entered without deep-copying a whole graph it will not patch.
-    """
+    """The reference slots `graph_id` maps, config-level so the hook can resolve
+    conversation images without deep-copying a graph it will not patch."""
     for item in config["external_comfy"]["user_graphs"]:
         if item["id"] == graph_id:
             return copy.deepcopy(reference_slots(item["slots"]))
@@ -170,10 +167,9 @@ def patch_graph(
 def is_image_upload(spec: Any) -> bool:
     """Whether an `/object_info` input spec is an upload widget.
 
-    `/object_info` marks these as ``[[...files...], {"image_upload": true}]`` --
-    the combo lists the server's input directory, and the flag says the widget
-    accepts a file the client uploads. That flag is the typing rule for a
-    reference slot, exactly as a STRING/INT kind is the rule for the others.
+    Marked as ``[[...files...], {"image_upload": true}]`` -- the combo lists the
+    server's input directory. That flag is the typing rule for a reference slot,
+    exactly as a STRING/INT kind is the rule for the others.
     """
     if not isinstance(spec, (list, tuple)) or len(spec) < 2 or not isinstance(spec[0], list):
         return False
@@ -184,9 +180,8 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
     if not graph:
         raise ImageGenerationError("The selected workflow is empty")
     # A mapped reference's widget value is replaced per render with a file this
-    # server does not have yet, so its combo membership says nothing about whether
-    # the graph can run. Without this exemption Test connection rejects every edit
-    # workflow, naming the exporter's filename as "no longer available".
+    # server does not have yet, so its combo membership says nothing. Without the
+    # exemption, Test connection rejects every edit workflow.
     mapped = {(str(entry["slot"][0]), str(entry["slot"][1])) for entry in reference_slots(slots) if entry.get("slot")}
     for node_id, node in graph.items():
         if (
@@ -210,10 +205,9 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
             if isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list) and not isinstance(value, list):
                 if (str(node_id), name) in mapped or value in spec[0]:
                     continue
-                # An unmapped upload widget carries a filename from whatever machine
-                # exported the graph. "No longer available on this server" reads as a
-                # broken install; the actionable answer is that it is either missing
-                # there or belongs on a reference slot.
+                # An unmapped upload widget carries the exporting machine's filename.
+                # "No longer available" reads as a broken install; the actionable
+                # answer is to upload it there or map the slot.
                 if is_image_upload(spec):
                     raise ImageGenerationError(
                         f"Node {node_id} needs image {value!r} on the ComfyUI server, or map it as a reference image"
@@ -225,8 +219,8 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
         _input_slot(graph, slots.get(role), role)
     if "checkpoint" in slots:
         _input_slot(graph, slots["checkpoint"], "checkpoint")
-    # A reference pointing at a node the graph no longer has would otherwise only
-    # surface mid-render, after the upload and a minute of queue time.
+    # A dangling reference would otherwise only surface mid-render, after the
+    # upload and a minute of queue time.
     for entry in reference_slots(slots):
         _input_slot(graph, entry.get("slot"), "reference image")
     output = slots.get("output")
