@@ -40,7 +40,11 @@ const REFERENCE_SOURCES = [
 ];
 // Ceiling mirrored from MAX_REFERENCE_SLOTS in the backend config normalizer.
 const MAX_REFERENCE_SLOTS = 4;
-const MAX_REFERENCE_IMAGE_BYTES = 3_000_000;
+// Mirrored from MAX_USER_GRAPHS. Enforced at the picker for the same reason the
+// size cap is: the normalizer truncates the overflow, and a count that comes back
+// short cannot say which workflow went missing or why.
+const MAX_USER_GRAPHS = 32;
+const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
 
 // How a style's prompt format reads next to its name, in both pickers. One
 // builder, because the summary below is written twice -- once at render, once as
@@ -527,6 +531,8 @@ async function importGraphFile(input) {
   const picker = document.getElementById("ig-graph-picker");
   if (!file || !picker) return;
   try {
+    if (draft.graphs.length >= MAX_USER_GRAPHS)
+      throw new Error(`Orb stores at most ${MAX_USER_GRAPHS} imported workflows. Remove one before importing another.`);
     const graph = file.name.toLowerCase().endsWith(".png")
       ? graphFromPng(await file.arrayBuffer())
       : graphFromApiJson(await file.text());
@@ -640,9 +646,13 @@ async function saveSettings() {
     const droppedGraphs = next.external_comfy.user_graphs.length - (stored.external_comfy?.user_graphs?.length || 0);
     Object.assign(cfg, stored);
     await saveProfile();
+    // Deliberately does not name a cause. The picker already gates the two the
+    // user can act on (size, count), so anything the normalizer still drops here
+    // is a graph it would not store -- and this diff is a count, which cannot tell
+    // those apart. It used to blame every drop on size, including the count cap.
     toast(
       droppedGraphs > 0
-        ? `Saved, but ${droppedGraphs} imported workflow${droppedGraphs > 1 ? "s were" : " was"} rejected as too large`
+        ? `Saved, but ${droppedGraphs} imported workflow${droppedGraphs > 1 ? "s" : ""} could not be stored`
         : "Image generation settings saved",
       droppedGraphs > 0 ? "error" : undefined,
     );
@@ -704,7 +714,7 @@ async function pickReferenceImage(input) {
   const file = input.files?.[0];
   if (!file) return;
   if (file.size > MAX_REFERENCE_IMAGE_BYTES) {
-    toast("That image is too large — use one under 3 MB", "error");
+    toast("That image is too large — use one under 10 MB", "error");
     input.value = "";
     return;
   }

@@ -142,7 +142,7 @@ substitute a different image.
 1. Open a conversation with the character.
 2. Open **Image Generation** settings.
 3. Find **This Character Only**.
-4. Under **Reference image**, select an image file. The limit is 3 MB.
+4. Under **Reference image**, select an image file. The limit is 10 MB.
 5. Select **Save**.
 
 When you set no reference image, Orb sends the character card's avatar.

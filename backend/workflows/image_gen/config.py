@@ -13,13 +13,14 @@ from .pov import normalize_mode as normalize_pov_mode
 
 WORKFLOW_ID = "image_gen"
 MAX_STYLES = 32
-MAX_USER_GRAPHS = 16
+MAX_USER_GRAPHS = 32
 MAX_GRAPH_BYTES = 512_000
 MAX_REFERENCE_SLOTS = 4
 # Base64 payload cap for the per-character reference image. The profile lives in a
 # JSON1 slot on `character_cards.workflow_state` that is read on every generate, so
 # an unbounded upload would be paid for on every render, not just once.
-MAX_REFERENCE_IMAGE_B64 = 4_000_000
+# Sized off the picker's 10 MB raw-file cap plus base64's 4/3 inflation.
+MAX_REFERENCE_IMAGE_B64 = 13_400_000
 PROMPT_FORMATS = ("tags", "hybrid", "prose")
 DEFAULT_PROMPT_FORMAT = "hybrid"
 # Where a mapped `LoadImage` node gets its bytes from, as an ordered resolution

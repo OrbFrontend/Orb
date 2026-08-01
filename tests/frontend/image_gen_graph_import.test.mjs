@@ -47,6 +47,35 @@ test("refuses a graph too large for the config slot", () => {
   assert.throws(() => graphFromApiJson(JSON.stringify(huge)), /too large/);
 });
 
+// The cap is a UTF-8 byte count on the backend. Measuring JSON.stringify().length
+// here instead counted UTF-16 code units, so a CJK prompt weighed a third of what
+// the normalizer would weigh: the picker accepted the graph, the save silently
+// came back one workflow short.
+test("measures the size cap in UTF-8 bytes, not UTF-16 code units", () => {
+  const cjk = {
+    1: { class_type: "CLIPTextEncode", inputs: { text: "幻想的な風景、細部まで描写された".repeat(12000) } },
+    2: { class_type: "KSampler", inputs: { seed: 1 } },
+    3: { class_type: "SaveImage", inputs: { images: ["2", 0] } },
+  };
+  const serialized = JSON.stringify(cjk);
+  assert.ok(serialized.length < 512_000, "precondition: under the cap when counted as UTF-16 code units");
+  assert.ok(new TextEncoder().encode(serialized).length > 512_000, "precondition: over the cap in real bytes");
+  assert.throws(() => graphFromApiJson(serialized), /too large/);
+});
+
+// The backend strips `is_changed` before it measures, so measuring with the hashes
+// still attached bounced graphs the normalizer would have stored happily.
+test("strips is_changed before measuring, as the backend does", () => {
+  const node = (i) => ({ class_type: "LoadImage", inputs: { image: `${i}.png` }, is_changed: ["a".repeat(600)] });
+  const graph = { 1: { class_type: "CLIPTextEncode", inputs: { text: "" } }, 2: { class_type: "KSampler", inputs: { seed: 1 } } };
+  for (let i = 3; i < 800; i++) graph[i] = node(i);
+  assert.ok(JSON.stringify(graph).length > 512_000, "precondition: over the cap only because of is_changed");
+  const parsed = graphFromApiJson(JSON.stringify(graph));
+  // Accepted, and the caller still gets the graph it passed in — the strip is for
+  // measurement only, and the backend repeats it on arrival.
+  assert.deepEqual(parsed[3].is_changed, graph[3].is_changed);
+});
+
 test("builds explicit slot candidates", () => {
   const candidates = slotCandidates(GRAPH, NODE_TYPES);
   assert.equal(candidates.text[0].label, "Positive (#1) — text");

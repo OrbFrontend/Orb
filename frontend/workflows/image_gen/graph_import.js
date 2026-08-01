@@ -11,8 +11,13 @@ const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
 // Mirrors MAX_GRAPH_BYTES in backend/workflows/image_gen/config.py. Checked here
 // too so an oversized graph is refused at the file picker, where the user can
-// still see which file they chose, instead of being silently dropped by
-// normalization after save.
+// still see which file they chose, instead of being dropped by normalization
+// after save and reported only as a count that came back short.
+//
+// The measurement has to match the backend's or the two gates disagree: it counts
+// UTF-8 bytes of the graph *after* `is_changed` is stripped. Counting UTF-16 code
+// units instead let a CJK graph through the picker at a third of its real size,
+// and counting before the strip bounced graphs the backend would have stored.
 export const MAX_GRAPH_BYTES = 512_000;
 
 const FALLBACK_TEXT_INPUTS = ["text"];
@@ -30,6 +35,27 @@ const FALLBACK_IMAGE_INPUTS = ["image"];
 // machine exported the PNG.
 const MODEL_INPUTS = ["ckpt_name", "unet_name"];
 
+// Mirrors `_strip_machine_local_state` in the backend normalizer: ComfyUI's API
+// export embeds a per-node `is_changed` hash that is meaningless off the machine
+// that wrote it. Copies rather than mutates — the caller stores the graph it
+// passed in, and the backend does its own strip on arrival.
+function withoutMachineLocalState(graph) {
+  const stripped = {};
+  for (const [nodeId, node] of Object.entries(graph)) {
+    if (node && typeof node === "object" && !Array.isArray(node) && "is_changed" in node) {
+      const { is_changed: _drop, ...rest } = node;
+      stripped[nodeId] = rest;
+    } else {
+      stripped[nodeId] = node;
+    }
+  }
+  return stripped;
+}
+
+function graphByteLength(graph) {
+  return new TextEncoder().encode(JSON.stringify(withoutMachineLocalState(graph))).length;
+}
+
 function parseGraphJson(text) {
   let value;
   try {
@@ -46,7 +72,7 @@ function parseGraphJson(text) {
   if (!nodes.length || nodes.some(([, node]) => !node || typeof node.class_type !== "string" || !node.inputs)) {
     throw new Error("The file is not a ComfyUI API workflow.");
   }
-  if (JSON.stringify(value).length > MAX_GRAPH_BYTES) {
+  if (graphByteLength(value) > MAX_GRAPH_BYTES) {
     throw new Error("This workflow is too large to store in Orb's settings.");
   }
   return value;
