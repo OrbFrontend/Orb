@@ -141,7 +141,7 @@ substitute a different image.
 
 1. Open a conversation with the character.
 2. Open **Image Generation** settings.
-3. Find **Per-character Prompt**.
+3. Find **This Character Only**.
 4. Under **Reference image**, select an image file. The limit is 3 MB.
 5. Select **Save**.
 
@@ -231,7 +231,7 @@ is name of a non-OC character, some image models do better with canon character 
 
 1. Open a conversation with the character.
 2. Open **Image Generation** settings.
-3. Find **Per-character Prompt**.
+3. Find **This Character Only**.
 4. Enter comma-separated appearance tags in **Positive prompt**.
 5. Enter unwanted character features in **Negative prompt**.
 6. Select **Save**.

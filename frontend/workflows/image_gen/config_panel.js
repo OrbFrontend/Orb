@@ -431,7 +431,7 @@ function openSettings(expandStyleId = "") {
       <button class="btn btn-sm" data-wf-action="image_gen:styleAdd">Add style</button>
     </section>
     <section class="ig-section">
-      <div class="ig-heading">Per-character prompt</div>
+      <div class="ig-heading">This Character Only</div>
       <div id="ig-profile" class="image-gen-note">Open a conversation to edit its character-specific prompt.</div>
     </section>
     <section class="ig-section">
@@ -747,11 +747,11 @@ async function populateProfile() {
       reference_mime: res.profile.reference_mime || "",
     };
     el.innerHTML = `<div class="ig-profile-fields">
-        <label>Positive prompt<textarea id="ig-appearance" placeholder="Per-character permanent tags, fill as much as you can (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
-        <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, colored, color). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
+        <label>Positive prompt<textarea id="ig-appearance" placeholder="Permanent tags, fill with permanent traits (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
+        <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Things to never render (e.g. 3D, colored, color). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
         <div class="ig-profile-reference">
           <span class="ig-profile-reference-label">Reference image</span>
-          <span class="image-gen-note">Used by workflows whose reference slots are set to the character.</span>
+          <span class="image-gen-note">Used by workflows with reference image slots.</span>
           <div id="ig-reference-host">${referenceImageHtml()}</div>
         </div>
       </div>`;
