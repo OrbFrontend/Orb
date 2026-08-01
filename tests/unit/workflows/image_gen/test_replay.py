@@ -8,8 +8,14 @@ with a different image and reports success.
 
 from __future__ import annotations
 
+import pytest
+
+from backend.workflows.image_gen import hooks
 from backend.workflows.image_gen.config import normalize_config
-from backend.workflows.image_gen.engine import resolve_render_target
+from backend.workflows.image_gen.engine import (
+    ImageGenerationError,
+    resolve_render_target,
+)
 
 GRAPH = {
     "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
@@ -57,3 +63,70 @@ def test_a_user_graph_replay_without_a_recorded_model_falls_through_to_the_style
     config = _config(user_graphs=[{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}])
     target = resolve_render_target(config, "anime", {"workflow_id": "user_a", "backend_model": None})
     assert (target.graph_id, target.checkpoint) == ("user_a", "current.safetensors")
+
+
+# ── reference images on reroll ───────────────────────────────────────────────
+
+EDIT_GRAPH = {**GRAPH, "r": {"class_type": "LoadImage", "inputs": {"image": "exported.png"}}}
+EDIT_SLOTS = {**SLOTS, "references": [{"slot": ["r", "image"], "source": "character", "label": "Load Image (#r)"}]}
+
+
+class _RerollCtx:
+    def __init__(self, prior_style: str):
+        self.prior_consumption_metadata = {"style_id": prior_style}
+
+
+def _edit_config() -> dict:
+    return normalize_config(
+        {
+            "default_style": "edit",
+            "external_comfy": {
+                "user_graphs": [{"id": "user_edit", "label": "Edit", "graph": EDIT_GRAPH, "slots": EDIT_SLOTS}],
+                "styles": [
+                    {"id": "edit", "label": "Edit", "workflow": "user_edit"},
+                    {"id": "plain", "label": "Plain"},
+                ],
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_style_swap_on_reroll_drops_the_recorded_references(monkeypatch):
+    """They name node ids in the OLD graph, so they cannot be replayed onto a
+    different one -- and RerollGenCtx carries no history to re-resolve from."""
+    monkeypatch.setattr(hooks, "get_workflow_config", _stub(_edit_config()))
+    params = {
+        "prompt": "a quiet room",
+        "negative_prompt": "",
+        # The override swapped this reroll from the edit style onto a plain one.
+        "style_id": "plain",
+        "workflow_id": "user_edit",
+        "references": [{"slot": ["r", "image"], "source": "character", "origin": "character:card-1"}],
+    }
+
+    # The plain style pins no workflow, so the render dies on the normal "assign a
+    # workflow" path -- but only after the stale pins are gone from `params`, which
+    # is what the persisted sibling records.
+    with pytest.raises(ImageGenerationError, match="Import a ComfyUI workflow"):
+        await hooks.reroll_gen(_RerollCtx("edit"), params, "1")
+    assert "references" not in params
+    assert "workflow_id" not in params
+
+
+@pytest.mark.asyncio
+async def test_rerolling_onto_a_reference_style_is_refused_with_a_reason(monkeypatch):
+    """Submitting anyway would ship the new graph's exporter filenames, which
+    fails at ComfyUI with nothing the user can act on."""
+    monkeypatch.setattr(hooks, "get_workflow_config", _stub(_edit_config()))
+    params = {"prompt": "p", "negative_prompt": "", "style_id": "edit", "workflow_id": "user_other"}
+
+    with pytest.raises(ImageGenerationError, match="reference images"):
+        await hooks.reroll_gen(_RerollCtx("plain"), params, "1")
+
+
+def _stub(config: dict):
+    async def get_config(_workflow_id):
+        return config
+
+    return get_config

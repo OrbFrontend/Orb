@@ -183,3 +183,39 @@ test("an image generated before the camera was recorded shows no camera row", ()
   const html = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, "", MARKERS);
   assert.ok(!html.includes("<dt>Camera</dt>"));
 });
+
+test("a reference row names the slot, the source, and where the bytes came from", () => {
+  // A wrong reference is the failure a user needs traced, and the useful half of
+  // the origin is which *kind* of thing was fed in.
+  const html = attachmentDetailsHtml(
+    {
+      consumption_metadata: {
+        references: [
+          { slot: ["72", "image"], source: "previous_or_character", origin: "attachment:41" },
+          { slot: ["90", "image"], source: "character", origin: "character:card-1" },
+        ],
+      },
+    },
+    "",
+    MARKERS,
+  );
+  assert.ok(html.includes("<dt>Reference« #72»</dt>"));
+  assert.ok(html.includes("«previous image, else character reference — from a generated image in this chat»"));
+  assert.ok(html.includes("<dt>Reference« #90»</dt>"));
+  assert.ok(html.includes("«character reference — from the character»"));
+});
+
+test("an image rendered without references shows no reference row", () => {
+  const html = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, "", MARKERS);
+  assert.ok(!html.includes("<dt>Reference"));
+});
+
+test("a hostile recorded reference is escaped like every other field", () => {
+  const html = attachmentDetailsHtml(
+    { consumption_metadata: { references: [{ slot: [HOSTILE, "image"], source: HOSTILE, origin: HOSTILE }] } },
+    "",
+    MARKERS,
+  );
+  // Everything inside markers went through esc(); nothing hostile may survive outside them.
+  assert.ok(!html.replaceAll(/«[^»]*»/gs, "").includes("<script>"));
+});

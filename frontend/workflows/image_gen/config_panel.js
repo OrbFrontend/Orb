@@ -29,6 +29,19 @@ import {
 
 const WORKFLOW_ID = "image_gen";
 
+// What a mapped LoadImage node can be fed, in menu order. The combined choice is
+// the default for a first slot: a pure edit graph cannot render without a
+// reference, so a slot pinned to "previous" alone hard-fails on the first
+// Visualize of every new conversation.
+const REFERENCE_SOURCES = [
+  ["previous_or_character", "Previous image, else character reference"],
+  ["previous", "Previous image in the chat"],
+  ["character", "Character reference image"],
+];
+// Ceiling mirrored from MAX_REFERENCE_SLOTS in the backend config normalizer.
+const MAX_REFERENCE_SLOTS = 4;
+const MAX_REFERENCE_IMAGE_BYTES = 3_000_000;
+
 // How a style's prompt format reads next to its name, in both pickers. One
 // builder, because the summary below is written twice -- once at render, once as
 // the field is edited -- and two spellings of the same badge would drift.
@@ -56,6 +69,8 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "test", () => testConnection());
   registerAction(WORKFLOW_ID, "save", () => saveSettings());
   registerAction(WORKFLOW_ID, "graphFile", (el) => importGraphFile(el));
+  registerAction(WORKFLOW_ID, "referenceFile", (el) => pickReferenceImage(el));
+  registerAction(WORKFLOW_ID, "referenceClear", () => clearReferenceImage());
   registerAction(WORKFLOW_ID, "graphAdd", () => addPendingGraph());
   registerAction(WORKFLOW_ID, "graphRemove", (el) => removeGraph(el.dataset.graphId));
   registerAction(WORKFLOW_ID, "styleAdd", () => addStyle());
@@ -392,9 +407,11 @@ function openSettings(expandStyleId = "") {
   const ext = cfg.external_comfy || {};
   pendingGraph = null;
   // Start honest: discovery for a previous modal/server must not make this one
-  // look probed before its own request completes.
+  // look probed before its own request completes, and a reference image picked
+  // for a different character must not survive into this form.
   checkpointProbeId += 1;
   checkpointNames = [];
+  referenceImage = { reference_image_b64: "", reference_mime: "" };
   draft = {
     styles: (Array.isArray(ext.styles) ? ext.styles : []).map((s) => ({ ...s })),
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
@@ -485,6 +502,26 @@ async function graphNodeTypes(graph) {
   }
 }
 
+// One row per detected image-upload widget. Every row defaults to "Not used", so
+// a plain text-to-image graph imports exactly as it did before this existed and
+// an edit graph is opt-in per node — Orb never guesses which LoadImage is the
+// identity and which is the scene.
+function referenceRows(items) {
+  if (!items.length) return "";
+  const rows = items
+    .slice(0, MAX_REFERENCE_SLOTS)
+    .map((item, i) => {
+      const options = [`<option value="" selected>Not used</option>`]
+        .concat(REFERENCE_SOURCES.map(([id, text]) => `<option value="${id}">${esc(text)}</option>`))
+        .join("");
+      return `<label>${esc(item.label)}<select data-ig-ref="${i}" data-ig-ref-slot="${escAttr(item.value)}">${options}</select></label>`;
+    })
+    .join("");
+  return `<div class="ig-heading ig-reference-heading">Reference images</div>
+    <div class="image-gen-note">This workflow loads images. Point each one at what Orb should feed it, or leave it unused to keep the file the workflow was exported with.</div>
+    <div class="ig-grid">${rows}</div>`;
+}
+
 async function importGraphFile(input) {
   const file = input.files?.[0];
   const picker = document.getElementById("ig-graph-picker");
@@ -512,12 +549,27 @@ async function importGraphFile(input) {
         <label>Image output<select id="ig-slot-output">${candidateOptions(candidates.output)}</select></label>
         <label>Model<select id="ig-slot-model">${candidateOptions(candidates.checkpoint, model, "None — keep the workflow's own model")}</select></label>
       </div>
+      ${referenceRows(candidates.image)}
       <button class="btn btn-sm" data-wf-action="image_gen:graphAdd">Confirm slots and add workflow</button>
     </div>`;
   } catch (e) {
     pendingGraph = null;
     picker.innerHTML = `<div class="image-gen-note">${esc(e.message || "Could not import this workflow.")}</div>`;
   }
+}
+
+// Reads the reference rows back into the stored `slots.references` shape. An
+// unmapped row is simply absent — that is how "Not used" is encoded, and it keeps
+// a t2i graph's slot map byte-identical to what it was before.
+function readReferenceRows() {
+  const references = [];
+  for (const el of document.querySelectorAll("[data-ig-ref]")) {
+    const slot = splitCandidate(el.dataset.igRefSlot);
+    if (!el.value || !slot) continue;
+    const item = pendingGraph?.candidates?.image?.[Number(el.dataset.igRef)];
+    references.push({ slot, source: el.value, label: item?.label || `${slot[0]} — ${slot[1]}` });
+  }
+  return references;
 }
 
 function addPendingGraph() {
@@ -536,6 +588,8 @@ function addPendingGraph() {
   // The model slot is patched from the style's checkpoint at render time, so the
   // user's Orb selection overrides the model baked into the imported graph.
   if (model) slots.checkpoint = model;
+  const references = readReferenceRows();
+  if (references.length) slots.references = references;
   draft.graphs.push({ id, label, graph: pendingGraph.graph, slots });
   const list = document.getElementById("ig-graph-list");
   if (list) list.innerHTML = graphRows();
@@ -576,7 +630,7 @@ async function testConnection() {
 
 async function saveSettings() {
   const next = readConfig();
-  if (!confirmRemotePrivacy(next.external_comfy.api_url)) return;
+  if (!confirmRemotePrivacy(next.external_comfy.api_url, next.external_comfy.user_graphs)) return;
   try {
     // The response is the *normalized* config: the backend bounds and drops what
     // it will not honour, and adopting its answer is what stops the panel from
@@ -600,15 +654,80 @@ async function saveSettings() {
   }
 }
 
-function confirmRemotePrivacy(apiUrl) {
+// Uploading conversation images is a materially bigger disclosure than sending
+// prompt text, so it gets its own acknowledgement key: a user who accepted the
+// prompt-only wording is asked again the first time a graph maps references.
+function confirmRemotePrivacy(apiUrl, graphs) {
   if (isLoopbackUrl(apiUrl)) return true;
-  const key = `orb:image-gen-privacy:${new URL(apiUrl).origin}`;
+  const sendsImages = (graphs || []).some((g) => (g?.slots?.references || []).length > 0);
+  const origin = new URL(apiUrl).origin;
+  const key = `orb:image-gen-privacy${sendsImages ? "-images" : ""}:${origin}`;
   if (localStorage.getItem(key) === "acknowledged") return true;
   const accepted = window.confirm(
-    "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued prompts, and generated files remain on that server. Save this connection?",
+    sendsImages
+      ? "This ComfyUI server is not on this machine. A workflow you assigned uses reference images, so images from your conversations and your character reference image are uploaded to that server along with your scene prompts. Other clients may read queued prompts, and uploaded and generated files remain on that server. Save this connection?"
+      : "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued prompts, and generated files remain on that server. Save this connection?",
   );
   if (accepted) localStorage.setItem(key, "acknowledged");
   return accepted;
+}
+
+// The character's reference image as the form currently holds it — loaded with
+// the profile, replaced by the file picker, emptied by Clear, and written back on
+// Save. Kept in module state rather than read off the rendered <img>, so a save
+// that never touched the picker round-trips the stored bytes untouched.
+let referenceImage = { reference_image_b64: "", reference_mime: "" };
+
+function referenceImageHtml() {
+  const stored = !!referenceImage.reference_image_b64;
+  // With no image there is no preview column, so the controls start at the same
+  // left edge as the prompt fields above rather than floating inset.
+  const preview = stored
+    ? `<div class="ig-reference-preview"><img class="ig-reference-thumb" alt="Character reference image" src="data:${escAttr(referenceImage.reference_mime || "image/png")};base64,${escAttr(referenceImage.reference_image_b64)}"></div>`
+    : "";
+  return `<div class="ig-reference-image">
+      ${preview}
+      <div class="ig-reference-controls">
+        <input type="file" accept="image/png,image/jpeg,image/webp" data-wf-action="image_gen:referenceFile" data-wf-on="change">
+        ${stored ? `<button class="btn btn-sm" data-wf-action="image_gen:referenceClear">Clear</button>` : ""}
+        ${stored ? "" : `<span class="image-gen-note ig-reference-empty">No reference image — the character card's avatar is used.</span>`}
+      </div>
+    </div>`;
+}
+
+function renderReferenceImage() {
+  const host = document.getElementById("ig-reference-host");
+  if (host) host.innerHTML = referenceImageHtml();
+}
+
+async function pickReferenceImage(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  if (file.size > MAX_REFERENCE_IMAGE_BYTES) {
+    toast("That image is too large — use one under 3 MB", "error");
+    input.value = "";
+    return;
+  }
+  try {
+    const buffer = await file.arrayBuffer();
+    // Chunked so a multi-MB image does not blow the argument limit of
+    // String.fromCharCode, which a single spread of the whole array would.
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    }
+    referenceImage = { reference_image_b64: btoa(binary), reference_mime: file.type || "image/png" };
+    renderReferenceImage();
+  } catch {
+    toast("Could not read that image", "error");
+  }
+  input.value = "";
+}
+
+function clearReferenceImage() {
+  referenceImage = { reference_image_b64: "", reference_mime: "" };
+  renderReferenceImage();
 }
 
 async function populateProfile() {
@@ -623,9 +742,18 @@ async function populateProfile() {
       return;
     }
     el.classList.remove("image-gen-note");
+    referenceImage = {
+      reference_image_b64: res.profile.reference_image_b64 || "",
+      reference_mime: res.profile.reference_mime || "",
+    };
     el.innerHTML = `<div class="ig-profile-fields">
         <label>Positive prompt<textarea id="ig-appearance" placeholder="Per-character permanent tags, fill as much as you can (e.g. Hatsune Miku, black and white)">${esc(res.profile.appearance_prompt || "")}</textarea></label>
         <label>Negative prompt<textarea id="ig-profile-negative" placeholder="Per-character things to never render (e.g. glasses, colored, color). Quality and scene negatives are already handled.">${esc(res.profile.negative_prompt || "")}</textarea></label>
+        <div class="ig-profile-reference">
+          <span class="ig-profile-reference-label">Reference image</span>
+          <span class="image-gen-note">Used by workflows whose reference slots are set to the character.</span>
+          <div id="ig-reference-host">${referenceImageHtml()}</div>
+        </div>
       </div>`;
   } catch {
     el.textContent = "Could not load character appearance.";
@@ -642,6 +770,7 @@ async function saveProfile() {
     profile: {
       appearance_prompt: appearanceEl.value || "",
       negative_prompt: document.getElementById("ig-profile-negative")?.value || "",
+      ...referenceImage,
     },
   });
 }

@@ -19,9 +19,9 @@ const GRAPH = {
 // What the `node_types` query action answers with: the typing verdict only,
 // derived server-side from /object_info so the browser never receives that payload.
 const NODE_TYPES = {
-  CLIPTextEncode: { output_node: false, text_inputs: ["text"], seed_inputs: [] },
-  KSampler: { output_node: false, text_inputs: [], seed_inputs: ["seed"] },
-  SaveImage: { output_node: true, text_inputs: [], seed_inputs: [] },
+  CLIPTextEncode: { output_node: false, text_inputs: ["text"], seed_inputs: [], image_inputs: [] },
+  KSampler: { output_node: false, text_inputs: [], seed_inputs: ["seed"], image_inputs: [] },
+  SaveImage: { output_node: true, text_inputs: [], seed_inputs: [], image_inputs: [] },
 };
 
 function pngWith(payload) {
@@ -181,4 +181,57 @@ test("model-loader inputs are offered as model-override candidates", () => {
   assert.deepEqual(splitCandidate(c.checkpoint[0].value), ["1", "unet_name"]);
   // weight_dtype is a widget too, but not a model input.
   assert.equal(c.checkpoint.length, 1);
+});
+
+test("upload widgets become reference candidates from server typing", () => {
+  // Qwen-Image-Edit shape: LoadImage (#103) feeds a scale node, which feeds both
+  // encoders. The reference always enters through the LoadImage widget — the
+  // encoder's image1 is a link and has no widget to patch.
+  const edit = {
+    103: { class_type: "LoadImage", inputs: { image: "woman-in-black.jpeg" }, _meta: { title: "Load Image" } },
+    93: { class_type: "ImageScaleToTotalPixels", inputs: { image: ["103", 0], megapixels: 1 } },
+    104: { class_type: "TextEncodeQwenImageEditPlus", inputs: { prompt: "", image1: ["93", 0] } },
+    3: { class_type: "KSampler", inputs: { seed: 1 } },
+    60: { class_type: "SaveImage", inputs: { images: ["8", 0] } },
+  };
+  const typing = {
+    LoadImage: { output_node: false, text_inputs: [], seed_inputs: [], image_inputs: ["image"] },
+    ImageScaleToTotalPixels: { output_node: false, text_inputs: [], seed_inputs: [], image_inputs: [] },
+    TextEncodeQwenImageEditPlus: { output_node: false, text_inputs: ["prompt"], seed_inputs: [], image_inputs: [] },
+    KSampler: { output_node: false, text_inputs: [], seed_inputs: ["seed"], image_inputs: [] },
+    SaveImage: { output_node: true, text_inputs: [], seed_inputs: [], image_inputs: [] },
+  };
+  const c = slotCandidates(edit, typing);
+  assert.equal(c.image.length, 1);
+  assert.deepEqual(splitCandidate(c.image[0].value), ["103", "image"]);
+  assert.equal(c.image[0].label, "Load Image (#103)");
+  // The scale node's `image` input is a link, so it is never offered.
+  assert.deepEqual(missingRoles(c), []);
+});
+
+test("the unreachable-server fallback still finds stock loaders", () => {
+  const edit = {
+    72: { class_type: "LoadImage", inputs: { image: "scene.png" } },
+    90: { class_type: "LoadImageMask", inputs: { image: "identity.png", channel: "red" } },
+    1: { class_type: "CLIPTextEncode", inputs: { text: "" } },
+    2: { class_type: "KSampler", inputs: { seed: 1 } },
+    3: { class_type: "SaveImage", inputs: { images: ["2", 0] } },
+  };
+  const c = slotCandidates(edit, {});
+  assert.deepEqual(
+    c.image.map((i) => splitCandidate(i.value)),
+    [
+      ["72", "image"],
+      ["90", "image"],
+    ],
+  );
+  // `channel` is a widget on the same node, but not an upload input.
+  assert.equal(c.image.length, 2);
+});
+
+test("a plain text-to-image graph yields no reference rows", () => {
+  // example.png's shape: nothing to map, so the importer renders exactly the five
+  // slots it always did and the stored slot map gains no `references` key.
+  assert.deepEqual(slotCandidates(GRAPH, NODE_TYPES).image, []);
+  assert.deepEqual(slotCandidates(GRAPH, {}).image, []);
 });

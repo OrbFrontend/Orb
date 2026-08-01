@@ -18,6 +18,12 @@ export const MAX_GRAPH_BYTES = 512_000;
 const FALLBACK_TEXT_INPUTS = ["text"];
 const FALLBACK_SEED_INPUTS = ["seed", "noise_seed"];
 const FALLBACK_OUTPUT_CLASSES = ["SaveImage", "PreviewImage"];
+// Upload widgets are typed server-side off /object_info's `image_upload` flag.
+// Unreachable server or unknown class: only the stock loaders are guessed, since
+// the input is named `image` on both and a wrong guess here would offer a
+// reference slot that patches something else.
+const FALLBACK_IMAGE_CLASSES = ["LoadImage", "LoadImageMask"];
+const FALLBACK_IMAGE_INPUTS = ["image"];
 // Widget inputs that name the diffusion model a loader reads. Offered as a
 // "Model" slot so an imported graph's model can be overridden by the checkpoint
 // the user picked in Orb, instead of staying pinned to a filename from whatever
@@ -101,6 +107,7 @@ export function slotCandidates(graph, nodeTypes = {}) {
   const seed = [];
   const output = [];
   const checkpoint = [];
+  const image = [];
   const seedTail = [];
   const checkpointTail = [];
   for (const [nodeId, node] of Object.entries(graph || {})) {
@@ -108,6 +115,11 @@ export function slotCandidates(graph, nodeTypes = {}) {
     const typing = nodeTypes[node.class_type];
     const textInputs = typing ? typing.text_inputs || [] : FALLBACK_TEXT_INPUTS;
     const seedInputs = typing ? typing.seed_inputs || [] : FALLBACK_SEED_INPUTS;
+    const imageInputs = typing
+      ? typing.image_inputs || []
+      : FALLBACK_IMAGE_CLASSES.includes(node.class_type)
+        ? FALLBACK_IMAGE_INPUTS
+        : [];
     const isOutput = typing ? !!typing.output_node : FALLBACK_OUTPUT_CLASSES.includes(node.class_type);
     for (const name of Object.keys(inputs)) {
       if (!isWidget(inputs[name])) continue;
@@ -119,12 +131,16 @@ export function slotCandidates(graph, nodeTypes = {}) {
       if (!isOutput && textInputs.includes(name)) text.push(item);
       if (seedInputs.includes(name)) (isOutput ? seedTail : seed).push(item);
       if (MODEL_INPUTS.includes(name)) (isOutput ? checkpointTail : checkpoint).push(item);
+      // An upload widget is where an edit workflow takes its reference image. The
+      // row is labelled by node rather than by input name, because a two-reference
+      // graph asks the user which LoadImage is the identity and which is the scene.
+      if (imageInputs.includes(name)) image.push({ ...item, label: label(nodeId, node) });
     }
     if (isOutput) {
       output.push({ value: `${nodeId}\u001fimages`, nodeId, input: "images", label: label(nodeId, node) });
     }
   }
-  return { text, seed: [...seed, ...seedTail], output, checkpoint: [...checkpoint, ...checkpointTail] };
+  return { text, seed: [...seed, ...seedTail], output, checkpoint: [...checkpoint, ...checkpointTail], image };
 }
 
 // The three roles a graph cannot render without. `negative` is deliberately

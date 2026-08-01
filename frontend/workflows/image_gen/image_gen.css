@@ -71,6 +71,24 @@
 .ig-advanced-body{display:grid;gap:10px;padding:10px;border-top:1px solid var(--border)}
 .image-gen-graph-picker{display:grid;gap:10px}
 .image-gen-graph-picker button{justify-self:start}
+/* The reference rows are a sub-section of the picker, not a peer of the modal's
+   top-level headings, so the divider is enough to separate them. */
+.ig-reference-heading{margin-top:2px}
+
+/* ---- per-character reference image ----
+   Thumbnail beside its controls so what is stored and how to change it read as
+   one control. The preview is capped rather than sized, since a portrait
+   reference and a landscape one both land here. The label carries the same
+   styling the global `label` rule gives the prompt fields it sits under, since
+   it is a span rather than a label -- the section holds a file input plus a
+   button, not one field. */
+.ig-profile-reference{display:grid;gap:5px}
+.ig-profile-reference-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary)}
+.ig-reference-image{display:flex;align-items:flex-start;gap:10px;margin-top:4px}
+.ig-reference-preview{flex:0 0 auto}
+.ig-reference-thumb{display:block;max-width:96px;max-height:96px;border-radius:var(--radius);border:1px solid var(--border);object-fit:cover}
+.ig-reference-controls{flex:1;display:grid;gap:6px;min-width:0;justify-items:start}
+.ig-reference-empty{display:block}
 
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
 

@@ -14,6 +14,7 @@ from ..contracts import (
 )
 from ..graph import (
     describe_render_params,
+    is_image_upload,
     patch_graph,
     resolve_graph,
     validate_graph_structure,
@@ -136,6 +137,25 @@ def _typed_inputs(info: Mapping[str, Any], wanted: str) -> list[str]:
     return names
 
 
+def _image_upload_inputs(info: Mapping[str, Any]) -> list[str]:
+    """Input names on one node class that accept an uploaded image file.
+
+    A sibling to `_typed_inputs` rather than a case inside it: that one types by
+    string kind, and an upload widget's declared type is the *combo* of files
+    already in the server's input directory, so no kind comparison can match it.
+    """
+    spec = info.get("input")
+    if not isinstance(spec, Mapping):
+        return []
+    names = []
+    for group in ("required", "optional"):
+        values = spec.get(group)
+        if not isinstance(values, Mapping):
+            continue
+        names.extend(name for name, value in values.items() if is_image_upload(value))
+    return names
+
+
 async def node_roles(config: Mapping[str, Any], class_types: Sequence[str]) -> dict:
     """Which inputs of the named node classes can carry which slot role.
 
@@ -156,6 +176,7 @@ async def node_roles(config: Mapping[str, Any], class_types: Sequence[str]) -> d
             "output_node": bool(entry.get("output_node")),
             "text_inputs": _typed_inputs(entry, "STRING"),
             "seed_inputs": [name for name in _typed_inputs(entry, "INT") if "seed" in name.lower()],
+            "image_inputs": _image_upload_inputs(entry),
         }
     return roles
 
@@ -175,6 +196,20 @@ async def generate(
     # the attachment rather than let the user wonder why the negation had no effect.
     if "negative" not in slots and request.negative_prompt.strip():
         notes = (*notes, "this workflow has no negative prompt input; negative prompt was not applied")
+    client = _client(config)
+    # Resolution happened above the engine (it reads conversation state); the upload
+    # belongs here, where everything else that talks to ComfyUI lives. Distinct
+    # digests only: two slots pointing at the same image are one file on the server.
+    uploaded: dict[str, str] = {}
+    for reference in request.references:
+        if reference.digest not in uploaded:
+            uploaded[reference.digest] = await client.upload_image(
+                reference.data,
+                reference.mime,
+                digest=reference.digest,
+                timeout=min(120.0, request.timeout_seconds),
+                progress=progress,
+            )
     patched, output_node = patch_graph(
         graph,
         slots,
@@ -182,8 +217,9 @@ async def generate(
         negative_prompt=request.negative_prompt,
         seed=request.seed,
         checkpoint=checkpoint,
+        references=[(reference.slot, uploaded[reference.digest]) for reference in request.references],
     )
-    result = await _client(config).generate(
+    result = await client.generate(
         patched,
         output_node,
         timeout_seconds=request.timeout_seconds,
@@ -197,6 +233,19 @@ async def generate(
             **describe_render_params(patched, slots),
             "source": "external_comfy",
             "workflow_id": graph_id,
+            # What a reroll re-fetches by. `origin` names the row or card the bytes
+            # came from, so replay reproduces the *same* reference rather than
+            # re-resolving to whatever the branch looks like now.
+            "references": [
+                {
+                    "slot": list(reference.slot),
+                    "source": reference.source,
+                    "origin": reference.origin,
+                    "digest": reference.digest,
+                    "comfy_name": uploaded[reference.digest],
+                }
+                for reference in request.references
+            ],
             # Record the model only when the graph actually applied it. A
             # self-contained graph (no checkpoint slot) ignores the value, and
             # replay reads a null here as "the graph carried its own model".

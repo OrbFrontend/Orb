@@ -21,6 +21,12 @@ import io
 from PIL import Image
 
 _WEBP_QUALITY = 95
+# Above either of these a reference is re-encoded before upload. Both are ceilings
+# on a *phone-sized* upload, not a target size: identity-edit workflows are exactly
+# the ones that lose face detail to a downscale, and a graph that wants a specific
+# size already carries a scale node (ImageScaleToTotalPixels, GetImageSize).
+_REFERENCE_MAX_EDGE = 4096
+_REFERENCE_MAX_BYTES = 8 * 1024 * 1024
 
 
 def shrink_for_display(data: bytes, mime: str) -> tuple[bytes, str]:
@@ -41,4 +47,34 @@ def shrink_for_display(data: bytes, mime: str) -> tuple[bytes, str]:
         return data, mime
     out = buf.getvalue()
     # An already-small source can encode larger as WebP -- keep whichever is smaller.
+    return (out, "image/webp") if len(out) < len(data) else (data, mime)
+
+
+def normalize_reference(data: bytes, mime: str) -> tuple[bytes, str]:
+    """Bound a reference image before it is uploaded to ComfyUI.
+
+    Returns the input unchanged unless the image is genuinely oversized -- a
+    12 MP camera upload, not a render. Same never-raises discipline as
+    ``shrink_for_display``: a reference Orb cannot re-encode is still a reference
+    ComfyUI can probably load, so a failure here degrades to sending the original
+    rather than sinking the generation.
+    """
+    if len(data) <= _REFERENCE_MAX_BYTES:
+        try:
+            with Image.open(io.BytesIO(data)) as probe:
+                if max(probe.size) <= _REFERENCE_MAX_EDGE:
+                    return data, mime
+        except Exception:
+            return data, mime
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            img.load()
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGB")
+            img.thumbnail((_REFERENCE_MAX_EDGE, _REFERENCE_MAX_EDGE), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="WEBP", quality=_WEBP_QUALITY, method=4)
+    except Exception:
+        return data, mime
+    out = buf.getvalue()
     return (out, "image/webp") if len(out) < len(data) else (data, mime)

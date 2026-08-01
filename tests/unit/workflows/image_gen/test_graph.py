@@ -64,7 +64,18 @@ OBJECT_INFO = {
     "EmptyLatentImage": {"input": {"required": {"width": ["INT", {}], "height": ["INT", {}]}}},
     "VAEDecode": {"input": {"required": {}}},
     "SaveImage": {"input": {"required": {"images": ["IMAGE"]}}, "output_node": True},
+    # The real shape of an upload widget: a combo of the server's input directory
+    # plus the `image_upload` flag that types it as a reference slot.
+    "LoadImage": {"input": {"required": {"image": [["already-there.png"], {"image_upload": True}]}}},
 }
+
+
+def _with_reference():
+    """The core graph plus a LoadImage carrying a filename from another machine."""
+    graph, slots = _core()
+    graph["11"] = {"class_type": "LoadImage", "inputs": {"image": "woman-in-black.jpeg"}}
+    slots["references"] = [{"slot": ["11", "image"], "source": "character", "label": "Load Image (#11)"}]
+    return graph, slots
 
 
 def _core():
@@ -175,6 +186,50 @@ def test_validation_requires_the_output_slot_to_name_a_present_node():
     graph, slots = _core()
     slots["output"] = ["999", "images"]
     with pytest.raises(ImageGenerationError, match="no configured output node"):
+        validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+# ── reference images ─────────────────────────────────────────────────────────
+
+
+def test_a_reference_slot_is_patched_with_the_uploaded_widget_value():
+    graph, slots = _with_reference()
+    patched, _ = patch_graph(
+        graph,
+        slots,
+        prompt="p",
+        negative_prompt="n",
+        seed=1,
+        checkpoint="model.safetensors",
+        references=[(("11", "image"), "orb/orb_abc123.webp")],
+    )
+    assert patched["11"]["inputs"]["image"] == "orb/orb_abc123.webp"
+    # The original is untouched, as it is for every other patched slot.
+    assert graph["11"]["inputs"]["image"] == "woman-in-black.jpeg"
+
+
+def test_a_mapped_reference_is_exempt_from_the_combo_membership_check():
+    """The widget value is replaced per render with a file this server does not
+    have yet, so its membership in the input-directory listing means nothing.
+    Without the exemption, Test connection rejects every edit workflow."""
+    graph, slots = _with_reference()
+    validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+def test_an_unmapped_image_input_says_how_to_fix_it():
+    # "no longer available on this server" reads as a broken install; for a
+    # filename the actionable answer is to upload it there or map the slot.
+    graph, slots = _with_reference()
+    slots.pop("references")
+    with pytest.raises(ImageGenerationError, match="map it as a reference image"):
+        validate_graph_structure(graph, slots, OBJECT_INFO)
+
+
+def test_a_dangling_reference_slot_is_caught_at_test_connection():
+    """Otherwise it only surfaces mid-render, after the upload and a queue wait."""
+    graph, slots = _with_reference()
+    slots["references"].append({"slot": ["999", "image"], "source": "character", "label": "Gone"})
+    with pytest.raises(ImageGenerationError, match="reference image slot points to a missing node"):
         validate_graph_structure(graph, slots, OBJECT_INFO)
 
 

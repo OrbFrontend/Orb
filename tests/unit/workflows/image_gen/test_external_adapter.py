@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -176,6 +178,117 @@ async def test_node_roles_type_slots_from_object_info_and_skip_unknown_classes(m
     assert roles["KSampler"]["seed_inputs"] == ["seed"]
     assert roles["SaveImage"]["output_node"] is True
     assert "Nope" not in roles
+
+
+@pytest.mark.asyncio
+async def test_node_roles_type_upload_widgets_off_the_image_upload_flag(monkeypatch):
+    """An upload widget's declared type is the *combo* of files already in the
+    server's input directory, so no string-kind comparison can find it; the
+    `image_upload` flag is the typing rule."""
+    info = {
+        "LoadImage": {
+            "input": {
+                "required": {"image": [["a.png", "b.png"], {"image_upload": True}]},
+                "optional": {"channel": [["red", "green"], {}]},
+            }
+        },
+        "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["m.safetensors"], {}]}}},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=info)
+
+    _install_client(monkeypatch, handler)
+    invalidate_object_info()
+    roles = await external_comfy.node_roles(normalize_config({}), ["LoadImage", "CheckpointLoaderSimple"])
+
+    assert roles["LoadImage"]["image_inputs"] == ["image"]
+    # A plain combo (`channel`, `ckpt_name`) is a fixed menu, not an upload slot.
+    assert roles["CheckpointLoaderSimple"]["image_inputs"] == []
+
+
+EDIT_USER_GRAPH = {
+    "id": "user_edit",
+    "label": "Edit",
+    "graph": {
+        "1": {"class_type": "LoadImage", "inputs": {"image": "exported-from-another-machine.png"}},
+        "2": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "3": {"class_type": "KSampler", "inputs": {"seed": 0}},
+        "4": {"class_type": "SaveImage", "inputs": {"images": ["3", 0]}},
+    },
+    "slots": {
+        "positive": ["2", "text"],
+        "seed": ["3", "seed"],
+        "output": ["4", "images"],
+        "references": [{"slot": ["1", "image"], "source": "character", "label": "Load Image (#1)"}],
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_generate_uploads_each_reference_once_and_patches_the_widget(monkeypatch):
+    from backend.workflows.image_gen.engine.contracts import (
+        ImageRequest,
+        ResolvedReference,
+    )
+
+    uploads: list[str] = []
+    submitted: dict = {}
+    png = b"\x89PNG\r\n\x1a\n" + b"out"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/upload/image":
+            uploads.append(request.content.decode("latin-1"))
+            return httpx.Response(200, json={"name": "orb_deadbeefdeadbeef.png", "subfolder": "orb", "type": "input"})
+        if path == "/prompt":
+            submitted.update(json.loads(request.content))
+            return httpx.Response(200, json={"prompt_id": "p1", "number": 1})
+        if path == "/queue":
+            return httpx.Response(200, json={"queue_running": [], "queue_pending": []})
+        if path == "/history/p1":
+            return httpx.Response(
+                200,
+                json={
+                    "p1": {
+                        "status": {"completed": True},
+                        "outputs": {"4": {"images": [{"filename": "x.png", "subfolder": "", "type": "output"}]}},
+                    }
+                },
+            )
+        if path == "/view":
+            return httpx.Response(200, content=png, headers={"content-type": "image/png"})
+        return httpx.Response(404)
+
+    _install_client(monkeypatch, handler)
+    config = normalize_config(
+        {"external_comfy": {"user_graphs": [EDIT_USER_GRAPH], "styles": [{"id": "s", "label": "S", "workflow": "user_edit"}]}}
+    )
+    reference = ResolvedReference(
+        slot=("1", "image"),
+        source="character",
+        data=b"\x89PNG\r\n\x1a\n" + b"ref",
+        mime="image/png",
+        origin="character:card-1",
+        digest="deadbeefdeadbeef" + "0" * 48,
+    )
+    request = ImageRequest(
+        prompt="p",
+        negative_prompt="",
+        seed=1,
+        style_id="s",
+        timeout_seconds=5,
+        # Two slots, one image: the adapter must upload once.
+        references=(reference, ResolvedReference(**{**reference.__dict__, "slot": ("1", "image")})),
+    )
+
+    result = await external_comfy.generate(config, request, checkpoint="", graph_id="user_edit")
+
+    assert len(uploads) == 1
+    assert submitted["prompt"]["1"]["inputs"]["image"] == "orb/orb_deadbeefdeadbeef.png"
+    # The replay record names where the bytes came from, not just what was sent.
+    assert result.backend_info["references"][0]["origin"] == "character:card-1"
+    assert result.backend_info["references"][0]["comfy_name"] == "orb/orb_deadbeefdeadbeef.png"
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,13 @@ from .display_encode import shrink_for_display
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 ProgressCallback = Callable[[str, Mapping[str, Any]], Awaitable[None] | None]
 
+# Every reference Orb uploads lands in this one subfolder of ComfyUI's input
+# directory, so the files it leaves behind are identifiable as Orb's. Core ComfyUI
+# exposes no delete API for input files, so the directory grows by one file per
+# distinct reference; content-addressed names keep repeats from adding to that.
+REFERENCE_SUBFOLDER = "orb"
+_UPLOAD_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+
 # `/object_info` is the one enormous response in this contract -- a real install
 # with custom-node packs reports ~2000 node types, tens of megabytes. Readiness
 # probes run on every Visualize modal open, so an uncached fetch would put that
@@ -140,6 +147,58 @@ class ComfyClient:
             _object_info_cache.clear()
         _object_info_cache[self.api_url] = (now + _OBJECT_INFO_TTL, result)
         return result
+
+    async def upload_image(
+        self,
+        data: bytes,
+        mime: str,
+        *,
+        digest: str,
+        timeout: float = 60.0,
+        progress: ProgressCallback | None = None,
+    ) -> str:
+        """Upload one reference image and return the widget value for `LoadImage`.
+
+        ComfyUI's ``/upload/image`` takes multipart ``image``/``subfolder``/``type``/
+        ``overwrite`` and answers ``{name, subfolder, type}``; a bare
+        ``"<subfolder>/<name>"`` is what ``folder_paths.get_annotated_filepath``
+        resolves under the input directory, so that is what the widget carries.
+
+        The name is content-addressed off `digest`: repeat renders of the same
+        reference overwrite one file instead of filling the input directory, and a
+        reroll resolves to the same name it did the first time.
+        """
+        name = f"orb_{digest[:16]}.{_UPLOAD_EXTENSIONS.get(mime, 'png')}"
+        await _emit(progress, "uploading", {"name": name, "bytes": len(data)})
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.api_url,
+                headers=self.headers,
+                timeout=timeout,
+                transport=self.transport,
+            ) as client:
+                response = await client.post(
+                    "/upload/image",
+                    files={"image": (name, data, mime or "application/octet-stream")},
+                    # ComfyUI compares `overwrite` against the strings "true"/"1", so
+                    # a bool would silently mean "no" and every render would land a
+                    # new "orb_… (1).webp" beside the last.
+                    data={"subfolder": REFERENCE_SUBFOLDER, "type": "input", "overwrite": "true"},
+                )
+                if response.status_code >= 400:
+                    raise ImageGenerationError("ComfyUI rejected the reference image upload")
+                payload = response.json()
+        except ImageGenerationError:
+            raise
+        except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
+            raise ImageGenerationError("Could not upload the reference image to ComfyUI") from exc
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("name"), str):
+            raise ImageGenerationError("ComfyUI did not confirm the reference image upload")
+        # Trust the server's own answer over the name we sent: it renames on
+        # collision, and the widget must carry the file that actually exists.
+        subfolder = payload.get("subfolder")
+        stored = payload["name"]
+        return f"{subfolder}/{stored}" if isinstance(subfolder, str) and subfolder else stored
 
     async def models(self, folder: str = "checkpoints") -> list[str]:
         result = await self._json("GET", f"/models/{folder}")
