@@ -68,8 +68,6 @@ const SETTING_FIELDS = [
 
 // Field grouping for both forms (agent keys derived by prefixing). Keys not
 // listed here render flat at the top -- the connection basics you always need.
-// ponytail: native <details> is the whole expander; no JS, no persistence code.
-// renderEndpoints() runs once per load, so open/closed survives on its own.
 const FIELD_GROUPS = [
   { l: "Prompts", cls: " ep-chat-only", keys: ["shared_system_prompt", "system_prompt"] },
   { l: "Sampling", open: true, keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] },

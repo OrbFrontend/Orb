@@ -583,8 +583,6 @@ _CAMERA_CHUNK_RE = re.compile(r"\bcamera\w*", re.IGNORECASE)
 # the pov/camera chunks above: the model states the fact, this table owns the
 # vocabulary. Teaching the vocabulary in the OOC instead would cost prefix tokens
 # on every call and still be a judgment the model is bad at.
-# ponytail: flat table, first hit wins. Add a row when a bad render names a contact
-# it misses; a real tag lexicon only when it outgrows a screen.
 _VIEWER_RE = re.compile(r"\b(?:viewer|user|your)'?s?\b", re.IGNORECASE)
 # Mentioning the viewer is not touching them. "standing close to the viewer",
 # "blocking the viewer's path" name no contact, and giving them the reach tags
@@ -603,8 +601,7 @@ _VIEWER_CONTACT_VERB_RE = re.compile(
 )
 # Gaze is the other thing a composer says about the viewer, and booru has exactly
 # one tag for it. Normalize every phrasing to that tag rather than keeping only the
-# literal one. ponytail: drops the angle ("looking *up* at the viewer") -- the
-# framing tags usually carry it; add `looking up` here if low shots read flat.
+# literal one.
 _VIEWER_GAZE_RE = re.compile(r"\b(?:look|gaz|star|glanc|watch|eyes?)\w*\b[^,]*\b(?:viewer|user|your)", re.IGNORECASE)
 _LOOKING_AT_VIEWER = "looking at viewer"
 
@@ -1038,10 +1035,7 @@ async def compose_scene(
     # consequences: "pov" skews a shot, "camera" adds an object to it.
     scene = _strip_chunks(scene, _CAMERA_CHUNK_RE, whole=False)
     # Only first-person has a viewer to touch, and only the tag formats have a tag
-    # vocabulary to swap in. ponytail: prose is left to its OOC instruction -- a
-    # natural-language encoder has a real chance at the literal phrase, and booru
-    # tags spliced into a sentence cost more than they fix. Give prose its own
-    # replacement text if it starts drawing the viewer's body.
+    # vocabulary to swap in.
     if pov == FIRST and normalized_format != "prose":
         scene = _rewrite_viewer_contact(scene)
     if not scene:

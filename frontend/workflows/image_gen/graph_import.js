@@ -101,6 +101,8 @@ export function slotCandidates(graph, nodeTypes = {}) {
   const seed = [];
   const output = [];
   const checkpoint = [];
+  const seedTail = [];
+  const checkpointTail = [];
   for (const [nodeId, node] of Object.entries(graph || {})) {
     const inputs = node?.inputs || {};
     const typing = nodeTypes[node.class_type];
@@ -115,14 +117,14 @@ export function slotCandidates(graph, nodeTypes = {}) {
       // whenever the output node sorts before the encoder, so the real prompt
       // landed on the filename (later clobbered) and the negative on the encoder.
       if (!isOutput && textInputs.includes(name)) text.push(item);
-      if (seedInputs.includes(name)) seed.push(item);
-      if (MODEL_INPUTS.includes(name)) checkpoint.push(item);
+      if (seedInputs.includes(name)) (isOutput ? seedTail : seed).push(item);
+      if (MODEL_INPUTS.includes(name)) (isOutput ? checkpointTail : checkpoint).push(item);
     }
     if (isOutput) {
       output.push({ value: `${nodeId}\u001fimages`, nodeId, input: "images", label: label(nodeId, node) });
     }
   }
-  return { text, seed, output, checkpoint };
+  return { text, seed: [...seed, ...seedTail], output, checkpoint: [...checkpoint, ...checkpointTail] };
 }
 
 // The three roles a graph cannot render without. `negative` is deliberately

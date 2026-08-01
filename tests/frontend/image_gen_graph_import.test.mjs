@@ -72,6 +72,36 @@ test("a save node's filename_prefix is not a prompt candidate", () => {
   assert.deepEqual(splitCandidate(candidates.text[0].value), ["51", "text"]);
 });
 
+test("an output node's seed and model widgets sort last, but stay selectable", () => {
+  const g = {
+    1: { class_type: "SaveWithMeta", inputs: { seed: 1, ckpt_name: "logged.safetensors", images: ["3", 0] } },
+    2: { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: "real.safetensors" } },
+    3: { class_type: "KSampler", inputs: { seed: 1 } },
+  };
+  const typing = {
+    SaveWithMeta: { output_node: true, text_inputs: [], seed_inputs: ["seed"] },
+    CheckpointLoaderSimple: { output_node: false, text_inputs: [], seed_inputs: [] },
+    KSampler: { output_node: false, text_inputs: [], seed_inputs: ["seed"] },
+  };
+  const c = slotCandidates(g, typing);
+  assert.deepEqual(splitCandidate(c.seed[0].value), ["3", "seed"]);
+  assert.deepEqual(splitCandidate(c.checkpoint[0].value), ["2", "ckpt_name"]);
+  assert.equal(c.seed.length, 2);
+  assert.equal(c.checkpoint.length, 2);
+
+  // The all-in-one case: the only seed lives on the output node, so it must
+  // still be offered or the graph becomes unimportable.
+  const allInOne = {
+    1: { class_type: "CLIPTextEncode", inputs: { text: "" } },
+    2: { class_type: "KSamplerEfficient", inputs: { seed: 1 } },
+  };
+  const effTyping = {
+    CLIPTextEncode: { output_node: false, text_inputs: ["text"], seed_inputs: [] },
+    KSamplerEfficient: { output_node: true, text_inputs: [], seed_inputs: ["seed"] },
+  };
+  assert.deepEqual(missingRoles(slotCandidates(allInOne, effTyping)), []);
+});
+
 test("server typing beats the class-name fallback", () => {
   // A graph whose save node is a custom class: the name heuristic finds no
   // output at all, while the server's output_node verdict does.
