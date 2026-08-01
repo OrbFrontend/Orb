@@ -58,7 +58,7 @@ async def update_user_persona(persona_id: int, data: dict) -> UserPersonaRow | N
             vals.append(datetime.now(UTC).isoformat())
             vals.append(persona_id)
             await db.execute(
-                f"UPDATE user_personas SET {', '.join(sets)} WHERE id = ?",
+                f"UPDATE user_personas SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()

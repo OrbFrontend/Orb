@@ -145,7 +145,7 @@ async def update_conversation(cid: str, data: dict) -> ConversationRow | None:
                 vals.append(datetime.now(UTC).isoformat())
             vals.append(cid)
             await db.execute(
-                f"UPDATE conversations SET {', '.join(sets)} WHERE id = ?",
+                f"UPDATE conversations SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()

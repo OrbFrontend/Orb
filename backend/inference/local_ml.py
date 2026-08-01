@@ -35,6 +35,7 @@ class ModelSpec:
     repo_id: str
     filename: str
     size_mb: int
+    revision: str  # pinned commit sha — a repo re-point can't swap the weights under us
 
 
 MODELS: dict[str, ModelSpec] = {
@@ -42,21 +43,25 @@ MODELS: dict[str, ModelSpec] = {
         repo_id="chartreuse-verte/orb-human-typeahead-1b-v2.2",
         filename="GGUF/orb-human-typeahead-1b-v2.2-Q4_0.gguf",
         size_mb=930,
+        revision="2e340db799eca2ef36ef80fc6938e40ab1ece111",
     ),
     "slop_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin150m-purple-GGUF",
         filename="ettin150m-purple-q8_0.gguf",
         size_mb=161,
+        revision="125cf38d62e78b7091c23e6d523d805c7ec2f47e",
     ),
     "emotion_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin-emotion-28-multilabel-68m",
         filename="gguf/ettin-emotion-28ml-68m-q8_0.gguf",
         size_mb=71,
+        revision="9f8d0100e45c133e713283499e55105f61d29118",
     ),
     "pov_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin-povtense-17m",
         filename="gguf/povtense-17m-q8_0.gguf",
         size_mb=20,
+        revision="1245e55c47f9afc3d4938ef70f5228580228d899",
     ),
 }
 
@@ -202,7 +207,7 @@ def download(feature: str) -> None:
     from huggingface_hub import hf_hub_download  # noqa: PLC0415 — deferred
 
     spec = MODELS[feature]
-    hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, local_dir=model_dir())
+    hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, revision=spec.revision, local_dir=model_dir())
     prune_stale()  # after fetch: new file lands before old ones go, so a failed download keeps the old model
 
 

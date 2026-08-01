@@ -306,8 +306,8 @@ async def update_character_card(card_id: str, data: dict) -> CharacterCardRow | 
             vals.append(datetime.now(UTC).isoformat())
             vals.append(card_id)
             await db.execute(
-                f"UPDATE character_cards SET {', '.join(sets)} WHERE id = ?",
-                vals,  # nosec B608 — cols from hardcoded allowlist, values parameterised
+                f"UPDATE character_cards SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                vals,
             )
             await db.commit()
         return await get_character_card(card_id)

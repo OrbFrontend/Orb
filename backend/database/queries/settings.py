@@ -306,8 +306,8 @@ async def update_settings(data: dict) -> SettingsRow:
         )
         if sets:
             await db.execute(
-                f"UPDATE settings SET {', '.join(sets)} WHERE id = 1",
-                vals,  # nosec B608 — cols from hardcoded allowlist, values parameterised
+                f"UPDATE settings SET {', '.join(sets)} WHERE id = 1",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                vals,
             )
             await db.commit()
         return await get_settings()
