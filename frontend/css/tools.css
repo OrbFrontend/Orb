@@ -6,10 +6,10 @@
   overflow-y: auto;
   height: 100%;
   width: var(--inspector-width);
+  scrollbar-width: none;
 }
 
-.tools-inner::-webkit-scrollbar { width: 4px; }
-.tools-inner::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.tools-inner::-webkit-scrollbar { width: 0; }
 
 /* Range inputs — theme-aware (uses --accent, --bg-*) */
 input[type="range"] {
