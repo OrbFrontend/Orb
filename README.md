@@ -2,7 +2,7 @@
 
 [![CodeQL](https://github.com/OrbFrontend/Orb/actions/workflows/codeql.yml/badge.svg)](https://github.com/OrbFrontend/Orb/actions/workflows/codeql.yml)
 
-![Orb](Orb.png)
+![Orb](docs/assets/Orb.png)
 ## Problem Statement
 
 LLM Roleplaying and Creative Writing have a low floor and a high ceiling. Common problems: passiveness and directionlessness, slop (overused, cliche word choices), various types of repetition (degradation as context grows), writing style inertia.
