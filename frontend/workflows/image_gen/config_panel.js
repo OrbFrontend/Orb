@@ -1,10 +1,5 @@
 import { api, closeModal, esc, escAttr, registerAction, showModal, toast } from "/static/workflow_api.js";
-import {
-  initCharacterProfile,
-  populateProfile,
-  resetCharacterProfile,
-  saveProfile,
-} from "./character_profile.js";
+import { initCharacterProfile, populateProfile, resetCharacterProfile, saveProfile } from "./character_profile.js";
 import {
   classTypes,
   graphFromApiJson,
@@ -1138,4 +1133,3 @@ function confirmRemotePrivacy(next) {
   }
   return true;
 }
-
