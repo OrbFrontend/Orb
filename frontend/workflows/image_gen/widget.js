@@ -187,7 +187,6 @@ export function attachmentRenderer(ctx) {
   const pend = pendingEdits.get(att.id);
   const cm = att.consumption_metadata || {};
   const pending = pend && (pend.prompt !== cm.prompt || pend.negative_prompt !== cm.negative_prompt) ? pend : undefined;
-  // Empty defaultHtml -> attachmentDetailsHtml returns just the <details> block.
-  const details = attachmentDetailsHtml(att, "", { esc, escAttr, pending });
+  const details = attachmentDetailsHtml(att, { esc, escAttr, pending });
   return `<div class="image-gen-attachment"><div class="image-gen-media">${media}${actions}</div>${details}</div>`;
 }

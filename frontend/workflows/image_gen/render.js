@@ -86,9 +86,12 @@ export function messageButtonHtml(msg, { mutable, icon, escAttr }) {
   return `<button class="image-gen-create" title="Visualize reply" data-wf-action="image_gen:generate" data-msg-id="${escAttr(msg.id)}">${icon}</button>`;
 }
 
+// The <details> block alone — the caller places the image and the action strip
+// itself, so nothing is prepended here.
+//
 // `pending` is an unrendered prompt edit ({prompt, negative_prompt}) held by the
 // widget, or undefined when what is shown is what the attachment stores.
-export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr, pending }) {
+export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
   const cm = att?.consumption_metadata || {};
   // Edited in place, not through a modal: `change` fires once on blur-after-edit and
   // the facade dispatcher already carries it. Rows are guessed from length because a
@@ -114,7 +117,7 @@ export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr, pending 
   const camera = cm.pov
     ? `<dt>Camera</dt><dd>${esc(POV_LABELS[cm.pov] || cm.pov)}${source ? esc(` — from the ${source}`) : ""}</dd>`
     : "";
-  return `${defaultHtml}<details class="image-gen-details" open><summary>Render details</summary>
+  return `<details class="image-gen-details" open><summary>Render details</summary>
     <dl><dt>Style</dt><dd>${style}</dd>
       <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${camera}${referenceRows(cm, esc)}
       <dt>Seed</dt><dd>${cm.seed_honored === false ? esc(UNUSED_SEED) : `<code>${esc(att?.seed || "")}</code>`}</dd>${costRow(cm, esc)}

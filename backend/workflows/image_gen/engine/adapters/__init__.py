@@ -1,6 +1,6 @@
-"""Image backend adapters."""
+"""Image backend adapters.
 
-from .base import ImageAdapter
-from .external_comfy import ExternalComfyAdapter
-
-__all__ = ["ExternalComfyAdapter", "ImageAdapter"]
+Deliberately re-exports nothing: every importer names the adapter module it
+wants, and eagerly importing them here would defeat the router's per-adapter
+ImportError guard by pulling each one's dependencies in through `adapters.base`.
+"""

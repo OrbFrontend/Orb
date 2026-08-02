@@ -274,10 +274,14 @@ def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, st
 
 
 def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
-    """The declared `size` string nearest to `width`x`height`, and any disclosure."""
+    """The declared `size` string nearest to `width`x`height`, and any disclosure.
+
+    Reached only for a `size` provider, so a preset that declares no menu is taken
+    to accept the request verbatim rather than being sent nothing.
+    """
     requested = f"{width}x{height}"
     if not preset.sizes or requested in preset.sizes:
-        return (requested if preset.sizes or preset.dimension_mode == "size" else ""), None
+        return requested, None
     target = width / height if height else 1.0
 
     def distance(candidate: str) -> tuple[float, float]:
@@ -336,7 +340,6 @@ def build_generation_body(
     quality: str = "",
     seed: int | None = None,
     n: int = 1,
-    response_format: str = "",
 ) -> BuiltRequest:
     """The `POST /images/generations` body, as a strict allowlist.
 
@@ -359,9 +362,10 @@ def build_generation_body(
         body["seed"] = seed
     if preset.supports_quality and quality:
         body["quality"] = quality
-    fmt = response_format or (preset.response_formats[0] if preset.response_formats else "")
-    if fmt:
-        body["response_format"] = fmt
+    if preset.response_formats:
+        # The preset's first choice: `b64_json` everywhere today, which is one
+        # fewer hop and nothing fetching an attacker-influenceable URL.
+        body["response_format"] = preset.response_formats[0]
     return BuiltRequest(body, notes)
 
 
@@ -383,7 +387,6 @@ def build_edit_body(
     height: int | None = None,
     quality: str = "",
     n: int = 1,
-    response_format: str = "",
 ) -> BuiltRequest:
     """The `POST /images/edits` body. JSON, not multipart -- verified on xAI.
 
@@ -401,7 +404,6 @@ def build_edit_body(
         height=height,
         quality=quality,
         n=n,
-        response_format=response_format,
     )
     body = built.body
     uris = [_data_uri(reference) for reference in references]

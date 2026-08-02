@@ -63,10 +63,8 @@ test("render details route every metadata field through esc", () => {
         negative_prompt: HOSTILE,
       },
     },
-    "<img>",
     MARKERS,
   );
-  assert.ok(html.startsWith("<img>")); // defaultHtml is framework-produced, passed through
   assert.equal(html.split(`«${HOSTILE}»`).length - 1, 5); // all five fields escaped
   // Nothing hostile survives outside a marker: strip the escaped occurrences and
   // the payload is gone entirely, so no field reached the HTML raw.
@@ -74,7 +72,7 @@ test("render details route every metadata field through esc", () => {
 });
 
 test("a missing attachment renders empty fields rather than throwing", () => {
-  const html = attachmentDetailsHtml(undefined, "", MARKERS);
+  const html = attachmentDetailsHtml(undefined, MARKERS);
   assert.ok(html.includes("Render details"));
   assert.ok(!html.includes("undefined"));
 });
@@ -82,23 +80,23 @@ test("a missing attachment renders empty fields rather than throwing", () => {
 test("the style label links back to its entry in the style editor", () => {
   // Generate → judge → edit the style → regenerate is the loop this feature lives
   // in; without the link every lap costs a hunt through settings.
-  const linked = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime", style_label: "Anime" } }, "", MARKERS);
+  const linked = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime", style_label: "Anime" } }, MARKERS);
   assert.match(linked, /data-wf-action="image_gen:editStyle"/);
   assert.match(linked, /data-style-id="“anime”"/);
   assert.ok(linked.includes("«Anime»"));
 
   // With no id there is nothing to open, so the label is plain text, not a dead link.
-  const unlinked = attachmentDetailsHtml({ consumption_metadata: { style_label: "Anime" } }, "", MARKERS);
+  const unlinked = attachmentDetailsHtml({ consumption_metadata: { style_label: "Anime" } }, MARKERS);
   assert.ok(!unlinked.includes("image_gen:editStyle"));
   assert.ok(unlinked.includes("«Anime»"));
 
   // A label-less style falls back to its id, and the source to ComfyUI.
-  const bare = attachmentDetailsHtml({ consumption_metadata: { style_id: "realistic" } }, "", MARKERS);
+  const bare = attachmentDetailsHtml({ consumption_metadata: { style_id: "realistic" } }, MARKERS);
   assert.ok(bare.includes("«realistic»") && bare.includes("«External ComfyUI»"));
 });
 
 test("each prompt row is a readonly field its pencil unlocks, naming its attachment", () => {
-  const html = attachmentDetailsHtml({ id: 7, consumption_metadata: {} }, "", MARKERS);
+  const html = attachmentDetailsHtml({ id: 7, consumption_metadata: {} }, MARKERS);
   // `change` (not click) is what commits: it fires once on blur-after-edit.
   assert.equal(html.split('data-wf-action="image_gen:savePrompt"').length - 1, 2);
   assert.equal(html.split('data-wf-on="change"').length - 1, 2);
@@ -114,7 +112,6 @@ test("each prompt row is a readonly field its pencil unlocks, naming its attachm
 test("a pending edit is shown through esc, marked, and beats the stored prompt", () => {
   const html = attachmentDetailsHtml(
     { consumption_metadata: { prompt: "stored", negative_prompt: "stored neg" } },
-    "",
     { ...MARKERS, pending: { prompt: HOSTILE, negative_prompt: HOSTILE } },
   );
   assert.ok(!html.includes("«stored»"));
@@ -124,7 +121,7 @@ test("a pending edit is shown through esc, marked, and beats the stored prompt",
 });
 
 test("without a pending edit the stored metadata is shown unmarked", () => {
-  const html = attachmentDetailsHtml({ consumption_metadata: { prompt: "stored" } }, "", MARKERS);
+  const html = attachmentDetailsHtml({ consumption_metadata: { prompt: "stored" } }, MARKERS);
   assert.ok(html.includes("«stored»"));
   assert.ok(!html.includes("image-gen-pending"));
 });
@@ -132,7 +129,6 @@ test("without a pending edit the stored metadata is shown unmarked", () => {
 test("replay disclosure notes are shown and escaped", () => {
   const html = attachmentDetailsHtml(
     { consumption_metadata: { notes: [HOSTILE, "second note"] } },
-    "",
     MARKERS,
   );
   assert.equal(html.split("<dt>Note</dt>").length - 1, 2);
@@ -143,7 +139,7 @@ test("replay disclosure notes are shown and escaped", () => {
 test("the camera row names the viewpoint and the lever that chose it", () => {
   // A wrong camera is fixed in a different place depending on which lever chose it,
   // so the two ways of landing on the default must read differently.
-  const cam = (metadata) => attachmentDetailsHtml({ consumption_metadata: metadata }, "", MARKERS);
+  const cam = (metadata) => attachmentDetailsHtml({ consumption_metadata: metadata }, MARKERS);
 
   const classified = cam({ pov: "first_person", pov_source: "classifier" });
   assert.ok(classified.includes("<dt>Camera</dt>"));
@@ -175,7 +171,6 @@ test("a reference row names the slot, the source, and where the bytes came from"
         ],
       },
     },
-    "",
     MARKERS,
   );
   assert.ok(html.includes("<dt>Reference« #72»</dt>"));
@@ -184,13 +179,12 @@ test("a reference row names the slot, the source, and where the bytes came from"
   assert.ok(html.includes("«character reference — from the character»"));
 
   // A workflow with no reference slots records none, so the row is omitted.
-  assert.ok(!attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, "", MARKERS).includes("<dt>Reference"));
+  assert.ok(!attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, MARKERS).includes("<dt>Reference"));
 });
 
 test("a hostile recorded reference is escaped like every other field", () => {
   const html = attachmentDetailsHtml(
     { consumption_metadata: { references: [{ slot: [HOSTILE, "image"], source: HOSTILE, origin: HOSTILE }] } },
-    "",
     MARKERS,
   );
   // Everything inside markers went through esc(); nothing hostile may survive outside them.
@@ -200,20 +194,20 @@ test("a hostile recorded reference is escaped like every other field", () => {
 // ── seedless backends and cost ───────────────────────────────────────────────
 
 test("a normal attachment still prints its seed", () => {
-  const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: {} }, "", MARKERS);
+  const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: {} }, MARKERS);
   assert.match(html, /<dt>Seed<\/dt><dd><code>«beef»<\/code>/);
 });
 
 test("a seedless backend says so instead of printing a meaningless hex", () => {
   // The seed is still minted and stored — rehydrate refuses a null one — so the
   // honest row is "recorded but unused", not a blank and not the hex.
-  const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: { seed_honored: false } }, "", MARKERS);
+  const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: { seed_honored: false } }, MARKERS);
   assert.match(html, /not used by this provider/);
   assert.ok(!html.includes("beef"));
 });
 
 test("cost is rendered only in the unit the payload names", () => {
-  const cost = (value) => attachmentDetailsHtml({ consumption_metadata: { cost: value } }, "", MARKERS);
+  const cost = (value) => attachmentDetailsHtml({ consumption_metadata: { cost: value } }, MARKERS);
 
   // Never converted: nothing documents what a tick is worth, and picking a divisor
   // by omission prints a wrong number on a billing figure.
@@ -224,7 +218,7 @@ test("cost is rendered only in the unit the payload names", () => {
   assert.match(cost({ provider: "acme", unit: "credits", value: 3 }), /3 credits/);
 
   // No row at all when the response reported none: a zero would read as "free".
-  assert.ok(!attachmentDetailsHtml({ consumption_metadata: {} }, "", MARKERS).includes("<dt>Cost"));
+  assert.ok(!attachmentDetailsHtml({ consumption_metadata: {} }, MARKERS).includes("<dt>Cost"));
   assert.ok(!cost({}).includes("<dt>Cost"));
 
   // And the whole cell is one escaped value, like every other field.

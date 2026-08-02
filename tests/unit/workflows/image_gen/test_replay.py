@@ -13,11 +13,8 @@ import base64
 import pytest
 
 from backend.workflows.image_gen import hooks
-from backend.workflows.image_gen.config import normalize_config
-from backend.workflows.image_gen.engine import (
-    ImageGenerationError,
-    resolve_render_target,
-)
+from backend.workflows.image_gen.config import normalize_config, resolve_style
+from backend.workflows.image_gen.engine import ImageGenerationError, get_adapter
 
 GRAPH = {
     "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
@@ -35,10 +32,15 @@ def _config(default_style: str = "anime", **external) -> dict:
     return normalize_config({"default_style": default_style, "external_comfy": base})
 
 
+def _target(config: dict, style_id: str, replay: dict | None = None):
+    """What the render path resolves: the config's adapter, asked about one style."""
+    return get_adapter(config).resolve_target(resolve_style(config, style_id), replay)
+
+
 def test_a_fresh_render_follows_the_style():
     # The style pins no workflow and external mode ships no default graph, so the
     # target graph is empty; the adapter turns that into an "assign a workflow" error.
-    target = resolve_render_target(_config(), "anime")
+    target = _target(_config(), "anime")
     assert (target.source, target.target_id, target.model, target.notes) == ("external_comfy", "", "current.safetensors", ())
     # The graph carries its own latent size, so Orb never pins one.
     assert (target.supports_dimensions, target.width, target.height) == (False, None, None)
@@ -56,13 +58,13 @@ def test_a_fresh_render_follows_the_style():
 )
 def test_replay_prefers_what_the_stored_image_recorded(replay, expected):
     config = _config(user_graphs=[{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}])
-    target = resolve_render_target(config, "anime", replay)
+    target = _target(config, "anime", replay)
     assert (target.target_id, target.model) == expected
     assert target.notes == ()
 
 
 def test_replay_of_a_deleted_graph_degrades_with_disclosure():
-    target = resolve_render_target(_config(), "anime", {"workflow_id": "user_gone", "backend_model": "old.safetensors"})
+    target = _target(_config(), "anime", {"workflow_id": "user_gone", "backend_model": "old.safetensors"})
     # The style has no workflow to fall back to, so the target is empty and the
     # note discloses both the missing graph and the unconfigured style.
     assert (target.target_id, target.model) == ("", "old.safetensors")

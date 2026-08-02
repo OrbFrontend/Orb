@@ -61,10 +61,18 @@ def _fresh_seed() -> int:
     return fold_seed(secrets.token_hex(16))
 
 
-def _requested_style_id(body: Any, config: Mapping[str, Any]) -> str:
-    """Use an explicit request style, otherwise today's global selection."""
-    style_id = body.get("style_id") if isinstance(body, Mapping) else None
-    return style_id or config["default_style"]
+async def _render_inputs(ctx, body) -> tuple[dict, str, dict]:
+    """What every fresh render reads before composing: `(config, style_id, profile)`.
+
+    One place, because the on-demand and regenerate paths must answer "which style,
+    which character appearance" identically -- a regenerate that resolved the style
+    differently would silently re-render on another backend.
+    """
+    config = normalize_config(await get_workflow_config(WORKFLOW_ID))
+    # An explicit request style, otherwise today's global selection.
+    requested = body.get("style_id") if isinstance(body, Mapping) else None
+    profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
+    return config, requested or config["default_style"], profile
 
 
 def _phase(label: str) -> dict:
@@ -146,10 +154,7 @@ def _metadata(
     return {
         "source": config["source"],
         "style_id": style["id"],
-        "recipe_id": None,
         "workflow_id": info.get("workflow_id"),
-        "bundle_id": None,
-        "runtime_version": None,
         "backend_model": info.get("backend_model"),
         "composer_mode": composer_mode,
         # Which camera was drawn and which lever chose it: a wrong POV must be
@@ -174,12 +179,12 @@ def _consumption(
     style: Mapping[str, Any],
     prompt: str,
     negative_prompt: str,
-    result=None,
-    record: Mapping[str, Any] | None = None,
+    result,
+    record: Mapping[str, Any],
     *,
-    source_label: str = "External ComfyUI",
+    source_label: str,
 ) -> dict:
-    info: Mapping[str, Any] = getattr(result, "backend_info", {}) if result is not None else {}
+    info: Mapping[str, Any] = result.backend_info
     notes = list(info.get("notes") or [])
     payload = {
         "source": source_label,
@@ -200,10 +205,10 @@ def _consumption(
     # a user needs traced while looking at the bad image. *record* is whichever dict
     # already carries them -- fresh metadata on a generate, stored params on a reroll.
     for key in ("pov", "pov_source"):
-        value = (record or {}).get(key)
+        value = record.get(key)
         if value:
             payload[key] = value
-    references = (record or {}).get("references")
+    references = record.get("references")
     if isinstance(references, (list, tuple)) and references:
         payload["references"] = [
             {key: entry.get(key) for key in ("slot", "source", "origin")} for entry in references if isinstance(entry, Mapping)
@@ -316,7 +321,7 @@ async def _generate_fresh(
         pov=pov,
         pov_source=pov_source,
     )
-    consumption = _consumption(style, prompt, negative, result, record=md, source_label=adapter.label)
+    consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
         # An optional slot resolving to nothing changed what was rendered, so say
         # so rather than leave it inferred from a missing Reference row.
@@ -478,9 +483,7 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
         return _failed_stream("That message is no longer part of this conversation")
     if message.get("role") != "assistant":
         return _failed_stream("Images can only be generated for assistant messages")
-    config = normalize_config(await get_workflow_config(WORKFLOW_ID))
-    style_id = _requested_style_id(body, config)
-    profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
+    config, style_id, profile = await _render_inputs(ctx, body)
     # The stream body runs after the trigger route releases its workflow locks, so
     # every DB-backed prefix component is rebuilt now and captured into the
     # generator; rendering itself stays unlocked.
@@ -549,11 +552,9 @@ async def regenerate(ctx, body):
     message = await get_message_by_id(ctx.message_id)
     if message is None or message.get("role") != "assistant":
         return []
-    config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     # Full regenerate recomposes from current settings. Only reroll/rehydrate
     # replay the predecessor attachment's stored generation parameters.
-    style_id = _requested_style_id(body, config)
-    profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
+    config, style_id, profile = await _render_inputs(ctx, body)
     # RegenCtx history excludes the anchor; append it before rebuilding the prefix.
     ctx_with_history = _RegenCompositionCtx(ctx, tuple(list(ctx.history) + [message]))
     # Deliberately unguarded: an empty batch reads to the route as a successful
@@ -668,7 +669,7 @@ async def reroll_gen(ctx, params, seed):
     )
     # The camera cannot have changed under a new seed, so carry what `params`
     # already records rather than re-resolving it.
-    consumption = _consumption(style, prompt, negative, result, record=params, source_label=adapter.label)
+    consumption = _consumption(style, prompt, negative, result, params, source_label=adapter.label)
     if notes:
         consumption["notes"] = [*notes, *consumption.get("notes", [])]
     if style_changed:

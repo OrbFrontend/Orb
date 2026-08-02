@@ -53,6 +53,11 @@ const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
 // speak aspect ratios — one canonical representation, converted at the wire by a
 // pure backend function. The exact mapping is disclosed as a render note rather
 // than previewed here; mirroring the aspect math into JS would be a drift risk.
+// Mirrors DEFAULT_CLOUD_EDGE in the backend normalizer: what an entry that has
+// never been sized renders at, in the one place every surface reads it from.
+const DEFAULT_EDGE = 1024;
+const entrySize = (entry) => [Number(entry?.width) || DEFAULT_EDGE, Number(entry?.height) || DEFAULT_EDGE];
+
 const CLOUD_SIZES = [
   [1024, 1024, "Square — 1024x1024"],
   [1024, 1536, "Portrait — 1024x1536"],
@@ -299,8 +304,8 @@ function styleConnectionOptions(selected) {
 // they are dead reads as a bug.
 function backendFields(style, connection) {
   if (connection && connection.source === "cloud") {
-    const entry = draft.connections[connection.id] || {};
-    const size = `${entry.width || 1024}×${entry.height || 1024}`;
+    const [width, height] = entrySize(draft.connections[connection.id]);
+    const size = `${width}×${height}`;
     return `<div class="image-gen-note ig-style-backend">Model and resolution come from this connection — ${esc(connection.detail || "no model yet")}, ${esc(size)}.
       <button type="button" class="ig-link" data-wf-action="image_gen:connOpen" data-conn-id="${escAttr(connection.id)}">Edit connection</button></div>`;
   }
@@ -575,7 +580,7 @@ function cloudFields(connection) {
       : "";
   const sizes = optionList(
     CLOUD_SIZES.map(([w, h, label]) => [`${w}x${h}`, label]),
-    `${Number(entry.width) || 1024}x${Number(entry.height) || 1024}`,
+    entrySize(entry).join("x"),
   );
   const quality = preset?.supports_quality
     ? `<label>Quality<select ${connField("quality")}>${optionList(CLOUD_QUALITIES, entry.quality || "")}</select></label>`
@@ -690,7 +695,7 @@ function captureConnections() {
       continue;
     }
     const entry = draft.connections[id] || {};
-    const [width, height] = String(get("size") ?? `${entry.width || 1024}x${entry.height || 1024}`).split("x");
+    const [width, height] = String(get("size") ?? entrySize(entry).join("x")).split("x");
     // Every field falls back to the stored value, not "": a preset declaring no
     // quality or no references renders no such control, and reading a missing
     // element as empty would blank a setting the user never saw.
@@ -699,8 +704,8 @@ function captureConnections() {
       api_key: get("api_key") ?? entry.api_key ?? "",
       model: get("model") ?? entry.model ?? "",
       base_url: get("base_url") ?? entry.base_url ?? "",
-      width: Number(width) || 1024,
-      height: Number(height) || 1024,
+      width: Number(width) || DEFAULT_EDGE,
+      height: Number(height) || DEFAULT_EDGE,
       quality: get("quality") ?? entry.quality ?? "",
       reference_source: get("reference_source") ?? entry.reference_source ?? "",
     };
@@ -715,8 +720,8 @@ function addConnection() {
   const preset = providerFor(id);
   const existing = draft.connections[id] || {};
   draft.connections[id] = {
-    width: 1024,
-    height: 1024,
+    width: DEFAULT_EDGE,
+    height: DEFAULT_EDGE,
     quality: "",
     reference_source: "",
     ...existing,

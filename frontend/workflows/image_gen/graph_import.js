@@ -14,7 +14,7 @@ const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 // rather than dropped by normalization and reported as a count that came back short.
 // The measurement must match the backend's — UTF-8 bytes, taken *after* `is_changed`
 // is stripped — or the two gates disagree in both directions.
-export const MAX_GRAPH_BYTES = 512_000;
+const MAX_GRAPH_BYTES = 512_000;
 
 const FALLBACK_TEXT_INPUTS = ["text"];
 const FALLBACK_SEED_INPUTS = ["seed", "noise_seed"];

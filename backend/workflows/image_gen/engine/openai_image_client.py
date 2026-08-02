@@ -63,7 +63,6 @@ class CloudImage:
     # In the provider's own unit; None when it said nothing, since inventing a zero
     # would read as "this was free".
     cost: dict | None
-    notes: tuple[str, ...] = ()
 
 
 def _scrub(text: str, secret: str = "") -> str:

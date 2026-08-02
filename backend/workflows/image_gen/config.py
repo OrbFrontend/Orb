@@ -6,7 +6,7 @@ import copy
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from .pov import DEFAULT_MODE as DEFAULT_POV_MODE
 from .pov import normalize_mode as normalize_pov_mode
@@ -259,6 +259,13 @@ def _is_loopback(hostname: str) -> bool:
     return host in ("localhost", "::1", "0:0:0:0:0:0:0:1") or host == "127.0.0.1" or host.startswith("127.")
 
 
+def _is_addressable(parsed: SplitResult) -> bool:
+    """Whether Orb will talk to this URL at all -- the rule both endpoint fields
+    share. Embedded credentials are refused rather than carried: they would ride
+    every request URL into logs and back out to the settings form."""
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+
+
 def _cloud_base_url(value: Any) -> str:
     """A user-supplied cloud endpoint override, or "" to use the preset's own.
 
@@ -269,9 +276,9 @@ def _cloud_base_url(value: Any) -> str:
     if not url:
         return ""
     parsed = urlsplit(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+    if not _is_addressable(parsed):
         return ""
-    if parsed.scheme != "https" and not _is_loopback(parsed.hostname):
+    if parsed.scheme != "https" and not _is_loopback(parsed.hostname or ""):
         return ""
     return url.rstrip("/")
 
@@ -382,8 +389,7 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     external_value = raw.get("external_comfy")
     external_raw: Mapping[str, Any] = external_value if isinstance(external_value, Mapping) else {}
     url = _text(external_raw.get("api_url"), 2_048, CONFIG_DEFAULTS["external_comfy"]["api_url"])
-    parsed = urlsplit(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+    if not _is_addressable(urlsplit(url)):
         url = CONFIG_DEFAULTS["external_comfy"]["api_url"]
     url = url.rstrip("/")
 

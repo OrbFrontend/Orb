@@ -88,7 +88,6 @@ class ImageRequest:
     negative_prompt: str
     seed: int
     style_id: str
-    recipe_id: str | None = None
     timeout_seconds: float = 180.0
     references: tuple[ResolvedReference, ...] = ()
 
