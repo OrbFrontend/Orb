@@ -203,7 +203,15 @@ async def test_restore_is_full_rollback(client, db):
 async def test_restore_succeeds_with_open_connection(client, db_path):
     """Regression: restoring while another connection holds the live DB open
     (as the running app does for any overlapping request) used to fail with
-    'database is locked' because the file/WAL was swapped out from under it."""
+    'database is locked' because the file/WAL was swapped out from under it.
+
+    The same case is what makes the restore portable. Replacing the live file by
+    renaming a prepared one over it is POSIX-only: Windows opens files without
+    FILE_SHARE_DELETE, so that rename fails with PermissionError [WinError 5]
+    whenever anyone -- this holder, or any overlapping request -- still has the
+    database open. Keep the copy going through SQLite (restore_full's online
+    backup), not through the filesystem.
+    """
     from backend.features.presets import engine as presets
 
     await client.post("/api/characters", json={"name": "Before"})
@@ -221,6 +229,42 @@ async def test_restore_succeeds_with_open_connection(client, db_path):
     names = {c["name"] for c in (await client.get("/api/characters")).json()}
     assert "Before" in names
     assert "After" not in names
+
+
+async def test_restore_realigns_mismatched_page_size(client, db_path):
+    """A library file whose page size differs from the live DB still restores.
+
+    The live DB runs in WAL mode, and SQLite cannot change a WAL database's page
+    size, so copying such a file in fails with a bare "attempt to write a
+    readonly database" unless the prepared copy is rebuilt to match first. Only
+    reachable via a preset imported from an install configured differently --
+    a locally produced one inherits the live page size.
+    """
+    from backend.features.presets import engine as presets
+
+    await client.post("/api/characters", json={"name": "Before"})
+    snap = await _full_snapshot(client, "repaged")
+    await client.post("/api/characters", json={"name": "After"})
+
+    live = sqlite3.connect(str(db_path))
+    try:
+        live_page = live.execute("PRAGMA page_size").fetchone()[0]
+        assert live.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    finally:
+        live.close()
+
+    conn = sqlite3.connect(str(_snap_dir(db_path) / snap), isolation_level=None)
+    try:
+        conn.execute(f"PRAGMA page_size={live_page * 2}")
+        conn.execute("VACUUM")  # a page-size change only lands on rebuild
+        assert conn.execute("PRAGMA page_size").fetchone()[0] == live_page * 2
+    finally:
+        conn.close()
+
+    presets.restore_full(snap)
+
+    names = {c["name"] for c in (await client.get("/api/characters")).json()}
+    assert names == {"Before"}
 
 
 async def test_apply_takes_auto_backup(client):

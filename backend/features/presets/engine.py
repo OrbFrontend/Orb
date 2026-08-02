@@ -14,7 +14,7 @@ Two ways to bring a file's data into the live DB:
     the references translated. Existing data the preset doesn't mention is left
     alone.
   * **restore** -- roll the live DB back to the file. A *full-coverage* file is
-    swapped in whole (``restore_full``). A *partial* file is restored
+    copied over the live DB whole (``restore_full``). A *partial* file is restored
     domain-scoped (``restore_partial``): the same merge machinery as apply, but
     each covered domain is emptied first, so those domains end up *exactly*
     matching the file (rows added since are dropped) while domains the file
@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import sqlite3
+import time
 
 from ...database import preset_schema as ps
 from ...database.migrations import MIGRATIONS, run_pending
@@ -45,6 +46,11 @@ META_TABLE = "orb_preset_meta"
 # informational (meta stores them sorted); the actual merge order is the
 # schema-derived topological sort in _build_schema_model().
 ALL_DOMAINS: list[str] = sorted(set(ps.DOMAIN_ROOTS.values()))
+
+# How long a full restore waits for the live DB's write lock before giving up.
+# Routes already serialise restores behind maintenance_lock, so the only thing
+# to wait out is an ordinary request's short write transaction.
+RESTORE_LOCK_TIMEOUT = 15.0
 
 
 def _roots_for(domain: str) -> list[str]:
@@ -1089,34 +1095,90 @@ def create_snapshot(label: str = "") -> str:
     return name
 
 
+def _align_page_size(prepared: str, live: str) -> None:
+    """Give the prepared copy the live DB's page size.
+
+    ``sqlite3_backup_step`` cannot change the destination's page size while the
+    destination is in WAL mode -- it fails with SQLITE_READONLY ("attempt to
+    write a readonly database"), which says nothing about the actual cause.
+    Library files inherit their page size from the DB they were vacuumed out of,
+    so this only bites for a preset imported from an install configured
+    differently; the rewrite is a no-op in every other case.
+    """
+    probe = sqlite3.connect(live)
+    try:
+        want = int(probe.execute("PRAGMA page_size").fetchone()[0])
+    finally:
+        probe.close()
+    conn = sqlite3.connect(prepared, isolation_level=None)
+    try:
+        if int(conn.execute("PRAGMA page_size").fetchone()[0]) == want:
+            return
+        conn.execute(f"PRAGMA page_size={want}")  # PRAGMA values cannot be bound; want is an int read from the live DB
+        conn.execute("VACUUM")  # a page-size change only takes effect on rebuild
+    finally:
+        conn.close()
+
+
+def _copy_over_live(prepared: str, live: str) -> None:
+    """Copy a prepared database over the live one via SQLite's online backup.
+
+    The copy runs as a single write transaction on the destination, so it either
+    lands whole or leaves the live DB byte-for-byte untouched (``backup_finish``
+    rolls back an incomplete copy).
+
+    ``Connection.backup`` retries SQLITE_BUSY forever by default, which would
+    turn a stuck writer into a hung request rather than a failed restore. The
+    progress callback runs after every step and aborts the backup when it
+    raises, which is what bounds the wait.
+    """
+    deadline = time.monotonic() + RESTORE_LOCK_TIMEOUT
+
+    def _bound_wait(status: int, remaining: int, total: int) -> None:
+        if status != sqlite3.SQLITE_DONE and time.monotonic() > deadline:
+            raise PresetError(
+                f"Restore could not get a write lock on the database within {RESTORE_LOCK_TIMEOUT:.0f}s "
+                "-- another operation still holds it. Nothing was changed; try again."
+            )
+
+    src = sqlite3.connect(prepared)
+    try:
+        dest = sqlite3.connect(live, timeout=RESTORE_LOCK_TIMEOUT)
+        try:
+            src.backup(dest, progress=_bound_wait)
+        finally:
+            dest.close()
+    finally:
+        src.close()
+
+
 def restore_full(name: str) -> None:
-    """Replace the live DB file with a library file (clean rollback).
+    """Replace the live DB's contents with a library file (clean rollback).
 
-    The replacement is prepared out-of-place and swapped in with an atomic
-    ``os.replace``. We never write to (or delete the WAL/SHM of) the live path
-    while it is open: the running app serves overlapping requests on their own
-    short-lived connections, and overwriting the file or removing its ``-wal``
-    out from under one leaves it holding a lock, which made the prep writes
-    below fail with "database is locked". After the swap, any still-open
-    connection keeps running on the now-unlinked old inode and finishes
-    cleanly, while new connections see the restored file.
+    The replacement is prepared out-of-place -- preset marker dropped, migrated,
+    vacuumed, integrity- and FK-checked on a private temp copy -- and only then
+    copied into the live database through SQLite's online backup API.
 
-    The swapped-in file is in rollback (DELETE) journal mode, but the *old*
-    live DB ran in WAL mode, so its ``-wal``/``-shm`` are still sitting at the
-    live path beside the freshly restored file. Clearing the ``-wal`` is NOT
-    cosmetic: SQLite replays a ``-wal`` it finds next to a database on open
-    *regardless of that database's own journal mode* (verified on 3.45), so a
-    surviving stale ``-wal`` is recovered over the restored file and silently
-    reverts the restore to the previous database's contents (a truncated one
-    can instead leave a malformed file). We therefore treat the removal as
-    mandatory and raise if the ``-wal`` cannot be cleared, rather than letting
-    a latent revert surface on the next restart.
+    Why not prepare a file and ``os.replace`` it over the live path: that swap is
+    POSIX-only. Windows opens files without ``FILE_SHARE_DELETE`` and SQLite's
+    win32 VFS is no exception, so renaming over a database *any* connection still
+    holds open fails with ``PermissionError: [WinError 5]``. The app serves
+    overlapping requests on their own short-lived connections, so on Windows the
+    swap lost a coin flip against any concurrent request -- and failed outright
+    under the test suite, which holds an assertion connection open for the whole
+    test. Going through SQLite is portable and strictly stronger: the write takes
+    the ordinary locking protocol, so connections already open on the live path
+    follow the restore (the schema-cookie bump re-prepares their statements)
+    instead of being stranded on an unlinked inode.
 
-    Residual race, not closed here: a reader that opens the live path in the
-    brief window between the ``os.replace`` and the removal below can itself
-    replay the stale ``-wal``. Fully closing it means gating ``get_db`` opens
-    for the duration of the swap (a process-wide reader/writer barrier), which
-    is out of scope for this file-swap helper.
+    It also retires the stale-WAL hazard the swap carried. A swapped-in file left
+    the *previous* database's ``-wal``/``-shm`` at the live path, and SQLite
+    replays a ``-wal`` it finds beside a database regardless of that database's
+    own journal mode -- silently reverting the restore on the next open, and with
+    a truncated ``-wal``, leaving a malformed file. It closes that path's
+    residual race too (a reader opening the live path mid-swap could replay the
+    stale WAL): here the live file, its WAL and its readers are the same objects
+    throughout, so there is nothing stale to clear and no window to race.
     """
     src = _library_path(name)
     live = _db_path()
@@ -1144,8 +1206,12 @@ def restore_full(name: str) -> None:
                 vac.execute("VACUUM")
             finally:
                 vac.close()
-        # The temp copy is about to become the live DB; refuse a structurally
-        # broken or FK-inconsistent file rather than swapping it in.
+        # The page size has to match before the copy, and rewriting it rebuilds
+        # the file -- so do it ahead of the checks below, which must validate the
+        # exact bytes that land in the live DB.
+        _align_page_size(tmp, live)
+        # The temp copy's contents are about to become the live DB; refuse a
+        # structurally broken or FK-inconsistent file rather than copying it in.
         chk = sqlite3.connect(tmp)
         try:
             _assert_integrity(chk, "the restore target")
@@ -1154,31 +1220,17 @@ def restore_full(name: str) -> None:
                 raise PresetError(f"Restore target has {len(fk)} foreign-key violations; aborted.")
         finally:
             chk.close()
-        os.replace(tmp, live)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        raise
-    # Clear the previous inode's WAL/SHM left at the live path. Removing the
-    # -wal is mandatory (see above): SQLite would otherwise replay it over the
-    # restored file on the next open and silently revert the restore. -shm
-    # alone is inert, so its removal stays best-effort. On Linux the unlink
-    # succeeds even while a finishing connection holds the file open; if the
-    # -wal still cannot be cleared, fail loudly so the user retries instead of
-    # discovering the revert only after a restart.
-    for sfx in ("-wal", "-shm"):
-        p = live + sfx
-        if os.path.exists(p):
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-    wal = live + "-wal"
-    if os.path.exists(wal):
-        raise PresetError(
-            f"Restore finished but a stale WAL file could not be cleared ({os.path.basename(wal)}); "
-            "the database may revert on the next restart. Close other connections and restore again."
-        )
+        _copy_over_live(tmp, live)
+    finally:
+        # Unlike the old rename, the copy leaves the temp file behind on success
+        # as well as on failure -- plus any journal our own connections created.
+        for sfx in ("", "-wal", "-shm"):
+            p = tmp + sfx
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
 
 def list_library() -> list[dict]:
