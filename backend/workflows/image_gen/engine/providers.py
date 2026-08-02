@@ -8,11 +8,15 @@ so the API never tells you a parameter was wrong: send `negative_prompt` to a
 provider that has no such field and it returns a perfectly good image that ignored
 it. A field is emitted only when the preset declares it.
 
-Only the **xai**, **togetherai**, **nanogpt** and **openrouter** rows are verified
-against the live API; every other row is declared from vendor documentation and
-marked ``verified=False`` -- and every verified row contradicted its own catalogue
+Only the **xai**, **togetherai**, **openrouter**, **openai** and **nanogpt** rows are
+verified against the live API; every other row is declared from vendor documentation
+and marked ``verified=False`` -- and every verified row contradicted its own catalogue
 or docs on a field that fails silently, which is what the flag is warning about.
 Each row carries the measurement that corrected it.
+
+OpenAI is the row that shows an unverified one is not merely imprecise but can be
+*inert*: declared from its documentation it sent `response_format`, which that API
+rejects outright, so every render 400'd before it began.
 
 A provider's own catalogue is not evidence either. OpenRouter's image models
 advertise `seed` and an `image` input modality; both are the `/chat/completions`
@@ -100,10 +104,13 @@ class ProviderPreset:
     # yet its edit models take an `image_url` on the ordinary generations call, so
     # "no edits endpoint" and "no reference support" are not the same fact.
     reference_field: str = "images"
-    # How that field is shaped: "url_objects" -> `[{"url": ...}]`, "url_object" ->
-    # `{"url": ...}`, "string" -> the bare URI. Declared rather than inferred from
-    # the field name, because getting it wrong is invisible: Together answers 200
-    # and renders the prompt alone when the shape is not the one it wanted.
+    # How that field is shaped: "url_objects" -> `[{"url": ...}]`, "image_url_objects"
+    # -> `[{"image_url": ...}]`, "url_object" -> `{"url": ...}`, "string" -> the bare
+    # URI. Declared rather than inferred from the field name, because getting it wrong
+    # is invisible: Together answers 200 and renders the prompt alone when the shape is
+    # not the one it wanted. Nor is the *field* name enough to pin the element: OpenAI
+    # takes `images` like xAI and then rejects xAI's `{"url": ...}` element, wanting
+    # `{"image_url": "<uri>"}` -- one key deeper than the field name suggests.
     reference_encoding: str = "url_objects"
     # When non-empty, only these models accept a reference -- same lowercase
     # substring match, and the same epistemics as `negative_prompt_blind`: an
@@ -116,6 +123,10 @@ class ProviderPreset:
     # resolution picker silently stops applying the moment references are on.
     reference_drives_size: bool = False
     reference_mimes: tuple[str, ...] = ("image/png", "image/jpeg")
+    # The first entry is sent as `response_format`. **Empty means send no such field**,
+    # which is not a preference but a hard contract on OpenAI: `gpt-image-1` answers
+    # `unknown_parameter` to `response_format` on both paths and always returns
+    # `b64_json` regardless, so declaring the format Orb wanted rejected every render.
     response_formats: tuple[str, ...] = ("b64_json", "url")
     default_model: str = ""
     max_prompt: int = 4_000
@@ -263,21 +274,59 @@ PRESETS: tuple[ProviderPreset, ...] = (
             "reports the cost of each render in USD",
         ),
     ),
-    # ── declared from vendor docs, unverified ────────────────────────────────
     ProviderPreset(
         id="openai",
         label="OpenAI",
         base_url="https://api.openai.com/v1",
         edits_path="/images/edits",
+        # `/models` is 125 entries of every modality OpenAI hosts, carrying only
+        # `id`, `object`, `created` and `owned_by` -- no `type` like Together, no
+        # `architecture` like OpenRouter. Nothing in the payload answers "does this
+        # make images", so the rule reads the id, which is the one field there is.
+        models_filter="openai_image_ids",
+        # Verified: `/models` 401s on a bad key, so the list already proves it and no
+        # `auth_probe_path` is needed.
         dimension_mode="size",
+        # Verified on gpt-image-1, -1-mini and -1.5, which name their own menu in the
+        # rejection: "Supported sizes are 1024x1024, 1024x1536, 1536x1024, and auto."
+        # `gpt-image-2` is the hole -- see `gaps`.
         sizes=_OPENAI_SIZES,
+        # Verified: 'low', 'medium', 'high' and 'auto', which is CLOUD_QUALITIES plus
+        # the default. dall-e-3's 'hd'/'standard' spelling is rejected -- and no
+        # dall-e model appears in the catalogue at all any more.
         supports_quality=True,
+        # Verified end to end on `/images/edits`: JSON, not multipart, and the magenta
+        # reference came back magenta with `input_tokens_details.image_tokens: 194`
+        # confirming it was read rather than accepted and dropped.
+        #
+        # `reference_models` is left empty -- meaning every model -- on a measurement
+        # rather than on optimism: all five reachable models were posted a reference
+        # alongside a deliberately invalid `size`, and each got as far as its own size
+        # check, which is only reached once the model and the field have been accepted.
+        # (`chatgpt-image-latest` 403s on organization verification before any of it.)
         supports_references=True,
-        reference_field="image",
-        reference_encoding="url_object",
+        # NOT `image: {"url": ...}`. The field is `images` (an array) and its element
+        # is `{"image_url": "<data uri>"}`; every other spelling is rejected by name,
+        # which is the polite failure -- `images: [{"url": ...}]` even survives schema
+        # validation against a bogus model and is only rejected once a real one is
+        # named, so a probe that stops at "no error" reads it as accepted.
+        reference_field="images",
+        reference_encoding="image_url_objects",
         default_model="gpt-image-1",
+        # Verified: 31,992 characters accepted, 39,996 rejected with "maximum length
+        # 32000". The 4,000 default was dall-e-3's limit and truncated 28,000
+        # characters of prompt that this API takes.
+        max_prompt=32_000,
+        # Verified: rejected outright as `unknown_parameter` on both paths.
+        response_formats=(),
         docs_url="https://platform.openai.com/docs/api-reference/images",
-        gaps=_GAPS_NO_CONTROLS,
+        verified=True,
+        gaps=(
+            *_GAPS_NO_CONTROLS,
+            "reports tokens rather than a cost, so no cost is shown for a render",
+            "renders gpt-image-2 at the nearest of the three sizes its older models accept",
+            "may need the organization verified before a model will render",
+        ),
     ),
     ProviderPreset(
         id="nanogpt",
@@ -323,6 +372,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
             "reports the cost of each render in USD",
         ),
     ),
+    # ── declared from vendor docs, unverified ────────────────────────────────
     ProviderPreset(
         id="chutes",
         label="Chutes",
@@ -610,6 +660,12 @@ def _data_uri(reference: ResolvedReference) -> str:
     return f"data:{reference.mime};base64,{base64.b64encode(reference.data).decode('ascii')}"
 
 
+# The array encodings, mapped to the key each wraps its URI in. Two providers take an
+# array under the same field name and disagree about the element: xAI wants
+# `{"url": ...}`, OpenAI wants `{"image_url": ...}` and rejects the other by name.
+_LIST_ENCODINGS = {"url_objects": "url", "image_url_objects": "image_url"}
+
+
 def build_edit_body(
     preset: ProviderPreset,
     *,
@@ -646,11 +702,12 @@ def build_edit_body(
         # this is unreachable in practice -- but returning early beats emitting the
         # reference field as a JSON `null` for a provider to make sense of.
         return built
-    if preset.reference_encoding == "url_objects":
-        built.body[preset.reference_field] = [{"url": uri} for uri in uris]
+    if preset.reference_encoding in _LIST_ENCODINGS:
+        key = _LIST_ENCODINGS[preset.reference_encoding]
+        built.body[preset.reference_field] = [{key: uri} for uri in uris]
     else:
         built.body[preset.reference_field] = uris[0] if preset.reference_encoding == "string" else {"url": uris[0]}
-        # Only the list encoding carries more than one, so anywhere else the extras
+        # Only a list encoding carries more than one, so anywhere else the extras
         # are dropped -- say so rather than let the user wonder which one won.
         if len(uris) > 1:
             built.notes.append(f"{preset.label} accepts one reference image; only the first was sent")

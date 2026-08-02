@@ -39,10 +39,15 @@ reach.
 
 Where a provider hosts more than images, the dropdown lists only the models that
 generate them — Together AI publishes one catalogue of 271 models, of which 29
-make images, OpenRouter publishes 337 of which 11 declare an image output, and
-NanoGPT publishes its 202 image models in a different place from its 653 text
-ones. If a provider stops labelling its catalogue, the dropdown falls back to the
-full list rather than showing you nothing.
+make images, OpenRouter publishes 337 of which 11 declare an image output, OpenAI
+publishes 125 of which 6 make images, and NanoGPT publishes its 202 image models in
+a different place from its 653 text ones. If a provider stops labelling its
+catalogue, the dropdown falls back to the full list rather than showing you nothing.
+
+OpenAI is the one that labels nothing at all: its catalogue entry carries a name, a
+date and an owner, and no field that says what a model does. So the name is what
+Orb reads, and a future image model called something unexpected would show up in
+the longer fallback list rather than not at all.
 
 On most providers, asking for the model list is also what proves your key works.
 NanoGPT and OpenRouter hand out their catalogues to anyone, so **Test connection**
@@ -59,7 +64,7 @@ All of these speak the same OpenAI-shaped `POST /v1/images/generations` contract
 | Provider | Verified | Notes |
 |---|---|---|
 | **xAI (Grok)** | Yes | Probed against the live API, including reference images. Default model `grok-imagine-image`. |
-| **OpenAI** | No | `gpt-image-1`. Uses `size` rather than aspect ratios. |
+| **OpenAI** | Yes | Probed against the live API, including reference images. No seed and no negative prompt. Reports tokens rather than a cost. Default model `gpt-image-1`. |
 | **OpenRouter** | Yes | Probed against the live API. One broker key across Google and OpenAI image models. No seed, no negative prompt, and no reference images on any model. Default model `google/gemini-2.5-flash-image`. |
 | **Together AI** | Yes | Probed against the live API. Accepts a seed and arbitrary resolutions (any multiple of 16 up to 1792px). Reference images on its Kontext models only. Default model `black-forest-labs/FLUX.1-schnell`. |
 | **NanoGPT** | Yes | Probed against the live API. 202 image models, including uncensored ones. Accepts a seed, a negative prompt, and any resolution. Reference images on many models but not all. Default model `cyberrealistic-xl`. |
@@ -171,6 +176,30 @@ model in the picker routes elsewhere; `openai/gpt-5-image-mini` and the
 `google/gemini-3.1-flash-image` was not. Retrying is also reasonable, and costs
 nothing when the request is refused.
 
+### On OpenAI, the resolution menu belongs to the older models
+
+`gpt-image-1`, `gpt-image-1-mini` and `gpt-image-1.5` accept exactly three sizes —
+1024×1024, 1024×1536 and 1536×1024 — and reject anything else outright, naming the
+three in the rejection.
+
+`gpt-image-2` does not. It takes any size whose edges are both divisible by 16, up
+to a longest edge of 3840, above some minimum total pixel count: 1024×576 is refused
+as "below the current minimum pixel budget" while 1024×1024 and 2048×2048 render.
+Orb still snaps to the three-size menu on every OpenAI model, so a `gpt-image-2`
+render is squarer and smaller than that model would allow. Nothing fails — the three
+sizes are all valid there — but the picker is the older models' menu.
+
+Two more things this provider does that the others do not:
+
+- **Some models need your organization verified.** `chatgpt-image-latest` answers
+  HTTP 403 *"Your organization must be verified to use the model"* until you verify
+  at OpenAI's organization settings. The other five render without it.
+- **No cost is reported.** OpenAI answers with token counts rather than a price, and
+  a token count is not a bill, so **Render details** shows no cost row rather than a
+  number Orb would have to make up a rate for. Check the usage dashboard.
+
+`dall-e-2` and `dall-e-3` no longer appear in the catalogue at all.
+
 ### Content refusals are per model on NanoGPT
 
 NanoGPT is a broker, so the policy that refuses you is the upstream model's, not
@@ -186,8 +215,9 @@ Illustrious checkpoints — render what the smaller commercial APIs will not.
 **Render details** shows what the provider reported, in the provider's own unit.
 xAI reports `usd_ticks` and does not document what a tick is worth, so Orb prints
 `1400 usd ticks` rather than a dollar figure it cannot verify. NanoGPT and
-OpenRouter report plain USD. When the response reports nothing — Together AI
-reports no cost at all — Orb shows no cost row rather than a zero.
+OpenRouter report plain USD. When the response reports nothing Orb shows no cost row
+rather than a zero: Together AI reports no cost at all, and OpenAI reports token
+counts, which are not a price.
 
 Every button that produces an image spends money: **Visualize**, **Regenerate**,
 **Reroll**, and **Rehydrate**. Check your usage on the provider's dashboard;

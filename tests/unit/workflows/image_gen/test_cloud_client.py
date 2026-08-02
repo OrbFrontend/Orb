@@ -235,6 +235,21 @@ async def test_a_modality_filter_reads_outputs_and_never_inputs():
 
 
 @pytest.mark.asyncio
+async def test_an_id_filter_is_the_only_rule_openai_s_catalogue_supports():
+    """OpenAI's 125 entries carry `id`, `object`, `created` and `owned_by` -- no
+    `type` like Together, no `architecture` like OpenRouter. Nothing in the payload
+    answers "does this make images", so the id is read, and the images path answers
+    *"The model 'gpt-4o' does not exist"* for everything this drops.
+    """
+    # Trimmed to the ids that carry a decision. `chatgpt-image-latest` is why the rule
+    # matches "image" anywhere rather than a `gpt-image` prefix; `dall-e-3` stays in
+    # the vocabulary though OpenAI no longer lists one.
+    entries = [{"id": name} for name in ("gpt-image-1", "chatgpt-image-latest", "dall-e-3", "gpt-4o", "whisper-1")]
+    models = await _client(_ok({"data": entries})).list_models("/models", "openai_data", "openai_image_ids")
+    assert models == ["chatgpt-image-latest", "dall-e-3", "gpt-image-1"]
+
+
+@pytest.mark.asyncio
 async def test_an_untagged_catalogue_falls_back_to_the_whole_list():
     """The filter is an optimisation, never a gate. A provider that stops tagging
     its entries should cost a longer list, not an empty picker that reads to the
@@ -327,6 +342,32 @@ async def test_a_content_refusal_still_reaches_the_user_in_the_provider_s_own_wo
 
 
 @pytest.mark.asyncio
+async def test_a_refusal_keeps_the_reason_it_puts_last():
+    """OpenAI's live refusal body, verbatim. It is 203 characters and spends the
+    first 175 on a support address and a request id, so the category -- the only part
+    a user can act on -- is last. A 200-character cap ended it at
+    "safety_violations=[sexua", cutting the one informative token in the sentence.
+
+    Roleplay imagery is the dominant failure mode on a commercial API, so this is the
+    message users read most often.
+    """
+    message = (
+        "Your request was rejected by the safety system. If you believe this is an error, contact us at "
+        "help.openai.com and include the request ID req_f70cba2c7faf4c96a24e7fad962594ce. "
+        "safety_violations=[sexual]."
+    )
+    handler = lambda _request: httpx.Response(  # noqa: E731
+        400, json={"error": {"message": message, "code": "moderation_blocked"}}
+    )
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="openai", timeout=10)
+    assert "safety_violations=[sexual]" in str(exc.value)
+    # Still capped, and still not classified: `moderation_blocked` is the provider's
+    # word for it and the funnel branches on nothing here.
+    assert exc.value.kind == "request"
+
+
+@pytest.mark.asyncio
 async def test_a_timeout_is_not_reported_as_a_broken_network():
     """On a render this is the *expected* failure, and "could not communicate" sent
     the user to look at their connection for a provider that was merely slow."""
@@ -362,8 +403,12 @@ async def test_a_200_that_is_not_json_is_named_as_such():
         # it does not have, so a branch gated on 404 alone leaves the degrade path
         # dead there and a rehydrate of a retired model dying as a bare rejection.
         (400, "Invalid image model specified.", "retired-model", MODEL_NOT_FOUND, "retired-model"),
+        # OpenAI: also a 400, and its `code` is `invalid_value` -- which it also
+        # spends on a bad `size` and a bad `quality`. The sentence is the only thing
+        # that separates a retired model from a rejected parameter here.
+        (400, "The model 'gpt-image-0' does not exist.", "gpt-image-0", MODEL_NOT_FOUND, "gpt-image-0"),
     ],
-    ids=["model gone", "model gone on a 400"],
+    ids=["model gone", "model gone on a 400", "model gone on OpenAI"],
 )
 async def test_a_refusal_carries_the_kind_the_caller_degrades_on(status, message, model, kind, expected):
     handler = lambda _request: httpx.Response(status, json={"error": {"message": message}})  # noqa: E731

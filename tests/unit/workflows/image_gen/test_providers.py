@@ -36,6 +36,9 @@ assert NANOGPT is not None
 OPENROUTER = get_preset("openrouter")
 assert OPENROUTER is not None
 
+OPENAI = get_preset("openai")
+assert OPENAI is not None
+
 
 def test_every_preset_endpoint_is_https():
     for preset in PRESETS:
@@ -49,7 +52,13 @@ def test_every_preset_endpoint_is_https():
         assert not parsed.username and not parsed.password, preset.id
     # An unverified row is a guess from vendor docs, and saying so in the table is
     # what keeps the next person from trusting it as measured fact.
-    assert [preset.id for preset in PRESETS if preset.verified] == ["xai", "togetherai", "openrouter", "nanogpt"]
+    assert [preset.id for preset in PRESETS if preset.verified] == [
+        "xai",
+        "togetherai",
+        "openrouter",
+        "openai",
+        "nanogpt",
+    ]
 
 
 def test_a_width_height_preset_declares_the_grid_it_snaps_to():
@@ -86,6 +95,36 @@ def test_xai_never_receives_size_even_though_it_is_the_openai_spelling():
     assert body["aspect_ratio"] == "1:1"
 
 
+def test_openai_declares_no_response_format_because_it_rejects_the_field():
+    """The row's inertness, pinned. Where OpenRouter's allowlist buys *honesty* --
+    fields it omits would be silently ignored -- OpenAI's buys the render: every
+    undeclared field is answered with HTTP 400 `unknown_parameter`.
+
+    `response_format` is the one that mattered, because it was sent by *preset
+    default* rather than by this row, so nothing here looked wrong. `b64_json` comes
+    back regardless and `_image_bytes` reads it first, so declaring none loses
+    nothing. The absence itself is asserted for every preset in
+    `test_no_preset_emits_a_field_it_does_not_declare`.
+    """
+    assert OPENAI.response_formats == ()
+    built = build_generation_body(OPENAI, model="gpt-image-1", prompt="p", quality="high", width=1024, height=1024)
+    # The fields it does take, so an empty tuple is not read as "send nothing".
+    assert (built.body["size"], built.body["quality"], built.body["n"]) == ("1024x1024", "high", 1)
+
+
+def test_openai_takes_a_reference_under_its_own_element_key():
+    """Verified end to end. `images` is an array like xAI's, and there the agreement
+    stops: the element is `{"image_url": "<uri>"}`, and `{"url": ...}` is rejected --
+    but only once a *real* model is named, so a probe against a bogus model reads the
+    wrong shape as accepted."""
+    built = build_edit_body(OPENAI, model="gpt-image-1", prompt="p", references=[_reference()], width=1024, height=1024)
+    carried = built.body["images"]
+    assert isinstance(carried, list)
+    assert list(carried[0]) == ["image_url"]
+    assert carried[0]["image_url"].startswith("data:image/png;base64,")
+    assert "response_format" not in built.body
+
+
 @pytest.mark.parametrize("preset", PRESETS, ids=[preset.id for preset in PRESETS])
 def test_no_preset_emits_a_field_it_does_not_declare(preset):
     body = build_generation_body(
@@ -104,6 +143,10 @@ def test_no_preset_emits_a_field_it_does_not_declare(preset):
         assert "seed" not in body
     if not preset.supports_quality:
         assert "quality" not in body
+    if not preset.response_formats:
+        # An empty tuple is a contract, not an absent preference: OpenAI answers 400
+        # `unknown_parameter` to `response_format` and returns `b64_json` anyway.
+        assert "response_format" not in body
     if preset.dimension_mode != "size":
         assert "size" not in body
     if preset.dimension_mode != "aspect_ratio":
@@ -188,13 +231,19 @@ def test_a_negative_prompt_is_sent_and_disclosed_per_model(model, negative, sent
     assert any("ignores negative prompts" in note for note in built.notes) is disclosed
 
 
-@pytest.mark.parametrize("preset", [XAI, NANOGPT], ids=["xai 8000", "nanogpt 3000"])
+@pytest.mark.parametrize("preset", [XAI, NANOGPT, OPENAI], ids=["xai 8000", "nanogpt 3000", "openai 32000"])
 def test_an_overlong_prompt_is_truncated_to_the_providers_own_limit(preset):
     """NanoGPT is why this is per preset rather than a constant: 3000, verified live,
     and it 400s a longer prompt rather than truncating it. A composed scene plus a
     style prompt clears the default 4000 easily, so truncating here is what keeps
-    that from being a failed render."""
-    assert NANOGPT.max_prompt == 3_000
+    that from being a failed render.
+
+    OpenAI is the same fact from the other end -- 31,992 characters accepted and
+    39,996 rejected, so the 4,000 it inherited from the shared default was dall-e-3's
+    limit truncating 28,000 characters this API takes. No dall-e model is in the
+    catalogue any more.
+    """
+    assert (NANOGPT.max_prompt, OPENAI.max_prompt) == (3_000, 32_000)
     built = build_generation_body(preset, model="m", prompt="x" * (preset.max_prompt + 50))
     assert len(built.body["prompt"]) == preset.max_prompt
     assert any("truncated" in note for note in built.notes)
@@ -256,9 +305,9 @@ def _reference(mime: str = "image/png") -> ResolvedReference:
 
 
 def test_a_singular_reference_field_discloses_the_ones_it_dropped():
-    openai = get_preset("openai")
-    assert openai is not None
-    built = build_edit_body(openai, model="m", prompt="p", references=[_reference(), _reference()])
+    custom = get_preset("custom")
+    assert custom is not None
+    built = build_edit_body(custom, model="m", prompt="p", references=[_reference(), _reference()])
     assert isinstance(built.body["image"], dict)
     assert any("one reference image" in note for note in built.notes)
 
@@ -278,7 +327,9 @@ def test_every_reference_encoding_sends_a_data_uri(preset):
     if isinstance(carried, str):
         uri = carried
     elif isinstance(carried, list):
-        uri = carried[0]["url"]
+        # The element key is the encoding's, not the field's: OpenAI's `images` array
+        # wants `image_url` where xAI's wants `url`, and it rejects the other by name.
+        (uri,) = carried[0].values()
     else:
         uri = carried["url"]
     assert uri.startswith("data:image/png;base64,"), preset.id

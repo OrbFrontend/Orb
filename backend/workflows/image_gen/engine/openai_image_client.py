@@ -44,12 +44,21 @@ _UNKNOWN_MODEL_MARKERS = (
     "unknown model",
     "invalid image model",
     "no such model",
+    # OpenAI: HTTP 400, `code: "invalid_value"` -- a code it also spends on a bad
+    # `size` and a bad `quality` -- so the sentence is the only thing that separates
+    # a retired model from a rejected parameter here, and without it the degrade
+    # path is dead on OpenAI.
+    "does not exist",
 )
 
 _URL_RE = re.compile(r"https?://\S+")
 _PATH_RE = re.compile(r"(?<![\w.])/[\w.\-/]+")
 _WHITESPACE_RE = re.compile(r"\s+")
-_EXCERPT_LIMIT = 200
+# 240 rather than 200 because OpenAI's content refusal is 203 characters and puts the
+# one actionable token last: a 200-char cap ended it at "safety_violations=[sexua",
+# spending the whole budget on a support address and a request id to truncate the
+# only part that says *why*.
+_EXCERPT_LIMIT = 240
 
 # There is deliberately no content-refusal branch. Markers like "blocked" and "not
 # allowed" are ordinary API-error English -- *"Model gpt-image-1 is not allowed for
@@ -443,12 +452,24 @@ def _outputs_an_image(entry: Mapping[str, Any]) -> bool:
     return isinstance(modalities, (list, tuple)) and "image" in modalities
 
 
+def _is_an_openai_image_id(entry: Mapping[str, Any]) -> bool:
+    """OpenAI: no modality field of any kind, so the id is all there is to read.
+
+    The weakest rule here, and the only one this catalogue admits. Safe because it
+    fails *closed*: `list_models` falls back to the whole list when a filter matches
+    nothing, so a future family named outside this vocabulary costs a longer picker.
+    """
+    ident = entry.get("id")
+    return isinstance(ident, str) and ("image" in ident or ident.startswith("dall-e"))
+
+
 # Which rule a provider uses is declared on its preset -- see `models_filter` in
 # providers.py. An unknown name filters nothing, so a preset typo costs a longer
 # picker rather than an empty one, matching the fallback in `list_models`.
 _MODEL_FILTERS: dict[str, Callable[[Mapping[str, Any]], bool]] = {
     "type_image": _declares_image_type,
     "output_image": _outputs_an_image,
+    "openai_image_ids": _is_an_openai_image_id,
 }
 
 
