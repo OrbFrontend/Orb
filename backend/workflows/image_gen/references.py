@@ -1,17 +1,16 @@
 """Resolve a workflow's mapped `LoadImage` slots to actual reference bytes.
 
-Sits at the `image_gen` top level rather than under `engine/`: this reads
-conversation state through the workflow toolkit, while `engine/` stays
-ComfyUI-only. Uploading and patching are the engine's half of the split.
+Above `engine/` because this reads conversation state through the workflow
+toolkit; uploading and patching are the engine's half of the split.
 
-Two entry points, because the two render routes make different promises.
+Two entry points, because the two render routes promise different things.
 `resolve_references` picks what a *fresh* render should use from the branch as it
 stands; `refetch_references` re-fetches strictly by recorded origin, so a reroll
 changes only the seed.
 
-Both answer against a *slot list the target supplied*, and every slot carries its
-own policy: which mimes it accepts, how many bytes it will take, and whether it
-can render at all without one. Nothing here knows which backend is active.
+Both answer against the slot list the *target* supplied, and every slot carries
+its own policy -- accepted mimes, byte budget, and whether it can render at all
+unfilled. Nothing here knows which backend is active.
 """
 
 from __future__ import annotations
@@ -40,29 +39,21 @@ SOURCE_LABELS = {
     "character": "the character reference image",
 }
 
-# How far back a `previous` slot looks, in messages on this branch.
-#
-# Unbounded, the first render in a conversation permanently retires the character
-# reference: `previous_or_character` would find *something* forever after, and a
-# picture from two hundred messages ago -- a different scene, often a different
-# character -- would outrank a likeness the user set on purpose. A bound is what
-# makes the fallback half of that source reachable again.
+# How far back a `previous` slot looks, in messages on this branch. Unbounded, the
+# first render in a conversation permanently retires the character reference:
+# `previous_or_character` would find *something* forever after, and a picture from
+# two hundred messages ago would outrank a likeness the user set on purpose.
 PREVIOUS_LOOKBACK_MESSAGES = 30
 
 
 def _bytes_from_row(row: Mapping[str, Any] | None) -> tuple[bytes, str] | None:
     """Decoded image bytes off an attachment row, or None when unusable.
 
-    An evicted row holds the sentinel rather than base64; both that and a row
-    that does not decode fall through to the next candidate rather than raising,
-    so one bad row cannot block a walk-back with images left to try.
-
-    The mime must be one Orb declares it accepts, not merely ``image/*``. A user
-    can upload a HEIC, an AVIF or an SVG, and any of the three reaches an image
-    backend as bytes it cannot decode inside a body labelled as something else --
-    so an unsupported upload is skipped here and the walk-back continues, exactly
-    as it does for an evicted row. `REFERENCE_MIMES` is the one list; the
-    per-character reference already answered to it.
+    An evicted row holds the sentinel rather than base64; that, a row that does not
+    decode, and a mime outside `REFERENCE_MIMES` all fall through to the next
+    candidate rather than raising, so one bad row cannot block a walk-back. The mime
+    check is not merely ``image/*``: a HEIC, AVIF or SVG upload would reach the
+    backend as undecodable bytes inside a body labelled as something else.
     """
     payload = (row or {}).get("data_b64")
     mime = (row or {}).get("mime_type")
@@ -107,8 +98,8 @@ def _active_generated_image(message: Mapping[str, Any]) -> Mapping[str, Any] | N
 def _uploaded_image(message: Mapping[str, Any]) -> Mapping[str, Any] | None:
     """The newest upload on this message that Orb accepts as a reference.
 
-    Filtered on the mime alone rather than by calling `_bytes_from_row`, which
-    would decode a multi-megabyte payload here and again at the point of use.
+    Filtered on the mime alone: `_bytes_from_row` would decode a multi-megabyte
+    payload here and again at the point of use.
     """
     uploads = [a for a in _rows(message, "user_attachments") if str(a.get("mime_type") or "").lower() in REFERENCE_MIMES]
     return uploads[-1] if uploads else None
@@ -117,13 +108,10 @@ def _uploaded_image(message: Mapping[str, Any]) -> Mapping[str, Any] | None:
 def _previous_image(history: Sequence[Mapping[str, Any]], anchor_id: int) -> tuple[bytes, str, str] | None:
     """The newest usable image on this branch before the anchor.
 
-    The anchor is excluded: a regenerate would otherwise feed the image already
-    attached to the message back in as its own reference, editing the previous
-    render instead of the scene. A user's own upload counts -- "edit this photo
-    of me" is the same request -- and its origin carries the message id too,
+    The anchor is excluded, or a regenerate would feed the image already on the
+    message back in as its own reference and edit the previous render instead of the
+    scene. A user's own upload counts, and its origin carries the message id too
     since user attachments are only readable per-message.
-
-    Bounded by `PREVIOUS_LOOKBACK_MESSAGES`; see that constant.
     """
     scanned = 0
     for message in reversed(list(history)):
@@ -169,11 +157,9 @@ async def _character_image(character_id: str | None, profile: Mapping[str, Any])
 def _constraints(entry: Mapping[str, Any]) -> dict:
     """Per-slot mime/size policy, as the slot's own record states it.
 
-    Data-driven rather than a parameter threaded down from the hook: each adapter
-    states what its slots accept -- ComfyUI the three mimes it can name a file
-    with, the cloud adapter the provider's accepted mimes and the tighter
-    base64-in-JSON byte cap. Nothing above here has to know which backend is
-    active, and a slot that states nothing gets the shared defaults.
+    Data-driven rather than threaded down from the hook: each adapter states what
+    its slots accept, so nothing above here knows which backend is active. A slot
+    that states nothing gets the shared defaults.
     """
     limits: dict[str, Any] = {}
     mimes = entry.get("mimes")
@@ -188,12 +174,10 @@ def _constraints(entry: Mapping[str, Any]) -> dict:
 def _required(entry: Mapping[str, Any]) -> bool:
     """Whether this slot's render is impossible without an image.
 
-    A ComfyUI graph built around a `LoadImage` is: rendering it unfilled submits
-    the exporter's stale filename and draws whatever that pointed at. A cloud
-    provider's synthetic slot is not -- the same model has a plain generations
-    endpoint one field away -- so an unresolvable one degrades with a note
-    instead of refusing. Declared by the adapter that owns the slot, because
-    "can this render without a reference" is a fact about the backend.
+    A ComfyUI graph built around a `LoadImage` is -- rendering it unfilled submits
+    the exporter's stale filename. A cloud provider's synthetic slot is not, since
+    the same model has a plain generations endpoint one field away, so it degrades
+    with a note. Declared by the adapter, because it is a fact about the backend.
     """
     return entry.get("required") is not False
 
@@ -245,16 +229,15 @@ async def resolve_references(
 ) -> tuple[ResolvedReference, ...]:
     """Bytes for every mapped reference slot, for a fresh render.
 
-    An unresolvable *required* slot is a hard failure with a specific message
-    rather than a silent substitution: a graph built around a reference produces
-    nonsense without one. An unresolvable optional slot is simply absent from the
-    result, and the caller discloses that on the attachment -- see `_required`.
+    An unresolvable *required* slot fails with a specific message rather than
+    substituting silently; an unresolvable optional one is simply absent, and the
+    caller discloses that on the attachment. See `_required`.
     """
     if not entries:
         return ()
     normalized_profile = normalize_profile(profile)
-    # Each source is resolved at most once per render even when several slots
-    # share it, so a two-slot graph reads the branch once.
+    # Each source resolves at most once per render, so a two-slot graph reads the
+    # branch once even when both slots share a source.
     cache: dict[str, tuple[bytes, str, str] | None] = {}
     resolved: list[ResolvedReference] = []
     for entry in entries:
@@ -285,7 +268,7 @@ async def _origin_bytes(origin: str) -> tuple[bytes, str] | None:
         return _bytes_from_row(await get_workflow_attachment_by_id(int(ident)))
     if kind == "upload":
         # "upload:<message id>:<attachment id>" -- user attachments are only
-        # readable per-message, so the origin has to carry both.
+        # readable per-message, so the origin carries both.
         message_id, _, attachment_id = ident.partition(":")
         if message_id.isdigit() and attachment_id.isdigit():
             for row in await get_user_attachments_for_message(int(message_id)):
@@ -306,20 +289,15 @@ def _pair_with_slots(
 ) -> list[tuple[Mapping[str, Any], Mapping[str, Any] | None]]:
     """Which of *this* render's slots carries each recorded reference.
 
-    Matched by slot id first, so an unchanged target replays byte-identically.
-    What is left over is matched **positionally**, which is what makes replay work
-    across backends at all: a cloud reference is recorded against the synthetic
-    ``("cloud", "image_0")`` and a ComfyUI one against a node id in whatever graph
-    ran, so the two never match by key. Without the positional pass a ComfyUI
-    image rerolled under cloud sent its reference with ComfyUI's mime policy (the
-    provider was told PNG and handed a WebP), and the same reroll in the other
-    direction patched a graph node named ``cloud`` that does not exist.
-
-    A recorded reference with no slot left pairs with ``None``; the caller drops
-    it and discloses that rather than submitting it nowhere.
+    Matched by slot id first, so an unchanged target replays byte-identically. What
+    is left over is matched **positionally**, which is what makes replay work across
+    backends: a cloud reference is recorded against the synthetic
+    ``("cloud", "image_0")`` and a ComfyUI one against a node id, so the two never
+    match by key. A recorded reference with no slot left pairs with ``None``; the
+    caller drops it and discloses that rather than submitting it nowhere.
     """
-    # Tracked by index, never by value: two slots on one target can be equal
-    # dicts, and removing "the equal one" would consume the wrong slot.
+    # Tracked by index, never by value: two slots on one target can be equal dicts,
+    # and removing "the equal one" would consume the wrong slot.
     by_key: dict[tuple[str, ...], int] = {}
     for index, slot in enumerate(slots):
         key = _slot_key(slot.get("slot"))
@@ -351,19 +329,15 @@ async def refetch_references(
 ) -> tuple[ResolvedReference, ...]:
     """Re-fetch a stored render's references strictly by recorded origin.
 
-    Reroll promises that only the seed changes, so this never re-resolves: a
-    deleted or byte-evicted origin fails loudly instead of silently changing the
-    subject, and so does an origin whose *content* changed underneath its id --
-    rehydrating an attachment on a seedless provider rewrites the same row with a
-    different picture. The origin carries everything needed, which is what lets
-    this run on the history-free reroll ctx.
+    Reroll promises only the seed changes, so this never re-resolves: a deleted,
+    evicted, or content-changed origin fails loudly instead of changing the subject.
+    The origin carries everything needed, which lets this run on the history-free
+    reroll ctx.
 
-    `slots` is the *target's* slot list, not the record's: the stored shape is
-    deliberately just ``{slot, source, origin, digest, source_digest}``, so the
-    mime/size policy and the slot each reference will actually occupy both have
-    to come from what will render this time. See `_pair_with_slots`. Passing no
-    slots means "no target to speak of" -- the record is echoed back unbounded,
-    which only a caller with nothing to render against should do.
+    `slots` is the *target's* list, not the record's -- the stored shape carries no
+    policy, so the mime/size rules and the slot each reference occupies must come
+    from what renders this time (see `_pair_with_slots`). Passing none echoes the
+    record back unbounded, which only a caller with nothing to render should do.
     """
     entries = [entry for entry in recorded if isinstance(entry, Mapping)] if isinstance(recorded, (list, tuple)) else []
     if not entries:
@@ -395,13 +369,9 @@ async def refetch_references(
 def _require_all_filled(slots: Sequence[Mapping[str, Any]], resolved: Sequence[ResolvedReference]) -> None:
     """Refuse a replay that leaves a slot the render cannot run without.
 
-    This is the whole of what a style change on reroll used to be refused for.
-    The old rule refused whenever the new style took references at all, on the
-    grounds that the recorded slots named node ids in the *old* graph -- true,
-    but the origins never did, and re-keying them is what makes the common case
-    (one identity image, one `LoadImage`, a different style) simply work. What
-    genuinely cannot be replayed is a target that needs more images than the
-    record holds, which is this.
+    The only thing a style change on reroll is refused for: a target needing more
+    images than the record holds. Recorded slots naming another graph's node ids is
+    not one -- the origins never did, and `_pair_with_slots` re-keys them.
     """
     filled = {_slot_key(reference.slot) for reference in resolved}
     missing = [slot for slot in slots if _required(slot) and _slot_key(slot.get("slot")) not in filled]
@@ -417,13 +387,11 @@ def _require_all_filled(slots: Sequence[Mapping[str, Any]], resolved: Sequence[R
 def _verify_unchanged(entry: Mapping[str, Any], reference: ResolvedReference) -> None:
     """Refuse a replay whose origin now holds different bytes than it recorded.
 
-    Compared on `source_digest`, which is taken before the destination's policy
-    touches the bytes, so a reference re-keyed onto another backend's slot is not
-    accused of changing merely because it converted differently this time.
-
-    A `character:` origin is exempt by design: it addresses a *setting*, and
-    "change the character reference, then reroll" is documented to apply. Records
-    written before this field existed carry no digest and are not second-guessed.
+    Compared on `source_digest`, taken before the destination's policy touches the
+    bytes, so a reference re-keyed onto another backend's slot is not accused of
+    changing merely because it converted differently. A `character:` origin is
+    exempt -- it addresses a *setting*, and "change the reference, then reroll" is
+    documented to apply -- and a record predating the field carries no digest.
     """
     if reference.origin.startswith("character:"):
         return

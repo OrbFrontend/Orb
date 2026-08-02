@@ -9,32 +9,27 @@
 
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
-// Mirrors MAX_GRAPH_BYTES in backend/workflows/image_gen/config.py. Checked here
-// too so an oversized graph is refused at the file picker, where the user can
-// still see which file they chose, instead of being dropped by normalization
-// after save and reported only as a count that came back short. The measurement
-// must match the backend's -- UTF-8 bytes, taken *after* `is_changed` is stripped
-// -- or the two gates disagree in both directions.
+// Mirrors MAX_GRAPH_BYTES in backend/workflows/image_gen/config.py, so an oversized
+// graph is refused at the picker where the user can still see which file they chose,
+// rather than dropped by normalization and reported as a count that came back short.
+// The measurement must match the backend's — UTF-8 bytes, taken *after* `is_changed`
+// is stripped — or the two gates disagree in both directions.
 export const MAX_GRAPH_BYTES = 512_000;
 
 const FALLBACK_TEXT_INPUTS = ["text"];
 const FALLBACK_SEED_INPUTS = ["seed", "noise_seed"];
 const FALLBACK_OUTPUT_CLASSES = ["SaveImage", "PreviewImage"];
-// Upload widgets are typed server-side off /object_info's `image_upload` flag.
-// Unreachable server or unknown class: only the stock loaders are guessed, since
-// a wrong guess would offer a reference slot that patches something else.
+// Upload widgets are typed server-side off /object_info's `image_upload` flag. With
+// the server unreachable only the stock loaders are guessed, since a wrong guess
+// would offer a reference slot that patches something else.
 const FALLBACK_IMAGE_CLASSES = ["LoadImage", "LoadImageMask"];
 const FALLBACK_IMAGE_INPUTS = ["image"];
-// Widget inputs that name the diffusion model a loader reads. Offered as a
-// "Model" slot so an imported graph's model can be overridden by the checkpoint
-// the user picked in Orb, instead of staying pinned to a filename from whatever
-// machine exported the PNG.
+// Widget inputs naming the diffusion model a loader reads, offered as a "Model" slot
+// so Orb's checkpoint overrides the filename the PNG was exported with.
 const MODEL_INPUTS = ["ckpt_name", "unet_name"];
 
-// Mirrors `_strip_machine_local_state` in the backend normalizer: ComfyUI's API
-// export embeds a per-node `is_changed` hash that is meaningless off the machine
-// that wrote it. Measured on a copy — the caller stores the graph it passed in,
-// and the backend does its own strip on arrival.
+// Mirrors `_strip_machine_local_state` in the backend normalizer. Measured on a copy:
+// the caller stores the graph it passed in, and the backend strips again on arrival.
 function graphByteLength(graph) {
   const stripped = Object.fromEntries(
     Object.entries(graph).map(([nodeId, node]) => {
@@ -140,15 +135,14 @@ export function slotCandidates(graph, nodeTypes = {}) {
     for (const name of Object.keys(inputs)) {
       if (!isWidget(inputs[name])) continue;
       const item = { value: `${nodeId}\u001f${name}`, nodeId, input: name, label: `${label(nodeId, node)} — ${name}` };
-      // A save/preview node's STRING widget (e.g. filename_prefix) types as text
-      // but is never conditioning. Offering it made it the default positive slot
-      // whenever the output node sorts before the encoder, so the real prompt
-      // landed on the filename (later clobbered) and the negative on the encoder.
+      // A save/preview node's STRING widget (filename_prefix) types as text but is
+      // never conditioning: offering it makes it the default positive slot whenever
+      // the output node sorts before the encoder, landing the prompt on the filename.
       if (!isOutput && textInputs.includes(name)) text.push(item);
       if (seedInputs.includes(name)) (isOutput ? seedTail : seed).push(item);
       if (MODEL_INPUTS.includes(name)) (isOutput ? checkpointTail : checkpoint).push(item);
-      // Labelled by node rather than by input name: a two-reference graph asks the
-      // user which LoadImage is the identity and which is the scene.
+      // Labelled by node, not input name: a two-reference graph asks which LoadImage
+      // is the identity and which is the scene.
       if (imageInputs.includes(name)) image.push({ ...item, label: label(nodeId, node) });
     }
     if (isOutput) {
@@ -169,10 +163,9 @@ export function missingRoles({ text, seed, output }) {
   return missing;
 }
 
-// Separator is U+001F, not NUL: these values land in an <option value> via
-// innerHTML, and the HTML tokenizer rewrites U+0000 in an attribute to U+FFFD.
-// A NUL separator never survived the round-trip, so split() found nothing and
-// addPendingGraph() silently dropped every slot.
+// U+001F, not NUL: these values land in an <option value> via innerHTML, and the
+// HTML tokenizer rewrites U+0000 in an attribute to U+FFFD, so a NUL separator does
+// not survive the round-trip and split() finds nothing.
 export function splitCandidate(value) {
   const [nodeId, input] = String(value || "").split("\u001f");
   return nodeId && input ? [nodeId, input] : null;

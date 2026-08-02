@@ -6,8 +6,7 @@
 .image-gen-settings textarea{min-height:54px;resize:vertical}
 .image-gen-row{display:flex;align-items:center;gap:10px}
 /* The row's select carries the global width:100%, so it claims the line and the
-   button next to it is what gets squeezed — far enough to wrap its label onto a
-   second line. The button keeps its natural width; the select gives ground. */
+   button beside it is what gets squeezed. The button keeps its natural width. */
 .image-gen-row>.btn{flex:none;white-space:nowrap}
 .image-gen-row>select{min-width:0}
 .image-gen-settings label.ig-toggle{display:flex;align-items:flex-start;gap:8px;cursor:pointer}
@@ -16,33 +15,31 @@
 .image-gen-note{color:var(--text-muted);font-size:.85em;margin:0;line-height:1.45}
 
 /* ---- tools-panel card ----
-   Setup and normal-use controls are mutually exclusive: an unconfigured card
-   shows one status row, a ready one the pickers. */
+   Setup and normal-use controls are mutually exclusive: an unconfigured card shows
+   one status row, a ready one the pickers (a label/control grid matching the
+   Direction Notes card). */
 .image-gen-card-setup{display:flex;align-items:center;gap:8px;margin-top:8px}
-/* Label/control grid, matching the Direction Notes card. */
 .image-gen-card-controls{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px 10px;margin-top:10px}
-/* The global label rule carries a bottom margin for stacked forms; a centered
-   grid cell needs the text on the select's midline instead. */
+/* The global label rule carries a bottom margin for stacked forms; a centered grid
+   cell needs the text on the select's midline instead. */
 .image-gen-card-controls>label{margin:0}
 .image-gen-card-controls>select{width:100%;min-width:0}
 .image-gen-card-status{display:flex;align-items:center;gap:6px;min-width:0;color:var(--accent);font-size:11px;line-height:1.4}
 .image-gen-card-status::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:currentColor}
-/* Shares its line with the status text, so it hangs off the right edge rather
-   than sitting on the content axis like a stacked card button. */
+/* Shares its line with the status text, so it hangs off the right edge rather than
+   sitting on the content axis like a stacked card button. */
 .image-gen-card-setup .image-gen-card-btn{flex:none;margin-left:auto}
 
-/* The Visualize button pulses while its render is in flight; clicking it again
-   cancels. */
+/* Pulses while its render is in flight; clicking again cancels. */
 .image-gen-generating{opacity:.6;animation:image-gen-pulse 1.2s ease-in-out infinite}
 @keyframes image-gen-pulse{50%{opacity:1}}
 
 /* ---- settings modal sections ----
    Grid children default to min-width:auto, which lets a long option label or an
-   unbroken URL widen a track past the modal; every track is pinned to 0 instead. */
+   unbroken URL widen a track past the modal; every track is pinned to 0 instead.
+   A grid cell also stretches its child, which would turn "Add style" into a
+   full-width bar reading as the section's primary action. */
 .ig-section{display:grid;gap:10px}
-/* A grid cell stretches its child, which turns "Add style" into a full-width bar
-   that reads as the section's primary action rather than an addition to the list
-   above it. */
 .ig-section>.btn{justify-self:start}
 .image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
 .ig-heading{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);padding-bottom:5px;border-bottom:1px solid var(--border)}
@@ -50,8 +47,7 @@
 .ig-profile-fields{display:grid;gap:10px;margin-bottom:10px}
 
 /* ---- styles accordion ----
-   One collapsed row per style so the list stays short as styles are added; the
-   summary states how far each style departs from the Defaults section. */
+   One collapsed row per style, so the list stays short as styles are added. */
 .ig-styles{display:grid;gap:6px}
 .ig-style,.ig-conn{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated)}
 .image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:12px;list-style:none}
@@ -60,30 +56,27 @@
 .image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)[open]>summary::before{content:"▾"}
 .image-gen-settings :is(.ig-style,.ig-conn)[open]>summary{border-bottom:1px solid var(--border)}
 .image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary:hover{color:var(--text-primary)}
-/* The connection and the prompt format sit right after the name rather than at the
-   far edge of a wide row: all three read as one identity ("Krea-Alt · xAI (Grok) ·
-   Prose"), and all three change what the image looks like. A long name ellipsizes
-   into them, like .ig-graph-name below, rather than pushing the two shorter and
-   less guessable labels out of the row. */
+/* Connection and prompt format sit right after the name rather than at the far edge
+   of a wide row: all three read as one identity ("Krea-Alt · xAI (Grok) · Prose"),
+   and all three change what the image looks like. A long name ellipsizes into them
+   rather than pushing the two shorter, less guessable labels out of the row. */
 .ig-style-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--text-primary)}
 .ig-style-conn{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-secondary)}
 .ig-style-format{flex:1;white-space:nowrap;color:var(--text-muted)}
 .ig-style-body{display:grid;gap:10px;padding:10px}
 .ig-style-body>.ig-danger{justify-self:start}
 .ig-danger{color:var(--danger,var(--accent))}
-/* What a cloud-linked style gets from its connection instead of the ComfyUI
-   checkpoint/workflow pair. Set off by a rule so it reads as "supplied elsewhere",
-   not as another note about the fields above it. */
+/* What a cloud-linked style gets from its connection instead of the ComfyUI pair.
+   Set off by a rule so it reads as "supplied elsewhere", not as another note. */
 .ig-style-backend{padding:6px 8px;border-left:2px solid var(--border);border-radius:0 var(--radius) var(--radius) 0}
-/* A text-shaped button: it navigates within the modal, so it must not look like
-   another Save/Remove sitting inside a sentence. */
+/* Text-shaped: it navigates within the modal, so it must not look like another
+   Save/Remove sitting inside a sentence. */
 .ig-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer}
 .ig-link:hover{text-decoration:underline}
 
 /* ---- connections ----
-   One collapsed row per connection, matching the styles accordion above: the two
-   lists are read together (a style names a connection, a connection is what the
-   style renders on), so they must not look like different kinds of thing. */
+   Matching the styles accordion above: the two lists are read together, so they
+   must not look like different kinds of thing. */
 .ig-conn-list{display:grid;gap:6px}
 .ig-conn-name{flex:none;font-weight:500;color:var(--text-primary)}
 .ig-conn-kind{flex:none;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-muted)}
@@ -95,8 +88,7 @@
 .ig-conn-test{min-width:0;overflow-wrap:anywhere}
 /* Anything not yet usable: an unconfigured connection, a style pointing at one. */
 .ig-unready{color:var(--danger,var(--accent))}
-/* The collapsed state of a section has to say what is inside it, or collapsing it
-   just hides the answer. */
+/* A collapsed section says what is inside it, or collapsing hides the answer. */
 .ig-summary-note{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--text-muted)}
 
 /* ---- imported workflow list ---- */
@@ -113,10 +105,10 @@
 .ig-reference-heading{margin-top:2px}
 
 /* ---- per-character reference image ----
-   Thumbnail beside its controls, so what is stored and how to change it read as
-   one control; the preview is capped rather than sized, since portrait and
-   landscape references both land here. `-label` is a span, not a label -- the
-   section holds a file input plus a button -- so it restates the global rule. */
+   Thumbnail beside its controls, so what is stored and how to change it read as one
+   control; the preview is capped rather than sized, since portrait and landscape
+   both land here. `-label` is a span, not a label -- the section holds a file input
+   plus a button -- so it restates the global rule. */
 .ig-profile-reference{display:grid;gap:5px}
 .ig-profile-reference-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary)}
 .ig-reference-image{display:flex;align-items:flex-start;gap:10px;margin-top:4px}
@@ -125,19 +117,17 @@
 .ig-reference-controls{flex:1;display:grid;gap:6px;min-width:0;justify-items:start}
 .ig-reference-empty{display:block}
 
-/* The permanent capability gaps for the selected provider. Stated once, here,
-   rather than as a note on every render — a note that fires 100% of the time is
-   one users learn to skip, which then hides the per-render disclosures. */
+/* The provider's permanent capability gaps, stated once here rather than as a note
+   on every render — one that fires 100% of the time is one users learn to skip. */
 .ig-capability{margin-top:6px;padding:6px 8px;border-left:2px solid var(--border);border-radius:0 var(--radius) var(--radius) 0}
 
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
 
 /* ---- attachment layout ----
-   Image on the left with its reroll/regen controls overlaid on the corner, render
-   details on the right. The default widget lays regen/reroll out as flat siblings
-   of the image in a centre-aligned flex row, which leaves them floating between
-   the image and the details text; the renderer regroups them so they read as one
-   toolbar belonging to the image. */
+   Image on the left with its reroll/regen controls overlaid on the corner, details
+   on the right. The default widget lays those buttons out as flat siblings in a
+   centre-aligned flex row, floating between the image and the details text; the
+   renderer regroups them into one toolbar belonging to the image. */
 .image-gen-attachment{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:flex-start;gap:14px}
 .image-gen-media{position:relative;flex:0 0 auto;line-height:0}
 .image-gen-actions{position:absolute;right:6px;bottom:6px;display:flex;gap:4px;padding:3px;border-radius:calc(var(--radius) + 2px);background:rgba(0,0,0,.5);backdrop-filter:blur(3px);opacity:.6;transition:opacity .15s}
@@ -146,10 +136,10 @@
 .image-gen-actions .workflow-regen-button,.image-gen-actions .workflow-reroll-button{border:none;background:transparent;color:#fff}
 .image-gen-actions .workflow-regen-button:hover:not(:disabled),.image-gen-actions .workflow-reroll-button:hover:not(:disabled){background:rgba(255,255,255,.2);color:#fff;border-color:transparent}
 
-/* ---- attachment render details ---- */
-.image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
-/* Matches the .ig-style disclosure above: own arrow, pointer cursor, so the
+/* ---- attachment render details ----
+   Matching the .ig-style disclosure above: own arrow, pointer cursor, so the
    summary reads as a control instead of selectable text. */
+.image-gen-details{flex:1 1 220px;min-width:0;font-size:.88em}
 .image-gen-details>summary{display:flex;align-items:center;gap:6px;margin-bottom:8px;cursor:pointer;user-select:none;list-style:none}
 .image-gen-details>summary::-webkit-details-marker{display:none}
 .image-gen-details>summary::before{content:"▸";font-size:10px;color:var(--text-muted)}
@@ -157,16 +147,15 @@
 .image-gen-details dl{display:grid;grid-template-columns:max-content 1fr;gap:5px 10px}
 .image-gen-details dt{color:var(--text-muted)}
 .image-gen-details dd{margin:0;overflow-wrap:anywhere}
-/* The style name opens its entry in the style editor: judge the image, then tune
-   the style that made it, without hunting through settings. */
+/* Opens its entry in the style editor: judge the image, then tune the style that
+   made it, without hunting through settings. */
 .image-gen-style-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer;text-align:left}
 .image-gen-style-link:hover{text-decoration:underline}
-/* The prompt rows render as plain text (readonly) until the pencil next to the
-   label unlocks them; then they behave as a field. Edit here, then 🎲 renders. */
+/* Prompt rows render as plain text (readonly) until the pencil beside the label
+   unlocks them. forms.css puts an accent glow on every textarea's hover/focus, and
+   locked rows are prose rather than fields, so none of that shows here. */
 .image-gen-edit{display:block;background:none;border-color:transparent;padding:1px 3px;margin:-1px -3px;font:inherit;color:inherit;resize:vertical}
 .image-gen-edit[readonly]{resize:none;cursor:default;caret-color:transparent}
-/* forms.css puts an accent glow on every textarea's hover/focus; locked rows are
-   prose, not fields, so none of that shows here. */
 .image-gen-edit[readonly]:hover,.image-gen-edit[readonly]:focus{border-color:transparent;box-shadow:none;background:none}
 .image-gen-edit:not([readonly]):hover{border-color:var(--border)}
 .image-gen-edit:not([readonly]):focus{border-color:var(--accent-dim);background:var(--bg-deep)}

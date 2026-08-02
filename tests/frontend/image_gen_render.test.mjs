@@ -73,12 +73,6 @@ test("render details route every metadata field through esc", () => {
   assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").includes("<script>"));
 });
 
-test("render details fall back to style_id and a default source", () => {
-  const html = attachmentDetailsHtml({ consumption_metadata: { style_id: "realistic" } }, "", MARKERS);
-  assert.ok(html.includes("«realistic»"));
-  assert.ok(html.includes("«External ComfyUI»"));
-});
-
 test("a missing attachment renders empty fields rather than throwing", () => {
   const html = attachmentDetailsHtml(undefined, "", MARKERS);
   assert.ok(html.includes("Render details"));
@@ -86,21 +80,24 @@ test("a missing attachment renders empty fields rather than throwing", () => {
 });
 
 test("the style label links back to its entry in the style editor", () => {
-  // Generate → judge → edit the style → regenerate is the loop this feature
-  // lives in; without the link every lap costs a hunt through settings.
-  const html = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime", style_label: "Anime" } }, "", MARKERS);
-  assert.match(html, /data-wf-action="image_gen:editStyle"/);
-  assert.match(html, /data-style-id="“anime”"/);
-  assert.ok(html.includes("«Anime»"));
+  // Generate → judge → edit the style → regenerate is the loop this feature lives
+  // in; without the link every lap costs a hunt through settings.
+  const linked = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime", style_label: "Anime" } }, "", MARKERS);
+  assert.match(linked, /data-wf-action="image_gen:editStyle"/);
+  assert.match(linked, /data-style-id="“anime”"/);
+  assert.ok(linked.includes("«Anime»"));
+
+  // With no id there is nothing to open, so the label is plain text, not a dead link.
+  const unlinked = attachmentDetailsHtml({ consumption_metadata: { style_label: "Anime" } }, "", MARKERS);
+  assert.ok(!unlinked.includes("image_gen:editStyle"));
+  assert.ok(unlinked.includes("«Anime»"));
+
+  // A label-less style falls back to its id, and the source to ComfyUI.
+  const bare = attachmentDetailsHtml({ consumption_metadata: { style_id: "realistic" } }, "", MARKERS);
+  assert.ok(bare.includes("«realistic»") && bare.includes("«External ComfyUI»"));
 });
 
-test("a style id that no longer resolves renders as plain text, not a dead link", () => {
-  const html = attachmentDetailsHtml({ consumption_metadata: { style_label: "Anime" } }, "", MARKERS);
-  assert.ok(!html.includes("image_gen:editStyle"));
-  assert.ok(html.includes("«Anime»"));
-});
-
-test("each prompt row is an editable field naming its own attachment and key", () => {
+test("each prompt row is a readonly field its pencil unlocks, naming its attachment", () => {
   const html = attachmentDetailsHtml({ id: 7, consumption_metadata: {} }, "", MARKERS);
   // `change` (not click) is what commits: it fires once on blur-after-edit.
   assert.equal(html.split('data-wf-action="image_gen:savePrompt"').length - 1, 2);
@@ -110,10 +107,6 @@ test("each prompt row is an editable field naming its own attachment and key", (
   assert.match(html, /data-field="prompt"/);
   assert.match(html, /data-field="negative_prompt"/);
   assert.match(html, /aria-label="Negative prompt"/); // the <dt> is not a programmatic label
-});
-
-test("prompt fields are readonly until their pencil unlocks them", () => {
-  const html = attachmentDetailsHtml({ id: 7, consumption_metadata: {} }, "", MARKERS);
   assert.equal(html.split("<textarea").length - 1, 2);
   assert.equal(html.split("readonly").length - 1, 2); // both fields locked
   assert.equal(html.split('data-wf-action="image_gen:editPrompt"').length - 1, 2);
@@ -156,32 +149,26 @@ test("replay disclosure notes are shown and escaped", () => {
 });
 
 test("the camera row names the viewpoint and the lever that chose it", () => {
-  const html = attachmentDetailsHtml(
-    { consumption_metadata: { pov: "first_person", pov_source: "classifier" } },
-    "",
-    MARKERS,
-  );
-  assert.ok(html.includes("<dt>Camera</dt>"));
-  assert.ok(html.includes("«First-person»"));
-  assert.ok(html.includes("« — from the classifier»"));
-});
+  // A wrong camera is fixed in a different place depending on which lever chose it,
+  // so the two ways of landing on the default must read differently.
+  const cam = (metadata) => attachmentDetailsHtml({ consumption_metadata: metadata }, "", MARKERS);
 
-test("the default camera says which of the two ways it got there", () => {
-  const off = attachmentDetailsHtml({ consumption_metadata: { pov: "third_person", pov_source: "no_classifier" } }, "", MARKERS);
-  assert.ok(off.includes("« — from the default (no POV classifier)»"));
-  const ambiguous = attachmentDetailsHtml({ consumption_metadata: { pov: "third_person", pov_source: "default" } }, "", MARKERS);
-  assert.ok(ambiguous.includes("ambiguous"));
-});
+  const classified = cam({ pov: "first_person", pov_source: "classifier" });
+  assert.ok(classified.includes("<dt>Camera</dt>"));
+  assert.ok(classified.includes("«First-person»"));
+  assert.ok(classified.includes("« — from the classifier»"));
 
-test("an unrecognized camera falls back to its raw value, still escaped", () => {
-  const html = attachmentDetailsHtml({ consumption_metadata: { pov: HOSTILE, pov_source: HOSTILE } }, "", MARKERS);
-  assert.ok(html.includes(`«${HOSTILE}»`));
-  assert.ok(!html.replaceAll(`«${HOSTILE}»`, "").replaceAll(`« — from the ${HOSTILE}»`, "").includes("<script>"));
-});
+  assert.ok(cam({ pov: "third_person", pov_source: "no_classifier" }).includes("« — from the default (no POV classifier)»"));
+  assert.ok(cam({ pov: "third_person", pov_source: "default" }).includes("ambiguous"));
 
-test("an image generated before the camera was recorded shows no camera row", () => {
-  const html = attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, "", MARKERS);
-  assert.ok(!html.includes("<dt>Camera</dt>"));
+  // An unrecognized camera falls back to its raw value, still escaped.
+  const hostile = cam({ pov: HOSTILE, pov_source: HOSTILE });
+  assert.ok(hostile.includes(`«${HOSTILE}»`));
+  assert.ok(!hostile.replaceAll(`«${HOSTILE}»`, "").replaceAll(`« — from the ${HOSTILE}»`, "").includes("<script>"));
+
+  // Absent on images generated before the camera was recorded: the row is omitted
+  // rather than shown empty.
+  assert.ok(!cam({ style_id: "anime" }).includes("<dt>Camera</dt>"));
 });
 
 test("a reference row names the slot, the source, and where the bytes came from", () => {
@@ -234,40 +221,23 @@ test("a seedless backend says so instead of printing a meaningless hex", () => {
 });
 
 test("cost is rendered only in the unit the payload names", () => {
-  const ticks = attachmentDetailsHtml(
-    { consumption_metadata: { cost: { provider: "xai", unit: "usd_ticks", value: 1400 } } },
-    "",
-    MARKERS,
-  );
+  const cost = (value) => attachmentDetailsHtml({ consumption_metadata: { cost: value } }, "", MARKERS);
+
   // Never converted: nothing documents what a tick is worth, and picking a divisor
   // by omission prints a wrong number on a billing figure.
+  const ticks = cost({ provider: "xai", unit: "usd_ticks", value: 1400 });
   assert.match(ticks, /1400 usd ticks/);
   assert.ok(!ticks.includes("$"));
-});
+  // An unrecognised unit still shows the value beside its own name.
+  assert.match(cost({ provider: "acme", unit: "credits", value: 3 }), /3 credits/);
 
-test("an unrecognised cost unit still shows the value beside its own name", () => {
-  const html = attachmentDetailsHtml(
-    { consumption_metadata: { cost: { provider: "acme", unit: "credits", value: 3 } } },
-    "",
-    MARKERS,
-  );
-  assert.match(html, /3 credits/);
-});
-
-test("no cost row at all when the response reported none", () => {
-  // A zero would read as "this was free".
+  // No row at all when the response reported none: a zero would read as "free".
   assert.ok(!attachmentDetailsHtml({ consumption_metadata: {} }, "", MARKERS).includes("<dt>Cost"));
-  assert.ok(!attachmentDetailsHtml({ consumption_metadata: { cost: {} } }, "", MARKERS).includes("<dt>Cost"));
-});
+  assert.ok(!cost({}).includes("<dt>Cost"));
 
-test("a hostile cost payload goes through the escaper like every other field", () => {
-  const html = attachmentDetailsHtml(
-    { consumption_metadata: { cost: { provider: HOSTILE, unit: HOSTILE, value: 1 } } },
-    "",
-    MARKERS,
-  );
-  // The whole cell is one escaped value, so nothing reaches the HTML unescaped.
+  // And the whole cell is one escaped value, like every other field.
+  const hostile = cost({ provider: HOSTILE, unit: HOSTILE, value: 1 });
   const cell = `«1 ${HOSTILE} (${HOSTILE})»`;
-  assert.ok(html.includes(cell));
-  assert.ok(!html.replaceAll(cell, "").includes("<script>"));
+  assert.ok(hostile.includes(cell));
+  assert.ok(!hostile.replaceAll(cell, "").includes("<script>"));
 });

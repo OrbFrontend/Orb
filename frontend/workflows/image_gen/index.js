@@ -9,9 +9,9 @@ import { attachmentRenderer, createButtonRenderer, initWidget } from "./widget.j
 
 const WORKFLOW_ID = "image_gen";
 // Mirrors backend CONFIG_DEFAULTS. Shared by reference into initWidget and
-// initConfigPanel, both of which run at module load — before loadConfig resolves,
-// and instead of it when that fetch throws — so every block the panel reads must
-// exist here or it reads `undefined` off the literal.
+// initConfigPanel, which run at module load — before loadConfig resolves, and
+// instead of it when that fetch throws — so every block the panel reads must exist
+// here or it reads `undefined` off the literal.
 const config = {
   source: "external_comfy",
   default_style: "realistic",
@@ -49,9 +49,8 @@ async function loadConfig() {
     const res = await api.get(`/workflows/${WORKFLOW_ID}/config`);
     const c = res?.config;
     if (c && typeof c === "object") Object.assign(config, c);
-    // Shape guards, one per nested block, so neither is the one nobody defended:
-    // Object.assign copies a malformed value through verbatim, and the panel
-    // dereferences both without checking.
+    // One guard per nested block: Object.assign copies a malformed value through
+    // verbatim, and the panel dereferences all three without checking.
     if (!config.external_comfy || typeof config.external_comfy !== "object") config.external_comfy = {};
     if (!config.cloud || typeof config.cloud !== "object") config.cloud = {};
     if (!Array.isArray(config.styles)) config.styles = [];

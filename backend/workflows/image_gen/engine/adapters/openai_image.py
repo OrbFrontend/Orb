@@ -20,6 +20,7 @@ from ..contracts import (
     ImageRequest,
     ImageResult,
     ProgressCallback,
+    emit,
 )
 from ..openai_image_client import MODEL_NOT_FOUND, CloudImageError, OpenAIImageClient
 from ..providers import (
@@ -31,13 +32,12 @@ from ..providers import (
 from ..target import RenderTarget
 from .base import ImageAdapter
 
-# Base64 inflates by 4/3 *inside a JSON body*, where ComfyUI's path is multipart --
-# so a reference bound that is fine for an upload is not fine here.
+# Base64 inflates by 4/3 *inside a JSON body*, where ComfyUI's path is multipart,
+# so a bound that is fine for an upload is not fine here.
 CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
 # The synthetic slot every cloud reference rides. Keeping the `(node, field)` shape
-# is what lets `references.py`, `refetch_references`, the stored
-# `{"slot","source","origin","digest"}` record and reroll's style-changed logic stay
-# byte-identical; making `slot` nullable would ripple through all four.
+# lets references.py, the stored record and reroll's style-changed logic stay
+# unchanged; a nullable `slot` would ripple through all three.
 CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
 
 CAPABILITIES: ImageBackendCapabilities = {
@@ -45,9 +45,8 @@ CAPABILITIES: ImageBackendCapabilities = {
     "can_list_models": True,
     "can_install_curated_models": False,
     "managed_runtime": False,
-    # The static tier answers for the *class* of backend. Whether the selected
-    # provider honours a negative prompt or a seed is a preset fact and lands on
-    # the RenderTarget; the settings panel states it as a permanent gap.
+    # The static tier answers for the *class* of backend. Whether one provider
+    # honours a negative prompt or a seed is a preset fact on the RenderTarget.
     "supports_negative_prompt": True,
     "supports_seed": True,
     "supports_dimensions": True,
@@ -94,8 +93,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 "detail": f"Unknown image provider {self._cloud['provider']!r}; pick one in settings",
             }
         if not self._base_url():
-            # `custom` ships no base URL by design. Without this the config reads
-            # ready and then fails at render with nothing the user can act on.
+            # `custom` ships none by design; without this the config reads ready and
+            # then fails at render with nothing the user can act on.
             return {
                 "ready": False,
                 "reason": "no_base_url",
@@ -111,11 +110,10 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         preset = self._preset
         cloud = self._cloud
         model = self._model()
-        # Dimensions ride the target for the same reason `model` does. An adapter
-        # reading config["cloud"]["width"] at render time would hand a *rehydrate*
-        # today's setting -- so an image generated at 1024x1024 comes back
-        # 1536x1024 after the user touched the resolution picker, which is the exact
-        # silent substitution rehydrate exists to avoid.
+        # Dimensions ride the target for the same reason `model` does: reading
+        # config["cloud"]["width"] at render time would hand a *rehydrate* today's
+        # setting, so an image made at 1024x1024 comes back 1536x1024 after the
+        # picker moved -- the exact substitution rehydrate exists to avoid.
         width, height = int(cloud["width"]), int(cloud["height"])
         if replay:
             stored_model = replay.get("backend_model")
@@ -132,17 +130,13 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                     "slot": list(CLOUD_REFERENCE_SLOT),
                     "source": source,
                     "label": "Reference image",
-                    # Read per-entry by references.py: base64 in a JSON body needs a
-                    # tighter cap than a multipart upload, and a provider that takes
-                    # PNG/JPEG must not be handed the WebP every render is stored as.
+                    # Read per-entry by references.py: a provider taking PNG/JPEG must
+                    # not be handed the WebP every render is stored as.
                     "mimes": list(preset.reference_mimes),
                     "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
-                    # Unlike a ComfyUI graph slot, this one is optional. The same
-                    # model has a plain generations endpoint one field away, so a
-                    # first Visualize in a chat with no images yet renders from the
-                    # prompt and says so -- refusing outright would make turning
-                    # references on break every new conversation until an image
-                    # exists in it.
+                    # Optional, unlike a ComfyUI graph slot: the same model has a
+                    # plain generations endpoint one field away, so a first Visualize
+                    # in an imageless chat renders from the prompt and says so.
                     "required": False,
                 },
             )
@@ -180,12 +174,11 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         return preset
 
     async def validate_connection(self, *, allow_cached: bool = False) -> dict:
-        """Model discovery **only**. This must never submit a generation.
+        """Model discovery **only** -- this must never submit a generation.
 
-        The shape is ComfyUI's (`{ok, capabilities, system, models}`) so
-        `_test_connection` and the panel's existing rendering need no change;
-        `system.devices` is simply absent here, which degrades the panel's
-        "Connected — <device>" line to a bare "Connected" rather than breaking it.
+        ComfyUI's shape (`{ok, capabilities, system, models}`), so the panel needs no
+        change; `system.devices` is absent, which degrades its "Connected — <device>"
+        line to a bare "Connected" rather than breaking it.
         """
         preset = self._require_preset()
         client = self._client(30.0)
@@ -211,7 +204,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         preset = self._require_preset()
         client = self._client(request.timeout_seconds)
         # Synchronous API: one event at submit, no polling loop to report from.
-        await _emit(progress, "rendering", {"backend": self.label})
+        await emit(progress, "rendering", {"backend": self.label})
 
         built = self._build(preset, request, target, model=target.model)
         path = preset.edits_path if request.references and preset.edits_path else preset.generations_path
@@ -221,10 +214,9 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             model = target.model
         except CloudImageError as exc:
             configured = self._model()
-            # The cloud analogue of ComfyUI's `unknown_workflow` degradation: the
-            # model this image recorded is gone. Re-render on the configured one and
-            # disclose it rather than refuse -- a 404 costs nothing, and a refusal
-            # surfaces only as a generic 500.
+            # The cloud analogue of `unknown_workflow`: the recorded model is gone,
+            # so re-render on the configured one and disclose it. A 404 costs
+            # nothing, and refusing surfaces only as a generic 500.
             if exc.kind != MODEL_NOT_FOUND or not configured or configured == target.model:
                 raise
             notes.append(f"the model this image used ({target.model}) is gone; rendered with {configured} instead")
@@ -239,34 +231,24 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             mime=image.mime,
             backend_info={
                 "source": self.source_id,
-                # ComfyUI's key names, unchanged, so existing attachments and the
-                # replay path need no migration. There is no graph, so no id.
+                # ComfyUI's key names, so existing attachments and the replay path
+                # need no migration. There is no graph, so no id.
                 "workflow_id": None,
                 "backend_model": model,
                 "provider": preset.id,
-                # Real pixels, probed off the returned image rather than echoed from
-                # the request: an aspect-only provider decides the actual size.
+                # Probed off the returned image, not echoed from the request: an
+                # aspect-only provider decides the actual size.
                 "width": width,
                 "height": height,
                 "steps": None,
                 "cfg": None,
                 "sampler": None,
                 "scheduler": None,
-                # A seedless API is nondeterministic. The seed is still minted and
-                # stored (rehydrate 409s on a null one), but the attachment must say
-                # so rather than print a hex the render never saw.
+                # A seedless API is nondeterministic, so the attachment says so
+                # rather than printing a hex the render never saw.
                 "seed_honored": target.supports_seed,
                 "cost": image.cost,
-                "references": [
-                    {
-                        "slot": list(reference.slot),
-                        "source": reference.source,
-                        "origin": reference.origin,
-                        "digest": reference.digest,
-                        "source_digest": reference.source_digest,
-                    }
-                    for reference in request.references
-                ],
+                "references": [reference.record() for reference in request.references],
                 "notes": notes,
             },
         )
@@ -280,7 +262,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             "width": target.width,
             "height": target.height,
             "quality": str(self._cloud.get("quality") or ""),
-            # Always one. Orb stores one image per attachment, and `n` is the field
+            # Always one: Orb stores one image per attachment, and `n` is the field
             # that silently multiplies the bill.
             "n": 1,
         }
@@ -291,20 +273,11 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         return build_generation_body(preset, **common)
 
 
-async def _emit(progress: ProgressCallback | None, stage: str, detail: Mapping[str, Any]) -> None:
-    if not progress:
-        return
-    maybe = progress(stage, detail)
-    if maybe is not None:
-        await maybe
-
-
 def _probe_size(data: bytes) -> tuple[int | None, int | None]:
     """The real pixel dimensions of the returned image.
 
-    `_metadata` already writes real width/height on every ComfyUI attachment, so
-    filling them here is what keeps a cloud attachment's record the same shape --
-    and what lets a later rehydrate replay the size it was generated at.
+    Keeps a cloud attachment's record the same shape as ComfyUI's, and is what
+    lets a later rehydrate replay the size it was generated at.
     """
     from PIL import Image
 

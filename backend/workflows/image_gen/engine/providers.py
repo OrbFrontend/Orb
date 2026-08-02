@@ -1,18 +1,15 @@
 """Cloud image provider presets and the pure request builders that read them.
 
-No I/O lives here -- every function below maps arguments to a value, so the wire
-format of each provider is unit-testable without a network.
+No I/O -- every function below maps arguments to a value, so each provider's wire
+format is unit-testable without a network.
 
-**The request builder is a strict allowlist.** xAI silently ignores unknown
-fields, which means the API will never tell you a parameter was wrong: send
-`negative_prompt` to a provider that has no such field and it returns a perfectly
-good image that ignored it. "Send everything and let the server sort it out" is
-the difference between a working negative prompt and a silently discarded one, so
-a field is emitted only when the preset declares it.
+**The request builder is a strict allowlist.** xAI silently ignores unknown fields,
+so the API never tells you a parameter was wrong: send `negative_prompt` to a
+provider that has no such field and it returns a perfectly good image that ignored
+it. A field is emitted only when the preset declares it.
 
-Only the **xai** row is verified against the live API. Every other row is
-declared from vendor documentation and marked ``verified=False``; this table is
-the single place they live and the single place they get corrected.
+Only the **xai** row is verified against the live API; every other row is declared
+from vendor documentation and marked ``verified=False``.
 """
 
 from __future__ import annotations
@@ -40,12 +37,12 @@ class ProviderPreset:
     edits_path: str = ""
     models_path: str = "/models"
     # OpenAI answers `{"data":[{id}]}`; xAI's image-model endpoint answers
-    # `{"models":[{id, aliases, ...}]}`. Not the same shape, not interchangeable.
+    # `{"models":[{id, ...}]}`. Not the same shape, not interchangeable.
     models_response: str = "openai_data"
-    # "size" -> `size: "1024x1024"`. "aspect_ratio" -> `aspect_ratio: "16:9"`.
+    # "size" -> `size: "1024x1024"`, "aspect_ratio" -> `aspect_ratio: "16:9"`,
     # "none" -> the provider decides. Never send the other spelling: xAI rejects
-    # `size` outright ("Argument not supported: size"), which is the *polite*
-    # failure mode -- the impolite one is accepting and ignoring it.
+    # `size` outright, which is the *polite* failure -- the impolite one is
+    # accepting and ignoring it.
     dimension_mode: str = "none"
     aspect_ratios: tuple[str, ...] = ()
     sizes: tuple[str, ...] = ()
@@ -60,12 +57,11 @@ class ProviderPreset:
     default_model: str = ""
     max_prompt: int = 4_000
     docs_url: str = ""
-    # False until someone has actually probed the live API and corrected this row.
+    # False until someone has probed the live API and corrected this row.
     verified: bool = False
     # Permanent capability gaps, stated in the settings panel rather than as a
-    # per-render note: "xAI has no negative prompt" is true of every image forever,
-    # and a note that fires on 100% of renders is one users learn to ignore --
-    # which then hides the per-render disclosures that matter.
+    # per-render note: a note that fires on 100% of renders is one users learn to
+    # ignore, which then hides the per-render disclosures that matter.
     gaps: tuple[str, ...] = ()
 
 
@@ -106,8 +102,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
         aspect_ratios=_XAI_ASPECTS,
         supports_quality=True,
         supports_references=True,
-        # Confirmed end-to-end: `images: [{"url": "data:image/png;base64,..."}]`
-        # on a JSON body, not multipart.
+        # Confirmed end-to-end: a JSON body, not multipart.
         reference_field="images",
         default_model="grok-imagine-image",
         max_prompt=8_000,
@@ -219,11 +214,8 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
 
 
 def provider_catalogue() -> list[dict]:
-    """The preset table projected for the settings panel.
-
-    A projection, never the config: no configured `api_key` may enter this
-    payload, and nothing here reads one.
-    """
+    """The preset table projected for the settings panel. A projection, never the
+    config: no configured `api_key` may enter this payload."""
     return [
         {
             "id": preset.id,
@@ -261,9 +253,8 @@ def _parse_ratio(candidate: str) -> float | None:
 def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
     """The declared aspect ratio nearest to `width`x`height`, and any disclosure.
 
-    Nearest by ``|log(target) - log(candidate)|`` rather than by raw difference,
-    so 2:1 and 1:2 are equally far from 1:1 -- a linear metric would treat
-    "twice as wide" as four times the error of "twice as tall".
+    Nearest in log space, so 2:1 and 1:2 are equally far from 1:1 -- a linear metric
+    would call "twice as wide" four times the error of "twice as tall".
     """
     if not preset.aspect_ratios or width <= 0 or height <= 0:
         return "", None
@@ -349,13 +340,10 @@ def build_generation_body(
 ) -> BuiltRequest:
     """The `POST /images/generations` body, as a strict allowlist.
 
-    Deliberately absent, on every provider:
-
-    * ``moderation`` -- team-gated on xAI; sending it hard-fails the whole call
-      with `permission-denied`.
-    * ``user`` -- a stable identifier shipped to a third party for no benefit here.
-    * ``style`` -- xAI takes a free string, but Orb styles already inject prompt
-      text, and doing both double-applies the style.
+    Deliberately absent on every provider: ``moderation`` (team-gated on xAI, and
+    sending it hard-fails the call), ``user`` (a stable identifier shipped to a third
+    party for no benefit), and ``style`` (Orb styles already inject prompt text, so
+    sending both double-applies it).
     """
     built = _prompt_field(preset, prompt)
     body: dict[str, Any] = {"model": model, **built.body, "n": n}
@@ -399,12 +387,9 @@ def build_edit_body(
 ) -> BuiltRequest:
     """The `POST /images/edits` body. JSON, not multipart -- verified on xAI.
 
-    References travel as `data:` URIs so nothing has to be uploaded first and no
-    third party is handed a fetchable URL into Orb.
-
-    The same allowlist as the generation body, plus the references: a provider
-    that declares a negative prompt or a seed honours them on this endpoint too,
-    and one that does not still receives neither.
+    References travel as `data:` URIs, so nothing is uploaded first and no third
+    party is handed a fetchable URL into Orb. The same allowlist as the generation
+    body, plus the references.
     """
     built = build_generation_body(
         preset,

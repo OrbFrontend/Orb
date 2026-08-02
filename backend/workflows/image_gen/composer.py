@@ -14,18 +14,10 @@ from .pov import FIRST, THIRD
 
 logger = logging.getLogger(__name__)
 
-# The scene format rides the OOC tail messages, not this schema: text mode never
-# renders tool schemas into the prompt (the forced call is grammar-only), so any
-# instruction living in a description is invisible there. The tail sits after the
-# shared conversation prefix, so carrying it per-call costs no KV reuse.
-#
-# Written in ASD-STE100 Simplified Technical English: short sentences, one
-# instruction each, imperative mood, no synonyms. A small agent model
-# follows plain instructions more reliably than dense prose.
-#
-# Prompt format is an explicit per-style user choice. Do not infer it from the
-# checkpoint, workflow, or visible cast size: all three are unreliable proxies
-# for what an imported graph's text encoder expects.
+# Instructions ride the OOC tail, never a schema description: text mode renders no
+# schemas, and the tail sits after the shared prefix so it costs no KV reuse.
+# Written in ASD-STE100 Simplified Technical English -- short imperative
+# sentences, no synonyms -- which a small agent model follows more reliably.
 _FORMAT_INSTRUCTIONS = {
     "tags": (
         "After the count tags, write booru-style visual tags only. Separate all tags with commas. "
@@ -104,9 +96,6 @@ _SCENE_FORMAT_TAIL = (
     "Be extremely meticulous and as lengthy as needed with the fine details. "
 )
 
-# The `avoid` list only reaches the image model when the workflow maps a negative
-# prompt slot. When it does not, tell the model plainly to leave `avoid` empty so
-# it spends no effort on a negation the workflow discards.
 _REFERENCE_INSTRUCTION = (
     "A reference image of the subject is sent to the image model with this prompt. The image model takes the "
     "likeness from that picture, not from your words. Do not describe permanent identity traits such as face "
@@ -154,14 +143,30 @@ def _format_guide(prompt_format: str, pov: str, *, structured: bool, supports_ne
     else:
         shot = _SHOT_COUNTED_FIRST if pov == FIRST else _SHOT_COUNTED_THIRD
     if structured:
-        # The structured tail already leaves `avoid` empty here: in analysis mode
-        # the avoid list comes from analyze_scene, not this compose call. The shot
-        # still leads: the rendered scene states the camera, while format-specific
-        # cast rules (count tags for tags/hybrid; natural cast prose otherwise)
-        # live here.
+        # The structured tail leaves `avoid` empty: in analysis mode it comes from
+        # analyze_scene, not from this call.
         return _SCENE_FORMAT_STRUCTURED_HEAD + shot + instruction + _SCENE_FORMAT_STRUCTURED_TAIL
+    # `avoid` only reaches the image model when the target maps a negative slot;
+    # otherwise the model must not spend effort on a negation that gets discarded.
     avoid = _AVOID_INSTRUCTION if supports_negative else _LEAVE_AVOID_EMPTY
     return shot + instruction + _SCENE_FORMAT_TAIL + avoid
+
+
+def _nullable(description: str) -> dict:
+    """One nullable string field. Unknown visual facts are nullable throughout:
+    forcing the analyzer to fill them made it invent continuity."""
+    return {"type": ["string", "null"], "description": description}
+
+
+def _strict(properties: dict) -> dict:
+    """An object every key of which is required, in `properties` order.
+
+    Both facts matter. Required-everywhere keeps strict tool output predictable, and
+    deriving the list rather than restating it is what guarantees the order: strict
+    decoding emits fields in schema order, so a hand-written `required` that drifted
+    would silently change what the model decides first.
+    """
+    return {"type": "object", "properties": properties, "required": list(properties), "additionalProperties": False}
 
 
 COMPOSE_TOOL_SCHEMA = {
@@ -169,152 +174,86 @@ COMPOSE_TOOL_SCHEMA = {
     "function": {
         "name": "compose_image_prompt",
         "description": "Write a detailed image-gen prompt for one visible scene.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "scene": {
-                    "type": "string",
-                    "description": "A positive scene prompt in the requested format.",
-                },
-                "avoid": {
-                    "type": ["string", "null"],
-                    "description": "A short comma-separated list of out-of-frame or occluded details that would contradict the scene, or null.",
-                },
+        "parameters": _strict(
+            {
+                "scene": {"type": "string", "description": "A positive scene prompt in the requested format."},
+                "avoid": _nullable(
+                    "A short comma-separated list of out-of-frame or occluded details that would contradict the scene, or null."
+                ),
                 "profile_owner_visible": {
                     "type": "boolean",
                     "description": "True only when the named profile owner is visible in the image.",
                 },
-            },
-            "required": ["scene", "avoid", "profile_owner_visible"],
-            "additionalProperties": False,
-        },
+            }
+        ),
     },
 }
 
-# Structured scene, used only when `scene_analysis` is on. A flat `characters`
-# array keeps each person's visible traits, current clothing, and pose together.
-# Unknown visual facts are nullable: forcing the analyzer to fill them made it
-# invent continuity. All keys remain required for strict, predictable tool output.
+# One analyzed character. Each person's visible traits, clothing and pose stay
+# together, so the composer never has to re-associate them.
+_CHARACTER = _strict(
+    {
+        "name": {"type": "string", "description": "Short label for this character."},
+        "is_profile_owner": {"type": "boolean", "description": "True only for the named profile owner."},
+        "sex": {"type": "string", "enum": ["girl", "boy", "other"], "description": "Visual category for this character."},
+        "appearance": _nullable("Current visible traits established by the conversation, null if unknown."),
+        "outfit": _nullable(
+            "Current visible clothing established by the conversation, or null if unknown, can be nude. "
+            "Give the whole current outfit, not a list of recent changes."
+        ),
+        "position": _nullable("Where they stand relative to anchors and to the other characters (left, beside, behind, etc.)."),
+        "pose": _nullable("Current pose."),
+        "action": _nullable("What they are doing in this moment."),
+        "face_visible": {
+            "type": "boolean",
+            "description": (
+                "False only when no facial features are visible because the head faces away, the face is "
+                "fully occluded, or the face is outside the crop. A side profile or sideways gaze is visible. "
+                "When false, set expression null."
+            ),
+        },
+        "face_view": _nullable(
+            "Concrete head view when visually relevant, such as front view, three-quarter view, "
+            "side profile, back view, face occluded, or face out of frame."
+        ),
+        "expression": _nullable("Visible expression, or null."),
+        "gaze": _nullable("Where they are looking - up, down, back, etc."),
+    }
+)
+
+# Structured scene, used only when `scene_analysis` is on.
 #
-# There is no `viewpoint` field: the camera is resolved before this call (pov.py),
-# the one question the analyzer is worst at.
-# `viewer_contact` is here in BOTH modes on purpose -- the two schemas ship as one
-# byte-stable tools blob shared by analyze and compose, and a field that appeared
-# only in first-person would evict the cached prefix on every camera switch. In
-# third-person the tail says to leave it null and _render_scene never reads it.
-# It sits late in `properties` (and `required` repeats that order) because strict
-# decoding emits fields in schema order: first would make the analyzer rule on the
-# user's hand before it has enumerated a single character, and would spend
-# third-person's first decision on a field it is told to null.
+# No `viewpoint`: the camera is resolved before this call (pov.py). `viewer_contact`
+# ships in BOTH modes -- the schemas are one byte-stable blob, and a first-person-only
+# field would evict the cached prefix on every camera switch. It sits late, because
+# fields are decoded in order and ruling on the user's hand before a single character
+# has been listed is the wrong first decision.
 ANALYZE_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "analyze_scene",
-        "description": ("Extract one visible scene: anchors, characters, actions, interaction, setting, etc."),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "anchors": {
-                    "type": ["string", "null"],
-                    "description": "Comma-separated setting objects the characters are positioned against.",
-                },
+        "description": "Extract one visible scene: anchors, characters, actions, interaction, setting, etc.",
+        "parameters": _strict(
+            {
+                "anchors": _nullable("Comma-separated setting objects the characters are positioned against."),
                 "characters": {
                     "type": "array",
                     "description": "One entry per character actually visible in frame.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string", "description": "Short label for this character."},
-                            "is_profile_owner": {
-                                "type": "boolean",
-                                "description": "True only for the named profile owner.",
-                            },
-                            "sex": {
-                                "type": "string",
-                                "enum": ["girl", "boy", "other"],
-                                "description": "Visual category for this character.",
-                            },
-                            "appearance": {
-                                "type": ["string", "null"],
-                                "description": "Current visible traits established by the conversation, null if unknown.",
-                            },
-                            "outfit": {
-                                "type": ["string", "null"],
-                                "description": (
-                                    "Current visible clothing established by the conversation, or null if unknown, can be nude. "
-                                    "Give the whole current outfit, not a list of recent changes."
-                                ),
-                            },
-                            "position": {
-                                "type": ["string", "null"],
-                                "description": "Where they stand relative to anchors and to the other characters (left, beside, behind, etc.).",
-                            },
-                            "pose": {"type": ["string", "null"], "description": "Current pose."},
-                            "action": {
-                                "type": ["string", "null"],
-                                "description": "What they are doing in this moment.",
-                            },
-                            "face_visible": {
-                                "type": "boolean",
-                                "description": (
-                                    "False only when no facial features are visible because the head faces away, the face is "
-                                    "fully occluded, or the face is outside the crop. A side profile or sideways gaze is visible. "
-                                    "When false, set expression null."
-                                ),
-                            },
-                            "face_view": {
-                                "type": ["string", "null"],
-                                "description": (
-                                    "Concrete head view when visually relevant, such as front view, three-quarter view, "
-                                    "side profile, back view, face occluded, or face out of frame."
-                                ),
-                            },
-                            "expression": {"type": ["string", "null"], "description": "Visible expression, or null."},
-                            "gaze": {
-                                "type": ["string", "null"],
-                                "description": "Where they are looking - up, down, back, etc.",
-                            },
-                        },
-                        "required": [
-                            "name",
-                            "is_profile_owner",
-                            "sex",
-                            "appearance",
-                            "outfit",
-                            "position",
-                            "pose",
-                            "action",
-                            "face_visible",
-                            "face_view",
-                            "expression",
-                            "gaze",
-                        ],
-                        "additionalProperties": False,
-                    },
+                    "items": _CHARACTER,
                 },
-                "setting": {"type": ["string", "null"], "description": "Location, time of day, and lighting."},
-                "interaction": {
-                    "type": ["string", "null"],
-                    "description": "Visible interaction between the characters, or null.",
-                },
-                "framing": {
-                    "type": ["string", "null"],
-                    # No "camera angle": this field is rendered into the block the
-                    # composer copies, and the word draws a literal camera.
-                    "description": "Shot distance, angle of view, and what is in frame, or null.",
-                },
-                "viewer_contact": {
-                    "type": ["string", "null"],
-                    "description": "The viewer's own hand or arm explicitly visible in frame, including its action or contact, or null.",
-                },
-                "avoid": {
-                    "type": ["string", "null"],
-                    "description": "Short comma-separated list of out-of-frame or occluded details that would contradict the scene, or null.",
-                },
-            },
-            "required": ["anchors", "characters", "setting", "interaction", "framing", "viewer_contact", "avoid"],
-            "additionalProperties": False,
-        },
+                "setting": _nullable("Location, time of day, and lighting."),
+                "interaction": _nullable("Visible interaction between the characters, or null."),
+                # Never "camera angle": this text is copied into the block the
+                # composer renders, and the word draws a literal camera.
+                "framing": _nullable("Shot distance, angle of view, and what is in frame, or null."),
+                "viewer_contact": _nullable(
+                    "The viewer's own hand or arm explicitly visible in frame, including its action or contact, or null."
+                ),
+                "avoid": _nullable(
+                    "Short comma-separated list of out-of-frame or occluded details that would contradict the scene, or null."
+                ),
+            }
+        ),
     },
 }
 
@@ -333,21 +272,14 @@ ANALYZE_TOOL = ToolSpec(
 )
 
 
-# Each OOC carries the selected format guide plus where the facts come from.
-# Single-call extracts the scene itself; the analysis path is handed it, so it
-# only formats. Neither infers the camera any more -- it arrives resolved. The
-# guide is repeated per-call rather than living in the schema or prefix: tails are
-# the one place every transport shows the model and the one place that never
-# perturbs the shared prefix KV, which is what lets the camera change per message
-# for free.
 _COMPOSER_MISSION = (
     "Pause the roleplay and write one spatial scene for a text-to-image model. "
     "Freeze one coherent still at the final visible instant of the previous assistant reply. Do not blend earlier actions "
     "into that still. "
 )
 
-# The one instruction that cannot ride the schema: text mode renders no schemas,
-# so `viewer_contact` would otherwise be an unexplained field in every mode.
+# Cannot ride the schema: text mode renders none, so `viewer_contact` would
+# otherwise be an unexplained field in every mode.
 _ANALYZE_CAMERA = {
     FIRST: (
         "The pov is the user's eyes. Do not list the user as a character. List only characters visible to this pov. "
@@ -395,12 +327,7 @@ def _downstream_blocks(
     *,
     supports_negative: bool,
 ) -> str:
-    """Tell the prompter what the image model receives outside its tool output.
-
-    These strings are user-owned prompt data. They ride the per-call tail rather
-    than a tool description so text and chat transports both see them and the
-    stable off-turn tool blob keeps its KV identity.
-    """
+    """Tell the prompter what the image model receives outside its tool output."""
     positive = _bounded(style_prompt)
     negatives = [
         (label, text)
@@ -451,9 +378,7 @@ def _compose_ooc(
 ) -> str:
     guide = _format_guide(prompt_format, pov, structured=structured, supports_negative=supports_negative)
     profile = _profile_instruction(profile_owner_name, appearance)
-    # Placed with the other downstream facts, for the same reason they are here:
-    # what the image model receives *outside* this tool call changes what the
-    # prompt should spend its words on. An edit model handed a likeness and a
+    # With the other downstream facts: an edit model handed a likeness and a
     # paragraph re-specifying that likeness fights itself.
     reference = _REFERENCE_INSTRUCTION if has_references else ""
     extra = _extra_block(extra_instructions)
@@ -514,10 +439,8 @@ def _analyze_ooc(pov: str, supports_negative: bool = True) -> str:
     )
 
 
-# A nullable schema field comes back as the literal string "null" often enough
-# (the model writes the word instead of emitting JSON null) that an unguarded
-# read ships it: "setting and framing: ..., null, ..." into the structured scene
-# and "null" into the negative prompt. Treat the spelled-out empties as absent.
+# A nullable field comes back as the literal word "null" often enough that an
+# unguarded read ships it into the scene and the negative prompt.
 _NULLISH = frozenset(("null", "none", "nil", "n/a", "undefined", "unknown"))
 
 
@@ -532,21 +455,17 @@ def _join(parts: Sequence[Any]) -> str:
     return ", ".join(part for part in (_bounded(p) for p in parts) if part)[:6_000].strip(" ,")
 
 
-# The workflow's own tools blob, this pass's answer to the pipeline's base.tools:
-# both off-turn calls ship these two schemas and force one via tool_choice, the
-# same shape every core pass uses. A chat model needs the actual tool to call it
-# reliably -- forcing via response_format with tools=None is unreliable (Gemma) or
-# rejected outright (DeepSeek). Order is fixed regardless of which is forced, so
-# analyze and compose are byte-identical and reuse each other's cached prefix.
-# Kept out of enabled_schemas (standalone): never leaks into the pipeline's set.
-# forced_tool_call drops the sibling schema on providers that don't honor the
-# forcing -- an unforced array lets the model answer with the other tool.
+# The workflow's own tools blob. Both off-turn calls ship both schemas in a fixed
+# order and force one via tool_choice -- the pipeline pattern -- so analyze and
+# compose are byte-identical and reuse each other's cached prefix. A chat model
+# needs the actual tool: forcing via response_format with tools=None is unreliable
+# (Gemma) or rejected (DeepSeek). Standalone, so it never leaks into the
+# pipeline's enabled_schemas.
 _OFFER_TOOLS = ("analyze_scene", "compose_image_prompt")
 
 
 async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings, max_tokens, reasoning_on) -> dict:
-    # Debug: the per-call instruction actually sent (the tail; the prefix is the
-    # conversation itself). Set this logger to WARNING to silence.
+    # Debug: the per-call instruction actually sent. Set this logger to WARNING to silence.
     logger.info("[image_gen] %s tail:\n%s", tool_name, "\n--\n".join(m["content"] for m in tail))
     args: dict = {}
     async for event in forced_tool_call(
@@ -556,16 +475,10 @@ async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings,
         tool_name=tool_name,
         settings=settings,
         model_name=model_name,
-        # One explicit workflow-owned mode for both calls. Keeping it stable is
-        # what lets analyze and compose share a reasoning-forked provider lane.
+        # One workflow-owned mode for both calls, so they share a reasoning-forked lane.
         reasoning_on=reasoning_on,
         temperature=0.2,
         max_tokens=max_tokens,
-        # Ship the real tools and force via tool_choice (the pipeline pattern),
-        # not tools_in_prompt=False -- that nulls tools and forces via
-        # response_format, which most chat providers don't honor. In text mode
-        # the schemas still never render (grammar-only), so KV parity holds; in
-        # chat mode this is a self-contained off-turn lane.
         offer_tools=_OFFER_TOOLS,
     ):
         if event.get("type") == "result" and isinstance(event.get("args"), dict):
@@ -577,58 +490,39 @@ async def _forced_args(*, client, model_name, prefix, tail, tool_name, settings,
 _COUNT_TOKEN = r"(?:\d+\+?\s*(?:girls?|boys?|others?)|multiple\s+(?:girls|boys|others)|solo|pov)"
 _COUNT_CHUNK_RE = re.compile(rf"{_COUNT_TOKEN}(?:\s+{_COUNT_TOKEN})*", re.IGNORECASE)
 _PROSE_COUNT_PREFIX_RE = re.compile(rf"^(?:(?:{_COUNT_TOKEN})\b\s*[,.;:]?\s*)+", re.IGNORECASE)
-# CLIP has no negation: a "no longer wearing X" chunk copied through to the
-# image prompt draws X. Drop any chunk that negates, in every mode -- the phrase
-# can sit anywhere in the chunk, so this matches by search, not just at the start.
-# The absolute-truth outfit already omits what isn't worn, so an item a character
-# took off simply isn't in the prompt; this only catches a composer that narrates
-# the removal anyway. Dropping the chunk still beats drawing the item.
+# CLIP has no negation: a "no longer wearing X" chunk drawn through to the image
+# prompt draws X. The phrase can sit anywhere in the chunk, so this searches.
 _NEGATION_CHUNK_RE = re.compile(r"(?:no longer wearing|not wearing|without)\b", re.IGNORECASE)
 _POV_CHUNK_RE = re.compile(r"pov", re.IGNORECASE)
-# A diffusion text encoder has no idea "camera" is meta: it draws one, in frame, in
-# someone's hands. The word is unavoidable in the instructions (it is how you
-# describe a shot), so a composer echoing it back is a matter of when, not if.
-# Drop the whole chunk that carries it -- losing "the camera looks down from above"
-# costs one framing hint, keeping it costs a DSLR in the middle of the scene.
-# Search, not fullmatch, and word-bounded: "camerawork" is the same failure, while
-# the booru tag "looking at viewer" is a real and wanted tag that must survive.
+# A text encoder has no idea "camera" is meta: it draws one, in frame, in someone's
+# hands. The word is unavoidable in the instructions, so drop the whole chunk that
+# echoes it back. Word-bounded search so "camerawork" goes too while the real booru
+# tag "looking at viewer" survives.
 _CAMERA_CHUNK_RE = re.compile(r"\bcamera\w*", re.IGNORECASE)
 
-# The composer writes the literal contact -- "arm gripping viewer's shirt collar"
-# -- because that is what happened in the reply. The text encoder has never seen
-# it: booru tagged the subject's reach *toward* the lens, never the viewer's body,
-# so the literal phrase draws an improvised limb instead of the pose. Same split as
-# the pov/camera chunks above: the model states the fact, this table owns the
-# vocabulary. Teaching the vocabulary in the OOC instead would cost prefix tokens
-# on every call and still be a judgment the model is bad at.
+# The composer writes the literal contact ("arm gripping viewer's shirt collar")
+# because that is what happened. The encoder has never seen it -- booru tagged the
+# reach *toward* the lens, never the viewer's body -- so the literal phrase draws
+# an improvised limb. The model states the fact; this table owns the vocabulary.
 _VIEWER_RE = re.compile(r"\b(?:viewer|user|your)'?s?\b", re.IGNORECASE)
-# Mentioning the viewer is not touching them. "standing close to the viewer",
-# "blocking the viewer's path" name no contact, and giving them the reach tags
-# invents an arm that is not in the scene -- a worse error than losing the chunk,
-# which is what they get instead. Only a contact word, or a row below, earns tags.
-#
-# "pin" and "cup" are only two letters past their word boundary and are real
-# words on their own ("pin-up", "cupcake"), unlike the other stems here which
-# only collide with their own inflections. Exclude those specific tails rather
-# than dropping the stems: "pinning her against the wall" and "cupping her
-# cheek" are both real contact this table exists to catch.
+# Mentioning the viewer is not touching them: giving "standing close to the viewer"
+# the reach tags invents an arm nobody wrote, which is worse than losing the chunk.
+# "pin" and "cup" are real words on their own, unlike the other stems here, so their
+# non-contact tails are excluded rather than the stems dropped.
 _VIEWER_CONTACT_VERB_RE = re.compile(
     r"\b(?:grab|grip|grasp|clutch|clasp|pull|tug|yank|hold|shov|push|press|pin(?!-?up)|touch|caress|"
     r"cup(?!cake|board)|stroke|squeez|reach|kiss|hug|embrac|bit|lick|slap|punch|strik|hit|chok|strangl|throttl)",
     re.IGNORECASE,
 )
-# Gaze is the other thing a composer says about the viewer, and booru has exactly
-# one tag for it. Normalize every phrasing to that tag rather than keeping only the
-# literal one.
+# Gaze is the other thing said about the viewer, and booru has one tag for it.
 _VIEWER_GAZE_RE = re.compile(r"\b(?:look|gaz|star|glanc|watch|eyes?)\w*\b[^,]*\b(?:viewer|user|your)", re.IGNORECASE)
 _LOOKING_AT_VIEWER = "looking at viewer"
 
-# Which side of the contact the viewer is on decides everything, and only the noun
-# after the possessive says which. A viewer's *limb* is the user acting -- the shot
-# rules ask for it by name when the instant puts a hand in frame -- and collapsing
-# it would reverse who is doing what to whom. Anything else the possessive can own
-# (throat, collar, chest) is the viewer being acted upon, and their body must not
-# be drawn. Keep the first, retag it, collapse the second.
+# Only the noun after the possessive says which side of the contact the viewer is
+# on. A viewer's *limb* is the user acting (the shot rules ask for it by name);
+# anything else the possessive owns -- throat, collar, chest -- is the viewer being
+# acted upon, and their body must not be drawn. Keep and retag the first, collapse
+# the second.
 _VIEWER_LIMB_RE = re.compile(
     r"\b(?:viewer|user|your)'?s?\s+(?:hands?|arms?|fingers?|palms?|fists?|wrists?|thumbs?)\b",
     re.IGNORECASE,
@@ -641,31 +535,27 @@ _POV_HANDS = "pov hands"
 _VIEWER_CONTACT_TAGS = (
     (re.compile(r"\bkiss", re.IGNORECASE), "incoming kiss, close-up, foreshortening"),
     (re.compile(r"\b(?:hug|embrac)", re.IGNORECASE), "incoming hug, outstretched arms, foreshortening"),
-    # A hand at the viewer's neck is the same arm-toward-lens composition as the
-    # fallback, plus the grip the fallback loses. Approximate by design: a gentle
-    # hand on the neck lands here too, and the shape is close enough to be right.
+    # Approximate by design: a gentle hand on the neck lands here too, and the
+    # arm-toward-lens shape is close enough to be right.
     (
         re.compile(r"\b(?:strangl|chok|throttl|throat|neck)", re.IGNORECASE),
         "strangling, reaching towards viewer, foreshortening",
     ),
     (re.compile(r"\b(?:punch|slap|strik|attack|swing)", re.IGNORECASE), "incoming attack, outstretched arm, foreshortening"),
-    # Mounting the viewer is contact without a reach: the fallback's outstretched
-    # arm would be flatly wrong, so this row exists to not get that.
+    # Contact without a reach: the fallback's outstretched arm would be flatly wrong.
     (re.compile(r"\b(?:straddl|lap|sitting on|riding|on top of)", re.IGNORECASE), "on top, straddling, foreshortening"),
-    # A weapon levelled at the viewer touches nothing, so the contact gate would
-    # drop it and lose the whole point of the shot.
+    # A levelled weapon touches nothing, so the contact gate below would drop it.
     (re.compile(r"\b(?:aim|point|knife|gun|blade|sword|weapon|barrel)", re.IGNORECASE), "aiming at viewer, foreshortening"),
-    # Body against body, no reach: this fills the frame instead of extending toward
-    # it. Last row, so a lean that is really a kiss or a straddle matches those first.
+    # Body against body: fills the frame rather than extending toward it. Last row,
+    # so a lean that is really a kiss or a straddle matches those first.
     (re.compile(r"\b(?:lean|nuzzl|snuggl|nestl|against|resting on)", re.IGNORECASE), "close-up, foreshortening"),
 )
 # Everything else that touches the viewer collapses to the one composition booru
 # has in volume: arm out, hand toward the lens, the rest cropped past the wrist.
 _VIEWER_FALLBACK = "reaching beyond edge of screen, foreshortening"
 
-# A saved appearance sheet is frontal: on a back shot it must not carry face-only
-# traits (eyes, makeup, mouth) that contradict a turned-away face. Drop any comma
-# chunk naming one, only when the analyzer flags the face hidden.
+# A saved appearance sheet is frontal, so on a back shot it must not carry
+# face-only traits. Applied only when the analyzer flags the face hidden.
 _FACE_CHUNK_RE = re.compile(
     r"\b(eyes?|eyeliner|eye ?shadow|eyelashes?|lashes|eyebrows?|mascara"
     r"|lips?|lipstick|mouth|teeth|fangs?|makeup)\b",
@@ -685,8 +575,8 @@ def _rewrite_viewer_contact(text: str) -> str:
 
     Contact collapses to a tag, the viewer's own limb keeps its action, gaze
     normalizes, and a chunk that merely mentions the viewer is dropped. Nothing
-    naming the viewer survives verbatim: kept, it draws the viewer's own body back
-    into frame, which is the one thing a first-person shot must not contain.
+    naming the viewer survives verbatim: kept, it draws the viewer's own body into
+    frame, the one thing a first-person shot must not contain.
     """
     out: list[str] = []
     for chunk in (c.strip() for c in text.split(",")):
@@ -696,9 +586,8 @@ def _rewrite_viewer_contact(text: str) -> str:
             out.append(chunk)
             continue
         if _VIEWER_LIMB_RE.search(chunk):
-            # The viewer's own limb, acting. Keep what it is doing -- that is the
-            # subject of the shot -- and drop only the possessive naming its owner,
-            # which is the part the encoder cannot place.
+            # The viewer's own limb, acting: keep what it does (the subject of the
+            # shot), drop only the possessive the encoder cannot place.
             if _POV_HANDS not in out:
                 out.append(_POV_HANDS)
             out.append(_VIEWER_POSSESSIVE_RE.sub("", chunk).strip())
@@ -707,11 +596,10 @@ def _rewrite_viewer_contact(text: str) -> str:
         if tag is None and _VIEWER_CONTACT_VERB_RE.search(chunk):
             tag = _VIEWER_FALLBACK
         if tag is None:
-            # No contact. Gaze is the only other thing worth keeping; everything
-            # else here just names the viewer, and naming them draws them.
+            # No contact. Gaze is the only other thing worth keeping; naming the
+            # viewer any other way draws them.
             tag = _LOOKING_AT_VIEWER if _VIEWER_GAZE_RE.search(chunk) else ""
-        # Two chunks describing one grab ("gripping the viewer's collar", "pulling
-        # the viewer closer") land on the same tag; emit it once.
+        # Two chunks describing one grab land on the same tag; emit it once.
         if tag and tag not in out:
             out.append(tag)
     return ", ".join(out)
@@ -720,10 +608,9 @@ def _rewrite_viewer_contact(text: str) -> str:
 def _count_anchor(characters: Any) -> str | None:
     """Booru count tags from the analyzed cast, e.g. '1boy, 1girl' or '1girl, solo'.
 
-    The analyze schema already excludes the viewer character in first_person, so
-    counting this list is what guarantees POV scenes never leak the extra '1boy'.
-    Returns None when any entry is malformed or missing a sex -- caller skips
-    pinning rather than guess.
+    The analyze schema excludes the viewer in first_person, so counting this list
+    is what keeps POV scenes from leaking an extra '1boy'. None when an entry is
+    malformed or missing a sex -- the caller skips pinning rather than guess.
     """
     counts = dict.fromkeys(("girl", "boy", "other"), 0)
     for ch in characters if isinstance(characters, list) else [None]:
@@ -745,10 +632,11 @@ def _pin_anchor(scene: str, anchor: str) -> str:
 
 
 def _split_lead_count(scene: str) -> tuple[str, str]:
-    """Peel the leading run of count/pov chunks off the scene, so the caller can
-    seat the count anchor at the very head of the final prompt (booru training
-    puts counts first; a long appearance in front pushes them out of CLIP's first
-    77-token window). Returns (count_lead, remainder)."""
+    """Peel the leading count/pov chunks off, as ``(count_lead, remainder)``.
+
+    Booru training puts counts first, and a long appearance in front of them pushes
+    them out of CLIP's first 77-token window.
+    """
     parts = [c.strip() for c in scene.split(",") if c.strip()]
     lead = 0
     while lead < len(parts) and _COUNT_CHUNK_RE.fullmatch(parts[lead]):
@@ -757,31 +645,37 @@ def _split_lead_count(scene: str) -> tuple[str, str]:
 
 
 def _strip_prose_count_prefix(scene: str) -> str:
-    """Remove leaked booru count tags only from the head of a prose prompt.
-
-    A prose encoder can interpret ``1boy`` literally rather than as metadata.
-    Keep natural language elsewhere untouched: this guard targets only the
-    leading position the tags leak into.
-    """
+    """Remove leaked booru count tags from the head of a prose prompt, where a
+    prose encoder reads ``1boy`` literally rather than as metadata. Natural
+    language elsewhere is untouched."""
     return _PROSE_COUNT_PREFIX_RE.sub("", scene).lstrip(" ,.;:-")
+
+
+# One analyzed character, rendered in reading order, with the label each field
+# carries into the block.
+_CHARACTER_FIELDS = (
+    ("face_view", ""),
+    ("position", ""),
+    ("pose", ""),
+    ("action", ""),
+    ("appearance", ""),
+    ("outfit", "wearing: "),
+    ("expression", "expression: "),
+    ("gaze", "gaze: "),
+)
 
 
 def _render_scene(scene: Any, pov: str) -> str:
     """Structured analyze_scene args -> compact text for the composition call.
 
-    States no viewpoint at all. The compose OOC is told to render this block
-    *exactly*, so every word here is a word the image model may end up seeing --
-    and "camera" in an image prompt draws a literal camera. The shot rules live in
-    the OOC head (`_format_guide`), which is instruction context rather than
-    something the composer is copying. What survives here is the one thing the head
-    cannot know: whether this particular scene puts the user's hand in frame.
-    *pov* only selects whether that line is read at all, so an analyzer that filled
-    `viewer_contact` in third-person is corrected here rather than in the prompt.
+    States no viewpoint: the compose OOC renders this block *exactly*, so every
+    word here may reach the image model, and "camera" draws a literal camera. Shot
+    rules live in the OOC head (`_format_guide`). *pov* only selects whether the
+    viewer-contact line is read, so an analyzer that filled it in third-person is
+    corrected here.
 
-    Tolerant of missing/malformed fields: any absent character or section is
-    dropped, so a partial scene from the model still yields usable text. An
-    analysis with no content at all renders empty -- that is what tells
-    `compose_scene` the analyze call failed.
+    Tolerant of missing/malformed fields; an analysis with no content at all
+    renders empty, which is what tells `compose_scene` the analyze call failed.
     """
     if not isinstance(scene, Mapping):
         return ""
@@ -803,31 +697,16 @@ def _render_scene(scene: Any, pov: str) -> str:
             labels.append("profile owner")
         if labels:
             name += " [" + "; ".join(labels) + "]"
-        bits: list[str] = []
+        # View and pose first, so the composer commits to the shot before listing
+        # attributes. `expression` is dropped when the analyzer flagged the face
+        # hidden; `face_view` is the analyzer's own words, so an absent one is left
+        # unstated rather than guessed at as a back view.
         face_visible = ch.get("face_visible") is not False
-        # Pose and viewpoint first, so the composer commits to the shot before it
-        # lists visible attributes. The analyzer supplies the concrete view instead
-        # of this renderer turning every hidden/cropped/occluded face into a back
-        # view. A partial model result with no face_view is safer left unstated.
-        face_view = _bounded(ch.get("face_view"))
-        if face_view:
-            bits.append(face_view)
-        for key in ("position", "pose", "action"):
-            value = _bounded(ch.get(key))
-            if value:
-                bits.append(value)
-        appearance = _bounded(ch.get("appearance"))
-        if appearance:
-            bits.append(appearance)
-        outfit = _bounded(ch.get("outfit"))
-        if outfit:
-            bits.append(f"wearing: {outfit}")
-        expression = _bounded(ch.get("expression"))
-        if expression and face_visible:
-            bits.append(f"expression: {expression}")
-        gaze = _bounded(ch.get("gaze"))
-        if gaze:
-            bits.append(f"gaze: {gaze}")
+        bits = [
+            f"{prefix}{value}"
+            for key, prefix in _CHARACTER_FIELDS
+            if (value := _bounded(ch.get(key))) and (face_visible or key != "expression")
+        ]
         if bits:
             lines.append(f"{name}: " + ", ".join(bits))
     interaction = _bounded(scene.get("interaction"))
@@ -850,10 +729,9 @@ def _is_owner(ch: Any, owner_casefold: str) -> bool:
 
 
 def _keep_profile_owner(analysis: dict, profile_owner_name: str) -> None:
-    """First-person scenes look through the user's eyes at the profile owner, so
-    drop every other visible character: a background cast member does not belong in
-    the shot. No-op when the owner is not among the characters, so a first-person
-    view of someone else keeps its cast rather than emptying it."""
+    """First-person looks through the user's eyes at the profile owner, so drop
+    every other visible character. No-op when the owner is absent, so a
+    first-person view of someone else keeps its cast rather than emptying it."""
     characters = analysis.get("characters")
     if not isinstance(characters, list):
         return
@@ -883,13 +761,9 @@ def _inject_profile_appearance(
 ) -> str:
     """Insert fixed traits only when their owner is visible, near the prompt head.
 
-    Tag prompts cannot bind attributes to named subjects, so they keep the raw
-    appearance tags. Hybrid and prose prompts name the owner explicitly instead
-    of leaving those traits as an anonymous block in a multi-character scene.
-
-    When the owner's face is not visible, face-only traits (eyes, makeup, mouth)
-    are dropped: a saved frontal sheet contradicts a back, occluded, or cropped
-    face.
+    Tag prompts cannot bind attributes to a named subject, so they keep the raw
+    tags; hybrid and prose name the owner instead of leaving an anonymous block in
+    a multi-character scene. Face-only traits go when the face is not visible.
     """
     fixed = _strip_chunks(_bounded(appearance), _COUNT_CHUNK_RE)
     fixed = _strip_chunks(fixed, _NEGATION_CHUNK_RE, whole=False)
@@ -903,9 +777,8 @@ def _inject_profile_appearance(
         fixed = f"{owner}: {fixed}"
     elif owner and normalized_format == "prose":
         fixed = f"{owner} has these traits: {fixed}."
-    # Seat the stable identity block immediately after the count anchor. The final
-    # assembler adds a short style block in front of it; putting the profile here
-    # keeps identity near the high-attention head instead of after the setting.
+    # Seated right after the count anchor, so identity stays near the high-attention
+    # head rather than landing after the setting.
     count_lead, body = _split_lead_count(scene)
     if normalized_format == "prose":
         prose_body = " ".join(part for part in (fixed, body) if part)
@@ -932,24 +805,16 @@ async def compose_scene(
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",
 ) -> tuple[str, str, str]:
-    """Compose the scene text for one message.
+    """Compose the scene text for one message, as ``(scene, avoid, mode)``.
 
-    *pov* is already resolved (see ``pov.resolve``) and selects which mode's
-    instructions both calls carry. It never reaches the tool schemas: those ship
-    as one byte-stable blob so a camera switch costs no cached prefix.
+    *pov* is already resolved (``pov.resolve``) and selects which mode's
+    instructions both calls carry. It never reaches the tool schemas: those ship as
+    one byte-stable blob so a camera switch costs no cached prefix. Both calls ride
+    *prefix* unchanged -- the byte-identical conversation prefix the chat turns
+    send -- so the server's cached KV survives analyze -> compose -> the next turn.
 
-    Returns ``(scene, avoid, mode)``. A saved fixed appearance is inserted into
-    the scene only when its named owner is visible. The prompter omits those
-    fixed traits, which prevents duplicate appearance tokens.
-
-    Raises ``ValueError`` when the forced compose call yields no scene: the
-    generation stops rather than falling back to the raw reply text. There is
-    no excerpt fallback -- see the scene-guard note below.
-
-    Both LLM calls ride *prefix* unchanged -- the same byte-identical
-    conversation prefix the chat turns send -- so the server's cached KV is
-    reused, not evicted, across analyze -> compose -> the next chat turn.
-    Everything per-call rides the tail messages after it.
+    Raises ``ValueError`` when the forced compose call yields no scene, rather than
+    falling back to the raw reply text.
     """
     analysis: dict = {}
     analysis_block = ""
@@ -981,47 +846,28 @@ async def compose_scene(
             _keep_profile_owner(analysis, profile_owner_name)
         analysis_block = _render_scene(analysis, pov)
 
+    tail = [
+        {
+            "role": "user",
+            "content": _compose_ooc(
+                prompt_format,
+                pov,
+                structured=bool(analysis_block),
+                profile_owner_name=profile_owner_name,
+                appearance=appearance,
+                extra_instructions=extra_instructions,
+                supports_negative=supports_negative,
+                has_references=has_references,
+                style_prompt=style_prompt,
+                style_negative_prompt=style_negative_prompt,
+                profile_negative_prompt=profile_negative_prompt,
+            ),
+        }
+    ]
     if analysis_block:
-        # Format-only framing, then the scene as the final message where attention
-        # is strongest: the composer renders exactly this instead of re-deriving it.
-        tail = [
-            {
-                "role": "user",
-                "content": _compose_ooc(
-                    prompt_format,
-                    pov,
-                    structured=True,
-                    profile_owner_name=profile_owner_name,
-                    appearance=appearance,
-                    extra_instructions=extra_instructions,
-                    supports_negative=supports_negative,
-                    has_references=has_references,
-                    style_prompt=style_prompt,
-                    style_negative_prompt=style_negative_prompt,
-                    profile_negative_prompt=profile_negative_prompt,
-                ),
-            },
-            {"role": "user", "content": "Structured scene extracted from the conversation:\n\n" + analysis_block},
-        ]
-    else:
-        tail = [
-            {
-                "role": "user",
-                "content": _compose_ooc(
-                    prompt_format,
-                    pov,
-                    structured=False,
-                    profile_owner_name=profile_owner_name,
-                    appearance=appearance,
-                    extra_instructions=extra_instructions,
-                    supports_negative=supports_negative,
-                    has_references=has_references,
-                    style_prompt=style_prompt,
-                    style_negative_prompt=style_negative_prompt,
-                    profile_negative_prompt=profile_negative_prompt,
-                ),
-            }
-        ]
+        # The scene rides last, where attention is strongest: the composer renders
+        # exactly this block instead of re-deriving it.
+        tail.append({"role": "user", "content": "Structured scene extracted from the conversation:\n\n" + analysis_block})
     args = await _forced_args(
         client=client,
         model_name=model_name,
@@ -1036,36 +882,27 @@ async def compose_scene(
     normalized_format = _normalize_prompt_format(prompt_format)
     scene = _bounded(args.get("scene"))
     if normalized_format == "prose":
-        # Defense in depth: the prose tail forbids count tags, but a model can copy
-        # the old convention from conversation context or habit. Never let those
-        # tokens reach a prose image encoder.
+        # Defense in depth: the prose tail forbids count tags, but a model copies
+        # the old convention from context or habit.
         scene = _strip_prose_count_prefix(scene)
     else:
-        # Tag/hybrid composers can end the count block with a period ("1boy,
-        # 1girl. Gon eats..."). Normalize it to a comma so the comma-based count
-        # peeling and pinning below still see the tags.
+        # A count block ended with a period ("1boy, 1girl. Gon eats...") would hide
+        # the tags from the comma-based peeling and pinning below.
         scene = re.sub(rf"\b({_COUNT_TOKEN})\.", r"\1,", scene, flags=re.IGNORECASE)
-    # Strip negations in every mode: diffusion text encoders draw "no longer
-    # wearing X" as X, so no composed prompt may carry one, analysis path or not.
-    # Comma-splitting still works on prose: it drops the negated comma-clause and
-    # keeps the rest of the sentence.
+    # Every mode: encoders draw "no longer wearing X" as X, a booru-trained composer
+    # writes "pov" unprompted, and "camera" puts a literal one in the frame. Comma
+    # splitting works on prose too -- it drops the clause and keeps the sentence.
     scene = _strip_chunks(scene, _NEGATION_CHUNK_RE, whole=False)
-    # No pov tag in any mode: a booru-trained composer writes one unprompted.
     scene = _strip_chunks(scene, _POV_CHUNK_RE)
-    # No meta-camera talk in any mode either, for the same reason and with worse
-    # consequences: "pov" skews a shot, "camera" adds an object to it.
     scene = _strip_chunks(scene, _CAMERA_CHUNK_RE, whole=False)
     # Only first-person has a viewer to touch, and only the tag formats have a tag
     # vocabulary to swap in.
     if pov == FIRST and normalized_format != "prose":
         scene = _rewrite_viewer_contact(scene)
     if not scene:
-        # No excerpt fallback. When the forced call produces no scene, stop --
-        # do not ship the raw reply text to the diffusion model as the image
-        # prompt. The raw reply is narration and dialogue, not a scene
-        # description, so an excerpt fallback trades a clean failure for a
-        # bad image. Callers already degrade on this: on-demand surfaces the
-        # error, regenerate/reroll drop the attachment.
+        # No excerpt fallback: the raw reply is narration and dialogue, so shipping
+        # it would trade a clean failure for a bad image. Callers already degrade --
+        # on-demand surfaces the error, regenerate/reroll drop the attachment.
         raise ValueError("couldn't compose an image prompt for this message")
     avoid = _bounded(args.get("avoid"))
     face_visible = True
@@ -1080,12 +917,7 @@ async def compose_scene(
         owner_visible = args.get("profile_owner_visible") is True
     if owner_visible:
         scene = _inject_profile_appearance(scene, appearance, profile_owner_name, prompt_format, face_visible=face_visible)
-    if analysis_block:
-        mode = "scene_analysis"
-    elif scene_analysis:
-        mode = "analysis_failed"
-    else:
-        mode = "single_call"
+    mode = "scene_analysis" if analysis_block else ("analysis_failed" if scene_analysis else "single_call")
     return scene, avoid, mode
 
 
@@ -1097,10 +929,8 @@ def assemble_prompts(
     avoid: str,
 ) -> tuple[str, str, dict]:
     style = resolve_style(config, style_id)
-    # The composer has already inserted any visible profile appearance into the
-    # scene. Count tags are valid only for tags/hybrid. Enforce that invariant
-    # again at final assembly so a stale scene or saved style block cannot bypass
-    # the composer-side prose guard.
+    # Count tags are valid only for tags/hybrid, enforced again here so a stale
+    # scene or a saved style block cannot bypass the composer-side prose guard.
     prompt_format = _normalize_prompt_format(str(style.get("prompt_format") or ""))
     if prompt_format == "prose":
         scene_body = _strip_prose_count_prefix(scene)

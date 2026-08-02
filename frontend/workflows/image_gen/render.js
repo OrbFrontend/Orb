@@ -1,19 +1,17 @@
 // DOM-free HTML builders for the message button and attachment details.
 //
-// They live outside widget.js so they load under `node --test`: widget.js
-// imports the plugin facade, which pulls in the chat spine and touches the DOM
-// at module load, so nothing importing it is testable without a browser.
+// Outside widget.js so they load under `node --test`: widget.js imports the plugin
+// facade, which pulls in the chat spine and touches the DOM at module load.
 //
-// `esc`/`escAttr` are injected rather than imported because a file under
-// frontend/workflows/** may import only the facade and its own relative files
-// (the plugin boundary in scripts/check_frontend_layers.py) — and a local copy
-// of the escapers would be free to drift from the framework's. Every dynamic
-// value below goes through one of them; the tests assert exactly that.
+// `esc`/`escAttr` are injected rather than imported because the plugin boundary
+// (scripts/check_frontend_layers.py) allows only the facade and relative files, and
+// a local copy of the escapers would be free to drift from the framework's. Every
+// dynamic value below goes through one; the tests assert exactly that.
 
 const WORKFLOW_ID = "image_gen";
 
-// How the resolved camera reads back to a user. The levers are named for the
-// control the user would go change, not for the backend symbol that chose them.
+// The levers are named for the control the user would go change, not for the
+// backend symbol that chose them.
 const POV_LABELS = { first_person: "First-person", third_person: "Third-person" };
 const POV_SOURCE_LABELS = {
   manual: "POV picker",
@@ -28,8 +26,8 @@ const REFERENCE_SOURCE_LABELS = {
   character: "character reference",
   previous_or_character: "previous image, else character reference",
 };
-// The origin is a machine key ("attachment:41", "upload:12:3", "character:<id>"),
-// and its useful half is which *kind* of thing was fed in — a wrong reference is
+// The origin is a machine key ("attachment:41", "upload:12:3", "character:<id>")
+// whose useful half is which *kind* of thing was fed in — a wrong reference is
 // usually the wrong kind, not the wrong row.
 const REFERENCE_ORIGIN_LABELS = {
   attachment: "a generated image in this chat",
@@ -37,15 +35,14 @@ const REFERENCE_ORIGIN_LABELS = {
   character: "the character",
 };
 
-// What a seedless backend's seed row says instead of a hex the render never saw.
 // The seed is still minted and stored — rehydrate refuses a null one — so the
-// honest answer is "recorded but unused", not a blank.
+// honest row is "recorded but unused", not a blank and not the hex.
 const UNUSED_SEED = "not used by this provider";
 
-// A cost, rendered only in the unit the payload names. Nothing here converts:
-// xAI reports `usd_ticks` and nowhere documents what a tick is worth, so naming
-// it dollars would print a wrong number on a billing figure. An unrecognised unit
-// still shows the value beside its own name, which is more use than hiding it.
+// Rendered only in the unit the payload names. Nothing converts: xAI reports
+// `usd_ticks` and nowhere documents what a tick is worth, so calling it dollars
+// would print a wrong billing figure. An unrecognised unit still shows the value
+// beside its own name, which is more use than hiding it.
 const COST_UNITS = {
   usd: (value) => `$${Number(value).toFixed(4)}`,
   usd_ticks: (value) => `${value} usd ticks`,
@@ -78,12 +75,10 @@ export function hasAttachment(msg) {
   return (msg?.workflow_attachments || []).some((a) => a.workflow_id === WORKFLOW_ID);
 }
 
-// Returns "" when the message can't take an image at all: only assistant
-// messages are visualizable, and one that already carries an image_gen
-// attachment offers regenerate/reroll on the attachment instead.
-//
-// The click generates straight away with the style selected in the tools-panel
-// card — no modal. Clicking again while a render is in flight cancels it.
+// "" when the message cannot take an image: only assistant messages are
+// visualizable, and one already carrying an image_gen attachment offers
+// regenerate/reroll on the attachment instead. The click generates straight away
+// with the style selected in the tools-panel card — no modal.
 export function messageButtonHtml(msg, { mutable, icon, escAttr }) {
   if (!msg?.id || msg.role !== "assistant" || hasAttachment(msg)) return "";
   if (!mutable)
@@ -95,28 +90,26 @@ export function messageButtonHtml(msg, { mutable, icon, escAttr }) {
 // widget, or undefined when what is shown is what the attachment stores.
 export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr, pending }) {
   const cm = att?.consumption_metadata || {};
-  // Edited in place rather than through a modal: `change` fires once on blur-after-edit
-  // and the facade dispatcher already carries it, so committing costs no extra plumbing.
-  // Rows are guessed from length because a DOM-free builder cannot measure the column;
-  // `resize:vertical` is the escape hatch.
+  // Edited in place, not through a modal: `change` fires once on blur-after-edit and
+  // the facade dispatcher already carries it. Rows are guessed from length because a
+  // DOM-free builder cannot measure the column; `resize:vertical` is the escape hatch.
   const field = (name, label, value) =>
     `<textarea class="image-gen-edit" readonly aria-label="${label}" rows="${Math.min(10, Math.max(2, Math.ceil(value.length / 48)))}" data-wf-action="image_gen:savePrompt" data-wf-on="change" data-att-id="${escAttr(att?.id ?? "")}" data-field="${name}">${esc(value)}</textarea>`;
   const pencil = (name, label) =>
     `<button type="button" class="image-gen-edit-btn" title="Edit ${label.toLowerCase()}" aria-label="Edit ${label.toLowerCase()}" data-wf-action="image_gen:editPrompt" data-att-id="${escAttr(att?.id ?? "")}" data-field="${name}">✎</button>`;
   const marker = pending ? `<span class="image-gen-pending">edited — click 🎲 to render</span>` : "";
-  // The style label opens that entry in the style editor: judging an image and
-  // then tuning the style that produced it is the loop this feature lives in,
-  // and without the link it costs a hunt through settings every time.
+  // The style label opens that entry in the style editor: judge the image, tune the
+  // style that made it, without a hunt through settings every lap.
   const styleText = esc(cm.style_label || cm.style_id || "");
   const style = cm.style_id
     ? `<button type="button" class="image-gen-style-link" data-wf-action="image_gen:editStyle" data-style-id="${escAttr(cm.style_id)}">${styleText}</button>`
     : styleText;
-  // Populated only when a replay could not be honoured exactly (a deleted user
-  // graph, say) — the disclosure belongs where the odd-looking image is.
+  // Populated only when a replay could not be honoured exactly — the disclosure
+  // belongs where the odd-looking image is.
   const notes = (Array.isArray(cm.notes) ? cm.notes : []).map((note) => `<dt>Note</dt><dd>${esc(note)}</dd>`).join("");
-  // Absent on images generated before the camera was recorded, so the row is
-  // omitted rather than shown empty. The lever is what makes this actionable: a
-  // wrong camera is fixed in a different place depending on which one chose it.
+  // Omitted rather than shown empty on images predating the camera record. The
+  // lever makes it actionable: a wrong camera is fixed in a different place
+  // depending on which one chose it.
   const source = POV_SOURCE_LABELS[cm.pov_source] || cm.pov_source;
   const camera = cm.pov
     ? `<dt>Camera</dt><dd>${esc(POV_LABELS[cm.pov] || cm.pov)}${source ? esc(` — from the ${source}`) : ""}</dd>`

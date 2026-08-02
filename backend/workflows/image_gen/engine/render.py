@@ -29,12 +29,9 @@ async def resolve_and_generate(
 ) -> ImageResult:
     """Render, resolving the target from the style only when the caller has none.
 
-    Both render paths in `hooks.py` resolve first and pass `target=`, because both
-    need answers off it before the call: the fresh path needs the negative-prompt
-    and reference slots to compose, the reroll path needs the seed and reference
-    answers to decide what to disclose. There is deliberately no `replay=` here --
-    a second way to reach the same target is how the two paths come to disagree
-    about replay precedence.
+    Both paths in `hooks.py` resolve first and pass `target=`, needing answers off
+    it before the call. There is deliberately no `replay=`: a second way to reach
+    the same target is how the two paths come to disagree about replay precedence.
     """
     adapter = get_adapter(config)
     if target is None:

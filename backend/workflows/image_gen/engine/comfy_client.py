@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from .contracts import ImageGenerationError, ImageResult, ProgressCallback
+from .contracts import ImageGenerationError, ImageResult, ProgressCallback, emit
 from .display_encode import shrink_for_display
 from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
@@ -38,14 +38,6 @@ def invalidate_object_info(api_url: str | None = None) -> None:
         _object_info_cache.clear()
     else:
         _object_info_cache.pop(api_url.rstrip("/"), None)
-
-
-async def _emit(progress: ProgressCallback | None, stage: str, detail: Mapping[str, Any]) -> None:
-    if not progress:
-        return
-    maybe = progress(stage, detail)
-    if maybe is not None:
-        await maybe
 
 
 def _validation_message(payload: Any) -> str:
@@ -151,7 +143,7 @@ class ComfyClient:
         repeat renders overwrite one file and a reroll resolves to the same name.
         """
         name = f"orb_{digest[:16]}.{_UPLOAD_EXTENSIONS.get(mime, 'png')}"
-        await _emit(progress, "uploading", {"name": name, "bytes": len(data)})
+        await emit(progress, "uploading", {"name": name, "bytes": len(data)})
         try:
             async with self._http(timeout) as client:
                 response = await client.post(
@@ -235,7 +227,7 @@ class ComfyClient:
         # An unknown position (None) reads as "not waiting on anyone": the render
         # is under way as far as the caller can tell, which is the honest label.
         waiting = bool(ahead)
-        await _emit(progress, "queued" if waiting else "rendering", {"number": number, "ahead": ahead})
+        await emit(progress, "queued" if waiting else "rendering", {"number": number, "ahead": ahead})
 
         deadline = time.monotonic() + timeout_seconds
         record: Mapping[str, Any] | None = None
@@ -255,9 +247,9 @@ class ComfyClient:
                 previous, ahead = ahead, await self.queue_ahead(number, timeout=queue_timeout)
                 waiting = bool(ahead)
                 if not waiting:
-                    await _emit(progress, "rendering", {"number": number, "ahead": ahead})
+                    await emit(progress, "rendering", {"number": number, "ahead": ahead})
                 elif ahead != previous:
-                    await _emit(progress, "queued", {"number": number, "ahead": ahead})
+                    await emit(progress, "queued", {"number": number, "ahead": ahead})
             await asyncio.sleep(1.0)
         if record is None:
             raise ImageGenerationError("Image generation timed out")

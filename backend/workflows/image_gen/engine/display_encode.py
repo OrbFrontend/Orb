@@ -1,20 +1,15 @@
 """Re-encode images on the way out (display) and on the way in (references).
 
-**Display.** ComfyUI hands back a full-resolution PNG -- a 1472x2304 render is
-~4.7 MB, and a chat that keeps eight of them inlines ~33 MB of base64 into one
-message payload, which the browser must parse on every open. WebP at high quality
-is visually identical and roughly 6x smaller, so far less base64 ships and gets
-parsed. Resolution is preserved (no downscale) -- the stored image is still
-full-res, so what shows inline is the full-quality picture. The per-image *decode*
-cost is set by pixel count regardless of format; that is handled on the frontend
-by content-visibility, which only decodes the messages actually on screen. Lossy
-(q95, visually indistinguishable) and one-way -- the exact PNG bytes are not kept.
-Reroll/rehydrate re-render from the backend, so replay fidelity is unaffected.
+**Display.** A full-resolution PNG render is ~4.7 MB, so a chat holding eight of
+them inlines ~33 MB of base64 the browser parses on every open. WebP at q95 is
+visually identical and roughly 6x smaller. Resolution is preserved, so what shows
+inline is still the full-quality picture; the conversion is lossy and one-way, but
+reroll/rehydrate re-render from the backend, so replay fidelity is unaffected.
 
-**References.** A reference goes the other way: into a backend that has told us
-what it accepts. `normalize_reference` is where that contract is *enforced*, not
-merely aimed at -- see its docstring for the two-rule split between a destination
-that declared one and a destination that did not.
+**References.** A reference goes the other way, into a backend that has declared
+what it accepts. `normalize_reference` is where that contract is *enforced* -- see
+its docstring for the split between a destination that declared one and one that
+did not.
 """
 
 from __future__ import annotations
@@ -26,23 +21,22 @@ from PIL import Image
 from .contracts import ImageGenerationError
 
 _WEBP_QUALITY = 95
-# Ceiling on a *phone-sized* reference upload, not a target size: identity-edit
-# workflows are the ones that lose face detail to a downscale, and a graph wanting
-# a specific size already carries a scale node (ImageScaleToTotalPixels).
+# A ceiling on phone-sized uploads, not a target size: identity-edit workflows lose
+# face detail to a downscale, and a graph wanting a specific size already carries a
+# scale node.
 _REFERENCE_MAX_EDGE = 4096
 _REFERENCE_MAX_BYTES = 8 * 1024 * 1024
 
 _FORMATS = {"image/webp": "WEBP", "image/png": "PNG", "image/jpeg": "JPEG"}
-# Which mime to convert *to* when a destination declares a list. Ordered by bytes
-# per unit of visible quality, not by the order the provider happened to list
-# them: a reference is photographic content, PNG is lossless, and picking it turns
-# the 0.37 MB WebP a render is already stored as into a 1.05 MB body. Lossy first.
+# Which mime to convert *to* when a destination declares a list, ordered by bytes
+# per unit of visible quality rather than by the provider's listing order: a
+# reference is photographic, and preferring lossless PNG turns the 0.37 MB WebP a
+# render is stored as into a 1.05 MB body.
 _TARGET_PREFERENCE = ("image/webp", "image/jpeg", "image/png")
-# Tried in order until one fits `max_bytes`. Quality moves before resolution
-# because face identity -- the thing a reference exists to carry -- survives q75
-# far better than it survives a halved edge. The first rung is the display
-# quality, so a reference that already fits re-encodes to exactly what it would
-# have before this ladder existed.
+# Tried in order until one fits `max_bytes`. Quality moves before resolution because
+# face identity -- what a reference exists to carry -- survives q75 far better than
+# a halved edge. The first rung is the display quality, so a reference that already
+# fits re-encodes to exactly what it would have anyway.
 _REFERENCE_QUALITIES = (95, 85, 75)
 _REFERENCE_EDGES = (_REFERENCE_MAX_EDGE, 3072, 2048, 1536, 1024)
 
@@ -58,15 +52,12 @@ def _target_mime(allowed: tuple[str, ...]) -> str:
 
 
 def _load(data: bytes, fmt: str) -> Image.Image:
-    """A decoded copy in a mode the target format can save.
-
-    Detached from the file handle (`.copy()` after `load()`) so the caller can
-    re-encode it repeatedly down the ladder without reopening the source.
-    """
+    """A decoded copy in a mode the target format can save, detached from the file
+    handle so the caller can re-encode it down the ladder without reopening."""
     with Image.open(io.BytesIO(data)) as src:
         src.load()
-        # JPEG has no alpha channel, so RGBA must be flattened rather than handed
-        # to a save that would raise.
+        # JPEG has no alpha channel, so RGBA is flattened rather than handed to a
+        # save that would raise.
         wanted = ("RGB",) if fmt == "JPEG" else ("RGB", "RGBA")
         return src.copy() if src.mode in wanted else src.convert("RGB")
 
@@ -86,17 +77,17 @@ def _encode(image: Image.Image, fmt: str, quality: int) -> bytes:
 def _bounded(image: Image.Image, fmt: str, max_bytes: int) -> bytes:
     """The first encoding that fits `max_bytes`, else the smallest one tried.
 
-    Returning the smallest attempt rather than raising keeps the *decision* about
-    an unmeetable budget with the caller, which is the only place that knows
-    whether the destination declared it as a contract or as a preference.
+    Returning the smallest attempt rather than raising leaves the decision about an
+    unmeetable budget with the caller, the only place that knows whether the
+    destination declared it as a contract or as a preference.
     """
     qualities = _REFERENCE_QUALITIES if fmt in ("WEBP", "JPEG") else (_WEBP_QUALITY,)
     longest = max(image.size)
     smallest = b""
     tried: set[int] = set()
     for edge in _REFERENCE_EDGES:
-        # Clamped, never upscaled -- and a clamp that lands on a size already
-        # encoded is skipped rather than paying for the same bytes twice.
+        # Clamped, never upscaled, and a clamp landing on an already-encoded size is
+        # skipped rather than paying for the same bytes twice.
         effective = min(edge, longest)
         if effective in tried:
             continue
@@ -139,27 +130,28 @@ def normalize_reference(
     """Bound a reference image to what the backend about to receive it accepts.
 
     Untouched unless it genuinely breaches the contract -- a 12 MP camera upload,
-    not a render.
+    not a render. Two rules, split on whether the destination declared anything:
 
-    Two rules, split on whether the destination declared anything:
+    * **`allowed` given** -- a stated contract, enforced, raising
+      `ImageGenerationError` when it cannot be met. Shipping a WebP inside a JSON
+      body that tells the provider PNG is not a smaller failure than saying so.
+    * **`allowed` empty** -- nothing declared, so best effort and never raising: a
+      reference Orb cannot decode is still one the backend probably can.
 
-    * **`allowed` given** -- the destination stated a contract, so this enforces
-      it and raises `ImageGenerationError` when it cannot be met. Shipping a WebP
-      inside a JSON body that tells the provider PNG, or a 15 MB base64 payload
-      under a declared 4 MB cap, is not a smaller failure than saying so.
-    * **`allowed` empty** -- nothing was declared, so this stays best effort and
-      never raises: a reference Orb's own decoder cannot read is still one the
-      backend probably can.
-
-    The size gate alone is not enough for the first rule and never was.
-    `shrink_for_display` stores every render as WebP, so a reference resolving to
-    the previous image is WebP and comfortably under both ceilings -- it would
-    sail through unconverted. So a disallowed *input* mime forces the re-encode
-    irrespective of size, and the byte budget is then satisfied by an actual
-    ladder rather than by a single hopeful attempt.
+    A size gate alone would not do for the first rule: every render is stored as
+    WebP, so a reference resolving to the previous image sails under both ceilings
+    unconverted. A disallowed *input* mime therefore forces the re-encode
+    irrespective of size, and the byte budget is met by the ladder above.
     """
     target = _target_mime(allowed)
     fmt = _FORMATS.get(target, "WEBP")
+
+    def give_up() -> tuple[bytes, str]:
+        """Orb cannot convert these bytes: hand them back, or refuse a contract."""
+        if not allowed:
+            return data, mime
+        raise ImageGenerationError(_unreadable(max_bytes)) from None
+
     incompatible = bool(allowed) and mime not in allowed
     if not incompatible and len(data) <= max_bytes:
         try:
@@ -167,20 +159,14 @@ def normalize_reference(
                 if max(probe.size) <= _REFERENCE_MAX_EDGE:
                     return data, mime
         except Exception:
-            if not allowed:
-                return data, mime
-            raise ImageGenerationError(_unreadable(max_bytes)) from None
+            return give_up()
     try:
         image = _load(data, fmt)
     except Exception:
-        if not allowed:
-            return data, mime
-        raise ImageGenerationError(_unreadable(max_bytes)) from None
+        return give_up()
     out = _bounded(image, fmt, max_bytes)
     if not out:
-        if not allowed:
-            return data, mime
-        raise ImageGenerationError(_unreadable(max_bytes)) from None
+        return give_up()
     if len(out) > max_bytes and allowed:
         raise ImageGenerationError(
             f"This reference image is still {len(out) // (1024 * 1024)} MB after Orb resized it, and the image "

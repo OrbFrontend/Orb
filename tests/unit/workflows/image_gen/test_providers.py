@@ -1,10 +1,9 @@
 """The preset table and the pure request builders that read it.
 
-The single most important consequence of xAI's wire format: it *silently ignores*
-unknown fields, so the API will never tell you a parameter was wrong. A builder
-that sends everything and lets the server sort it out is the difference between a
-working negative prompt and one the user watches have no effect. Hence the
-allowlist, and hence most of the assertions below being about what is **absent**.
+xAI *silently ignores* unknown fields, so the API never tells you a parameter was
+wrong: sending everything and letting the server sort it out is the difference
+between a working negative prompt and one the user watches have no effect. Hence
+the allowlist, and hence most of the assertions below being about what is absent.
 """
 
 from __future__ import annotations
@@ -37,11 +36,8 @@ def test_every_preset_endpoint_is_https():
         parsed = urlsplit(preset.base_url)
         assert parsed.scheme == "https", preset.id
         assert not parsed.username and not parsed.password, preset.id
-
-
-def test_only_the_probed_provider_claims_to_be_verified():
-    """An unverified row is a guess from vendor docs. Saying so in the table is what
-    keeps the next person from trusting it as measured fact."""
+    # An unverified row is a guess from vendor docs, and saying so in the table is
+    # what keeps the next person from trusting it as measured fact.
     assert [preset.id for preset in PRESETS if preset.verified] == ["xai"]
 
 
@@ -124,13 +120,7 @@ def test_an_overlong_prompt_is_truncated_with_a_note():
 
 @pytest.mark.parametrize(
     "width, height, expected",
-    [
-        (1024, 1024, "1:1"),
-        (1920, 1080, "16:9"),
-        (1080, 1920, "9:16"),
-        (1024, 768, "4:3"),
-        (1000, 1500, "2:3"),
-    ],
+    [(1024, 1024, "1:1"), (1920, 1080, "16:9"), (1080, 1920, "9:16"), (1024, 768, "4:3"), (1000, 1500, "2:3")],
 )
 def test_an_exact_ratio_maps_exactly_and_says_nothing(width, height, expected):
     ratio, note = aspect_for(XAI, width, height)
@@ -138,28 +128,19 @@ def test_an_exact_ratio_maps_exactly_and_says_nothing(width, height, expected):
     assert note is None
 
 
-def test_an_inexact_ratio_maps_to_the_nearest_and_discloses_it():
-    # 1024x1536 is 2:3 exactly; 1024x1400 is not any declared ratio.
+def test_an_inexact_ratio_maps_to_the_nearest_declared_one_and_discloses_it():
+    # 1024x1400 is not any declared ratio, and ~7% off is visible in the result.
     ratio, note = aspect_for(XAI, 1024, 1400)
     assert ratio in XAI.aspect_ratios
     assert note and "1024x1400" in note and ratio in note
 
-
-def test_nearness_is_measured_in_log_space_so_wide_and_tall_are_symmetric():
-    """A linear metric would call "twice as wide" four times the error of "twice as
-    tall", and quietly bias every off-ratio render landscape."""
-    wide, _ = aspect_for(XAI, 2000, 1000)
-    tall, _ = aspect_for(XAI, 1000, 2000)
-    assert (wide, tall) == ("2:1", "1:2")
-
-
-def test_the_note_threshold_is_the_2_percent_it_claims():
-    """A note on every render is a note users learn to skip, which then hides the
-    disclosures that matter."""
-    # 1024x1030 is 0.6% off square -- a few pixels of crop, not worth saying.
+    # A note on every render is one users learn to skip, which then hides the
+    # disclosures that matter -- so 0.6% off square, a few pixels of crop, says nothing.
     assert aspect_for(XAI, 1024, 1030)[1] is None
-    # 1024x1100 is ~7% off, which is visible in the result.
-    assert aspect_for(XAI, 1024, 1100)[1] is not None
+
+    # Nearness is measured in log space: a linear metric would call "twice as wide"
+    # four times the error of "twice as tall", biasing every off-ratio render.
+    assert (aspect_for(XAI, 2000, 1000)[0], aspect_for(XAI, 1000, 2000)[0]) == ("2:1", "1:2")
 
 
 # ── references ───────────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
 """Which image an edit workflow's `LoadImage` slot actually gets fed.
 
-The failure this guards is silent and expensive: a reference resolved off the
-wrong row produces a picture of the wrong person, which reads as a bad model
-rather than a bad lookup. So the walk-back rules -- active sibling, evicted rows,
-the excluded anchor -- are pinned here rather than left to the end-to-end path.
+The failure this guards is silent and expensive: a reference resolved off the wrong
+row produces a picture of the wrong person, which reads as a bad model rather than
+a bad lookup. So the walk-back rules -- active sibling, evicted rows, the excluded
+anchor -- are pinned here rather than left to the end-to-end path.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"first"
 OTHER = b"\x89PNG\r\n\x1a\n" + b"second"
 AVATAR = b"\x89PNG\r\n\x1a\n" + b"avatar"
 
-# The walk-back tests only need bytes that are distinguishable, so the fakes above
-# stay fakes. The policy tests below re-encode, so they need bytes PIL can read.
+# The walk-back tests only need distinguishable bytes, so the fakes above stay
+# fakes; the policy tests below re-encode, so they need bytes PIL can read.
 CLOUD_SLOTS = [
     {
         "slot": ["cloud", "image_0"],
@@ -32,6 +32,16 @@ CLOUD_SLOTS = [
         "mimes": ["image/png", "image/jpeg"],
         "max_bytes": 4 * 1024 * 1024,
         "required": False,
+    }
+]
+COMFY_SLOTS = [
+    {
+        "slot": ["72", "image"],
+        "source": "previous",
+        "label": "Load Image (#72)",
+        "mimes": ["image/png", "image/jpeg", "image/webp"],
+        "max_bytes": 8 * 1024 * 1024,
+        "required": True,
     }
 ]
 
@@ -62,8 +72,8 @@ def _msg(msg_id: int, *, workflow=(), user=()) -> dict:
     return {"id": msg_id, "workflow_attachments": list(workflow), "user_attachments": list(user)}
 
 
-def _upload(att_id: int, data: bytes) -> dict:
-    return {"id": att_id, "mime_type": "image/jpeg", "data_b64": _b64(data)}
+def _upload(att_id: int, data: bytes, mime: str = "image/jpeg") -> dict:
+    return {"id": att_id, "mime_type": mime, "data_b64": _b64(data)}
 
 
 def _entries(source: str = "previous", node: str = "72") -> list[dict]:
@@ -103,6 +113,9 @@ async def test_no_mapped_slots_resolves_to_nothing():
         ([_msg(1, workflow=[_gen(10), _gen(11, OTHER, parent_attachment_id=10)])], 99, "attachment:11"),
         # An evicted row holds a sentinel, not bytes, so the walk keeps going.
         ([_msg(1, workflow=[_gen(10)]), _msg(2, workflow=[_gen(20) | {"data_b64": "[evicted]"}])], 99, "attachment:10"),
+        # A phone HEIC or an SVG is `image/*` and is not something any image backend
+        # can be handed, so it is walked past like an evicted row.
+        ([_msg(1, workflow=[_gen(10)]), _msg(2, user=[_upload(5, OTHER, "image/heic")])], 99, "attachment:10"),
         # The anchor is excluded, or a regenerate would edit the render already on
         # the message instead of the scene, drifting further from the reply each pass.
         ([_msg(1, workflow=[_gen(10)]), _msg(2, workflow=[_gen(20, OTHER)])], 2, "attachment:10"),
@@ -111,7 +124,15 @@ async def test_no_mapped_slots_resolves_to_nothing():
         ([_msg(1, user=[_upload(5, OTHER)])], 99, "upload:1:5"),
         ([_msg(1, workflow=[_gen(10)], user=[_upload(5, OTHER)])], 99, "attachment:10"),
     ],
-    ids=["active sibling", "newest sibling", "evicted skipped", "anchor excluded", "upload counts", "generated wins"],
+    ids=[
+        "active sibling",
+        "newest sibling",
+        "evicted skipped",
+        "unreadable mime skipped",
+        "anchor excluded",
+        "upload counts",
+        "generated wins",
+    ],
 )
 async def test_the_walk_back_lands_on_the_image_the_user_is_looking_at(history, anchor, origin):
     resolved = await _resolve(_entries(), history, anchor_id=anchor)
@@ -119,24 +140,11 @@ async def test_the_walk_back_lands_on_the_image_the_user_is_looking_at(history, 
 
 
 @pytest.mark.asyncio
-async def test_an_upload_in_a_format_orb_does_not_accept_is_walked_past():
-    """A phone HEIC or an SVG is `image/*` and is not something any image backend
-    can be handed. Skipping it continues the walk-back; taking it would put
-    undecodable bytes in a body labelled as PNG."""
-    heic = {"id": 5, "mime_type": "image/heic", "data_b64": _b64(OTHER)}
-    history = [_msg(1, workflow=[_gen(10)]), _msg(2, user=[heic])]
-
-    resolved = await _resolve(_entries(), history)
-
-    assert resolved[0].origin == "attachment:10"
-
-
-@pytest.mark.asyncio
 async def test_the_walk_back_stops_before_the_whole_branch():
     """Unbounded, the first image in a conversation permanently retires the
-    character reference: `previous_or_character` would find something forever,
-    and a picture from two hundred messages ago is a worse likeness than the one
-    the user set on purpose."""
+    character reference: `previous_or_character` would find something forever, and a
+    picture from two hundred messages ago is a worse likeness than the one the user
+    set on purpose."""
     ancient = [_msg(1, workflow=[_gen(10)])]
     # The image sits one message beyond the window: the walk scans `since` first,
     # so reaching it costs len(since) + 1 steps.
@@ -148,27 +156,21 @@ async def test_the_walk_back_stops_before_the_whole_branch():
 
 
 @pytest.mark.asyncio
-async def test_an_optional_slot_resolves_to_nothing_instead_of_failing():
+async def test_only_a_required_slot_fails_when_nothing_resolves():
     """A cloud provider's synthetic slot is optional: the same model has a plain
     generations endpoint one field away, so refusing would make turning reference
-    images on break every new conversation until an image exists in it."""
-    optional = [{**CLOUD_SLOTS[0], "source": "previous"}]
+    images on break every new conversation until an image exists in it. A ComfyUI
+    graph slot is not -- rendering it unfilled submits the exporter's own filename."""
+    assert await _resolve([{**CLOUD_SLOTS[0], "source": "previous"}], [_msg(1)]) == ()
 
-    assert await _resolve(optional, [_msg(1)]) == ()
-
-    # A ComfyUI graph slot is not optional -- rendering it unfilled submits the
-    # exporter's own filename and draws whatever that machine had at that path.
     with pytest.raises(ImageGenerationError):
         await _resolve([{**CLOUD_SLOTS[0], "required": True}], [_msg(1)])
 
-
-@pytest.mark.asyncio
-async def test_both_sources_empty_names_the_slot_and_what_was_tried():
+    # And the message names the slot and every source that was tried.
     with pytest.raises(ImageGenerationError) as raised:
         await _resolve(_entries("previous_or_character"), [_msg(1)], character_id="card-1")
-    message = str(raised.value)
-    assert "Load Image (#72)" in message
-    assert "previous image" in message and "character reference" in message
+    assert "Load Image (#72)" in str(raised.value)
+    assert "previous image" in str(raised.value) and "character reference" in str(raised.value)
 
 
 @pytest.mark.asyncio
@@ -177,9 +179,8 @@ async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
         return AVATAR, "image/png"
 
     monkeypatch.setattr(refs, "get_character_avatar", avatar)
-    entries = _entries("character", "72") + _entries("character", "90")
 
-    resolved = await _resolve(entries, [], character_id="card-1")
+    resolved = await _resolve(_entries("character", "72") + _entries("character", "90"), [], character_id="card-1")
 
     # One digest, so the adapter uploads one file and patches both slots with it.
     assert len(resolved) == 2
@@ -189,6 +190,16 @@ async def test_two_slots_sharing_a_source_resolve_to_one_upload(monkeypatch):
 # ── replay ───────────────────────────────────────────────────────────────────
 
 RECORDED = [{"slot": ["72", "image"], "source": "previous", "origin": "attachment:10", "digest": "x"}]
+
+
+@pytest.fixture
+def _stored_webp(monkeypatch):
+    """One recorded reference whose origin still holds a real WebP."""
+
+    async def by_id(_att_id):
+        return {"id": 10, "mime_type": "image/webp", "data_b64": _b64(_real("WEBP"))}
+
+    monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
 
 
 @pytest.mark.asyncio
@@ -207,8 +218,8 @@ async def test_a_reroll_refetches_strictly_by_recorded_origin(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("row", [None, {"id": 10, "mime_type": "image/png", "data_b64": "[evicted]"}])
 async def test_a_gone_or_evicted_origin_fails_rather_than_substituting(monkeypatch, row):
-    """A reroll promises the same picture with a different seed. Re-resolving
-    would hand back a different subject and report success."""
+    """A reroll promises the same picture with a different seed. Re-resolving would
+    hand back a different subject and report success."""
 
     async def lookup(_att_id):
         return row
@@ -220,47 +231,9 @@ async def test_a_gone_or_evicted_origin_fails_rather_than_substituting(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_a_character_origin_rereads_the_current_profile(monkeypatch):
-    """The origin addresses a setting, not a chat message, so "change the
-    character reference, then reroll" does what it says."""
-
-    async def state(card_id, workflow_id):
-        assert (card_id, workflow_id) == ("card-1", "image_gen")
-        return {"reference_image_b64": _b64(OTHER), "reference_mime": "image/png"}
-
-    monkeypatch.setattr(refs, "get_workflow_character_state", state)
-
-    resolved = await refs.refetch_references([{"slot": ["72", "image"], "source": "character", "origin": "character:card-1"}])
-
-    assert resolved[0].data == OTHER
-
-
-@pytest.mark.asyncio
 async def test_nothing_recorded_replays_as_no_references():
     assert await refs.refetch_references(None) == ()
     assert await refs.refetch_references([]) == ()
-
-
-@pytest.fixture
-def _stored_webp(monkeypatch):
-    """One recorded reference whose origin still holds a real WebP."""
-
-    async def by_id(_att_id):
-        return {"id": 10, "mime_type": "image/webp", "data_b64": _b64(_real("WEBP"))}
-
-    monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
-
-
-COMFY_SLOTS = [
-    {
-        "slot": ["72", "image"],
-        "source": "previous",
-        "label": "Load Image (#72)",
-        "mimes": ["image/png", "image/jpeg", "image/webp"],
-        "max_bytes": 8 * 1024 * 1024,
-        "required": True,
-    }
-]
 
 
 @pytest.mark.asyncio
@@ -292,9 +265,8 @@ async def test_a_replay_rekeys_onto_the_slot_that_will_actually_carry_it(recorde
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_stored_webp")
 async def test_a_recorded_reference_with_no_slot_left_is_dropped_not_submitted():
-    """The caller counts what came back and discloses the drop. Submitting it
-    against a slot this render does not have is what patched a ComfyUI graph node
-    named `cloud`."""
+    """The caller counts what came back and discloses the drop. Submitting it against
+    a slot this render does not have is what patched a graph node named `cloud`."""
     recorded = [
         {"slot": ["cloud", "image_0"], "source": "previous", "origin": "attachment:10"},
         {"slot": ["cloud", "image_1"], "source": "previous", "origin": "attachment:10"},
@@ -315,10 +287,10 @@ async def test_a_required_slot_with_nothing_recorded_for_it_refuses_the_replay()
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_stored_webp")
 async def test_an_origin_whose_bytes_were_replaced_refuses_rather_than_substituting():
-    """Rehydrate rewrites an evicted row *in place*, and on a seedless provider
-    those are different bytes under the same id. Compared on `source_digest`,
-    which is taken before this target's mime policy converts anything -- `digest`
-    would differ for a re-keyed reference that never changed."""
+    """Rehydrate rewrites an evicted row *in place*, and on a seedless provider those
+    are different bytes under the same id. Compared on `source_digest`, taken before
+    this target's mime policy converts anything -- `digest` would differ for a
+    re-keyed reference that never changed."""
     recorded = [
         {
             "slot": ["cloud", "image_0"],
@@ -333,11 +305,12 @@ async def test_an_origin_whose_bytes_were_replaced_refuses_rather_than_substitut
 
 
 @pytest.mark.asyncio
-async def test_a_character_origin_is_exempt_from_the_replacement_check(monkeypatch):
-    """It addresses a setting, not a chat row: "change the reference, then reroll"
-    is the documented behaviour, so a changed digest there is the point."""
+async def test_a_character_origin_rereads_the_current_profile_and_is_exempt_from_that_check(monkeypatch):
+    """It addresses a *setting*, not a chat row, so "change the character reference,
+    then reroll" is documented to apply -- a changed digest there is the point."""
 
-    async def state(_card_id, _workflow_id):
+    async def state(card_id, workflow_id):
+        assert (card_id, workflow_id) == ("card-1", "image_gen")
         return {"reference_image_b64": _b64(_real("PNG")), "reference_mime": "image/png"}
 
     monkeypatch.setattr(refs, "get_workflow_character_state", state)
@@ -357,8 +330,8 @@ async def test_a_character_origin_is_exempt_from_the_replacement_check(monkeypat
 @pytest.mark.usefixtures("_stored_webp")
 async def test_a_replay_records_the_bytes_it_actually_sent():
     """`digest` names the bytes on the wire (ComfyUI dedupes uploads by it);
-    `source_digest` names the bytes as fetched. A conversion makes them differ,
-    and only the second is comparable across renders."""
+    `source_digest` names the bytes as fetched. A conversion makes them differ, and
+    only the second is comparable across renders."""
     recorded = [{"slot": ["cloud", "image_0"], "source": "previous", "origin": "attachment:10"}]
 
     resolved = await refs.refetch_references(recorded, slots=CLOUD_SLOTS)

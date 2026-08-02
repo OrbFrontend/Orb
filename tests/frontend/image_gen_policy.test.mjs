@@ -29,6 +29,10 @@ test("loopback in every form Orb can be configured with gets no notice", () => {
     // comparison silently warns on a loopback server.
     "http://[::1]:8188",
     "http://[0:0:0:0:0:0:0:1]:8188",
+    // An unparseable URL is replaced by the backend normalizer before it can reach
+    // any server, so there is no boundary to disclose.
+    "not a url",
+    "",
   ]) {
     assert.equal(isLoopbackUrl(url), true, url);
   }
@@ -40,56 +44,42 @@ test("a remote endpoint is warned about", () => {
   }
 });
 
-test("an unparseable URL is treated as loopback", () => {
-  // The backend normalizer replaces it with the loopback default before it can
-  // reach any server, so there is no boundary to disclose.
-  assert.equal(isLoopbackUrl("not a url"), true);
-  assert.equal(isLoopbackUrl(""), true);
+// Auto is only a real choice while the classifier can answer it; otherwise it draws
+// the fallback camera and the picker would offer the same shot twice.
+test("the camera picker offers Auto only when the classifier can answer it", () => {
+  const ids = ({ modes }) => modes.map(([id]) => id);
+
+  const withClassifier = povChoices({ classifier: true, mode: "auto", fallback: "third" });
+  assert.deepEqual(ids(withClassifier), ["auto", "first", "third"]);
+  assert.equal(withClassifier.selected, "auto");
+
+  const without = povChoices({ classifier: false, mode: "auto", fallback: "third" });
+  assert.deepEqual(ids(without), ["first", "third"]);
+  assert.equal(without.selected, "third");
+
+  // A hand-pinned camera survives the classifier going away.
+  assert.equal(povChoices({ classifier: false, mode: "first", fallback: "third" }).selected, "first");
 });
 
-// The camera picker with and without the classifier. Auto is only a real choice
-// while the classifier can answer it; otherwise it draws the fallback camera and
-// the picker would be offering the same shot twice.
-const ids = ({ modes }) => modes.map(([id]) => id);
-
-test("the classifier makes Auto a real choice", () => {
-  const choices = povChoices({ classifier: true, mode: "auto", fallback: "third" });
-  assert.deepEqual(ids(choices), ["auto", "first", "third"]);
-  assert.equal(choices.selected, "auto");
-});
-
-test("without the classifier Auto is dropped and the fallback shown in its place", () => {
-  const choices = povChoices({ classifier: false, mode: "auto", fallback: "third" });
-  assert.deepEqual(ids(choices), ["first", "third"]);
-  assert.equal(choices.selected, "third");
-});
-
-test("a hand-pinned camera survives the classifier going away", () => {
-  const choices = povChoices({ classifier: false, mode: "first", fallback: "third" });
-  assert.equal(choices.selected, "first");
-});
-
-// Both style pickers name the prompt format beside the style, so the label must
-// be the format the render path will actually use.
-test("every stored format has a label", () => {
+// Both style pickers name the prompt format beside the style, so the label must be
+// the format the render path will actually use — and anything unknown or unset
+// reads as the default the backend substitutes.
+test("every stored format has a label, and everything else reads as the default", () => {
   for (const [id, label] of PROMPT_FORMATS) {
     assert.equal(normalizePromptFormat(id), id);
     assert.equal(promptFormatLabel(id), label);
   }
-});
-
-test("an unset or unknown format reads as the default the backend substitutes", () => {
   for (const value of [undefined, "", "booru", null]) {
     assert.equal(normalizePromptFormat(value), "hybrid");
     assert.equal(promptFormatLabel(value), "Hybrid");
   }
 });
 
-// Which disclosure fires, and under which acknowledgement key. The cloud branch
-// is the one this module exists for: while ComfyUI was the only source, the panel
-// could ask about its URL and be right. The moment cloud is selectable, a config
-// with cloud active and the ComfyUI URL still at its loopback default reads as
-// "no boundary crossed" — and the warning that should have fired never does.
+// Which disclosure fires, and under which acknowledgement key. The cloud branch is
+// the one this module exists for: while ComfyUI was the only source the panel could
+// ask about its URL and be right, but the moment cloud is selectable, a config with
+// cloud active and the ComfyUI URL still at its loopback default reads as "no
+// boundary crossed" — and the warning that should have fired never does.
 
 const comfy = (apiUrl, extra = {}) => privacyDisclosure({ source: "external_comfy", apiUrl, ...extra });
 const cloud = (extra = {}) => privacyDisclosure({ source: "cloud", apiUrl: "http://127.0.0.1:8188", ...extra });
@@ -99,17 +89,17 @@ test("loopback ComfyUI still gets no notice", () => {
   assert.equal(comfy("http://localhost:8188"), null);
 });
 
-test("a remote ComfyUI keeps today's message and key", () => {
-  const notice = comfy("https://comfy.example.com");
-  assert.equal(notice.key, "orb:image-gen-privacy:https://comfy.example.com");
-  assert.match(notice.message, /not on this machine/);
-  assert.doesNotMatch(notice.message, /reference image/);
-});
+test("a remote ComfyUI is disclosed, and its reference images under their own key", () => {
+  const prompts = comfy("https://comfy.example.com");
+  assert.equal(prompts.key, "orb:image-gen-privacy:https://comfy.example.com");
+  assert.match(prompts.message, /not on this machine/);
+  assert.doesNotMatch(prompts.message, /reference image/);
 
-test("a remote ComfyUI with reference-mapping graphs is asked again under its own key", () => {
-  const notice = comfy("https://comfy.example.com", { sendsImages: true });
-  assert.equal(notice.key, "orb:image-gen-privacy-images:https://comfy.example.com");
-  assert.match(notice.message, /reference image/);
+  // Uploading conversation images is a materially bigger disclosure than sending
+  // prompt text, so a user who accepted the prompt-only wording is asked again.
+  const images = comfy("https://comfy.example.com", { sendsImages: true });
+  assert.equal(images.key, "orb:image-gen-privacy-images:https://comfy.example.com");
+  assert.match(images.message, /reference image/);
 });
 
 test("cloud always discloses, even with the ComfyUI URL left at loopback", () => {
@@ -124,30 +114,24 @@ test("cloud always discloses, even with the ComfyUI URL left at loopback", () =>
   assert.match(notice.message, /retain/);
 });
 
-test("acknowledging one provider does not silently cover a switch to another", () => {
+test("every acknowledgement key is its own, per provider and per boundary", () => {
   const xai = cloud({ providerId: "xai", providerLabel: "xAI (Grok)" });
-  const openai = cloud({ providerId: "openai", providerLabel: "OpenAI" });
-  assert.notEqual(xai.key, openai.key);
+  const xaiImages = cloud({ providerId: "xai", providerLabel: "xAI (Grok)", sendsImages: true });
   assert.equal(xai.key, "orb:image-gen-privacy-cloud:xai");
-});
+  assert.equal(xaiImages.key, "orb:image-gen-privacy-cloud-images:xai");
+  assert.match(xaiImages.message, /character reference/);
+  assert.doesNotMatch(xai.message, /character reference/);
 
-test("turning cloud reference images on is its own acknowledgement", () => {
-  const prompts = cloud({ providerId: "xai", providerLabel: "xAI (Grok)" });
-  const images = cloud({ providerId: "xai", providerLabel: "xAI (Grok)", sendsImages: true });
-  assert.notEqual(prompts.key, images.key);
-  assert.equal(images.key, "orb:image-gen-privacy-cloud-images:xai");
-  assert.match(images.message, /character reference/);
-  assert.doesNotMatch(prompts.message, /character reference/);
-});
-
-test("a cloud disclosure never collides with a ComfyUI one", () => {
+  // Acknowledging one provider does not silently cover a switch to another, and no
+  // cloud key ever collides with a ComfyUI one.
   const keys = new Set([
+    xai.key,
+    xaiImages.key,
+    cloud({ providerId: "openai", providerLabel: "OpenAI" }).key,
     comfy("https://comfy.example.com").key,
     comfy("https://comfy.example.com", { sendsImages: true }).key,
-    cloud({ providerId: "xai" }).key,
-    cloud({ providerId: "xai", sendsImages: true }).key,
   ]);
-  assert.equal(keys.size, 4);
+  assert.equal(keys.size, 5);
 });
 
 // ── connections ──────────────────────────────────────────────────────────────
@@ -205,16 +189,14 @@ test("a cloud connection is unready until it has every prerequisite", () => {
   const only = (providers) => connectionList(config({ cloud: { providers } }), PROVIDERS).at(-1);
   assert.equal(only({ xai: { model: "m" } }).detail, "No API key");
   assert.equal(only({ custom: { api_key: "k", model: "m" } }).detail, "No API base URL");
-  // The preset's default model is what a fresh connection is seeded with, so a
-  // connection with a key and no explicit model is still ready.
+  // A fresh connection is seeded with the preset's default model, so one with a key
+  // and no explicit model is still ready.
   assert.equal(only({ xai: { api_key: "k" } }).ready, true);
   assert.equal(only({ xai: { api_key: "k" } }).detail, "grok-imagine-image");
-});
 
-test("a stored entry whose provider Orb no longer knows is still listed", () => {
-  // The backend retains such rows precisely so a rename does not erase a key on
-  // the next save; hiding the row here would make that credential unreachable.
-  const [, renamed] = connectionList(config({ cloud: { providers: { renamed_in_v2: { api_key: "k" } } } }), PROVIDERS);
+  // A provider Orb no longer knows is still listed: the backend retains such rows so
+  // a rename does not erase a key, and hiding it would make that key unreachable.
+  const renamed = only({ renamed_in_v2: { api_key: "k" } });
   assert.equal(renamed.label, "renamed_in_v2");
   assert.equal(renamed.preset, null);
   assert.equal(renamed.ready, false);

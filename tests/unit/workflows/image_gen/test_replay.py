@@ -39,16 +39,25 @@ def test_a_fresh_render_follows_the_style():
     # The style pins no workflow and external mode ships no default graph, so the
     # target graph is empty; the adapter turns that into an "assign a workflow" error.
     target = resolve_render_target(_config(), "anime")
-    assert (target.target_id, target.model, target.notes) == ("", "current.safetensors", ())
-    assert target.source == "external_comfy"
+    assert (target.source, target.target_id, target.model, target.notes) == ("external_comfy", "", "current.safetensors", ())
     # The graph carries its own latent size, so Orb never pins one.
     assert (target.supports_dimensions, target.width, target.height) == (False, None, None)
 
 
-def test_replay_prefers_what_the_stored_image_recorded():
+@pytest.mark.parametrize(
+    ("replay", "expected"),
+    [
+        ({"workflow_id": "user_a", "backend_model": "old.safetensors"}, ("user_a", "old.safetensors")),
+        # `backend_model` is null when the original ran a graph carrying its own
+        # loaders, so there is no pin to restore -- inventing one would be worse.
+        ({"workflow_id": "user_a", "backend_model": None}, ("user_a", "current.safetensors")),
+    ],
+    ids=["recorded pins win", "no recorded model falls through to the style"],
+)
+def test_replay_prefers_what_the_stored_image_recorded(replay, expected):
     config = _config(user_graphs=[{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}])
-    target = resolve_render_target(config, "anime", {"workflow_id": "user_a", "backend_model": "old.safetensors"})
-    assert (target.target_id, target.model) == ("user_a", "old.safetensors")
+    target = resolve_render_target(config, "anime", replay)
+    assert (target.target_id, target.model) == expected
     assert target.notes == ()
 
 
@@ -56,18 +65,9 @@ def test_replay_of_a_deleted_graph_degrades_with_disclosure():
     target = resolve_render_target(_config(), "anime", {"workflow_id": "user_gone", "backend_model": "old.safetensors"})
     # The style has no workflow to fall back to, so the target is empty and the
     # note discloses both the missing graph and the unconfigured style.
-    assert target.target_id == ""
-    assert target.model == "old.safetensors"
+    assert (target.target_id, target.model) == ("", "old.safetensors")
     assert len(target.notes) == 1
     assert "user_gone" in target.notes[0]
-
-
-def test_a_user_graph_replay_without_a_recorded_model_falls_through_to_the_style():
-    """`backend_model` is null when the original ran a graph carrying its own
-    loaders, so there is no pin to restore -- inventing one would be worse."""
-    config = _config(user_graphs=[{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}])
-    target = resolve_render_target(config, "anime", {"workflow_id": "user_a", "backend_model": None})
-    assert (target.target_id, target.model) == ("user_a", "current.safetensors")
 
 
 # ── reference images on reroll ───────────────────────────────────────────────
@@ -137,8 +137,7 @@ async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused
 # ── reference images on a cloud reroll ───────────────────────────────────────
 #
 # The cloud slot is synthetic and constant, so every question the ComfyUI cases
-# above answer about node ids has a different answer here -- which is exactly how
-# the two paths came to disagree.
+# above answer about node ids has a different answer here.
 
 
 def _cloud_config(reference_source: str, styles=None) -> dict:
@@ -219,29 +218,20 @@ async def test_a_cloud_reroll_with_references_off_drops_them_and_says_so(_cloud_
 
 
 @pytest.mark.asyncio
-async def test_a_cloud_reroll_converts_the_reference_to_what_the_provider_takes(_cloud_reroll):
-    captured = _cloud_reroll(_cloud_config("previous"))
-    params = {"prompt": "p", "negative_prompt": "", "style_id": "anime", "references": list(RECORDED_CLOUD)}
+@pytest.mark.parametrize("style_id", ["anime", "realistic"], ids=["same style", "style changed"])
+async def test_a_cloud_reroll_converts_the_reference_to_what_the_provider_takes(_cloud_reroll, style_id):
+    """A style change carries the reference over: refusing it was right only for
+    ComfyUI's recorded node ids, and a cloud reference is an origin against a
+    constant synthetic slot, so it replays as it stands."""
+    styles = [
+        {"id": "anime", "label": "Anime", "connection": "xai"},
+        {"id": "realistic", "label": "Realistic", "connection": "xai"},
+    ]
+    captured = _cloud_reroll(_cloud_config("previous", styles=styles))
+    params = {"prompt": "p", "negative_prompt": "", "style_id": style_id, "references": list(RECORDED_CLOUD)}
 
     await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
 
     (reference,) = captured["request"].references
     assert reference.mime in ("image/png", "image/jpeg")
     assert reference.slot == ("cloud", "image_0")
-
-
-@pytest.mark.asyncio
-async def test_a_cloud_style_change_carries_its_reference_over(_cloud_reroll):
-    """The old refusal fired on any style change that touched references, for a
-    reason that is true only of ComfyUI: recorded node ids. A cloud reference is
-    an origin against a constant synthetic slot, so it replays as it stands."""
-    styles = [
-        {"id": "anime", "label": "Anime", "connection": "xai"},
-        {"id": "realistic", "label": "Realistic", "connection": "xai"},
-    ]
-    captured = _cloud_reroll(_cloud_config("previous", styles=styles))
-    params = {"prompt": "p", "negative_prompt": "", "style_id": "realistic", "references": list(RECORDED_CLOUD)}
-
-    await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
-
-    assert len(captured["request"].references) == 1

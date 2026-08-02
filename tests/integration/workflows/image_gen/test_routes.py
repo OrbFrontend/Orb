@@ -27,13 +27,35 @@ from backend.workflows.image_gen.config import CONFIG_DEFAULTS
 from backend.workflows.image_gen.engine import ImageResult
 
 
+def _image(**info) -> ImageResult:
+    return ImageResult(
+        image_bytes=b"\x89PNG\r\n\x1a\nimage",
+        mime="image/png",
+        backend_info={"source": "external_comfy", "workflow_id": "user_a", **info},
+    )
+
+
+async def _status(client) -> dict:
+    response = await client.post("/api/workflows/image_gen/query", json={"action": "status"})
+    assert response.status_code == 200
+    return response.json()
+
+
+async def _attachment_from(response) -> dict:
+    match = re.search(r'"attachment_id":(\d+)', response.text)
+    assert match
+    attachment = await get_workflow_attachment_by_id(int(match.group(1)))
+    assert attachment is not None
+    return attachment
+
+
 @pytest.mark.asyncio
 async def test_manifest_and_status_report_the_active_source_and_its_capabilities(client):
     manifest = (await client.get("/api/workflows")).json()
     entry = next(w for w in manifest if w["id"] == "image_gen")
     assert entry["display_name"] == "Image Generation"
 
-    status = (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
+    status = await _status(client)
     assert status["source"] == "external_comfy"
     assert status["capabilities"] == {
         "can_generate": True,
@@ -47,24 +69,24 @@ async def test_manifest_and_status_report_the_active_source_and_its_capabilities
         "supports_dimensions": False,
         "supports_references": True,
     }
-    # The source picker, the provider dropdown and the capability line come from
-    # one payload, so a backend the router knows about can never be missing here.
+    # The source picker, the provider dropdown and the capability line come from one
+    # payload, so a backend the router knows about can never be missing here.
     assert {source["id"] for source in status["sources"]} == {"external_comfy", "cloud"}
     assert any(provider["id"] == "xai" for provider in status["providers"])
     # The preset table *projected*: no configured credential may enter this payload.
     assert not any("api_key" in provider for provider in status["providers"])
 
     styles = (await client.post("/api/workflows/image_gen/query", json={"action": "styles"})).json()["styles"]
-    # Structure, not prompt copy-text: the tag strings live in config and are meant to be edited.
+    # Structure, not prompt copy-text: the tag strings live in config to be edited.
     assert [s["id"] for s in styles] == ["realistic", "anime"]
-    assert styles[0]["prompt"] and "prompt_default" not in styles[0]
+    assert styles[0]["prompt"]
 
 
 def test_image_generation_is_on_demand_only():
     workflow = get_workflow("image_gen")
     assert workflow is not None
-    assert workflow_has_hook(workflow, HookType.ON_DEMAND)
     # QUERY is off-turn too (global config/discovery); still no in-turn binding.
+    assert workflow_has_hook(workflow, HookType.ON_DEMAND)
     assert workflow_has_hook(workflow, HookType.QUERY)
     assert not workflow_has_hook(workflow, HookType.POST_PIPELINE)
     assert not workflow_has_hook(workflow, HookType.PRE_PIPELINE)
@@ -78,15 +100,12 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     await set_active_leaf("ig-conv", mid)
     await set_workflow_config(
         "image_gen",
-        {
-            "source": "external_comfy",
-            "default_style": "anime",
-            "external_comfy": {"api_url": "http://127.0.0.1:8188"},
-        },
+        {"source": "external_comfy", "default_style": "anime", "external_comfy": {"api_url": "http://127.0.0.1:8188"}},
     )
     await set_workflow_character_state("ig-char", "image_gen", {"appearance_prompt": "long silver hair"})
 
-    lane = {}
+    lane: dict = {}
+    captured: dict = {}
     resolve_agent_lane = workflow_routes.agent_lane_from_settings
 
     def capture_agent_lane(settings, *, writer_client=None, abort_token=None):
@@ -99,19 +118,9 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
         captured["compose"] = kwargs
         return "1girl, long silver hair, sitting, window, rain, night", "day", "single_call"
 
-    captured = {}
-
     async def fake_render(config, request, **kwargs):
         captured["request"] = request
-        return ImageResult(
-            image_bytes=b"\x89PNG\r\n\x1a\nimage",
-            mime="image/png",
-            backend_info={
-                "source": "external_comfy",
-                "workflow_id": "user_a",
-                "backend_model": "anime.safetensors",
-            },
-        )
+        return _image(backend_model="anime.safetensors")
 
     monkeypatch.setattr(workflow_routes, "agent_lane_from_settings", capture_agent_lane)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
@@ -123,24 +132,22 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     )
     assert response.status_code == 200
     assert "event: image_gen_done" in response.text
-    assert '"attachment_id":' in response.text
+
     # Count anchor leads and the style follows immediately (see assemble_prompts).
-    anime_prompt = CONFIG_DEFAULTS["styles"][1]["prompt"]
-    assert captured["request"].prompt.startswith(f"1girl, {anime_prompt}, long silver hair")
+    anime = CONFIG_DEFAULTS["styles"][1]
+    assert captured["request"].prompt.startswith(f"1girl, {anime['prompt']}, long silver hair")
     assert captured["request"].prompt.endswith("sitting, window, rain, night")
     assert lane["agent_client"] is lane["writer_client"]
-    assert captured["compose"]["client"] is lane["writer_client"]
-    assert captured["compose"]["model_name"] == lane["agent_model_name"]
-    assert captured["compose"]["prompt_format"] == "hybrid"
-    assert captured["compose"]["profile_owner_name"] == "Iris"
-    assert captured["compose"]["style_prompt"] == anime_prompt
-    assert captured["compose"]["style_negative_prompt"] == CONFIG_DEFAULTS["styles"][1]["negative_prompt"]
-    assert captured["compose"]["profile_negative_prompt"] == ""
+    compose = captured["compose"]
+    assert compose["client"] is lane["writer_client"]
+    assert compose["model_name"] == lane["agent_model_name"]
+    assert compose["prompt_format"] == "hybrid"
+    assert compose["profile_owner_name"] == "Iris"
+    assert compose["style_prompt"] == anime["prompt"]
+    assert compose["style_negative_prompt"] == anime["negative_prompt"]
+    assert compose["profile_negative_prompt"] == ""
 
-    match = re.search(r'"attachment_id":(\d+)', response.text)
-    assert match
-    attachment = await get_workflow_attachment_by_id(int(match.group(1)))
-    assert attachment is not None
+    attachment = await _attachment_from(response)
     assert attachment["mime_type"] == "image/png"
     assert attachment["seed"]
     assert json.loads(attachment["generation_metadata"])["backend_model"] == "anime.safetensors"
@@ -153,11 +160,7 @@ async def _stream_generate(client, monkeypatch, render, conv_id):
     await set_active_leaf(conv_id, mid)
     await set_workflow_config(
         "image_gen",
-        {
-            "source": "external_comfy",
-            "default_style": "anime",
-            "external_comfy": {"api_url": "http://127.0.0.1:8188", "checkpoint": "a.safetensors"},
-        },
+        {"source": "external_comfy", "default_style": "anime", "external_comfy": {"api_url": "http://127.0.0.1:8188"}},
     )
 
     async def fake_compose(**kwargs):
@@ -166,19 +169,10 @@ async def _stream_generate(client, monkeypatch, render, conv_id):
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", render)
     response = await client.post(
-        f"/api/conversations/{conv_id}/workflows/image_gen/trigger",
-        json={"action": "generate", "message_id": mid},
+        f"/api/conversations/{conv_id}/workflows/image_gen/trigger", json={"action": "generate", "message_id": mid}
     )
     assert response.status_code == 200
     return response.text
-
-
-def _image() -> ImageResult:
-    return ImageResult(
-        image_bytes=b"\x89PNG\r\n\x1a\nimage",
-        mime="image/png",
-        backend_info={"source": "external_comfy", "workflow_id": "user_a"},
-    )
 
 
 @pytest.mark.asyncio
@@ -190,8 +184,11 @@ async def test_generate_stream_relays_queue_position_while_the_render_runs(clien
         return _image()
 
     body = await _stream_generate(client, monkeypatch, render, "ig-queued")
-    labels = re.findall(r'"label":"([^"]+)"', body)
-    assert labels == ["Composing image prompt...", "Queued behind 2 renders...", "Rendering in ComfyUI..."]
+    assert re.findall(r'"label":"([^"]+)"', body) == [
+        "Composing image prompt...",
+        "Queued behind 2 renders...",
+        "Rendering in ComfyUI...",
+    ]
     # Every phase label precedes the terminal frame rather than trailing the work.
     assert body.index("Rendering in ComfyUI") < body.index("image_gen_done")
 
@@ -202,17 +199,17 @@ async def test_render_phase_is_reported_by_the_adapter_not_assumed(client, monke
         return _image()
 
     body = await _stream_generate(client, monkeypatch, render, "ig-silent")
-    # A silent adapter yields no render phase; the label is never synthesized
-    # after the fact, which is what made it arrive a full render too late.
+    # A silent adapter yields no render phase; the label is never synthesized after
+    # the fact, which is what made it arrive a full render too late.
     assert re.findall(r'"label":"([^"]+)"', body) == ["Composing image prompt..."]
     assert "event: image_gen_done" in body
 
 
 @pytest.mark.asyncio
 async def test_config_round_trips_through_the_workflow_normalizer(client):
-    """`config_schema` is UI metadata and enforces nothing, so the write path has
-    to normalize. Otherwise the panel keeps listing a workflow the render path
-    silently drops on read -- a setting that appears to have taken effect."""
+    """`config_schema` is UI metadata and enforces nothing, so the write path has to
+    normalize. Otherwise the panel keeps listing a workflow the render path silently
+    drops on read -- a setting that appears to have taken effect."""
     oversized = {
         "id": "user_big",
         "label": "Too big",
@@ -247,135 +244,109 @@ async def test_config_round_trips_through_the_workflow_normalizer(client):
     assert (await client.get("/api/workflows/image_gen/config")).json()["config"] == stored
 
 
+_OVERRIDE_GRAPH = {
+    "id": "user_override",
+    "label": "Override",
+    "graph": {
+        "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
+        "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
+        "m": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ""}},
+        "o": {"class_type": "SaveImage", "inputs": {"images": ["0", 0]}},
+    },
+    # A model-override graph: the checkpoint slot marks the input Orb replaces.
+    "slots": {
+        "positive": ["0", "text"],
+        "seed": ["s", "seed"],
+        "output": ["o", "images"],
+        "checkpoint": ["m", "ckpt_name"],
+    },
+}
+# The same graph carrying its own loaders, which needs no checkpoint from Orb.
+_SELF_CONTAINED = {
+    **_OVERRIDE_GRAPH,
+    "id": "user_self",
+    "label": "Self",
+    "slots": {k: v for k, v in _OVERRIDE_GRAPH["slots"].items() if k != "checkpoint"},
+}
+
+
 @pytest.mark.asyncio
-async def test_status_reports_why_it_is_not_ready(client):
-    async def status() -> dict:
-        return (await client.post("/api/workflows/image_gen/query", json={"action": "status"})).json()
-
-    # A model-override graph (checkpoint slot) and a self-contained one (none).
-    override_graph = {
-        "id": "user_override",
-        "label": "Override",
-        "graph": {
-            "0": {"class_type": "CLIPTextEncode", "inputs": {"text": ""}},
-            "s": {"class_type": "KSampler", "inputs": {"seed": 0}},
-            "m": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": ""}},
-            "o": {"class_type": "SaveImage", "inputs": {"images": ["0", 0]}},
-        },
-        "slots": {
-            "positive": ["0", "text"],
-            "seed": ["s", "seed"],
-            "output": ["o", "images"],
-            "checkpoint": ["m", "ckpt_name"],
-        },
-    }
-    self_contained = {**override_graph, "id": "user_self", "label": "Self"}
-    self_contained["slots"] = {k: v for k, v in override_graph["slots"].items() if k != "checkpoint"}
-
-    # No workflow assigned: external mode ships no default graph, so the styles
-    # cannot render until one is imported and pinned -- reported first.
+async def test_status_reports_why_the_style_that_will_render_cannot(client):
+    """Readiness follows the *default* style, not the whole list. Auditing every
+    style was right while ComfyUI was the only backend; it now reads as a
+    permanently stuck "Setup required" the moment a cloud style exists, since a
+    cloud style has no workflow and never will."""
     styles = [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]
-    await set_workflow_config("image_gen", {"external_comfy": {"styles": styles}})
-    first = await status()
-    assert first["ready"] is False
-    assert first["reason"] == "no_workflow"
+    graphs = [_OVERRIDE_GRAPH, _SELF_CONTAINED]
 
-    # Workflow assigned but it overrides the model and no checkpoint is chosen.
+    async def store(**external) -> dict:
+        await set_workflow_config("image_gen", {"external_comfy": {"styles": styles, **external}})
+        return await _status(client)
+
+    # External mode ships no default graph, so nothing pinned is reported first.
+    assert (await store())["reason"] == "no_workflow"
+
+    # Pinned, but it overrides the model and no checkpoint is chosen.
     for s in styles:
         s["workflow"] = "user_override"
-    await set_workflow_config(
-        "image_gen", {"external_comfy": {"styles": styles, "user_graphs": [override_graph, self_contained]}}
-    )
-    second = await status()
-    assert second["ready"] is False
-    assert second["reason"] == "no_checkpoint"
+    assert (await store(user_graphs=graphs))["reason"] == "no_checkpoint"
 
-    # Point one style at the self-contained graph (needs no checkpoint) and give
-    # the override style a checkpoint: now everything can render.
+    # One style on the self-contained graph, one with a checkpoint: both can render.
     styles[0]["workflow"] = "user_self"
     styles[1]["checkpoint"] = "anime.safetensors"
-    await set_workflow_config(
-        "image_gen", {"external_comfy": {"styles": styles, "user_graphs": [override_graph, self_contained]}}
-    )
-    third = await status()
-    assert third["ready"] is True
-    assert third["style_count"] == 2
+    ready = await store(user_graphs=graphs)
+    assert ready["ready"] is True
+    assert ready["style_count"] == 2
 
-    # A half-finished style, or one that renders somewhere else entirely, does not
-    # take the whole card offline. Auditing every style was right while ComfyUI was
-    # the only backend; it now reads as a permanently stuck "Setup required" the
-    # moment a cloud style exists -- a cloud style has no workflow and never will.
+    # A half-finished style, or one rendering somewhere else entirely, does not take
+    # the whole card offline...
     styles.append({"id": "cloud_style", "label": "Grok", "connection": "xai"})
     styles.append({"id": "half_done", "label": "New style"})
-    await set_workflow_config(
-        "image_gen",
-        {
-            "default_style": "a",
-            "external_comfy": {"styles": styles, "user_graphs": [override_graph, self_contained]},
-        },
-    )
-    fourth = await status()
-    assert fourth["ready"] is True
-    assert fourth["source"] == "external_comfy"
+    still_ready = await store(user_graphs=graphs)
+    assert still_ready["ready"] is True
+    assert still_ready["source"] == "external_comfy"
 
-    # And the answer follows the style that will render: pointing the config at the
-    # unfinished one reports that style by name, not a generic "assign one to each".
+    # ...but pointing the config at the unfinished one names that style, rather than
+    # a generic "assign one to each".
     await set_workflow_config(
-        "image_gen",
-        {
-            "default_style": "half_done",
-            "external_comfy": {"styles": styles, "user_graphs": [override_graph, self_contained]},
-        },
+        "image_gen", {"default_style": "half_done", "external_comfy": {"styles": styles, "user_graphs": graphs}}
     )
-    fifth = await status()
-    assert fifth["ready"] is False
-    assert fifth["reason"] == "no_workflow"
-    assert "New style" in fifth["detail"]
+    unfinished = await _status(client)
+    assert unfinished["reason"] == "no_workflow"
+    assert "New style" in unfinished["detail"]
 
 
 @pytest.mark.asyncio
 async def test_a_cloud_style_is_never_asked_for_a_comfyui_workflow(client):
     """Workflows are a ComfyUI concept. Selecting a style that renders on a cloud
-    connection must route readiness to that connection's adapter, which knows
-    nothing about graphs -- the two backends' prerequisites never mix."""
+    connection routes readiness to that connection's adapter, which knows nothing
+    about graphs -- the two backends' prerequisites never mix. There are no
+    user_graphs here at all, which under the ComfyUI adapter is `no_workflow`."""
 
-    async def status() -> dict:
-        response = await client.post("/api/workflows/image_gen/query", json={"action": "status"})
-        assert response.status_code == 200
-        return response.json()
+    async def store(api_key: str) -> dict:
+        await set_workflow_config(
+            "image_gen",
+            {
+                "default_style": "grok",
+                "styles": [{"id": "grok", "label": "Grok", "connection": "xai"}],
+                "cloud": {"providers": {"xai": {"api_key": api_key, "model": "grok-imagine-image"}}},
+            },
+        )
+        return await _status(client)
 
-    await set_workflow_config(
-        "image_gen",
-        {
-            "default_style": "grok",
-            # No user_graphs at all, and no workflow on the style: under the ComfyUI
-            # adapter this is the `no_workflow` case.
-            "styles": [{"id": "grok", "label": "Grok", "connection": "xai"}],
-            "cloud": {"providers": {"xai": {"api_key": "k", "model": "grok-imagine-image"}}},
-        },
-    )
-    ready = await status()
+    ready = await store("k")
     assert ready["source"] == "cloud"
     assert ready["ready"] is True
-
     # The cloud adapter's own prerequisites still apply, and they are its own.
-    await set_workflow_config(
-        "image_gen",
-        {
-            "default_style": "grok",
-            "styles": [{"id": "grok", "label": "Grok", "connection": "xai"}],
-            "cloud": {"providers": {"xai": {"api_key": "", "model": "grok-imagine-image"}}},
-        },
-    )
-    assert (await status())["reason"] == "no_api_key"
+    assert (await store(""))["reason"] == "no_api_key"
 
 
 @pytest.mark.asyncio
 async def test_a_reference_image_the_normalizer_drops_is_reported_not_swallowed(client):
-    """`normalize_profile` drops an image it cannot accept rather than truncating
-    it -- half a base64 payload is not a smaller image. Answering a bare "ok" let
-    the settings form preview the picture, report a successful save, and show it
-    gone on the next open with nothing to explain why."""
+    """`normalize_profile` drops an image it cannot accept rather than truncating it
+    -- half a base64 payload is not a smaller image. Answering a bare "ok" let the
+    settings form preview the picture, report a successful save, and show it gone on
+    the next open with nothing to explain why."""
     await create_character_card({"id": "ig-drop", "name": "Iris"})
     await create_conversation("ig-drop-conv", "Images", "Iris", "A room", character_card_id="ig-drop")
 
@@ -405,10 +376,10 @@ async def test_a_reference_image_the_normalizer_drops_is_reported_not_swallowed(
 
 @pytest.mark.asyncio
 async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_says_so(client, monkeypatch):
-    """A ComfyUI graph built around a `LoadImage` cannot render without one. A
-    cloud provider can -- the same model has a plain generations endpoint one
-    field away -- so refusing would make turning reference images on break every
-    new conversation until an image exists in it."""
+    """A ComfyUI graph built around a `LoadImage` cannot render without one. A cloud
+    provider can -- the same model has a plain generations endpoint one field away --
+    so refusing would make turning reference images on break every new conversation
+    until an image exists in it."""
     await create_conversation("ig-optional", "Images", "Iris", "A quiet room")
     mid, _ = await add_message("ig-optional", "assistant", "She turns toward the door.", 0)
     await set_active_leaf("ig-optional", mid)
@@ -417,9 +388,7 @@ async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_say
         {
             "default_style": "grok",
             "styles": [{"id": "grok", "label": "Grok", "connection": "xai"}],
-            "cloud": {
-                "providers": {"xai": {"api_key": "k", "model": "grok-imagine-image", "reference_source": "previous"}},
-            },
+            "cloud": {"providers": {"xai": {"api_key": "k", "model": "grok-imagine-image", "reference_source": "previous"}}},
         },
     )
     captured: dict = {}
@@ -430,14 +399,13 @@ async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_say
 
     async def fake_render(config, request, **kwargs):
         captured["request"] = request
-        return ImageResult(image_bytes=b"\x89PNG\r\n\x1a\nimage", mime="image/png", backend_info={"source": "cloud"})
+        return _image(source="cloud")
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
     monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
 
     response = await client.post(
-        "/api/conversations/ig-optional/workflows/image_gen/trigger",
-        json={"action": "generate", "message_id": mid},
+        "/api/conversations/ig-optional/workflows/image_gen/trigger", json={"action": "generate", "message_id": mid}
     )
     assert response.status_code == 200
     assert "event: image_gen_error" not in response.text
@@ -445,44 +413,35 @@ async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_say
     assert captured["request"].references == ()
     # The composer is told there is no reference, so it still describes identity.
     assert captured["compose"]["has_references"] is False
-    match = re.search(r'"attachment_id":(\d+)', response.text)
-    assert match
-    attachment = await get_workflow_attachment_by_id(int(match.group(1)))
-    assert attachment is not None
+    attachment = await _attachment_from(response)
     notes = json.loads(attachment["consumption_metadata"])["notes"]
     assert any("no reference image was available" in note for note in notes)
 
 
 @pytest.mark.asyncio
-async def test_node_types_query_rejects_a_non_list_in_band(client):
-    """A bad request shape is reported in-band (200 + {"error"}) like the rest of
-    the query surface, not as an HTTP 4xx -- the caller degrades to conventional
-    input names rather than treating it as a transport failure."""
-    response = await client.post("/api/workflows/image_gen/query", json={"action": "node_types", "class_types": "KSampler"})
-    assert response.status_code == 200
-    assert "class_types" in response.json()["error"]
+async def test_the_query_surface_reports_its_own_failures_in_band(client):
+    """A bad request shape or an unknown action answers 200 + `{"error"}` like the
+    rest of the query surface, so the caller degrades rather than treating it as a
+    transport failure. Only a missing QUERY *binding* is a route-level 404."""
+    bad_shape = await client.post("/api/workflows/image_gen/query", json={"action": "node_types", "class_types": "KSampler"})
+    assert bad_shape.status_code == 200
+    assert "class_types" in bad_shape.json()["error"]
 
-
-@pytest.mark.asyncio
-async def test_query_route_rejects_unknown_workflow_and_unknown_action(client):
-    # Unregistered workflow: 404 at the route, before any hook.
-    assert (await client.post("/api/workflows/nope/query", json={"action": "status"})).status_code == 404
-    # A registered workflow with no QUERY binding is indistinguishable: 404.
-    # (format_consistency binds only POST_PIPELINE; tts and image_gen both have
-    # QUERY now, so neither is a no-binding case any longer.)
-    assert (await client.post("/api/workflows/format_consistency/query", json={"action": "status"})).status_code == 404
-    # A registered QUERY handler that does not recognize the action answers
-    # in-band rather than raising, so the route stays 200.
     unknown = await client.post("/api/workflows/image_gen/query", json={"action": "does_not_exist"})
     assert unknown.status_code == 200
     assert "unknown action" in unknown.json()["error"]
 
+    # An unregistered workflow and a registered one with no QUERY binding are
+    # indistinguishable, and both 404 at the route before any hook.
+    assert (await client.post("/api/workflows/nope/query", json={"action": "status"})).status_code == 404
+    assert (await client.post("/api/workflows/format_consistency/query", json={"action": "status"})).status_code == 404
+
 
 @pytest.mark.asyncio
 async def test_completing_a_turn_produces_no_image_and_no_image_inference(client, monkeypatch):
-    """The on-demand-only contract, asserted directly rather than inferred from
-    the absence of a POST_PIPELINE binding -- a future binding added by accident
-    is exactly what this is here to catch."""
+    """The on-demand-only contract, asserted directly rather than inferred from the
+    absence of a POST_PIPELINE binding -- a future binding added by accident is
+    exactly what this is here to catch."""
 
     async def forbidden(*args, **kwargs):
         raise AssertionError("image generation ran inside a turn")
@@ -514,6 +473,5 @@ async def test_completing_a_turn_produces_no_image_and_no_image_inference(client
         )
     ]
 
-    result = events[-1]
-    assert not [att for att in result.staged_attachments if att.get("workflow_id") == "image_gen"]
+    assert not [att for att in events[-1].staged_attachments if att.get("workflow_id") == "image_gen"]
     assert await get_workflow_attachments_for_message(mid) == []

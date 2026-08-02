@@ -1,8 +1,7 @@
 """Byte-level facts about a returned image, shared by every backend client.
 
-Both the ComfyUI client and the cloud client have to decide the same two things
-about bytes handed back by a remote server -- is this actually an image, and is
-it small enough to store -- so the rule lives in one place rather than in each.
+Both clients decide the same two things about bytes from a remote server -- is this
+an image, and is it small enough to store -- so the rule lives in one place.
 """
 
 from __future__ import annotations
@@ -13,12 +12,9 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
 def image_mime(data: bytes) -> str:
-    """The image type, from magic bytes.
-
-    Sniffed rather than trusted from `content-type`: the header is attacker- or
-    misconfiguration-influenceable, and the value ends up on a stored attachment
-    that the browser will render.
-    """
+    """The image type, from magic bytes. Sniffed rather than trusted from
+    `content-type`: that header is attacker-influenceable, and the value ends up on
+    a stored attachment the browser will render."""
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):

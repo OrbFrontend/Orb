@@ -41,24 +41,18 @@ const REFERENCE_SOURCES = [
   ["previous", "Previous image in the chat"],
   ["character", "Character reference image"],
 ];
-// Mirrored from the backend config normalizer. The count is enforced at the
-// picker for the same reason the size cap is: the normalizer truncates the
-// overflow, and a count that comes back short cannot say which graph went missing.
+// Mirrored from the backend normalizer, which drops what it will not store. Checked
+// here so an over-count or an unsupported file becomes a message, rather than an
+// image that previews fine and is silently gone on the next open.
 const MAX_REFERENCE_SLOTS = 4;
 const MAX_USER_GRAPHS = 32;
 const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
-// Mirrors backend config.REFERENCE_MIMES. The `accept` attribute is a filter
-// hint, not enforcement — every OS picker offers "All files" — and the backend
-// normalizer drops anything outside this list rather than truncating it. Checking
-// here is what turns that into a message instead of an image that previews fine
-// and is silently gone on the next open.
 const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
 
-// Resolution presets for the cloud picker. Stored as pixels even for providers
-// that speak aspect ratios — one canonical representation, converted at the wire
-// by a pure backend function. The exact mapping is disclosed as a render note
-// rather than previewed here; mirroring the aspect math into JS would be a drift
-// risk for something cosmetic.
+// Resolution presets for the cloud picker, stored as pixels even for providers that
+// speak aspect ratios — one canonical representation, converted at the wire by a
+// pure backend function. The exact mapping is disclosed as a render note rather
+// than previewed here; mirroring the aspect math into JS would be a drift risk.
 const CLOUD_SIZES = [
   [1024, 1024, "Square — 1024x1024"],
   [1024, 1536, "Portrait — 1024x1536"],
@@ -73,43 +67,48 @@ const CLOUD_QUALITIES = [
   ["high", "High"],
 ];
 
-// How a style's prompt format reads next to its name, in both pickers. One
-// builder, because the summary below is written twice -- once at render, once as
-// the field is edited -- and two spellings of the same badge would drift.
+// One builder, because the summary is written twice -- at render and as the field
+// is edited -- and two spellings of the same badge would drift.
 const promptFormatBadge = (value) => `(${promptFormatLabel(value)})`;
+
+// Every <option> list in this panel, from [value, label] pairs. One builder so the
+// escaping and the selected-marking cannot differ between two menus.
+const optionList = (pairs, selected) =>
+  pairs
+    .map(
+      ([value, label]) =>
+        `<option value="${escAttr(value)}"${value === selected ? " selected" : ""}>${esc(label)}</option>`,
+    )
+    .join("");
 let cfg;
 let pendingGraph = null;
-// The backend's own answer about which sources exist and what each provider can
-// do. One payload behind the connection list, the Add picker and the capability
-// lines, so the three can never disagree. Primed by the status query.
+// The backend's answer about which sources exist and what each provider can do.
+// One payload behind the connection list, the Add picker and the capability lines,
+// so the three cannot disagree. Primed by the status query.
 let backends = { sources: [], providers: [] };
 // Everything the open form is editing. A working copy rather than cfg itself:
-// adding a connection and then closing without saving must not leave the widget's
-// shared config carrying credentials the server never stored.
+// adding a connection then closing without saving must not leave the shared config
+// carrying credentials the server never stored.
 let draft = { styles: [], graphs: [], comfy: {}, connections: {} };
-// The derived connection list, recomputed from `draft` whenever it changes.
-// Nothing stores it: a connection *is* its credentials, so a list held alongside
-// them is a second copy that can disagree with the first.
+// Recomputed from `draft` whenever it changes, never stored: a connection *is* its
+// credentials, so a list held alongside them is a second copy that can disagree.
 let connections = [];
-// Discovered model names, per connection id. Per connection rather than global
-// because that is what they are: checkpoints belong to one ComfyUI server, model
-// ids to one provider, and one shared list would offer a style the wrong menu.
+// Discovered model names, per connection id -- checkpoints belong to one ComfyUI
+// server and model ids to one provider, so a shared list would offer the wrong menu.
 let modelsByConnection = {};
-// Probe generation per connection, so a slow answer for one never overwrites a
-// fresh answer for another.
+// Probe generation per connection, so a slow answer never overwrites a fresh one.
 let probeIds = {};
 // Connections added in this modal that hold nothing yet. Several presets ship no
-// default model, so a fresh one is genuinely empty until the key is pasted — and
-// the derived list would otherwise drop the row between the click and the first
-// keystroke. Nothing persists them: an empty connection has nothing to store.
+// default model, so a fresh one is genuinely empty until the key is pasted, and the
+// derived list would drop the row between the click and the first keystroke.
 let pendingConnections = new Set();
 
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "settings", () => openSettings());
-  // Readiness is answered about the style that will render, so picking a different
-  // one is a question that has to be asked again — the new style may point at a
-  // connection with no key, or at a workflow that was never imported.
+  // Readiness answers about the style that will render, so picking a different one
+  // asks the question again: it may point at a connection with no key, or at a
+  // workflow that was never imported.
   registerAction(WORKFLOW_ID, "pickStyle", async (el) => {
     await saveConfigPatch({ default_style: el.value }, "Could not save default style");
     refreshCardReadiness();
@@ -136,42 +135,33 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "connOpen", (el) => revealConnection(el.dataset.connId));
 }
 
-// Every conversation-less config/discovery call rides the one QUERY route.
-// It is not conversation-scoped, so the path is built by hand (convUrl is for
-// the /trigger surface). Handlers report failure in-band as `{error}`; a raise
-// here is a route-level fault (missing/500), which each caller degrades on.
+// Every conversation-less config/discovery call rides the one QUERY route. Not
+// conversation-scoped, so the path is built by hand (convUrl is for /trigger).
+// Handlers report failure in-band as `{error}`; a raise here is a route-level
+// fault, which each caller degrades on.
 function query(action, extra) {
   return api.post(`/workflows/${WORKFLOW_ID}/query`, { action, ...extra });
 }
 
-// Last readiness answer, so the card renders synchronously from a known value
-// instead of painting empty and filling in later.
+// Cached so the card renders synchronously from a known value instead of painting
+// empty and filling in later. The classifier starts assumed-present, so the picker
+// never claims it is off on the strength of a probe that has not run.
 let cardReadiness = { text: "", ready: true };
-// What the camera picker needs beyond the saved mode, which lives in cfg. Both
-// ride the readiness answer. The classifier starts assumed-present so the picker
-// never claims it is off on the strength of a probe that has not run yet.
 let cardPov = { classifier: true, fallback: "third" };
-// Style list for the card picker, cached the same way. The Visualize button
-// reads its choice from cfg.default_style, so the picker is where a style is
-// chosen once instead of in a modal on every generate.
 let cardStyles = [];
 
-// The card names each style's prompt format alongside it -- an <option> carries no
-// markup, so it rides the text as "Krea-Alt (Prose)". Picking a style here is
-// picking a format too, and that is not visible anywhere else on the card.
+// An <option> carries no markup, so the prompt format rides the text as "Krea-Alt
+// (Prose)". Picking a style here is picking a format too, and that is not visible
+// anywhere else on the card.
 function cardStyleOptions() {
-  const selected = cfg?.default_style || "";
-  return cardStyles
-    .map(
-      (s) =>
-        `<option value="${escAttr(s.id)}"${s.id === selected ? " selected" : ""}>${esc(s.label || s.id)} ${promptFormatBadge(s.prompt_format)}</option>`,
-    )
-    .join("");
+  return optionList(
+    cardStyles.map((s) => [s.id, `${s.label || s.id} ${promptFormatBadge(s.prompt_format)}`]),
+    cfg?.default_style || "",
+  );
 }
 
-// Keep the card focused on the next useful action. An incomplete setup gets one
-// concise status and one action; normal use gets the style picker and Settings.
-// Connection details and diagnostics belong in the full form.
+// The next useful action, and nothing else: an incomplete setup gets one status
+// and one button, normal use gets the pickers. Diagnostics belong in the full form.
 function configPanelBody() {
   if (!cardReadiness.ready) {
     return `<div class="image-gen-card-setup">
@@ -187,14 +177,11 @@ function configPanelBody() {
     <button class="btn btn-sm tool-card-btn" data-wf-action="image_gen:settings">Settings</button>`;
 }
 
-// Which modes exist and which is showing is a pure decision (see povChoices) --
-// the fallback is the backend's, reported by the status query, not a second copy
-// of the default here.
+// Which modes exist and which shows is a pure decision (see povChoices); the
+// fallback is the backend's, not a second copy of the default here.
 function cardPovOptions() {
   const { modes, selected } = povChoices({ ...cardPov, mode: cfg?.pov_mode || "auto" });
-  return modes
-    .map(([id, label]) => `<option value="${escAttr(id)}"${id === selected ? " selected" : ""}>${esc(label)}</option>`)
-    .join("");
+  return optionList(modes, selected);
 }
 
 function povPicker() {
@@ -207,16 +194,13 @@ function refreshCard() {
 }
 
 export function configPanelRenderer() {
-  // Style, camera and readiness are all global and primed at load, so the card
-  // paints synchronously from cache.
   return `<div class="tool-card-desc">Generate images on demand with ComfyUI or a cloud API.</div>
     <div id="ig-card-config">${configPanelBody()}</div>`;
 }
 
-// The card pickers are the only place the default style and the camera are
-// chosen, so their choices persist — otherwise every reload reopens on the
-// shipped defaults, which is the hassle the pickers exist to remove. The full
-// config round-trips like a Save.
+// The card pickers are the only place the default style and the camera are chosen,
+// so their choices persist — otherwise every reload reopens on the shipped
+// defaults. The full config round-trips like a Save.
 async function saveConfigPatch(patch, failure) {
   Object.assign(cfg, patch);
   try {
@@ -227,8 +211,8 @@ async function saveConfigPatch(patch, failure) {
   }
 }
 
-// Styles feed the card picker. Fetched once at load (and after a save), then the
-// picker is patched in place so an open tools panel need not be re-rendered.
+// Fetched once at load and after a save, then patched in place so an open tools
+// panel need not be re-rendered.
 export async function refreshCardStyles() {
   try {
     const res = await query("styles");
@@ -239,10 +223,9 @@ export async function refreshCardStyles() {
   refreshCard();
 }
 
-// Readiness is a configuration question, not a network one -- the `status`
-// query answers from the saved config alone, so the tools panel never waits on
-// a remote server. Reachability stays with the Visualize modal's connection
-// probe, which runs at the moment it matters.
+// A configuration question, not a network one: `status` answers from the saved
+// config alone, so the tools panel never waits on a remote server. Reachability is
+// the connection probe's job, which runs at the moment it matters.
 export async function refreshCardReadiness() {
   try {
     const status = await query("status");
@@ -252,10 +235,9 @@ export async function refreshCardReadiness() {
         ? `Ready — ${status.style_count} style${status.style_count === 1 ? "" : "s"}`
         : status?.detail || "Not configured",
     };
-    // Rides along: what the camera picker needs to label "Auto" honestly.
+    // Riding along: what the camera picker needs to label "Auto" honestly, and what
+    // the settings form needs to build its pickers.
     cardPov = { classifier: !!status?.classifier_ready, fallback: status?.fallback_mode || cardPov.fallback };
-    // And what the settings form needs to build its pickers. One payload, so the
-    // source list, the provider list and the capability line cannot disagree.
     backends = {
       sources: Array.isArray(status?.sources) ? status.sources : backends.sources,
       providers: Array.isArray(status?.providers) ? status.providers : backends.providers,
@@ -268,61 +250,53 @@ export async function refreshCardReadiness() {
 
 // ── styles ───────────────────────────────────────────────────────────────────
 
-// The checkpoint menu is the ComfyUI connection's model list, never the active
-// one: a style can be linked to a cloud provider and still be holding a
-// checkpoint for when it is linked back.
-function checkpointField(value) {
-  const state = modelPickerState(modelsByConnection[COMFY_CONNECTION], value);
-  const attrs = 'data-ig-field="checkpoint" data-wf-action="image_gen:styleChange" data-wf-on="change"';
+// The model control both pickers use: a probed list becomes a select, an empty or
+// failed probe stays a text input so an id can still be typed for a server Orb
+// cannot list. A configured value that has since disappeared keeps its place
+// rather than being silently swapped for whatever sorts first.
+function modelField(state, { attrs, emptyLabel, placeholder }) {
   if (state.kind === "input") {
-    return `<input ${attrs} value="${escAttr(state.current)}" placeholder="checkpoint.safetensors">`;
+    return `<input ${attrs} value="${escAttr(state.current)}" placeholder="${escAttr(placeholder)}">`;
   }
-
   const options = [];
   if (!state.current) {
-    options.push('<option value="" selected>Choose a checkpoint</option>');
+    options.push(`<option value="" selected>${esc(emptyLabel)}</option>`);
   } else if (!state.models.includes(state.current)) {
-    // Keep a configured checkpoint visible if it disappeared from the server;
-    // choosing another detected model replaces it normally.
     options.push(`<option value="${escAttr(state.current)}" selected>${esc(state.current)} (not detected)</option>`);
   }
-  options.push(
-    ...state.models.map(
-      (name) => `<option value="${escAttr(name)}"${name === state.current ? " selected" : ""}>${esc(name)}</option>`,
-    ),
-  );
-  return `<select ${attrs}>${options.join("")}</select>`;
+  return `<select ${attrs}>${options.join("")}${optionList(
+    state.models.map((name) => [name, name]),
+    state.current,
+  )}</select>`;
 }
 
-function promptFormatOptions(value) {
-  const selected = normalizePromptFormat(value);
-  return PROMPT_FORMATS.map(
-    ([id, label]) => `<option value="${id}"${id === selected ? " selected" : ""}>${label}</option>`,
-  ).join("");
+// Always the ComfyUI connection's list, never the active one: a style can be
+// linked to a cloud provider and still hold a checkpoint for when it is linked back.
+function checkpointField(value) {
+  return modelField(modelPickerState(modelsByConnection[COMFY_CONNECTION], value), {
+    attrs: 'data-ig-field="checkpoint" data-wf-action="image_gen:styleChange" data-wf-on="change"',
+    emptyLabel: "Choose a checkpoint",
+    placeholder: "checkpoint.safetensors",
+  });
 }
 
-// The style's own connection picker. This is the control the redesign exists for:
-// where a style renders is a property *of the style*, so an anime checkpoint on
-// the local box and a photoreal commercial API are one dropdown apart instead of a
-// global mode switch that makes half of every other style inapplicable.
+const promptFormatOptions = (value) => optionList(PROMPT_FORMATS, normalizePromptFormat(value));
+
+// Where a style renders is a property *of the style*, so a local anime checkpoint
+// and a photoreal commercial API are one dropdown apart rather than a global mode
+// switch that makes half of every other style inapplicable.
 function styleConnectionOptions(selected) {
-  const options = connections.map(
-    (c) => `<option value="${escAttr(c.id)}"${c.id === selected ? " selected" : ""}>${esc(c.label)}</option>`,
-  );
-  // A style pinned to a connection that has since been removed keeps naming it,
-  // rather than silently adopting whichever connection sorts first — the same rule
-  // the checkpoint and workflow fields already follow.
-  if (selected && !connections.some((c) => c.id === selected)) {
-    options.unshift(`<option value="${escAttr(selected)}" selected>${esc(selected)} (removed)</option>`);
-  }
-  if (!selected) options.unshift(`<option value="" selected>Choose a connection</option>`);
-  return options.join("");
+  const pairs = connections.map((c) => [c.id, c.label]);
+  // A style pinned to a since-removed connection keeps naming it rather than
+  // adopting whichever sorts first, as the checkpoint and workflow fields do.
+  if (selected && !connections.some((c) => c.id === selected)) pairs.unshift([selected, `${selected} (removed)`]);
+  if (!selected) pairs.unshift(["", "Choose a connection"]);
+  return optionList(pairs, selected);
 }
 
-// The half of a style that depends on which backend renders it. Rendered per
-// connection rather than always-present-and-explained: a pair of dead fields with
-// a note saying they are dead reads as a bug, and the note has to be believed
-// before the fields can be ignored.
+// The half of a style that depends on which backend renders it. Swapped per
+// connection rather than always present: a pair of dead fields with a note saying
+// they are dead reads as a bug.
 function backendFields(style, connection) {
   if (connection && connection.source === "cloud") {
     const entry = draft.connections[connection.id] || {};
@@ -336,18 +310,18 @@ function backendFields(style, connection) {
     </div>`;
 }
 
-// Stated where the text is typed, not on the render that discards it. A provider
+// Stated where the text is typed, not on the render that discards it: a provider
 // with no negative field returns a perfectly good image that ignored it, so
-// nothing downstream will ever report this.
+// nothing downstream can report this.
 function negativeNote(connection) {
-  if (!connection || connection.source !== "cloud") return "";
+  if (connection?.source !== "cloud") return "";
   if (connection.preset?.supports_negative_prompt !== false) return "";
   return `<div class="image-gen-note">${esc(connection.label)} has no negative prompt field — this text is not sent.</div>`;
 }
 
-// One `<details>` per style. The summary carries the name, the connection and the
-// prompt format: all three change what the image looks like, and all three are
-// otherwise invisible until the row is opened.
+// One `<details>` per style, its summary carrying name, connection and prompt
+// format: all three change what the image looks like, and all three are otherwise
+// invisible until the row is opened.
 function styleBody(style, index, connection) {
   return `<label>Name<input data-ig-field="label" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(style.label || "")}"></label>
       <div class="ig-grid">
@@ -379,17 +353,16 @@ function styleRows(expandIds = "") {
     .join("");
 }
 
-// Reads every style row's live field values back into the draft. Called before
-// anything that re-renders the list, so an in-progress edit survives an add or
-// a delete elsewhere in it.
+// Reads every style row's live values back into the draft, before anything that
+// re-renders the list, so an in-progress edit survives an add or delete elsewhere.
 function captureStyles() {
   draft.styles = draft.styles.map((s, i) => {
     const row = document.querySelector(`[data-style-index="${i}"]`);
     if (!row) return s;
     const get = (name) => row.querySelector(`[data-ig-field="${name}"]`)?.value ?? "";
-    // Checkpoint and workflow fall back to the stored values rather than to "":
-    // they are not rendered while the style is linked to a cloud connection, and
-    // blanking them there would make relinking to ComfyUI lose the pin.
+    // Checkpoint and workflow fall back to the stored values, not "": they are not
+    // rendered while the style is linked to cloud, and blanking them there would
+    // lose the pin on relinking to ComfyUI.
     return {
       ...s,
       label: get("label").trim() || s.label || s.id,
@@ -413,11 +386,9 @@ function addStyle() {
   captureStyles();
   const id = `style_${Date.now().toString(36)}`;
   // Adding a style is almost always "the same backend, written differently", so it
-  // inherits where the style above it renders — connection, and with it the
-  // ComfyUI pins that are meaningless anywhere else. Inheriting the connection but
-  // not the workflow would ship a style that cannot render until two more fields
-  // are filled in, which is the papercut this avoids. The prompts are what the
-  // user came here to write, so those start empty.
+  // inherits where the style above it renders, pins included — inheriting the
+  // connection alone would ship a style that cannot render until two more fields
+  // are filled. The prompts are what the user came to write, so those start empty.
   const previous = draft.styles.at(-1) || {};
   draft.styles.push({
     id,
@@ -435,9 +406,8 @@ function addStyle() {
 
 function removeStyle(index) {
   captureStyles();
-  // The dropdown must always offer something; an empty list would be repopulated
-  // from the shipped defaults on the next load, which reads as an edit undoing
-  // itself.
+  // An empty list is repopulated from the shipped defaults on the next load, which
+  // reads as an edit undoing itself.
   if (draft.styles.length <= 1) {
     toast("Keep at least one style", "error");
     return;
@@ -446,25 +416,21 @@ function removeStyle(index) {
   renderStyles();
 }
 
-// Recomputes the summary badge from the row's live field values.
-// Keep the collapsed summary's name and prompt format in sync as they are edited,
-// so a row collapsed straight after a change does not read as the old format.
+// Keeps the collapsed summary in sync as the fields are edited, so a row collapsed
+// straight after a change does not read as the old format. A blank name keeps the
+// last one, matching captureStyles; the format is a select and cannot be blanked.
 function refreshStyleState(el) {
   const row = el.closest("[data-style-index]");
   const field = (name) => row?.querySelector(`[data-ig-field="${name}"]`)?.value;
   const name = field("label")?.trim();
   const nameEl = row?.querySelector(".ig-style-name");
   const formatEl = row?.querySelector(".ig-style-format");
-  // A blank name keeps the last one -- captureStyles falls back the same way, so
-  // an empty field never reads as a nameless style. The format cannot be blanked:
-  // it is a select, and an unknown value normalizes to the default.
   if (nameEl && name) nameEl.textContent = name;
   if (formatEl) formatEl.textContent = promptFormatBadge(field("prompt_format"));
 }
 
-// Relinking a style swaps the half of its body that depends on the backend, so
-// the row is rebuilt rather than patched. Only this row: rebuilding the list would
-// collapse every other open style around a single dropdown change.
+// Relinking swaps the backend-dependent half of the body, so the row is rebuilt --
+// only this row, since rebuilding the list would collapse every other open style.
 function relinkStyle(el) {
   const row = el.closest("[data-style-index]");
   const index = Number(row?.dataset.styleIndex);
@@ -479,14 +445,12 @@ function relinkStyle(el) {
     label.textContent = connection?.label || style.connection || "No connection";
     label.classList.toggle("ig-unready", connection?.ready === false);
   }
-  // A ComfyUI-linked style needs the checkpoint menu, which is only probed when
-  // something asks for it.
-  if (!connection || connection.source !== "cloud") loadModels(COMFY_CONNECTION);
+  // A ComfyUI-linked style needs the checkpoint menu, probed only on demand.
+  if (connection?.source !== "cloud") loadModels(COMFY_CONNECTION);
 }
 
-// The per-style workflow control. With nothing imported there is nothing to
-// pick, so the select would be an empty (or single dead-option) menu -- show the
-// user what to do instead. Once graphs exist it becomes a real chooser.
+// With nothing imported there is nothing to pick, so an empty select would be a
+// dead menu -- say what to do instead. Once graphs exist it becomes a chooser.
 function workflowField(selected) {
   if (!draft.graphs.length) {
     return `<span class="image-gen-note ig-workflow-empty">No workflows detected. Import one in <strong>Imported ComfyUI workflows</strong> below.</span>`;
@@ -496,18 +460,12 @@ function workflowField(selected) {
 
 function workflowOptions(selected) {
   const known = draft.graphs.some((graph) => graph.id === selected);
-  const options = [`<option value="" disabled${selected && known ? "" : " selected"}>Choose a workflow</option>`];
-  // Keep a pinned-but-missing workflow visible rather than silently swapping the
-  // style onto whatever graph happens to sort first, mirroring the checkpoint field.
-  if (selected && !known) {
-    options.push(`<option value="${escAttr(selected)}" selected>${esc(selected)} (not found)</option>`);
-  }
-  for (const graph of draft.graphs) {
-    options.push(
-      `<option value="${escAttr(graph.id)}"${selected === graph.id ? " selected" : ""}>${esc(graph.label || graph.id)}</option>`,
-    );
-  }
-  return options.join("");
+  const pairs = draft.graphs.map((graph) => [graph.id, graph.label || graph.id]);
+  // A pinned-but-missing workflow stays visible rather than swapping the style onto
+  // whatever sorts first, mirroring the checkpoint field.
+  if (selected && !known) pairs.unshift([selected, `${selected} (not found)`]);
+  const placeholder = `<option value="" disabled${selected && known ? "" : " selected"}>Choose a workflow</option>`;
+  return placeholder + optionList(pairs, selected);
 }
 
 function graphRows() {
@@ -525,8 +483,8 @@ function graphRows() {
 function removeGraph(graphId) {
   captureStyles();
   draft.graphs = draft.graphs.filter((g) => g.id !== graphId);
-  // Pins naming the removed graph are cleared here rather than left to fail at
-  // generation: the user just deleted it, so falling back is what they meant.
+  // Pins naming it are cleared rather than left to fail at generation: the user
+  // just deleted it, so falling back is what they meant.
   draft.styles = draft.styles.map((s) => (s.workflow === graphId ? { ...s, workflow: "" } : s));
   const host = document.getElementById("ig-graph-list");
   if (host) host.innerHTML = graphRows();
@@ -535,21 +493,18 @@ function removeGraph(graphId) {
 
 // ── the Connections section ──────────────────────────────────────────────────
 //
-// A connection is one place an image can be rendered. ComfyUI is always the first
-// row and is never removable: it is Orb's local backend, and a config with no
-// connection at all would leave every style pointing at nothing.
-//
-// The list is derived from the credentials themselves (`connectionList` in
-// policy.js) rather than stored beside them, so "this connection exists" and
-// "this connection has a key" can never become two facts that disagree.
+// A connection is one place an image can be rendered. ComfyUI is always first and
+// never removable: a config with no connection would leave every style pointing at
+// nothing. The list is derived from the credentials (`connectionList` in policy.js)
+// rather than stored beside them, so "this connection exists" and "this connection
+// has a key" can never become two facts that disagree.
 
 function providerFor(id) {
   return backends.providers.find((p) => p.id === id) || null;
 }
 
-// Recomputed from the working copy after anything that adds, removes or
-// re-credentials a connection. `cfg` supplies only the pre-linking fallback
-// (`source`/`cloud.provider`), which the form has no control over and never edits.
+// Recomputed after anything that adds, removes or re-credentials a connection.
+// `cfg` supplies only the pre-linking fallback, which the form never edits.
 function rebuildConnections() {
   connections = connectionList(
     {
@@ -576,9 +531,8 @@ function openStyleIds() {
     .filter(Boolean);
 }
 
-// The permanent gaps, stated once under the connection instead of as a note on
-// every render. "xAI ignores negative prompts" is true of every image forever, and
-// a note that fires 100% of the time is one users learn to skip — which then hides
+// The permanent gaps, stated once under the connection rather than on every render:
+// a note that fires 100% of the time is one users learn to skip, which then hides
 // the per-render disclosures that actually vary.
 function capabilityLine(preset) {
   if (!preset) return "";
@@ -599,35 +553,18 @@ function comfyFields() {
     <div class="image-gen-note">Orb's local backend. It cannot be removed — a style whose cloud connection is deleted falls back to it.</div>`;
 }
 
-// The same picker the checkpoint field uses, per connection: a probed list becomes
-// a select, an empty or failed probe stays a text input so a model id can still be
-// typed for a provider whose listing endpoint Orb cannot read.
 function cloudModelField(id) {
-  const entry = draft.connections[id] || {};
   const preset = providerFor(id);
-  const state = modelPickerState(modelsByConnection[id], entry.model || "");
-  if (state.kind === "input") {
-    return `<input ${connField("model")} value="${escAttr(state.current)}" placeholder="${escAttr(preset?.default_model || "model id")}">`;
-  }
-  const options = [];
-  if (!state.current) {
-    options.push(
-      `<option value="" selected>${esc(preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model")}</option>`,
-    );
-  } else if (!state.models.includes(state.current)) {
-    options.push(`<option value="${escAttr(state.current)}" selected>${esc(state.current)} (not detected)</option>`);
-  }
-  options.push(
-    ...state.models.map(
-      (name) => `<option value="${escAttr(name)}"${name === state.current ? " selected" : ""}>${esc(name)}</option>`,
-    ),
-  );
-  return `<select ${connField("model")}>${options.join("")}</select>`;
+  return modelField(modelPickerState(modelsByConnection[id], draft.connections[id]?.model || ""), {
+    attrs: connField("model"),
+    emptyLabel: preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model",
+    placeholder: preset?.default_model || "model id",
+  });
 }
 
 // Resolution, quality and references belong to the connection, not to "cloud":
-// they are provider-shaped facts, and two connections can legitimately want two
-// answers. Only the fields the preset declares are rendered.
+// they are provider-shaped facts, and two connections can want two answers. Only
+// the fields the preset declares are rendered.
 function cloudFields(connection) {
   const id = connection.id;
   const entry = draft.connections[id] || {};
@@ -636,30 +573,19 @@ function cloudFields(connection) {
     !preset || preset.needs_base_url
       ? `<label>API base URL<input ${connField("base_url")} value="${escAttr(entry.base_url || "")}" placeholder="https://api.example.com/v1"></label>`
       : "";
-  const sizes = CLOUD_SIZES.map(
-    ([w, h, label]) =>
-      `<option value="${w}x${h}"${Number(entry.width) === w && Number(entry.height) === h ? " selected" : ""}>${esc(label)}</option>`,
-  ).join("");
-  const qualities = CLOUD_QUALITIES.map(
-    ([value, label]) =>
-      `<option value="${escAttr(value)}"${(entry.quality || "") === value ? " selected" : ""}>${esc(label)}</option>`,
-  ).join("");
-  const referenceOptions = [
-    `<option value=""${entry.reference_source ? "" : " selected"}>Off — send prompts only</option>`,
-  ]
-    .concat(
-      REFERENCE_SOURCES.map(
-        ([value, text]) =>
-          `<option value="${value}"${entry.reference_source === value ? " selected" : ""}>${esc(text)}</option>`,
-      ),
-    )
-    .join("");
+  const sizes = optionList(
+    CLOUD_SIZES.map(([w, h, label]) => [`${w}x${h}`, label]),
+    `${Number(entry.width) || 1024}x${Number(entry.height) || 1024}`,
+  );
   const quality = preset?.supports_quality
-    ? `<label>Quality<select ${connField("quality")}>${qualities}</select></label>`
+    ? `<label>Quality<select ${connField("quality")}>${optionList(CLOUD_QUALITIES, entry.quality || "")}</select></label>`
     : "";
   const references =
     !preset || preset.supports_references
-      ? `<label>Reference images<select ${connField("reference_source")}>${referenceOptions}</select></label>`
+      ? `<label>Reference images<select ${connField("reference_source")}>${optionList(
+          [["", "Off — send prompts only"], ...REFERENCE_SOURCES],
+          entry.reference_source || "",
+        )}</select></label>`
       : "";
   const unknown = preset
     ? ""
@@ -709,21 +635,19 @@ function connectionRows(expandIds = []) {
     .join("");
 }
 
-// Each provider appears once: the credential map is keyed by provider id, so a
-// second connection to the same provider would need a synthetic id. Saying so by
-// running out of options beats offering a duplicate that silently overwrites.
+// Each provider once: the credential map is keyed by provider id, so a second
+// connection to one provider would need a synthetic id. Running out of options
+// beats offering a duplicate that silently overwrites.
 function addRowHtml() {
   const options = addableProviders(connections, backends.providers);
   if (!options.length) return `<span class="image-gen-note">Every provider Orb knows already has a connection.</span>`;
-  return `<select id="ig-conn-add">${options.map((p) => `<option value="${escAttr(p.id)}">${esc(p.label)}</option>`).join("")}</select>
+  return `<select id="ig-conn-add">${optionList(options.map((p) => [p.id, p.label]))}</select>
     <button class="btn btn-sm" data-wf-action="image_gen:connAdd">Add connection</button>`;
 }
 
-// Which rows a freshly opened modal should already have expanded. Nothing, on a
-// working setup — but "Finish setup" lands here, and making the user hunt for the
-// row that is actually blocking them is the whole failure that button exists to
-// avoid. The first unready connection, else ComfyUI, which is the one every
-// install starts from.
+// Which rows a freshly opened modal expands: nothing on a working setup, but
+// "Finish setup" lands here, and hunting for the row that is blocking them is the
+// failure that button exists to avoid.
 function setupTargets() {
   if (cardReadiness.ready) return [];
   return [connections.find((c) => !c.ready)?.id || COMFY_CONNECTION];
@@ -750,10 +674,9 @@ function renderConnections(alsoOpen = "") {
   refreshConnectionSummary();
 }
 
-// Reads every open connection body's live values back into the working copy.
-// Called before anything that re-renders, so an in-progress edit survives an add
-// or a delete elsewhere in the list. A collapsed row's fields are still in the
-// DOM — `<details>` hides its body, it does not drop it — so nothing is lost.
+// Reads every connection body's live values back into the working copy, before
+// anything that re-renders. A collapsed row's fields are still in the DOM —
+// `<details>` hides its body, it does not drop it — so nothing is lost.
 function captureConnections() {
   for (const row of document.querySelectorAll("details.ig-conn")) {
     const id = row.dataset.connId;
@@ -768,9 +691,9 @@ function captureConnections() {
     }
     const entry = draft.connections[id] || {};
     const [width, height] = String(get("size") ?? `${entry.width || 1024}x${entry.height || 1024}`).split("x");
-    // Every field falls back to the stored value rather than to "": a preset that
-    // declares no quality or no references renders no such control, and reading a
-    // missing element as empty would blank a setting the user never saw.
+    // Every field falls back to the stored value, not "": a preset declaring no
+    // quality or no references renders no such control, and reading a missing
+    // element as empty would blank a setting the user never saw.
     draft.connections[id] = {
       ...entry,
       api_key: get("api_key") ?? entry.api_key ?? "",
@@ -798,9 +721,8 @@ function addConnection() {
     reference_source: "",
     ...existing,
     api_key: existing.api_key || "",
-    // Seeding the preset's model is what makes a fresh connection one field (the
-    // key) from ready, instead of two — and it is the model the provider's own
-    // documentation opens with.
+    // Seeding the preset's model leaves a fresh connection one field from ready
+    // instead of two, and it is the model the provider's own docs open with.
     model: existing.model || preset?.default_model || "",
     base_url: existing.base_url || "",
   };
@@ -808,9 +730,8 @@ function addConnection() {
   rebuildConnections();
   renderConnections(id);
   renderStyles(openStyleIds());
-  // No probe here on purpose: a brand-new connection has no key, so listing models
-  // is a request guaranteed to 401. `refreshConnectionState` fires one the moment
-  // a key is pasted, which is the first time the answer can be real.
+  // No probe: a brand-new connection has no key, so listing models is guaranteed to
+  // 401. `refreshConnectionState` fires one the moment a key is pasted.
 }
 
 function removeConnection(id) {
@@ -819,10 +740,9 @@ function removeConnection(id) {
   delete draft.connections[id];
   delete modelsByConnection[id];
   pendingConnections.delete(id);
-  // Styles pinned to it fall back to ComfyUI rather than keeping a dangling id:
-  // the user just deleted the connection, and "renders nowhere" is not a state the
-  // render path has an answer for. Said out loud, because it silently changes what
-  // those styles will produce.
+  // Styles pinned to it fall back to ComfyUI rather than keeping a dangling id --
+  // "renders nowhere" is not a state the render path has an answer for. Said out
+  // loud, because it silently changes what those styles produce.
   const orphaned = draft.styles.filter((s) => s.connection === id).length;
   draft.styles = draft.styles.map((s) => (s.connection === id ? { ...s, connection: COMFY_CONNECTION } : s));
   rebuildConnections();
@@ -832,8 +752,8 @@ function removeConnection(id) {
 }
 
 // Keeps the collapsed summary honest as fields are edited, and re-renders the
-// styles so a linked style's "model and resolution come from this connection" line
-// never names last minute's model.
+// styles so a linked style's "comes from this connection" line never names last
+// minute's model.
 function refreshConnectionState(el) {
   const row = el.closest("details.ig-conn");
   const id = row?.dataset.connId;
@@ -849,14 +769,13 @@ function refreshConnectionState(el) {
   }
   refreshConnectionSummary();
   renderStyles(openStyleIds());
-  // Credentials are what the model list sits behind: pasting a key is the first
-  // moment the menu can be filled, and changing a URL is when the old one stopped
-  // being true. Picking a resolution is neither.
+  // The model list sits behind credentials: pasting a key is the first moment the
+  // menu can be filled, and changing a URL is when the old one stopped being true.
   if (["api_key", "base_url", "api_url"].includes(el.dataset.igConnField)) loadModels(id);
 }
 
-// Opens the Connections section on a specific row — the "Edit connection" link on
-// a cloud-linked style, which is otherwise a scroll and a guess away.
+// Opens the Connections section on one row — the "Edit connection" link on a
+// cloud-linked style, which is otherwise a scroll and a guess away.
 function revealConnection(id) {
   const section = document.getElementById("ig-connections");
   if (section) section.open = true;
@@ -867,10 +786,9 @@ function revealConnection(id) {
   loadModels(id);
 }
 
-// The config as it would be if the style rendering next were on `id`. Every
-// discovery call answers for one connection, and the backend routes on the
-// *default style's* connection — so overriding that style is how a probe asks
-// about a connection nothing is currently pointed at, with no special case on the
+// The config as it would be if the style rendering next were on `id`. The backend
+// routes on the *default style's* connection, so overriding that style is how a
+// probe asks about a connection nothing points at, with no special case on the
 // query route.
 function configForConnection(id) {
   const next = readConfig();
@@ -880,7 +798,7 @@ function configForConnection(id) {
   return { ...next, styles };
 }
 
-// Swap the model controls this probe answers for. Live values and open accordions
+// Swap the model controls this probe answers for; live values and open accordions
 // survive the asynchronous re-render.
 function applyModels(id, names) {
   const openStyles = openStyleIds();
@@ -928,10 +846,10 @@ async function testConnection(id) {
       return;
     }
     // Tested against the form's unsaved credentials, so this is the only probe that
-    // can fill the model list for a connection that has not been saved yet.
+    // can fill the list for a connection not yet saved.
     applyModels(id, res?.models);
-    // ComfyUI names a GPU; a cloud provider names itself. Neither is guaranteed,
-    // and a bare "Connected" is still a true answer.
+    // ComfyUI names a GPU, a cloud provider names itself, and neither is
+    // guaranteed — a bare "Connected" is still a true answer.
     const who = res?.system?.devices?.[0]?.name || res?.system?.provider;
     if (result) result.textContent = who ? `Connected — ${who}` : "Connected";
   } catch {
@@ -945,9 +863,9 @@ function openSettings(expandStyleId = "") {
   const ext = cfg.external_comfy || {};
   const cloud = cfg.cloud || {};
   pendingGraph = null;
-  // Start honest: discovery for a previous modal must not make this one look
-  // probed before its own request completes, and a reference image picked for a
-  // different character must not survive into this form.
+  // Start honest: a previous modal's discovery must not make this one look probed
+  // before its own request completes, and a reference image picked for a different
+  // character must not survive into this form.
   probeIds = {};
   modelsByConnection = {};
   pendingConnections = new Set();
@@ -959,10 +877,9 @@ function openSettings(expandStyleId = "") {
     connections: Object.fromEntries(Object.entries(cloud.providers || {}).map(([id, entry]) => [id, { ...entry }])),
   };
   rebuildConnections();
-  // Sections are ordered by how often they are touched. Styles first: the sidebar
-  // card picks between them, and this is where they are written. Connections sits
-  // directly under them because that is what a style links to — and it collapses,
-  // because a working setup is configured once and then left alone.
+  // Ordered by how often each is touched. Styles first, since the sidebar card
+  // picks between them; Connections under them because that is what a style links
+  // to, collapsed because a working setup is configured once and left alone.
   showModal(`<h2>Image Generation</h2><div class="image-gen-settings">
     <section class="ig-section">
       <div class="ig-heading">Styles</div>
@@ -1001,9 +918,8 @@ function openSettings(expandStyleId = "") {
   </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" data-wf-action="image_gen:save">Save</button></div>`);
   populateProfile();
   // ComfyUI always, because every style's checkpoint field reads its list. Cloud
-  // connections only once they hold a key: listing models is free, but a probe per
-  // configured provider on every modal open is a burst of requests for menus most
-  // of which will not be looked at.
+  // connections only once they hold a key: a probe per configured provider on every
+  // open is a burst of requests for menus most of which are never looked at.
   loadModels(COMFY_CONNECTION);
   for (const connection of connections) {
     if (connection.source === "cloud" && draft.connections[connection.id]?.api_key) loadModels(connection.id);
@@ -1015,12 +931,12 @@ function readConfig() {
   captureConnections();
   const ext = cfg.external_comfy || {};
   return {
-    // `source` and `cloud.provider` are derived by the backend normalizer from the
-    // connection the default style links to. The form has no control for either any
-    // more; passing the stored values through is what keeps a config whose styles
-    // predate connection linking routing exactly where it always did.
+    // `source`, `cloud.provider`, `default_style` and `pov_mode` have no control in
+    // this form: the first two are derived by the backend normalizer from the
+    // default style's connection, the last two are chosen in the tools-panel card.
+    // Passing the stored values through is what keeps a config whose styles predate
+    // connection linking routing exactly where it always did.
     source: cfg.source || "external_comfy",
-    // Chosen in the tools-panel card now, not here; carry the live values through.
     default_style: cfg.default_style || draft.styles[0]?.id || "realistic",
     pov_mode: cfg.pov_mode || "auto",
     scene_analysis: document.getElementById("ig-scene-analysis")?.checked === true,
@@ -1033,31 +949,31 @@ function readConfig() {
       api_key: draft.comfy.api_key ?? ext.api_key ?? "",
       user_graphs: draft.graphs,
     },
-    // `draft.connections` is seeded from the *whole* stored map, not from the
-    // rendered list, so an entry the panel never shows — the inert shipped row, or
-    // an unknown id retained across a provider rename — survives the save with its
-    // key intact. It is also therefore the authority on what exists: writing it
-    // alone is what makes Remove actually remove.
+    // Seeded from the *whole* stored map, not the rendered list, so an entry the
+    // panel never shows — the inert shipped row, or an id retained across a provider
+    // rename — survives the save with its key intact. It is therefore also the
+    // authority on what exists, which is what makes Remove actually remove.
     cloud: { ...(cfg.cloud || {}), providers: { ...draft.connections } },
   };
 }
 
+// Slot candidates are chosen by *position*, not by value — two nodes can offer the
+// same input name — so this cannot go through `optionList`.
 function candidateOptions(items, selectedIndex = 0, noneLabel = "") {
-  const options = noneLabel
-    ? [`<option value=""${selectedIndex < 0 ? " selected" : ""}>${esc(noneLabel)}</option>`]
-    : [];
-  return options
-    .concat(
-      items.map(
+  const none = noneLabel ? `<option value=""${selectedIndex < 0 ? " selected" : ""}>${esc(noneLabel)}</option>` : "";
+  return (
+    none +
+    items
+      .map(
         (item, i) =>
           `<option value="${escAttr(item.value)}"${i === selectedIndex ? " selected" : ""}>${esc(item.label)}</option>`,
-      ),
-    )
-    .join("");
+      )
+      .join("")
+  );
 }
 
-// Slot roles are typed from the server's /object_info. Failure is degradation,
-// not refusal: the picker falls back to conventional input names so a graph can
+// Slot roles are typed from the server's /object_info. Failure degrades rather
+// than refuses: the picker falls back to conventional input names, so a graph can
 // still be imported while the server is unreachable.
 async function graphNodeTypes(graph) {
   try {
@@ -1069,13 +985,11 @@ async function graphNodeTypes(graph) {
 }
 
 // One row per detected image-upload widget, defaulting to "Not used": a plain
-// text-to-image graph imports exactly as it did before this existed, and an edit
-// graph is opt-in per node — Orb never guesses which LoadImage is the identity.
+// text-to-image graph imports unchanged, and an edit graph is opt-in per node —
+// Orb never guesses which LoadImage is the identity.
 function referenceRows(items) {
   if (!items.length) return "";
-  const options = [`<option value="" selected>Not used</option>`]
-    .concat(REFERENCE_SOURCES.map(([id, text]) => `<option value="${id}">${esc(text)}</option>`))
-    .join("");
+  const options = optionList([["", "Not used"], ...REFERENCE_SOURCES], "");
   const rows = items
     .slice(0, MAX_REFERENCE_SLOTS)
     .map(
@@ -1103,10 +1017,9 @@ async function importGraphFile(input) {
     if (missing.length) throw new Error(`This workflow has no ${missing.join(", no ")}.`);
     pendingGraph = { graph, label: file.name.replace(/\.(json|png)$/i, ""), candidates };
     const negative = candidates.text.length > 1 ? 1 : -1;
-    // Default to overriding the model when the graph has a loader: an imported
-    // PNG pins a filename from another machine, so the checkpoint the user picks
-    // in Orb should win. "None" keeps the graph's own model for the rare case a
-    // workflow is self-contained.
+    // Default to overriding the model when the graph has a loader: an imported PNG
+    // pins a filename from another machine, so Orb's checkpoint should win. "None"
+    // keeps the graph's own model for the self-contained case.
     const model = candidates.checkpoint.length ? 0 : -1;
     picker.innerHTML = `<div class="image-gen-graph-picker">
       <label>Name<input id="ig-graph-label" value="${escAttr(pendingGraph.label)}"></label>
@@ -1127,8 +1040,8 @@ async function importGraphFile(input) {
 }
 
 // Reads the rows back into the stored `slots.references` shape. An unmapped row is
-// simply absent — that is how "Not used" is encoded, and it keeps a t2i graph's
-// slot map byte-identical to what it was before.
+// simply absent — how "Not used" is encoded, and what keeps a t2i graph's slot map
+// byte-identical.
 function readReferenceRows() {
   const references = [];
   for (const el of document.querySelectorAll("[data-ig-ref]")) {
@@ -1153,16 +1066,16 @@ function addPendingGraph() {
   const label = document.getElementById("ig-graph-label")?.value.trim() || pendingGraph.label;
   const slots = { positive, seed, output };
   if (negative) slots.negative = negative;
-  // The model slot is patched from the style's checkpoint at render time, so the
-  // user's Orb selection overrides the model baked into the imported graph.
+  // Patched from the style's checkpoint at render time, so Orb's selection
+  // overrides the model baked into the imported graph.
   if (model) slots.checkpoint = model;
   const references = readReferenceRows();
   if (references.length) slots.references = references;
   draft.graphs.push({ id, label, graph: pendingGraph.graph, slots });
   const list = document.getElementById("ig-graph-list");
   if (list) list.innerHTML = graphRows();
-  // Per-style pins are rendered from the same graph list, so they need the new
-  // entry too — the modal is not re-rendered on import.
+  // Per-style pins render from the same list and the modal is not re-rendered on
+  // import, so they need the new entry too.
   renderStyles();
   const picker = document.getElementById("ig-graph-picker");
   if (picker)
@@ -1174,16 +1087,16 @@ async function saveSettings() {
   const next = readConfig();
   if (!confirmRemotePrivacy(next)) return;
   try {
-    // The response is the *normalized* config: the backend bounds and drops what
-    // it will not honour, and adopting its answer is what stops the panel from
-    // listing settings the render path ignores.
+    // The response is the *normalized* config: the backend bounds and drops what it
+    // will not honour, and adopting its answer stops the panel listing settings the
+    // render path ignores.
     const res = await api.put(`/workflows/${WORKFLOW_ID}/config`, { config: next });
     const stored = res?.config || next;
     const droppedGraphs = next.external_comfy.user_graphs.length - (stored.external_comfy?.user_graphs?.length || 0);
     Object.assign(cfg, stored);
     await saveProfile();
     // Deliberately unattributed: the picker already gates the two causes the user
-    // can act on (size, count), and a bare count cannot tell the rest apart.
+    // can act on, and a bare count cannot tell the rest apart.
     toast(
       droppedGraphs > 0
         ? `Saved, but ${droppedGraphs} imported workflow${droppedGraphs > 1 ? "s" : ""} could not be stored`
@@ -1199,19 +1112,13 @@ async function saveSettings() {
 }
 
 // The localStorage + window.confirm shell. *Which* disclosure fires, under which
-// key, is `privacyDisclosure` in policy.js — a decision with two sources to get
-// wrong now, which is why it lives somewhere `node --test` can reach it.
-//
-// Uploading conversation images is a materially bigger disclosure than sending
-// prompt text, so it gets its own acknowledgement key: a user who accepted the
-// prompt-only wording is asked again the first time references are turned on.
-//
-// One question per connection a style can reach, because a save can now light up a
-// second remote backend without it ever being the "active" one.
+// key, is `privacyDisclosure` in policy.js, where `node --test` can reach it. One
+// question per connection a style can reach, because a save can light up a second
+// remote backend without it ever being the "active" one.
 function confirmRemotePrivacy(next) {
-  // Derived from `next` rather than read off module state: this is the last gate
-  // before credentials are sent, and it must describe the config being saved even
-  // if a field changed after the last re-render.
+  // Derived from `next`, not module state: this is the last gate before credentials
+  // are sent, and it must describe the config being saved even if a field changed
+  // after the last re-render.
   for (const disclosure of pendingDisclosures(next, connectionList(next, backends.providers))) {
     if (localStorage.getItem(disclosure.key) === "acknowledged") continue;
     if (!window.confirm(disclosure.message)) return false;
@@ -1220,16 +1127,14 @@ function confirmRemotePrivacy(next) {
   return true;
 }
 
-// The character's reference image as the form currently holds it — loaded with
-// the profile, replaced by the file picker, emptied by Clear, and written back on
-// Save. Kept in module state rather than read off the rendered <img>, so a save
-// that never touched the picker round-trips the stored bytes untouched.
+// The character's reference image as the form holds it — loaded with the profile,
+// replaced by the picker, emptied by Clear, written back on Save. Module state
+// rather than read off the rendered <img>, so a save that never touched the picker
+// round-trips the stored bytes untouched.
 let referenceImage = { reference_image_b64: "", reference_mime: "" };
 
 function referenceImageHtml() {
   const stored = !!referenceImage.reference_image_b64;
-  // With no image there is no preview column, so the controls start at the same
-  // left edge as the prompt fields above rather than floating inset.
   return `<div class="ig-reference-image">
       ${stored ? `<div class="ig-reference-preview"><img class="ig-reference-thumb" alt="Character reference image" src="data:${escAttr(referenceImage.reference_mime || "image/png")};base64,${escAttr(referenceImage.reference_image_b64)}"></div>` : ""}
       <div class="ig-reference-controls">
@@ -1263,8 +1168,8 @@ async function pickReferenceImage(input) {
     return;
   }
   try {
-    // Chunked so a multi-MB image does not blow the argument limit of
-    // String.fromCharCode, which a single spread of the whole array would.
+    // Chunked: a single spread of the whole array blows String.fromCharCode's
+    // argument limit on a multi-MB image.
     const bytes = new Uint8Array(await file.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -1306,8 +1211,8 @@ async function populateProfile() {
 }
 
 async function saveProfile() {
-  // No profile fields rendered (no active character) => nothing to persist, and
-  // sending blanks here would wipe a saved appearance.
+  // No fields rendered means no active character: sending blanks would wipe a
+  // saved appearance.
   const appearanceEl = document.getElementById("ig-appearance");
   if (!appearanceEl || !getActiveConvId()) return;
   const res = await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
@@ -1318,10 +1223,9 @@ async function saveProfile() {
       ...referenceImage,
     },
   });
-  // The normalizer drops a reference image it cannot accept. A save that reports
-  // success while quietly discarding what the form is still previewing is the
-  // one outcome the user cannot diagnose, so the handler's warning is shown and
-  // the local copy is brought back in line with what was actually stored.
+  // A save that reports success while discarding what the form is still previewing
+  // is the one outcome the user cannot diagnose, so the handler's warning is shown
+  // and the local copy is brought back in line with what was stored.
   if (res?.warning) {
     toast(res.warning, "error");
     referenceImage = {

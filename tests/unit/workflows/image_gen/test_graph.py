@@ -142,42 +142,25 @@ def test_a_graph_without_a_negative_slot_still_patches():
 
 
 def test_a_valid_graph_passes_structural_validation():
+    validate_graph_structure(*_core(), OBJECT_INFO)
+
+
+@pytest.mark.parametrize(
+    ("break_it", "match"),
+    [
+        (lambda g, s: g["6"].__setitem__("class_type", "SomeCustomTextEncode"), "SomeCustomTextEncode"),
+        (lambda g, s: g["4"]["inputs"].__setitem__("ckpt_name", "deleted.safetensors"), "no longer available"),
+        (lambda g, s: s.__setitem__("positive", ["6", "prompt_text"]), "positive slot"),
+        # VAEDecode: a real node, but it saves nothing.
+        (lambda g, s: s.__setitem__("output", ["8", "images"]), "does not save or preview"),
+        (lambda g, s: s.__setitem__("output", ["999", "images"]), "no configured output node"),
+    ],
+    ids=["unknown node type", "stale combo value", "slot on a missing input", "output saves nothing", "output node absent"],
+)
+def test_validation_names_what_this_server_cannot_run(break_it, match):
     graph, slots = _core()
-    validate_graph_structure(graph, slots, OBJECT_INFO)
-
-
-def test_validation_names_a_node_type_this_server_lacks():
-    graph, slots = _core()
-    graph["6"]["class_type"] = "SomeCustomTextEncode"
-    with pytest.raises(ImageGenerationError, match="SomeCustomTextEncode"):
-        validate_graph_structure(graph, slots, OBJECT_INFO)
-
-
-def test_validation_catches_a_combo_value_the_server_does_not_offer():
-    graph, slots = _core()
-    graph["4"]["inputs"]["ckpt_name"] = "deleted.safetensors"
-    with pytest.raises(ImageGenerationError, match="no longer available"):
-        validate_graph_structure(graph, slots, OBJECT_INFO)
-
-
-def test_validation_catches_a_slot_pointing_at_a_missing_input():
-    graph, slots = _core()
-    slots["positive"] = ["6", "prompt_text"]
-    with pytest.raises(ImageGenerationError, match="positive slot"):
-        validate_graph_structure(graph, slots, OBJECT_INFO)
-
-
-def test_validation_requires_an_output_node():
-    graph, slots = _core()
-    slots["output"] = ["8", "images"]  # VAEDecode: real node, but saves nothing
-    with pytest.raises(ImageGenerationError, match="does not save or preview"):
-        validate_graph_structure(graph, slots, OBJECT_INFO)
-
-
-def test_validation_requires_the_output_slot_to_name_a_present_node():
-    graph, slots = _core()
-    slots["output"] = ["999", "images"]
-    with pytest.raises(ImageGenerationError, match="no configured output node"):
+    break_it(graph, slots)
+    with pytest.raises(ImageGenerationError, match=match):
         validate_graph_structure(graph, slots, OBJECT_INFO)
 
 

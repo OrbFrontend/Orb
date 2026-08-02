@@ -12,9 +12,9 @@ from .contracts import ImageGenerationError
 def resolve_graph(config: Mapping[str, Any], graph_id: str) -> tuple[dict, dict]:
     """The imported graph and its slot map for `graph_id`.
 
-    External mode ships no default graph: every style renders through a workflow
-    the user imported, so an empty or dangling id is a configuration gap, not a
-    fallback. The messages say which so the caller can surface it verbatim.
+    External mode ships no default graph, so an empty or dangling id is a
+    configuration gap rather than a fallback; the messages say which, so the caller
+    can surface them verbatim.
     """
     for item in config["external_comfy"]["user_graphs"]:
         if item["id"] == graph_id:
@@ -25,31 +25,24 @@ def resolve_graph(config: Mapping[str, Any], graph_id: str) -> tuple[dict, dict]
 
 
 def has_graph(config: Mapping[str, Any], graph_id: str) -> bool:
-    """Whether `graph_id` still resolves, without paying for a deep copy.
-
-    Replay asks this before honouring the graph id recorded on a stored image:
-    a user graph deleted since the render must degrade to the style's current
-    workflow with a note, not raise from inside the adapter.
-    """
+    """Whether `graph_id` still resolves, without paying for a deep copy. Replay
+    asks before honouring a stored graph id: one deleted since the render must
+    degrade to the style's current workflow with a note, not raise."""
     return any(item["id"] == graph_id for item in config["external_comfy"]["user_graphs"])
 
 
 def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    """The mapped reference entries, as normalization stored them.
-
-    A graph with no mapped `LoadImage` has no `references` key at all, so every
-    caller can treat "no references" and "not an edit workflow" as one case.
-    """
+    """The mapped reference entries, as normalization stored them. A graph with no
+    mapped `LoadImage` has no `references` key at all, so callers treat "no
+    references" and "not an edit workflow" as one case."""
     entries = slots.get("references")
     return [entry for entry in entries if isinstance(entry, Mapping)] if isinstance(entries, list) else []
 
 
 def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> Any:
     """A widget value, or None when the input is absent or wired from a link.
-
-    ComfyUI encodes a link as `[node_id, slot]`, so anything list-shaped is a
-    connection whose value only exists at execution time.
-    """
+    ComfyUI encodes a link as `[node_id, slot]`, so anything list-shaped has a
+    value only at execution time."""
     value = inputs.get(name)
     if isinstance(value, bool) or not isinstance(value, kinds):
         return None
@@ -59,9 +52,8 @@ def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> An
 def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -> dict:
     """Best-effort render identity read back off the graph that will execute.
 
-    Recorded on the attachment so a later replay can say what changed. Derived
-    from the graph rather than from a catalog entry because external mode has no
-    catalog -- a user-imported graph gets the same treatment as the shipped one
+    Recorded on the attachment so a later replay can say what changed. Read from the
+    graph because external mode has no catalog: a user-imported graph is described
     wherever it uses the standard node inputs, and `None` wherever it does not.
     """
     params: dict[str, Any] = dict.fromkeys(("width", "height", "steps", "cfg", "sampler", "scheduler"))
@@ -73,9 +65,9 @@ def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -
         params["cfg"] = _scalar(sampler_inputs, "cfg", (int, float))
         params["sampler"] = _scalar(sampler_inputs, "sampler_name", (str,))
         params["scheduler"] = _scalar(sampler_inputs, "scheduler", (str,))
-    # Dimensions live on whichever latent/resize node carries them; node ids are
-    # strings of ints in practice, so sort numerically where possible to keep the
-    # choice stable across runs rather than dict-order dependent.
+    # Dimensions live on whichever latent/resize node carries them. Node ids are
+    # strings of ints in practice, so sort numerically to keep the choice stable
+    # across runs rather than dict-order dependent.
     for node_id in sorted(graph, key=lambda k: (len(str(k)), str(k))):
         node = graph[node_id]
         inputs = node.get("inputs") if isinstance(node, Mapping) else None
@@ -86,6 +78,19 @@ def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -
             params["width"], params["height"] = width, height
             break
     return params
+
+
+def declared_inputs(info: Mapping[str, Any]) -> dict[str, Any]:
+    """Every declared input of one `/object_info` node class, required and optional
+    alike. Shared by structural validation and the importer's slot typing, so the
+    two can never disagree about what a node accepts."""
+    spec = info.get("input")
+    declared: dict[str, Any] = {}
+    for group in ("required", "optional"):
+        values = spec.get(group) if isinstance(spec, Mapping) else None
+        if isinstance(values, Mapping):
+            declared.update(values)
+    return declared
 
 
 def _input_slot(graph: Mapping[str, Any], slot: Any, role: str) -> tuple[dict, str]:
@@ -114,9 +119,9 @@ def patch_graph(
         ("negative", negative_prompt),
         ("seed", seed),
     ):
-        # `negative` is optional: a prose-trained graph (Flux, SD3) legitimately
-        # has one text encoder and no negative conditioning to patch. The other
-        # two roles are what "render this prompt with this seed" means.
+        # `negative` is optional: a prose-trained graph (Flux, SD3) has one text
+        # encoder and no negative conditioning. The other two are what "render this
+        # prompt with this seed" means.
         if role == "negative" and "negative" not in slots:
             continue
         inputs, name = _input_slot(patched, slots.get(role), role)
@@ -131,10 +136,10 @@ def patch_graph(
     for slot, value in references:
         inputs, name = _input_slot(patched, slot, "reference image")
         inputs[name] = value
-    # Imported graphs often wire the prompt text into a save node's filename_prefix
-    # ("name files by prompt"). Orb's long scene prompts overflow the OS 255-byte
-    # filename limit (OSError 36). Orb fetches the image by the name ComfyUI reports,
-    # never by this prefix, so pinning it to a constant is always safe.
+    # Imported graphs often wire the prompt into a save node's filename_prefix, and
+    # Orb's long scene prompts overflow the OS 255-byte filename limit. The image is
+    # fetched by the name ComfyUI reports, never by this prefix, so pinning it to a
+    # constant is always safe.
     for node in patched.values():
         node_inputs = node.get("inputs") if isinstance(node, Mapping) else None
         if isinstance(node_inputs, dict) and "filename_prefix" in node_inputs:
@@ -146,12 +151,9 @@ def patch_graph(
 
 
 def is_image_upload(spec: Any) -> bool:
-    """Whether an `/object_info` input spec is an upload widget.
-
-    Marked as ``[[...files...], {"image_upload": true}]`` -- the combo lists the
-    server's input directory. That flag is the typing rule for a reference slot,
-    exactly as a STRING/INT kind is the rule for the others.
-    """
+    """Whether an `/object_info` input spec is an upload widget, marked
+    ``[[...files...], {"image_upload": true}]``. That flag is the typing rule for a
+    reference slot, as a STRING/INT kind is for the others."""
     if not isinstance(spec, (list, tuple)) or len(spec) < 2 or not isinstance(spec[0], list):
         return False
     return isinstance(spec[1], Mapping) and spec[1].get("image_upload") is True
@@ -175,20 +177,14 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
         info = object_info.get(class_type)
         if not isinstance(info, Mapping):
             raise ImageGenerationError(f"ComfyUI is missing node type {class_type!r}")
-        required = info.get("input", {}).get("required", {}) if isinstance(info.get("input"), Mapping) else {}
-        optional = info.get("input", {}).get("optional", {}) if isinstance(info.get("input"), Mapping) else {}
-        declared = {
-            **(required if isinstance(required, Mapping) else {}),
-            **(optional if isinstance(optional, Mapping) else {}),
-        }
+        declared = declared_inputs(info)
         for name, value in node["inputs"].items():
             spec = declared.get(name)
             if isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list) and not isinstance(value, list):
                 if (str(node_id), name) in mapped or value in spec[0]:
                     continue
-                # An unmapped upload widget carries the exporting machine's filename.
-                # "No longer available" reads as a broken install; the actionable
-                # answer is to upload it there or map the slot.
+                # An unmapped upload widget carries the exporting machine's
+                # filename, so "no longer available" would read as a broken install.
                 if is_image_upload(spec):
                     raise ImageGenerationError(
                         f"Node {node_id} needs image {value!r} on the ComfyUI server, or map it as a reference image"

@@ -30,9 +30,9 @@ _PATH_RE = re.compile(r"(?<![\w.])/[\w.\-/]+")
 _WHITESPACE_RE = re.compile(r"\s+")
 _EXCERPT_LIMIT = 200
 
-# Words a provider uses when it is the *content* it objected to, not the request.
-# For roleplay imagery on a commercial API this is the dominant new failure mode,
-# and it is the difference between "Orb is broken" and "the provider said no".
+# Words a provider uses when it objected to the *content*, not the request. For
+# roleplay imagery on a commercial API this is the dominant failure mode, and the
+# whole difference between "Orb is broken" and "the provider said no".
 _MODERATION_MARKERS = (
     "moderation",
     "content_policy",
@@ -60,8 +60,8 @@ class CloudImageError(ImageGenerationError):
 class CloudImage:
     data: bytes
     mime: str
-    # What the response said about cost, in the provider's own unit. None when it
-    # said nothing -- inventing a zero would read as "this was free".
+    # In the provider's own unit; None when it said nothing, since inventing a zero
+    # would read as "this was free".
     cost: dict | None
     notes: tuple[str, ...] = ()
 
@@ -69,9 +69,9 @@ class CloudImage:
 def _scrub(text: str, secret: str = "") -> str:
     """A provider message with URLs, paths and the key removed, capped hard.
 
-    ComfyUI's funnel is totally opaque; this diverges slightly because provider
-    400s like *"Argument not supported: size"* are genuinely actionable. What must
-    never survive is anything naming the server's internals -- or the credential.
+    Less opaque than ComfyUI's funnel, because provider 400s like *"Argument not
+    supported: size"* are genuinely actionable. What must never survive is anything
+    naming the server's internals -- or the credential.
     """
     if secret:
         text = text.replace(secret, "")
@@ -153,48 +153,41 @@ class OpenAIImageClient:
             "request",
         )
 
-    async def _post(self, path: str, body: Mapping[str, Any], *, timeout: float, model: str = "") -> dict:
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        timeout: float,
+        body: Mapping[str, Any] | None = None,
+        model: str = "",
+    ) -> Any:
+        """One request, decoded, with every failure routed through `_failure`."""
         try:
             async with self._http(timeout) as client:
-                response = await client.post(path, json=dict(body))
+                response = await client.request(method, path, json=dict(body) if body is not None else None)
                 if response.status_code >= 400:
                     try:
                         payload: Any = response.json()
                     except (json.JSONDecodeError, ValueError):
                         payload = response.text
                     raise self._failure(response.status_code, payload, model=model)
-                decoded = response.json()
+                return response.json()
         except ImageGenerationError:
             raise
         except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
             raise CloudImageError(f"Could not communicate with {self.label}", "transport") from exc
-        if not isinstance(decoded, Mapping):
-            raise CloudImageError(f"{self.label} returned a malformed response", "malformed")
-        return dict(decoded)
 
     # ── model discovery ───────────────────────────────────────────────────────
 
     async def list_models(self, path: str, response_shape: str) -> list[str]:
         """The provider's model ids.
 
-        This is the **only** endpoint `validate_connection` touches. A Test
-        connection button that bills the user is unacceptable, so nothing here may
-        reach the generations path.
+        The **only** endpoint `validate_connection` touches: a Test connection
+        button that bills the user is unacceptable, so nothing here may reach the
+        generations path.
         """
-        try:
-            async with self._http(min(30.0, self.timeout)) as client:
-                response = await client.get(path)
-                if response.status_code >= 400:
-                    try:
-                        payload: Any = response.json()
-                    except (json.JSONDecodeError, ValueError):
-                        payload = response.text
-                    raise self._failure(response.status_code, payload)
-                decoded = response.json()
-        except ImageGenerationError:
-            raise
-        except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
-            raise CloudImageError(f"Could not communicate with {self.label}", "transport") from exc
+        decoded = await self._send("GET", path, timeout=min(30.0, self.timeout))
         # xAI's image-model endpoint answers `{"models": [...]}`; OpenAI answers
         # `{"data": [...]}`. Not interchangeable, so the preset says which.
         key = "models" if response_shape == "models_list" else "data"
@@ -218,10 +211,11 @@ class OpenAIImageClient:
         provider_id: str,
         timeout: float,
     ) -> CloudImage:
-        """One synchronous generation call. No polling loop -- these APIs answer
-        on the same request, so the adapter emits a single progress event at
-        submit rather than tracking a queue."""
-        payload = await self._post(path, body, timeout=timeout, model=str(body.get("model") or ""))
+        """One synchronous generation call. No polling loop -- these APIs answer on
+        the same request, so the adapter emits a single progress event at submit."""
+        payload = await self._send("POST", path, timeout=timeout, body=body, model=str(body.get("model") or ""))
+        if not isinstance(payload, Mapping):
+            raise CloudImageError(f"{self.label} returned a malformed response", "malformed")
         entries = payload.get("data")
         entry = entries[0] if isinstance(entries, list) and entries and isinstance(entries[0], Mapping) else None
         if entry is None:
@@ -230,8 +224,8 @@ class OpenAIImageClient:
         try:
             mime = image_mime(data)
         except ImageGenerationError as exc:
-            # Named, like every other failure on this path: "the backend returned
-            # junk" is not actionable without knowing which backend.
+            # Named, like every other failure here: "the backend returned junk" is
+            # not actionable without knowing which backend.
             raise CloudImageError(f"{self.label} returned data that is not a supported image", "malformed") from exc
         # Full-res source -> capped WebP off-thread (CPU-bound) before it is stored.
         shrunk, mime = await asyncio.to_thread(shrink_for_display, data, mime)
@@ -255,10 +249,10 @@ class OpenAIImageClient:
     async def _fetch(self, url: str, *, timeout: float) -> bytes:
         """Download a hosted result, bounded by a *running* byte count.
 
-        `b64_json` is preferred wherever the provider supports it -- one fewer hop,
-        and nothing fetches an attacker-influenceable URL. When this path is taken
-        anyway: https only, and the cap is enforced while streaming rather than by
-        trusting `content-length`, which the server is free to lie about.
+        `b64_json` is preferred wherever supported -- one fewer hop, and nothing
+        fetches an attacker-influenceable URL. When this path is taken: https only,
+        and the cap is enforced while streaming rather than by trusting
+        `content-length`, which the server is free to lie about.
         """
         if not url.lower().startswith("https://"):
             raise CloudImageError(f"{self.label} returned an image over an insecure URL", "insecure_url")
@@ -286,12 +280,10 @@ class OpenAIImageClient:
 def _cost(payload: Mapping[str, Any], provider_id: str) -> dict | None:
     """What the response reports about cost, **in the provider's own unit**.
 
-    xAI answers `usage.cost_in_usd_ticks` and nowhere states what a tick is worth.
-    Renaming that to `cost_usd` would pick a divisor by omission and print a wrong
-    number on a billing figure, which is worse than printing none -- so the unit
-    travels with the value and the frontend renders only what it can name. A
-    verified divisor later is a one-line preset field and a formatter change; a
-    number the user has trusted for a month is not.
+    xAI answers `usage.cost_in_usd_ticks` and nowhere states what a tick is worth,
+    so renaming it `cost_usd` would pick a divisor by omission and print a wrong
+    billing figure. The unit travels with the value and the frontend renders only
+    what it can name; a verified divisor later is a one-line change.
     """
     usage = payload.get("usage")
     if not isinstance(usage, Mapping):

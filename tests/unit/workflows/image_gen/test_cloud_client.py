@@ -47,10 +47,7 @@ async def test_b64_json_is_decoded_without_a_second_request():
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.url.path)
-        return httpx.Response(
-            200,
-            json={"data": [{"b64_json": base64.b64encode(PNG).decode()}], "usage": {"cost_in_usd_ticks": 1400}},
-        )
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(PNG).decode()}]})
 
     image = await _client(handler).create_image(
         "/images/generations", {"model": "m", "prompt": "p"}, provider_id="xai", timeout=10
@@ -68,10 +65,7 @@ async def test_a_hosted_url_is_fetched_and_the_cost_unit_is_carried_verbatim():
         if request.url.path.endswith("/images/generations"):
             return httpx.Response(
                 200,
-                json={
-                    "data": [{"url": "https://cdn.example.test/out.png"}],
-                    "usage": {"cost_in_usd_ticks": 1400},
-                },
+                json={"data": [{"url": "https://cdn.example.test/out.png"}], "usage": {"cost_in_usd_ticks": 1400}},
             )
         return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
 
@@ -151,28 +145,23 @@ async def test_each_status_gets_its_own_message(status, payload, expected):
 
 
 @pytest.mark.asyncio
-async def test_a_moderation_refusal_is_its_own_message_not_a_generic_failure():
-    """For roleplay imagery on a commercial API this is the dominant new failure
-    mode, and it is the whole difference between "Orb is broken" and "the provider
-    said no"."""
-    handler = lambda _request: httpx.Response(  # noqa: E731
-        400, json={"error": {"message": "Your request was rejected by our content policy"}}
-    )
+@pytest.mark.parametrize(
+    ("status", "message", "model", "kind", "expected"),
+    [
+        # For roleplay imagery on a commercial API a refusal is the dominant failure
+        # mode, and the whole difference between "Orb is broken" and "it said no".
+        (400, "Your request was rejected by our content policy", "m", "moderation", "content policy"),
+        # Flagged so the adapter can re-render on the configured model and disclose.
+        (404, "no such model", "grok-imagine-legacy", MODEL_NOT_FOUND, "grok-imagine-legacy"),
+    ],
+    ids=["moderation", "model gone"],
+)
+async def test_a_refusal_carries_the_kind_the_caller_degrades_on(status, message, model, kind, expected):
+    handler = lambda _request: httpx.Response(status, json={"error": {"message": message}})  # noqa: E731
     with pytest.raises(CloudImageError) as exc:
-        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
-    assert exc.value.kind == "moderation"
-    assert "content policy" in str(exc.value)
-
-
-@pytest.mark.asyncio
-async def test_a_missing_model_names_the_model_and_is_flagged_for_degradation():
-    handler = lambda _request: httpx.Response(404, json={"error": {"message": "no such model"}})  # noqa: E731
-    with pytest.raises(CloudImageError) as exc:
-        await _client(handler).create_image(
-            "/images/generations", {"model": "grok-imagine-legacy"}, provider_id="xai", timeout=10
-        )
-    assert exc.value.kind == MODEL_NOT_FOUND
-    assert "grok-imagine-legacy" in str(exc.value)
+        await _client(handler).create_image("/images/generations", {"model": model}, provider_id="xai", timeout=10)
+    assert exc.value.kind == kind
+    assert expected in str(exc.value)
 
 
 @pytest.mark.asyncio
