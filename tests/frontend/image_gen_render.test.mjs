@@ -90,7 +90,7 @@ test("the style label links back to its entry in the style editor", () => {
   assert.ok(!unlinked.includes("image_gen:editStyle"));
   assert.ok(unlinked.includes("«Anime»"));
 
-  // A label-less style falls back to its id, and the source to ComfyUI.
+  // A label-less style falls back to its id, and the backend to ComfyUI.
   const bare = attachmentDetailsHtml({ consumption_metadata: { style_id: "realistic" } }, MARKERS);
   assert.ok(bare.includes("«realistic»") && bare.includes("«External ComfyUI»"));
 });
@@ -138,30 +138,35 @@ test("replay disclosure notes are shown and escaped", () => {
 
 test("the camera row names the viewpoint and the lever that chose it", () => {
   // A wrong camera is fixed in a different place depending on which lever chose it,
-  // so the two ways of landing on the default must read differently.
+  // so the lever is named -- in one word, since the levers themselves are settings
+  // the user set.
   const cam = (metadata) => attachmentDetailsHtml({ consumption_metadata: metadata }, MARKERS);
 
   const classified = cam({ pov: "first_person", pov_source: "classifier" });
   assert.ok(classified.includes("<dt>Camera</dt>"));
   assert.ok(classified.includes("«First-person»"));
-  assert.ok(classified.includes("« — from the classifier»"));
+  assert.ok(classified.includes("« — classifier»"));
 
-  assert.ok(cam({ pov: "third_person", pov_source: "no_classifier" }).includes("« — from the default (no POV classifier)»"));
-  assert.ok(cam({ pov: "third_person", pov_source: "default" }).includes("ambiguous"));
+  assert.ok(cam({ pov: "third_person", pov_source: "manual" }).includes("« — picker»"));
+  // Both fallbacks read as "default": whether the classifier is installed is the
+  // user's own setting, not something the image has to disclose.
+  assert.ok(cam({ pov: "third_person", pov_source: "no_classifier" }).includes("« — default»"));
+  assert.ok(cam({ pov: "third_person", pov_source: "default" }).includes("« — default»"));
 
   // An unrecognized camera falls back to its raw value, still escaped.
   const hostile = cam({ pov: HOSTILE, pov_source: HOSTILE });
   assert.ok(hostile.includes(`«${HOSTILE}»`));
-  assert.ok(!hostile.replaceAll(`«${HOSTILE}»`, "").replaceAll(`« — from the ${HOSTILE}»`, "").includes("<script>"));
+  assert.ok(!hostile.replaceAll(`«${HOSTILE}»`, "").replaceAll(`« — ${HOSTILE}»`, "").includes("<script>"));
 
   // Absent on images generated before the camera was recorded: the row is omitted
   // rather than shown empty.
   assert.ok(!cam({ style_id: "anime" }).includes("<dt>Camera</dt>"));
 });
 
-test("a reference row names the slot, the source, and where the bytes came from", () => {
+test("a reference row names which kind of image was fed in", () => {
   // A wrong reference is the failure a user needs traced, and the useful half of
-  // the origin is which *kind* of thing was fed in.
+  // the origin is which *kind* of thing was fed in. The configured source policy
+  // is not echoed back: that one is a setting the user picked.
   const html = attachmentDetailsHtml(
     {
       consumption_metadata: {
@@ -173,10 +178,9 @@ test("a reference row names the slot, the source, and where the bytes came from"
     },
     MARKERS,
   );
-  assert.ok(html.includes("<dt>Reference« #72»</dt>"));
-  assert.ok(html.includes("«previous image, else character reference — from a generated image in this chat»"));
-  assert.ok(html.includes("<dt>Reference« #90»</dt>"));
-  assert.ok(html.includes("«character reference — from the character»"));
+  assert.equal(html.split("<dt>Reference</dt>").length - 1, 2); // one row per filled slot, in slot order
+  assert.ok(html.includes("«previous image»"));
+  assert.ok(html.includes("«character card»"));
 
   // A workflow with no reference slots records none, so the row is omitted.
   assert.ok(!attachmentDetailsHtml({ consumption_metadata: { style_id: "anime" } }, MARKERS).includes("<dt>Reference"));
@@ -202,7 +206,7 @@ test("a seedless backend says so instead of printing a meaningless hex", () => {
   // The seed is still minted and stored — rehydrate refuses a null one — so the
   // honest row is "recorded but unused", not a blank and not the hex.
   const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: { seed_honored: false } }, MARKERS);
-  assert.match(html, /not used by this provider/);
+  assert.match(html, /<dt>Seed<\/dt><dd>«not used»/);
   assert.ok(!html.includes("beef"));
 });
 
@@ -221,9 +225,12 @@ test("cost is rendered only in the unit the payload names", () => {
   assert.ok(!attachmentDetailsHtml({ consumption_metadata: {} }, MARKERS).includes("<dt>Cost"));
   assert.ok(!cost({}).includes("<dt>Cost"));
 
+  // The provider is not appended: the Backend row above already names it.
+  assert.ok(!cost({ provider: "xai", unit: "usd", value: 1 }).includes("xai"));
+
   // And the whole cell is one escaped value, like every other field.
   const hostile = cost({ provider: HOSTILE, unit: HOSTILE, value: 1 });
-  const cell = `«1 ${HOSTILE} (${HOSTILE})»`;
+  const cell = `«1 ${HOSTILE}»`;
   assert.ok(hostile.includes(cell));
   assert.ok(!hostile.replaceAll(cell, "").includes("<script>"));
 });

@@ -325,9 +325,7 @@ async def _generate_fresh(
     if unfilled > 0:
         # An optional slot resolving to nothing changed what was rendered, so say
         # so rather than leave it inferred from a missing Reference row.
-        consumption.setdefault("notes", []).append(
-            "no reference image was available for this render, so it was drawn from the prompt alone"
-        )
+        consumption.setdefault("notes", []).append("no reference image was available, so this was drawn from the prompt alone")
     return _attachment(seed, result, md, consumption)
 
 
@@ -620,16 +618,13 @@ async def reroll_gen(ctx, params, seed):
     recorded_source = params.get("source")
     if isinstance(recorded_source, str) and recorded_source and recorded_source != config["source"]:
         was = next((s["label"] for s in list_sources() if s["id"] == recorded_source), recorded_source)
-        notes.append(f"this image was generated on {was}; it has been re-rendered on {adapter.label}, so it will not match")
+        notes.append(f"made on {was}, re-rendered on {adapter.label}, so it will not match")
     # Rehydrate promises the *same bytes back*, which a seedless API cannot give.
     # The discriminator is the seed, not the eviction marker: /rehydrate hands back
     # the row's own stored seed, /reroll-gen mints a fresh one, and the widget puts
     # a reroll button on the evicted card one click away.
     if not target.supports_seed and str(seed) == str(ctx.original_attachment.get("seed") or ""):
-        notes.append(
-            "this provider does not accept a seed, so the original image could not be restored exactly; "
-            "this is a fresh render of the same prompt, and it was billed as one"
-        )
+        notes.append("this provider takes no seed: a fresh render of the same prompt, billed as one, not the original image")
     # Strictly by recorded origin: a reroll promises only the seed changes, so
     # re-resolving from a branch that may have moved on is what must not happen.
     recorded_references = _recorded_references(params)
@@ -638,15 +633,12 @@ async def reroll_gen(ctx, params, seed):
         # a stored WebP into an edit endpoint that had declared PNG/JPEG, and
         # dropping them silently is the substitution this workflow refuses to make.
         references = ()
-        notes.append(
-            "this style does not take reference images, so the reference the original used was not sent; "
-            "the picture will not match"
-        )
+        notes.append("this style does not take reference images, so the original's reference was not sent; it will not match")
     else:
         references = await refetch_references(recorded_references, slots=target.reference_slots)
         dropped = len(recorded_references) - len(references)
         if dropped > 0:
-            notes.append(f"this style takes fewer reference images than the original, so {dropped} of them were not sent")
+            notes.append(f"this style takes fewer reference images, so {dropped} of them were not sent")
     # `params` is what the route stores as the sibling's generation_metadata, so it
     # records what was actually sent, re-keyed slots and all -- leaving the previous
     # target's slot ids would make the next reroll re-key off a record never true.
@@ -676,6 +668,6 @@ async def reroll_gen(ctx, params, seed):
         # Only the assembled prompt is stored, never the scene/avoid halves, so a
         # style swap cannot re-word it -- say so rather than substitute silently.
         consumption.setdefault("notes", []).append(
-            f"style changed to {style['label']} on reroll; the prompt text still carries the previous style's wording"
+            f"style changed to {style['label']}; the prompt still carries the previous style's wording"
         )
     return result.image_bytes, consumption

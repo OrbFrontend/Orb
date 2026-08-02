@@ -492,7 +492,7 @@ async def test_rehydrating_a_seedless_render_discloses_that_it_is_a_fresh_image(
 
     rows = await get_workflow_attachments_for_message(mid)
     row = next(r for r in rows if r["id"] == aid)
-    assert any("could not be restored exactly" in note for note in json.loads(row["consumption_metadata"])["notes"])
+    assert any("takes no seed" in note for note in json.loads(row["consumption_metadata"])["notes"])
 
 
 @pytest.mark.asyncio
@@ -507,7 +507,7 @@ async def test_rerolling_an_evicted_attachment_does_not_claim_to_be_a_rehydrate(
     await _replay(client, "ig-cloud-reroll-evicted", mid, aid)
 
     notes = json.loads((await _sibling(mid, aid))["consumption_metadata"]).get("notes") or []
-    assert not any("restored exactly" in note for note in notes), notes
+    assert not any("takes no seed" in note for note in notes), notes
 
 
 @pytest.mark.asyncio

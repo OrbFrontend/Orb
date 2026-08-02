@@ -10,34 +10,31 @@
 
 const WORKFLOW_ID = "image_gen";
 
-// The levers are named for the control the user would go change, not for the
-// backend symbol that chose them.
+// One word for the lever that chose the camera, named for the control the user
+// would go change. `no_classifier` folds into `default` because whether the
+// classifier is installed is the user's own setting, not news from the image.
 const POV_LABELS = { first_person: "First-person", third_person: "Third-person" };
 const POV_SOURCE_LABELS = {
-  manual: "POV picker",
+  manual: "picker",
   classifier: "classifier",
-  no_classifier: "default (no POV classifier)",
-  default: "default (the narration read as ambiguous)",
+  no_classifier: "default",
+  default: "default",
 };
 
-// Where a reference image came from, phrased as the thing a user would go look at.
-const REFERENCE_SOURCE_LABELS = {
-  previous: "previous image",
-  character: "character reference",
-  previous_or_character: "previous image, else character reference",
-};
 // The origin is a machine key ("attachment:41", "upload:12:3", "character:<id>")
 // whose useful half is which *kind* of thing was fed in — a wrong reference is
-// usually the wrong kind, not the wrong row.
+// usually the wrong kind, not the wrong row. The configured source policy is not
+// repeated beside it: that one is a setting the user picked, while this is what
+// the render actually got.
 const REFERENCE_ORIGIN_LABELS = {
-  attachment: "a generated image in this chat",
-  upload: "an image you uploaded",
-  character: "the character",
+  attachment: "previous image",
+  upload: "uploaded image",
+  character: "character card",
 };
 
 // The seed is still minted and stored — rehydrate refuses a null one — so the
 // honest row is "recorded but unused", not a blank and not the hex.
-const UNUSED_SEED = "not used by this provider";
+const UNUSED_SEED = "not used";
 
 // Rendered only in the unit the payload names. Nothing converts: xAI reports
 // `usd_ticks` and nowhere documents what a tick is worth, so calling it dollars
@@ -48,25 +45,24 @@ const COST_UNITS = {
   usd_ticks: (value) => `${value} usd ticks`,
 };
 
+// `cost.provider` is not appended: the Backend row above already names who
+// charged it, and the two only ever disagree if something is wrong upstream.
 function costRow(cm, esc) {
   const cost = cm.cost;
   if (!cost || cost.value === undefined || cost.value === null) return "";
   const format = COST_UNITS[cost.unit];
   const text = format ? format(cost.value) : `${cost.value} ${cost.unit || ""}`.trim();
-  const who = cost.provider ? ` (${cost.provider})` : "";
-  return `<dt>Cost</dt><dd>${esc(`${text}${who}`)}</dd>`;
+  return `<dt>Cost</dt><dd>${esc(text)}</dd>`;
 }
 
-// One row per mapped slot, so a workflow with no reference slots gets none.
+// One row per filled slot, so a workflow with no reference slots gets none. The
+// slot id is left out: it is a ComfyUI node number on one backend and the
+// synthetic "cloud" on the other, and the rows already read in slot order.
 function referenceRows(cm, esc) {
   return (Array.isArray(cm.references) ? cm.references : [])
     .map((ref) => {
-      const node = Array.isArray(ref?.slot) ? `#${ref.slot[0]}` : "";
-      const from = REFERENCE_ORIGIN_LABELS[String(ref?.origin || "").split(":")[0]];
-      const detail = [REFERENCE_SOURCE_LABELS[ref?.source] || ref?.source || "", from && `from ${from}`]
-        .filter(Boolean)
-        .join(" — ");
-      return `<dt>Reference${node ? esc(` ${node}`) : ""}</dt><dd>${esc(detail)}</dd>`;
+      const kind = String(ref?.origin || "").split(":")[0];
+      return `<dt>Reference</dt><dd>${esc(REFERENCE_ORIGIN_LABELS[kind] || kind)}</dd>`;
     })
     .join("");
 }
@@ -100,7 +96,7 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
     `<textarea class="image-gen-edit" readonly aria-label="${label}" rows="${Math.min(10, Math.max(2, Math.ceil(value.length / 48)))}" data-wf-action="image_gen:savePrompt" data-wf-on="change" data-att-id="${escAttr(att?.id ?? "")}" data-field="${name}">${esc(value)}</textarea>`;
   const pencil = (name, label) =>
     `<button type="button" class="image-gen-edit-btn" title="Edit ${label.toLowerCase()}" aria-label="Edit ${label.toLowerCase()}" data-wf-action="image_gen:editPrompt" data-att-id="${escAttr(att?.id ?? "")}" data-field="${name}">✎</button>`;
-  const marker = pending ? `<span class="image-gen-pending">edited — click 🎲 to render</span>` : "";
+  const marker = pending ? `<span class="image-gen-pending">edited — reroll to render</span>` : "";
   // The style label opens that entry in the style editor: judge the image, tune the
   // style that made it, without a hunt through settings every lap.
   const styleText = esc(cm.style_label || cm.style_id || "");
@@ -115,11 +111,11 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
   // depending on which one chose it.
   const source = POV_SOURCE_LABELS[cm.pov_source] || cm.pov_source;
   const camera = cm.pov
-    ? `<dt>Camera</dt><dd>${esc(POV_LABELS[cm.pov] || cm.pov)}${source ? esc(` — from the ${source}`) : ""}</dd>`
+    ? `<dt>Camera</dt><dd>${esc(POV_LABELS[cm.pov] || cm.pov)}${source ? esc(` — ${source}`) : ""}</dd>`
     : "";
   return `<details class="image-gen-details" open><summary>Render details</summary>
     <dl><dt>Style</dt><dd>${style}</dd>
-      <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${camera}${referenceRows(cm, esc)}
+      <dt>Backend</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${camera}${referenceRows(cm, esc)}
       <dt>Seed</dt><dd>${cm.seed_honored === false ? esc(UNUSED_SEED) : `<code>${esc(att?.seed || "")}</code>`}</dd>${costRow(cm, esc)}
       <dt>Prompt ${pencil("prompt", "Prompt")}</dt><dd>${field("prompt", "Prompt", pending?.prompt ?? cm.prompt ?? "")}${marker}</dd>
       <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${notes}</dl>

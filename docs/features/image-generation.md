@@ -116,8 +116,8 @@ for most OpenAI-shaped providers:
 | Not supported | What Orb does |
 |---|---|
 | Negative prompt | The prompter is told not to write one, so no model effort is spent on it. Orb still records the negative prompt on the image, so replaying that image on ComfyUI later is correct. |
-| Seed | Orb still mints and stores a seed, because an image with no seed can never be rehydrated. **Render details** shows *Seed: not used by this provider* rather than a number the render never saw. |
-| Steps, CFG, sampler, scheduler | **Render details** leaves these blank. |
+| Seed | Orb still mints and stores a seed, because an image with no seed can never be rehydrated. **Render details** shows *Seed: not used* rather than a number the render never saw. |
+| Steps, CFG, sampler, scheduler | Cloud providers expose none of them, so nothing is sent and nothing is recorded. |
 | Exact width and height | Orb sends the nearest aspect ratio or size the provider accepts, and adds a note to the image when the difference is more than about 2%. |
 
 Style prompts, the character appearance prompt, the camera, and the resolution
@@ -241,8 +241,8 @@ to the next image.
 
 !!! note
     These workflows take the output size from the reference image or from a
-    resolution node. **Render details** shows no width or height for them, and
-    the output aspect ratio follows the reference image.
+    resolution node, so the output aspect ratio follows the reference image
+    rather than the resolution you set.
 
 ### Set the character reference image
 
@@ -324,9 +324,8 @@ image whose data was evicted from the cache, and it does that by re-rendering
 from the stored seed. A provider that ignores seeds returns a *different* image.
 Orb re-renders and says so on the attachment, rather than refusing:
 
-> this provider does not accept a seed, so the original image could not be
-> restored exactly; this is a fresh render of the same prompt, and it was billed
-> as one
+> this provider takes no seed: a fresh render of the same prompt, billed as one,
+> not the original image
 
 Rehydrate on a cloud backend costs money, for the same reason a generate does.
 
@@ -454,9 +453,9 @@ Orb decides the camera in this order. The first match wins:
 A camera tag such as `first_person` in the character's **Positive prompt** no
 longer sets the camera — use the picker.
 
-Each image records which camera it used and which of the three levers chose it.
-Open **Render details** under the image and read the **Camera** row. It tells you
-where to go to change a camera you did not want: the POV picker or the classifier.
+Each image records which camera it used and which lever chose it. Open **Render
+details** under the image and read the **Camera** row: *picker*, *classifier* or
+*default*. It names where to go to change a camera you did not want.
 
 ### Turn on the POV classifier
 
@@ -531,7 +530,7 @@ guaranteed.
 | A render failed with **HTTP 5xx**. | The provider's own failure, not your configuration. Try again; if it persists, check the provider's status page. |
 | The provider **did not respond within** the timeout. | The render exceeded Orb's timeout. Large resolutions and busy models are the usual cause; try again or pick a faster model. |
 | A cloud image came back the wrong shape. | The provider renders fixed aspect ratios. **Render details** names the ratio it used. Pick a resolution closer to one the provider supports. |
-| **Seed** says *not used by this provider*. | Expected. The provider ignores seeds; the stored seed exists so the image can still be rehydrated. |
+| **Seed** says *not used*. | Expected. The provider ignores seeds; the stored seed exists so the image can still be rehydrated. |
 
 The ComfyUI queue can continue a submitted job after the browser disconnects.
 If you cancel a render, check the ComfyUI queue before you start another render.

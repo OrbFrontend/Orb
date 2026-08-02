@@ -90,7 +90,7 @@ The settings panel states this for the provider you selected. In general:
   effort is spent on it. The negative prompt is still recorded on the image, so
   replaying it on ComfyUI later is correct.
 - **No seed.** Orb still stores one, because an image with no seed can never be
-  rehydrated. **Render details** says *not used by this provider*.
+  rehydrated. **Render details** says *Seed: not used*.
 - **No steps, CFG, sampler, or scheduler.**
 - **Aspect ratios, not exact pixels.** Orb picks the nearest ratio or size the
   provider accepts and notes it on the image when the match is more than about 2%

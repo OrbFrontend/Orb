@@ -499,7 +499,7 @@ def _prompt_field(preset: ProviderPreset, prompt: str) -> BuiltRequest:
         return BuiltRequest({"prompt": prompt})
     return BuiltRequest(
         {"prompt": prompt[: preset.max_prompt]},
-        [f"the prompt was truncated to {preset.max_prompt} characters, which is {preset.label}'s limit"],
+        [f"the prompt was truncated to {preset.label}'s {preset.max_prompt}-character limit"],
     )
 
 
@@ -537,7 +537,7 @@ def build_generation_body(
         # negative style prompt quietly do nothing.
         body["negative_prompt"] = negative_prompt
         if drops_negative_prompt(preset, model):
-            notes.append(f"{model} ignores negative prompts, so the negative style prompt had no effect")
+            notes.append(f"{model} ignores negative prompts, so the negative prompt had no effect")
     if preset.supports_seed and seed is not None:
         body["seed"] = seed
     if preset.supports_quality and quality:

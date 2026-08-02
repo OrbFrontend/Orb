@@ -132,7 +132,7 @@ class ExternalComfyAdapter(ImageAdapter):
             recorded = stored_graph if isinstance(stored_graph, str) and stored_graph else ""
             if recorded and not has_graph(self.config, recorded):
                 notes.append(
-                    f"the workflow this image used ({recorded}) is gone; rendered with {graph_id!r} instead"
+                    f"the workflow this image used ({recorded}) is gone; rendered with {graph_id} instead"
                     if graph_id
                     else f"the workflow this image used ({recorded}) is gone, and this style has no workflow assigned"
                 )
