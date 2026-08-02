@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
+from ...errors import WorkflowUserFacingError
+
 # A render's progress reported back to the hook layer, which turns each stage into
 # a phase label on the wire. Sync or async: a callback that only enqueues a string
 # has no reason to be a coroutine.
@@ -128,5 +130,11 @@ class ImageResult:
     backend_info: Mapping[str, Any]
 
 
-class ImageGenerationError(RuntimeError):
-    """One caller-facing failure funnel for every render error, on any backend."""
+class ImageGenerationError(WorkflowUserFacingError):
+    """One caller-facing failure funnel for every render error, on any backend.
+
+    User-facing by inheritance, which is what stops a provider's own explanation
+    from being replaced with "see server logs" on the regenerate, reroll and
+    rehydrate routes -- the streaming path already relayed it, so the same failed
+    render used to read two different ways depending on which button was pressed.
+    """

@@ -39,13 +39,15 @@ reach.
 
 Where a provider hosts more than images, the dropdown lists only the models that
 generate them — Together AI publishes one catalogue of 271 models, of which 29
-make images, and NanoGPT publishes its 202 image models in a different place from
-its 653 text ones. If a provider stops labelling its catalogue, the dropdown falls
-back to the full list rather than showing you nothing.
+make images, OpenRouter publishes 337 of which 11 declare an image output, and
+NanoGPT publishes its 202 image models in a different place from its 653 text
+ones. If a provider stops labelling its catalogue, the dropdown falls back to the
+full list rather than showing you nothing.
 
 On most providers, asking for the model list is also what proves your key works.
-NanoGPT hands out its catalogue to anyone, so **Test connection** checks the key
-against its usage endpoint first — still free, still not a render.
+NanoGPT and OpenRouter hand out their catalogues to anyone, so **Test connection**
+checks the key against a second free endpoint first — NanoGPT's usage endpoint and
+OpenRouter's `/key`. Still free, still not a render.
 
 Orb stores one key per provider. Switching provider keeps the key for the one you
 left, so you can move back and forth without pasting keys again.
@@ -58,7 +60,7 @@ All of these speak the same OpenAI-shaped `POST /v1/images/generations` contract
 |---|---|---|
 | **xAI (Grok)** | Yes | Probed against the live API, including reference images. Default model `grok-imagine-image`. |
 | **OpenAI** | No | `gpt-image-1`. Uses `size` rather than aspect ratios. |
-| **OpenRouter** | No | Model catalogue varies by account. |
+| **OpenRouter** | Yes | Probed against the live API. One broker key across Google and OpenAI image models. No seed, no negative prompt, and no reference images on any model. Default model `google/gemini-2.5-flash-image`. |
 | **Together AI** | Yes | Probed against the live API. Accepts a seed and arbitrary resolutions (any multiple of 16 up to 1792px). Reference images on its Kontext models only. Default model `black-forest-labs/FLUX.1-schnell`. |
 | **NanoGPT** | Yes | Probed against the live API. 202 image models, including uncensored ones. Accepts a seed, a negative prompt, and any resolution. Reference images on many models but not all. Default model `cyberrealistic-xl`. |
 | **Chutes** | No | |
@@ -95,8 +97,9 @@ The settings panel states this for the provider you selected. In general:
 - **Aspect ratios, not exact pixels.** Orb picks the nearest ratio or size the
   provider accepts and notes it on the image when the match is more than about 2%
   off. Providers that take exact pixels — Together AI — get the resolution you
-  asked for, snapped to the grid they accept. NanoGPT is sent the resolution
-  verbatim and picks the nearest size the chosen model supports, which is why
+  asked for, snapped to the grid they accept. NanoGPT and OpenRouter are sent the
+  resolution verbatim and pick the nearest size the chosen model supports — ask
+  OpenRouter for 1024×576 and a Gemini model answers 1344×768 — which is why
   **Render details** records what actually came back rather than what was asked
   for.
 
@@ -126,6 +129,48 @@ negative prompt and the seed exactly. Its resolution menu is per model too — a
 size the chosen model does not list still renders, at the nearest size it does,
 and on some models at a different price.
 
+### On OpenRouter, the catalogue is not the contract
+
+OpenRouter's image models advertise a `seed` parameter and an `image` input in
+their catalogue entries. Both belong to its *chat* API. Image generation is a
+separate path that silently accepts and drops anything it does not read, so the
+catalogue describes a set of capabilities that endpoint does not have.
+
+Measured rather than read: two renders at the same seed came back different on
+both `gemini-2.5-flash-image` and `gpt-5-image-mini`, and a reference image sent
+under all three field names OpenRouter's peers use — `image`, `images` and
+`image_url` — was ignored by all three, returning a normal image billed at the
+normal price. So Orb sends neither, and says so in the settings panel rather than
+letting you watch a negative prompt do nothing.
+
+What does work is the resolution and your style prompts. Cost comes back in plain
+USD on every render.
+
+The model list includes `openrouter/auto` and `openrouter/auto-beta`, which
+declare an image output but have no image endpoint behind them. Choosing one
+fails with OpenRouter's own *"No endpoint found"*. They are left in the list
+rather than hidden, because a hand-maintained exception list rots against a
+catalogue this size and the provider's own message already explains it.
+
+### The same model can fail and then work
+
+OpenRouter is a broker: one model id routes to several upstream providers, and
+which one serves your request is decided per call. So a render can fail with an
+upstream's restriction and the identical request succeed a minute later on a
+different route. The one seen most often outside the US and EU is Google AI
+Studio's:
+
+> OpenRouter rejected the request (HTTP 400): Google AI Studio: User location is
+> not supported for the API use.
+
+Orb puts the upstream's name in front of the message, because OpenRouter reports
+it and it is the fact that makes the failure actionable — the refusal is Google AI
+Studio's, not OpenRouter's and not Orb's. If it repeats on one model, another
+model in the picker routes elsewhere; `openai/gpt-5-image-mini` and the
+`google/gemini-2.5-flash-image` default were both reachable when
+`google/gemini-3.1-flash-image` was not. Retrying is also reasonable, and costs
+nothing when the request is refused.
+
 ### Content refusals are per model on NanoGPT
 
 NanoGPT is a broker, so the policy that refuses you is the upstream model's, not
@@ -140,8 +185,9 @@ Illustrious checkpoints — render what the smaller commercial APIs will not.
 
 **Render details** shows what the provider reported, in the provider's own unit.
 xAI reports `usd_ticks` and does not document what a tick is worth, so Orb prints
-`1400 usd ticks` rather than a dollar figure it cannot verify. When the response
-reports nothing, Orb shows no cost row rather than a zero.
+`1400 usd ticks` rather than a dollar figure it cannot verify. NanoGPT and
+OpenRouter report plain USD. When the response reports nothing — Together AI
+reports no cost at all — Orb shows no cost row rather than a zero.
 
 Every button that produces an image spends money: **Visualize**, **Regenerate**,
 **Reroll**, and **Rehydrate**. Check your usage on the provider's dashboard;
@@ -153,7 +199,13 @@ Orb does not paraphrase a provider. A failed render shows what the provider
 answered, with the HTTP status in front of it — *"NanoGPT rejected the request
 (HTTP 402): Insufficient credits"* — so the reason is the provider's own words
 rather than Orb's guess at which category they fell into. Credentials and
-internal paths are stripped, and the message is capped.
+internal paths are stripped, and the message is capped. Where the provider is a
+broker relaying someone else's refusal, the upstream that actually refused is
+named first.
+
+You get the same sentence whichever button produced the render — **Visualize**,
+**Regenerate**, **Reroll** or **Rehydrate**. Only a genuine Orb defect is reported
+as *"see server logs"*, so a message you cannot act on is a bug worth reporting.
 
 Commercial providers moderate prompts, and roleplay imagery is the case they
 refuse most often. A refusal arrives the same way, quoting the provider's policy
@@ -185,6 +237,8 @@ somewhere first, and never hands a provider a URL that points back into Orb.
 
 Not every provider in the table supports references. When the selected one does
 not, the option has no effect and renders go to the plain generation endpoint.
+OpenRouter is the one that looks like it should and does not — see
+[On OpenRouter, the catalogue is not the contract](#on-openrouter-the-catalogue-is-not-the-contract).
 
 ### On Together AI, the model decides
 

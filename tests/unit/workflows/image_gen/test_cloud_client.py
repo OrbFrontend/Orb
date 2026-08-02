@@ -207,8 +207,31 @@ async def test_a_type_filter_keeps_only_that_modality():
         {"id": "whisper", "type": "audio"},
         {"id": "seedream", "type": "image"},
     ]
-    models = await _client(_ok(entries)).list_models("/models", "bare_list", "image")
+    models = await _client(_ok(entries)).list_models("/models", "bare_list", "type_image")
     assert models == ["flux-schnell", "seedream"]
+
+
+@pytest.mark.asyncio
+async def test_a_modality_filter_reads_outputs_and_never_inputs():
+    """OpenRouter's 337-entry catalogue has no `type` field at all, and matching on
+    `input_modalities` would keep every text model that can *read* a picture -- which
+    is most of them, and none of which renders one."""
+    entries = [
+        {
+            "id": "google/gemini-2.5-flash-image",
+            "architecture": {"input_modalities": ["image", "text"], "output_modalities": ["image", "text"]},
+        },
+        {
+            "id": "anthropic/claude-opus-5",
+            "architecture": {"input_modalities": ["image", "text"], "output_modalities": ["text"]},
+        },
+        {"id": "deepseek/deepseek-v4-flash", "architecture": {"input_modalities": ["text"], "output_modalities": ["text"]}},
+        # The shape is declared, never assumed: a row missing `architecture`
+        # entirely must be skipped rather than raise on the whole catalogue.
+        {"id": "mystery-model"},
+    ]
+    models = await _client(_ok({"data": entries})).list_models("/models", "openai_data", "output_image")
+    assert models == ["google/gemini-2.5-flash-image"]
 
 
 @pytest.mark.asyncio
@@ -216,7 +239,7 @@ async def test_an_untagged_catalogue_falls_back_to_the_whole_list():
     """The filter is an optimisation, never a gate. A provider that stops tagging
     its entries should cost a longer list, not an empty picker that reads to the
     user as "this key has no models"."""
-    models = await _client(_ok([{"id": "flux"}, {"id": "sdxl"}])).list_models("/models", "bare_list", "image")
+    models = await _client(_ok([{"id": "flux"}, {"id": "sdxl"}])).list_models("/models", "bare_list", "type_image")
     assert models == ["flux", "sdxl"]
 
 
@@ -365,6 +388,71 @@ async def test_an_unknown_model_is_recognised_from_the_code_when_the_message_is_
     with pytest.raises(CloudImageError) as exc:
         await _client(handler).create_image("/images/generations", {"model": "gone"}, provider_id="nanogpt", timeout=10)
     assert exc.value.kind == MODEL_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_a_broker_names_the_upstream_that_actually_refused():
+    """The live body from a geo-blocked render. OpenRouter routes one model id to
+    several upstreams and names the one that answered in `error.metadata`; without it
+    "User location is not supported" reads as Orb or OpenRouter refusing the user.
+
+    It is also the fact that makes the failure *actionable*: the same request routed
+    to a different upstream minutes later and rendered, so the fix is picking another
+    model, not filing a bug.
+    """
+    handler = lambda _request: httpx.Response(  # noqa: E731
+        400,
+        json={
+            "error": {
+                "message": "User location is not supported for the API use.",
+                "code": 400,
+                "metadata": {"provider_name": "Google AI Studio"},
+            }
+        },
+    )
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="openrouter", timeout=10)
+    assert "Google AI Studio: User location is not supported" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_an_upstream_already_named_in_the_message_is_not_named_twice():
+    handler = lambda _request: httpx.Response(  # noqa: E731
+        400,
+        json={"error": {"message": "Google AI Studio returned an error", "metadata": {"provider_name": "Google AI Studio"}}},
+    )
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="openrouter", timeout=10)
+    assert str(exc.value).count("Google AI Studio") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_render_failure_is_user_facing_so_the_json_routes_may_relay_it():
+    """The streaming path always relayed a provider's own words; regenerate, reroll
+    and rehydrate answered "see server logs" for the identical failure. The subclass
+    is what lets those routes tell an actionable rejection from an Orb defect."""
+    from backend.workflows.errors import WorkflowUserFacingError
+
+    handler = lambda _request: httpx.Response(400, json={"error": {"message": "Insufficient credits"}})  # noqa: E731
+    with pytest.raises(WorkflowUserFacingError):
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+
+
+@pytest.mark.asyncio
+async def test_a_numeric_error_code_does_not_break_the_code_reader():
+    """OpenRouter answers `{"error": {"message": ..., "code": 404}}` -- an *int* where
+    xAI and NanoGPT put a string. `_body_codes` skips it rather than choking, and the
+    status alone carries the branch, so picking a chat model by mistake still reaches
+    the user as the provider's own "No model found" rather than a 500."""
+    handler = lambda _request: httpx.Response(  # noqa: E731
+        404, json={"error": {"message": 'No model found for "deepseek/deepseek-v4-flash"', "code": 404}}
+    )
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image(
+            "/images/generations", {"model": "deepseek/deepseek-v4-flash"}, provider_id="openrouter", timeout=10
+        )
+    assert exc.value.kind == MODEL_NOT_FOUND
+    assert "No model found" in str(exc.value)
 
 
 @pytest.mark.asyncio

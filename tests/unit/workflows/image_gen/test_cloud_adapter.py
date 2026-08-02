@@ -41,14 +41,14 @@ _MODELS = {
     "xai": "grok-imagine-image",
     "togetherai": "black-forest-labs/FLUX.1-kontext-pro",
     "nanogpt": "cyberrealistic-xl",
-    "openrouter": "",
+    "chutes": "",
 }
 
 
 def _config(provider: str = "xai", model: str | None = None, **cloud) -> dict:
     """One builder for every provider under test: the rows differ by provider id and
     model, and nothing else, so three near-identical builders were three places to
-    forget a field. `model=""` is a real answer -- OpenRouter ships no default."""
+    forget a field. `model=""` is a real answer -- Chutes ships no default."""
     return normalize_config(
         {
             "source": "cloud",
@@ -249,8 +249,8 @@ async def test_the_attachment_records_real_pixels_and_an_unhonoured_seed():
     [
         ({"provider": "not_a_provider", "providers": {"not_a_provider": {"api_key": "k", "model": "m"}}}, "unknown_provider"),
         ({"provider": "xai", "providers": {"xai": {"api_key": "", "model": "m"}}}, "no_api_key"),
-        # OpenRouter declares no default model, so there is genuinely nothing to run.
-        ({"provider": "openrouter", "providers": {"openrouter": {"api_key": "k", "model": ""}}}, "no_model"),
+        # Chutes declares no default model, so there is genuinely nothing to run.
+        ({"provider": "chutes", "providers": {"chutes": {"api_key": "k", "model": ""}}}, "no_model"),
         ({"provider": "custom", "providers": {"custom": {"api_key": "k", "model": "m"}}}, "no_base_url"),
     ],
 )
@@ -274,17 +274,17 @@ def test_a_configured_provider_is_ready():
 def test_readiness_judges_a_replay_on_the_model_it_recorded():
     """Clearing the model field must not refuse a rehydrate of an image whose own
     model is still there to render it -- the stored model is what will be sent."""
-    adapter = OpenAICompatibleImageAdapter(_config("openrouter"))
+    adapter = OpenAICompatibleImageAdapter(_config("chutes"))
     assert adapter.readiness()["reason"] == "no_model"
     assert adapter.readiness("some/stored-model")["ready"] is True
 
 
 @pytest.mark.asyncio
 async def test_a_render_with_no_model_says_so_instead_of_asking_the_provider():
-    """OpenRouter, Chutes, AI/ML API, ElectronHub and `custom` all ship no
+    """Chutes, AI/ML API, ElectronHub and `custom` all ship no
     `default_model`, so without this gate the render posts `model: ""` and the user
     reads whatever that provider makes of an empty string."""
-    config = _config("openrouter")
+    config = _config("chutes")
 
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"nothing may be posted without a model, got {request.url.path}")
@@ -295,7 +295,7 @@ async def test_a_render_with_no_model_says_so_instead_of_asking_the_provider():
     with pytest.raises(CloudImageError) as excinfo:
         await adapter.generate(_request(), target=_target(adapter, config))
     assert excinfo.value.kind == "no_model"
-    assert "Choose a model for OpenRouter" in str(excinfo.value)
+    assert "Choose a model for Chutes" in str(excinfo.value)
 
 
 @pytest.mark.asyncio
@@ -303,7 +303,7 @@ async def test_test_connection_still_works_before_a_model_is_chosen():
     """The discovery gate is deliberately weaker than the render gate: listing the
     models is what fills the picker, so requiring one first makes it unreachable."""
     handler = lambda _request: httpx.Response(200, json={"data": [{"id": "some/model"}]})  # noqa: E731
-    assert (await _adapter(_config("openrouter"), handler).validate_connection())["models"] == ["some/model"]
+    assert (await _adapter(_config("chutes"), handler).validate_connection())["models"] == ["some/model"]
 
 
 # ── references ───────────────────────────────────────────────────────────────

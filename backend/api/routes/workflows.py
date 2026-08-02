@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -58,6 +59,7 @@ from ...workflows.attachment_cache import (
     validate_workflow_attachment_shape,
 )
 from ...workflows.enablement import effective_workflow_enabled
+from ...workflows.errors import WorkflowUserFacingError
 from ..deps import (
     _workflow_event_stream_response,
     locked_attachment_group,
@@ -85,6 +87,37 @@ def _gate_workflow_sub(
             logger.info("workflow %r %s suspended (disabled)", scrub_log(wid), action)
         raise HTTPException(status_code=404, detail=detail)
     return sub
+
+
+@contextmanager
+def _hook_failures(label: str, wid: Any, aid: int | None = None, *, defect: str) -> Iterator[None]:
+    """The one distinction every hook call site has to make, drawn once.
+
+    A render failure is not an Orb defect: the provider rejected it, the model was
+    retired, the key is out of credits. Those arrive as ``WorkflowUserFacingError``,
+    whose message is the hook's own already-sanitized sentence (see
+    ``workflows/errors.py``), and go out as 502 -- the backend Orb depends on is what
+    did not deliver. Everything else is a bug: 500, traceback in the log, `defect` on
+    the wire and nothing else, since an unexpected traceback is where internals leak.
+
+    Shared so the five hook routes cannot drift: the streaming path already relays
+    the provider's own words, and the same failed render must not read differently
+    because the user pressed Reroll instead of Visualize.
+    """
+
+    def where() -> str:
+        # Built on the failing path only, so the happy path pays nothing for it.
+        target = f"{label} {scrub_log(wid)!r} failed"
+        return target if aid is None else f"{target} for attachment {scrub_log(aid)!r}"
+
+    try:
+        yield
+    except WorkflowUserFacingError as exc:
+        logger.warning("%s: %s", where(), exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    except Exception:
+        logger.exception("%s", where())
+        raise HTTPException(status_code=500, detail=defect) from None
 
 
 @router.get("/api/workflows")
@@ -158,11 +191,8 @@ async def api_query_workflow(workflow_id: str, body: dict = Body(default={})):  
     if sub is None:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} has no query handler")
     settings_snapshot = await get_settings()
-    try:
+    with _hook_failures("query hook", workflow_id, defect="Query handler raised; see server logs"):
         return await sub.callable(QueryCtx(settings=_readonly(settings_snapshot)), body)
-    except Exception:
-        logger.exception("query hook %r failed", scrub_log(workflow_id))
-        raise HTTPException(status_code=500, detail="Query handler raised; see server logs") from None
 
 
 @router.post("/api/workflows/{workflow_id}/enabled")
@@ -211,7 +241,7 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
         client = client_from_settings(settings_snapshot)
         agent_client, agent_model_name = agent_lane_from_settings(settings_snapshot, writer_client=client)
         async with workflow_character_state_lock(conv.get("character_card_id") or "", workflow_id):
-            try:
+            with _hook_failures("on_demand hook", workflow_id, defect="On-demand handler raised; see server logs"):
                 od_ctx = OnDemandCtx(
                     conversation_id=cid,
                     history=_readonly(msgs),
@@ -224,9 +254,6 @@ async def api_trigger_workflow(cid: str, workflow_id: str, body: dict = Body(def
                     character=_readonly(card),
                 )
                 result = await sub.callable(od_ctx, body)
-            except Exception:
-                logger.exception("on_demand hook %r failed", scrub_log(workflow_id))
-                raise HTTPException(status_code=500, detail="On-demand handler raised; see server logs") from None
     # A streaming result is wrapped by the API layer -- the workflow returns a
     # transport-neutral WorkflowEventStream, never an HTTP response. The response
     # is built after the workflow locks release: the event iterator is lazy, so
@@ -275,7 +302,7 @@ async def api_regenerate_attachment(
 
         card_id = conv.get("character_card_id")
         card = await get_character_card(card_id) if card_id else None
-        try:
+        with _hook_failures("regenerate hook", wid, aid, defect="Regenerate handler raised; see server logs"):
             regen_ctx = RegenCtx(
                 conversation_id=cid,
                 message_id=mid,
@@ -291,9 +318,6 @@ async def api_regenerate_attachment(
                 character=_readonly(card),
             )
             new_dicts = await sub.callable(regen_ctx, body)
-        except Exception:
-            logger.exception("regenerate hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
-            raise HTTPException(status_code=500, detail="Regenerate handler raised; see server logs") from None
 
         if not isinstance(new_dicts, list):
             logger.warning(
@@ -481,12 +505,9 @@ async def api_reroll_gen_attachment(
         seed = _generated_seed()
         client = client_from_settings(settings_snapshot)
 
-        try:
+        with _hook_failures("reroll_gen hook", wid, aid, defect="reroll_gen handler raised; see server logs"):
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
             result = await sub.callable(ctx, params, seed)
-        except Exception:
-            logger.exception("reroll_gen hook %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
-            raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs") from None
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
 
@@ -587,12 +608,9 @@ async def api_rehydrate_attachment(
 
         client = client_from_settings(settings_snapshot)
 
-        try:
+        with _hook_failures("reroll_gen (rehydrate)", wid, aid, defect="reroll_gen handler raised; see server logs"):
             ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
             result = await sub.callable(ctx, params, seed)
-        except Exception:
-            logger.exception("reroll_gen (rehydrate) %r failed for attachment %r", scrub_log(wid), scrub_log(aid))
-            raise HTTPException(status_code=500, detail="reroll_gen handler raised; see server logs") from None
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
 

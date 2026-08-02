@@ -211,9 +211,9 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
 
     def _require_ready(self, model: str) -> ProviderPreset:
         """Enough to render. Reached before a request is built, so a provider with no
-        `default_model` -- OpenRouter, Chutes, AI/ML API, ElectronHub and `custom` all
-        ship none -- says "choose a model" instead of posting `model: ""` and relaying
-        whatever the provider makes of it."""
+        `default_model` -- Chutes, AI/ML API, ElectronHub and `custom` all ship none --
+        says "choose a model" instead of posting `model: ""` and relaying whatever the
+        provider makes of it."""
         state = self.readiness(model)
         return self._pass(state, blocked=not state["ready"])
 
@@ -362,7 +362,7 @@ async def _discover(client: OpenAIImageClient, preset: ProviderPreset) -> list[s
     `providers.py` -- but unpacked in *one* place, so Test connection and the model
     picker can never ask two different questions.
     """
-    return await client.list_models(preset.models_path, preset.models_response, preset.models_type_filter)
+    return await client.list_models(preset.models_path, preset.models_response, preset.models_filter)
 
 
 def _probe_size(data: bytes) -> tuple[int | None, int | None]:

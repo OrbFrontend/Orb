@@ -8,11 +8,15 @@ so the API never tells you a parameter was wrong: send `negative_prompt` to a
 provider that has no such field and it returns a perfectly good image that ignored
 it. A field is emitted only when the preset declares it.
 
-Only the **xai**, **togetherai** and **nanogpt** rows are verified against the live
-API; every other row is declared from vendor documentation and marked
-``verified=False`` -- and the two verified rows both contradicted their own docs on
-a field that fails silently, which is what the flag is warning about. Each row
-carries the measurement that corrected it.
+Only the **xai**, **togetherai**, **nanogpt** and **openrouter** rows are verified
+against the live API; every other row is declared from vendor documentation and
+marked ``verified=False`` -- and every verified row contradicted its own catalogue
+or docs on a field that fails silently, which is what the flag is warning about.
+Each row carries the measurement that corrected it.
+
+A provider's own catalogue is not evidence either. OpenRouter's image models
+advertise `seed` and an `image` input modality; both are the `/chat/completions`
+schema, and both are inert on the images path. Only a measured effect counts.
 """
 
 from __future__ import annotations
@@ -54,10 +58,15 @@ class ProviderPreset:
     # connection resting on it answers "Connected" to a key that cannot render a
     # thing. Never a generations path -- see `validate_connection` on ImageAdapter.
     auth_probe_path: str = ""
-    # Kept only when an entry declares this `type`. Together's `/models` is one list
-    # of everything it hosts -- 271 entries, 29 of them image models -- so without
-    # this the picker is 242 chat models the user has to scroll past.
-    models_type_filter: str = ""
+    # How a catalogue entry is recognised as an image model, naming a rule in
+    # `_MODEL_FILTERS` (openai_image_client.py); "" keeps every entry. Needed
+    # wherever `/models` is one list of everything the provider hosts: Together's is
+    # 271 entries, 29 of them image models, so without this the picker is 242 chat
+    # models the user has to scroll past. Which *field* answers the question is not
+    # agreed on -- Together tags each entry `type: "image"`, while OpenRouter has no
+    # `type` field at all and declares `architecture.output_modalities` instead --
+    # so the rule is declared per provider rather than inferred from the payload.
+    models_filter: str = ""
     # "size" -> `size: "1024x1024"`, "aspect_ratio" -> `aspect_ratio: "16:9"`,
     # "width_height" -> `width: 1024, height: 576`, "none" -> the provider decides.
     # Never send the other spelling: xAI rejects `size` outright, which is the
@@ -170,7 +179,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
         base_url="https://api.together.xyz/v1",
         # A bare JSON array, and one catalogue for every modality it hosts.
         models_response="bare_list",
-        models_type_filter="image",
+        models_filter="type_image",
         # NOT `size`, whatever the OpenAI-compatible framing suggests: see the
         # module docstring. Verified end to end -- 1024x576 in, 1024x576 out.
         dimension_mode="width_height",
@@ -204,6 +213,56 @@ PRESETS: tuple[ProviderPreset, ...] = (
             "reports no cost for a render",
         ),
     ),
+    ProviderPreset(
+        id="openrouter",
+        label="OpenRouter",
+        base_url="https://openrouter.ai/api/v1",
+        # No `edits_path`: `/images/edits` answers a plain-text "404 Not Found" --
+        # not even JSON. Nor does the generations body take one; see below.
+        models_response="openai_data",
+        # 337 entries and not one `type` field. 11 declare an image output modality,
+        # two of which are the `openrouter/auto` routers -- they 404 with "No
+        # endpoint found" on this path, and are deliberately left in the picker
+        # rather than denylisted: the provider's own words explain it, and a
+        # hand-maintained exception list rots against a catalogue this size.
+        models_filter="output_image",
+        # `/models` answers 200 with no key at all, so the list proves the provider
+        # is up and nothing about the key. `/key` is free, and 401s.
+        auth_probe_path="/key",
+        # Verified: `size` is read, then snapped by the model to its own vocabulary
+        # -- "1024x576" came back 1344x768 and "576x1024" came back 768x1344. Hence
+        # no `sizes` menu, for NanoGPT's reason: each model publishes its own, and
+        # snapping to a menu the next model does not share is a worse answer than
+        # the one the provider itself picks. See `gaps`.
+        dimension_mode="size",
+        # Everything else is left at its default-off, and each one was measured
+        # rather than read off the catalogue:
+        #
+        # `supports_seed`: the image models all list `seed` in `supported_parameters`
+        # -- that is the *chat* schema, and this endpoint is a shim over it. Two
+        # calls at one seed returned different images on `gemini-2.5-flash-image`
+        # *and* on `gpt-5-image-mini`, so it is a provider fact, not a per-model
+        # hole, and `seed_honored` would be a claim the user cannot check.
+        #
+        # `supports_references`: the image models declare `image` among their input
+        # modalities -- true of `/chat/completions`, not of this path. `image`,
+        # `images` and `image_url` were each sent with an unmistakable reference
+        # (magenta field, black circle) and a keep-the-background prompt; all three
+        # answered 200 having rendered the prompt alone. Unknown fields are accepted
+        # silently here, so "no error" is never evidence a field was read.
+        default_model="google/gemini-2.5-flash-image",
+        # Verified: 52,812 characters accepted. The real wall is the chosen model's
+        # context, which is far past anything Orb assembles, so this is headroom.
+        max_prompt=32_000,
+        docs_url="https://openrouter.ai/docs/features/multimodal/image-generation",
+        verified=True,
+        gaps=(
+            *_GAPS_NO_CONTROLS,
+            "renders the nearest size its model supports, which may not be the one requested",
+            "accepts no reference images on any model, whatever its catalogue entry claims",
+            "reports the cost of each render in USD",
+        ),
+    ),
     # ── declared from vendor docs, unverified ────────────────────────────────
     ProviderPreset(
         id="openai",
@@ -218,14 +277,6 @@ PRESETS: tuple[ProviderPreset, ...] = (
         reference_encoding="url_object",
         default_model="gpt-image-1",
         docs_url="https://platform.openai.com/docs/api-reference/images",
-        gaps=_GAPS_NO_CONTROLS,
-    ),
-    ProviderPreset(
-        id="openrouter",
-        label="OpenRouter",
-        base_url="https://openrouter.ai/api/v1",
-        dimension_mode="none",
-        docs_url="https://openrouter.ai/docs",
         gaps=_GAPS_NO_CONTROLS,
     ),
     ProviderPreset(

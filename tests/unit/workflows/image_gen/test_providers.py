@@ -33,6 +33,9 @@ assert TOGETHER is not None
 NANOGPT = get_preset("nanogpt")
 assert NANOGPT is not None
 
+OPENROUTER = get_preset("openrouter")
+assert OPENROUTER is not None
+
 
 def test_every_preset_endpoint_is_https():
     for preset in PRESETS:
@@ -46,7 +49,7 @@ def test_every_preset_endpoint_is_https():
         assert not parsed.username and not parsed.password, preset.id
     # An unverified row is a guess from vendor docs, and saying so in the table is
     # what keeps the next person from trusting it as measured fact.
-    assert [preset.id for preset in PRESETS if preset.verified] == ["xai", "togetherai", "nanogpt"]
+    assert [preset.id for preset in PRESETS if preset.verified] == ["xai", "togetherai", "openrouter", "nanogpt"]
 
 
 def test_a_width_height_preset_declares_the_grid_it_snaps_to():
@@ -336,6 +339,41 @@ def test_nanogpt_offers_references_on_every_model_and_names_the_trade_once():
 
 
 def test_a_provider_without_reference_support_never_takes_them():
-    openrouter = get_preset("openrouter")
-    assert openrouter is not None
-    assert takes_references(openrouter, "anything-at-all") is False
+    assert takes_references(OPENROUTER, "anything-at-all") is False
+
+
+def test_openrouter_sends_neither_a_seed_nor_a_negative_prompt():
+    """Both were measured inert, not read off the catalogue -- which advertises
+    `seed` on every image model because the images path is a shim over the chat
+    schema. Two calls at one seed disagreed on two different model families, so
+    emitting the field would make `seed_honored` a claim the user cannot check.
+
+    Unknown fields are accepted silently here, so the allowlist is the only thing
+    standing between a dropped field and a user who thinks it applied.
+    """
+    body = build_generation_body(
+        OPENROUTER,
+        model="google/gemini-2.5-flash-image",
+        prompt="p",
+        negative_prompt="blurry, watermark",
+        seed=12345,
+        quality="high",
+        width=1024,
+        height=576,
+    ).body
+    assert "seed" not in body
+    assert "negative_prompt" not in body
+    assert "quality" not in body
+    # The one dimension field it does read, verbatim: the model snaps it itself.
+    assert body["size"] == "1024x576"
+
+
+def test_openrouter_passes_the_requested_size_through_without_a_menu():
+    """`size` is honoured, then snapped by the chosen model to its own vocabulary --
+    1024x576 came back 1344x768. Declaring a `sizes` menu would snap it a second
+    time, to a list the next model does not share, so there is deliberately none and
+    no note claiming a substitution Orb did not make."""
+    assert OPENROUTER.sizes == ()
+    built = build_generation_body(OPENROUTER, model="m", prompt="p", width=1024, height=576)
+    assert built.body["size"] == "1024x576"
+    assert built.notes == []

@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -156,6 +156,22 @@ def _body_text(payload: Any) -> str:
     return _string_leaves(payload)
 
 
+def _upstream(payload: Any) -> str:
+    """Which upstream a *broker* is relaying a refusal from, when it names one.
+
+    OpenRouter routes one model id to several providers and puts whichever answered
+    in `error.metadata.provider_name`. Worth carrying in front of the message: *"User
+    location is not supported for the API use"* reads as Orb or OpenRouter refusing
+    the user until you know Google AI Studio said it -- and that the same catalogue
+    holds models that route elsewhere and work from here. Without it the one
+    actionable fact in the response is the one fact dropped.
+    """
+    error = payload.get("error") if isinstance(payload, Mapping) else None
+    metadata = error.get("metadata") if isinstance(error, Mapping) else None
+    name = metadata.get("provider_name") if isinstance(metadata, Mapping) else None
+    return name if isinstance(name, str) and name else ""
+
+
 def _body_codes(payload: Any) -> str:
     """Every machine-readable code in an error body, lowercased and joined.
 
@@ -222,6 +238,12 @@ class OpenAIImageClient:
         text = _body_text(payload)
         lowered = text.lower()
         codes = _body_codes(payload)
+        upstream = _upstream(payload)
+        if upstream and upstream.lower() not in lowered:
+            # In front of the provider's words, never instead of them, and only when
+            # the words do not already name it -- so a broker that says "Google AI
+            # Studio returned an error" is not made to say it twice.
+            text = f"{upstream}: {text}"
         excerpt = _scrub(text, self.api_key)
         if status in (401, 403):
             # 403 is the loose one -- some providers spend it on content refusals and
@@ -286,7 +308,7 @@ class OpenAIImageClient:
 
     # ── model discovery ───────────────────────────────────────────────────────
 
-    async def list_models(self, path: str, response_shape: str, type_filter: str = "") -> list[str]:
+    async def list_models(self, path: str, response_shape: str, model_filter: str = "") -> list[str]:
         """The provider's model ids, narrowed to the ones that make images.
 
         The **only** endpoint `validate_connection` touches, and nothing here may
@@ -310,8 +332,8 @@ class OpenAIImageClient:
             entries = decoded.get(key) if isinstance(decoded, Mapping) else None
         if not isinstance(entries, list):
             raise self._bad("returned a malformed model list")
-        names = _model_ids(entries, type_filter)
-        if not names and type_filter:
+        names = _model_ids(entries, model_filter)
+        if not names and model_filter:
             # The filter is an optimisation, never a gate: a provider that stops
             # tagging its entries should cost the user a longer list, not an empty
             # picker that reads as "this key has no models".
@@ -404,11 +426,38 @@ class OpenAIImageClient:
         return data
 
 
-def _model_ids(entries: list[Any], type_filter: str) -> list[str]:
-    """The `id` of every entry, de-duplicated and sorted, optionally by `type`."""
+def _declares_image_type(entry: Mapping[str, Any]) -> bool:
+    """Together: every catalogue entry carries a `type`."""
+    return entry.get("type") == "image"
+
+
+def _outputs_an_image(entry: Mapping[str, Any]) -> bool:
+    """OpenRouter: no `type` anywhere, but each entry declares its modalities.
+
+    Read from `output_modalities`, never `modality` or `input_modalities` -- an
+    image model's inputs say what it can be *shown*, and every text model that can
+    read a picture matches on those.
+    """
+    architecture = entry.get("architecture")
+    modalities = architecture.get("output_modalities") if isinstance(architecture, Mapping) else None
+    return isinstance(modalities, (list, tuple)) and "image" in modalities
+
+
+# Which rule a provider uses is declared on its preset -- see `models_filter` in
+# providers.py. An unknown name filters nothing, so a preset typo costs a longer
+# picker rather than an empty one, matching the fallback in `list_models`.
+_MODEL_FILTERS: dict[str, Callable[[Mapping[str, Any]], bool]] = {
+    "type_image": _declares_image_type,
+    "output_image": _outputs_an_image,
+}
+
+
+def _model_ids(entries: list[Any], model_filter: str) -> list[str]:
+    """The `id` of every entry, de-duplicated and sorted, optionally image-only."""
+    keep = _MODEL_FILTERS.get(model_filter)
     names = []
     for entry in entries:
-        if type_filter and (not isinstance(entry, Mapping) or entry.get("type") != type_filter):
+        if keep is not None and not (isinstance(entry, Mapping) and keep(entry)):
             continue
         ident = entry.get("id") if isinstance(entry, Mapping) else entry
         if isinstance(ident, str) and ident and len(ident) <= 512:
