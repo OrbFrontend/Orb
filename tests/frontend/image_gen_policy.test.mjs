@@ -11,6 +11,7 @@ import {
   COMFY_CONNECTION,
   connectionList,
   isLoopbackUrl,
+  modelTakesReferences,
   normalizePromptFormat,
   pendingDisclosures,
   povChoices,
@@ -253,4 +254,26 @@ test("a connection just added is listed before it holds anything", () => {
     connectionList(empty, PROVIDERS, ["openai"]).map((c) => c.id),
     [COMFY_CONNECTION, "openai"],
   );
+});
+
+test("reference support can be a provider fact with a model-shaped hole", () => {
+  // Together supports references, but only on its Kontext models; the text-to-image
+  // ones answer "Unsupported use of 'image_url' parameter" rather than ignoring it.
+  const together = {
+    supports_references: true,
+    default_model: "black-forest-labs/FLUX.1-schnell",
+    reference_models: ["kontext"],
+  };
+  assert.equal(modelTakesReferences(together, "black-forest-labs/FLUX.1-kontext-pro"), true);
+  assert.equal(modelTakesReferences(together, "black-forest-labs/FLUX.1-schnell"), false);
+  // No model chosen yet falls back to the default, which is what will be sent.
+  assert.equal(modelTakesReferences(together, ""), false);
+
+  // An empty allowlist is how every other provider reads: the whole catalogue.
+  assert.equal(modelTakesReferences({ supports_references: true, reference_models: [] }, "anything"), true);
+  assert.equal(modelTakesReferences({ supports_references: true }, "anything"), true);
+
+  // A provider with no reference support at all never takes them.
+  assert.equal(modelTakesReferences({ supports_references: false, reference_models: [] }, "kontext"), false);
+  assert.equal(modelTakesReferences(null, "kontext"), false);
 });

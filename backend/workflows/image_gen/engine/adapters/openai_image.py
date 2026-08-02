@@ -28,6 +28,7 @@ from ..providers import (
     build_edit_body,
     build_generation_body,
     get_preset,
+    takes_references,
 )
 from ..target import RenderTarget
 from .base import ImageAdapter
@@ -123,23 +124,35 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             if isinstance(stored_w, int) and isinstance(stored_h, int) and stored_w > 0 and stored_h > 0:
                 width, height = stored_w, stored_h
         references: tuple[Mapping[str, Any], ...] = ()
+        notes: list[str] = []
         source = str(cloud.get("reference_source") or "")
-        if preset is not None and preset.supports_references and preset.edits_path and source in REFERENCE_SOURCES:
-            references = (
-                {
-                    "slot": list(CLOUD_REFERENCE_SLOT),
-                    "source": source,
-                    "label": "Reference image",
-                    # Read per-entry by references.py: a provider taking PNG/JPEG must
-                    # not be handed the WebP every render is stored as.
-                    "mimes": list(preset.reference_mimes),
-                    "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
-                    # Optional, unlike a ComfyUI graph slot: the same model has a
-                    # plain generations endpoint one field away, so a first Visualize
-                    # in an imageless chat renders from the prompt and says so.
-                    "required": False,
-                },
-            )
+        # Gated on the capability, not on `edits_path`: Together has no
+        # `/images/edits` and still takes references, on the generations body.
+        if preset is not None and preset.supports_references and source in REFERENCE_SOURCES:
+            if not takes_references(preset, model):
+                # No slot is what stops the reference being resolved, encoded and
+                # sent to a model that cannot use it. Withholding it rather than
+                # letting the provider answer matters because the answer is not
+                # uniform: Together's FLUX.2 rejects `image_url` outright, while its
+                # schnell default returns 200 having quietly ignored it -- a paid
+                # render with no reference and nothing to say so.
+                notes.append(f"{model} does not accept reference images, so none was sent")
+            else:
+                references = (
+                    {
+                        "slot": list(CLOUD_REFERENCE_SLOT),
+                        "source": source,
+                        "label": "Reference image",
+                        # Read per-entry by references.py: a provider taking PNG/JPEG
+                        # must not be handed the WebP every render is stored as.
+                        "mimes": list(preset.reference_mimes),
+                        "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
+                        # Optional, unlike a ComfyUI graph slot: the same model has a
+                        # plain generations endpoint one field away, so a first
+                        # Visualize in an imageless chat renders from the prompt.
+                        "required": False,
+                    },
+                )
         return RenderTarget(
             source=self.source_id,
             target_id="",
@@ -150,6 +163,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             width=width,
             height=height,
             reference_slots=references,
+            notes=tuple(notes),
         )
 
     # ── network ───────────────────────────────────────────────────────────────
@@ -182,7 +196,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         """
         preset = self._require_preset()
         client = self._client(30.0)
-        models = await client.list_models(preset.models_path, preset.models_response)
+        models = await client.list_models(preset.models_path, preset.models_response, preset.models_type_filter)
         return {
             "ok": True,
             "capabilities": dict(CAPABILITIES),
@@ -192,7 +206,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
 
     async def list_models(self) -> list[str]:
         preset = self._require_preset()
-        return await self._client(30.0).list_models(preset.models_path, preset.models_response)
+        return await self._client(30.0).list_models(preset.models_path, preset.models_response, preset.models_type_filter)
 
     async def generate(
         self,
@@ -207,7 +221,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         await emit(progress, "rendering", {"backend": self.label})
 
         built = self._build(preset, request, target, model=target.model)
-        path = preset.edits_path if request.references and preset.edits_path else preset.generations_path
+        path = self._path(preset, request, model=target.model)
         notes = [*target.notes, *built.notes]
         try:
             image = await client.create_image(path, built.body, provider_id=preset.id, timeout=request.timeout_seconds)
@@ -220,7 +234,14 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             if exc.kind != MODEL_NOT_FOUND or not configured or configured == target.model:
                 raise
             notes.append(f"the model this image used ({target.model}) is gone; rendered with {configured} instead")
+            # The substitute is not the model the slot was offered for: replaying a
+            # Kontext image after the connection moved to a text-to-image model would
+            # otherwise re-send `image_url` to something that cannot use it, and a
+            # degrade meant to rescue the render would drop the reference in silence.
+            if request.references and not takes_references(preset, configured):
+                notes.append(f"{configured} does not accept reference images, so none was sent")
             built = self._build(preset, request, target, model=configured)
+            path = self._path(preset, request, model=configured)
             image = await client.create_image(path, built.body, provider_id=preset.id, timeout=request.timeout_seconds)
             notes.extend(built.notes)
             model = configured
@@ -253,6 +274,19 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             },
         )
 
+    def _path(self, preset: ProviderPreset, request: ImageRequest, *, model: str) -> str:
+        """Where this render posts.
+
+        References ride the edits endpoint where one exists and the ordinary
+        generations body where it does not -- Together has no `/images/edits` and
+        still takes them. Derived from the same condition `_build` uses, so a body
+        that carries no reference can never be posted to an endpoint that requires
+        one.
+        """
+        if request.references and preset.edits_path and takes_references(preset, model):
+            return preset.edits_path
+        return preset.generations_path
+
     def _build(self, preset: ProviderPreset, request: ImageRequest, target: RenderTarget, *, model: str):
         common = {
             "model": model,
@@ -267,9 +301,13 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             "n": 1,
         }
         # Both builders are strict allowlists over the same preset, so anything the
-        # provider does not declare is dropped there rather than guarded here.
-        if request.references and preset.edits_path:
-            return build_edit_body(preset, references=request.references, **common)
+        # provider does not declare is dropped there rather than guarded here. The
+        # model is the one thing a preset cannot answer alone: `resolve_target`
+        # already withholds the slot, and this keeps that true for the substituted
+        # model on the degrade path.
+        references = request.references if takes_references(preset, model) else ()
+        if references:
+            return build_edit_body(preset, references=references, **common)
         return build_generation_body(preset, **common)
 
 

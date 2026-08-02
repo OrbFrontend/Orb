@@ -37,6 +37,11 @@ never submits a generation, so it never costs anything. A successful test also
 turns the **Model** field into a dropdown of the models that key can actually
 reach.
 
+Where a provider hosts more than images, the dropdown lists only the models that
+generate them — Together AI publishes one catalogue of 271 models, of which 29
+make images. If a provider stops labelling its catalogue, the dropdown falls
+back to the full list rather than showing you nothing.
+
 Orb stores one key per provider. Switching provider keeps the key for the one you
 left, so you can move back and forth without pasting keys again.
 
@@ -49,7 +54,7 @@ All of these speak the same OpenAI-shaped `POST /v1/images/generations` contract
 | **xAI (Grok)** | Yes | Probed against the live API, including reference images. Default model `grok-imagine-image`. |
 | **OpenAI** | No | `gpt-image-1`. Uses `size` rather than aspect ratios. |
 | **OpenRouter** | No | Model catalogue varies by account. |
-| **Together AI** | No | The one provider in this table that accepts a negative prompt *and* a seed. |
+| **Together AI** | Yes | Probed against the live API. Accepts a seed and arbitrary resolutions (any multiple of 16 up to 1792px). Reference images on its Kontext models only. Default model `black-forest-labs/FLUX.1-schnell`. |
 | **NanoGPT** | No | |
 | **Chutes** | No | |
 | **Z.AI** | No | |
@@ -84,10 +89,27 @@ The settings panel states this for the provider you selected. In general:
 - **No steps, CFG, sampler, or scheduler.**
 - **Aspect ratios, not exact pixels.** Orb picks the nearest ratio or size the
   provider accepts and notes it on the image when the match is more than about 2%
-  off.
+  off. Providers that take exact pixels — Together AI — get the resolution you
+  asked for, snapped to the grid they accept.
 
 Style prompts, the character appearance prompt, the camera, and the resolution
 all still apply.
+
+### When the model, not the provider, is the limit
+
+A capability is declared per provider, but some models on a provider ignore a
+field the provider itself supports. Together AI accepts a negative prompt, yet
+its distilled models — `FLUX.1-schnell` (the default) and
+`Juggernaut-Lightning-Flux` — run without CFG and have nothing to apply one
+with. They return the identical image whether you send one or not.
+
+Orb still sends the field, and notes on the image that the model ignored it, so
+a negative style prompt that is doing nothing says so instead of leaving you to
+wonder. To have negative prompts take effect, pick a non-distilled model.
+
+Together AI also honours a seed without guaranteeing it reproduces: the same
+seed usually returns the same image, but not always. Treat it as influence over
+the result rather than as a reproducibility guarantee.
 
 ## Cost
 
@@ -121,15 +143,40 @@ section, and pick what Orb should feed the provider:
 
 Turning this on is a second, larger disclosure, and Orb asks for it separately
 from the prompt-only one. Renders then route to the provider's image-edit
-endpoint with the image sent inline. Orb converts it to a format the provider
-accepts — generated images are stored as WebP and most providers take only PNG
-and JPEG — and holds a cloud reference to 4 MB, resizing and re-compressing as
-needed because the image rides base64 inside a JSON request body. A reference
-that cannot be brought under the limit fails the render rather than being sent
-oversized.
+endpoint — or, where a provider has none, carry the image on the ordinary
+generation call. Orb converts it to a format the provider accepts — generated
+images are stored as WebP and most providers take only PNG and JPEG — and holds
+a cloud reference to 4 MB, resizing and re-compressing as needed because the
+image rides base64 inside a JSON request body. A reference that cannot be
+brought under the limit fails the render rather than being sent oversized.
+
+The image is always sent inline, as a `data:` URI. Orb never uploads it
+somewhere first, and never hands a provider a URL that points back into Orb.
 
 Not every provider in the table supports references. When the selected one does
 not, the option has no effect and renders go to the plain generation endpoint.
+
+### On Together AI, the model decides
+
+Together has no image-edit endpoint, but its **FLUX.1 Kontext** models (`pro` and
+`max`) accept a reference on the ordinary generation call, so references work
+there. Its text-to-image models — including the `FLUX.1-schnell` default — do
+not, and they disagree about how to say so: FLUX.2 and Seedream reject the
+request, while `FLUX.1-schnell` returns a perfectly good image that ignored the
+reference entirely.
+
+So Orb checks the model, not just the provider. Choose a Kontext model and the
+reference is sent; choose one that cannot take it and Orb sends no reference,
+says so on the image under **Render details**, and warns you in the
+**Connection** section as soon as you turn the option on. Models Orb has not
+verified are treated as unable to take a reference — under-promising costs you a
+note, while over-promising costs a paid render that quietly leaves the character
+reference out.
+
+One thing the resolution picker cannot control: a Kontext render takes its size
+from the reference image, so a 512×512 reference returns a square whatever the
+picker says. The image notes this, and **Render details** records the size that
+actually came back.
 
 The same is true when nothing resolves — a new conversation with no images yet
 and no character reference. The render goes to the generation endpoint and the

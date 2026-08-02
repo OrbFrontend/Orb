@@ -181,6 +181,18 @@ export function findConnection(connections, id) {
   return connections.find((c) => c.id === id) || null;
 }
 
+// A provider can support reference images while the model chosen on it does not:
+// Together's Kontext models take one, and its text-to-image models answer
+// "Unsupported use of 'image_url' parameter" outright. An empty allowlist means
+// the provider's whole catalogue takes them, which is how every other row reads.
+export function modelTakesReferences(preset, model) {
+  if (!preset?.supports_references) return false;
+  const allowed = Array.isArray(preset.reference_models) ? preset.reference_models : [];
+  if (!allowed.length) return true;
+  const chosen = String(model || preset.default_model || "").toLowerCase();
+  return allowed.some((marker) => chosen.includes(marker));
+}
+
 // Every disclosure a save must collect, one per connection a style can reach. Asked
 // per connection because a save can turn on a second remote backend without it ever
 // being "active"; an unlinked connection is not a boundary anything will cross.

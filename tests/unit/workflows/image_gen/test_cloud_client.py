@@ -112,10 +112,12 @@ async def test_a_non_image_payload_is_refused():
 
 
 @pytest.mark.asyncio
-async def test_both_model_list_shapes_are_read():
-    """xAI's image-model endpoint answers `{"models": [...]}`, not the OpenAI
-    `{"data": [...]}`. Reading the wrong key yields an empty dropdown, which reads
-    as "no models" rather than as "wrong parser"."""
+async def test_all_three_model_list_shapes_are_read():
+    """xAI's image-model endpoint answers `{"models": [...]}`, OpenAI answers
+    `{"data": [...]}`, and Together answers a bare array. Reading the wrong shape
+    yields an empty dropdown, which reads as "no models" rather than as "wrong
+    parser" -- Together's row shipped as `openai_data` and failed Test connection
+    against a provider that was answering perfectly."""
     xai = await _client(_ok({"models": [{"id": "grok-imagine-image"}, {"id": "grok-imagine-image-quality"}]})).list_models(
         "/image-generation-models", "models_list"
     )
@@ -123,6 +125,41 @@ async def test_both_model_list_shapes_are_read():
 
     openai = await _client(_ok({"data": [{"id": "gpt-image-1"}]})).list_models("/models", "openai_data")
     assert openai == ["gpt-image-1"]
+
+    together = await _client(_ok([{"id": "flux", "type": "image"}, {"id": "kimi", "type": "chat"}])).list_models(
+        "/models", "bare_list"
+    )
+    assert together == ["flux", "kimi"]
+
+
+@pytest.mark.asyncio
+async def test_a_type_filter_keeps_only_that_modality():
+    """Together hosts one catalogue for everything: 271 entries, 29 of them image
+    models. Unfiltered, the picker is mostly chat models that cannot render."""
+    entries = [
+        {"id": "flux-schnell", "type": "image"},
+        {"id": "kimi-k3", "type": "chat"},
+        {"id": "whisper", "type": "audio"},
+        {"id": "seedream", "type": "image"},
+    ]
+    models = await _client(_ok(entries)).list_models("/models", "bare_list", "image")
+    assert models == ["flux-schnell", "seedream"]
+
+
+@pytest.mark.asyncio
+async def test_an_untagged_catalogue_falls_back_to_the_whole_list():
+    """The filter is an optimisation, never a gate. A provider that stops tagging
+    its entries should cost a longer list, not an empty picker that reads to the
+    user as "this key has no models"."""
+    models = await _client(_ok([{"id": "flux"}, {"id": "sdxl"}])).list_models("/models", "bare_list", "image")
+    assert models == ["flux", "sdxl"]
+
+
+@pytest.mark.asyncio
+async def test_a_bare_list_shape_pointed_at_a_mapping_is_still_malformed():
+    with pytest.raises(CloudImageError) as excinfo:
+        await _client(_ok({"data": [{"id": "flux"}]})).list_models("/models", "bare_list")
+    assert excinfo.value.kind == "malformed"
 
 
 # ── the error funnel ─────────────────────────────────────────────────────────

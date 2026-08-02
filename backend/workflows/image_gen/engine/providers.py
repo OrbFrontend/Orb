@@ -8,8 +8,14 @@ so the API never tells you a parameter was wrong: send `negative_prompt` to a
 provider that has no such field and it returns a perfectly good image that ignored
 it. A field is emitted only when the preset declares it.
 
-Only the **xai** row is verified against the live API; every other row is declared
-from vendor documentation and marked ``verified=False``.
+Only the **xai** and **togetherai** rows are verified against the live API; every
+other row is declared from vendor documentation and marked ``verified=False``.
+
+Together is the cautionary tale the paragraph above describes. It was declared
+``dimension_mode="size"`` from its docs; the live API accepts `size`, ignores it,
+and renders the model default -- so a 1024x576 request was mapped to a square,
+disclosed to the user as a square, and came back 1024x768. Three separate wrong
+answers from one undeclared field. It speaks `width`/`height` integers instead.
 """
 
 from __future__ import annotations
@@ -37,21 +43,57 @@ class ProviderPreset:
     edits_path: str = ""
     models_path: str = "/models"
     # OpenAI answers `{"data":[{id}]}`; xAI's image-model endpoint answers
-    # `{"models":[{id, ...}]}`. Not the same shape, not interchangeable.
+    # `{"models":[{id, ...}]}`; Together answers a *bare JSON array*. Not the same
+    # shape, not interchangeable -- reading the wrong one yields an empty list and
+    # a Test connection button that fails against a perfectly healthy provider.
     models_response: str = "openai_data"
+    # Kept only when an entry declares this `type`. Together's `/models` is one list
+    # of everything it hosts -- 271 entries, 29 of them image models -- so without
+    # this the picker is 242 chat models the user has to scroll past.
+    models_type_filter: str = ""
     # "size" -> `size: "1024x1024"`, "aspect_ratio" -> `aspect_ratio: "16:9"`,
-    # "none" -> the provider decides. Never send the other spelling: xAI rejects
-    # `size` outright, which is the *polite* failure -- the impolite one is
-    # accepting and ignoring it.
+    # "width_height" -> `width: 1024, height: 576`, "none" -> the provider decides.
+    # Never send the other spelling: xAI rejects `size` outright, which is the
+    # *polite* failure -- the impolite one is Together accepting and ignoring it.
     dimension_mode: str = "none"
     aspect_ratios: tuple[str, ...] = ()
     sizes: tuple[str, ...] = ()
+    # `width_height` only: the per-edge pixel bounds and the granularity the provider
+    # accepts. Together 400s on a non-multiple of 16, so this is a hard contract
+    # rather than a rounding preference.
+    min_dimension: int = 0
+    max_dimension: int = 0
+    dimension_step: int = 0
     supports_negative_prompt: bool = False
+    # Models that accept `negative_prompt` and silently drop it -- matched as
+    # lowercase substrings of the model id. A provider-level capability with a
+    # model-level hole: FLUX.1-schnell is distilled and runs without CFG, so it has
+    # nothing to apply a negative prompt *with*, and says so by returning the
+    # byte-identical image. Verified per entry, never inferred from a family name.
+    negative_prompt_blind: tuple[str, ...] = ()
     supports_seed: bool = False
     supports_quality: bool = False
     supports_references: bool = False
-    # The JSON field references ride in on the edits endpoint.
+    # The JSON field references ride in. On a provider with no `edits_path` they
+    # ride the generations body instead -- Together has no `/images/edits` at all,
+    # yet its edit models take an `image_url` on the ordinary generations call, so
+    # "no edits endpoint" and "no reference support" are not the same fact.
     reference_field: str = "images"
+    # How that field is shaped: "url_objects" -> `[{"url": ...}]`, "url_object" ->
+    # `{"url": ...}`, "string" -> the bare URI. Declared rather than inferred from
+    # the field name, because getting it wrong is invisible: Together answers 200
+    # and renders the prompt alone when the shape is not the one it wanted.
+    reference_encoding: str = "url_objects"
+    # When non-empty, only these models accept a reference -- same lowercase
+    # substring match, and the same epistemics as `negative_prompt_blind`: an
+    # allowlist, so a model nobody has probed is treated as incapable. Under-
+    # promising costs a disclosure; over-promising costs a silent no-op that
+    # renders without the character reference and still bills for it.
+    reference_models: tuple[str, ...] = ()
+    # True when a reference render takes its size from the reference rather than
+    # from the request. An image-to-image model generally follows its input, so the
+    # resolution picker silently stops applying the moment references are on.
+    reference_drives_size: bool = False
     reference_mimes: tuple[str, ...] = ("image/png", "image/jpeg")
     response_formats: tuple[str, ...] = ("b64_json", "url")
     default_model: str = ""
@@ -110,6 +152,54 @@ PRESETS: tuple[ProviderPreset, ...] = (
         verified=True,
         gaps=_GAPS_NO_CONTROLS,
     ),
+    ProviderPreset(
+        id="togetherai",
+        label="Together AI",
+        base_url="https://api.together.xyz/v1",
+        # A bare JSON array, and one catalogue for every modality it hosts.
+        models_response="bare_list",
+        models_type_filter="image",
+        # NOT `size`, whatever the OpenAI-compatible framing suggests: see the
+        # module docstring. Verified end to end -- 1024x576 in, 1024x576 out.
+        dimension_mode="width_height",
+        min_dimension=64,
+        max_dimension=1792,
+        dimension_step=16,
+        supports_negative_prompt=True,
+        # Distilled models run without CFG, so they have nothing to apply a negative
+        # prompt *with* and return the byte-identical image. Only ids actually probed
+        # this way are listed: on a provider that reproduces a seed inconsistently,
+        # identical bytes prove the field was dropped but differing bytes prove
+        # nothing, so "not listed here" means unverified, never "known to work".
+        negative_prompt_blind=("flux.1-schnell", "juggernaut-lightning"),
+        supports_seed=True,
+        # No `/images/edits` -- the reference rides the generations body. Verified
+        # live on FLUX.1-kontext pro *and* max: a `data:` URI in `image_url`
+        # reproduces the reference frame, while `image`, `images` and `image_urls`
+        # are accepted and ignored.
+        #
+        # Off the allowlist the provider is inconsistent, which is exactly why the
+        # model decides whether a slot is offered at all: FLUX.2 and Seedream answer
+        # *"Unsupported use of 'image_url' parameter"*, but the FLUX.1-schnell
+        # default answers 200 and renders the prompt alone -- a paid render that
+        # silently drops the character reference.
+        supports_references=True,
+        reference_field="image_url",
+        reference_encoding="string",
+        reference_models=("kontext",),
+        # Kontext derives the output size from the reference: a 512x512 reference on
+        # a 1024x576 request came back 1024x1024. The picker cannot win that, so the
+        # render says so instead of quietly handing back a different shape.
+        reference_drives_size=True,
+        default_model="black-forest-labs/FLUX.1-schnell",
+        docs_url="https://docs.together.ai/reference/post-images-generations",
+        verified=True,
+        gaps=(
+            "applies style prompts and the resolution",
+            "honours a seed, though the same seed does not always reproduce the same image",
+            "reports no cost for a render",
+        ),
+    ),
     # ── declared from vendor docs, unverified ────────────────────────────────
     ProviderPreset(
         id="openai",
@@ -121,6 +211,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
         supports_quality=True,
         supports_references=True,
         reference_field="image",
+        reference_encoding="url_object",
         default_model="gpt-image-1",
         docs_url="https://platform.openai.com/docs/api-reference/images",
         gaps=_GAPS_NO_CONTROLS,
@@ -132,18 +223,6 @@ PRESETS: tuple[ProviderPreset, ...] = (
         dimension_mode="none",
         docs_url="https://openrouter.ai/docs",
         gaps=_GAPS_NO_CONTROLS,
-    ),
-    ProviderPreset(
-        id="togetherai",
-        label="Together AI",
-        base_url="https://api.together.xyz/v1",
-        dimension_mode="size",
-        sizes=("512x512", "768x768", "1024x1024"),
-        supports_negative_prompt=True,
-        supports_seed=True,
-        default_model="black-forest-labs/FLUX.1-schnell",
-        docs_url="https://docs.together.ai/reference/post-images-generations",
-        gaps=("applies style prompts, the negative prompt, the seed and the resolution",),
     ),
     ProviderPreset(
         id="nanogpt",
@@ -202,6 +281,7 @@ PRESETS: tuple[ProviderPreset, ...] = (
         sizes=_OPENAI_SIZES,
         supports_references=True,
         reference_field="image",
+        reference_encoding="url_object",
         gaps=("is assumed to speak the OpenAI images API; capabilities are unknown",),
     ),
 )
@@ -230,6 +310,9 @@ def provider_catalogue() -> list[dict]:
             "supports_seed": preset.supports_seed,
             "supports_quality": preset.supports_quality,
             "supports_references": preset.supports_references,
+            # Empty means "every model on this provider takes them"; non-empty is the
+            # allowlist the panel matches the chosen model against.
+            "reference_models": list(preset.reference_models),
             "docs_url": preset.docs_url,
             "verified": preset.verified,
             "gaps": list(preset.gaps),
@@ -297,6 +380,38 @@ def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str 
     return best, f"{preset.label} accepts fixed sizes; {requested} was rendered as {best}"
 
 
+def pixels_for(preset: ProviderPreset, width: int, height: int) -> tuple[int, int, str | None]:
+    """`width`x`height` snapped to what the provider's pixel grid accepts.
+
+    Unlike `size_for` this is not a menu, so the requested aspect ratio survives:
+    an over-large request is scaled down whole (both edges, one factor) rather than
+    clamped per edge, which would turn 2560x1440 into a 1792x1440 near-square.
+    Snapping to the step comes second, and can only move an edge by <`step` pixels.
+    """
+    step = preset.dimension_step or 1
+    low, high = preset.min_dimension or step, preset.max_dimension or 0
+    requested = f"{width}x{height}"
+
+    scale = min(high / width, high / height, 1.0) if high else 1.0
+    scaled_w, scaled_h = width * scale, height * scale
+
+    def snap(value: float) -> int:
+        stepped = int(round(value / step)) * step
+        # Rounding a 70px edge down to 64 is fine; rounding it to 0 is not, and the
+        # provider would answer with a 400 rather than an image.
+        stepped = max(stepped, low)
+        return min(stepped, high) if high else stepped
+
+    final_w, final_h = snap(scaled_w), snap(scaled_h)
+    if (final_w, final_h) == (width, height):
+        return final_w, final_h, None
+    return (
+        final_w,
+        final_h,
+        f"{preset.label} renders in steps of {step}px up to {high}px; {requested} was rendered as {final_w}x{final_h}",
+    )
+
+
 # ── request builders ─────────────────────────────────────────────────────────
 
 
@@ -317,7 +432,16 @@ def _dimension_fields(preset: ProviderPreset, width: int | None, height: int | N
     if preset.dimension_mode == "size":
         size, note = size_for(preset, width, height)
         return BuiltRequest({"size": size} if size else {}, [note] if note else [])
+    if preset.dimension_mode == "width_height":
+        final_w, final_h, note = pixels_for(preset, width, height)
+        return BuiltRequest({"width": final_w, "height": final_h}, [note] if note else [])
     return BuiltRequest({})
+
+
+def drops_negative_prompt(preset: ProviderPreset, model: str) -> bool:
+    """True when this model accepts `negative_prompt` and does nothing with it."""
+    lowered = model.lower()
+    return any(marker in lowered for marker in preset.negative_prompt_blind)
 
 
 def _prompt_field(preset: ProviderPreset, prompt: str) -> BuiltRequest:
@@ -357,7 +481,13 @@ def build_generation_body(
     notes.extend(dimensions.notes)
 
     if preset.supports_negative_prompt and negative_prompt.strip():
+        # Still sent: support is a provider-level fact, and a model that ignores the
+        # field today is one the provider may teach it tomorrow. What changes is that
+        # the user is told, at the render that discarded it, rather than watching a
+        # negative style prompt quietly do nothing.
         body["negative_prompt"] = negative_prompt
+        if drops_negative_prompt(preset, model):
+            notes.append(f"{model} ignores negative prompts, so the negative style prompt had no effect")
     if preset.supports_seed and seed is not None:
         body["seed"] = seed
     if preset.supports_quality and quality:
@@ -407,12 +537,33 @@ def build_edit_body(
     )
     body = built.body
     uris = [_data_uri(reference) for reference in references]
-    if preset.reference_field == "image":
-        # The singular spelling takes one object, so extra references would be
-        # silently dropped -- say so rather than let the user wonder which one won.
-        body["image"] = {"url": uris[0]} if uris else None
-        if len(uris) > 1:
-            built.notes.append(f"{preset.label} accepts one reference image; only the first was sent")
-    else:
+    if preset.reference_encoding == "url_objects":
         body[preset.reference_field] = [{"url": uri} for uri in uris]
+    elif preset.reference_encoding == "string":
+        body[preset.reference_field] = uris[0] if uris else None
+    else:
+        body[preset.reference_field] = {"url": uris[0]} if uris else None
+    # Only the list encoding carries more than one, so anywhere else the extras are
+    # dropped -- say so rather than let the user wonder which one won.
+    if len(uris) > 1 and preset.reference_encoding != "url_objects":
+        built.notes.append(f"{preset.label} accepts one reference image; only the first was sent")
+    if uris and preset.reference_drives_size:
+        # Verified on Kontext: a 512x512 reference on a 1024x576 request came back
+        # 1024x1024. Disclosed rather than left to be noticed, because the picker
+        # still shows the resolution that no longer applies.
+        built.notes.append("the reference image set the output size, so the resolution setting did not apply")
     return built
+
+
+def takes_references(preset: ProviderPreset, model: str) -> bool:
+    """True when this model is verified to accept a reference image.
+
+    A provider whose whole catalogue takes them declares no `reference_models` and
+    every model passes; one where it is the exception names the exceptions.
+    """
+    if not preset.supports_references:
+        return False
+    if not preset.reference_models:
+        return True
+    lowered = model.lower()
+    return any(marker in lowered for marker in preset.reference_models)

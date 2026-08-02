@@ -46,6 +46,23 @@ def _config(**cloud) -> dict:
     )
 
 
+def _together_config(model: str = "black-forest-labs/FLUX.1-kontext-pro", **cloud) -> dict:
+    """Together has no `/images/edits` and still takes references, on the ordinary
+    generations body -- the case `edits_path` gating used to make unreachable."""
+    return normalize_config(
+        {
+            "source": "cloud",
+            "styles": [{"id": "anime", "label": "Anime"}],
+            "default_style": "anime",
+            "cloud": {
+                "provider": "togetherai",
+                "providers": {"togetherai": {"api_key": "sk-test", "model": model}},
+                **cloud,
+            },
+        }
+    )
+
+
 def _adapter(config, handler) -> OpenAICompatibleImageAdapter:
     """The adapter with its one network seam swapped for a MockTransport, exactly
     as `test_external_adapter` swaps `ComfyClient`."""
@@ -260,6 +277,72 @@ async def test_no_references_means_the_generations_path():
     adapter = _adapter(config, _generation_handler(record))
     await adapter.generate(_request(), target=_target(adapter, config))
     assert record["path"].endswith("/images/generations")
+
+
+@pytest.mark.asyncio
+async def test_references_ride_the_generations_body_when_there_is_no_edits_endpoint():
+    """Gating on `edits_path` made Together's edit models unreachable: it has no
+    `/images/edits` at all, yet FLUX.1-kontext takes an `image_url` on the ordinary
+    generations call. Verified live -- the reference lands."""
+    record: dict = {}
+    config = _together_config(reference_source="character")
+    adapter = _adapter(config, _generation_handler(record))
+    request = _request(references=(_reference(_png(), "image/png"),))
+
+    await adapter.generate(request, target=_target(adapter, config))
+
+    assert record["path"].endswith("/images/generations")
+    assert record["body"]["image_url"].startswith("data:image/png;base64,")
+
+
+def test_a_model_that_cannot_take_references_declares_no_slot_and_says_so():
+    """No slot is what stops the reference reaching a model that cannot use it --
+    and the provider's answer is not uniform enough to rely on: FLUX.2 rejects
+    `image_url`, schnell returns 200 having ignored it. The note is the difference
+    between that and the reference quietly going missing."""
+    config = _together_config("black-forest-labs/FLUX.1-schnell", reference_source="character")
+    target = _target(OpenAICompatibleImageAdapter(config), config)
+
+    assert target.reference_slots == ()
+    assert any("does not accept reference images" in note for note in target.notes)
+
+
+def test_a_reference_capable_model_is_not_nagged_about_it():
+    config = _together_config(reference_source="character")
+    target = _target(OpenAICompatibleImageAdapter(config), config)
+
+    assert len(target.reference_slots) == 1
+    assert target.notes == ()
+
+
+@pytest.mark.asyncio
+async def test_a_gone_model_degrades_onto_one_that_cannot_take_the_reference():
+    """The substitute is not the model the slot was offered for. Replaying a Kontext
+    image after the connection moved to a text-to-image model must drop the
+    reference, not re-send `image_url` to something that answers 400 -- that would
+    turn a graceful degrade into a hard failure."""
+    record: dict = {}
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(404, json={"error": {"message": "no such model"}})
+        record["path"] = request.url.path
+        record["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(_png()).decode()}]})
+
+    config = _together_config("black-forest-labs/FLUX.1-schnell", reference_source="character")
+    adapter = _adapter(config, handler)
+    target = _target(adapter, config, replay={"backend_model": "black-forest-labs/FLUX.1-kontext-pro"})
+    assert len(target.reference_slots) == 1
+
+    result = await adapter.generate(_request(references=(_reference(_png(), "image/png"),)), target=target)
+
+    assert "image_url" not in record["body"]
+    notes = result.backend_info["notes"]
+    assert any("does not accept reference images" in note for note in notes)
+    assert any("is gone" in note for note in notes)
 
 
 def test_the_reference_slot_declares_the_policy_that_bounds_it():

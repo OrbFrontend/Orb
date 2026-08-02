@@ -24,6 +24,7 @@ import {
   connectionList,
   DEFAULT_PROMPT_FORMAT,
   findConnection,
+  modelTakesReferences,
   normalizePromptFormat,
   PROMPT_FORMATS,
   pendingDisclosures,
@@ -592,6 +593,15 @@ function cloudFields(connection) {
           entry.reference_source || "",
         )}</select></label>`
       : "";
+  // Stated where the model is chosen, not only on the render that dropped the
+  // reference: turning this on and having it do nothing is a setting the user
+  // deliberately enabled, which is worse than one they never knew about.
+  const referenceModelNote =
+    entry.reference_source && !modelTakesReferences(preset, entry.model)
+      ? `<div class="image-gen-note ig-unready">${esc(
+          entry.model || preset?.default_model || "This model",
+        )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`
+      : "";
   const unknown = preset
     ? ""
     : `<div class="image-gen-note ig-unready">Orb has no preset for "${esc(id)}". Its credentials are kept, but nothing can render on it — this is usually a provider that was renamed in a later release.</div>`;
@@ -606,6 +616,7 @@ function cloudFields(connection) {
       ${quality}
       ${references}
     </div>
+    ${referenceModelNote}
     <div class="image-gen-note">Aspect ratio is chosen automatically from the resolution.</div>
     ${capabilityLine(preset)}${docs}`;
 }

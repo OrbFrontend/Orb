@@ -179,8 +179,8 @@ class OpenAIImageClient:
 
     # ── model discovery ───────────────────────────────────────────────────────
 
-    async def list_models(self, path: str, response_shape: str) -> list[str]:
-        """The provider's model ids.
+    async def list_models(self, path: str, response_shape: str, type_filter: str = "") -> list[str]:
+        """The provider's model ids, narrowed to the ones that make images.
 
         The **only** endpoint `validate_connection` touches: a Test connection
         button that bills the user is unacceptable, so nothing here may reach the
@@ -188,17 +188,23 @@ class OpenAIImageClient:
         """
         decoded = await self._send("GET", path, timeout=min(30.0, self.timeout))
         # xAI's image-model endpoint answers `{"models": [...]}`; OpenAI answers
-        # `{"data": [...]}`. Not interchangeable, so the preset says which.
-        key = "models" if response_shape == "models_list" else "data"
-        entries = decoded.get(key) if isinstance(decoded, Mapping) else None
+        # `{"data": [...]}`; Together answers a bare array. Not interchangeable, so
+        # the preset says which -- reading `data` off Together's list found nothing
+        # and failed Test connection against a provider that was working fine.
+        if response_shape == "bare_list":
+            entries: Any = decoded
+        else:
+            key = "models" if response_shape == "models_list" else "data"
+            entries = decoded.get(key) if isinstance(decoded, Mapping) else None
         if not isinstance(entries, list):
             raise CloudImageError(f"{self.label} returned a malformed model list", "malformed")
-        names = []
-        for entry in entries:
-            ident = entry.get("id") if isinstance(entry, Mapping) else entry
-            if isinstance(ident, str) and ident and len(ident) <= 512:
-                names.append(ident)
-        return sorted(dict.fromkeys(names))
+        names = _model_ids(entries, type_filter)
+        if not names and type_filter:
+            # The filter is an optimisation, never a gate: a provider that stops
+            # tagging its entries should cost the user a longer list, not an empty
+            # picker that reads as "this key has no models".
+            names = _model_ids(entries, "")
+        return names
 
     # ── generation ────────────────────────────────────────────────────────────
 
@@ -274,6 +280,18 @@ class OpenAIImageClient:
         if not data:
             raise CloudImageError(f"{self.label} returned an empty image", "malformed")
         return data
+
+
+def _model_ids(entries: list[Any], type_filter: str) -> list[str]:
+    """The `id` of every entry, de-duplicated and sorted, optionally by `type`."""
+    names = []
+    for entry in entries:
+        if type_filter and (not isinstance(entry, Mapping) or entry.get("type") != type_filter):
+            continue
+        ident = entry.get("id") if isinstance(entry, Mapping) else entry
+        if isinstance(ident, str) and ident and len(ident) <= 512:
+            names.append(ident)
+    return sorted(dict.fromkeys(names))
 
 
 def _cost(payload: Mapping[str, Any], provider_id: str) -> dict | None:
