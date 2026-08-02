@@ -596,8 +596,10 @@ function cloudFields(connection) {
   // Stated where the model is chosen, not only on the render that dropped the
   // reference: turning this on and having it do nothing is a setting the user
   // deliberately enabled, which is worse than one they never knew about.
+  // Guarded on `preset`: an unknown provider already says nothing can render on it,
+  // and a second note narrowing that to the model is noise on top of it.
   const referenceModelNote =
-    entry.reference_source && !modelTakesReferences(preset, entry.model)
+    preset && entry.reference_source && !modelTakesReferences(preset, entry.model)
       ? `<div class="image-gen-note ig-unready">${esc(
           entry.model || preset?.default_model || "This model",
         )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`

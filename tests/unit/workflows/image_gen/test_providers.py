@@ -166,42 +166,34 @@ def test_a_tiny_request_is_floored_at_the_minimum():
 # ── model-level capability holes ─────────────────────────────────────────────
 
 
-def test_a_negative_prompt_blind_model_still_sends_it_but_discloses():
-    """Support is a provider fact, so the field keeps being sent -- a model that
-    ignores it today is one the provider may teach it tomorrow. What the user gets
-    is the disclosure, at the render that discarded it."""
-    built = build_generation_body(TOGETHER, model="black-forest-labs/FLUX.1-schnell", prompt="p", negative_prompt="blurry")
-    assert built.body["negative_prompt"] == "blurry"
-    assert any("ignores negative prompts" in note for note in built.notes)
+@pytest.mark.parametrize(
+    "model, negative, sent, disclosed",
+    [
+        # Support is a provider fact, so the field keeps being sent -- a model that
+        # ignores it today is one the provider may teach it tomorrow. What the user
+        # gets is the disclosure, at the render that discarded it.
+        ("black-forest-labs/FLUX.1-schnell", "blurry", True, True),
+        # A note that fires on every render is one users learn to skip.
+        ("stabilityai/stable-diffusion-xl-base-1.0", "blurry", True, False),
+        ("black-forest-labs/FLUX.1-schnell", "", False, False),
+    ],
+    ids=["blind model discloses", "honouring model is not nagged", "nothing to drop, nothing to say"],
+)
+def test_a_negative_prompt_is_sent_and_disclosed_per_model(model, negative, sent, disclosed):
+    built = build_generation_body(TOGETHER, model=model, prompt="p", negative_prompt=negative)
+    assert ("negative_prompt" in built.body) is sent
+    assert any("ignores negative prompts" in note for note in built.notes) is disclosed
 
 
-def test_a_model_that_honours_the_negative_prompt_is_not_nagged():
-    """A note that fires on every render is one users learn to skip."""
-    built = build_generation_body(
-        TOGETHER, model="stabilityai/stable-diffusion-xl-base-1.0", prompt="p", negative_prompt="blurry"
-    )
-    assert built.notes == []
-
-
-def test_no_disclosure_when_there_was_no_negative_prompt_to_drop():
-    built = build_generation_body(TOGETHER, model="black-forest-labs/FLUX.1-schnell", prompt="p")
-    assert "negative_prompt" not in built.body
-    assert built.notes == []
-
-
-def test_an_overlong_prompt_is_truncated_with_a_note():
-    built = build_generation_body(XAI, model="m", prompt="x" * (XAI.max_prompt + 50))
-    assert len(built.body["prompt"]) == XAI.max_prompt
-    assert any("truncated" in note for note in built.notes)
-
-
-def test_the_nanogpt_prompt_limit_is_the_one_it_enforces():
-    """3000, verified live: NanoGPT 400s a longer prompt rather than truncating it,
-    and a composed scene plus a style prompt clears the default 4000 easily. The
-    builder truncating is what keeps that from being a failed render."""
+@pytest.mark.parametrize("preset", [XAI, NANOGPT], ids=["xai 8000", "nanogpt 3000"])
+def test_an_overlong_prompt_is_truncated_to_the_providers_own_limit(preset):
+    """NanoGPT is why this is per preset rather than a constant: 3000, verified live,
+    and it 400s a longer prompt rather than truncating it. A composed scene plus a
+    style prompt clears the default 4000 easily, so truncating here is what keeps
+    that from being a failed render."""
     assert NANOGPT.max_prompt == 3_000
-    built = build_generation_body(NANOGPT, model="cyberrealistic-xl", prompt="x" * 4_000)
-    assert len(built.body["prompt"]) == 3_000
+    built = build_generation_body(preset, model="m", prompt="x" * (preset.max_prompt + 50))
+    assert len(built.body["prompt"]) == preset.max_prompt
     assert any("truncated" in note for note in built.notes)
 
 
@@ -209,12 +201,9 @@ def test_the_nanogpt_prompt_limit_is_the_one_it_enforces():
 
 
 def test_a_size_preset_with_no_menu_sends_the_request_verbatim():
-    """NanoGPT's resolution menu is a *per-model* fact -- 156 renderable models and
-    no size on more than 83 of them -- so there is no provider-wide menu to declare.
-    Verified live that it translates a `WxH` size into whatever the chosen model
-    speaks: an aspect-ratio model answered 1344x768 and a named-size model answered
-    1024x576. Snapping to a menu here would substitute a worse answer for that one,
-    and disclose the substitution as if it were what the provider did."""
+    """A `size` row that declares no menu is taken to accept the request as written,
+    rather than being sent nothing. NanoGPT is the row that needs it -- see its
+    `dimension_mode` comment for why it has no provider-wide menu to declare."""
     assert NANOGPT.sizes == ()
     built = build_generation_body(NANOGPT, model="cyberrealistic-xl", prompt="p", width=1024, height=576)
     assert built.body["size"] == "1024x576"
@@ -263,28 +252,12 @@ def _reference(mime: str = "image/png") -> ResolvedReference:
     )
 
 
-def test_edit_bodies_carry_references_as_data_uris():
-    """A data URI means nothing has to be uploaded first, and no third party is
-    handed a fetchable URL back into Orb."""
-    body = build_edit_body(XAI, model="m", prompt="p", references=[_reference()], width=1024, height=1024).body
-    assert body["images"][0]["url"].startswith("data:image/png;base64,")
-    assert body["n"] == 1
-
-
 def test_a_singular_reference_field_discloses_the_ones_it_dropped():
     openai = get_preset("openai")
     assert openai is not None
     built = build_edit_body(openai, model="m", prompt="p", references=[_reference(), _reference()])
     assert isinstance(built.body["image"], dict)
     assert any("one reference image" in note for note in built.notes)
-
-
-def test_a_string_encoding_carries_the_bare_uri():
-    """Together takes `image_url: "data:..."`. Handed the `[{"url": ...}]` shape it
-    answers 200 and renders the prompt alone, so the encoding is exactly as
-    silently ignorable as the field name -- hence declared, not inferred."""
-    body = build_edit_body(TOGETHER, model="black-forest-labs/FLUX.1-kontext-pro", prompt="p", references=[_reference()]).body
-    assert body["image_url"].startswith("data:image/png;base64,")
 
 
 @pytest.mark.parametrize(
@@ -294,8 +267,11 @@ def test_a_string_encoding_carries_the_bare_uri():
 )
 def test_every_reference_encoding_sends_a_data_uri(preset):
     """Nothing is uploaded first and no third party is handed a fetchable URL back
-    into Orb. Verified live on Together: a `data:` URI is accepted."""
-    carried = build_edit_body(preset, model="m", prompt="p", references=[_reference()]).body[preset.reference_field]
+    into Orb. The encoding is declared per preset rather than inferred from the field
+    name, because getting it wrong is silent: handed the `[{"url": ...}]` shape,
+    Together answers 200 and renders the prompt alone."""
+    built = build_edit_body(preset, model="m", prompt="p", references=[_reference()], width=1024, height=1024)
+    carried = built.body[preset.reference_field]
     if isinstance(carried, str):
         uri = carried
     elif isinstance(carried, list):
@@ -303,13 +279,13 @@ def test_every_reference_encoding_sends_a_data_uri(preset):
     else:
         uri = carried["url"]
     assert uri.startswith("data:image/png;base64,"), preset.id
+    # An edit body is still one image: `n` is the field that multiplies the bill.
+    assert built.body["n"] == 1
 
 
 def test_an_allowlist_treats_an_unprobed_model_as_incapable():
-    """Under-promising costs a disclosure. Over-promising costs whichever failure
-    the provider happens to pick -- Together's FLUX.2 rejects `image_url` outright,
-    while its schnell default returns 200 having ignored it. So an unprobed model is
-    incapable until someone probes it."""
+    """Under-promising costs a disclosure; over-promising costs a paid render that
+    quietly drops the reference. So an unprobed model is incapable until probed."""
     assert takes_references(TOGETHER, "black-forest-labs/FLUX.1-kontext-pro") is True
     assert takes_references(TOGETHER, "black-forest-labs/FLUX.1-schnell") is False
     # A provider with no per-model holes names none, and every model passes.
@@ -351,9 +327,8 @@ def test_nanogpt_carries_its_reference_as_a_bare_data_uri_under_image():
 
 
 def test_nanogpt_offers_references_on_every_model_and_names_the_trade_once():
-    """202 image models, 118 of which take a reference, and the id is in front of the
-    user when they choose it. An allowlist over a catalogue that size narrows itself
-    every time NanoGPT ships a model, so the panel states the trade once instead."""
+    """The row that opts out of the allowlist, so the empty tuple has to keep meaning
+    "every model" rather than "none". The trade is stated in `gaps` instead."""
     assert NANOGPT.reference_models == ()
     assert takes_references(NANOGPT, "cyberrealistic-xl") is True
     assert takes_references(NANOGPT, "flux-schnell") is True

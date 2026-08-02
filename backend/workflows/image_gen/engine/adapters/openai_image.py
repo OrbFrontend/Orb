@@ -25,6 +25,7 @@ from ..contracts import (
 )
 from ..openai_image_client import MODEL_NOT_FOUND, CloudImageError, OpenAIImageClient
 from ..providers import (
+    BuiltRequest,
     ProviderPreset,
     build_edit_body,
     build_generation_body,
@@ -199,20 +200,20 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         *before* choosing a model, because listing the models is what fills the
         picker. Gating it on a chosen model makes the picker unreachable.
         """
-        preset = self._preset
         state = self.readiness()
-        if preset is None or state["reason"] in ("unknown_provider", "no_base_url"):
-            raise CloudImageError(str(state["detail"]), str(state["reason"]))
-        return preset
+        return self._pass(state, blocked=state["reason"] in ("unknown_provider", "no_base_url"))
 
     def _require_ready(self, model: str) -> ProviderPreset:
         """Enough to render. Reached before a request is built, so a provider with no
         `default_model` -- OpenRouter, Chutes, AI/ML API, ElectronHub and `custom` all
         ship none -- says "choose a model" instead of posting `model: ""` and relaying
         whatever the provider makes of it."""
-        preset = self._require_preset()
         state = self.readiness(model)
-        if not state["ready"]:
+        return self._pass(state, blocked=not state["ready"])
+
+    def _pass(self, state: Mapping[str, Any], *, blocked: bool) -> ProviderPreset:
+        preset = self._preset
+        if preset is None or blocked:
             raise CloudImageError(str(state["detail"]), str(state["reason"]))
         return preset
 
@@ -254,31 +255,37 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         # Synchronous API: one event at submit, no polling loop to report from.
         await emit(progress, "rendering", {"backend": self.label})
 
-        built = self._build(preset, request, target, model=target.model)
-        path = self._path(preset, request, model=target.model)
-        notes = [*target.notes, *built.notes]
-        try:
+        async def submit(model: str):
+            """One attempt, and the notes that building it produced."""
+            built = self._build(preset, request, target, model=model)
+            path = self._path(preset, request, model=model)
             image = await client.create_image(path, built.body, provider_id=preset.id, timeout=request.timeout_seconds)
-            model = target.model
+            return image, built.notes
+
+        model = target.model
+        notes = list(target.notes)
+        try:
+            image, build_notes = await submit(model)
         except CloudImageError as exc:
             configured = self._model()
             # The cloud analogue of `unknown_workflow`: the recorded model is gone,
             # so re-render on the configured one and disclose it. A 404 costs
             # nothing, and refusing surfaces only as a generic 500.
-            if exc.kind != MODEL_NOT_FOUND or not configured or configured == target.model:
+            if exc.kind != MODEL_NOT_FOUND or not configured or configured == model:
                 raise
-            notes.append(f"the model this image used ({target.model}) is gone; rendered with {configured} instead")
+            notes.append(f"the model this image used ({model}) is gone; rendered with {configured} instead")
             # The substitute is not the model the slot was offered for: replaying a
             # Kontext image after the connection moved to a text-to-image model would
             # otherwise re-send `image_url` to something that cannot use it, and a
             # degrade meant to rescue the render would drop the reference in silence.
             if request.references and not takes_references(preset, configured):
                 notes.append(f"{configured} does not accept reference images, so none was sent")
-            built = self._build(preset, request, target, model=configured)
-            path = self._path(preset, request, model=configured)
-            image = await client.create_image(path, built.body, provider_id=preset.id, timeout=request.timeout_seconds)
-            notes.extend(built.notes)
             model = configured
+            # Only the *surviving* attempt's build notes are kept. Collecting the
+            # failed one's too printed "the prompt was truncated" twice on any
+            # degrade, since both builds truncate identically.
+            image, build_notes = await submit(model)
+        notes.extend(build_notes)
 
         width, height = await asyncio.to_thread(_probe_size, image.data)
         return ImageResult(
@@ -321,7 +328,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             return preset.edits_path
         return preset.generations_path
 
-    def _build(self, preset: ProviderPreset, request: ImageRequest, target: RenderTarget, *, model: str):
+    def _build(self, preset: ProviderPreset, request: ImageRequest, target: RenderTarget, *, model: str) -> BuiltRequest:
         common = {
             "model": model,
             "prompt": request.prompt,

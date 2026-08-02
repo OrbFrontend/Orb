@@ -112,50 +112,52 @@ async def test_a_non_image_payload_is_refused():
 
 
 @pytest.mark.asyncio
-async def test_all_three_model_list_shapes_are_read():
-    """xAI's image-model endpoint answers `{"models": [...]}`, OpenAI answers
-    `{"data": [...]}`, and Together answers a bare array. Reading the wrong shape
-    yields an empty dropdown, which reads as "no models" rather than as "wrong
-    parser" -- Together's row shipped as `openai_data` and failed Test connection
-    against a provider that was answering perfectly."""
-    xai = await _client(_ok({"models": [{"id": "grok-imagine-image"}, {"id": "grok-imagine-image-quality"}]})).list_models(
-        "/image-generation-models", "models_list"
-    )
-    assert xai == ["grok-imagine-image", "grok-imagine-image-quality"]
-
-    openai = await _client(_ok({"data": [{"id": "gpt-image-1"}]})).list_models("/models", "openai_data")
-    assert openai == ["gpt-image-1"]
-
-    together = await _client(_ok([{"id": "flux", "type": "image"}, {"id": "kimi", "type": "chat"}])).list_models(
-        "/models", "bare_list"
-    )
-    assert together == ["flux", "kimi"]
-
-
-@pytest.mark.asyncio
-async def test_the_nanogpt_shape_reads_ids_off_a_mapping_not_a_list():
-    """NanoGPT's image catalogue is `{"models": {"image": {id: {...}}}}` -- the ids
-    are the keys, and the values are per-model capability records Orb does not read.
-    Its documented `/v1/models` is a perfectly ordinary `{"data": [...]}` holding 653
-    models, none of which make an image, so a row that reads the ordinary shape gets
-    a full dropdown and no way to render."""
-    payload = {
-        "models": {
-            "text": {"claude-opus-5": {"name": "Claude"}},
-            "image": {"cyberrealistic-xl": {"iconLabel": "both"}, "flux-schnell": {"iconLabel": "text-to-image"}},
-            "video": {"veo": {}},
-        }
-    }
-    models = await _client(_ok(payload)).list_models("../models", "nanogpt_image_map")
-    assert models == ["cyberrealistic-xl", "flux-schnell"]
+@pytest.mark.parametrize(
+    "shape, payload, expected",
+    [
+        (
+            "models_list",
+            {"models": [{"id": "grok-imagine-image"}, {"id": "grok-imagine-image-quality"}]},
+            ["grok-imagine-image", "grok-imagine-image-quality"],
+        ),
+        ("openai_data", {"data": [{"id": "gpt-image-1"}]}, ["gpt-image-1"]),
+        ("bare_list", [{"id": "flux", "type": "image"}, {"id": "kimi", "type": "chat"}], ["flux", "kimi"]),
+        # The ids are the *keys*, and the values are per-model capability records Orb
+        # does not read. NanoGPT's documented `/v1/models` is an ordinary
+        # `{"data": [...]}` of 653 models, none of which make an image, so a row that
+        # reads the ordinary shape gets a full dropdown and no way to render.
+        (
+            "nanogpt_image_map",
+            {
+                "models": {
+                    "text": {"claude-opus-5": {"name": "Claude"}},
+                    "image": {"cyberrealistic-xl": {"iconLabel": "both"}, "flux-schnell": {}},
+                    "video": {"veo": {}},
+                }
+            },
+            ["cyberrealistic-xl", "flux-schnell"],
+        ),
+    ],
+    ids=["xai", "openai", "together", "nanogpt"],
+)
+async def test_every_declared_model_list_shape_is_read(shape, payload, expected):
+    """Reading the wrong shape yields an empty dropdown, which reads as "no models"
+    rather than as "wrong parser" -- Together's row shipped as `openai_data` and
+    failed Test connection against a provider that was answering perfectly."""
+    assert await _client(_ok(payload)).list_models("/models", shape) == expected
 
 
 @pytest.mark.asyncio
-async def test_the_nanogpt_shape_pointed_at_a_list_is_malformed():
-    """The same guard the other shapes get: a silently-empty picker reads to the
-    user as "this key has no models", not as "Orb parsed the wrong thing"."""
+@pytest.mark.parametrize(
+    "shape",
+    ["nanogpt_image_map", "bare_list"],
+    ids=["a map shape pointed at a list", "a list shape pointed at a map"],
+)
+async def test_a_shape_mismatch_is_malformed_rather_than_empty(shape):
+    """A silently-empty picker reads to the user as "this key has no models", not as
+    "Orb parsed the wrong thing"."""
     with pytest.raises(CloudImageError) as excinfo:
-        await _client(_ok({"data": [{"id": "flux"}]})).list_models("../models", "nanogpt_image_map")
+        await _client(_ok({"data": [{"id": "flux"}]})).list_models("/models", shape)
     assert excinfo.value.kind == "malformed"
 
 
@@ -216,13 +218,6 @@ async def test_an_untagged_catalogue_falls_back_to_the_whole_list():
     user as "this key has no models"."""
     models = await _client(_ok([{"id": "flux"}, {"id": "sdxl"}])).list_models("/models", "bare_list", "image")
     assert models == ["flux", "sdxl"]
-
-
-@pytest.mark.asyncio
-async def test_a_bare_list_shape_pointed_at_a_mapping_is_still_malformed():
-    with pytest.raises(CloudImageError) as excinfo:
-        await _client(_ok({"data": [{"id": "flux"}]})).list_models("/models", "bare_list")
-    assert excinfo.value.kind == "malformed"
 
 
 # ── the error funnel ─────────────────────────────────────────────────────────

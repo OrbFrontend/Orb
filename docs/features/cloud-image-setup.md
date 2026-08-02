@@ -129,11 +129,12 @@ and on some models at a different price.
 ### Content refusals are per model on NanoGPT
 
 NanoGPT is a broker, so the policy that refuses you is the upstream model's, not
-NanoGPT's. `ideogram/v4/instant` answers a clear
-`content_policy_violation` and Orb reports it as a refusal; `dall-e-3` answers a
-generic *"Invalid request parameters"* for the same prompt, which Orb can only
-report as a rejection. Its uncensored models — the SDXL and Illustrious
-checkpoints — render what the smaller commercial APIs will not.
+NanoGPT's — and how clearly it is stated varies with the model. For the same
+prompt, `ideogram/v4/instant` answers `content_policy_violation` while `dall-e-3`
+answers a generic *"Invalid request parameters"*. Orb relays whichever you get,
+verbatim (see [When a render fails](#when-a-render-fails)), so the clarity of the
+message is the model's, not Orb's. Its uncensored models — the SDXL and
+Illustrious checkpoints — render what the smaller commercial APIs will not.
 
 ## Cost
 

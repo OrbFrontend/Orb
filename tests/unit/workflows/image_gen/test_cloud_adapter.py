@@ -23,6 +23,10 @@ from backend.workflows.image_gen.engine.adapters.openai_image import (
 )
 from backend.workflows.image_gen.engine.contracts import ImageRequest, ResolvedReference
 from backend.workflows.image_gen.engine.openai_image_client import OpenAIImageClient
+from backend.workflows.image_gen.engine.providers import get_preset
+
+XAI = get_preset("xai")
+assert XAI is not None
 
 
 def _png(width: int = 1024, height: int = 1024) -> bytes:
@@ -31,49 +35,28 @@ def _png(width: int = 1024, height: int = 1024) -> bytes:
     return buf.getvalue()
 
 
-def _config(**cloud) -> dict:
+# The model each provider's tests use unless one is named. Together's is a Kontext
+# model because that is its only reference-capable family; NanoGPT's is its default.
+_MODELS = {
+    "xai": "grok-imagine-image",
+    "togetherai": "black-forest-labs/FLUX.1-kontext-pro",
+    "nanogpt": "cyberrealistic-xl",
+    "openrouter": "",
+}
+
+
+def _config(provider: str = "xai", model: str | None = None, **cloud) -> dict:
+    """One builder for every provider under test: the rows differ by provider id and
+    model, and nothing else, so three near-identical builders were three places to
+    forget a field. `model=""` is a real answer -- OpenRouter ships no default."""
     return normalize_config(
         {
             "source": "cloud",
             "styles": [{"id": "anime", "label": "Anime"}],
             "default_style": "anime",
             "cloud": {
-                "provider": "xai",
-                "providers": {"xai": {"api_key": "sk-test", "model": "grok-imagine-image"}},
-                **cloud,
-            },
-        }
-    )
-
-
-def _together_config(model: str = "black-forest-labs/FLUX.1-kontext-pro", **cloud) -> dict:
-    """Together has no `/images/edits` and still takes references, on the ordinary
-    generations body -- the case `edits_path` gating used to make unreachable."""
-    return normalize_config(
-        {
-            "source": "cloud",
-            "styles": [{"id": "anime", "label": "Anime"}],
-            "default_style": "anime",
-            "cloud": {
-                "provider": "togetherai",
-                "providers": {"togetherai": {"api_key": "sk-test", "model": model}},
-                **cloud,
-            },
-        }
-    )
-
-
-def _nanogpt_config(model: str = "cyberrealistic-xl", **cloud) -> dict:
-    """NanoGPT is the row where Test connection cannot rest on the model list: it
-    serves that list to anonymous callers, so the key is proved somewhere else."""
-    return normalize_config(
-        {
-            "source": "cloud",
-            "styles": [{"id": "anime", "label": "Anime"}],
-            "default_style": "anime",
-            "cloud": {
-                "provider": "nanogpt",
-                "providers": {"nanogpt": {"api_key": "sk-test", "model": model}},
+                "provider": provider,
+                "providers": {provider: {"api_key": "sk-test", "model": _MODELS[provider] if model is None else model}},
                 **cloud,
             },
         }
@@ -167,7 +150,7 @@ async def test_a_declared_auth_probe_runs_first_and_still_never_renders():
             return httpx.Response(200, json={"object": "usage"})
         return httpx.Response(200, json={"models": {"image": {"cyberrealistic-xl": {}, "flux-schnell": {}}}})
 
-    result = await _adapter(_nanogpt_config(), handler).validate_connection()
+    result = await _adapter(_config("nanogpt"), handler).validate_connection()
 
     assert seen == ["/v1/usage", "/models"]
     assert result["models"] == ["cyberrealistic-xl", "flux-schnell"]
@@ -183,7 +166,7 @@ async def test_a_rejected_key_fails_test_connection_even_though_the_list_would_p
     from backend.workflows.image_gen.engine.openai_image_client import CloudImageError
 
     with pytest.raises(CloudImageError) as excinfo:
-        await _adapter(_nanogpt_config(), handler).validate_connection()
+        await _adapter(_config("nanogpt"), handler).validate_connection()
     assert excinfo.value.kind == "auth"
 
 
@@ -230,11 +213,17 @@ async def test_a_recorded_model_that_is_gone_degrades_with_disclosure():
     config = _config()
     adapter = _adapter(config, handler)
     target = _target(adapter, config, {"backend_model": "grok-imagine-legacy"})
-    result = await adapter.generate(_request(), target=target)
+    # Overlong, so both builds emit a truncation note and the degrade has something
+    # to double up on.
+    result = await adapter.generate(_request(prompt="x" * (XAI.max_prompt + 50)), target=target)
 
     assert calls == ["grok-imagine-legacy", "grok-imagine-image"]
     assert result.backend_info["backend_model"] == "grok-imagine-image"
-    assert any("grok-imagine-legacy" in note and "is gone" in note for note in result.backend_info["notes"])
+    notes = result.backend_info["notes"]
+    assert any("grok-imagine-legacy" in note and "is gone" in note for note in notes)
+    # Only the surviving attempt's build notes are kept: collecting the failed one's
+    # too disclosed the same truncation twice on every degrade.
+    assert sum("truncated" in note for note in notes) == 1
 
 
 @pytest.mark.asyncio
@@ -279,17 +268,13 @@ def test_a_configured_provider_is_ready():
     assert "grok-imagine-image" in answer["detail"]
 
     # xAI declares a default model, so pasting a key alone is enough to render.
-    keyed = normalize_config({"source": "cloud", "cloud": {"provider": "xai", "providers": {"xai": {"api_key": "k"}}}})
-    assert OpenAICompatibleImageAdapter(keyed).readiness()["ready"] is True
+    assert OpenAICompatibleImageAdapter(_config("xai", model="")).readiness()["ready"] is True
 
 
 def test_readiness_judges_a_replay_on_the_model_it_recorded():
     """Clearing the model field must not refuse a rehydrate of an image whose own
     model is still there to render it -- the stored model is what will be sent."""
-    config = normalize_config(
-        {"source": "cloud", "cloud": {"provider": "openrouter", "providers": {"openrouter": {"api_key": "k", "model": ""}}}}
-    )
-    adapter = OpenAICompatibleImageAdapter(config)
+    adapter = OpenAICompatibleImageAdapter(_config("openrouter"))
     assert adapter.readiness()["reason"] == "no_model"
     assert adapter.readiness("some/stored-model")["ready"] is True
 
@@ -299,14 +284,7 @@ async def test_a_render_with_no_model_says_so_instead_of_asking_the_provider():
     """OpenRouter, Chutes, AI/ML API, ElectronHub and `custom` all ship no
     `default_model`, so without this gate the render posts `model: ""` and the user
     reads whatever that provider makes of an empty string."""
-    config = normalize_config(
-        {
-            "source": "cloud",
-            "styles": [{"id": "anime", "label": "Anime"}],
-            "default_style": "anime",
-            "cloud": {"provider": "openrouter", "providers": {"openrouter": {"api_key": "k", "model": ""}}},
-        }
-    )
+    config = _config("openrouter")
 
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"nothing may be posted without a model, got {request.url.path}")
@@ -324,11 +302,8 @@ async def test_a_render_with_no_model_says_so_instead_of_asking_the_provider():
 async def test_test_connection_still_works_before_a_model_is_chosen():
     """The discovery gate is deliberately weaker than the render gate: listing the
     models is what fills the picker, so requiring one first makes it unreachable."""
-    config = normalize_config(
-        {"source": "cloud", "cloud": {"provider": "openrouter", "providers": {"openrouter": {"api_key": "k", "model": ""}}}}
-    )
     handler = lambda _request: httpx.Response(200, json={"data": [{"id": "some/model"}]})  # noqa: E731
-    assert (await _adapter(config, handler).validate_connection())["models"] == ["some/model"]
+    assert (await _adapter(_config("openrouter"), handler).validate_connection())["models"] == ["some/model"]
 
 
 # ── references ───────────────────────────────────────────────────────────────
@@ -385,7 +360,7 @@ async def test_references_ride_the_generations_body_when_there_is_no_edits_endpo
     `/images/edits` at all, yet FLUX.1-kontext takes an `image_url` on the ordinary
     generations call. Verified live -- the reference lands."""
     record: dict = {}
-    config = _together_config(reference_source="character")
+    config = _config("togetherai", reference_source="character")
     adapter = _adapter(config, _generation_handler(record))
     request = _request(references=(_reference(_png(), "image/png"),))
 
@@ -400,7 +375,7 @@ def test_a_model_that_cannot_take_references_declares_no_slot_and_says_so():
     and the provider's answer is not uniform enough to rely on: FLUX.2 rejects
     `image_url`, schnell returns 200 having ignored it. The note is the difference
     between that and the reference quietly going missing."""
-    config = _together_config("black-forest-labs/FLUX.1-schnell", reference_source="character")
+    config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     target = _target(OpenAICompatibleImageAdapter(config), config)
 
     assert target.reference_slots == ()
@@ -408,7 +383,7 @@ def test_a_model_that_cannot_take_references_declares_no_slot_and_says_so():
 
 
 def test_a_reference_capable_model_is_not_nagged_about_it():
-    config = _together_config(reference_source="character")
+    config = _config("togetherai", reference_source="character")
     target = _target(OpenAICompatibleImageAdapter(config), config)
 
     assert len(target.reference_slots) == 1
@@ -432,7 +407,7 @@ async def test_a_gone_model_degrades_onto_one_that_cannot_take_the_reference():
         record["body"] = json.loads(request.content)
         return httpx.Response(200, json={"data": [{"b64_json": base64.b64encode(_png()).decode()}]})
 
-    config = _together_config("black-forest-labs/FLUX.1-schnell", reference_source="character")
+    config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
     adapter = _adapter(config, handler)
     target = _target(adapter, config, replay={"backend_model": "black-forest-labs/FLUX.1-kontext-pro"})
     assert len(target.reference_slots) == 1

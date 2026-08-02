@@ -10,18 +10,9 @@ it. A field is emitted only when the preset declares it.
 
 Only the **xai**, **togetherai** and **nanogpt** rows are verified against the live
 API; every other row is declared from vendor documentation and marked
-``verified=False``.
-
-Together is the cautionary tale the paragraph above describes. It was declared
-``dimension_mode="size"`` from its docs; the live API accepts `size`, ignores it,
-and renders the model default -- so a 1024x576 request was mapped to a square,
-disclosed to the user as a square, and came back 1024x768. Three separate wrong
-answers from one undeclared field. It speaks `width`/`height` integers instead.
-
-NanoGPT is the second: its documented `/v1/models` holds 653 models and **not one
-of them makes an image**, so the row Orb shipped from the docs would have filled the
-picker with chat models and offered no way to reach the 202 image ones. Its image
-catalogue is a different path, off the version prefix, in a third response shape.
+``verified=False`` -- and the two verified rows both contradicted their own docs on
+a field that fails silently, which is what the flag is warning about. Each row
+carries the measurement that corrected it.
 """
 
 from __future__ import annotations
@@ -82,9 +73,14 @@ class ProviderPreset:
     supports_negative_prompt: bool = False
     # Models that accept `negative_prompt` and silently drop it -- matched as
     # lowercase substrings of the model id. A provider-level capability with a
-    # model-level hole: FLUX.1-schnell is distilled and runs without CFG, so it has
-    # nothing to apply a negative prompt *with*, and says so by returning the
-    # byte-identical image. Verified per entry, never inferred from a family name.
+    # model-level hole: a distilled model runs without CFG, so it has nothing to
+    # apply a negative prompt *with*, and says so by returning the byte-identical
+    # image for one seed with and without one.
+    #
+    # That comparison is only sound where the seed reproduces, which a third call
+    # proves per model first -- it is what kept `pixelwave` off the NanoGPT row when
+    # two identical requests disagreed. So an id not listed here is one nobody
+    # probed, never one known to work, and never a family name inferred from a peer.
     negative_prompt_blind: tuple[str, ...] = ()
     supports_seed: bool = False
     supports_quality: bool = False
@@ -181,23 +177,15 @@ PRESETS: tuple[ProviderPreset, ...] = (
         max_dimension=1792,
         dimension_step=16,
         supports_negative_prompt=True,
-        # Distilled models run without CFG, so they have nothing to apply a negative
-        # prompt *with* and return the byte-identical image. Only ids actually probed
-        # this way are listed: on a provider that reproduces a seed inconsistently,
-        # identical bytes prove the field was dropped but differing bytes prove
-        # nothing, so "not listed here" means unverified, never "known to work".
         negative_prompt_blind=("flux.1-schnell", "juggernaut-lightning"),
         supports_seed=True,
-        # No `/images/edits` -- the reference rides the generations body. Verified
-        # live on FLUX.1-kontext pro *and* max: a `data:` URI in `image_url`
-        # reproduces the reference frame, while `image`, `images` and `image_urls`
-        # are accepted and ignored.
-        #
-        # Off the allowlist the provider is inconsistent, which is exactly why the
+        # No `/images/edits` -- the reference rides the generations body. Verified on
+        # FLUX.1-kontext pro *and* max: a `data:` URI in `image_url` reproduces the
+        # reference frame, while `image`, `images` and `image_urls` are accepted and
+        # ignored. Off the allowlist the provider is inconsistent, which is why the
         # model decides whether a slot is offered at all: FLUX.2 and Seedream answer
-        # *"Unsupported use of 'image_url' parameter"*, but the FLUX.1-schnell
-        # default answers 200 and renders the prompt alone -- a paid render that
-        # silently drops the character reference.
+        # *"Unsupported use of 'image_url' parameter"*, but the FLUX.1-schnell default
+        # answers 200 and renders the prompt alone.
         supports_references=True,
         reference_field="image_url",
         reference_encoding="string",
@@ -253,18 +241,12 @@ PRESETS: tuple[ProviderPreset, ...] = (
         # connection resting on it is not a test. `/v1/usage` is free and 401s.
         auth_probe_path="/usage",
         # Verified: `size: "1024x576"` is understood whatever vocabulary the chosen
-        # model publishes -- NanoGPT translates it, so an aspect-ratio model answered
-        # 1344x768 and a named-size model answered 1024x576. No `sizes` menu, because
-        # there is no provider-wide one to declare: each model publishes its own, and
-        # snapping the request to a menu the *next* model does not share would be a
-        # worse answer than the one the provider itself picks. See `gaps`.
+        # model publishes -- an aspect-ratio model answered 1344x768 and a named-size
+        # model answered 1024x576. Hence no `sizes` menu: each model publishes its
+        # own, and snapping to a menu the *next* model does not share is a worse
+        # answer than the one the provider itself picks. See `gaps`.
         dimension_mode="size",
         supports_negative_prompt=True,
-        # Verified by rendering one seed with and without a contradicting negative
-        # prompt: byte-identical means the field was dropped. Sound here only because
-        # the same seed reproduces on this provider -- a third call proves that per
-        # model before the comparison is trusted, which is what stopped `pixelwave`
-        # from being listed on a run where two identical requests disagreed.
         negative_prompt_blind=("hidream-i1",),
         supports_seed=True,
         # Verified live on `step-image-edit-2`: `image` as a bare `data:` URI, on
@@ -273,10 +255,10 @@ PRESETS: tuple[ProviderPreset, ...] = (
         supports_references=True,
         reference_field="image",
         reference_encoding="string",
-        # Deliberately empty: 118 of the 202 image models take a reference, the model
-        # id is in front of the user when they choose it, and an allowlist over a
-        # catalogue this size is a maintenance burden that silently narrows as
-        # NanoGPT adds models. The `gaps` line states the trade instead.
+        # `reference_models` deliberately left empty: 118 of the 202 image models take
+        # one, the id is in front of the user when they choose it, and an allowlist
+        # over a catalogue this size narrows itself every time NanoGPT ships a model.
+        # The `gaps` line states the trade instead.
         default_model="cyberrealistic-xl",
         # Verified: 3000, and it 400s rather than truncating.
         max_prompt=3_000,
@@ -349,32 +331,33 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
     return _BY_ID.get(provider_id)
 
 
+# What the settings panel is told about a provider. An allowlist, so a field added
+# to the table above reaches the frontend only when someone puts it here -- which is
+# also what keeps a credential from ever riding along, since none is named.
+# `reference_models` empty means "every model on this provider takes one"; non-empty
+# is the allowlist the panel matches the chosen model against.
+_CATALOGUE_FIELDS = (
+    "id label base_url default_model dimension_mode aspect_ratios sizes docs_url verified gaps reference_models "
+    "supports_negative_prompt supports_seed supports_quality supports_references"
+).split()
+
+
 def provider_catalogue() -> list[dict]:
     """The preset table projected for the settings panel. A projection, never the
     config: no configured `api_key` may enter this payload."""
     return [
         {
-            "id": preset.id,
-            "label": preset.label,
-            "base_url": preset.base_url,
+            **{name: _jsonable(getattr(preset, name)) for name in _CATALOGUE_FIELDS},
+            # The one derived field: `custom` is the row that ships no base URL.
             "needs_base_url": not preset.base_url,
-            "default_model": preset.default_model,
-            "dimension_mode": preset.dimension_mode,
-            "aspect_ratios": list(preset.aspect_ratios),
-            "sizes": list(preset.sizes),
-            "supports_negative_prompt": preset.supports_negative_prompt,
-            "supports_seed": preset.supports_seed,
-            "supports_quality": preset.supports_quality,
-            "supports_references": preset.supports_references,
-            # Empty means "every model on this provider takes them"; non-empty is the
-            # allowlist the panel matches the chosen model against.
-            "reference_models": list(preset.reference_models),
-            "docs_url": preset.docs_url,
-            "verified": preset.verified,
-            "gaps": list(preset.gaps),
         }
         for preset in PRESETS
     ]
+
+
+def _jsonable(value: Any) -> Any:
+    """Preset tuples are declared frozen; the wire wants arrays."""
+    return list(value) if isinstance(value, tuple) else value
 
 
 # ── dimensions ───────────────────────────────────────────────────────────────
@@ -479,25 +462,36 @@ class BuiltRequest:
     notes: list[str] = field(default_factory=list)
 
 
+# The two single-field modes are named after the field they emit, so the mode is
+# also the key. `width_height` is the odd one out because it emits two.
+_SINGLE_FIELD_MODES = {"aspect_ratio": aspect_for, "size": size_for}
+
+
 def _dimension_fields(preset: ProviderPreset, width: int | None, height: int | None) -> BuiltRequest:
-    if width is None or height is None or preset.dimension_mode == "none":
+    if width is None or height is None:
         return BuiltRequest({})
-    if preset.dimension_mode == "aspect_ratio":
-        ratio, note = aspect_for(preset, width, height)
-        return BuiltRequest({"aspect_ratio": ratio} if ratio else {}, [note] if note else [])
-    if preset.dimension_mode == "size":
-        size, note = size_for(preset, width, height)
-        return BuiltRequest({"size": size} if size else {}, [note] if note else [])
+    mapper = _SINGLE_FIELD_MODES.get(preset.dimension_mode)
+    if mapper is not None:
+        value, note = mapper(preset, width, height)
+        return BuiltRequest({preset.dimension_mode: value} if value else {}, [note] if note else [])
     if preset.dimension_mode == "width_height":
         final_w, final_h, note = pixels_for(preset, width, height)
         return BuiltRequest({"width": final_w, "height": final_h}, [note] if note else [])
+    # "none", and anything a future row misspells: the provider decides.
     return BuiltRequest({})
+
+
+def _matches(model: str, markers: Sequence[str]) -> bool:
+    """The one matching rule the per-model capability holes share: a declared marker
+    as a lowercase substring of the model id. Never a family name inferred from
+    another -- every marker is one somebody probed."""
+    lowered = model.lower()
+    return any(marker in lowered for marker in markers)
 
 
 def drops_negative_prompt(preset: ProviderPreset, model: str) -> bool:
     """True when this model accepts `negative_prompt` and does nothing with it."""
-    lowered = model.lower()
-    return any(marker in lowered for marker in preset.negative_prompt_blind)
+    return _matches(model, preset.negative_prompt_blind)
 
 
 def _prompt_field(preset: ProviderPreset, prompt: str) -> BuiltRequest:
@@ -591,19 +585,21 @@ def build_edit_body(
         quality=quality,
         n=n,
     )
-    body = built.body
     uris = [_data_uri(reference) for reference in references]
+    if not uris:
+        # The caller routes a referenceless render to `build_generation_body`, so
+        # this is unreachable in practice -- but returning early beats emitting the
+        # reference field as a JSON `null` for a provider to make sense of.
+        return built
     if preset.reference_encoding == "url_objects":
-        body[preset.reference_field] = [{"url": uri} for uri in uris]
-    elif preset.reference_encoding == "string":
-        body[preset.reference_field] = uris[0] if uris else None
+        built.body[preset.reference_field] = [{"url": uri} for uri in uris]
     else:
-        body[preset.reference_field] = {"url": uris[0]} if uris else None
-    # Only the list encoding carries more than one, so anywhere else the extras are
-    # dropped -- say so rather than let the user wonder which one won.
-    if len(uris) > 1 and preset.reference_encoding != "url_objects":
-        built.notes.append(f"{preset.label} accepts one reference image; only the first was sent")
-    if uris and preset.reference_drives_size:
+        built.body[preset.reference_field] = uris[0] if preset.reference_encoding == "string" else {"url": uris[0]}
+        # Only the list encoding carries more than one, so anywhere else the extras
+        # are dropped -- say so rather than let the user wonder which one won.
+        if len(uris) > 1:
+            built.notes.append(f"{preset.label} accepts one reference image; only the first was sent")
+    if preset.reference_drives_size:
         # Verified on Kontext: a 512x512 reference on a 1024x576 request came back
         # 1024x1024. Disclosed rather than left to be noticed, because the picker
         # still shows the resolution that no longer applies.
@@ -619,7 +615,4 @@ def takes_references(preset: ProviderPreset, model: str) -> bool:
     """
     if not preset.supports_references:
         return False
-    if not preset.reference_models:
-        return True
-    lowered = model.lower()
-    return any(marker in lowered for marker in preset.reference_models)
+    return not preset.reference_models or _matches(model, preset.reference_models)

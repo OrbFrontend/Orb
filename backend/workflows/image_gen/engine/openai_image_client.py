@@ -51,14 +51,11 @@ _PATH_RE = re.compile(r"(?<![\w.])/[\w.\-/]+")
 _WHITESPACE_RE = re.compile(r"\s+")
 _EXCERPT_LIMIT = 200
 
-# There was a `_MODERATION_MARKERS` list here, matching "blocked", "not allowed",
-# "violat" and friends to tell the user their prompt was refused on content. It is
-# gone because those are ordinary API-error English: *"Model gpt-image-1 is not
-# allowed for your account tier"* was reported as a content refusal, telling the
-# user to reword a prompt that was never the problem while discarding the sentence
-# that named the real one. A provider that refuses on content says so in its own
-# message, and that message now reaches the user intact -- which is the same
-# information without Orb asserting it over the cases it got wrong.
+# There is deliberately no content-refusal branch. Markers like "blocked" and "not
+# allowed" are ordinary API-error English -- *"Model gpt-image-1 is not allowed for
+# your account tier"* was reported as a content refusal -- and a provider refusing
+# on content says so in its own words anyway. See
+# `test_ordinary_api_english_is_not_read_as_a_content_refusal`.
 
 
 class CloudImageError(ImageGenerationError):
@@ -167,15 +164,13 @@ def _body_codes(payload: Any) -> str:
     """
     if not isinstance(payload, Mapping):
         return ""
-    found: list[str] = []
-    for source in (payload, payload.get("error")):
-        if not isinstance(source, Mapping):
-            continue
-        for key in ("code", "type"):
-            value = source.get(key)
-            if isinstance(value, str) and value:
-                found.append(value.lower())
-    return " ".join(found)
+    return " ".join(
+        value.lower()
+        for source in (payload, payload.get("error"))
+        if isinstance(source, Mapping)
+        for key in ("code", "type")
+        if isinstance(value := source.get(key), str) and value
+    )
 
 
 class OpenAIImageClient:
@@ -204,6 +199,15 @@ class OpenAIImageClient:
         )
 
     # ── the one error funnel ──────────────────────────────────────────────────
+
+    def _bad(self, said: str, kind: str = "malformed") -> CloudImageError:
+        """Every failure that is not a provider rejection, named with the provider.
+
+        "the backend returned junk" is not actionable without knowing which backend,
+        and there are a dozen of these -- one constructor keeps them from drifting
+        into a dozen spellings of the same sentence.
+        """
+        return CloudImageError(f"{self.label} {said}", kind)
 
     def _failure(self, status: int, payload: Any, *, model: str = "") -> CloudImageError:
         """One provider rejection, named as far as Orb can name it and quoted the
@@ -267,17 +271,14 @@ class OpenAIImageClient:
                     # in the provider's place. Reporting it as "could not
                     # communicate" sent the user to look at their network for a
                     # request that completed.
-                    raise CloudImageError(
-                        _say(f"{self.label} returned a malformed response", response.status_code, ""),
-                        "malformed",
-                    ) from exc
+                    raise self._bad(f"returned a malformed response (HTTP {response.status_code})") from exc
         except ImageGenerationError:
             raise
         except httpx.TimeoutException as exc:
             # Named apart from every other transport failure: on a render this is the
             # *expected* one, and "could not communicate" reads as a broken network
             # rather than a provider that is simply slower than the timeout.
-            raise CloudImageError(f"{self.label} did not respond within {timeout:.0f}s", "timeout") from exc
+            raise self._bad(f"did not respond within {timeout:.0f}s", "timeout") from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise CloudImageError(f"Could not communicate with {self.label}", "transport") from exc
 
@@ -291,12 +292,10 @@ class OpenAIImageClient:
         generations path.
         """
         decoded = await self._send("GET", path, timeout=min(30.0, self.timeout))
-        # xAI's image-model endpoint answers `{"models": [...]}`; OpenAI answers
-        # `{"data": [...]}`; Together answers a bare array; NanoGPT answers
-        # `{"models": {"image": {id: {...}}}}`. Not interchangeable, so the preset
-        # says which -- reading `data` off Together's list found nothing and failed
-        # Test connection against a provider that was working fine, and reading
-        # NanoGPT's documented `/v1/models` finds 653 models that make only text.
+        # Which shape each provider speaks is declared on its preset -- see
+        # `models_response` in providers.py. Reading the wrong one yields an empty
+        # list, which reads to the user as "this key has no models" rather than as
+        # a parser pointed at the wrong key, so a mismatch is malformed, not empty.
         if response_shape == "bare_list":
             entries: Any = decoded
         elif response_shape == "nanogpt_image_map":
@@ -309,7 +308,7 @@ class OpenAIImageClient:
             key = "models" if response_shape == "models_list" else "data"
             entries = decoded.get(key) if isinstance(decoded, Mapping) else None
         if not isinstance(entries, list):
-            raise CloudImageError(f"{self.label} returned a malformed model list", "malformed")
+            raise self._bad("returned a malformed model list")
         names = _model_ids(entries, type_filter)
         if not names and type_filter:
             # The filter is an optimisation, never a gate: a provider that stops
@@ -342,18 +341,16 @@ class OpenAIImageClient:
         the same request, so the adapter emits a single progress event at submit."""
         payload = await self._send("POST", path, timeout=timeout, body=body, model=str(body.get("model") or ""))
         if not isinstance(payload, Mapping):
-            raise CloudImageError(f"{self.label} returned a malformed response", "malformed")
+            raise self._bad("returned a malformed response")
         entries = payload.get("data")
         entry = entries[0] if isinstance(entries, list) and entries and isinstance(entries[0], Mapping) else None
         if entry is None:
-            raise CloudImageError(f"{self.label} returned no image", "malformed")
+            raise self._bad("returned no image")
         data = await self._image_bytes(entry, timeout=timeout)
         try:
             mime = image_mime(data)
         except ImageGenerationError as exc:
-            # Named, like every other failure here: "the backend returned junk" is
-            # not actionable without knowing which backend.
-            raise CloudImageError(f"{self.label} returned data that is not a supported image", "malformed") from exc
+            raise self._bad("returned data that is not a supported image") from exc
         # Full-res source -> capped WebP off-thread (CPU-bound) before it is stored.
         shrunk, mime = await asyncio.to_thread(shrink_for_display, data, mime)
         return CloudImage(data=shrunk, mime=mime, cost=_cost(payload, provider_id))
@@ -364,13 +361,13 @@ class OpenAIImageClient:
             try:
                 data = base64.b64decode(encoded, validate=True)
             except (ValueError, TypeError) as exc:
-                raise CloudImageError(f"{self.label} returned an unreadable image", "malformed") from exc
+                raise self._bad("returned an unreadable image") from exc
             if not data or len(data) > MAX_IMAGE_BYTES:
-                raise CloudImageError(f"{self.label} returned an image that is empty or too large", "malformed")
+                raise self._bad("returned an image that is empty or too large")
             return data
         url = entry.get("url")
         if not isinstance(url, str) or not url:
-            raise CloudImageError(f"{self.label} returned no image", "malformed")
+            raise self._bad("returned no image")
         return await self._fetch(url, timeout=timeout)
 
     async def _fetch(self, url: str, *, timeout: float) -> bytes:
@@ -382,7 +379,7 @@ class OpenAIImageClient:
         `content-length`, which the server is free to lie about.
         """
         if not url.lower().startswith("https://"):
-            raise CloudImageError(f"{self.label} returned an image over an insecure URL", "insecure_url")
+            raise self._bad("returned an image over an insecure URL", "insecure_url")
         chunks: list[bytes] = []
         total = 0
         try:
@@ -392,17 +389,17 @@ class OpenAIImageClient:
                     async for chunk in response.aiter_bytes():
                         total += len(chunk)
                         if total > MAX_IMAGE_BYTES:
-                            raise CloudImageError(f"{self.label} returned an image that is too large", "too_large")
+                            raise self._bad("returned an image that is too large", "too_large")
                         chunks.append(chunk)
         except ImageGenerationError:
             raise
         except httpx.TimeoutException as exc:
-            raise CloudImageError(f"{self.label} did not send the generated image within {timeout:.0f}s", "timeout") from exc
+            raise self._bad(f"did not send the generated image within {timeout:.0f}s", "timeout") from exc
         except httpx.HTTPError as exc:
             raise CloudImageError(f"Could not fetch the generated image from {self.label}", "transport") from exc
         data = b"".join(chunks)
         if not data:
-            raise CloudImageError(f"{self.label} returned an empty image", "malformed")
+            raise self._bad("returned an empty image")
         return data
 
 
@@ -430,16 +427,14 @@ def _cost(payload: Mapping[str, Any], provider_id: str) -> dict | None:
     reports both means the nested one -- NanoGPT reports only a top-level `cost`, in
     plain USD, and reading `usage` alone showed no cost row on a render that had one.
     """
-    usage = payload.get("usage")
-    candidates: list[tuple[Any, str, str]] = []
-    if isinstance(usage, Mapping):
-        candidates += [
-            (usage, "cost_in_usd_ticks", "usd_ticks"),
-            (usage, "total_cost", "usd"),
-            (usage, "cost", "usd"),
-        ]
-    candidates.append((payload, "cost", "usd"))
-    for source, field, unit in candidates:
+    reported = payload.get("usage")
+    usage: Mapping[str, Any] = reported if isinstance(reported, Mapping) else {}
+    for source, field, unit in (
+        (usage, "cost_in_usd_ticks", "usd_ticks"),
+        (usage, "total_cost", "usd"),
+        (usage, "cost", "usd"),
+        (payload, "cost", "usd"),
+    ):
         value = source.get(field)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return {"provider": provider_id, "unit": unit, "value": value}
