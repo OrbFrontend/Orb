@@ -17,8 +17,8 @@ from ..contracts import (
     ImageRequest,
     ImageResult,
     ProgressCallback,
+    RenderTarget,
 )
-from ..target import RenderTarget
 
 
 class ImageAdapter(ABC):

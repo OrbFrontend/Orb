@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from backend.workflows.image_gen import composer
+from backend.workflows.image_gen import composer, prompts, scrub
 from backend.workflows.image_gen.composer import (
     FIRST,
     THIRD,
@@ -103,11 +103,11 @@ def test_the_structured_block_states_no_viewpoint_the_composer_could_copy():
 
 
 def test_count_anchor_counts_cast_and_rejects_missing_sex():
-    assert composer._count_anchor([{"sex": "girl"}]) == "1girl, solo"
-    assert composer._count_anchor([{"sex": "girl"}, {"sex": "girl"}, {"sex": "boy"}]) == "2girls, 1boy"
-    assert composer._count_anchor([]) == ""
-    assert composer._count_anchor([{"sex": "girl"}, {"name": "no-sex"}]) is None
-    assert composer._count_anchor("junk") is None
+    assert scrub.count_anchor([{"sex": "girl"}]) == "1girl, solo"
+    assert scrub.count_anchor([{"sex": "girl"}, {"sex": "girl"}, {"sex": "boy"}]) == "2girls, 1boy"
+    assert scrub.count_anchor([]) == ""
+    assert scrub.count_anchor([{"sex": "girl"}, {"name": "no-sex"}]) is None
+    assert scrub.count_anchor("junk") is None
 
 
 # ── the cast, and who is in it ───────────────────────────────────────────────
@@ -205,18 +205,18 @@ async def test_the_camera_moves_the_tails_and_never_the_tool_schemas(monkeypatch
     compose, and the next chat turn all reuse. A schema that varied with the camera
     would evict that prefix on every manual flip and every chat switch.
     """
-    before = json.dumps([composer.ANALYZE_TOOL_SCHEMA, composer.COMPOSE_TOOL_SCHEMA, composer._OFFER_TOOLS], sort_keys=True)
+    before = json.dumps([prompts.ANALYZE_TOOL_SCHEMA, prompts.COMPOSE_TOOL_SCHEMA, prompts.OFFER_TOOLS], sort_keys=True)
 
     first_tails = await _tails_for(monkeypatch, FIRST)
     third_tails = await _tails_for(monkeypatch, THIRD)
 
-    after = json.dumps([composer.ANALYZE_TOOL_SCHEMA, composer.COMPOSE_TOOL_SCHEMA, composer._OFFER_TOOLS], sort_keys=True)
+    after = json.dumps([prompts.ANALYZE_TOOL_SCHEMA, prompts.COMPOSE_TOOL_SCHEMA, prompts.OFFER_TOOLS], sort_keys=True)
     assert before == after, "the tool blob must not depend on the camera"
     assert first_tails != third_tails, "vacuity guard: the camera really did change what the model was told"
     # Asserted against the constants, not their wording: the prompts get tuned, the
     # wiring must not. Each camera ships its own copy and none of the other's.
-    first_copy = (composer._ANALYZE_CAMERA[FIRST], composer._SHOT_COUNTED_FIRST, composer._SHOT_PROSE_FIRST)
-    third_copy = (composer._ANALYZE_CAMERA[THIRD], composer._SHOT_COUNTED_THIRD, composer._SHOT_PROSE_THIRD)
+    first_copy = (prompts._ANALYZE_CAMERA[FIRST], prompts._SHOT_COUNTED_FIRST, prompts._SHOT_PROSE_FIRST)
+    third_copy = (prompts._ANALYZE_CAMERA[THIRD], prompts._SHOT_COUNTED_THIRD, prompts._SHOT_PROSE_THIRD)
     for tails, mine, theirs in ((first_tails, first_copy, third_copy), (third_tails, third_copy, first_copy)):
         joined = "".join(tails)
         assert sum(c in joined for c in mine) >= 2  # the analyze camera plus one shot rule
@@ -224,7 +224,7 @@ async def test_the_camera_moves_the_tails_and_never_the_tool_schemas(monkeypatch
 
 
 def test_the_analyze_schema_states_no_viewpoint_and_orders_viewer_contact_last():
-    params = composer.ANALYZE_TOOL_SCHEMA["function"]["parameters"]
+    params = prompts.ANALYZE_TOOL_SCHEMA["function"]["parameters"]
     assert "viewpoint" not in params["properties"] and "viewpoint" not in params["required"]
     # `viewer_contact` ships in BOTH modes on purpose -- a first-person-only field is
     # a schema that varies with the camera. Strict decoding emits fields in schema
@@ -403,7 +403,7 @@ async def test_viewer_contact_becomes_tags_the_encoder_has_seen(monkeypatch, mod
     ],
 )
 def test_viewer_talk_is_rewritten_into_tags_the_encoder_has_seen(chunk, expected):
-    assert composer._rewrite_viewer_contact(chunk) == expected
+    assert scrub.rewrite_viewer_contact(chunk) == expected
 
 
 async def test_nullish_strings_never_reach_the_scene_or_the_negative(monkeypatch):
@@ -437,7 +437,7 @@ async def test_no_negative_workflow_tells_model_to_leave_avoid_empty(monkeypatch
         captured,
         supports_negative=False,
     )
-    assert composer._LEAVE_AVOID_EMPTY in captured["compose_image_prompt"]
+    assert prompts._LEAVE_AVOID_EMPTY in captured["compose_image_prompt"]
 
 
 async def test_analysis_avoid_items_ride_avoid(monkeypatch):

@@ -36,6 +36,12 @@ MAX_REFERENCE_SLOTS = 4
 MAX_REFERENCE_IMAGE_B64 = 13_400_000
 PROMPT_FORMATS = ("tags", "hybrid", "prose")
 DEFAULT_PROMPT_FORMAT = "hybrid"
+# The three formats Orb carries end to end, each mapped to the extension it is named
+# by. One table rather than three, because "a mime Orb accepts" and "a mime Orb can
+# name as a file" are the same set: ComfyUI's multipart upload takes the extension
+# from here, and so does a stored attachment's filename.
+MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+REFERENCE_MIMES = tuple(MIME_EXTENSIONS)
 # Where a mapped `LoadImage` gets its bytes, as an ordered resolution list. The
 # combined source is the default so the choice has no cold-start cliff: a slot
 # pinned to `previous` alone hard-fails on a new conversation's first Visualize.
@@ -462,9 +468,6 @@ def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:
     # render path turns "no workflow" into an "assign one" error rather than
     # silently substituting.
     return dict(style)
-
-
-REFERENCE_MIMES = ("image/png", "image/jpeg", "image/webp")
 
 
 def normalize_profile(raw: Mapping[str, Any] | None) -> dict:

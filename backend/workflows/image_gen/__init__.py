@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from ..registry import Workflow
-from .composer import ANALYZE_TOOL, COMPOSE_TOOL
 from .config import CONFIG_DEFAULTS, SOURCES, normalize_config
 from .pov import POV_MODES
+from .prompts import ANALYZE_TOOL, COMPOSE_TOOL
 
 _CONFIG_SCHEMA = {
     "type": "object",

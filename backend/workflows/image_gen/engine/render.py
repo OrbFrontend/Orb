@@ -1,17 +1,20 @@
-"""Adapter dispatch for one render."""
+"""The render seam.
+
+One named function every render goes through, so a test can replace "what the
+backend did" without standing up a transport. Deliberately takes the adapter the
+caller already resolved rather than a config: `hooks.py` needs `resolve_target`
+and `label` off that adapter before this call, and looking one up again here made
+"which backend renders" a decision taken twice from the same config.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
-
-from .contracts import ImageRequest, ImageResult, ProgressCallback
-from .router import get_adapter
-from .target import RenderTarget
+from .adapters.base import ImageAdapter
+from .contracts import ImageRequest, ImageResult, ProgressCallback, RenderTarget
 
 
 async def resolve_and_generate(
-    config: Mapping[str, Any],
+    adapter: ImageAdapter,
     request: ImageRequest,
     *,
     target: RenderTarget,
@@ -23,4 +26,4 @@ async def resolve_and_generate(
     `hooks.py` need answers off the target before the call, and a second way to
     reach one is how they come to disagree about replay precedence.
     """
-    return await get_adapter(config).generate(request, target=target, progress=progress)
+    return await adapter.generate(request, target=target, progress=progress)

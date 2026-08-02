@@ -11,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from ..config import MIME_EXTENSIONS
 from .contracts import ImageGenerationError, ImageResult, ProgressCallback, emit
 from .display_encode import shrink_for_display
 from .image_bytes import MAX_IMAGE_BYTES, image_mime
@@ -19,7 +20,6 @@ from .image_bytes import MAX_IMAGE_BYTES, image_mime
 # Core ComfyUI exposes no delete API for input files, so it grows by one file per
 # distinct reference; content-addressed names keep repeats from adding to that.
 REFERENCE_SUBFOLDER = "orb"
-_UPLOAD_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 
 # `/object_info` is the one enormous response in this contract -- a real install
 # with custom-node packs reports ~2000 node types, tens of megabytes. Readiness
@@ -142,7 +142,7 @@ class ComfyClient:
         that is what the widget carries. The name is content-addressed off `digest`, so
         repeat renders overwrite one file and a reroll resolves to the same name.
         """
-        name = f"orb_{digest[:16]}.{_UPLOAD_EXTENSIONS.get(mime, 'png')}"
+        name = f"orb_{digest[:16]}.{MIME_EXTENSIONS.get(mime, 'png')}"
         await emit(progress, "uploading", {"name": name, "bytes": len(data)})
         try:
             async with self._http(timeout) as client:

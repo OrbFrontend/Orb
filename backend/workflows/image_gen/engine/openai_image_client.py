@@ -141,6 +141,8 @@ def _body_text(payload: Any) -> str:
     if isinstance(payload, Mapping):
         error = payload.get("error")
         if isinstance(error, Mapping):
+            # `type` is read here but never at the top level, where it names the
+            # *category* that failed ("invalid_request_error") rather than the fault.
             for key in ("message", "detail", "code", "type"):
                 value = error.get(key)
                 if isinstance(value, str) and value:
@@ -287,9 +289,8 @@ class OpenAIImageClient:
     async def list_models(self, path: str, response_shape: str, type_filter: str = "") -> list[str]:
         """The provider's model ids, narrowed to the ones that make images.
 
-        The **only** endpoint `validate_connection` touches: a Test connection
-        button that bills the user is unacceptable, so nothing here may reach the
-        generations path.
+        The **only** endpoint `validate_connection` touches, and nothing here may
+        reach the generations path -- see `validate_connection` on ImageAdapter.
         """
         decoded = await self._send("GET", path, timeout=min(30.0, self.timeout))
         # Which shape each provider speaks is declared on its preset -- see

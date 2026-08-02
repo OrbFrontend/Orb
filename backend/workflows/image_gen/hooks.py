@@ -21,6 +21,7 @@ from . import pov as pov_mod
 from .composer import assemble_prompts, compose_scene
 from .config import (
     MAX_REFERENCE_IMAGE_B64,
+    MIME_EXTENSIONS,
     REFERENCE_MIMES,
     WORKFLOW_ID,
     normalize_config,
@@ -31,18 +32,14 @@ from .engine import (
     ImageGenerationError,
     ImageRequest,
     ProgressCallback,
-    comfy_adapter,
     get_adapter,
     list_sources,
     resolve_and_generate,
 )
-from .engine.providers import provider_catalogue
 from .references import refetch_references, resolve_references
 
 logger = logging.getLogger(__name__)
 SEED_MODULUS = 2**64
-# Bounds the `node_types` sweep, so a malformed import cannot fan out unbounded.
-MAX_INSPECTED_CLASS_TYPES = 200
 
 
 def fold_seed(seed: str | int) -> int:
@@ -193,8 +190,8 @@ def _consumption(
         "prompt": prompt,
         "negative_prompt": negative_prompt,
     }
-    # In the provider's own unit, never converted: renaming an undocumented unit to
-    # "usd" would pick a divisor by omission and print a wrong billing figure.
+    # Copied through in whatever unit the provider named; see `_cost` in
+    # engine/openai_image_client.py for why nothing here converts it.
     cost = info.get("cost")
     if isinstance(cost, Mapping) and cost.get("value") is not None:
         payload["cost"] = dict(cost)
@@ -228,7 +225,7 @@ def _recorded_references(params: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 
 
 def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
-    ext = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(result.mime, "img")
+    ext = MIME_EXTENSIONS.get(result.mime, "img")
     return {
         "workflow_id": WORKFLOW_ID,
         "filename": f"generated-image.{ext}",
@@ -299,7 +296,7 @@ async def _generate_fresh(
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()
     result = await resolve_and_generate(
-        config,
+        adapter,
         ImageRequest(
             prompt=prompt,
             negative_prompt=negative,
@@ -327,149 +324,6 @@ async def _generate_fresh(
         # so rather than leave it inferred from a missing Reference row.
         consumption.setdefault("notes", []).append("no reference image was available, so this was drawn from the prompt alone")
     return _attachment(seed, result, md, consumption)
-
-
-async def on_demand(ctx, body):
-    action = body.get("action") if isinstance(body, dict) else None
-    if action == "generate":
-        return await _generate_response(ctx, body)
-    if action == "get_profile":
-        if not ctx.character_id:
-            return {"profile": None, "character_id": None}
-        return {
-            "profile": normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)),
-            "character_id": ctx.character_id,
-        }
-    if action == "set_profile":
-        if not ctx.character_id:
-            return {"error": "no active character"}
-        profile = body.get("profile")
-        if not isinstance(profile, dict):
-            return {"error": "profile (dict) required"}
-        normalized = normalize_profile(profile)
-        await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, normalized)
-        result = {"ok": True, "profile": normalized}
-        # The normalizer drops a reference image it cannot accept rather than
-        # truncating it, so a bare "ok" would let the form preview the image,
-        # report success, and show it gone on reopen with nothing to explain why.
-        sent = profile.get("reference_image_b64")
-        if isinstance(sent, str) and sent.strip() and not normalized["reference_image_b64"]:
-            accepted = ", ".join(mime.removeprefix("image/").upper() for mime in REFERENCE_MIMES)
-            result["warning"] = (
-                f"That reference image was not saved: Orb accepts {accepted} files up to "
-                f"{MAX_REFERENCE_IMAGE_B64 * 3 // 4 // (1024 * 1024)} MB."
-            )
-        return result
-    return {"error": f"unknown action: {action!r}"}
-
-
-# --- QUERY: conversation-less config / capability discovery -------------------
-# These back the tools-panel card and the settings form. They answer from the saved
-# config or by probing the backend, with no conversation in scope, and report their
-# own failures in-band as ``{"error": ...}`` -- the caller degrades (empty model
-# list, plain-text fields) rather than treating a probe failure as an HTTP error.
-
-
-async def _config_from_query(body) -> dict:
-    """The form's unsaved override if the body carries one, else the saved slot.
-
-    The settings form tests and inspects a config it has not saved yet; the
-    tools-panel card sends none.
-    """
-    if isinstance(body, dict) and isinstance(body.get("config"), dict):
-        return normalize_config(body["config"])
-    return normalize_config(await get_workflow_config(WORKFLOW_ID))
-
-
-async def query(ctx, body):
-    action = body.get("action") if isinstance(body, dict) else None
-    if action == "status":
-        return await _status(body)
-    if action == "styles":
-        return await _styles(body)
-    if action == "test":
-        return await _test_connection(body)
-    if action == "models":
-        return await _external_models(body)
-    if action == "node_types":
-        return await _node_types(body)
-    return {"error": f"unknown action: {action!r}"}
-
-
-async def _status(body) -> dict:
-    config = await _config_from_query(body)
-    external = config["external_comfy"]
-    adapter = get_adapter(config)
-    return {
-        "source": config["source"],
-        "capabilities": dict(adapter.capabilities),
-        # The source picker, the provider dropdown and the capability line all read
-        # from here, so the three cannot disagree. `providers` is the preset table
-        # *projected* -- no configured api_key may enter this payload.
-        "sources": list_sources(),
-        "providers": provider_catalogue(),
-        "api_url": external["api_url"],
-        "default_style": config["default_style"],
-        # The camera picker labels "Auto" off these two. Both are local, so they
-        # ride this answer instead of costing a second round trip.
-        "classifier_ready": await pov_mod.classifier_ready(),
-        "fallback_mode": pov_mod.DEFAULT_POV_MODE,
-        "style_count": len(config["styles"]),
-        "user_graph_count": len(external["user_graphs"]),
-        **adapter.readiness(),
-        "managed_local": {
-            "available": False,
-            "reason": "Managed local image generation is not included in this stage",
-        },
-    }
-
-
-async def _styles(body) -> dict:
-    config = await _config_from_query(body)
-    return {
-        "source": config["source"],
-        "default_style": config["default_style"],
-        "styles": config["styles"],
-    }
-
-
-async def _test_connection(body) -> dict:
-    # Only the readiness probe (which sends no config) may answer from the cached
-    # node catalogue -- pressing Test means "look again".
-    explicit = isinstance(body, dict) and isinstance(body.get("config"), dict)
-    config = await _config_from_query(body)
-    try:
-        return await get_adapter(config).validate_connection(allow_cached=not explicit)
-    except (ImageGenerationError, ValueError) as exc:
-        return {"error": str(exc)}
-
-
-async def _external_models(body) -> dict:
-    config = await _config_from_query(body)
-    try:
-        return {"models": await get_adapter(config).list_models()}
-    except ImageGenerationError as exc:
-        return {"error": str(exc)}
-
-
-async def _node_types(body) -> dict:
-    """Slot-role typing for the node classes in a graph the user is importing.
-
-    Takes class-type names, not the graph: the browser already parsed it. Dispatches
-    to the ComfyUI adapter **explicitly, never by active source** -- imported graphs
-    are global and the importer stays usable under cloud. A connection failure
-    degrades to no typing; the picker falls back to conventional input names.
-    """
-    raw = body.get("class_types") if isinstance(body, dict) else None
-    if not isinstance(raw, list):
-        return {"error": "class_types (list of strings) required"}
-    class_types = [item for item in raw if isinstance(item, str) and item][:MAX_INSPECTED_CLASS_TYPES]
-    config = await _config_from_query(body)
-    adapter = comfy_adapter(config)
-    try:
-        return {"nodes": await adapter.node_roles(class_types)}
-    except ImageGenerationError:
-        return {"nodes": {}}
 
 
 async def _generate_response(ctx, body) -> WorkflowEventStream:
@@ -546,6 +400,47 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
     return WorkflowEventStream(events=stream())
 
 
+async def _get_profile(ctx, _body) -> dict:
+    if not ctx.character_id:
+        return {"profile": None, "character_id": None}
+    return {
+        "profile": normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID)),
+        "character_id": ctx.character_id,
+    }
+
+
+async def _set_profile(ctx, body) -> dict:
+    if not ctx.character_id:
+        return {"error": "no active character"}
+    profile = body.get("profile")
+    if not isinstance(profile, dict):
+        return {"error": "profile (dict) required"}
+    normalized = normalize_profile(profile)
+    await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, normalized)
+    result = {"ok": True, "profile": normalized}
+    # The normalizer drops a reference image it cannot accept rather than
+    # truncating it, so a bare "ok" would let the form preview the image,
+    # report success, and show it gone on reopen with nothing to explain why.
+    sent = profile.get("reference_image_b64")
+    if isinstance(sent, str) and sent.strip() and not normalized["reference_image_b64"]:
+        accepted = ", ".join(mime.removeprefix("image/").upper() for mime in REFERENCE_MIMES)
+        result["warning"] = (
+            f"That reference image was not saved: Orb accepts {accepted} files up to "
+            f"{MAX_REFERENCE_IMAGE_B64 * 3 // 4 // (1024 * 1024)} MB."
+        )
+    return result
+
+
+# A table rather than a branch chain, so adding an action is a single edit.
+_ON_DEMAND_ACTIONS = {"generate": _generate_response, "get_profile": _get_profile, "set_profile": _set_profile}
+
+
+async def on_demand(ctx, body):
+    action = body.get("action") if isinstance(body, dict) else None
+    handler = _ON_DEMAND_ACTIONS.get(action) if isinstance(action, str) else None
+    return await handler(ctx, body) if handler else {"error": f"unknown action: {action!r}"}
+
+
 async def regenerate(ctx, body):
     message = await get_message_by_id(ctx.message_id)
     if message is None or message.get("role") != "assistant":
@@ -584,13 +479,14 @@ class _RegenCompositionCtx:
 async def reroll_gen(ctx, params, seed):
     if not isinstance(params, dict):
         raise ValueError("stored image parameters are missing")
-    prompt = params.get("prompt")
-    negative = params.get("negative_prompt")
-    style_id = params.get("style_id")
-    if not all(isinstance(x, str) and x for x in (prompt, style_id)) or not isinstance(negative, str):
+    prompt, negative, style_id = params.get("prompt"), params.get("negative_prompt"), params.get("style_id")
+    # Spelled as `isinstance` per field rather than an `all(...)` sweep: the sweep
+    # reads the same but narrows nothing, which is what the two bare `assert
+    # isinstance` lines below it were paying for.
+    if not isinstance(prompt, str) or not isinstance(negative, str) or not isinstance(style_id, str):
         raise ValueError("stored image parameters are incomplete")
-    assert isinstance(prompt, str)
-    assert isinstance(style_id, str)
+    if not prompt or not style_id:
+        raise ValueError("stored image parameters are incomplete")
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
     # The style first: it is the one step that can reject, and discovering it was
     # deleted after a full render wastes a minute.
@@ -646,7 +542,7 @@ async def reroll_gen(ctx, params, seed):
         params["references"] = [reference.record() for reference in references]
     resolved_seed = fold_seed(seed)
     result = await resolve_and_generate(
-        config,
+        adapter,
         ImageRequest(
             prompt=prompt,
             negative_prompt=negative,

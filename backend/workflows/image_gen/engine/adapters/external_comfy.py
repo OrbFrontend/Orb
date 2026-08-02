@@ -14,6 +14,7 @@ from ..contracts import (
     ImageRequest,
     ImageResult,
     ProgressCallback,
+    RenderTarget,
 )
 from ..graph import (
     declared_inputs,
@@ -25,7 +26,6 @@ from ..graph import (
     resolve_graph,
     validate_graph_structure,
 )
-from ..target import RenderTarget
 from .base import ImageAdapter
 
 # Generous next to the cloud adapter's base64-in-JSON cap, because this is a
@@ -303,22 +303,21 @@ class ExternalComfyAdapter(ImageAdapter):
 
 
 def _safe_system_summary(stats: Mapping[str, Any]) -> dict:
-    system_value = stats.get("system")
-    system: Mapping[str, Any] = system_value if isinstance(system_value, Mapping) else {}
-    devices_value = stats.get("devices")
-    devices: list[Any] = devices_value if isinstance(devices_value, list) else []
-    safe_devices = []
-    for d in devices:
-        if isinstance(d, Mapping):
-            safe_devices.append(
-                {
-                    "name": str(d.get("name", ""))[:160],
-                    "vram_total": d.get("vram_total"),
-                }
-            )
+    """The two facts Orb shows off `/system_stats`, bounded and nothing else copied.
+
+    An allowlist rather than a filter: this payload reaches the settings panel, and
+    a ComfyUI build that starts reporting paths or usernames must not carry them
+    along on the strength of nobody having thought to exclude them.
+    """
+    system = stats.get("system")
+    devices = stats.get("devices")
     return {
-        "comfyui_version": str(system.get("comfyui_version", ""))[:80],
-        "devices": safe_devices,
+        "comfyui_version": str((system if isinstance(system, Mapping) else {}).get("comfyui_version", ""))[:80],
+        "devices": [
+            {"name": str(device.get("name", ""))[:160], "vram_total": device.get("vram_total")}
+            for device in (devices if isinstance(devices, list) else [])
+            if isinstance(device, Mapping)
+        ],
     }
 
 

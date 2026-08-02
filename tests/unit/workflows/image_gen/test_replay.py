@@ -183,7 +183,7 @@ def _cloud_reroll(monkeypatch):
     monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
     captured: dict = {}
 
-    async def fake_generate(_config, request, *, target=None, progress=None):
+    async def fake_generate(_adapter, request, *, target=None, progress=None):
         captured["request"] = request
         captured["target"] = target
         return ImageResult(image_bytes=b"rendered", mime="image/webp", backend_info={"notes": []})

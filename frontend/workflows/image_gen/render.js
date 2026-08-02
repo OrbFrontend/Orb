@@ -36,10 +36,9 @@ const REFERENCE_ORIGIN_LABELS = {
 // honest row is "recorded but unused", not a blank and not the hex.
 const UNUSED_SEED = "not used";
 
-// Rendered only in the unit the payload names. Nothing converts: xAI reports
-// `usd_ticks` and nowhere documents what a tick is worth, so calling it dollars
-// would print a wrong billing figure. An unrecognised unit still shows the value
-// beside its own name, which is more use than hiding it.
+// Rendered only in the unit the payload names — see `_cost` in the backend's
+// openai_image_client for why nothing converts. An unrecognised unit still shows the
+// value beside its own name, which is more use than hiding it.
 const COST_UNITS = {
   usd: (value) => `$${Number(value).toFixed(4)}`,
   usd_ticks: (value) => `${value} usd ticks`,

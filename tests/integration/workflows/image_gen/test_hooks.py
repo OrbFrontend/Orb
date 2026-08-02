@@ -134,7 +134,7 @@ def _stub(monkeypatch, render=None, scene="1girl, standing"):
     async def fake_compose(**kwargs):
         return scene, "", "single_call"
 
-    async def fake_render(config, request, **kwargs):
+    async def fake_render(adapter, request, **kwargs):
         return _image()
 
     monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)

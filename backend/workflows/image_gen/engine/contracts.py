@@ -40,6 +40,35 @@ class ImageBackendCapabilities(TypedDict):
 
 
 @dataclass(frozen=True)
+class RenderTarget:
+    """What will actually execute one render -- the dynamic tier.
+
+    `ImageBackendCapabilities` above is the static tier ("can this backend
+    ever?"); this is "what will this one do?", a per-graph question for ComfyUI.
+    There is no `supports_references` -- it collapses into "`reference_slots` is
+    non-empty".
+
+    `notes` carries user-facing disclosure for a replay that could not be honoured
+    exactly: substituting silently is the thing to avoid, and refusing outright is
+    not the alternative.
+    """
+
+    source: str
+    # comfy: the imported graph's id. cloud: "" -- there is no graph.
+    target_id: str
+    # comfy: the checkpoint filename. cloud: the model id.
+    model: str
+    supports_negative_prompt: bool
+    supports_seed: bool
+    supports_dimensions: bool
+    # comfy: None, the graph decides. cloud: the replay's recorded size, else config.
+    width: int | None
+    height: int | None
+    reference_slots: tuple[Mapping[str, Any], ...] = ()
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ResolvedReference:
     """One reference image, already fetched, for one mapped `LoadImage` widget.
 

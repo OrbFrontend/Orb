@@ -15,12 +15,15 @@ from collections.abc import Mapping
 from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
+from PIL import Image
+
 from ...config import REFERENCE_SOURCES
 from ..contracts import (
     ImageBackendCapabilities,
     ImageRequest,
     ImageResult,
     ProgressCallback,
+    RenderTarget,
     emit,
 )
 from ..openai_image_client import MODEL_NOT_FOUND, CloudImageError, OpenAIImageClient
@@ -32,7 +35,6 @@ from ..providers import (
     get_preset,
     takes_references,
 )
-from ..target import RenderTarget
 from .base import ImageAdapter
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,10 @@ CLOUD_REFERENCE_MAX_BYTES = 4 * 1024 * 1024
 # lets references.py, the stored record and reroll's style-changed logic stay
 # unchanged; a nullable `slot` would ripple through all three.
 CLOUD_REFERENCE_SLOT = ("cloud", "image_0")
+# Said in two places -- when the slot is withheld up front, and again when a degrade
+# substitutes a model that cannot take one -- so the two cannot drift into two
+# spellings of one fact.
+_NO_REFERENCES = "{model} does not accept reference images, so none was sent"
 
 CAPABILITIES: ImageBackendCapabilities = {
     "can_generate": True,
@@ -150,7 +156,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 # uniform: Together's FLUX.2 rejects `image_url` outright, while its
                 # schnell default returns 200 having quietly ignored it -- a paid
                 # render with no reference and nothing to say so.
-                notes.append(f"{model} does not accept reference images, so none was sent")
+                notes.append(_NO_REFERENCES.format(model=model))
             else:
                 references = (
                     {
@@ -231,17 +237,16 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             # succeeding: NanoGPT serves its model catalogue to anonymous callers, so
             # the list below proves the provider is up and nothing about the key.
             await client.verify_key(preset.auth_probe_path)
-        models = await client.list_models(preset.models_path, preset.models_response, preset.models_type_filter)
         return {
             "ok": True,
             "capabilities": dict(CAPABILITIES),
             "system": {"provider": preset.label, "host": urlsplit(self._base_url()).hostname or ""},
-            "models": models,
+            "models": await _discover(client, preset),
         }
 
     async def list_models(self) -> list[str]:
         preset = self._require_preset()
-        return await self._client(30.0).list_models(preset.models_path, preset.models_response, preset.models_type_filter)
+        return await _discover(self._client(30.0), preset)
 
     async def generate(
         self,
@@ -279,7 +284,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             # otherwise re-send `image_url` to something that cannot use it, and a
             # degrade meant to rescue the render would drop the reference in silence.
             if request.references and not takes_references(preset, configured):
-                notes.append(f"{configured} does not accept reference images, so none was sent")
+                notes.append(_NO_REFERENCES.format(model=configured))
             model = configured
             # Only the *surviving* attempt's build notes are kept. Collecting the
             # failed one's too printed "the prompt was truncated" twice on any
@@ -306,8 +311,6 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 "cfg": None,
                 "sampler": None,
                 "scheduler": None,
-                # A seedless API is nondeterministic, so the attachment says so
-                # rather than printing a hex the render never saw.
                 "seed_honored": target.supports_seed,
                 "cost": image.cost,
                 "references": [reference.record() for reference in request.references],
@@ -352,14 +355,22 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         return build_generation_body(preset, **common)
 
 
+async def _discover(client: OpenAIImageClient, preset: ProviderPreset) -> list[str]:
+    """Which endpoint to ask and which shape to read it as is entirely a preset fact.
+
+    Unpacked here rather than inside the client, which is deliberately ignorant of
+    `providers.py` -- but unpacked in *one* place, so Test connection and the model
+    picker can never ask two different questions.
+    """
+    return await client.list_models(preset.models_path, preset.models_response, preset.models_type_filter)
+
+
 def _probe_size(data: bytes) -> tuple[int | None, int | None]:
     """The real pixel dimensions of the returned image.
 
     Keeps a cloud attachment's record the same shape as ComfyUI's, and is what
     lets a later rehydrate replay the size it was generated at.
     """
-    from PIL import Image
-
     try:
         with Image.open(io.BytesIO(data)) as probe:
             return probe.size[0], probe.size[1]

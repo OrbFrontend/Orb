@@ -17,6 +17,7 @@ carries the measurement that corrected it.
 
 from __future__ import annotations
 
+import base64
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -51,7 +52,7 @@ class ProviderPreset:
     # A free, *authenticated* GET that proves the key works. Only declared where the
     # model list cannot: NanoGPT serves its catalogue to anonymous callers, so a Test
     # connection resting on it answers "Connected" to a key that cannot render a
-    # thing. Never a generations path -- a Test button that bills is unacceptable.
+    # thing. Never a generations path -- see `validate_connection` on ImageAdapter.
     auth_probe_path: str = ""
     # Kept only when an entry declares this `type`. Together's `/models` is one list
     # of everything it hosts -- 271 entries, 29 of them image models -- so without
@@ -372,25 +373,29 @@ def _parse_ratio(candidate: str) -> float | None:
     return numerator / denominator if denominator else None
 
 
-def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
-    """The declared aspect ratio nearest to `width`x`height`, and any disclosure.
+def _ratio_distance(target: float, ratio: float | None) -> float:
+    """How far apart two aspect ratios are, the one metric both pickers below share.
 
-    Nearest in log space, so 2:1 and 1:2 are equally far from 1:1 -- a linear metric
-    would call "twice as wide" four times the error of "twice as tall".
+    Log space, so 2:1 and 1:2 are equally far from 1:1 -- a linear metric would call
+    "twice as wide" four times the error of "twice as tall". A candidate that does
+    not parse is infinitely far rather than excluded, so a menu of nothing but
+    unparseable rows still yields a deterministic pick instead of an empty one.
     """
+    return abs(math.log(target) - math.log(ratio)) if ratio and ratio > 0 else math.inf
+
+
+def aspect_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str | None]:
+    """The declared aspect ratio nearest to `width`x`height`, and any disclosure."""
     if not preset.aspect_ratios or width <= 0 or height <= 0:
         return "", None
     target = width / height
-    best = min(
-        (candidate for candidate in preset.aspect_ratios if _parse_ratio(candidate)),
-        key=lambda candidate: abs(math.log(target) - math.log(_parse_ratio(candidate) or 1.0)),
-        default="",
-    )
-    if not best:
+    best = min(preset.aspect_ratios, key=lambda candidate: _ratio_distance(target, _parse_ratio(candidate)))
+    chosen = _parse_ratio(best)
+    if chosen is None or chosen <= 0:
+        # Nothing usable on this row, so there is no ratio to send and nothing
+        # truthful to say about one.
         return "", None
-    chosen = _parse_ratio(best) or target
-    error = abs(chosen - target) / target
-    if error <= ASPECT_NOTE_THRESHOLD:
+    if abs(chosen - target) / target <= ASPECT_NOTE_THRESHOLD:
         return best, None
     return best, f"{preset.label} renders fixed aspect ratios; {width}x{height} was rendered as {best}"
 
@@ -399,7 +404,8 @@ def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str 
     """The declared `size` string nearest to `width`x`height`, and any disclosure.
 
     Reached only for a `size` provider, so a preset that declares no menu is taken
-    to accept the request verbatim rather than being sent nothing.
+    to accept the request verbatim rather than being sent nothing. Ties on shape are
+    broken by total pixels -- two candidates can share an aspect ratio.
     """
     requested = f"{width}x{height}"
     if not preset.sizes or requested in preset.sizes:
@@ -412,8 +418,8 @@ def size_for(preset: ProviderPreset, width: int, height: int) -> tuple[str, str 
             candidate_w, candidate_h = int(cw), int(ch)
         except ValueError:
             return (math.inf, math.inf)
-        ratio = candidate_w / candidate_h if candidate_h else 1.0
-        return (abs(math.log(target) - math.log(ratio)), abs(candidate_w * candidate_h - width * height))
+        ratio = candidate_w / candidate_h if candidate_h else None
+        return (_ratio_distance(target, ratio), abs(candidate_w * candidate_h - width * height))
 
     best = min(preset.sizes, key=distance)
     return best, f"{preset.label} accepts fixed sizes; {requested} was rendered as {best}"
@@ -550,8 +556,6 @@ def build_generation_body(
 
 
 def _data_uri(reference: ResolvedReference) -> str:
-    import base64
-
     return f"data:{reference.mime};base64,{base64.b64encode(reference.data).decode('ascii')}"
 
 

@@ -102,7 +102,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
         captured["compose"] = kwargs
         return "1girl, long silver hair, sitting, window, rain, night", "day", "single_call"
 
-    async def fake_render(config, request, **kwargs):
+    async def fake_render(adapter, request, **kwargs):
         captured["request"] = request
         return _image(backend_model="anime.safetensors")
 
@@ -161,7 +161,7 @@ async def _stream_generate(client, monkeypatch, render, conv_id):
 
 @pytest.mark.asyncio
 async def test_generate_stream_relays_queue_position_while_the_render_runs(client, monkeypatch):
-    async def render(config, request, *, progress=None, **kwargs):
+    async def render(adapter, request, *, progress=None, **kwargs):
         assert progress is not None, "the hook must pass a progress callback to the adapter"
         progress("queued", {"number": 7, "ahead": 2})
         progress("rendering", {"number": 7, "ahead": 0})
@@ -179,7 +179,7 @@ async def test_generate_stream_relays_queue_position_while_the_render_runs(clien
 
 @pytest.mark.asyncio
 async def test_render_phase_is_reported_by_the_adapter_not_assumed(client, monkeypatch):
-    async def render(config, request, *, progress=None, **kwargs):
+    async def render(adapter, request, *, progress=None, **kwargs):
         return _image()
 
     body = await _stream_generate(client, monkeypatch, render, "ig-silent")
@@ -368,7 +368,7 @@ async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_say
         captured["compose"] = kwargs
         return "1girl, standing", "", "single_call"
 
-    async def fake_render(config, request, **kwargs):
+    async def fake_render(adapter, request, **kwargs):
         captured["request"] = request
         return _image(source="cloud")
 
