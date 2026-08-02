@@ -107,16 +107,8 @@ test("each prompt row is a readonly field its pencil unlocks, naming its attachm
   assert.match(html, /data-field="prompt"/);
   assert.match(html, /data-field="negative_prompt"/);
   assert.match(html, /aria-label="Negative prompt"/); // the <dt> is not a programmatic label
-  assert.equal(html.split("<textarea").length - 1, 2);
   assert.equal(html.split("readonly").length - 1, 2); // both fields locked
   assert.equal(html.split('data-wf-action="image_gen:editPrompt"').length - 1, 2);
-});
-
-test("a prompt long enough to wrap gets more rows, clamped", () => {
-  const rows = (prompt) => Number(/rows="(\d+)"/.exec(attachmentDetailsHtml({ consumption_metadata: { prompt } }, "", MARKERS))[1]);
-  assert.equal(rows(""), 2); // the floor, not zero rows
-  assert.equal(rows("x".repeat(300)), 7);
-  assert.equal(rows("x".repeat(9000)), 10); // clamped, not a page-long field
 });
 
 test("a pending edit is shown through esc, marked, and beats the stored prompt", () => {

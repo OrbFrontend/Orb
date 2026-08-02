@@ -1,8 +1,8 @@
 """The cloud adapter: targeting, references, and the promises it must not break.
 
-Two of these guard against spending the user's money by accident (Test connection
-must not render; `n` must stay 1), and two against a silent substitution (a replay
-must pin its own resolution and model).
+One of these guards against spending the user's money by accident (Test connection
+must not render), and two against a silent substitution (a replay must pin its own
+resolution and model). `n` stays 1 in `test_providers`, per preset.
 """
 
 from __future__ import annotations
@@ -118,15 +118,6 @@ async def test_validate_connection_never_posts_to_the_generations_path():
     assert "devices" not in result["system"]
 
 
-@pytest.mark.asyncio
-async def test_n_is_always_one():
-    record: dict = {}
-    config = _config()
-    adapter = _adapter(config, _generation_handler(record))
-    await adapter.generate(_request(), target=_target(adapter, config))
-    assert record["body"]["n"] == 1
-
-
 # ── targeting ────────────────────────────────────────────────────────────────
 
 
@@ -218,11 +209,9 @@ def test_a_configured_provider_is_ready():
     assert answer["ready"] is True
     assert "grok-imagine-image" in answer["detail"]
 
-
-def test_an_unconfigured_model_falls_back_to_the_presets_default():
-    """xAI declares a default, so pasting a key is enough to render."""
-    config = normalize_config({"source": "cloud", "cloud": {"provider": "xai", "providers": {"xai": {"api_key": "k"}}}})
-    assert OpenAICompatibleImageAdapter(config).readiness()["ready"] is True
+    # xAI declares a default model, so pasting a key alone is enough to render.
+    keyed = normalize_config({"source": "cloud", "cloud": {"provider": "xai", "providers": {"xai": {"api_key": "k"}}}})
+    assert OpenAICompatibleImageAdapter(keyed).readiness()["ready"] is True
 
 
 # ── references ───────────────────────────────────────────────────────────────

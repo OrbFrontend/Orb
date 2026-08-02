@@ -144,7 +144,8 @@ def test_user_graphs_are_bounded_by_size_and_count():
 
 def test_a_user_graph_needs_positive_seed_and_output_but_not_negative_or_checkpoint():
     # A one-encoder prose graph has nothing to map negative to, and a self-contained
-    # graph keeps its own model rather than exposing a checkpoint slot.
+    # graph keeps its own model rather than exposing a checkpoint slot. Exact
+    # equality: normalization introduces no empty `references` key either.
     stored = _stored(_user_graph(slots=dict(_BASE_SLOTS)))
     assert stored["slots"] == _BASE_SLOTS
 
@@ -191,12 +192,6 @@ def test_reference_slots_survive_normalization_and_unstorable_ones_are_dropped()
 
     entries = [{"slot": [str(i), "image"], "source": "character"} for i in range(MAX_REFERENCE_SLOTS + 3)]
     assert len(_references(*entries)) == MAX_REFERENCE_SLOTS
-
-
-def test_a_graph_with_no_references_round_trips_unchanged():
-    """A plain text-to-image graph must normalize exactly as it did before
-    references existed -- no empty key introduced into its slot map."""
-    assert "references" not in _stored(_user_graph(slots=dict(_BASE_SLOTS)))["slots"]
 
 
 # ── connections ──────────────────────────────────────────────────────────────

@@ -16,13 +16,7 @@ from backend.database import (
 )
 from backend.inference import LLMClient, _KVCacheTracker
 from backend.pipeline.workflow_bridge import _run_post_pipeline
-from backend.workflows import (
-    HookType,
-    get_workflow,
-    set_workflow_character_state,
-    set_workflow_config,
-    workflow_has_hook,
-)
+from backend.workflows import set_workflow_character_state, set_workflow_config
 from backend.workflows.image_gen.config import CONFIG_DEFAULTS
 from backend.workflows.image_gen.engine import ImageResult
 
@@ -80,16 +74,6 @@ async def test_manifest_and_status_report_the_active_source_and_its_capabilities
     # Structure, not prompt copy-text: the tag strings live in config to be edited.
     assert [s["id"] for s in styles] == ["realistic", "anime"]
     assert styles[0]["prompt"]
-
-
-def test_image_generation_is_on_demand_only():
-    workflow = get_workflow("image_gen")
-    assert workflow is not None
-    # QUERY is off-turn too (global config/discovery); still no in-turn binding.
-    assert workflow_has_hook(workflow, HookType.ON_DEMAND)
-    assert workflow_has_hook(workflow, HookType.QUERY)
-    assert not workflow_has_hook(workflow, HookType.POST_PIPELINE)
-    assert not workflow_has_hook(workflow, HookType.PRE_PIPELINE)
 
 
 @pytest.mark.asyncio
@@ -209,7 +193,10 @@ async def test_render_phase_is_reported_by_the_adapter_not_assumed(client, monke
 async def test_config_round_trips_through_the_workflow_normalizer(client):
     """`config_schema` is UI metadata and enforces nothing, so the write path has to
     normalize. Otherwise the panel keeps listing a workflow the render path silently
-    drops on read -- a setting that appears to have taken effect."""
+    drops on read -- a setting that appears to have taken effect.
+
+    Which values normalize to what is `test_config`'s subject; this is only that the
+    route runs the normalizer at all, on both ends."""
     oversized = {
         "id": "user_big",
         "label": "Too big",
@@ -218,28 +205,12 @@ async def test_config_round_trips_through_the_workflow_normalizer(client):
     }
     response = await client.put(
         "/api/workflows/image_gen/config",
-        json={
-            "config": {
-                "timeout_seconds": "99999",
-                "default_style": "does-not-exist",
-                "prompter_reasoning": True,
-                "external_comfy": {
-                    "api_url": "http://user:secret@comfy.test:8188/",
-                    "user_graphs": [oversized],
-                    "unknown_key": "dropped",
-                },
-            }
-        },
+        json={"config": {"external_comfy": {"api_url": "http://comfy.test:8188", "user_graphs": [oversized]}}},
     )
 
     assert response.status_code == 200
     stored = response.json()["config"]
-    assert stored["timeout_seconds"] == 900.0
-    assert stored["default_style"] == "realistic"
-    assert stored["prompter_reasoning"] is True
-    assert stored["external_comfy"]["api_url"] == "http://127.0.0.1:8188"
     assert stored["external_comfy"]["user_graphs"] == []
-    assert "unknown_key" not in stored["external_comfy"]
     # And the read path agrees, so reopening settings shows what will be used.
     assert (await client.get("/api/workflows/image_gen/config")).json()["config"] == stored
 

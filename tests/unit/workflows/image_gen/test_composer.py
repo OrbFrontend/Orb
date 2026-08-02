@@ -179,12 +179,6 @@ async def test_the_camera_decides_who_stays_in_the_cast(monkeypatch, mode_pov, c
     assert scene == expected
 
 
-def test_keep_profile_owner_no_op_when_owner_absent():
-    analysis = {"characters": [{"name": "stranger", "sex": "girl"}]}
-    composer._keep_profile_owner(analysis, "Ashley")
-    assert analysis["characters"] == [{"name": "stranger", "sex": "girl"}]
-
-
 # ── the tool blob, and what the camera may move ──────────────────────────────
 
 

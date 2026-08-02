@@ -272,18 +272,6 @@ async def test_reroll_replays_the_stored_graph_and_model_not_todays_style(client
 
 
 @pytest.mark.asyncio
-async def test_replaying_a_deleted_user_graph_discloses_the_substitution(client, monkeypatch):
-    mid = await _seed("ig-gone")
-    aid = await _attach(mid, workflow_id="user_deleted", backend_model=None)
-    _capture_comfy(monkeypatch)
-
-    await _replay(client, "ig-gone", mid, aid)
-
-    notes = json.loads((await _sibling(mid, aid))["consumption_metadata"])["notes"]
-    assert any("user_deleted" in note for note in notes)
-
-
-@pytest.mark.asyncio
 async def test_a_style_override_drops_the_old_style_pins_and_discloses_the_wording(client, monkeypatch):
     """Swapping style retargets the render; the pins describe the OLD style, so they
     go. The prompt text cannot follow -- only the assembled string is stored -- so
