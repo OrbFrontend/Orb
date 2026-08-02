@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ..registry import Workflow
 from .composer import ANALYZE_TOOL, COMPOSE_TOOL
-from .config import CONFIG_DEFAULTS, normalize_config
+from .config import CONFIG_DEFAULTS, SOURCES, normalize_config
 from .pov import POV_MODES
 
 _CONFIG_SCHEMA = {
@@ -12,10 +12,11 @@ _CONFIG_SCHEMA = {
     "properties": {
         "source": {
             "type": "string",
-            "enum": ["external_comfy"],
+            "enum": list(SOURCES),
             "title": "Image backend",
         },
         "default_style": {"type": "string", "title": "Default style"},
+        "styles": {"type": "array", "title": "Styles"},
         "pov_mode": {"type": "string", "enum": list(POV_MODES), "title": "Camera"},
         "scene_analysis": {"type": "boolean", "title": "Analyze complex scenes"},
         "prompter_reasoning": {"type": "boolean", "title": "Enable prompter thinking"},
@@ -26,6 +27,7 @@ _CONFIG_SCHEMA = {
             "title": "Render timeout",
         },
         "external_comfy": {"type": "object", "title": "External ComfyUI"},
+        "cloud": {"type": "object", "title": "Cloud API"},
     },
 }
 

@@ -1,5 +1,6 @@
 """Image backend adapters."""
 
-from .external_comfy import CAPABILITIES, generate, list_models, validate_connection
+from .base import ImageAdapter
+from .external_comfy import ExternalComfyAdapter
 
-__all__ = ["CAPABILITIES", "generate", "list_models", "validate_connection"]
+__all__ = ["ExternalComfyAdapter", "ImageAdapter"]

@@ -87,6 +87,11 @@
 .ig-reference-controls{flex:1;display:grid;gap:6px;min-width:0;justify-items:start}
 .ig-reference-empty{display:block}
 
+/* The permanent capability gaps for the selected provider. Stated once, here,
+   rather than as a note on every render — a note that fires 100% of the time is
+   one users learn to skip, which then hides the per-render disclosures. */
+.ig-capability{margin-top:6px;padding:6px 8px;border-left:2px solid var(--border);border-radius:0 var(--radius) var(--radius) 0}
+
 @media (max-width:560px){.ig-grid{grid-template-columns:1fr}}
 
 /* ---- attachment layout ----

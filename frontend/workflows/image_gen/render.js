@@ -37,6 +37,29 @@ const REFERENCE_ORIGIN_LABELS = {
   character: "the character",
 };
 
+// What a seedless backend's seed row says instead of a hex the render never saw.
+// The seed is still minted and stored — rehydrate refuses a null one — so the
+// honest answer is "recorded but unused", not a blank.
+const UNUSED_SEED = "not used by this provider";
+
+// A cost, rendered only in the unit the payload names. Nothing here converts:
+// xAI reports `usd_ticks` and nowhere documents what a tick is worth, so naming
+// it dollars would print a wrong number on a billing figure. An unrecognised unit
+// still shows the value beside its own name, which is more use than hiding it.
+const COST_UNITS = {
+  usd: (value) => `$${Number(value).toFixed(4)}`,
+  usd_ticks: (value) => `${value} usd ticks`,
+};
+
+function costRow(cm, esc) {
+  const cost = cm.cost;
+  if (!cost || cost.value === undefined || cost.value === null) return "";
+  const format = COST_UNITS[cost.unit];
+  const text = format ? format(cost.value) : `${cost.value} ${cost.unit || ""}`.trim();
+  const who = cost.provider ? ` (${cost.provider})` : "";
+  return `<dt>Cost</dt><dd>${esc(`${text}${who}`)}</dd>`;
+}
+
 // One row per mapped slot, so a workflow with no reference slots gets none.
 function referenceRows(cm, esc) {
   return (Array.isArray(cm.references) ? cm.references : [])
@@ -101,7 +124,7 @@ export function attachmentDetailsHtml(att, defaultHtml, { esc, escAttr, pending 
   return `${defaultHtml}<details class="image-gen-details" open><summary>Render details</summary>
     <dl><dt>Style</dt><dd>${style}</dd>
       <dt>Source</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${camera}${referenceRows(cm, esc)}
-      <dt>Seed</dt><dd><code>${esc(att?.seed || "")}</code></dd>
+      <dt>Seed</dt><dd>${cm.seed_honored === false ? esc(UNUSED_SEED) : `<code>${esc(att?.seed || "")}</code>`}</dd>${costRow(cm, esc)}
       <dt>Prompt ${pencil("prompt", "Prompt")}</dt><dd>${field("prompt", "Prompt", pending?.prompt ?? cm.prompt ?? "")}${marker}</dd>
       <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${notes}</dl>
   </details>`;

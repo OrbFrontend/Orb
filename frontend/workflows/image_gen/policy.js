@@ -25,6 +25,63 @@ export function isLoopbackUrl(apiUrl) {
   return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1";
 }
 
+// What the user must be told before their prompts leave this machine, and under
+// which acknowledgement key.
+//
+// The decision lives here rather than in the settings panel because the panel's
+// version could only ask about the ComfyUI URL. That is *correct* while ComfyUI is
+// the only source — and it becomes a silent hole the moment cloud is selectable: a
+// config with cloud active and the ComfyUI URL still at its loopback default reads
+// `isLoopbackUrl(apiUrl) === true`, and no cloud warning ever fires. So the branch
+// belongs in the DOM-free module, under `node --test`, in the same change that
+// gives it a second source to get wrong.
+//
+// Returns null when there is genuinely no boundary being crossed, else
+// `{key, message}`: `key` is what the panel remembers an acknowledgement under,
+// `message` is what it asks.
+export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, sendsImages }) {
+  if (source === "cloud") {
+    // Always non-null. There is no such thing as a loopback commercial API, and
+    // the disclosure is materially larger than ComfyUI's: this one bills.
+    const who = providerLabel || providerId || "this provider";
+    const key = `orb:image-gen-privacy-cloud${sendsImages ? "-images" : ""}:${providerId || "unknown"}`;
+    return {
+      key,
+      message:
+        `Your scene prompts will be sent to ${who}, a third-party commercial API. ` +
+        `Each image is billed to your account there, and ${who} may retain what you send under its own ` +
+        "retention policy. " +
+        (sendsImages
+          ? "Reference images are turned on, so images from your conversations and your character reference " +
+            "photo are uploaded there too. "
+          : "") +
+        "Save this connection?",
+    };
+  }
+  // Loopback ComfyUI gets no banner: none of the warning's claims — your prompts
+  // leave this machine, other clients can read the queue, files stay on that disk —
+  // describe a boundary being crossed when the server is this machine. A warning
+  // shown on every configuration is one users learn to click through.
+  if (isLoopbackUrl(apiUrl)) return null;
+  let origin;
+  try {
+    origin = new URL(apiUrl).origin;
+  } catch {
+    return null;
+  }
+  return {
+    key: `orb:image-gen-privacy${sendsImages ? "-images" : ""}:${origin}`,
+    message:
+      "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued " +
+      "prompts, and generated files remain on that server. " +
+      (sendsImages
+        ? "A workflow you assigned uses reference images, so images from your conversations and your character " +
+          "reference image are uploaded there too. "
+        : "") +
+      "Save this connection?",
+  };
+}
+
 // Prompt formats, mirroring backend config.PROMPT_FORMATS. The format decides how
 // the composer writes the scene -- booru tags, mixed, or plain sentences -- so two
 // styles with the same name produce very different prompts. Both pickers name it

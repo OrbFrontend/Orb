@@ -236,6 +236,17 @@ Fields: `conversation_id`, `message_id`, `attachment_id`, `original_attachment`,
 
 Fields: `conversation_id`, `message_id`, `attachment_id`, `original_attachment`, `settings`, `client`, `prior_consumption_metadata`. No history, no character. Shared backend for `/reroll-gen` and `/rehydrate`; the hook does not branch on route.
 
+**Telling the two routes apart, when a hook must.** The ABI carries no route flag, and it does not need one: the two routes differ in *where the seed comes from*, and that difference is visible to the hook.
+
+* `/rehydrate` passes the row's own stored seed (`seed = att.get("seed")` -- the value its 409 precondition just proved non-null).
+* `/reroll-gen` passes a freshly minted `secrets.token_hex(16)`.
+
+So `seed == ctx.original_attachment.get("seed")` is *identity* on rehydrate -- the same value read and handed straight back -- and a 128-bit collision on reroll. It holds for a rerolled sibling too, whose stored seed is itself a hex token: what distinguishes the routes is same-value-versus-fresh-value, not the format either happens to use.
+
+`image_gen` uses exactly this, so that a backend which ignores seeds can disclose that a "rehydrate" returned a different image than the one it promised to restore.
+
+**The eviction marker is not the discriminator.** `ctx.original_attachment["data_b64"] == EVICTED_MARKER` is the obvious candidate and it is wrong. Only `/rehydrate` preconditions on it (sec. 8.1); `/reroll-gen` has no bytes precondition at all -- correctly, and the card in sec. 8.1 lists none -- and the chat widget renders the reroll button *alongside* an evicted attachment. Rerolling an evicted image is therefore one click away, and a marker-based test would take the rehydrate branch for it. The seed test does not depend on eviction state, which is the property that makes it survive contact with `/reroll-gen`.
+
 ### 4.6 QueryCtx -- paired with QUERY
 
 Field: `settings` only. No `conversation_id`, `history`, `character`, `client`, `turn_scratch`, or `kv_tracker`. This is the deliberately minimal conversation-less ctx for global config/discovery: the handler reads its own config via the toolkit's `get_workflow_config` (config is never a ctx field on any hook), and it carries **no client** by design -- query handlers are the first-run setup surface and must answer before any LLM endpoint is configured, so they never perform inference. Handlers report their own failures in-band (`return {"error": ...}`), so a probe failure is a 200 the caller degrades on rather than an HTTP error (sec. 8.1).

@@ -550,6 +550,63 @@ def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
 _EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrations"})
 
 
+def _blank_json_leaf(node: object, path: tuple[str, ...]) -> bool:
+    """Blank the leaf `path` names inside `node`. Returns whether anything changed.
+
+    ``"*"`` matches every key at that level, which is what a provider map keyed by
+    provider id needs: ``cloud.providers.<any id>.api_key``. Everything not on a
+    declared path is left byte-identical -- an imported ComfyUI graph's node inputs
+    sit in the same column and must survive untouched.
+    """
+    if not isinstance(node, dict) or not path:
+        return False
+    head, rest = path[0], path[1:]
+    keys = list(node) if head == "*" else ([head] if head in node else [])
+    changed = False
+    for key in keys:
+        if rest:
+            changed = _blank_json_leaf(node[key], rest) or changed
+        elif node[key] != "":
+            node[key] = ""
+            changed = True
+    return changed
+
+
+def _blank_json_paths(conn: sqlite3.Connection, table: str, column: str, paths: tuple[tuple[str, ...], ...]) -> None:
+    """Blank every declared secret path inside one JSON column, row by row.
+
+    Read-walk-write in Python rather than ``json_set``: the wildcard level has no
+    SQL spelling, and only ``settings`` is a singleton -- the three
+    ``workflow_state`` columns hang off non-singleton tables, which is exactly why
+    ``_scrub_configs``'s singleton-only ``SECRET_COLUMNS`` loop never reached the
+    TTS key and let it ship in every ``characters`` export.
+    """
+    if not paths:
+        return
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+        return
+    rows = conn.execute(f"SELECT rowid, {column} FROM {table}").fetchall()  # nosec B608 — schema-derived identifier
+    for rowid, raw in rows:
+        if not isinstance(raw, str) or not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        changed = False
+        for path in paths:
+            # Not `any(...)`: every declared path must be walked, and a generator
+            # would stop at the first one that matched.
+            changed = _blank_json_leaf(payload, path) or changed
+        if changed:
+            conn.execute(
+                f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # nosec B608 — schema-derived identifier, values parameterised
+                (json.dumps(payload), rowid),
+            )
+
+
 def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     """Strip personal config + secrets when 'configs' is not exported.
 
@@ -562,6 +619,10 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     -- only that nothing personal remains. Both the set of configs roots and the
     blanked columns are derived/declared, so a new configs table or secret column
     is covered without editing here.
+
+    The JSON pass is not scoped to singletons: a credential inside a free-form
+    ``workflow_state`` rides a character card, so it ships in a ``characters``
+    export that never touches ``settings`` at all.
     """
     for root, domain in ps.DOMAIN_ROOTS.items():
         if domain == "configs" and schema.tables[root].kind != "singleton":
@@ -569,6 +630,8 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     for (table, col), blank in ps.SECRET_COLUMNS.items():
         if schema.tables[table].kind == "singleton":
             conn.execute(f"UPDATE {table} SET {col} = ?", (blank,))  # nosec B608 — schema-derived identifier, values parameterised
+    for (table, col), paths in ps.SECRET_JSON_PATHS.items():
+        _blank_json_paths(conn, table, col, paths)
 
 
 def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
@@ -630,6 +693,11 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
         if "configs" in selected and strip_keys:
             for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col == "api_key"):
                 c.execute(f"UPDATE {table} SET {col} = ''")  # nosec B608 — schema-derived identifier, values parameterised
+            # The same rule, one level deeper: "every declared secret whose leaf is
+            # api_key", not "every column literally named api_key". A key inside a
+            # JSON column is the same key.
+            for (table, col), paths in ps.SECRET_JSON_PATHS.items():
+                _blank_json_paths(c, table, col, tuple(p for p in paths if p and p[-1] == "api_key"))
             keys_stripped = True
         _stamp_migrations(c)
         _write_meta(c, sorted(selected), label, kind, keys_stripped)

@@ -20,10 +20,10 @@ import {
 import { modelPickerState } from "./model_picker.js";
 import {
   DEFAULT_PROMPT_FORMAT,
-  isLoopbackUrl,
   normalizePromptFormat,
   PROMPT_FORMATS,
   povChoices,
+  privacyDisclosure,
   promptFormatLabel,
 } from "./policy.js";
 
@@ -43,12 +43,38 @@ const MAX_REFERENCE_SLOTS = 4;
 const MAX_USER_GRAPHS = 32;
 const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
 
+// Resolution presets for the cloud picker. Stored as pixels even for providers
+// that speak aspect ratios — one canonical representation, converted at the wire
+// by a pure backend function. The exact mapping is disclosed as a render note
+// rather than previewed here; mirroring the aspect math into JS would be a drift
+// risk for something cosmetic.
+const CLOUD_SIZES = [
+  [1024, 1024, "Square — 1024x1024"],
+  [1024, 1536, "Portrait — 1024x1536"],
+  [1536, 1024, "Landscape — 1536x1024"],
+  [1024, 1820, "Tall — 1024x1820"],
+  [1820, 1024, "Wide — 1820x1024"],
+];
+const CLOUD_QUALITIES = [
+  ["", "Provider default"],
+  ["low", "Low"],
+  ["medium", "Medium"],
+  ["high", "High"],
+];
+
 // How a style's prompt format reads next to its name, in both pickers. One
 // builder, because the summary below is written twice -- once at render, once as
 // the field is edited -- and two spellings of the same badge would drift.
 const promptFormatBadge = (value) => `(${promptFormatLabel(value)})`;
 let cfg;
 let pendingGraph = null;
+// The backend's own answer about which sources exist and what each provider can
+// do. One payload behind the source picker, the provider dropdown and the
+// capability line, so the three can never disagree. Primed by the status query.
+let backends = { sources: [], providers: [] };
+// The source the open form is editing. Read back on save rather than from `cfg`,
+// so switching source and saving in one go does what it looks like it does.
+let draftSource = "external_comfy";
 // The styles and imported graphs being edited. A working copy rather than cfg
 // itself: adding a graph and then closing without saving must not leave the
 // widget's shared config carrying an entry the server never stored.
@@ -79,6 +105,8 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "styleAdd", () => addStyle());
   registerAction(WORKFLOW_ID, "styleRemove", (el) => removeStyle(Number(el.dataset.styleIndex)));
   registerAction(WORKFLOW_ID, "styleChange", (el) => refreshStyleState(el));
+  registerAction(WORKFLOW_ID, "pickSource", (el) => pickSource(el.value));
+  registerAction(WORKFLOW_ID, "pickProvider", (el) => pickProvider(el.value));
 }
 
 // Every conversation-less config/discovery call rides the one QUERY route.
@@ -154,7 +182,7 @@ function refreshCard() {
 export function configPanelRenderer() {
   // Style, camera and readiness are all global and primed at load, so the card
   // paints synchronously from cache.
-  return `<div class="tool-card-desc">Generate images on demand with external ComfyUI.</div>
+  return `<div class="tool-card-desc">Generate images on demand with ComfyUI or a cloud API.</div>
     <div id="ig-card-config">${configPanelBody()}</div>`;
 }
 
@@ -199,6 +227,12 @@ export async function refreshCardReadiness() {
     };
     // Rides along: what the camera picker needs to label "Auto" honestly.
     cardPov = { classifier: !!status?.classifier_ready, fallback: status?.fallback_mode || cardPov.fallback };
+    // And what the settings form needs to build its pickers. One payload, so the
+    // source list, the provider list and the capability line cannot disagree.
+    backends = {
+      sources: Array.isArray(status?.sources) ? status.sources : backends.sources,
+      providers: Array.isArray(status?.providers) ? status.providers : backends.providers,
+    };
   } catch {
     cardReadiness = { ready: false, text: "" };
   }
@@ -237,6 +271,15 @@ function promptFormatOptions(value) {
   ).join("");
 }
 
+// Checkpoint and Workflow are ComfyUI-only fields on a now-shared style. They stay
+// rendered under cloud rather than hidden, because they are still stored and a
+// switch back must find them where they were left — but an unexplained pair of
+// dead fields reads as a bug, so say which backend they belong to.
+function comfyOnlyNote() {
+  if (draftSource !== "cloud") return "";
+  return `<div class="image-gen-note">Used only by the ComfyUI backend. A cloud provider uses one model for every style, set under <strong>Connection</strong>.</div>`;
+}
+
 function styleRows(expandIds = "") {
   const expanded = new Set(Array.isArray(expandIds) ? expandIds : [expandIds]);
   return draft.styles
@@ -252,6 +295,7 @@ function styleRows(expandIds = "") {
           <label>Positive style prompt<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No positive style prompt">${esc(s.prompt || "")}</textarea></label>
           <label>Negative style prompt<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No negative style prompt">${esc(s.negative_prompt || "")}</textarea></label>
           <label>Extra instructions<textarea data-ig-field="extra_instructions" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="Extra guidance for the prompter model (e.g. emphasize hand placement and use full-body framing).">${esc(s.extra_instructions || "")}</textarea></label>
+          ${comfyOnlyNote()}
           <div class="ig-grid">
             <label>Checkpoint${checkpointField(s.checkpoint || "")}</label>
             <label>Workflow${workflowField(s.workflow || "")}</label>
@@ -383,15 +427,24 @@ function removeGraph(graphId) {
   renderStyles();
 }
 
-// Swap every style checkpoint control together when discovery completes. Live
-// values and open accordions survive the asynchronous re-render.
+// Swap every model control together when discovery completes. Live values and
+// open accordions survive the asynchronous re-render.
 function applyCheckpoints(names) {
   const openIds = Array.from(document.querySelectorAll(".ig-style[open]"))
     .map((row) => draft.styles[Number(row.dataset.styleIndex)]?.id)
     .filter(Boolean);
   captureStyles();
+  captureCloud();
   checkpointNames = modelPickerState(names).models;
   renderStyles(openIds);
+  // Under cloud the model control lives in the Connection section rather than on
+  // each style, so a discovery that only re-rendered the styles would leave the
+  // one control the probe was for as a plain text input.
+  const host = document.getElementById("ig-cloud-model")?.parentElement;
+  if (draftSource === "cloud" && host) {
+    const { entry, preset } = cloudDraft();
+    host.innerHTML = `Model${cloudModelField(entry.model || "", preset)}`;
+  }
 }
 
 // Probes the saved connection after the modal is already open; a slow or
@@ -406,9 +459,187 @@ async function loadCheckpoints() {
   }
 }
 
+// ── the Backend section ──────────────────────────────────────────────────────
+
+function sourceOptions() {
+  const known = backends.sources.length
+    ? backends.sources
+    : [
+        { id: "external_comfy", label: "External ComfyUI" },
+        { id: "cloud", label: "Cloud API" },
+      ];
+  return known
+    .map(
+      (s) =>
+        `<option value="${escAttr(s.id)}"${s.id === draftSource ? " selected" : ""}>${esc(s.label || s.id)}</option>`,
+    )
+    .join("");
+}
+
+function providerFor(id) {
+  return backends.providers.find((p) => p.id === id) || null;
+}
+
+function cloudDraft() {
+  const cloud = cfg.cloud || {};
+  const providers = cloud.providers || {};
+  const id = String(cloud.provider || "xai");
+  return { cloud, id, entry: providers[id] || {}, preset: providerFor(id) };
+}
+
+// The permanent gaps, stated once under the picker instead of as a note on every
+// render. "xAI ignores negative prompts" is true of every image forever, and a
+// note that fires 100% of the time is one users learn to skip — which then hides
+// the per-render disclosures that actually vary.
+function capabilityLine(preset) {
+  if (!preset) return "";
+  const gaps = Array.isArray(preset.gaps) ? preset.gaps : [];
+  if (!gaps.length) return "";
+  const unverified = preset.verified
+    ? ""
+    : " This provider's settings are declared from its documentation and have not been verified against the live API.";
+  return `<div class="image-gen-note ig-capability">${esc(`${preset.label} ${gaps.join(". ")}.`)}${esc(unverified)}</div>`;
+}
+
+function comfyConnectionHtml(ext) {
+  return `<div class="ig-grid">
+      <label>ComfyUI URL<input id="ig-url" value="${escAttr(ext.api_url || "http://127.0.0.1:8188")}"></label>
+      <label>API key<input id="ig-key" type="password" value="${escAttr(ext.api_key || "")}"></label>
+    </div>`;
+}
+
+function cloudConnectionHtml() {
+  const { cloud, id, entry, preset } = cloudDraft();
+  const options = backends.providers
+    .map((p) => `<option value="${escAttr(p.id)}"${p.id === id ? " selected" : ""}>${esc(p.label)}</option>`)
+    .join("");
+  const baseUrl = preset?.needs_base_url
+    ? `<label>API base URL<input id="ig-cloud-base-url" value="${escAttr(entry.base_url || "")}" placeholder="https://api.example.com/v1"></label>`
+    : "";
+  const docs = preset?.docs_url
+    ? `<div class="image-gen-note"><a href="${escAttr(preset.docs_url)}" target="_blank" rel="noopener noreferrer">${esc(preset.label)} API documentation</a></div>`
+    : "";
+  const sizes = CLOUD_SIZES.map(
+    ([w, h, label]) =>
+      `<option value="${w}x${h}"${Number(cloud.width) === w && Number(cloud.height) === h ? " selected" : ""}>${esc(label)}</option>`,
+  ).join("");
+  const qualities = CLOUD_QUALITIES.map(
+    ([value, label]) =>
+      `<option value="${escAttr(value)}"${(cloud.quality || "") === value ? " selected" : ""}>${esc(label)}</option>`,
+  ).join("");
+  const referenceOptions = [
+    `<option value=""${cloud.reference_source ? "" : " selected"}>Off — send prompts only</option>`,
+  ]
+    .concat(
+      REFERENCE_SOURCES.map(
+        ([value, text]) =>
+          `<option value="${value}"${cloud.reference_source === value ? " selected" : ""}>${esc(text)}</option>`,
+      ),
+    )
+    .join("");
+  const quality = preset?.supports_quality
+    ? `<label>Quality<select id="ig-cloud-quality">${qualities}</select></label>`
+    : "";
+  return `<div class="ig-grid">
+      <label>Provider<select id="ig-cloud-provider" data-wf-action="image_gen:pickProvider" data-wf-on="change">${options}</select></label>
+      <label>API key<input id="ig-cloud-key" type="password" value="${escAttr(entry.api_key || "")}" placeholder="Paste your key"></label>
+      ${baseUrl}
+      <label>Model${cloudModelField(entry.model || "", preset)}</label>
+      <label>Resolution<select id="ig-cloud-size">${sizes}</select></label>
+      ${quality}
+      <label>Reference images<select id="ig-cloud-reference">${referenceOptions}</select></label>
+    </div>
+    <div class="image-gen-note">Aspect ratio is chosen automatically from the resolution.</div>
+    ${capabilityLine(preset)}${docs}`;
+}
+
+// The same unmodified picker the checkpoint field uses: a probed list becomes a
+// select, a failed probe stays a text input so a model can still be typed.
+function cloudModelField(value, preset) {
+  const state = modelPickerState(checkpointNames, value);
+  if (state.kind === "input") {
+    return `<input id="ig-cloud-model" value="${escAttr(state.current)}" placeholder="${escAttr(preset?.default_model || "model id")}">`;
+  }
+  const options = [];
+  if (!state.current) {
+    options.push(
+      `<option value="" selected>${escAttr(preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model")}</option>`,
+    );
+  } else if (!state.models.includes(state.current)) {
+    options.push(`<option value="${escAttr(state.current)}" selected>${esc(state.current)} (not detected)</option>`);
+  }
+  options.push(
+    ...state.models.map(
+      (name) => `<option value="${escAttr(name)}"${name === state.current ? " selected" : ""}>${esc(name)}</option>`,
+    ),
+  );
+  return `<select id="ig-cloud-model">${options.join("")}</select>`;
+}
+
+function connectionHtml() {
+  return draftSource === "cloud" ? cloudConnectionHtml() : comfyConnectionHtml(cfg.external_comfy || {});
+}
+
+// Re-renders only the Connection section and re-runs the model probe. Styles and
+// imported graphs are untouched, because they are untouched by a source switch.
+function renderConnection() {
+  const host = document.getElementById("ig-connection");
+  if (host) host.innerHTML = connectionHtml();
+  const result = document.getElementById("ig-test-result");
+  if (result) result.textContent = "";
+  checkpointNames = [];
+  renderStyles();
+  loadCheckpoints();
+}
+
+function pickSource(value) {
+  captureStyles();
+  captureCloud();
+  draftSource = value === "cloud" ? "cloud" : "external_comfy";
+  renderConnection();
+}
+
+function pickProvider(value) {
+  // Read the open form back into cfg first: the key the user just typed belongs to
+  // the *previous* provider, and the whole point of the per-provider map is that
+  // switching does not destroy it.
+  captureCloud();
+  cfg.cloud = { ...(cfg.cloud || {}), provider: value };
+  renderConnection();
+}
+
+// The cloud form's live values, folded into the shared config's provider map.
+// Called before anything re-renders the section and once more on save.
+function captureCloud() {
+  if (draftSource !== "cloud") return;
+  const provider = document.getElementById("ig-cloud-provider");
+  if (!provider) return;
+  const cloud = cfg.cloud || {};
+  const id = String(cloud.provider || provider.value || "xai");
+  const [width, height] = String(document.getElementById("ig-cloud-size")?.value || "1024x1024").split("x");
+  cfg.cloud = {
+    ...cloud,
+    provider: id,
+    width: Number(width) || 1024,
+    height: Number(height) || 1024,
+    quality: document.getElementById("ig-cloud-quality")?.value ?? cloud.quality ?? "",
+    reference_source: document.getElementById("ig-cloud-reference")?.value ?? cloud.reference_source ?? "",
+    providers: {
+      ...(cloud.providers || {}),
+      [id]: {
+        ...(cloud.providers?.[id] || {}),
+        api_key: document.getElementById("ig-cloud-key")?.value ?? "",
+        model: document.getElementById("ig-cloud-model")?.value ?? "",
+        base_url: document.getElementById("ig-cloud-base-url")?.value ?? cloud.providers?.[id]?.base_url ?? "",
+      },
+    },
+  };
+}
+
 function openSettings(expandStyleId = "") {
   const ext = cfg.external_comfy || {};
   pendingGraph = null;
+  draftSource = cfg.source === "cloud" ? "cloud" : "external_comfy";
   // Start honest: discovery for a previous modal/server must not make this one
   // look probed before its own request completes, and a reference image picked
   // for a different character must not survive into this form.
@@ -416,16 +647,19 @@ function openSettings(expandStyleId = "") {
   checkpointNames = [];
   referenceImage = { reference_image_b64: "", reference_mime: "" };
   draft = {
-    styles: (Array.isArray(ext.styles) ? ext.styles : []).map((s) => ({ ...s })),
+    styles: (Array.isArray(cfg.styles) ? cfg.styles : []).map((s) => ({ ...s })),
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
   };
   showModal(`<h2>Image Generation</h2><div class="image-gen-settings">
     <section class="ig-section">
-      <div class="ig-heading">Connection</div>
+      <div class="ig-heading">Backend</div>
       <div class="ig-grid">
-        <label>ComfyUI URL<input id="ig-url" value="${escAttr(ext.api_url || "http://127.0.0.1:8188")}"></label>
-        <label>API key<input id="ig-key" type="password" value="${escAttr(ext.api_key || "")}"></label>
+        <label>Image source<select id="ig-source" data-wf-action="image_gen:pickSource" data-wf-on="change">${sourceOptions()}</select></label>
       </div>
+    </section>
+    <section class="ig-section">
+      <div class="ig-heading">Connection</div>
+      <div id="ig-connection">${connectionHtml()}</div>
       <div class="image-gen-row"><button class="btn btn-sm" data-wf-action="image_gen:test">Test connection</button><span id="ig-test-result" class="image-gen-note"></span></div>
     </section>
     <section class="ig-section">
@@ -448,7 +682,7 @@ function openSettings(expandStyleId = "") {
     <details class="ig-advanced">
       <summary>Imported ComfyUI workflows</summary>
       <div class="ig-advanced-body">
-        <div class="image-gen-note">Use a PNG generated by ComfyUI or a dev-mode Export (API) JSON file. Imported workflows run only on your external server.</div>
+        <div class="image-gen-note">Use a PNG generated by ComfyUI or a dev-mode Export (API) JSON file. Imported workflows run only on your external server, and are kept whichever image source is selected.</div>
         <div id="ig-graph-list" class="ig-graph-list">${graphRows()}</div>
         <input type="file" accept=".json,.png,application/json,image/png" data-wf-action="image_gen:graphFile" data-wf-on="change">
         <div id="ig-graph-picker"></div>
@@ -461,21 +695,29 @@ function openSettings(expandStyleId = "") {
 
 function readConfig() {
   captureStyles();
+  captureCloud();
+  const ext = cfg.external_comfy || {};
   return {
-    source: "external_comfy",
+    source: document.getElementById("ig-source")?.value || draftSource,
     // Chosen in the tools-panel card now, not here; carry the live values through.
     default_style: cfg.default_style || draft.styles[0]?.id || "realistic",
     pov_mode: cfg.pov_mode || "auto",
     scene_analysis: document.getElementById("ig-scene-analysis")?.checked === true,
     prompter_reasoning: document.getElementById("ig-prompter-reasoning")?.checked === true,
     timeout_seconds: Number(document.getElementById("ig-timeout")?.value) || 180,
+    styles: draft.styles,
     external_comfy: {
-      ...(cfg.external_comfy || {}),
-      api_url: document.getElementById("ig-url")?.value || "",
-      api_key: document.getElementById("ig-key")?.value || "",
-      styles: draft.styles,
+      ...ext,
+      // The ComfyUI fields are only rendered under that source. Falling back to the
+      // stored values rather than to "" is what keeps a switch to cloud and back
+      // from silently blanking the URL and the key.
+      api_url: document.getElementById("ig-url")?.value ?? ext.api_url ?? "",
+      api_key: document.getElementById("ig-key")?.value ?? ext.api_key ?? "",
       user_graphs: draft.graphs,
     },
+    // Spread whole, so per-provider credentials the form never rendered survive
+    // the save. The map is the reason switching provider is not destructive.
+    cloud: { ...(cfg.cloud || {}) },
   };
 }
 
@@ -621,11 +863,13 @@ async function testConnection() {
       if (result) result.textContent = res.error;
       return;
     }
-    // Tested against the form's unsaved URL, so this is the only probe that can
-    // fill the checkpoint list for a server that has not been saved yet.
+    // Tested against the form's unsaved URL/key, so this is the only probe that can
+    // fill the model list for a backend that has not been saved yet.
     applyCheckpoints(res?.models);
-    const device = res?.system?.devices?.[0]?.name;
-    if (result) result.textContent = device ? `Connected — ${device}` : "Connected";
+    // ComfyUI names a GPU; a cloud provider names itself. Neither is guaranteed,
+    // and a bare "Connected" is still a true answer.
+    const who = res?.system?.devices?.[0]?.name || res?.system?.provider;
+    if (result) result.textContent = who ? `Connected — ${who}` : "Connected";
   } catch {
     if (probeId !== checkpointProbeId) return;
     applyCheckpoints([]);
@@ -635,7 +879,7 @@ async function testConnection() {
 
 async function saveSettings() {
   const next = readConfig();
-  if (!confirmRemotePrivacy(next.external_comfy.api_url, next.external_comfy.user_graphs)) return;
+  if (!confirmRemotePrivacy(next)) return;
   try {
     // The response is the *normalized* config: the backend bounds and drops what
     // it will not honour, and adopting its answer is what stops the panel from
@@ -661,22 +905,29 @@ async function saveSettings() {
   }
 }
 
+// The localStorage + window.confirm shell. *Which* disclosure fires, under which
+// key, is `privacyDisclosure` in policy.js — a decision with two sources to get
+// wrong now, which is why it lives somewhere `node --test` can reach it.
+//
 // Uploading conversation images is a materially bigger disclosure than sending
 // prompt text, so it gets its own acknowledgement key: a user who accepted the
-// prompt-only wording is asked again the first time a graph maps references.
-function confirmRemotePrivacy(apiUrl, graphs) {
-  if (isLoopbackUrl(apiUrl)) return true;
-  const sendsImages = (graphs || []).some((g) => (g?.slots?.references || []).length > 0);
-  const key = `orb:image-gen-privacy${sendsImages ? "-images" : ""}:${new URL(apiUrl).origin}`;
-  if (localStorage.getItem(key) === "acknowledged") return true;
-  const accepted = window.confirm(
-    "This ComfyUI server is not on this machine. Your scene prompts leave Orb, other clients may read queued prompts, and generated files remain on that server. " +
-      (sendsImages
-        ? "A workflow you assigned uses reference images, so images from your conversations and your character reference image are uploaded there too. "
-        : "") +
-      "Save this connection?",
-  );
-  if (accepted) localStorage.setItem(key, "acknowledged");
+// prompt-only wording is asked again the first time references are turned on.
+function confirmRemotePrivacy(next) {
+  const provider = String(next.cloud?.provider || "");
+  const disclosure = privacyDisclosure({
+    source: next.source,
+    apiUrl: next.external_comfy?.api_url || "",
+    providerId: provider,
+    providerLabel: providerFor(provider)?.label || provider,
+    sendsImages:
+      next.source === "cloud"
+        ? !!next.cloud?.reference_source
+        : (next.external_comfy?.user_graphs || []).some((g) => (g?.slots?.references || []).length > 0),
+  });
+  if (!disclosure) return true;
+  if (localStorage.getItem(disclosure.key) === "acknowledged") return true;
+  const accepted = window.confirm(disclosure.message);
+  if (accepted) localStorage.setItem(disclosure.key, "acknowledged");
   return accepted;
 }
 

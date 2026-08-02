@@ -924,18 +924,16 @@ async def test_failed_compose_stops_instead_of_shipping_the_reply(monkeypatch):
 
 def test_assemble_keeps_profile_out_of_positive_because_composer_owns_it():
     config = {
-        "external_comfy": {
-            "styles": [
-                {
-                    "id": "anime",
-                    "label": "Anime",
-                    "prompt": "anime illustration, clean line art, very aesthetic, high contrast",
-                    "negative_prompt": "photorealistic, 3d render, muddy colors",
-                    "checkpoint": "",
-                    "workflow": "",
-                }
-            ]
-        }
+        "styles": [
+            {
+                "id": "anime",
+                "label": "Anime",
+                "prompt": "anime illustration, clean line art, very aesthetic, high contrast",
+                "negative_prompt": "photorealistic, 3d render, muddy colors",
+                "checkpoint": "",
+                "workflow": "",
+            }
+        ]
     }
     positive, _, _ = composer.assemble_prompts(
         config, "anime", {"appearance_prompt": "1girl, solo, long red hair"}, "2girls, garden", ""
@@ -945,19 +943,17 @@ def test_assemble_keeps_profile_out_of_positive_because_composer_owns_it():
 
 def test_final_prose_assembly_strips_count_tags_from_stale_scene_and_saved_style():
     config = {
-        "external_comfy": {
-            "styles": [
-                {
-                    "id": "prose",
-                    "label": "Prose",
-                    "prompt_format": "prose",
-                    "prompt": "cinematic photograph, 1girl, natural light",
-                    "negative_prompt": "",
-                    "checkpoint": "",
-                    "workflow": "",
-                }
-            ]
-        }
+        "styles": [
+            {
+                "id": "prose",
+                "label": "Prose",
+                "prompt_format": "prose",
+                "prompt": "cinematic photograph, 1girl, natural light",
+                "negative_prompt": "",
+                "checkpoint": "",
+                "workflow": "",
+            }
+        ]
     }
     positive, _, _ = composer.assemble_prompts(
         config,

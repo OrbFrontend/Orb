@@ -217,3 +217,57 @@ test("a hostile recorded reference is escaped like every other field", () => {
   // Everything inside markers went through esc(); nothing hostile may survive outside them.
   assert.ok(!html.replaceAll(/«[^»]*»/gs, "").includes("<script>"));
 });
+
+// ── seedless backends and cost ───────────────────────────────────────────────
+
+test("a normal attachment still prints its seed", () => {
+  const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: {} }, "", MARKERS);
+  assert.match(html, /<dt>Seed<\/dt><dd><code>«beef»<\/code>/);
+});
+
+test("a seedless backend says so instead of printing a meaningless hex", () => {
+  // The seed is still minted and stored — rehydrate refuses a null one — so the
+  // honest row is "recorded but unused", not a blank and not the hex.
+  const html = attachmentDetailsHtml({ seed: "beef", consumption_metadata: { seed_honored: false } }, "", MARKERS);
+  assert.match(html, /not used by this provider/);
+  assert.ok(!html.includes("beef"));
+});
+
+test("cost is rendered only in the unit the payload names", () => {
+  const ticks = attachmentDetailsHtml(
+    { consumption_metadata: { cost: { provider: "xai", unit: "usd_ticks", value: 1400 } } },
+    "",
+    MARKERS,
+  );
+  // Never converted: nothing documents what a tick is worth, and picking a divisor
+  // by omission prints a wrong number on a billing figure.
+  assert.match(ticks, /1400 usd ticks/);
+  assert.ok(!ticks.includes("$"));
+});
+
+test("an unrecognised cost unit still shows the value beside its own name", () => {
+  const html = attachmentDetailsHtml(
+    { consumption_metadata: { cost: { provider: "acme", unit: "credits", value: 3 } } },
+    "",
+    MARKERS,
+  );
+  assert.match(html, /3 credits/);
+});
+
+test("no cost row at all when the response reported none", () => {
+  // A zero would read as "this was free".
+  assert.ok(!attachmentDetailsHtml({ consumption_metadata: {} }, "", MARKERS).includes("<dt>Cost"));
+  assert.ok(!attachmentDetailsHtml({ consumption_metadata: { cost: {} } }, "", MARKERS).includes("<dt>Cost"));
+});
+
+test("a hostile cost payload goes through the escaper like every other field", () => {
+  const html = attachmentDetailsHtml(
+    { consumption_metadata: { cost: { provider: HOSTILE, unit: HOSTILE, value: 1 } } },
+    "",
+    MARKERS,
+  );
+  // The whole cell is one escaped value, so nothing reaches the HTML unescaped.
+  const cell = `«1 ${HOSTILE} (${HOSTILE})»`;
+  assert.ok(html.includes(cell));
+  assert.ok(!html.replaceAll(cell, "").includes("<script>"));
+});

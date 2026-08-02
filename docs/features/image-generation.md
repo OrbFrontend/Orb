@@ -2,19 +2,30 @@
 
 Orb can generate an image of the current scene. You request each image on demand.
 
-Orb uses a ComfyUI server to render the image. Orb does not install ComfyUI or
-image models. For a quick, out-of-the-box setup, see [ComfyUI Setup](comfyui-setup.md).
-For hardware requirements and advanced options, refer to the
+Orb renders through one of two backends, which you pick in settings:
+
+| Backend | What it needs | What it costs |
+|---|---|---|
+| **External ComfyUI** | A ComfyUI server you run, a checkpoint, and an imported API-format workflow | Your own hardware and electricity |
+| **Cloud API** | An API key | Money, per image, billed by the provider |
+
+Orb does not install ComfyUI or image models. For a quick, out-of-the-box setup,
+see [ComfyUI Setup](comfyui-setup.md). For a cloud provider, see
+[Cloud Image Setup](cloud-image-setup.md). For ComfyUI hardware requirements and
+advanced options, refer to the
 [official ComfyUI documentation](https://docs.comfy.org/installation/system_requirements).
+
+Styles, imported workflows, the camera setting, and the character's appearance
+prompt are shared across both backends. Switching backend keeps all of them, and
+keeps the API key for the backend you switched away from.
 
 ## Before you start
 
 Make sure that you have these items:
 
 - A working LLM endpoint in Orb
-- A running ComfyUI server
-- At least one checkpoint in ComfyUI
-- Network access from Orb to the ComfyUI server
+- Either a running ComfyUI server with at least one checkpoint and network
+  access to it, or an API key for a supported cloud provider
 
 Orb's Agent-lane LLM reads the conversation through the reply you selected and
 writes the scene portion of the image prompt. It also sees the saved style and
@@ -35,25 +46,31 @@ conversation, character card, or scene analysis.
 2. Select the **Secondary** tab.
 3. Turn on **Image Generation**.
 
-The **Image Generation** card shows the saved ComfyUI URL and the current
-configuration status.
+The **Image Generation** card shows the current configuration status.
 
-## Connect Orb to ComfyUI
+## Choose an image backend
 
 First, this is what the UI look like (at least part of it):
 
 ![The Image Generation settings modal, showing a style's fields, Character appearance, and Imported ComfyUI workflows](../assets/screenshots/imagegen-settings-modal.png)
 
-Now, time to connect:
+1. Open **Workflow** and select the **Secondary** tab.
+2. In the **Image Generation** card, select **Settings** (or **Finish Setup** if first time).
+3. Under **Backend**, select **External ComfyUI** or **Cloud API**.
+4. Fill in the **Connection** section for that backend, as below.
+5. Select **Test connection**.
+6. Select **Save**.
+
+Changing the backend swaps only the **Connection** section. Styles, imported
+workflows, and everything under **Generation** stay where they are.
+
+### External ComfyUI
 
 1. Start ComfyUI.
-2. In Orb, Open **Workflow** and select the **Secondary** tab.
-3. In the **Image Generation** card, select **Settings** (or **Finish Setup** if first time).
-4. Enter the ComfyUI URL.
-5. Enter an API key if your server uses a Bearer token.
-6. Select **Test connection**.
-7. Make sure that the result is **Connected**.
-8. Select **Save**.
+2. Enter the ComfyUI URL.
+3. Enter an API key if your server uses a Bearer token.
+4. Select **Test connection**.
+5. Make sure that the result is **Connected**.
 
 Use `http://127.0.0.1:8188` when Orb and ComfyUI use the same computer and the
 ComfyUI port is `8188`.
@@ -66,6 +83,63 @@ status stays **Import a ComfyUI workflow**.
     **Test connection** checks every style that has a workflow assigned. Each of
     those workflows must be valid, and a checkpoint is required when the workflow
     lets Orb override the model.
+
+### Cloud API
+
+1. Select a **Provider**.
+2. Paste your **API key** for that provider.
+3. Select a **Model**, or leave the provider's default.
+4. Select a **Resolution**. Orb picks the closest aspect ratio or size the
+   provider accepts and tells you on the image when the match is not exact.
+5. Select **Test connection**. This lists the provider's models. It never
+   generates an image, so it never costs anything.
+
+Full walkthrough, provider list, and what each provider supports:
+[Cloud Image Setup](cloud-image-setup.md).
+
+!!! warning
+    A cloud provider is a third-party commercial API. Your scene prompts leave
+    this machine, each image is billed to your account there, and the provider
+    may retain what you send under its own retention policy. Orb asks you to
+    confirm this the first time you save each provider, and asks again the first
+    time you turn on reference images for it.
+
+Orb keeps one API key per provider, so switching provider — and switching back —
+does not lose a key you already pasted.
+
+#### What a cloud provider does not do
+
+Cloud image APIs expose far fewer controls than a ComfyUI workflow. The settings
+panel states the gaps for the selected provider under the picker. For xAI, and
+for most OpenAI-shaped providers:
+
+| Not supported | What Orb does |
+|---|---|
+| Negative prompt | The prompter is told not to write one, so no model effort is spent on it. Orb still records the negative prompt on the image, so replaying that image on ComfyUI later is correct. |
+| Seed | Orb still mints and stores a seed, because an image with no seed can never be rehydrated. **Render details** shows *Seed: not used by this provider* rather than a number the render never saw. |
+| Steps, CFG, sampler, scheduler | **Render details** leaves these blank. |
+| Exact width and height | Orb sends the nearest aspect ratio or size the provider accepts, and adds a note to the image when the difference is more than about 2%. |
+
+Style prompts, the character appearance prompt, the camera, and the resolution
+all still apply.
+
+#### Cost
+
+**Render details** shows what the provider's response reported about cost, in the
+provider's own unit. xAI reports `usd_ticks` and does not document what a tick is
+worth, so Orb prints `1400 usd ticks` rather than converting it to a dollar
+figure it cannot verify. When a response reports no cost at all, Orb shows no
+cost row — it does not print a zero.
+
+Every **Reroll**, **Regenerate** and **Rehydrate** on a cloud backend is a new
+billed image.
+
+#### Content refusals
+
+Commercial image APIs moderate prompts. When a provider refuses one, Orb says so
+directly — *"xAI (Grok) refused this prompt under its content policy"* — rather
+than reporting a generic failure. Rewording the scene, or a different provider,
+is the only way through; there is no Orb-side setting that changes it.
 
 ## Import a ComfyUI workflow
 
@@ -106,6 +180,22 @@ If a PNG does not contain workflow metadata, export an API-format JSON file
 from ComfyUI instead.
 
 ## Reference images
+
+### On a cloud provider
+
+Set **Reference images** in the **Connection** section. It is **off** by default:
+sending images from your conversations to a third party is opt-in.
+
+When it is on, Orb routes the render to the provider's image-edit endpoint and
+sends the resolved image inline with the request. Orb converts it to a format the
+provider accepts first — generated images are stored as WebP, and most providers
+take only PNG and JPEG. The size limit for a cloud reference is 4 MB, smaller
+than ComfyUI's, because the image is base64-encoded inside a JSON request body.
+
+The source choices are the same three listed below. Providers that accept only
+one reference image are sent the first, and Orb notes it on the image.
+
+### On ComfyUI
 
 Edit workflows - Qwen-Image-Edit, Flux Kontext, Krea Identity Edit, IPAdapter -
 take one or more input images through **Load Image** nodes. Orb fills those
@@ -184,6 +274,34 @@ The image has two action buttons:
 Orb keeps each result as a variant. Use the left and right arrows to view the
 variants. The counter shows the active variant.
 
+### Reroll and rehydrate on a cloud backend
+
+**Reroll** works as it always did. Its promise is "same prompt, different image",
+and a provider with no seed is nondeterministic anyway — so a fresh call *is* a
+reroll.
+
+**Rehydrate** cannot keep its promise. It exists to restore the exact bytes of an
+image whose data was evicted from the cache, and it does that by re-rendering
+from the stored seed. A provider that ignores seeds returns a *different* image.
+Orb re-renders and says so on the attachment, rather than refusing:
+
+> this provider does not accept a seed, so the original image could not be
+> restored exactly; this is a fresh render of the same prompt, and it was billed
+> as one
+
+Rehydrate on a cloud backend costs money, for the same reason a generate does.
+
+### Switching backend with old images
+
+Rerolling an image that was generated on the other backend re-renders it on the
+one selected now, and notes the substitution on the result. Orb does not refuse:
+a refusal would surface only as a generic server error, and the image you get is
+still the prompt you asked for.
+
+A cloud image replays at the resolution it was generated at, not the resolution
+currently in the picker. Changing the picker does not retroactively resize old
+images.
+
 Open **Render details** to see the style, seed, prompt, and negative prompt.
 Select the style name in these details to edit that style.
 
@@ -249,8 +367,13 @@ Orb ships **Realistic** and **Anime** styles out of the box. A style contains th
 | **Positive style tags** | Adds visual properties near the start of the image prompt. |
 | **Negative style tags** | Appends properties that ComfyUI must avoid. |
 | **Extra instructions** | Gives composition or emphasis guidance to the prompter model. This is not copied into the image prompt. |
-| **Checkpoint** | Selects the model file on the ComfyUI server. |
-| **Workflow** | Selects the ComfyUI workflow for this style. |
+| **Checkpoint** | Selects the model file on the ComfyUI server. ComfyUI only. |
+| **Workflow** | Selects the ComfyUI workflow for this style. ComfyUI only. |
+
+**Checkpoint** and **Workflow** apply only to the ComfyUI backend. A cloud
+provider has one model for every style, set in the **Connection** section. The
+two fields are kept on the style either way, so switching backend and back leaves
+each style's workflow pin exactly where it was.
 
 The **Realistic** and **Anime** rows are seeded with starting tags that you can
 edit or clear like those of any other style. Empty tag fields add no style tags.
@@ -354,7 +477,15 @@ guaranteed.
 | The connection test says a node needs an image on the server. | Map that node under **Reference images**, or put the file in ComfyUI's `input` directory. |
 | ComfyUI completes without an image. | Select a valid image-output node in the imported workflow. |
 | Orb cannot write an image prompt. | Check the Orb LLM endpoint. Use a model that can make tool calls. |
-| An old image shows **Bytes evicted**. | Select **Rehydrate**. Orb uses the stored prompt, settings, and seed to make the image again. |
+| An old image shows **Bytes evicted**. | Select **Rehydrate**. Orb uses the stored prompt, settings, and seed to make the image again. On a cloud backend this is a fresh billed render, disclosed on the image. |
+| The status says **Paste an API key**. | Open settings and paste the key for the selected provider. |
+| The status says **Choose a … model**. | Open settings and select a model, or pick a provider that ships a default. |
+| The status says **Unknown image provider**. | The stored provider id is not in Orb's table. Pick a provider from the list. Your key is kept, not deleted. |
+| The provider says the API key was rejected. | Check the key, and check that it is enabled for image generation on the provider's dashboard. |
+| The provider refused the prompt. | The provider's content policy rejected it. Reword the scene, or use a different provider. |
+| The provider is rate-limiting. | Wait and try again, or check your plan's limits with the provider. |
+| A cloud image came back the wrong shape. | The provider renders fixed aspect ratios. **Render details** names the ratio it used. Pick a resolution closer to one the provider supports. |
+| **Seed** says *not used by this provider*. | Expected. The provider ignores seeds; the stored seed exists so the image can still be rehydrated. |
 
 The ComfyUI queue can continue a submitted job after the browser disconnects.
 If you cancel a render, check the ComfyUI queue before you start another render.

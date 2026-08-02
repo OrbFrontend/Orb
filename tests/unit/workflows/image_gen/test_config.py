@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backend.workflows.image_gen.config import (
     DEFAULT_PROMPT_FORMAT,
+    MAX_CLOUD_PROVIDERS,
     MAX_REFERENCE_IMAGE_B64,
     MAX_REFERENCE_SLOTS,
     MAX_USER_GRAPHS,
@@ -133,6 +134,114 @@ def test_a_style_naming_the_removed_core_graph_migrates_to_unconfigured():
 def test_default_style_falls_back_when_it_no_longer_resolves():
     cfg = normalize_config({"default_style": "deleted", "external_comfy": {"styles": [{"id": "only", "label": "Only"}]}})
     assert cfg["default_style"] == "only"
+
+
+# ── the styles hoist ─────────────────────────────────────────────────────────
+
+
+def test_styles_nested_under_external_comfy_migrate_to_the_top_level():
+    """Styles are shared across sources now, so they live at the top level.
+
+    The normalizer runs on GET, on PUT, and on the value read back, so a legacy
+    config hoists on first read and persists hoisted on first write -- there is no
+    DB migration to write, and this is the only thing that makes that true. Every
+    other style test in this file feeds the legacy shape and reads through
+    `resolve_style`, so they are the rest of the migration coverage for free.
+    """
+    legacy = {"external_comfy": {"api_key": "k", "styles": [{"id": "legacy", "label": "Legacy", "prompt": "p"}]}}
+    cfg = normalize_config(legacy)
+
+    assert [s["id"] for s in cfg["styles"]] == ["legacy"]
+    assert "styles" not in cfg["external_comfy"]
+    # The rest of the ComfyUI block is untouched by the hoist.
+    assert cfg["external_comfy"]["api_key"] == "k"
+    # And a config already hoisted normalizes to itself.
+    assert normalize_config(cfg)["styles"] == cfg["styles"]
+
+
+def test_a_top_level_style_list_wins_over_a_legacy_nested_one():
+    cfg = normalize_config(
+        {
+            "styles": [{"id": "current", "label": "Current"}],
+            "external_comfy": {"styles": [{"id": "stale", "label": "Stale"}]},
+        }
+    )
+    assert [s["id"] for s in cfg["styles"]] == ["current"]
+
+
+def test_source_is_one_of_the_declared_backends():
+    assert normalize_config({})["source"] == "external_comfy"
+    assert normalize_config({"source": "cloud"})["source"] == "cloud"
+    assert normalize_config({"source": "managed_local"})["source"] == "external_comfy"
+
+
+# ── the cloud block ──────────────────────────────────────────────────────────
+
+
+def _cloud(**raw) -> dict:
+    return normalize_config({"cloud": raw})["cloud"]
+
+
+def test_the_provider_map_is_capped_and_keeps_the_selected_entry():
+    many = {f"p{i}": {"api_key": f"key-{i}"} for i in range(MAX_CLOUD_PROVIDERS + 5)}
+    many["xai"] = {"api_key": "xai-key"}
+    cloud = _cloud(provider="xai", providers=many)
+
+    assert len(cloud["providers"]) == MAX_CLOUD_PROVIDERS
+    # The cap must never be the reason the credentials in active use go missing.
+    assert cloud["providers"]["xai"]["api_key"] == "xai-key"
+
+
+def test_an_unknown_provider_id_is_retained_with_its_key():
+    """Dropping it would be a delete-the-user's-key path, not a tidy-up: the
+    normalizer runs on GET, the panel assigns that answer into its shared config,
+    and readConfig spreads it back into the next PUT -- so a preset row renamed in a
+    later release would erase the stored key on the next save, silently."""
+    cloud = _cloud(provider="renamed_in_v2", providers={"renamed_in_v2": {"api_key": "still-mine", "model": "m"}})
+
+    assert cloud["provider"] == "renamed_in_v2"
+    assert cloud["providers"]["renamed_in_v2"] == {"api_key": "still-mine", "model": "m", "base_url": ""}
+
+
+def test_switching_provider_keeps_the_other_providers_keys():
+    stored = _cloud(provider="xai", providers={"xai": {"api_key": "a"}, "openai": {"api_key": "b"}})
+    switched = normalize_config({"cloud": {**stored, "provider": "openai"}})["cloud"]
+    assert switched["providers"]["xai"]["api_key"] == "a"
+    assert switched["providers"]["openai"]["api_key"] == "b"
+
+
+def test_a_cloud_base_url_override_rejects_credentials_and_plaintext():
+    def base_url(url: str) -> str:
+        return _cloud(provider="custom", providers={"custom": {"base_url": url}})["providers"]["custom"]["base_url"]
+
+    assert base_url("https://api.example.test/v1") == "https://api.example.test/v1"
+    # Trailing slash normalized like the ComfyUI URL's.
+    assert base_url("https://api.example.test/v1/") == "https://api.example.test/v1"
+    # A local proxy in front of the provider is the one plaintext case that is fine.
+    assert base_url("http://127.0.0.1:8080/v1") == "http://127.0.0.1:8080/v1"
+    for rejected in (
+        "http://api.example.test/v1",  # a bearer key on every request, in the clear
+        "https://user:secret@api.example.test",
+        "ftp://api.example.test",
+        "not a url",
+    ):
+        assert base_url(rejected) == "", rejected
+
+
+def test_cloud_dimensions_are_stored_as_pixels_and_bounded():
+    cloud = _cloud(width="1536", height=99_999)
+    assert (cloud["width"], cloud["height"]) == (1536, 4096)
+    assert (_cloud()["width"], _cloud()["height"]) == (1024, 1024)
+
+
+def test_cloud_quality_and_reference_source_default_to_off():
+    assert _cloud()["quality"] == ""
+    assert _cloud(quality="HIGH")["quality"] == "high"
+    assert _cloud(quality="ultra")["quality"] == ""
+    # Sending conversation images to a third party is opt-in.
+    assert _cloud()["reference_source"] == ""
+    assert _cloud(reference_source="previous")["reference_source"] == "previous"
+    assert _cloud(reference_source="whatever")["reference_source"] == ""
 
 
 # ── reference slots ──────────────────────────────────────────────────────────

@@ -6,16 +6,14 @@ import asyncio
 import json
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
 
-from .contracts import ImageGenerationError, ImageResult
+from .contracts import ImageGenerationError, ImageResult, ProgressCallback
 from .display_encode import shrink_for_display
-
-MAX_IMAGE_BYTES = 20 * 1024 * 1024
-ProgressCallback = Callable[[str, Mapping[str, Any]], Awaitable[None] | None]
+from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
 # One subfolder of ComfyUI's input directory, so Orb's leftovers are identifiable.
 # Core ComfyUI exposes no delete API for input files, so it grows by one file per
@@ -77,16 +75,6 @@ def _validation_message(payload: Any) -> str:
     if error_type:
         return f"ComfyUI rejected the workflow ({error_type})"
     return "ComfyUI rejected the workflow"
-
-
-def _image_mime(data: bytes, content_type: str = "") -> str:
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    raise ImageGenerationError("ComfyUI returned data that is not a supported image")
 
 
 class ComfyClient:
@@ -289,7 +277,7 @@ class ComfyClient:
                 data = response.content
                 if not data or len(data) > MAX_IMAGE_BYTES:
                     raise ImageGenerationError("ComfyUI image output is empty or too large")
-                mime = _image_mime(data, response.headers.get("content-type", ""))
+                mime = image_mime(data)
         except ImageGenerationError:
             raise
         except httpx.HTTPError as exc:

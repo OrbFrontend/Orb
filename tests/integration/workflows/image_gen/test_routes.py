@@ -28,7 +28,7 @@ from backend.workflows.image_gen.engine import ImageResult
 
 
 @pytest.mark.asyncio
-async def test_manifest_and_status_expose_external_only_stage(client):
+async def test_manifest_and_status_report_the_active_source_and_its_capabilities(client):
     manifest = (await client.get("/api/workflows")).json()
     entry = next(w for w in manifest if w["id"] == "image_gen")
     assert entry["display_name"] == "Image Generation"
@@ -40,7 +40,19 @@ async def test_manifest_and_status_expose_external_only_stage(client):
         "can_list_models": True,
         "can_install_curated_models": False,
         "managed_runtime": False,
+        # Per-graph in practice, so the static answer is "this backend can express
+        # all of them" and the RenderTarget says what one graph will honour.
+        "supports_negative_prompt": True,
+        "supports_seed": True,
+        "supports_dimensions": False,
+        "supports_references": True,
     }
+    # The source picker, the provider dropdown and the capability line come from
+    # one payload, so a backend the router knows about can never be missing here.
+    assert {source["id"] for source in status["sources"]} == {"external_comfy", "cloud"}
+    assert any(provider["id"] == "xai" for provider in status["providers"])
+    # The preset table *projected*: no configured credential may enter this payload.
+    assert not any("api_key" in provider for provider in status["providers"])
 
     styles = (await client.post("/api/workflows/image_gen/query", json={"action": "styles"})).json()["styles"]
     # Structure, not prompt copy-text: the tag strings live in config and are meant to be edited.
@@ -113,7 +125,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert "event: image_gen_done" in response.text
     assert '"attachment_id":' in response.text
     # Count anchor leads and the style follows immediately (see assemble_prompts).
-    anime_prompt = CONFIG_DEFAULTS["external_comfy"]["styles"][1]["prompt"]
+    anime_prompt = CONFIG_DEFAULTS["styles"][1]["prompt"]
     assert captured["request"].prompt.startswith(f"1girl, {anime_prompt}, long silver hair")
     assert captured["request"].prompt.endswith("sitting, window, rain, night")
     assert lane["agent_client"] is lane["writer_client"]
@@ -122,7 +134,7 @@ async def test_generate_trigger_streams_terminal_event_and_persists_image(client
     assert captured["compose"]["prompt_format"] == "hybrid"
     assert captured["compose"]["profile_owner_name"] == "Iris"
     assert captured["compose"]["style_prompt"] == anime_prompt
-    assert captured["compose"]["style_negative_prompt"] == CONFIG_DEFAULTS["external_comfy"]["styles"][1]["negative_prompt"]
+    assert captured["compose"]["style_negative_prompt"] == CONFIG_DEFAULTS["styles"][1]["negative_prompt"]
     assert captured["compose"]["profile_negative_prompt"] == ""
 
     match = re.search(r'"attachment_id":(\d+)', response.text)

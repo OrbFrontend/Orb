@@ -10,6 +10,7 @@ import {
   isLoopbackUrl,
   normalizePromptFormat,
   povChoices,
+  privacyDisclosure,
   promptFormatLabel,
   PROMPT_FORMATS,
 } from "../../frontend/workflows/image_gen/policy.js";
@@ -77,4 +78,69 @@ test("an unset or unknown format reads as the default the backend substitutes", 
     assert.equal(normalizePromptFormat(value), "hybrid");
     assert.equal(promptFormatLabel(value), "Hybrid");
   }
+});
+
+// Which disclosure fires, and under which acknowledgement key. The cloud branch
+// is the one this module exists for: while ComfyUI was the only source, the panel
+// could ask about its URL and be right. The moment cloud is selectable, a config
+// with cloud active and the ComfyUI URL still at its loopback default reads as
+// "no boundary crossed" — and the warning that should have fired never does.
+
+const comfy = (apiUrl, extra = {}) => privacyDisclosure({ source: "external_comfy", apiUrl, ...extra });
+const cloud = (extra = {}) => privacyDisclosure({ source: "cloud", apiUrl: "http://127.0.0.1:8188", ...extra });
+
+test("loopback ComfyUI still gets no notice", () => {
+  assert.equal(comfy("http://127.0.0.1:8188"), null);
+  assert.equal(comfy("http://localhost:8188"), null);
+});
+
+test("a remote ComfyUI keeps today's message and key", () => {
+  const notice = comfy("https://comfy.example.com");
+  assert.equal(notice.key, "orb:image-gen-privacy:https://comfy.example.com");
+  assert.match(notice.message, /not on this machine/);
+  assert.doesNotMatch(notice.message, /reference image/);
+});
+
+test("a remote ComfyUI with reference-mapping graphs is asked again under its own key", () => {
+  const notice = comfy("https://comfy.example.com", { sendsImages: true });
+  assert.equal(notice.key, "orb:image-gen-privacy-images:https://comfy.example.com");
+  assert.match(notice.message, /reference image/);
+});
+
+test("cloud always discloses, even with the ComfyUI URL left at loopback", () => {
+  // The exact configuration that swallows the warning if the gate stays on
+  // `external_comfy` — which is what makes this the regression worth pinning.
+  const notice = cloud({ providerId: "xai", providerLabel: "xAI (Grok)" });
+  assert.notEqual(notice, null);
+  assert.match(notice.message, /xAI \(Grok\)/);
+  assert.match(notice.message, /third-party/);
+  // Cloud says more than ComfyUI does: this one bills, and the provider may keep it.
+  assert.match(notice.message, /billed/);
+  assert.match(notice.message, /retain/);
+});
+
+test("acknowledging one provider does not silently cover a switch to another", () => {
+  const xai = cloud({ providerId: "xai", providerLabel: "xAI (Grok)" });
+  const openai = cloud({ providerId: "openai", providerLabel: "OpenAI" });
+  assert.notEqual(xai.key, openai.key);
+  assert.equal(xai.key, "orb:image-gen-privacy-cloud:xai");
+});
+
+test("turning cloud reference images on is its own acknowledgement", () => {
+  const prompts = cloud({ providerId: "xai", providerLabel: "xAI (Grok)" });
+  const images = cloud({ providerId: "xai", providerLabel: "xAI (Grok)", sendsImages: true });
+  assert.notEqual(prompts.key, images.key);
+  assert.equal(images.key, "orb:image-gen-privacy-cloud-images:xai");
+  assert.match(images.message, /character reference/);
+  assert.doesNotMatch(prompts.message, /character reference/);
+});
+
+test("a cloud disclosure never collides with a ComfyUI one", () => {
+  const keys = new Set([
+    comfy("https://comfy.example.com").key,
+    comfy("https://comfy.example.com", { sendsImages: true }).key,
+    cloud({ providerId: "xai" }).key,
+    cloud({ providerId: "xai", sendsImages: true }).key,
+  ]);
+  assert.equal(keys.size, 4);
 });

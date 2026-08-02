@@ -37,13 +37,16 @@ def test_a_fresh_render_follows_the_style():
     # The style pins no workflow and external mode ships no default graph, so the
     # target graph is empty; the adapter turns that into an "assign a workflow" error.
     target = resolve_render_target(_config(), "anime")
-    assert (target.graph_id, target.checkpoint, target.notes) == ("", "current.safetensors", ())
+    assert (target.target_id, target.model, target.notes) == ("", "current.safetensors", ())
+    assert target.source == "external_comfy"
+    # The graph carries its own latent size, so Orb never pins one.
+    assert (target.supports_dimensions, target.width, target.height) == (False, None, None)
 
 
 def test_replay_prefers_what_the_stored_image_recorded():
     config = _config(user_graphs=[{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}])
     target = resolve_render_target(config, "anime", {"workflow_id": "user_a", "backend_model": "old.safetensors"})
-    assert (target.graph_id, target.checkpoint) == ("user_a", "old.safetensors")
+    assert (target.target_id, target.model) == ("user_a", "old.safetensors")
     assert target.notes == ()
 
 
@@ -51,8 +54,8 @@ def test_replay_of_a_deleted_graph_degrades_with_disclosure():
     target = resolve_render_target(_config(), "anime", {"workflow_id": "user_gone", "backend_model": "old.safetensors"})
     # The style has no workflow to fall back to, so the target is empty and the
     # note discloses both the missing graph and the unconfigured style.
-    assert target.graph_id == ""
-    assert target.checkpoint == "old.safetensors"
+    assert target.target_id == ""
+    assert target.model == "old.safetensors"
     assert len(target.notes) == 1
     assert "user_gone" in target.notes[0]
 
@@ -62,7 +65,7 @@ def test_a_user_graph_replay_without_a_recorded_model_falls_through_to_the_style
     loaders, so there is no pin to restore -- inventing one would be worse."""
     config = _config(user_graphs=[{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}])
     target = resolve_render_target(config, "anime", {"workflow_id": "user_a", "backend_model": None})
-    assert (target.graph_id, target.checkpoint) == ("user_a", "current.safetensors")
+    assert (target.target_id, target.model) == ("user_a", "current.safetensors")
 
 
 # ── reference images on reroll ───────────────────────────────────────────────
@@ -72,8 +75,11 @@ EDIT_SLOTS = {**SLOTS, "references": [{"slot": ["r", "image"], "source": "charac
 
 
 class _RerollCtx:
-    def __init__(self, prior_style: str):
+    def __init__(self, prior_style: str, *, stored_seed: str = "1234"):
         self.prior_consumption_metadata = {"style_id": prior_style}
+        # The rehydrate discriminator reads this: same seed back means rehydrate,
+        # a freshly minted one means reroll.
+        self.original_attachment = {"seed": stored_seed}
 
 
 @pytest.fixture

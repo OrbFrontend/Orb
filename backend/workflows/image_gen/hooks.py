@@ -1,4 +1,4 @@
-"""Workflow integration for on-demand external ComfyUI generation."""
+"""Workflow integration for on-demand image generation, on any configured source."""
 
 from __future__ import annotations
 
@@ -26,17 +26,15 @@ from .config import (
     resolve_style,
 )
 from .engine import (
-    CAPABILITIES,
     ImageGenerationError,
     ImageRequest,
     ProgressCallback,
-    graph_has_negative,
-    graph_reference_slots,
-    list_models,
-    node_roles,
+    comfy_adapter,
+    get_adapter,
+    list_sources,
     resolve_and_generate,
-    validate_connection,
 )
+from .engine.providers import provider_catalogue
 from .references import refetch_references, resolve_references
 
 logger = logging.getLogger(__name__)
@@ -110,7 +108,10 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
     if stage == "uploading":
         return "Uploading reference image..."
     if stage == "rendering":
-        return "Rendering in ComfyUI..."
+        # A cloud adapter names itself here; ComfyUI's wording is the fallback so
+        # nothing about the existing stream changes.
+        backend = detail.get("backend")
+        return f"Rendering on {backend}..." if isinstance(backend, str) and backend else "Rendering in ComfyUI..."
     if stage == "queued":
         ahead = detail.get("ahead")
         if isinstance(ahead, int) and not isinstance(ahead, bool) and ahead > 0:
@@ -148,7 +149,7 @@ def _metadata(
 ) -> dict:
     info = dict(result.backend_info)
     return {
-        "source": "external_comfy",
+        "source": config["source"],
         "style_id": style["id"],
         "recipe_id": None,
         "workflow_id": info.get("workflow_id"),
@@ -166,6 +167,12 @@ def _metadata(
         # Which reference images went in, and where each came from. A reroll
         # re-fetches strictly by these origins, so only the seed moves.
         "references": info.get("references") or [],
+        # Whether the seed on the row means anything. A seedless API is
+        # nondeterministic, so the attachment must say "not used by this provider"
+        # rather than print a hex the render never saw. The seed is still minted and
+        # stored: rehydrate 409s on a null one, so a null would make cloud images
+        # permanently unrehydratable.
+        "seed_honored": info.get("seed_honored") is not False,
         # Read back off the graph that executed, so replay can compare what an
         # image was actually rendered with rather than what its ids imply.
         **{key: info.get(key) for key in ("width", "height", "steps", "cfg", "sampler", "scheduler")},
@@ -173,16 +180,32 @@ def _metadata(
 
 
 def _consumption(
-    style: Mapping[str, Any], prompt: str, negative_prompt: str, result=None, record: Mapping[str, Any] | None = None
+    style: Mapping[str, Any],
+    prompt: str,
+    negative_prompt: str,
+    result=None,
+    record: Mapping[str, Any] | None = None,
+    *,
+    source_label: str = "External ComfyUI",
 ) -> dict:
-    notes = list(getattr(result, "backend_info", {}).get("notes") or []) if result is not None else []
+    info: Mapping[str, Any] = getattr(result, "backend_info", {}) if result is not None else {}
+    notes = list(info.get("notes") or [])
     payload = {
-        "source": "External ComfyUI",
+        "source": source_label,
         "style_id": style["id"],
         "style_label": style["label"],
         "prompt": prompt,
         "negative_prompt": negative_prompt,
     }
+    # Carried in the provider's own unit, never converted. A cloud source is the
+    # first place in Orb where clicking reroll spends money, and renaming an
+    # undocumented unit to "usd" would pick a divisor by omission and print a wrong
+    # number on a billing figure -- worse than printing none.
+    cost = info.get("cost")
+    if isinstance(cost, Mapping) and cost.get("value") is not None:
+        payload["cost"] = dict(cost)
+    if info.get("seed_honored") is False:
+        payload["seed_honored"] = False
     # The camera and the references ride both halves. generation_metadata is the
     # replay record the UI never reads; a wrong POV or reference is exactly the
     # failure a user needs traced, so both belong where they are looking at the bad
@@ -231,6 +254,12 @@ async def _generate_fresh(
     if prefix is None:
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     selected_style = resolve_style(config, style_id)
+    adapter = get_adapter(config)
+    # Resolved once, up front: the composer needs this target's negative-prompt
+    # answer before it writes anything, references need its slot list, and the
+    # render needs the target itself. Resolving graph facts twice is how the two
+    # halves come to disagree.
+    target = adapter.resolve_target(selected_style, None)
     character = getattr(ctx, "character", None)
     profile_owner_name = str(character.get("name") or "") if isinstance(character, Mapping) else ""
     appearance = str(profile.get("appearance_prompt") or "")
@@ -251,7 +280,7 @@ async def _generate_fresh(
         appearance=appearance,
         profile_owner_name=profile_owner_name,
         extra_instructions=str(selected_style.get("extra_instructions") or ""),
-        supports_negative=graph_has_negative(config, selected_style["workflow"]),
+        supports_negative=target.supports_negative_prompt,
         style_prompt=str(selected_style.get("prompt") or ""),
         style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
         profile_negative_prompt=str(profile.get("negative_prompt") or ""),
@@ -263,7 +292,7 @@ async def _generate_fresh(
     # with nothing to reference fails loudly -- rendering it without one would
     # produce a picture of whatever the graph's stale filename pointed at.
     references = await resolve_references(
-        graph_reference_slots(config, selected_style["workflow"]),
+        target.reference_slots,
         history=history,
         anchor_id=int(message["id"]),
         character_id=getattr(ctx, "character_id", None),
@@ -279,6 +308,7 @@ async def _generate_fresh(
             timeout_seconds=config["timeout_seconds"],
             references=references,
         ),
+        target=target,
         progress=progress,
     )
     md = _metadata(
@@ -291,7 +321,8 @@ async def _generate_fresh(
         pov=pov,
         pov_source=pov_source,
     )
-    return _attachment(seed, result, md, _consumption(style, prompt, negative, result, record=md))
+    consumption = _consumption(style, prompt, negative, result, record=md, source_label=adapter.label)
+    return _attachment(seed, result, md, consumption)
 
 
 async def on_demand(ctx, body):
@@ -319,7 +350,7 @@ async def on_demand(ctx, body):
 
 # --- QUERY: conversation-less config / capability discovery -------------------
 # These back the tools-panel card and the Advanced settings form. They answer
-# from the saved workflow config or by probing the external ComfyUI server, with
+# from the saved workflow config or by probing the configured image backend, with
 # no conversation in scope, and report their own failures in-band as
 # ``{"error": ...}`` -- the caller degrades (empty model list, plain-text fields)
 # rather than treating a probe failure as an HTTP error.
@@ -336,45 +367,6 @@ async def _config_from_query(body) -> dict:
     if isinstance(body, dict) and isinstance(body.get("config"), dict):
         return normalize_config(body["config"])
     return normalize_config(await get_workflow_config(WORKFLOW_ID))
-
-
-def _configuration_readiness(config: Mapping[str, Any]) -> dict:
-    """What the saved configuration alone can tell us, with no network I/O.
-
-    Deliberately not a health probe: the tools-panel card renders on every panel
-    open, and making that wait on a remote server would trade a fast honest
-    answer for a slow one. Reachability is the ``test`` action, which the
-    Visualize modal already runs at the moment it matters.
-    """
-    external = config["external_comfy"]
-    graphs = {graph["id"]: graph for graph in external["user_graphs"]}
-    # External mode ships no default graph, so a style with nothing pinned cannot
-    # render at all -- the first thing to fix, ahead of checkpoints.
-    needs_workflow = any(not style["workflow"] for style in external["styles"])
-    unresolved = sorted(
-        {style["workflow"] for style in external["styles"] if style["workflow"] and style["workflow"] not in graphs}
-    )
-    # A checkpoint is only required when the pinned graph exposes a model slot for
-    # Orb's selection to override; a self-contained graph carries its own.
-    needs_checkpoint = any(
-        not style["checkpoint"] and style["workflow"] in graphs and "checkpoint" in graphs[style["workflow"]]["slots"]
-        for style in external["styles"]
-    )
-    if needs_workflow:
-        return {
-            "ready": False,
-            "reason": "no_workflow",
-            "detail": "Import a ComfyUI workflow and assign it to each style",
-        }
-    if unresolved:
-        return {"ready": False, "reason": "unknown_workflow", "detail": f"Unknown workflow: {', '.join(unresolved)}"}
-    if needs_checkpoint:
-        return {
-            "ready": False,
-            "reason": "no_checkpoint",
-            "detail": "Choose a checkpoint in settings before generating",
-        }
-    return {"ready": True, "reason": "", "detail": f"External ComfyUI at {external['api_url']}"}
 
 
 async def query(ctx, body):
@@ -395,10 +387,15 @@ async def query(ctx, body):
 async def _status(body) -> dict:
     config = await _config_from_query(body)
     external = config["external_comfy"]
+    adapter = get_adapter(config)
     return {
-        "source": "external_comfy",
-        "capabilities": dict(CAPABILITIES),
-        "configured": any(s["checkpoint"] or s["workflow"] for s in external["styles"]),
+        "source": config["source"],
+        "capabilities": dict(adapter.capabilities),
+        # The source picker, the provider dropdown and the capability line all read
+        # from here, so all three come from one place. `providers` is the preset
+        # table *projected* -- no configured api_key may enter this payload.
+        "sources": list_sources(),
+        "providers": provider_catalogue(),
         "api_url": external["api_url"],
         "default_style": config["default_style"],
         # The camera picker labels "Auto" off these two: whether the classifier can
@@ -407,9 +404,9 @@ async def _status(body) -> dict:
         # already fetches instead of costing a second round trip.
         "classifier_ready": await pov_mod.classifier_ready(),
         "fallback_mode": pov_mod.DEFAULT_POV_MODE,
-        "style_count": len(external["styles"]),
+        "style_count": len(config["styles"]),
         "user_graph_count": len(external["user_graphs"]),
-        **_configuration_readiness(config),
+        **adapter.readiness(),
         "managed_local": {
             "available": False,
             "reason": "Managed local image generation is not included in this stage",
@@ -420,9 +417,9 @@ async def _status(body) -> dict:
 async def _styles(body) -> dict:
     config = await _config_from_query(body)
     return {
-        "source": "external_comfy",
+        "source": config["source"],
         "default_style": config["default_style"],
-        "styles": config["external_comfy"]["styles"],
+        "styles": config["styles"],
     }
 
 
@@ -433,7 +430,7 @@ async def _test_connection(body) -> dict:
     explicit = isinstance(body, dict) and isinstance(body.get("config"), dict)
     config = await _config_from_query(body)
     try:
-        return await validate_connection(config, allow_cached=not explicit)
+        return await get_adapter(config).validate_connection(allow_cached=not explicit)
     except (ImageGenerationError, ValueError) as exc:
         return {"error": str(exc)}
 
@@ -441,7 +438,7 @@ async def _test_connection(body) -> dict:
 async def _external_models(body) -> dict:
     config = await _config_from_query(body)
     try:
-        return {"models": await list_models(config)}
+        return {"models": await get_adapter(config).list_models()}
     except ImageGenerationError as exc:
         return {"error": str(exc)}
 
@@ -451,16 +448,23 @@ async def _node_types(body) -> dict:
 
     Takes class-type names rather than the graph itself: the browser already
     parsed the graph, and this only needs to know what its node classes can do.
+
+    Dispatches to the ComfyUI adapter **explicitly, never by active source**.
+    Imported graphs are global and the importer stays usable while cloud is
+    selected; routing this by `config["source"]` would break it the moment the
+    user switched backends. A connection failure degrades to no typing at all --
+    the picker already falls back to conventional input names.
     """
     raw = body.get("class_types") if isinstance(body, dict) else None
     if not isinstance(raw, list):
         return {"error": "class_types (list of strings) required"}
     class_types = [item for item in raw if isinstance(item, str) and item][:MAX_INSPECTED_CLASS_TYPES]
     config = await _config_from_query(body)
+    adapter = comfy_adapter(config)
     try:
-        return {"nodes": await node_roles(config, class_types)}
-    except ImageGenerationError as exc:
-        return {"error": str(exc)}
+        return {"nodes": await adapter.node_roles(class_types)}
+    except ImageGenerationError:
+        return {"nodes": {}}
 
 
 async def _generate_response(ctx, body) -> WorkflowEventStream:
@@ -610,14 +614,41 @@ async def reroll_gen(ctx, params, seed):
         # no history to re-resolve from -- so a new graph that needs references is
         # refused rather than submitted with its exporter's filenames still pinned.
         params.pop("references", None)
-        if graph_reference_slots(config, style["workflow"]):
-            raise ImageGenerationError(
-                f"{style['label']} uses reference images, which a reroll cannot carry over from another style. "
-                "Regenerate the image under this style instead."
-            )
+    # **After** the style_changed pops, never before: those three lines clear the
+    # pins precisely so the new style resolves its own, and a target resolved above
+    # them would answer off the previous style's record and re-render the old graph.
+    adapter = get_adapter(config)
+    target = adapter.resolve_target(style, params)
+    if style_changed and target.reference_slots:
+        raise ImageGenerationError(
+            f"{style['label']} uses reference images, which a reroll cannot carry over from another style. "
+            "Regenerate the image under this style instead."
+        )
+    # Disclosure this hook adds *on top of* the adapter's own: `target.notes` already
+    # reaches the attachment through the result's backend_info, so repeating them
+    # here would print each one twice.
+    notes: list[str] = []
+    # A stored image rendered on a different backend cannot be reproduced by this
+    # one; re-rendering and disclosing beats refusing, which surfaces only as a
+    # generic "reroll_gen handler raised" 500.
+    recorded_source = params.get("source")
+    if isinstance(recorded_source, str) and recorded_source and recorded_source != config["source"]:
+        was = next((s["label"] for s in list_sources() if s["id"] == recorded_source), recorded_source)
+        notes.append(f"this image was generated on {was}; it has been re-rendered on {adapter.label}, so it will not match")
+    # Rehydrate promises the *same bytes back*; a seedless API returns a different
+    # image and silently overwrites the evicted row with something the user never
+    # generated. The discriminator is the seed, not the eviction marker: /rehydrate
+    # hands back the row's own stored seed (identity), while /reroll-gen mints a
+    # fresh 128-bit token. The marker would be wrong -- only /rehydrate preconditions
+    # on it, and the widget puts a reroll button on the evicted card, one click away.
+    if not target.supports_seed and str(seed) == str(ctx.original_attachment.get("seed") or ""):
+        notes.append(
+            "this provider does not accept a seed, so the original image could not be restored exactly; "
+            "this is a fresh render of the same prompt, and it was billed as one"
+        )
     # Strictly by recorded origin: a reroll promises only the seed changes, so
     # re-resolving from a branch that may have moved on is what must not happen.
-    references = await refetch_references(params.get("references"))
+    references = await refetch_references(params.get("references"), slots=target.reference_slots)
     resolved_seed = fold_seed(seed)
     result = await resolve_and_generate(
         config,
@@ -633,11 +664,13 @@ async def reroll_gen(ctx, params, seed):
         # them through the style would re-render an old attachment on whatever
         # checkpoint that style points at today -- for rehydrate, silently
         # overwriting the row with different bytes than it is meant to restore.
-        replay=params,
+        target=target,
     )
     # A reroll re-renders the stored prompt under a new seed, so the camera cannot
     # have changed: carry the one `params` already records rather than re-resolving.
-    consumption = _consumption(style, prompt, negative, result, record=params)
+    consumption = _consumption(style, prompt, negative, result, record=params, source_label=adapter.label)
+    if notes:
+        consumption["notes"] = [*notes, *consumption.get("notes", [])]
     if style_changed:
         # Only the assembled prompt is stored, never the scene/avoid halves it was built
         # from, so a style swap cannot re-word it -- say so rather than substitute silently.

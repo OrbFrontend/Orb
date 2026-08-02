@@ -130,9 +130,27 @@ async def _character_image(character_id: str | None, profile: Mapping[str, Any])
     return None
 
 
-async def _resolved(slot: Any, source: str, data: bytes, mime: str, origin: str) -> ResolvedReference:
+def _constraints(entry: Mapping[str, Any]) -> dict:
+    """Per-slot mime/size policy, as the slot's own record states it.
+
+    Data-driven rather than a parameter threaded down from the hook: a ComfyUI
+    graph slot declares neither and gets the shared defaults, while the cloud
+    adapter's synthetic slot carries the provider's accepted mimes and the tighter
+    base64-in-JSON byte cap. Nothing above here has to know which backend is active.
+    """
+    limits: dict[str, Any] = {}
+    mimes = entry.get("mimes")
+    if isinstance(mimes, (list, tuple)) and mimes:
+        limits["allowed"] = tuple(str(m) for m in mimes)
+    max_bytes = entry.get("max_bytes")
+    if isinstance(max_bytes, int) and not isinstance(max_bytes, bool) and max_bytes > 0:
+        limits["max_bytes"] = max_bytes
+    return limits
+
+
+async def _resolved(slot: Any, source: str, data: bytes, mime: str, origin: str, **limits: Any) -> ResolvedReference:
     # Bounding is PIL work, so it goes off-thread like the display re-encode does.
-    data, mime = await asyncio.to_thread(normalize_reference, data, mime)
+    data, mime = await asyncio.to_thread(normalize_reference, data, mime, **limits)
     return ResolvedReference(
         slot=(str(slot[0]), str(slot[1])),
         source=source,
@@ -188,7 +206,7 @@ async def resolve_references(
                 break
         if found is None:
             raise _unresolved(str(entry.get("label") or (slot[0] if slot else "this workflow")), source)
-        resolved.append(await _resolved(slot, source, *found))
+        resolved.append(await _resolved(slot, source, *found, **_constraints(entry)))
     return tuple(resolved)
 
 
@@ -213,16 +231,26 @@ async def _origin_bytes(origin: str) -> tuple[bytes, str] | None:
     return None
 
 
-async def refetch_references(recorded: Any) -> tuple[ResolvedReference, ...]:
+async def refetch_references(
+    recorded: Any,
+    *,
+    slots: Sequence[Mapping[str, Any]] = (),
+) -> tuple[ResolvedReference, ...]:
     """Re-fetch a stored render's references strictly by recorded origin.
 
     Reroll promises that only the seed changes, so this never re-resolves: a
     deleted or byte-evicted origin fails loudly instead of silently changing the
     subject. The origin carries everything needed, which is what lets this run on
     the history-free reroll ctx.
+
+    `slots` is the *target's* slot list, not the record's: the stored shape is
+    deliberately just `{slot, source, origin, digest}`, so the mime/size policy has
+    to come from what will render this time. Matched by slot, so a re-render on a
+    provider that takes PNG/JPEG converts even though the record says nothing.
     """
     if not isinstance(recorded, (list, tuple)) or not recorded:
         return ()
+    policy = {tuple(str(part) for part in slot["slot"]): _constraints(slot) for slot in slots if slot.get("slot")}
     resolved: list[ResolvedReference] = []
     for entry in recorded:
         if not isinstance(entry, Mapping):
@@ -237,5 +265,6 @@ async def refetch_references(recorded: Any) -> tuple[ResolvedReference, ...]:
                 "The reference image this render used is gone, so it cannot be reproduced exactly. "
                 "Regenerate the image instead of rerolling it."
             )
-        resolved.append(await _resolved(slot, str(entry.get("source") or ""), found[0], found[1], origin))
+        limits = policy.get(tuple(str(part) for part in slot), {})
+        resolved.append(await _resolved(slot, str(entry.get("source") or ""), found[0], found[1], origin, **limits))
     return tuple(resolved)

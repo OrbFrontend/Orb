@@ -34,16 +34,6 @@ def has_graph(config: Mapping[str, Any], graph_id: str) -> bool:
     return any(item["id"] == graph_id for item in config["external_comfy"]["user_graphs"])
 
 
-def graph_has_negative(config: Mapping[str, Any], graph_id: str) -> bool:
-    """Whether the workflow `graph_id` maps a negative-prompt slot.
-
-    A graph with no negative slot discards the composed negative at render time
-    (see `generate`), so the composer is told to leave `avoid` empty instead of
-    spending the model's effort on a negation the workflow throws away.
-    """
-    return any(item["id"] == graph_id and "negative" in item["slots"] for item in config["external_comfy"]["user_graphs"])
-
-
 def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """The mapped reference entries, as normalization stored them.
 
@@ -52,15 +42,6 @@ def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """
     entries = slots.get("references")
     return [entry for entry in entries if isinstance(entry, Mapping)] if isinstance(entries, list) else []
-
-
-def graph_reference_slots(config: Mapping[str, Any], graph_id: str) -> list[Mapping[str, Any]]:
-    """The reference slots `graph_id` maps, config-level so the hook can resolve
-    conversation images without deep-copying a graph it will not patch."""
-    for item in config["external_comfy"]["user_graphs"]:
-        if item["id"] == graph_id:
-            return copy.deepcopy(reference_slots(item["slots"]))
-    return []
 
 
 def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> Any:

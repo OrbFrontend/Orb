@@ -5,8 +5,10 @@ import json
 import httpx
 import pytest
 
-from backend.workflows.image_gen.config import normalize_config
-from backend.workflows.image_gen.engine.adapters import external_comfy
+from backend.workflows.image_gen.config import normalize_config, resolve_style
+from backend.workflows.image_gen.engine.adapters.external_comfy import (
+    ExternalComfyAdapter,
+)
 from backend.workflows.image_gen.engine.comfy_client import (
     ComfyClient,
     invalidate_object_info,
@@ -63,10 +65,10 @@ USER_GRAPH = {
 
 
 def _install_client(monkeypatch, handler) -> None:
-    def factory(config):
+    def factory(_self):
         return ComfyClient("http://comfy.test", transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr(external_comfy, "_client", factory)
+    monkeypatch.setattr(ExternalComfyAdapter, "_client", factory)
 
 
 def _handler(models_response: httpx.Response):
@@ -96,7 +98,7 @@ async def test_connection_test_returns_discovered_checkpoints(monkeypatch):
     )
     config = normalize_config({"external_comfy": {"styles": [{"id": "s", "label": "S", "checkpoint": "anime.safetensors"}]}})
 
-    result = await external_comfy.validate_connection(config)
+    result = await ExternalComfyAdapter(config).validate_connection()
 
     assert result["ok"] is True
     assert result["models"] == ["anime.safetensors", "z.safetensors"]
@@ -111,7 +113,7 @@ async def test_connection_stays_valid_when_model_discovery_fails(monkeypatch):
         {"external_comfy": {"user_graphs": [USER_GRAPH], "styles": [{"id": "s", "label": "S", "workflow": "user_1"}]}}
     )
 
-    result = await external_comfy.validate_connection(config)
+    result = await ExternalComfyAdapter(config).validate_connection()
 
     assert result["ok"] is True
     assert result["models"] == []
@@ -131,7 +133,7 @@ async def test_user_graph_model_override_is_validated_not_the_imported_pin(monke
         }
     )
 
-    result = await external_comfy.validate_connection(config)
+    result = await ExternalComfyAdapter(config).validate_connection()
 
     assert result["ok"] is True
 
@@ -149,7 +151,7 @@ async def test_user_graph_without_override_surfaces_the_missing_model(monkeypatc
     )
 
     with pytest.raises(ImageGenerationError, match="no longer available"):
-        await external_comfy.validate_connection(config)
+        await ExternalComfyAdapter(config).validate_connection()
 
 
 @pytest.mark.asyncio
@@ -171,7 +173,7 @@ async def test_node_roles_type_slots_from_object_info_and_skip_unknown_classes(m
 
     _install_client(monkeypatch, handler)
     invalidate_object_info()
-    roles = await external_comfy.node_roles(normalize_config({}), ["CLIPTextEncode", "KSampler", "SaveImage", "Nope"])
+    roles = await ExternalComfyAdapter(normalize_config({})).node_roles(["CLIPTextEncode", "KSampler", "SaveImage", "Nope"])
 
     assert roles["CLIPTextEncode"]["text_inputs"] == ["text"]
     # `steps` is an INT too; only seed-named ones are seed candidates.
@@ -196,7 +198,7 @@ async def test_node_roles_type_upload_widgets_off_the_image_upload_flag(monkeypa
     }
     _install_client(monkeypatch, lambda _request: httpx.Response(200, json=info))
     invalidate_object_info()
-    roles = await external_comfy.node_roles(normalize_config({}), ["LoadImage", "CheckpointLoaderSimple"])
+    roles = await ExternalComfyAdapter(normalize_config({})).node_roles(["LoadImage", "CheckpointLoaderSimple"])
 
     assert roles["LoadImage"]["image_inputs"] == ["image"]
     # A plain combo (`channel`, `ckpt_name`) is a fixed menu, not an upload slot.
@@ -262,7 +264,8 @@ async def test_generate_uploads_each_reference_once_and_patches_the_widget(monke
         references=(reference, reference),
     )
 
-    result = await external_comfy.generate(config, request, checkpoint="", graph_id="user_edit")
+    adapter = ExternalComfyAdapter(config)
+    result = await adapter.generate(request, target=adapter.resolve_target(resolve_style(config, "s"), None))
 
     assert len(uploads) == 1
     assert submitted["prompt"]["0"]["inputs"]["image"] == "orb/orb_deadbeefdeadbeef.png"
@@ -289,10 +292,10 @@ async def test_object_info_is_cached_for_probes_and_refetched_on_an_explicit_tes
     invalidate_object_info()
     config = normalize_config({"external_comfy": {"styles": [{"id": "s", "label": "S", "checkpoint": "anime.safetensors"}]}})
 
-    await external_comfy.validate_connection(config, allow_cached=True)
-    await external_comfy.validate_connection(config, allow_cached=True)
+    await ExternalComfyAdapter(config).validate_connection(allow_cached=True)
+    await ExternalComfyAdapter(config).validate_connection(allow_cached=True)
     assert calls["object_info"] == 1, "the readiness probe must not refetch the node catalogue every modal open"
 
     # Pressing Test connection means "look again".
-    await external_comfy.validate_connection(config, allow_cached=False)
+    await ExternalComfyAdapter(config).validate_connection(allow_cached=False)
     assert calls["object_info"] == 2
