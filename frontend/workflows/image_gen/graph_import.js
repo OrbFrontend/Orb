@@ -27,6 +27,12 @@ const FALLBACK_IMAGE_INPUTS = ["image"];
 // Widget inputs naming the diffusion model a loader reads, offered as a "Model" slot
 // so Orb's checkpoint overrides the filename the PNG was exported with.
 const MODEL_INPUTS = ["ckpt_name", "unet_name"];
+// Deliberately exact, and deliberately the same list the server's `dimension_inputs`
+// rule uses: a bare INT named `grounding_px` or `tile_size` is not an output size, and
+// a wrong guess here patches something that is not one. Unlike the seed fallback,
+// there is no near-miss spelling worth catching — an unoffered slot costs the user
+// one unmapped picker, a wrong one costs a broken render.
+const FALLBACK_DIMENSION_INPUTS = ["width", "height"];
 
 // Mirrors `_strip_machine_local_state` in the backend normalizer. Measured on a copy:
 // the caller stores the graph it passed in, and the backend strips again on arrival.
@@ -119,6 +125,7 @@ export function slotCandidates(graph, nodeTypes = {}) {
   const output = [];
   const checkpoint = [];
   const image = [];
+  const dimension = [];
   const seedTail = [];
   const checkpointTail = [];
   for (const [nodeId, node] of Object.entries(graph || {})) {
@@ -126,6 +133,7 @@ export function slotCandidates(graph, nodeTypes = {}) {
     const typing = nodeTypes[node.class_type];
     const textInputs = typing ? typing.text_inputs || [] : FALLBACK_TEXT_INPUTS;
     const seedInputs = typing ? typing.seed_inputs || [] : FALLBACK_SEED_INPUTS;
+    const dimensionInputs = typing ? typing.dimension_inputs || [] : FALLBACK_DIMENSION_INPUTS;
     const imageInputs = typing
       ? typing.image_inputs || []
       : FALLBACK_IMAGE_CLASSES.includes(node.class_type)
@@ -141,6 +149,10 @@ export function slotCandidates(graph, nodeTypes = {}) {
       if (!isOutput && textInputs.includes(name)) text.push(item);
       if (seedInputs.includes(name)) (isOutput ? seedTail : seed).push(item);
       if (MODEL_INPUTS.includes(name)) (isOutput ? checkpointTail : checkpoint).push(item);
+      // One bucket for both edges rather than two, because the caller filters it by
+      // `input` anyway — and a multi-stage graph legitimately offers the same node to
+      // both pickers, so splitting here would only duplicate the filter.
+      if (dimensionInputs.includes(name)) dimension.push(item);
       // Labelled by node, not input name: a two-reference graph asks which LoadImage
       // is the identity and which is the scene.
       if (imageInputs.includes(name)) image.push({ ...item, label: label(nodeId, node) });
@@ -149,12 +161,20 @@ export function slotCandidates(graph, nodeTypes = {}) {
       output.push({ value: `${nodeId}\u001fimages`, nodeId, input: "images", label: label(nodeId, node) });
     }
   }
-  return { text, seed: [...seed, ...seedTail], output, checkpoint: [...checkpoint, ...checkpointTail], image };
+  return {
+    text,
+    seed: [...seed, ...seedTail],
+    output,
+    checkpoint: [...checkpoint, ...checkpointTail],
+    image,
+    dimension,
+  };
 }
 
-// The three roles a graph cannot render without. `negative` is deliberately
-// absent: a one-encoder prose graph has no negative conditioning, and the
-// backend slot map treats it as optional for the same reason.
+// The three roles a graph cannot render without. `negative` and the two size slots
+// are deliberately absent: a one-encoder prose graph has no negative conditioning and
+// an img2img graph takes its size from its reference, and the backend slot map treats
+// all three as optional for the same reason.
 export function missingRoles({ text, seed, output }) {
   const missing = [];
   if (!text.length) missing.push("a prompt input");

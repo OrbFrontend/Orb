@@ -168,7 +168,7 @@ test("the inert shipped provider row is not a connection the user made", () => {
   // The defaults carry one empty `xai` entry so the preset-schema walker can see
   // the api_key leaf. Listing it would put a connection in the panel that nobody
   // added and that renders nothing.
-  const list = connectionList(config({ cloud: { providers: { xai: { api_key: "", model: "", base_url: "" } } } }), PROVIDERS);
+  const list = connectionList(config({ cloud: { providers: { xai: { api_key: "", base_url: "" } } } }), PROVIDERS);
   assert.deepEqual(list.map((c) => c.id), [COMFY_CONNECTION]);
 });
 
@@ -187,13 +187,13 @@ test("an entry holding anything, or linked by a style, is a connection", () => {
 });
 
 test("a cloud connection is unready until it has every prerequisite", () => {
-  const only = (providers) => connectionList(config({ cloud: { providers } }), PROVIDERS).at(-1);
-  assert.equal(only({ xai: { model: "m" } }).detail, "No API key");
-  assert.equal(only({ custom: { api_key: "k", model: "m" } }).detail, "No API base URL");
-  // A fresh connection is seeded with the preset's default model, so one with a key
-  // and no explicit model is still ready.
+  const only = (providers, styles = []) => connectionList(config({ styles, cloud: { providers } }), PROVIDERS).at(-1);
+  assert.equal(only({ xai: { base_url: "https://proxy.example.com/v1" } }).detail, "No API key");
+  assert.equal(only({ custom: { api_key: "k" } }).detail, "No API base URL");
+  // A key is now the whole prerequisite. The model used to be checked here and is a
+  // *style* problem: a connection with a key can render, and which model it renders
+  // is a question the connection has no longer any business answering.
   assert.equal(only({ xai: { api_key: "k" } }).ready, true);
-  assert.equal(only({ xai: { api_key: "k" } }).detail, "grok-imagine-image");
 
   // A provider Orb no longer knows is still listed: the backend retains such rows so
   // a rename does not erase a key, and hiding it would make that key unreachable.
@@ -201,6 +201,43 @@ test("a cloud connection is unready until it has every prerequisite", () => {
   assert.equal(renamed.label, "renamed_in_v2");
   assert.equal(renamed.preset, null);
   assert.equal(renamed.ready, false);
+});
+
+test("a connection a style renders on is listed even with nothing in it", () => {
+  // The model used to make an entry "held", so a keyless row stayed visible through
+  // it. With the model gone, only credentials count — and a connection a style
+  // resolves to must still be reachable, or "Paste an API key for xAI" names a row
+  // the panel does not show and the one thing to fix is the one thing you cannot
+  // reach. Resolved, not raw: this is the legacy fallback path, where the style
+  // names no connection at all.
+  const unlinked = config({
+    source: "cloud",
+    styles: [{ id: "a", connection: "" }],
+    cloud: { provider: "xai", providers: { xai: { api_key: "", base_url: "" } } },
+  });
+  const [, row] = connectionList(unlinked, PROVIDERS);
+  assert.equal(row.id, "xai");
+  assert.equal(row.ready, false);
+  assert.equal(row.detail, "No API key");
+});
+
+test("a ready cloud row says how many styles reach it, since the model no longer can", () => {
+  // Two styles on one provider is the state this whole change exists to allow, so
+  // "which model" stopped being a connection-level fact. What is still worth seeing
+  // collapsed is whether anything renders here at all -- a credentialed connection
+  // nothing points at is a real state, and one that explains a setting doing nothing.
+  const only = (styles) =>
+    connectionList(config({ styles, cloud: { providers: { xai: { api_key: "k" } } } }), PROVIDERS).at(-1);
+  assert.equal(only([]).detail, "No styles");
+  assert.equal(only([{ id: "a", connection: "xai" }]).detail, "1 style");
+  assert.equal(only([{ id: "a", connection: "xai" }, { id: "b", connection: "xai" }]).detail, "2 styles");
+  // A style resolving there only through the legacy fallback counts too: it is the
+  // connection that style renders on.
+  const unlinked = connectionList(
+    { ...config({ source: "cloud", styles: [{ id: "a", connection: "" }] }), cloud: { provider: "xai", providers: { xai: { api_key: "k" } } } },
+    PROVIDERS,
+  ).at(-1);
+  assert.equal(unlinked.detail, "1 style");
 });
 
 test("Add offers each provider once", () => {
@@ -233,19 +270,47 @@ test("every linked remote connection is disclosed, and only those", () => {
 
 test("a loopback ComfyUI style adds no question to a cloud save", () => {
   const next = config({
-    styles: [{ id: "a", connection: COMFY_CONNECTION }, { id: "b", connection: "xai" }],
-    cloud: { provider: "xai", providers: { xai: { api_key: "k", reference_source: "previous" } } },
+    styles: [
+      { id: "a", connection: COMFY_CONNECTION },
+      { id: "b", connection: "xai", reference_source: "previous" },
+    ],
+    cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
   const keys = pendingDisclosures(next, connectionList(next, PROVIDERS)).map((d) => d.key);
   // And references being on for that one connection picks the bigger wording.
   assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images:xai"]);
 });
 
+test("one style with references on is enough to ask the larger cloud question", () => {
+  // Reference images are a style setting now, so asking the *connection* would miss
+  // the case that matters: a provider carrying a text-only style and an edit style
+  // still receives conversation images, and the prompt-only wording would not say so.
+  const next = config({
+    styles: [
+      { id: "a", connection: "xai" },
+      { id: "b", connection: "xai", reference_source: "character" },
+    ],
+    cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
+  });
+  const keys = pendingDisclosures(next, connectionList(next, PROVIDERS)).map((d) => d.key);
+  assert.deepEqual(keys, ["orb:image-gen-privacy-cloud-images:xai"]);
+
+  // And with every style on it prompt-only, the smaller question is the honest one.
+  const off = config({
+    styles: [{ id: "a", connection: "xai" }],
+    cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
+  });
+  assert.deepEqual(
+    pendingDisclosures(off, connectionList(off, PROVIDERS)).map((d) => d.key),
+    ["orb:image-gen-privacy-cloud:xai"],
+  );
+});
+
 test("a connection just added is listed before it holds anything", () => {
-  // Several presets ship no default model, so a fresh connection is genuinely
-  // empty — and dropping it between the click and the first keystroke would read
-  // as the Add button doing nothing.
-  const empty = config({ cloud: { providers: { openai: { api_key: "", model: "", base_url: "" } } } });
+  // A fresh connection is genuinely empty — its model lives on a style now, and
+  // dropping the row between the click and the first keystroke would read as the Add
+  // button doing nothing.
+  const empty = config({ cloud: { providers: { openai: { api_key: "", base_url: "" } } } });
   assert.deepEqual(
     connectionList(empty, PROVIDERS).map((c) => c.id),
     [COMFY_CONNECTION],

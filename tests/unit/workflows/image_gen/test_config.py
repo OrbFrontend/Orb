@@ -274,17 +274,10 @@ def test_an_unknown_provider_id_is_retained_with_its_key():
     cloud = _cloud(provider="renamed_in_v2", providers={"renamed_in_v2": {"api_key": "still-mine", "model": "m"}})
 
     assert cloud["provider"] == "renamed_in_v2"
-    # Render settings are per connection, so an entry carrying none of its own is
-    # completed from the defaults rather than left short of the shape the adapter reads.
-    assert cloud["providers"]["renamed_in_v2"] == {
-        "api_key": "still-mine",
-        "model": "m",
-        "base_url": "",
-        "width": 1024,
-        "height": 1024,
-        "quality": "",
-        "reference_source": "",
-    }
+    # A connection is an address and a credential, exactly as wide as the ComfyUI
+    # one's {api_url, api_key}. `model` was here and belongs to the style now, so it
+    # is read on the way past and not written back -- which is the migration.
+    assert cloud["providers"]["renamed_in_v2"] == {"api_key": "still-mine", "base_url": ""}
 
 
 def test_switching_provider_keeps_the_other_providers_keys():
@@ -311,62 +304,154 @@ def test_a_cloud_base_url_override_rejects_credentials_and_plaintext(url, expect
     assert stored["providers"]["custom"]["base_url"] == expected
 
 
-def test_cloud_render_settings_are_bounded_and_default_to_off():
-    assert (_cloud()["width"], _cloud()["height"]) == (1024, 1024)
-    bounded = _cloud(width="1536", height=99_999)
+# ── the render target, on the style ──────────────────────────────────────────
+#
+# A connection is how Orb reaches a backend; a style is what an image looks like.
+# The four cloud render settings lived on the connection, which made a connection a
+# render preset that happened to hold a key -- and made "FLUX.1-kontext for realistic,
+# SDXL for anime, both on Together AI" unreachable, since the credential map is keyed
+# by provider id and allows one connection per provider.
+
+
+def _style(**raw) -> dict:
+    return normalize_config({"default_style": "s", "styles": [{"id": "s", **raw}]})["styles"][0]
+
+
+def test_a_styles_render_settings_are_bounded_and_default_to_off():
+    assert (_style()["width"], _style()["height"]) == (1024, 1024)
+    bounded = _style(width="1536", height=99_999)
     assert (bounded["width"], bounded["height"]) == (1536, 4096)
 
-    assert _cloud(quality="HIGH")["quality"] == "high"
-    assert _cloud(quality="ultra")["quality"] == ""
-    assert _cloud()["quality"] == ""
+    assert _style(quality="HIGH")["quality"] == "high"
+    assert _style(quality="ultra")["quality"] == ""
+    assert _style()["quality"] == ""
+    # "" resolves to the provider's own default at the adapter, so relinking to a
+    # provider with a different one needs no rewrite here.
+    assert _style()["model"] == ""
+    assert _style(model="black-forest-labs/FLUX.1-kontext-pro")["model"] == "black-forest-labs/FLUX.1-kontext-pro"
     # Sending conversation images to a third party is opt-in.
-    assert _cloud()["reference_source"] == ""
-    assert _cloud(reference_source="previous")["reference_source"] == "previous"
-    assert _cloud(reference_source="whatever")["reference_source"] == ""
+    assert _style()["reference_source"] == ""
+    assert _style(reference_source="previous")["reference_source"] == "previous"
+    assert _style(reference_source="whatever")["reference_source"] == ""
 
 
-def test_render_settings_hoist_into_each_connection_but_its_own_win():
-    """The migration for configs written before connections existed: those four
-    lived once for "cloud", so every stored connection inherits them on first read
-    rather than silently resetting to 1024x1024 with references off."""
-    hoisted = _cloud(
-        provider="xai",
-        width=1536,
-        height=1024,
-        quality="high",
-        reference_source="previous",
-        providers={
-            # "" is a real answer for both quality and reference_source -- "provider
-            # default" and "references off" -- so declaring one must not read as
-            # "absent, inherit the old global".
-            "openai": {"width": 1024, "height": 1536, "quality": "", "reference_source": ""},
-            "xai": {"api_key": "b"},
-        },
-    )
-    openai, xai = hoisted["providers"]["openai"], hoisted["providers"]["xai"]
-    assert (openai["width"], openai["height"], openai["quality"], openai["reference_source"]) == (1024, 1536, "", "")
-    assert (xai["width"], xai["height"], xai["quality"], xai["reference_source"]) == (1536, 1024, "high", "previous")
+def test_both_backend_halves_are_kept_whichever_connection_is_linked():
+    """Relinking cloud -> ComfyUI -> cloud must lose neither pin, the rule
+    `checkpoint`/`workflow` already followed. Only which half is *rendered* swaps."""
+    style = _style(connection="comfy", checkpoint="anime.safetensors", model="gpt-image-1", quality="high")
+    assert (style["checkpoint"], style["model"], style["quality"]) == ("anime.safetensors", "gpt-image-1", "high")
 
 
-def test_the_routing_connections_settings_mirror_to_the_cloud_level():
-    """The adapter reads `cloud.width`/`quality`/`reference_source` directly. Keeping
-    the mirror is what lets per-connection settings land without the render path, the
-    replay record or the attachment metadata changing at all."""
-    cloud = normalize_config(
+def test_render_settings_hoist_from_the_connection_onto_each_style_that_links_it():
+    """The migration. Those four lived on the connection, so every style linked to one
+    inherits them on first read rather than silently resetting to 1024x1024 on the
+    provider default -- and persists hoisted on the first write, since the connection
+    entry stops carrying them."""
+    config = normalize_config(
         {
-            "default_style": "s",
-            "styles": [{"id": "s", "connection": "openai"}],
+            "default_style": "realistic",
+            "styles": [
+                {"id": "realistic", "connection": "togetherai"},
+                {"id": "anime", "connection": "togetherai"},
+                {"id": "square", "connection": "togetherai", "width": 1024, "height": 1024, "quality": ""},
+                {"id": "local", "connection": "comfy"},
+            ],
             "cloud": {
                 "provider": "xai",
+                "width": 1536,
+                "height": 1024,
                 "providers": {
-                    "xai": {"api_key": "a", "width": 1024, "height": 1024, "quality": "low"},
-                    "openai": {"api_key": "b", "width": 1536, "height": 1024, "quality": "high"},
+                    "togetherai": {
+                        "api_key": "k",
+                        "model": "black-forest-labs/FLUX.1-schnell",
+                        "width": 1024,
+                        "height": 1536,
+                        "quality": "high",
+                        "reference_source": "previous",
+                    }
                 },
             },
         }
+    )
+    styles = {s["id"]: s for s in config["styles"]}
+    # Both styles on that one connection take its model, which is exactly the state
+    # the old shape could not express -- and which they can now diverge from.
+    for sid in ("realistic", "anime"):
+        assert styles[sid]["model"] == "black-forest-labs/FLUX.1-schnell"
+        assert (styles[sid]["width"], styles[sid]["height"]) == (1024, 1536)
+        assert (styles[sid]["quality"], styles[sid]["reference_source"]) == ("high", "previous")
+    # Membership, not truthiness: "" is a real answer for quality ("provider
+    # default"), so a style declaring one must not read as "absent, inherit".
+    assert (styles["square"]["width"], styles["square"]["height"], styles["square"]["quality"]) == (1024, 1024, "")
+    # A ComfyUI-linked style names no cloud entry, so it falls through to the legacy
+    # top level. Inert until its graph maps size slots, which is opt-in at import.
+    assert (styles["local"]["width"], styles["local"]["height"]) == (1536, 1024)
+    # And the entry keeps only what a connection is.
+    assert config["cloud"]["providers"]["togetherai"] == {"api_key": "k", "base_url": ""}
+    # A fixed point: re-normalizing the hoisted config changes nothing.
+    assert normalize_config(config)["styles"] == config["styles"]
+
+
+def test_an_unlinked_style_inherits_from_the_connection_it_actually_renders_on():
+    """A style predating connection linking renders on `cloud.provider`, so that is
+    the entry it must inherit from -- which is what makes the migration a no-op for
+    what the next Visualize produces."""
+    config = normalize_config(
+        {
+            "source": "cloud",
+            "default_style": "s",
+            "styles": [{"id": "s", "connection": ""}],
+            "cloud": {
+                "provider": "openai",
+                "providers": {
+                    "openai": {"api_key": "a", "model": "gpt-image-1", "width": 1536, "height": 1024},
+                    "xai": {"api_key": "b", "model": "grok-imagine-image"},
+                },
+            },
+        }
+    )
+    style = config["styles"][0]
+    assert style["model"] == "gpt-image-1"
+    assert (style["width"], style["height"]) == (1536, 1024)
+
+
+def test_a_config_that_never_stored_a_style_still_inherits_its_cloud_settings():
+    """The shipped defaults are parsed like any other style rather than copied in
+    whole. Declaring a size on them would out-rank the legacy block they must inherit
+    from, and an install that configured cloud before styles were ever written would
+    silently reset to 1024x1024 on the read that migrates it."""
+    config = normalize_config(
+        {
+            "source": "cloud",
+            "cloud": {"provider": "xai", "width": 1536, "height": 1024, "providers": {"xai": {"api_key": "k"}}},
+        }
+    )
+    assert [s["id"] for s in config["styles"]] == ["realistic", "anime"]
+    assert all((s["width"], s["height"]) == (1536, 1024) for s in config["styles"])
+
+
+def test_a_connection_no_style_links_loses_its_model_and_keeps_its_key():
+    """Nothing renders there, so there is nothing to hoist the model onto. Linking a
+    style later seeds from the preset's own default, resolved at the adapter."""
+    cloud = _cloud(provider="xai", providers={"openai": {"api_key": "kept", "model": "gpt-image-1"}})
+    assert cloud["providers"]["openai"] == {"api_key": "kept", "base_url": ""}
+
+
+def test_the_cloud_block_is_connectivity_only():
+    """The four render settings were mirrored to `cloud.*` because that is where the
+    adapter read them. It reads the style now, so the mirror is gone -- and with it
+    the shape that made two models on one provider a second connection."""
+    cloud = normalize_config(
+        {
+            "default_style": "s",
+            "styles": [{"id": "s", "connection": "openai", "width": 1536, "height": 1024}],
+            "cloud": {"provider": "xai", "providers": {"openai": {"api_key": "b"}}},
+        }
     )["cloud"]
+    # `provider` survives as the legacy fallback for an unlinked style, and still
+    # records which connection routes.
+    assert set(cloud) == {"provider", "providers"}
     assert cloud["provider"] == "openai"
-    assert (cloud["width"], cloud["height"], cloud["quality"]) == (1536, 1024, "high")
 
 
 # ── per-character reference image ────────────────────────────────────────────

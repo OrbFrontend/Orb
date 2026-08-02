@@ -101,6 +101,13 @@ def _config(**external) -> dict:
     return normalize_config({"external_comfy": external})
 
 
+def _bound(config: dict, style_id: str) -> ExternalComfyAdapter:
+    """The adapter bound to one style, as the router builds it. `resolve_target` takes
+    no style of its own -- the binding is the only way to name one, which is what stops
+    an adapter answering about a style other than the one it will render."""
+    return ExternalComfyAdapter(config, resolve_style(config, style_id))
+
+
 # ── test connection ──────────────────────────────────────────────────────────
 
 
@@ -194,6 +201,67 @@ async def test_node_roles_type_slots_from_object_info_and_skip_unknown_classes(m
     assert "Nope" not in roles
 
 
+@pytest.mark.asyncio
+async def test_only_inputs_literally_named_width_and_height_type_as_a_size(monkeypatch):
+    """Exact names, unlike `seed`'s substring rule: a bare INT called `grounding_px`
+    or `tile_size` is not an output size, and offering it lets the user map a slot
+    that patches something else. Under-offering costs one unmapped picker;
+    over-offering costs a broken render."""
+    info = {
+        "EmptyLatentImage": {"input": {"required": {"width": ["INT", {}], "height": ["INT", {}], "batch_size": ["INT", {}]}}},
+        "ImageScaleBy": {"input": {"required": {"grounding_px": ["INT", {}], "upscale_method": [["lanczos"], {}]}}},
+        "KSampler": {"input": {"required": {"seed": ["INT", {}], "steps": ["INT", {}]}}},
+    }
+    _install_client(monkeypatch, _handler(httpx.Response(404), info))
+    invalidate_object_info()
+    roles = await ExternalComfyAdapter(normalize_config({})).node_roles(["EmptyLatentImage", "ImageScaleBy", "KSampler"])
+
+    assert roles["EmptyLatentImage"]["dimension_inputs"] == ["width", "height"]
+    assert roles["ImageScaleBy"]["dimension_inputs"] == []
+    assert roles["KSampler"]["dimension_inputs"] == []
+
+
+# ── per-graph resolution ─────────────────────────────────────────────────────
+
+SIZED_USER_GRAPH = {
+    **USER_GRAPH,
+    "id": "user_sized",
+    "label": "Sized",
+    "graph": {**USER_GRAPH["graph"], "5": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512}}},
+    "slots": {**USER_GRAPH["slots"], "width": ["5", "width"], "height": ["5", "height"]},
+}
+
+
+def test_whether_a_resolution_applies_is_a_per_graph_answer():
+    """The static capability says this backend can express a size; whether one graph
+    honours it is the target's answer. A graph mapping neither slot behaves precisely
+    as it did before the slot existed, which is what makes the picker safe to add."""
+    config = _config(
+        user_graphs=[SIZED_USER_GRAPH, USER_GRAPH],
+        styles=[
+            {"id": "sized", "label": "Sized", "workflow": "user_sized", "width": 1024, "height": 1536},
+            {"id": "own", "label": "Own", "workflow": "user_1", "width": 1024, "height": 1536},
+        ],
+    )
+    sized = _bound(config, "sized").resolve_target(None)
+    assert (sized.supports_dimensions, sized.width, sized.height) == (True, 1024, 1536)
+    assert sized.notes == ()
+
+    own = _bound(config, "own").resolve_target(None)
+    assert (own.supports_dimensions, own.width, own.height) == (False, None, None)
+    # Disclosed rather than left to be noticed: the picker still shows a resolution
+    # this workflow will not apply, mirroring the missing-negative-prompt note.
+    assert any("decides its own output size" in note for note in own.notes)
+
+
+def test_a_default_resolution_on_an_unmapped_graph_says_nothing():
+    """A note that fires on every render of every unmapped graph is one users learn
+    to ignore. Untouched settings are not a disclosure."""
+    config = _config(user_graphs=[USER_GRAPH], styles=[{"id": "own", "label": "Own", "workflow": "user_1"}])
+    target = _bound(config, "own").resolve_target(None)
+    assert target.notes == ()
+
+
 # ── generation ───────────────────────────────────────────────────────────────
 
 
@@ -239,11 +307,51 @@ async def test_generate_uploads_each_reference_once_and_patches_the_widget(monke
         prompt="p", negative_prompt="", seed=1, style_id="s", timeout_seconds=5, references=(reference, reference)
     )
 
-    adapter = ExternalComfyAdapter(config)
-    result = await adapter.generate(request, target=adapter.resolve_target(resolve_style(config, "s"), None))
+    adapter = _bound(config, "s")
+    result = await adapter.generate(request, target=adapter.resolve_target(None))
 
     assert len(uploads) == 1
     assert submitted["prompt"]["0"]["inputs"]["image"] == "orb/orb_deadbeefdeadbeef.png"
     # The replay record names where the bytes came from, not just what was sent.
     assert result.backend_info["references"][0]["origin"] == "character:card-1"
     assert result.backend_info["references"][0]["comfy_name"] == "orb/orb_deadbeefdeadbeef.png"
+
+
+@pytest.mark.asyncio
+async def test_a_sized_graph_submits_the_styles_resolution_and_records_it(monkeypatch):
+    """End to end through `patch_graph`: the size the style asked for reaches the
+    node Orb mapped, and the attachment records that node's value rather than the
+    positional scan's guess."""
+    submitted: dict = {}
+    responses = {
+        "/prompt": httpx.Response(200, json={"prompt_id": "p1", "number": 1}),
+        "/queue": httpx.Response(200, json={"queue_running": [], "queue_pending": []}),
+        "/history/p1": httpx.Response(
+            200,
+            json={
+                "p1": {
+                    "status": {"completed": True},
+                    "outputs": {"4": {"images": [{"filename": "x.png", "subfolder": "", "type": "output"}]}},
+                }
+            },
+        ),
+        "/view": httpx.Response(200, content=b"\x89PNG\r\n\x1a\n" + b"out", headers={"content-type": "image/png"}),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/prompt":
+            submitted.update(json.loads(request.content))
+        return responses.get(request.url.path, httpx.Response(404))
+
+    _install_client(monkeypatch, handler)
+    config = _config(
+        user_graphs=[SIZED_USER_GRAPH],
+        styles=[{"id": "s", "label": "S", "workflow": "user_sized", "width": 1024, "height": 1536}],
+    )
+    adapter = _bound(config, "s")
+    request = ImageRequest(prompt="p", negative_prompt="", seed=1, style_id="s", timeout_seconds=5)
+
+    result = await adapter.generate(request, target=adapter.resolve_target(None))
+
+    assert (submitted["prompt"]["5"]["inputs"]["width"], submitted["prompt"]["5"]["inputs"]["height"]) == (1024, 1536)
+    assert (result.backend_info["width"], result.backend_info["height"]) == (1024, 1536)

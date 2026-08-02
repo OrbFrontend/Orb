@@ -773,8 +773,10 @@ async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_pat
                 # not Orb's credential, and a by-name blank would destroy it.
                 "user_graphs": [{"id": "user_a", "graph": {"7": {"inputs": {"api_key": "graph-node-value"}}}}],
             },
-            "styles": [{"id": "realistic", "prompt": "RAW photo"}],
-            "cloud": {"providers": {"xai": {"api_key": "xai-key-must-not-ship", "model": "grok-imagine-image"}}},
+            # The model rides the style, not the connection -- a connection is an
+            # address and a credential, so `api_key` is the only leaf here to blank.
+            "styles": [{"id": "realistic", "prompt": "RAW photo", "model": "grok-imagine-image"}],
+            "cloud": {"providers": {"xai": {"api_key": "xai-key-must-not-ship", "base_url": ""}}},
         },
         "tts": {"auto_play": True},
     }
@@ -796,8 +798,9 @@ async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_pat
     assert stored["image_gen"]["cloud"]["providers"]["xai"]["api_key"] == ""
     # Everything the user would lose if this were a column-level blank.
     assert stored["image_gen"]["styles"] == blob["image_gen"]["styles"]
+    assert stored["image_gen"]["styles"][0]["model"] == "grok-imagine-image"
     assert stored["image_gen"]["external_comfy"]["user_graphs"] == blob["image_gen"]["external_comfy"]["user_graphs"]
-    assert stored["image_gen"]["cloud"]["providers"]["xai"]["model"] == "grok-imagine-image"
+    assert stored["image_gen"]["cloud"]["providers"]["xai"]["base_url"] == ""
     assert stored["tts"] == {"auto_play": True}
 
 

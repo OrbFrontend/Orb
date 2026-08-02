@@ -15,9 +15,11 @@ see [ComfyUI Setup](comfyui-setup.md). For a cloud provider, see
 advanced options, refer to the
 [official ComfyUI documentation](https://docs.comfy.org/installation/system_requirements).
 
-Styles, imported workflows, the camera setting, and the character's appearance
-prompt are shared across both backends. Switching backend keeps all of them, and
-keeps the API key for the backend you switched away from.
+You pick the backend per style, not globally: each style names the connection it
+renders on. Imported workflows, the camera setting, and the character's
+appearance prompt are shared across both backends, and a style keeps both
+backends' settings — its ComfyUI checkpoint and workflow, and its cloud model —
+so relinking it and relinking it back loses nothing.
 
 ## Before you start
 
@@ -56,13 +58,18 @@ First, this is what the UI look like (at least part of it):
 
 1. Open **Workflow** and select the **Secondary** tab.
 2. In the **Image Generation** card, select **Settings** (or **Finish Setup** if first time).
-3. Under **Backend**, select **External ComfyUI** or **Cloud API**.
-4. Fill in the **Connection** section for that backend, as below.
+3. Open **Connections**. ComfyUI is always listed and cannot be removed; use
+   **Add connection** for a cloud provider.
+4. Fill in that connection, as below.
 5. Select **Test connection**.
-6. Select **Save**.
+6. Under **Styles**, set each style's **Connection** to where it should render.
+7. Select **Save**.
 
-Changing the backend swaps only the **Connection** section. Styles, imported
-workflows, and everything under **Generation** stay where they are.
+There is no global backend switch: each style names the connection it renders on,
+so a local anime checkpoint and a commercial photorealistic API can sit side by
+side in one conversation, one dropdown apart. Relinking a style swaps only the
+fields that depend on the backend; every other field, and both backends' pins,
+stay where they are.
 
 ### External ComfyUI
 
@@ -88,11 +95,15 @@ status stays **Import a ComfyUI workflow**.
 
 1. Select a **Provider**.
 2. Paste your **API key** for that provider.
-3. Select a **Model**, or leave the provider's default.
-4. Select a **Resolution**. Orb picks the closest aspect ratio or size the
-   provider accepts and tells you on the image when the match is not exact.
-5. Select **Test connection**. This lists the provider's models. It never
+3. Select **Test connection**. This lists the provider's models. It never
    generates an image, so it never costs anything.
+4. In a style, select this connection, then pick a **Model** and a
+   **Resolution**. Orb picks the closest aspect ratio or size the provider
+   accepts and tells you on the image when the match is not exact.
+
+The key is all a connection holds. The model, resolution, quality and reference
+images are chosen per style, so two styles can share one key and one bill while
+rendering with different models.
 
 Full walkthrough, provider list, and what each provider supports:
 [Cloud Image Setup](cloud-image-setup.md).
@@ -170,15 +181,44 @@ To import the workflow, do these steps:
 3. Select the API-format JSON file or the ComfyUI PNG file.
 4. Enter a name for the workflow.
 5. Check the selected prompt, seed, image output, and model slots.
-6. If the workflow loads images, set each row under **Reference images**. See
+6. Optionally set **Width** and **Height**. See
+   [Let Orb set the resolution](#let-orb-set-the-resolution) below. Both default
+   to **None — the workflow decides**.
+7. If the workflow loads images, set each row under **Reference images**. See
    [Reference images](#reference-images) below. Leave a row as **Not used** to
    keep the file the workflow was exported with.
-7. Select **Confirm slots and add workflow**.
-8. In a style, select the imported workflow.
-9. If your workflow is complex, review the nodes - make sure Orb points to the right node numbers.
-10. Select a checkpoint if Orb must replace the model in the workflow.
-11. Select **Test connection** to validate everything works.
-12. Select **Save**.
+8. Select **Confirm slots and add workflow**.
+9. In a style, select the imported workflow.
+10. If your workflow is complex, review the nodes - make sure Orb points to the right node numbers.
+11. Select a checkpoint if Orb must replace the model in the workflow.
+12. Select **Test connection** to validate everything works.
+13. Select **Save**.
+
+### Let Orb set the resolution
+
+A ComfyUI workflow normally decides its own output size, and Orb leaves it that
+way unless you say otherwise. Mapping **Width** and **Height** at import hands
+that control to the style's **Resolution** picker instead.
+
+Map them when the workflow has a plain latent node whose size you would otherwise
+edit in ComfyUI — typically an **Empty Latent Image** in a text-to-image graph.
+
+Leave them as **None** when:
+
+- The workflow takes its size from a reference image, an aspect-ratio node, or a
+  resolution helper. There is nothing to set, and setting an early latent would
+  not change what comes out.
+- Your checkpoint has a native resolution. Many SD 1.5 and SDXL checkpoints
+  degrade badly away from theirs, and the workflow's author already picked a size
+  that works.
+
+Orb offers only inputs literally named `width` and `height`, so a numeric input
+like `grounding_px` is never proposed. Both must be mapped together — half a size
+is not a size.
+
+The **Resolution** field appears on a style only while its assigned workflow maps
+both. If you set a non-default resolution on a style whose workflow maps neither,
+the image says so under **Render details** rather than quietly ignoring it.
 
 If a PNG does not contain workflow metadata, export an API-format JSON file
 from ComfyUI instead.
@@ -187,8 +227,10 @@ from ComfyUI instead.
 
 ### On a cloud provider
 
-Set **Reference images** in the **Connection** section. It is **off** by default:
-sending images from your conversations to a third party is opt-in.
+Set **Reference images** on the style. It is **off** by default: sending images
+from your conversations to a third party is opt-in. Because it is a style
+setting, one style on a provider can send references while another on the same
+key does not.
 
 When it is on, Orb routes the render to the provider's image-edit endpoint and
 sends the resolved image inline with the request. Orb converts it to a format the
@@ -336,9 +378,9 @@ one selected now, and notes the substitution on the result. Orb does not refuse:
 a refusal would surface only as a generic server error, and the image you get is
 still the prompt you asked for.
 
-A cloud image replays at the resolution it was generated at, not the resolution
-currently in the picker. Changing the picker does not retroactively resize old
-images.
+An image replays at the resolution it was generated at, not the resolution
+currently in the picker, on either backend. Changing the picker does not
+retroactively resize old images.
 
 Open **Render details** to see the style, seed, prompt, and negative prompt.
 Select the style name in these details to edit that style.
@@ -405,13 +447,24 @@ Orb ships **Realistic** and **Anime** styles out of the box. A style contains th
 | **Positive style tags** | Adds visual properties near the start of the image prompt. |
 | **Negative style tags** | Appends properties that ComfyUI must avoid. |
 | **Extra instructions** | Gives composition or emphasis guidance to the prompter model. This is not copied into the image prompt. |
+| **Connection** | Selects where this style renders: the ComfyUI server, or one of your cloud connections. |
 | **Checkpoint** | Selects the model file on the ComfyUI server. ComfyUI only. |
 | **Workflow** | Selects the ComfyUI workflow for this style. ComfyUI only. |
+| **Model** | Selects the model this style renders with. Cloud only. Leave it on the provider's default if you have no preference. |
+| **Resolution** | Sets the output size. Always shown for a cloud connection; on ComfyUI, only when the assigned workflow has **Width** and **Height** slots mapped. |
+| **Quality** | Sets the provider's quality tier, on providers that expose one. Cloud only. |
+| **Reference images** | Sends an image with the prompt. Cloud only, and off by default. See [Reference images](#reference-images). |
 
-**Checkpoint** and **Workflow** apply only to the ComfyUI backend. A cloud
-provider has one model for every style, set in the **Connection** section. The
-two fields are kept on the style either way, so switching backend and back leaves
-each style's workflow pin exactly where it was.
+A style owns everything that decides what the image looks like. A connection owns
+only how Orb reaches a backend — a URL and a key.
+
+That means two styles on one cloud provider can use two different models: point
+**Realistic** at a photographic model and **Anime** at an illustration one, both
+on the same API key. Same for resolution, quality and reference images.
+
+Every one of these fields is kept on the style whichever connection it links to,
+so switching a style to a cloud provider and back leaves its workflow pin,
+checkpoint and model exactly where they were.
 
 The **Realistic** and **Anime** rows are seeded with starting tags that you can
 edit or clear like those of any other style. Empty tag fields add no style tags.
@@ -421,9 +474,14 @@ To add a style, do these steps:
 1. Open **Image Generation** settings.
 2. Select **Add style**.
 3. Enter a name and the style tags.
-4. Select a checkpoint and a workflow.
-5. Select **Test connection**.
-6. Select **Save**.
+4. Select a connection.
+5. For ComfyUI, select a checkpoint and a workflow. For a cloud provider, select a
+   model and a resolution.
+6. Select **Test connection**.
+7. Select **Save**.
+
+A new style starts from the previous one's settings, so a variation on an
+existing style is usually two fields away.
 
 You must keep at least one style.
 
@@ -521,8 +579,10 @@ guaranteed.
 | ComfyUI completes without an image. | Select a valid image-output node in the imported workflow. |
 | Orb cannot write an image prompt. | Check the Orb LLM endpoint. Use a model that can make tool calls. |
 | An old image shows **Bytes evicted**. | Select **Rehydrate**. Orb uses the stored prompt, settings, and seed to make the image again. On a cloud backend this is a fresh billed render, disclosed on the image. |
-| The status says **Paste an API key**. | Open settings and paste the key for the selected provider. |
-| The status says **Choose a … model**. | Open settings and select a model, or pick a provider that ships a default. |
+| The status says **Paste an API key**. | Open settings, open **Connections**, and paste the key for that provider. |
+| The status says **Choose a … model**. | Open the style and select a **Model**, or pick a provider that ships a default. |
+| The **Resolution** field is missing on a ComfyUI style. | Its workflow maps no size slots. Re-import the workflow and set **Width** and **Height**, or leave the workflow to decide. |
+| An image says the workflow decides its own output size. | You set a non-default resolution on a style whose workflow maps no size slots. Either re-import it with **Width** and **Height** mapped, or set the style back to 1024x1024. |
 | The status says **Unknown image provider**. | The stored provider id is not in Orb's table. Pick a provider from the list. Your key is kept, not deleted. |
 | The provider says the API key was rejected. | Check the key, and check that it is enabled for image generation on the provider's dashboard. A 403 can also mean your plan does not cover the model; the provider's own message says which. |
 | A render failed with **HTTP 4xx** and the provider's message. | The provider understood the request and refused it. The message is theirs — a content policy, an unsupported parameter, an exhausted balance. Act on what it says. |

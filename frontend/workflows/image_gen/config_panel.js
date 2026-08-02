@@ -40,14 +40,15 @@ const REFERENCE_SOURCES = [
 const MAX_REFERENCE_SLOTS = 4;
 const MAX_USER_GRAPHS = 32;
 
-// Resolution presets for the cloud picker, stored as pixels even for providers that
-// speak aspect ratios — one canonical representation, converted at the wire by a
-// pure backend function. The exact mapping is disclosed as a render note rather
-// than previewed here; mirroring the aspect math into JS would be a drift risk.
-// Mirrors DEFAULT_CLOUD_EDGE in the backend normalizer: what an entry that has
-// never been sized renders at, in the one place every surface reads it from.
+// Resolution presets, stored as pixels even for providers that speak aspect ratios —
+// one canonical representation, converted at the wire by a pure backend function. The
+// exact mapping is disclosed as a render note rather than previewed here; mirroring
+// the aspect math into JS would be a drift risk. A ComfyUI style reads the same list,
+// through whichever node its pinned graph maps `width`/`height` to.
+// Mirrors DEFAULT_CLOUD_EDGE in the backend normalizer: what a style that has never
+// been sized renders at, in the one place every surface reads it from.
 const DEFAULT_EDGE = 1024;
-const entrySize = (entry) => [Number(entry?.width) || DEFAULT_EDGE, Number(entry?.height) || DEFAULT_EDGE];
+const styleSize = (style) => [Number(style?.width) || DEFAULT_EDGE, Number(style?.height) || DEFAULT_EDGE];
 
 const CLOUD_SIZES = [
   [1024, 1024, "Square — 1024x1024"],
@@ -264,14 +265,43 @@ function modelField(state, { attrs, emptyLabel, placeholder }) {
   )}</select>`;
 }
 
+// One spelling of "this control edits the open style", mirroring `connField` below.
+const styleField = (name) => `data-ig-field="${name}" data-wf-action="image_gen:styleChange" data-wf-on="change"`;
+
 // Always the ComfyUI connection's list, never the active one: a style can be
 // linked to a cloud provider and still hold a checkpoint for when it is linked back.
 function checkpointField(value) {
   return modelField(modelPickerState(modelsByConnection[COMFY_CONNECTION], value), {
-    attrs: 'data-ig-field="checkpoint" data-wf-action="image_gen:styleChange" data-wf-on="change"',
+    attrs: styleField("checkpoint"),
     emptyLabel: "Choose a checkpoint",
     placeholder: "checkpoint.safetensors",
   });
+}
+
+// The model this style renders with, off the connection it links to. Keyed by
+// connection rather than shared, because a checkpoint filename belongs to one ComfyUI
+// server and a model id to one provider.
+function styleModelField(style, connectionId) {
+  const preset = providerFor(connectionId);
+  return modelField(modelPickerState(modelsByConnection[connectionId], style.model || ""), {
+    attrs: styleField("model"),
+    emptyLabel: preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model",
+    placeholder: preset?.default_model || "model id",
+  });
+}
+
+const resolutionField = (style) =>
+  `<label>Resolution<select ${styleField("size")}>${optionList(
+    CLOUD_SIZES.map(([w, h, label]) => [`${w}x${h}`, label]),
+    styleSize(style).join("x"),
+  )}</select></label>`;
+
+// Whether this style's pinned graph maps both size slots. A graph that maps neither
+// takes its size from a reference image or an aspect-ratio node, and Orb offering a
+// resolution it cannot apply is a control that appears to work and does not.
+function graphTakesSize(workflowId) {
+  const slots = draft.graphs.find((g) => g.id === workflowId)?.slots;
+  return !!(slots?.width && slots?.height);
 }
 
 const promptFormatOptions = (value) => optionList(PROMPT_FORMATS, normalizePromptFormat(value));
@@ -291,17 +321,56 @@ function styleConnectionOptions(selected) {
 // The half of a style that depends on which backend renders it. Swapped per
 // connection rather than always present: a pair of dead fields with a note saying
 // they are dead reads as a bug.
+//
+// Both halves are *stored* whichever connection is linked, so relinking cloud →
+// ComfyUI → cloud loses neither pin; only which half is rendered swaps.
 function backendFields(style, connection) {
-  if (connection && connection.source === "cloud") {
-    const [width, height] = entrySize(draft.connections[connection.id]);
-    const size = `${width}×${height}`;
-    return `<div class="image-gen-note ig-style-backend">Model and resolution come from this connection — ${esc(connection.detail || "no model yet")}, ${esc(size)}.
-      <button type="button" class="ig-link" data-wf-action="image_gen:connOpen" data-conn-id="${escAttr(connection.id)}">Edit connection</button></div>`;
-  }
+  if (connection && connection.source === "cloud") return cloudStyleFields(style, connection);
   return `<div class="ig-grid">
       <label>Checkpoint${checkpointField(style.checkpoint || "")}</label>
       <label>Workflow${workflowField(style.workflow || "")}</label>
+      ${graphTakesSize(style.workflow) ? resolutionField(style) : ""}
     </div>`;
+}
+
+// What a cloud-linked style renders: the model, the size, the quality, and whether a
+// reference image rides along. Only the fields the preset declares are rendered, the
+// rule the Connection section used to follow — moved wholesale rather than split,
+// because `reference_source` is gated by a *model-level* allowlist and separating the
+// two would make the warning below a cross-object check that can never be shown
+// beside both of its operands.
+function cloudStyleFields(style, connection) {
+  const preset = connection.preset;
+  const quality = preset?.supports_quality
+    ? `<label>Quality<select ${styleField("quality")}>${optionList(CLOUD_QUALITIES, style.quality || "")}</select></label>`
+    : "";
+  const references =
+    !preset || preset.supports_references
+      ? `<label>Reference images<select ${styleField("reference_source")}>${optionList(
+          [["", "Off — send prompts only"], ...REFERENCE_SOURCES],
+          style.reference_source || "",
+        )}</select></label>`
+      : "";
+  // Stated where the model is chosen, not only on the render that dropped the
+  // reference: turning this on and having it do nothing is a setting the user
+  // deliberately enabled, which is worse than one they never knew about.
+  // Guarded on `preset`: an unknown provider already says nothing can render on it,
+  // and a second note narrowing that to the model is noise on top of it.
+  const referenceModelNote =
+    preset && style.reference_source && !modelTakesReferences(preset, style.model)
+      ? `<div class="image-gen-note ig-unready">${esc(
+          style.model || preset?.default_model || "This model",
+        )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`
+      : "";
+  return `<div class="ig-grid">
+      <label>Model${styleModelField(style, connection.id)}</label>
+      ${resolutionField(style)}
+      ${quality}
+      ${references}
+    </div>
+    ${referenceModelNote}
+    <div class="image-gen-note ig-style-backend">Aspect ratio is chosen automatically from the resolution. The API key for ${esc(connection.label)} lives on its connection.
+      <button type="button" class="ig-link" data-wf-action="image_gen:connOpen" data-conn-id="${escAttr(connection.id)}">Edit connection</button></div>`;
 }
 
 // Stated where the text is typed, not on the render that discards it: a provider
@@ -313,21 +382,40 @@ function negativeNote(connection) {
   return `<div class="image-gen-note">${esc(connection.label)} has no negative prompt field — this text is not sent.</div>`;
 }
 
-// One `<details>` per style, its summary carrying name, connection and prompt
-// format: all three change what the image looks like, and all three are otherwise
-// invisible until the row is opened.
+// One `<details>` per style, its summary carrying name, connection, model and
+// prompt format: all four change what the image looks like, and all four are
+// otherwise invisible until the row is opened.
 function styleBody(style, index, connection) {
-  return `<label>Name<input data-ig-field="label" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(style.label || "")}"></label>
+  return `<label>Name<input ${styleField("label")} value="${escAttr(style.label || "")}"></label>
       <div class="ig-grid">
         <label>Connection<select data-ig-field="connection" data-wf-action="image_gen:styleConnection" data-wf-on="change">${styleConnectionOptions(styleConnectionId(style, cfg))}</select></label>
-        <label>Prompt format<select data-ig-field="prompt_format" data-wf-action="image_gen:styleChange" data-wf-on="change">${promptFormatOptions(style.prompt_format)}</select></label>
+        <label>Prompt format<select ${styleField("prompt_format")}>${promptFormatOptions(style.prompt_format)}</select></label>
       </div>
-      <label>Positive style prompt<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No positive style prompt">${esc(style.prompt || "")}</textarea></label>
-      <label>Negative style prompt<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No negative style prompt">${esc(style.negative_prompt || "")}</textarea></label>
+      <label>Positive style prompt<textarea ${styleField("prompt")} placeholder="No positive style prompt">${esc(style.prompt || "")}</textarea></label>
+      <label>Negative style prompt<textarea ${styleField("negative_prompt")} placeholder="No negative style prompt">${esc(style.negative_prompt || "")}</textarea></label>
       ${negativeNote(connection)}
-      <label>Extra instructions<textarea data-ig-field="extra_instructions" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="Extra guidance for the prompter model (e.g. emphasize hand placement and use full-body framing).">${esc(style.extra_instructions || "")}</textarea></label>
+      <label>Extra instructions<textarea ${styleField("extra_instructions")} placeholder="Extra guidance for the prompter model (e.g. emphasize hand placement and use full-body framing).">${esc(style.extra_instructions || "")}</textarea></label>
       ${backendFields(style, connection)}
       <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${index}">Remove style</button>`;
+}
+
+// The connection badge used to imply the model, because one provider meant one model.
+// It no longer does, so the model is named beside it — otherwise two styles on one
+// provider read as identical rows until both are opened.
+function styleTargetBadge(style, connection) {
+  if (connection?.source !== "cloud") return "";
+  return style.model || connection.preset?.default_model || "";
+}
+
+// What a collapsed row says. One builder, because it is written twice — when the list
+// renders and again as the open row is edited — and two spellings of "what this style
+// is" would drift the moment one of the four gained a rule the other did not.
+function styleSummary(style, connection) {
+  const id = styleConnectionId(style, cfg);
+  return `<span class="ig-style-name">${esc(style.label || style.id)}</span>
+      <span class="ig-style-conn${connection?.ready === false ? " ig-unready" : ""}">${esc(connection?.label || id || "No connection")}</span>
+      <span class="ig-style-model">${esc(styleTargetBadge(style, connection))}</span>
+      <span class="ig-style-format">${promptFormatBadge(style.prompt_format)}</span>`;
 }
 
 function styleRows(expandIds = "") {
@@ -336,15 +424,19 @@ function styleRows(expandIds = "") {
     .map((s, i) => {
       const connection = findConnection(connections, styleConnectionId(s, cfg));
       return `<details class="ig-style" data-style-index="${i}"${expanded.has(s.id) ? " open" : ""}>
-        <summary>
-          <span class="ig-style-name">${esc(s.label || s.id)}</span>
-          <span class="ig-style-conn${connection?.ready === false ? " ig-unready" : ""}">${esc(connection?.label || styleConnectionId(s, cfg) || "No connection")}</span>
-          <span class="ig-style-format">${promptFormatBadge(s.prompt_format)}</span>
-        </summary>
+        <summary>${styleSummary(s, connection)}</summary>
         <div class="ig-style-body">${styleBody(s, i, connection)}</div>
       </details>`;
     })
     .join("");
+}
+
+// The resolution select, or the stored pair when this style renders no such control
+// — a cloud style always does, a ComfyUI one only while its graph maps size slots.
+function capturedSize(row, style) {
+  const [storedW, storedH] = styleSize(style);
+  const [width, height] = String(row.querySelector('[data-ig-field="size"]')?.value ?? "").split("x");
+  return { width: Number(width) || storedW, height: Number(height) || storedH };
 }
 
 // Reads every style row's live values back into the draft, before anything that
@@ -354,19 +446,25 @@ function captureStyles() {
     const row = document.querySelector(`[data-style-index="${i}"]`);
     if (!row) return s;
     const get = (name) => row.querySelector(`[data-ig-field="${name}"]`)?.value ?? "";
-    // Checkpoint and workflow fall back to the stored values, not "": they are not
-    // rendered while the style is linked to cloud, and blanking them there would
-    // lose the pin on relinking to ComfyUI.
+    // Every backend-half field falls back to its stored value, not "": only one half
+    // is rendered at a time and a preset renders only the controls it declares, so
+    // reading a missing element as empty would blank a setting the user never saw --
+    // and lose the pin that makes relinking back a no-op.
+    const stored = (name) => row.querySelector(`[data-ig-field="${name}"]`)?.value ?? s[name] ?? "";
     return {
       ...s,
       label: get("label").trim() || s.label || s.id,
-      connection: row.querySelector('[data-ig-field="connection"]')?.value ?? s.connection ?? "",
+      connection: stored("connection"),
       prompt_format: normalizePromptFormat(get("prompt_format") || s.prompt_format),
       prompt: get("prompt"),
       negative_prompt: get("negative_prompt"),
       extra_instructions: get("extra_instructions"),
-      checkpoint: row.querySelector('[data-ig-field="checkpoint"]')?.value ?? s.checkpoint ?? "",
-      workflow: row.querySelector('[data-ig-field="workflow"]')?.value ?? s.workflow ?? "",
+      checkpoint: stored("checkpoint"),
+      workflow: stored("workflow"),
+      model: stored("model"),
+      quality: stored("quality"),
+      reference_source: stored("reference_source"),
+      ...capturedSize(row, s),
     };
   });
 }
@@ -388,8 +486,16 @@ function addStyle() {
     prompt: "",
     negative_prompt: "",
     extra_instructions: "",
+    // Seeded from the previous style, as the ComfyUI pins already were: a new style
+    // is nearly always a variation on the last one, and a fresh row that renders
+    // nowhere is two more fields to fill before it can be tried.
     checkpoint: previous.checkpoint || "",
     workflow: previous.workflow || "",
+    model: previous.model || "",
+    width: previous.width || DEFAULT_EDGE,
+    height: previous.height || DEFAULT_EDGE,
+    quality: previous.quality || "",
+    reference_source: previous.reference_source || "",
   });
   renderStyles(id);
 }
@@ -406,37 +512,57 @@ function removeStyle(index) {
   renderStyles();
 }
 
-// Keeps the collapsed summary in sync as the fields are edited, so a row collapsed
-// straight after a change does not read as the old format. A blank name keeps the
-// last one, matching captureStyles; the format is a select and cannot be blanked.
-function refreshStyleState(el) {
-  const row = el.closest("[data-style-index]");
-  const field = (name) => row?.querySelector(`[data-ig-field="${name}"]`)?.value;
-  const name = field("label")?.trim();
-  const nameEl = row?.querySelector(".ig-style-name");
-  const formatEl = row?.querySelector(".ig-style-format");
-  if (nameEl && name) nameEl.textContent = name;
-  if (formatEl) formatEl.textContent = promptFormatBadge(field("prompt_format"));
+// Fields whose value decides what *else* the row shows. The model gates the
+// reference-image warning and the summary badge, the reference source gates the
+// warning from the other side, and the workflow decides whether this graph has a
+// resolution to offer at all — so each rebuilds the body the way relinking does.
+const STRUCTURAL_STYLE_FIELDS = ["model", "reference_source", "workflow"];
+
+// Repaints one row's summary from the draft, which `captureStyles` has already read
+// the live fields into. A blank name keeps the last one, because that is what
+// `captureStyles` stored -- the rule lives there rather than being restated here.
+function refreshStyleSummary(row) {
+  const style = draft.styles[Number(row?.dataset.styleIndex)];
+  const summary = row?.querySelector("summary");
+  if (style && summary)
+    summary.innerHTML = styleSummary(style, findConnection(connections, styleConnectionId(style, cfg)));
 }
 
-// Relinking swaps the backend-dependent half of the body, so the row is rebuilt --
-// only this row, since rebuilding the list would collapse every other open style.
-function relinkStyle(el) {
-  const row = el.closest("[data-style-index]");
+// Rebuilds one row's body and summary from the draft. Only this row: rebuilding the
+// list would collapse every other open style.
+function rebuildStyleRow(row) {
   const index = Number(row?.dataset.styleIndex);
   captureStyles();
   const style = draft.styles[index];
   const body = row?.querySelector(".ig-style-body");
-  if (!style || !body) return;
-  const connection = findConnection(connections, style.connection);
+  if (!style || !body) return null;
+  const connection = findConnection(connections, styleConnectionId(style, cfg));
   body.innerHTML = styleBody(style, index, connection);
-  const label = row.querySelector(".ig-style-conn");
-  if (label) {
-    label.textContent = connection?.label || style.connection || "No connection";
-    label.classList.toggle("ig-unready", connection?.ready === false);
+  refreshStyleSummary(row);
+  return connection;
+}
+
+// Keeps the row honest as its fields are edited, so one collapsed straight after a
+// change does not read as the old name, format or model.
+function refreshStyleState(el) {
+  const row = el.closest("[data-style-index]");
+  // A structural field changes what the body *contains*, so the body goes too --
+  // and that path repaints the summary itself.
+  if (STRUCTURAL_STYLE_FIELDS.includes(el.dataset.igField)) {
+    rebuildStyleRow(row);
+    return;
   }
-  // A ComfyUI-linked style needs the checkpoint menu, probed only on demand.
-  if (connection?.source !== "cloud") loadModels(COMFY_CONNECTION);
+  captureStyles();
+  refreshStyleSummary(row);
+}
+
+// Relinking swaps the backend-dependent half of the body, so the row is rebuilt.
+function relinkStyle(el) {
+  const connection = rebuildStyleRow(el.closest("[data-style-index]"));
+  // The new connection's menu, probed only on demand: ComfyUI's checkpoint list for a
+  // local style, this provider's model list for a cloud one -- which nothing has
+  // fetched if no other style was already pointing at it.
+  if (connection) loadModels(connection.source === "cloud" ? connection.id : COMFY_CONNECTION);
 }
 
 // With nothing imported there is nothing to pick, so an empty select would be a
@@ -542,18 +668,10 @@ function comfyFields() {
     <div class="image-gen-note">Orb's local backend. It cannot be removed — a style whose cloud connection is deleted falls back to it.</div>`;
 }
 
-function cloudModelField(id) {
-  const preset = providerFor(id);
-  return modelField(modelPickerState(modelsByConnection[id], draft.connections[id]?.model || ""), {
-    attrs: connField("model"),
-    emptyLabel: preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model",
-    placeholder: preset?.default_model || "model id",
-  });
-}
-
-// Resolution, quality and references belong to the connection, not to "cloud":
-// they are provider-shaped facts, and two connections can want two answers. Only
-// the fields the preset declares are rendered.
+// How Orb reaches this provider, and nothing else: an address and a credential,
+// exactly as wide as the ComfyUI connection above. The model, the resolution, the
+// quality and the reference source were here and are on the style now, which is what
+// lets two styles on one provider differ.
 function cloudFields(connection) {
   const id = connection.id;
   const entry = draft.connections[id] || {};
@@ -561,31 +679,6 @@ function cloudFields(connection) {
   const baseUrl =
     !preset || preset.needs_base_url
       ? `<label>API base URL<input ${connField("base_url")} value="${escAttr(entry.base_url || "")}" placeholder="https://api.example.com/v1"></label>`
-      : "";
-  const sizes = optionList(
-    CLOUD_SIZES.map(([w, h, label]) => [`${w}x${h}`, label]),
-    entrySize(entry).join("x"),
-  );
-  const quality = preset?.supports_quality
-    ? `<label>Quality<select ${connField("quality")}>${optionList(CLOUD_QUALITIES, entry.quality || "")}</select></label>`
-    : "";
-  const references =
-    !preset || preset.supports_references
-      ? `<label>Reference images<select ${connField("reference_source")}>${optionList(
-          [["", "Off — send prompts only"], ...REFERENCE_SOURCES],
-          entry.reference_source || "",
-        )}</select></label>`
-      : "";
-  // Stated where the model is chosen, not only on the render that dropped the
-  // reference: turning this on and having it do nothing is a setting the user
-  // deliberately enabled, which is worse than one they never knew about.
-  // Guarded on `preset`: an unknown provider already says nothing can render on it,
-  // and a second note narrowing that to the model is noise on top of it.
-  const referenceModelNote =
-    preset && entry.reference_source && !modelTakesReferences(preset, entry.model)
-      ? `<div class="image-gen-note ig-unready">${esc(
-          entry.model || preset?.default_model || "This model",
-        )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`
       : "";
   const unknown = preset
     ? ""
@@ -596,13 +689,8 @@ function cloudFields(connection) {
   return `${unknown}<div class="ig-grid">
       <label>API key<input type="password" ${connField("api_key")} value="${escAttr(entry.api_key || "")}" placeholder="Paste your key"></label>
       ${baseUrl}
-      <label class="ig-conn-model">Model${cloudModelField(id)}</label>
-      <label>Resolution<select ${connField("size")}>${sizes}</select></label>
-      ${quality}
-      ${references}
     </div>
-    ${referenceModelNote}
-    <div class="image-gen-note">Aspect ratio is chosen automatically from the resolution.</div>
+    <div class="image-gen-note">Model, resolution and reference images are chosen per style, under <strong>Styles</strong> above.</div>
     ${capabilityLine(preset)}${docs}`;
 }
 
@@ -695,19 +783,14 @@ function captureConnections() {
       continue;
     }
     const entry = draft.connections[id] || {};
-    const [width, height] = String(get("size") ?? entrySize(entry).join("x")).split("x");
-    // Every field falls back to the stored value, not "": a preset declaring no
-    // quality or no references renders no such control, and reading a missing
-    // element as empty would blank a setting the user never saw.
+    // Both fall back to the stored value, not "": a preset that ships its own base
+    // URL renders no such control, and reading a missing element as empty would blank
+    // an override the user never saw. The spread keeps any key a future release adds
+    // that this panel does not render.
     draft.connections[id] = {
       ...entry,
       api_key: get("api_key") ?? entry.api_key ?? "",
-      model: get("model") ?? entry.model ?? "",
       base_url: get("base_url") ?? entry.base_url ?? "",
-      width: Number(width) || DEFAULT_EDGE,
-      height: Number(height) || DEFAULT_EDGE,
-      quality: get("quality") ?? entry.quality ?? "",
-      reference_source: get("reference_source") ?? entry.reference_source ?? "",
     };
   }
 }
@@ -725,18 +808,12 @@ function addConnection() {
   const id = document.getElementById("ig-conn-add")?.value;
   if (!id) return;
   captureForm();
-  const preset = providerFor(id);
   const existing = draft.connections[id] || {};
+  // No model to seed any more: a style with none renders on the preset's own default,
+  // resolved at the adapter, so a fresh connection is ready the moment it has a key.
   draft.connections[id] = {
-    width: DEFAULT_EDGE,
-    height: DEFAULT_EDGE,
-    quality: "",
-    reference_source: "",
     ...existing,
     api_key: existing.api_key || "",
-    // Seeding the preset's model leaves a fresh connection one field from ready
-    // instead of two, and it is the model the provider's own docs open with.
-    model: existing.model || preset?.default_model || "",
     base_url: existing.base_url || "",
   };
   pendingConnections.add(id);
@@ -763,9 +840,9 @@ function removeConnection(id) {
   if (orphaned) toast(`${orphaned} style${orphaned > 1 ? "s" : ""} moved to ComfyUI`);
 }
 
-// Keeps the collapsed summary honest as fields are edited, and re-renders the
-// styles so a linked style's "comes from this connection" line never names last
-// minute's model.
+// Keeps the collapsed summary honest as fields are edited, and re-renders the styles
+// so a linked style's row never keeps showing a connection that has since become
+// unready -- the badge it marks is the only warning on that row.
 function refreshConnectionState(el) {
   const row = el.closest("details.ig-conn");
   const id = row?.dataset.connId;
@@ -810,19 +887,15 @@ function configForConnection(id) {
 }
 
 // Swap the model controls this probe answers for; live values and open accordions
-// survive the asynchronous re-render.
+// survive the asynchronous re-render. Every such control is on a style row now --
+// ComfyUI's checkpoint menu and each cloud style's model menu alike -- so one
+// re-render answers for both, whichever connection was probed.
 function applyModels(id, names) {
   const openStyles = openStyleIds();
   captureForm();
   modelsByConnection[id] = modelPickerState(names).models;
   rebuildConnections();
-  if (id === COMFY_CONNECTION) {
-    // The ComfyUI list feeds every style's checkpoint field.
-    renderStyles(openStyles);
-    return;
-  }
-  const host = document.querySelector(`details.ig-conn[data-conn-id="${CSS.escape(id)}"] .ig-conn-model`);
-  if (host) host.innerHTML = `Model${cloudModelField(id)}`;
+  renderStyles(openStyles);
 }
 
 // Probes one connection after the modal is already open; a slow or unreachable
@@ -927,12 +1000,17 @@ function openSettings(expandStyleId = "") {
     </details>
   </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" data-wf-action="image_gen:save">Save</button></div>`);
   populateProfile();
-  // ComfyUI always, because every style's checkpoint field reads its list. Cloud
-  // connections only once they hold a key: a probe per configured provider on every
-  // open is a burst of requests for menus most of which are never looked at.
+  // ComfyUI always, because every ComfyUI-linked style's checkpoint field reads its
+  // list. A cloud connection once some style links to it *and* it holds a key: a
+  // probe per configured provider is a burst of requests for menus most of which are
+  // never opened, and a connection nothing points at has no model field to fill.
+  // `modelsByConnection` is keyed by connection, so N styles on one provider still
+  // cost one probe.
   loadModels(COMFY_CONNECTION);
+  const linked = new Set(draft.styles.map((style) => styleConnectionId(style, cfg)));
   for (const connection of connections) {
-    if (connection.source === "cloud" && draft.connections[connection.id]?.api_key) loadModels(connection.id);
+    if (connection.source === "cloud" && linked.has(connection.id) && draft.connections[connection.id]?.api_key)
+      loadModels(connection.id);
   }
 }
 
@@ -993,6 +1071,29 @@ async function graphNodeTypes(graph) {
   }
 }
 
+// Two selects, both defaulting to "None". The opposite default from the model slot,
+// and deliberately: a PNG pins another machine's checkpoint filename, so Orb's
+// selection should win there, while the graph author picked a size their checkpoint
+// renders well at — many SD1.5/SDXL checkpoints degrade badly off their native
+// resolution. Handing over that knob is opt-in, and a graph that maps neither slot
+// behaves exactly as it did before this picker existed.
+function dimensionRows(items) {
+  const offered = (edge) => items.filter((item) => item.input.toLowerCase() === edge);
+  const edges = [
+    ["width", "Width", offered("width")],
+    ["height", "Height", offered("height")],
+  ];
+  // Both or neither, because `addPendingGraph` maps the pair or nothing: a lone
+  // Width select would be a control the user fills in that then does nothing.
+  if (edges.some(([, , found]) => !found.length)) return "";
+  return edges
+    .map(
+      ([edge, label, found]) =>
+        `<label>${label}<select id="ig-slot-${edge}">${candidateOptions(found, -1, "None — the workflow decides")}</select></label>`,
+    )
+    .join("");
+}
+
 // One row per detected image-upload widget, defaulting to "Not used": a plain
 // text-to-image graph imports unchanged, and an edit graph is opt-in per node —
 // Orb never guesses which LoadImage is the identity.
@@ -1038,6 +1139,7 @@ async function importGraphFile(input) {
         <label>Seed<select id="ig-slot-seed">${candidateOptions(candidates.seed)}</select></label>
         <label>Image output<select id="ig-slot-output">${candidateOptions(candidates.output)}</select></label>
         <label>Model<select id="ig-slot-model">${candidateOptions(candidates.checkpoint, model, "None — keep the workflow's own model")}</select></label>
+        ${dimensionRows(candidates.dimension)}
       </div>
       ${referenceRows(candidates.image)}
       <button class="btn btn-sm" data-wf-action="image_gen:graphAdd">Confirm slots and add workflow</button>
@@ -1069,6 +1171,8 @@ function addPendingGraph() {
   const seed = splitCandidate(document.getElementById("ig-slot-seed")?.value);
   const output = splitCandidate(document.getElementById("ig-slot-output")?.value);
   const model = splitCandidate(document.getElementById("ig-slot-model")?.value);
+  const width = splitCandidate(document.getElementById("ig-slot-width")?.value);
+  const height = splitCandidate(document.getElementById("ig-slot-height")?.value);
   if (!positive || !seed || !output) return;
   captureStyles();
   const id = `user_${Date.now().toString(36)}`;
@@ -1078,6 +1182,12 @@ function addPendingGraph() {
   // Patched from the style's checkpoint at render time, so Orb's selection
   // overrides the model baked into the imported graph.
   if (model) slots.checkpoint = model;
+  // Both or neither: the adapter only offers a resolution when it can write the
+  // whole pair, so one mapped edge would patch half a size and read as a bug.
+  if (width && height) {
+    slots.width = width;
+    slots.height = height;
+  }
   const references = readReferenceRows();
   if (references.length) slots.references = references;
   draft.graphs.push({ id, label, graph: pendingGraph.graph, slots });

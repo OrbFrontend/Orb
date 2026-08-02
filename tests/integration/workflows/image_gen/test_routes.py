@@ -57,10 +57,11 @@ async def test_manifest_and_status_report_the_active_source_and_its_capabilities
         "can_install_curated_models": False,
         "managed_runtime": False,
         # Per-graph in practice, so the static answer is "this backend can express
-        # all of them" and the RenderTarget says what one graph will honour.
+        # all of them" and the RenderTarget says what one graph will honour --
+        # including the size, now that a graph can map `width`/`height` slots.
         "supports_negative_prompt": True,
         "supports_seed": True,
-        "supports_dimensions": False,
+        "supports_dimensions": True,
         "supports_references": True,
     }
     # The source picker, the provider dropdown and the capability line come from one

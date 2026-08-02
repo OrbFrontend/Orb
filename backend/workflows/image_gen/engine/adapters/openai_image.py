@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from PIL import Image
 
-from ...config import REFERENCE_SOURCES
+from ...config import REFERENCE_SOURCES, style_source
 from ..contracts import (
     ImageBackendCapabilities,
     ImageRequest,
@@ -35,7 +35,7 @@ from ..providers import (
     get_preset,
     takes_references,
 )
-from .base import ImageAdapter
+from .base import ImageAdapter, replayed_target
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +77,22 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         return self.config["cloud"]
 
     @property
+    def _provider_id(self) -> str:
+        """Which connection the bound style renders on.
+
+        Off the style, not off `cloud["provider"]`: two styles on one config can name
+        two providers, and the stored `provider` is only the legacy answer for a style
+        that predates connection linking -- which `style_source` falls back to.
+        """
+        return style_source(self.config, self.style)[1]
+
+    @property
     def _preset(self) -> ProviderPreset | None:
-        return get_preset(str(self._cloud["provider"]))
+        return get_preset(self._provider_id)
 
     @property
     def _entry(self) -> Mapping[str, Any]:
-        return self._cloud["providers"].get(self._cloud["provider"]) or {}
+        return self._cloud["providers"].get(self._provider_id) or {}
 
     @property
     def label(self) -> str:
@@ -93,7 +103,14 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         return str(self._entry.get("base_url") or "") or (self._preset.base_url if self._preset else "")
 
     def _model(self) -> str:
-        return str(self._entry.get("model") or "") or (self._preset.default_model if self._preset else "")
+        """The model the bound style names, or the provider's own default.
+
+        The default is resolved here rather than written into the config, so
+        relinking a style to a provider with a different default needs no rewrite --
+        `""` keeps meaning "whatever this connection opens with".
+        """
+        preset = self._preset
+        return str(self.style.get("model") or "") or (preset.default_model if preset else "")
 
     def readiness(self, model: str = "") -> dict:
         """The single statement of what this configuration is still missing.
@@ -107,7 +124,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             return {
                 "ready": False,
                 "reason": "unknown_provider",
-                "detail": f"Unknown image provider {self._cloud['provider']!r}; pick one in settings",
+                "detail": f"Unknown image provider {self._provider_id!r}; pick one in settings",
             }
         if not self._base_url():
             # `custom` ships none by design; without this the config reads ready and
@@ -127,25 +144,19 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             return {"ready": False, "reason": "no_model", "detail": f"Choose a model for {preset.label}"}
         return {"ready": True, "reason": "", "detail": f"{preset.label} — {chosen}"}
 
-    def resolve_target(self, style: Mapping[str, Any], replay: Mapping[str, Any] | None) -> RenderTarget:
+    def resolve_target(self, replay: Mapping[str, Any] | None) -> RenderTarget:
         preset = self._preset
-        cloud = self._cloud
-        model = self._model()
-        # Dimensions ride the target for the same reason `model` does: reading
-        # config["cloud"]["width"] at render time would hand a *rehydrate* today's
-        # setting, so an image made at 1024x1024 comes back 1536x1024 after the
-        # picker moved -- the exact substitution rehydrate exists to avoid.
-        width, height = int(cloud["width"]), int(cloud["height"])
-        if replay:
-            stored_model = replay.get("backend_model")
-            if isinstance(stored_model, str) and stored_model:
-                model = stored_model
-            stored_w, stored_h = replay.get("width"), replay.get("height")
-            if isinstance(stored_w, int) and isinstance(stored_h, int) and stored_w > 0 and stored_h > 0:
-                width, height = stored_w, stored_h
+        style = self.style
+        # Model and size ride the target together, and for one reason: reading either
+        # off the style at render time would hand a *rehydrate* today's setting, so an
+        # image made at 1024x1024 on one model comes back 1536x1024 on another once
+        # the pickers moved -- the exact substitution rehydrate exists to avoid.
+        model, width, height = replayed_target(
+            replay, model=self._model(), width=int(style["width"]), height=int(style["height"])
+        )
         references: tuple[Mapping[str, Any], ...] = ()
         notes: list[str] = []
-        source = str(cloud.get("reference_source") or "")
+        source = str(style.get("reference_source") or "")
         # Gated on the capability, not on `edits_path`: Together has no
         # `/images/edits` and still takes references, on the generations body.
         if preset is not None and preset.supports_references and source in REFERENCE_SOURCES:
@@ -339,7 +350,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             "seed": request.seed if target.supports_seed else None,
             "width": target.width,
             "height": target.height,
-            "quality": str(self._cloud.get("quality") or ""),
+            "quality": str(self.style.get("quality") or ""),
             # Always one: Orb stores one image per attachment, and `n` is the field
             # that silently multiplies the bill.
             "n": 1,

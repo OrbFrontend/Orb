@@ -136,6 +136,61 @@ def test_a_graph_without_a_negative_slot_still_patches():
     assert "7" not in patched
 
 
+# ── the optional size slots ──────────────────────────────────────────────────
+#
+# Optional for the same reason `negative` is: an img2img graph takes its size from
+# the reference or an aspect-ratio node, and there is no width/height pair to write.
+# A graph that maps neither must behave precisely as it did before the slot existed.
+
+SIZED_SLOTS = {**CORE_SLOTS, "width": ["5", "width"], "height": ["5", "height"]}
+
+
+def test_mapped_size_slots_are_patched_and_unmapped_ones_are_left_alone():
+    patched, _ = patch_graph(
+        _base_graph(),
+        SIZED_SLOTS,
+        prompt="p",
+        negative_prompt="n",
+        seed=1,
+        checkpoint="model.safetensors",
+        width=1024,
+        height=1536,
+    )
+    assert (patched["5"]["inputs"]["width"], patched["5"]["inputs"]["height"]) == (1024, 1536)
+
+    # The same graph with no size slots mapped: the arguments are simply not written.
+    untouched, _ = patch_graph(
+        _base_graph(),
+        CORE_SLOTS,
+        prompt="p",
+        negative_prompt="n",
+        seed=1,
+        checkpoint="model.safetensors",
+        width=1024,
+        height=1536,
+    )
+    assert (untouched["5"]["inputs"]["width"], untouched["5"]["inputs"]["height"]) == (1024, 1024)
+
+
+def test_a_mapped_size_slot_is_skipped_when_no_size_was_asked_for():
+    """`validate_connection` patches to check the model and passes no size, and a
+    style whose graph gained a slot after the fact has none resolved yet. Writing a
+    JSON null into an INT widget would fail at ComfyUI rather than here."""
+    patched, _ = patch_graph(
+        _base_graph(), SIZED_SLOTS, prompt="p", negative_prompt="n", seed=1, checkpoint="model.safetensors"
+    )
+    assert patched["5"]["inputs"]["width"] == 1024
+
+
+def test_size_slots_are_validated_when_present_and_ignored_when_not():
+    graph, _ = _core()
+    validate_graph_structure(graph, SIZED_SLOTS, OBJECT_INFO)
+    # A dangling one is caught at Test connection rather than mid-render.
+    with pytest.raises(ImageGenerationError, match="width slot"):
+        validate_graph_structure(graph, {**SIZED_SLOTS, "width": ["999", "width"]}, OBJECT_INFO)
+    validate_graph_structure(*_core(), OBJECT_INFO)
+
+
 # ── structural validation against a server's /object_info ────────────────────
 # All render-free: `/prompt` has no dry-run, so a submission that validates
 # executes, and preflighting by submitting would spend a full render per save.
@@ -237,3 +292,22 @@ def test_render_params_report_none_for_linked_or_absent_inputs():
     assert params["steps"] is None
     assert params["width"] is None
     assert params["sampler"] == "euler"
+
+
+def test_the_mapped_size_slots_win_over_the_positional_scan():
+    """The scan takes the first node in sorted order carrying a width/height pair,
+    which need not be the node Orb patched -- an upscale node can sort first. Already
+    imprecise; wrong in a new way once Orb writes to one of them, because the record
+    would then name a size the render did not use.
+    """
+    graph, slots = _core()
+    # Sorts before the EmptyLatentImage at "5", and is not what Orb patches.
+    graph["2"] = {"class_type": "ImageScale", "inputs": {"width": 512, "height": 512}}
+    assert describe_render_params(graph, slots)["width"] == 512, "precondition: the scan picks the wrong node"
+
+    sized = describe_render_params(graph, {**slots, "width": ["5", "width"], "height": ["5", "height"]})
+    assert (sized["width"], sized["height"]) == (1024, 1024)
+    # A slot pointing at a node that is gone falls back to the scan rather than
+    # reporting nothing: a best-effort record degrades, it does not fail.
+    dangling = describe_render_params(graph, {**slots, "width": ["999", "width"], "height": ["999", "height"]})
+    assert dangling["width"] == 512

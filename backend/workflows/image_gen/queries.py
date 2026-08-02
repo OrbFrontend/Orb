@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..toolkit import get_workflow_config
 from . import pov as pov_mod
-from .config import WORKFLOW_ID, normalize_config
+from .config import WORKFLOW_ID, active_style, normalize_config
 from .engine import ImageGenerationError, comfy_adapter, get_adapter, list_sources
 from .engine.providers import provider_catalogue
 
@@ -33,10 +33,21 @@ async def _config_from_query(body) -> dict:
     return normalize_config(await get_workflow_config(WORKFLOW_ID))
 
 
+def _default_adapter(config):
+    """The adapter for the style that would render next.
+
+    Every action here answers about the default style, deliberately: this backs the
+    tools-panel card, whose question is "can the next Visualize render". The settings
+    form probes some *other* connection by pointing the default style at it in the
+    config it sends (`configForConnection`), so that needs no special case either.
+    """
+    return get_adapter(config, active_style(config))
+
+
 async def _status(body) -> dict:
     config = await _config_from_query(body)
     external = config["external_comfy"]
-    adapter = get_adapter(config)
+    adapter = _default_adapter(config)
     return {
         "source": config["source"],
         "capabilities": dict(adapter.capabilities),
@@ -76,7 +87,7 @@ async def _test_connection(body) -> dict:
     explicit = isinstance(body, dict) and isinstance(body.get("config"), dict)
     config = await _config_from_query(body)
     try:
-        return await get_adapter(config).validate_connection(allow_cached=not explicit)
+        return await _default_adapter(config).validate_connection(allow_cached=not explicit)
     except (ImageGenerationError, ValueError) as exc:
         return {"error": str(exc)}
 
@@ -84,7 +95,7 @@ async def _test_connection(body) -> dict:
 async def _external_models(body) -> dict:
     config = await _config_from_query(body)
     try:
-        return {"models": await get_adapter(config).list_models()}
+        return {"models": await _default_adapter(config).list_models()}
     except ImageGenerationError as exc:
         return {"error": str(exc)}
 

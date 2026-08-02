@@ -8,6 +8,12 @@ from typing import Any
 
 from .contracts import ImageGenerationError
 
+# Slot roles a graph may simply not have. Named once because three places must agree
+# on the set: patching skips them, structural validation skips them, and the importer
+# offers each a "None" option. `checkpoint` is guarded separately -- it is the one
+# whose absence changes what a *present* argument means.
+OPTIONAL_SLOTS = ("negative", "width", "height")
+
 
 def resolve_graph(config: Mapping[str, Any], graph_id: str) -> tuple[dict, dict]:
     """The imported graph and its slot map for `graph_id`.
@@ -49,6 +55,19 @@ def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> An
     return value
 
 
+def _slot_inputs(graph: Mapping[str, Any], slot: Any) -> Mapping[str, Any] | None:
+    """The `inputs` mapping a slot points at, or None when it does not resolve.
+
+    The read-only counterpart of `_input_slot`: describing a graph must degrade to
+    "unknown" where patching it would raise.
+    """
+    if not isinstance(slot, (list, tuple)) or len(slot) != 2:
+        return None
+    node = graph.get(str(slot[0]))
+    inputs = node.get("inputs") if isinstance(node, Mapping) else None
+    return inputs if isinstance(inputs, Mapping) else None
+
+
 def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -> dict:
     """Best-effort render identity read back off the graph that will execute.
 
@@ -58,16 +77,25 @@ def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -
     """
     params: dict[str, Any] = dict.fromkeys(("width", "height", "steps", "cfg", "sampler", "scheduler"))
     seed_slot = slots.get("seed")
-    sampler_node = graph.get(str(seed_slot[0])) if isinstance(seed_slot, (list, tuple)) and len(seed_slot) == 2 else None
-    sampler_inputs = sampler_node.get("inputs") if isinstance(sampler_node, Mapping) else None
+    sampler_inputs = _slot_inputs(graph, seed_slot)
     if isinstance(sampler_inputs, Mapping):
         params["steps"] = _scalar(sampler_inputs, "steps", (int,))
         params["cfg"] = _scalar(sampler_inputs, "cfg", (int, float))
         params["sampler"] = _scalar(sampler_inputs, "sampler_name", (str,))
         params["scheduler"] = _scalar(sampler_inputs, "scheduler", (str,))
-    # Dimensions live on whichever latent/resize node carries them. Node ids are
-    # strings of ints in practice, so sort numerically to keep the choice stable
-    # across runs rather than dict-order dependent.
+    # The mapped size slots first: those name the node Orb actually patched, so once
+    # it writes to one, the scan below could describe a *different* node's size.
+    mapped = {}
+    for role in ("width", "height"):
+        inputs = _slot_inputs(graph, slots.get(role))
+        mapped[role] = _scalar(inputs, str(slots[role][1]), (int,)) if inputs is not None else None
+    if mapped["width"] and mapped["height"]:
+        params["width"], params["height"] = mapped["width"], mapped["height"]
+        return params
+    # Unmapped, so the size is wherever the graph keeps it: whichever latent/resize
+    # node carries the pair. Node ids are strings of ints in practice, so sort
+    # numerically to keep the choice stable across runs rather than dict-order
+    # dependent -- it is still a guess, which is why the slots win when they exist.
     for node_id in sorted(graph, key=lambda k: (len(str(k)), str(k))):
         node = graph[node_id]
         inputs = node.get("inputs") if isinstance(node, Mapping) else None
@@ -111,6 +139,8 @@ def patch_graph(
     negative_prompt: str,
     seed: int,
     checkpoint: str,
+    width: int | None = None,
+    height: int | None = None,
     references: Sequence[tuple[tuple[str, str], str]] = (),
 ) -> tuple[dict, str]:
     patched = copy.deepcopy(dict(graph))
@@ -118,11 +148,15 @@ def patch_graph(
         ("positive", prompt),
         ("negative", negative_prompt),
         ("seed", seed),
+        ("width", width),
+        ("height", height),
     ):
-        # `negative` is optional: a prose-trained graph (Flux, SD3) has one text
-        # encoder and no negative conditioning. The other two are what "render this
-        # prompt with this seed" means.
-        if role == "negative" and "negative" not in slots:
+        # Three of the five are optional, and for the same reason: a prose-trained
+        # graph (Flux, SD3) has one text encoder and no negative conditioning, and a
+        # graph taking its size from a reference image or an aspect-ratio node has no
+        # width/height pair to patch. `positive` and `seed` are what "render this
+        # prompt with this seed" means, so an absent slot for either is an error.
+        if role in OPTIONAL_SLOTS and (role not in slots or value is None):
             continue
         inputs, name = _input_slot(patched, slots.get(role), role)
         inputs[name] = value
@@ -190,8 +224,8 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
                         f"Node {node_id} needs image {value!r} on the ComfyUI server, or map it as a reference image"
                     )
                 raise ImageGenerationError(f"Node {node_id} input {name!r} is no longer available on this server")
-    for role in ("positive", "negative", "seed"):
-        if role == "negative" and "negative" not in slots:
+    for role in ("positive", "negative", "seed", "width", "height"):
+        if role in OPTIONAL_SLOTS and role not in slots:
             continue
         _input_slot(graph, slots.get(role), role)
     if "checkpoint" in slots:

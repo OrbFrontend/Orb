@@ -24,18 +24,24 @@ your account with that provider.
 
 1. Open **Workflow** and select the **Secondary** tab.
 2. In the **Image Generation** card, select **Settings**.
-3. Under **Backend**, select **Cloud API**.
+3. Open **Connections** and select **Add connection**.
 4. Select your **Provider**.
 5. Paste your **API key**.
-6. Select a **Model**, or leave the provider's default.
-7. Select a **Resolution**.
-8. Select **Test connection**.
+6. Select **Test connection**.
+7. Under **Styles**, open the style you want to render there and set its
+   **Connection** to this provider.
+8. Select a **Model**, or leave the provider's default, and a **Resolution**.
 9. Select **Save**, and accept the privacy confirmation.
+
+A connection holds the key and nothing else. What each image looks like — the
+model, the resolution, the quality, whether a reference image goes with it — is
+chosen per style. Two styles can therefore share one key and one bill while
+rendering with different models, which is the usual reason to have more than one.
 
 **Test connection** asks the provider for its model list and nothing else. It
 never submits a generation, so it never costs anything. A successful test also
-turns the **Model** field into a dropdown of the models that key can actually
-reach.
+turns each linked style's **Model** field into a dropdown of the models that key
+can actually reach.
 
 Where a provider hosts more than images, the dropdown lists only the models that
 generate them — Together AI publishes one catalogue of 271 models, of which 29
@@ -244,8 +250,8 @@ provider whose policy fits what you write.
 
 ## Reference images
 
-Off by default. Turn it on under **Reference images** in the **Connection**
-section, and pick what Orb should feed the provider:
+Off by default. Turn it on under **Reference images** on the style, and pick what
+Orb should feed the provider:
 
 | Source | What Orb sends |
 |---|---|
@@ -281,8 +287,9 @@ reference entirely.
 
 So Orb checks the model, not just the provider. Choose a Kontext model and the
 reference is sent; choose one that cannot take it and Orb sends no reference,
-says so on the image under **Render details**, and warns you in the
-**Connection** section as soon as you turn the option on. Models Orb has not
+says so on the image under **Render details**, and warns you on the style row as
+soon as you turn the option on — the model and the switch sit side by side there,
+which is the whole point of both living on the style. Models Orb has not
 verified are treated as unable to take a reference — under-promising costs you a
 note, while over-promising costs a paid render that quietly leaves the character
 reference out.
@@ -312,11 +319,15 @@ and no character reference. The render goes to the generation endpoint and the
 image says so under **Render details**, so turning references on does not break
 the first Visualize in every new chat.
 
-## Switch back to ComfyUI
+## Switch a style back to ComfyUI
 
-Select **External ComfyUI** under **Backend** and save. Your styles, imported
-workflows, camera setting, and character prompts are all still there, and so is
-your cloud API key for when you switch back.
+Open the style and set its **Connection** to **ComfyUI**, then save. Its
+checkpoint and workflow are still pinned where they were, and so is its cloud
+model for when you switch it back. Your imported workflows, camera setting,
+character prompts and API key are untouched.
+
+Because the connection is per style, you can move one style at a time — keeping a
+cloud style for scenes your local checkpoint handles badly, or the reverse.
 
 Imported ComfyUI workflows stay listed while a cloud provider is selected. They
 are global, not per-backend, and hiding them would make a backend switch look

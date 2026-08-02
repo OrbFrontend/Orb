@@ -6,7 +6,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
-from ...config import REFERENCE_MIMES, active_style
+from ...config import DEFAULT_CLOUD_EDGE, REFERENCE_MIMES
 from ..comfy_client import ComfyClient
 from ..contracts import (
     ImageBackendCapabilities,
@@ -26,7 +26,7 @@ from ..graph import (
     resolve_graph,
     validate_graph_structure,
 )
-from .base import ImageAdapter
+from .base import ImageAdapter, replayed_target
 
 # Generous next to the cloud adapter's base64-in-JSON cap, because this is a
 # multipart upload -- but still declared, so both backends answer in one place.
@@ -38,10 +38,12 @@ CAPABILITIES: ImageBackendCapabilities = {
     "can_install_curated_models": False,
     "managed_runtime": False,
     # Per-*graph* facts here, not per-backend: the static answer is "this backend
-    # can express them", and what one graph honours is on the RenderTarget.
+    # can express them", and what one graph honours is on the RenderTarget. Size is
+    # expressible now that a graph can map `width`/`height` slots -- whether one
+    # actually does is the target's answer, not this one's.
     "supports_negative_prompt": True,
     "supports_seed": True,
-    "supports_dimensions": False,
+    "supports_dimensions": True,
     "supports_references": True,
 }
 
@@ -57,20 +59,21 @@ class ExternalComfyAdapter(ImageAdapter):
         return self.config["external_comfy"]["user_graphs"]
 
     def readiness(self, model: str = "") -> dict:
-        """Whether the style about to render can, not whether every style can.
+        """Whether the style this adapter is bound to can render, not whether every
+        style can.
 
         `model` is ignored: a ComfyUI render is pinned by its graph, whose checkpoint
         is a node inside it rather than a field a caller can substitute.
 
         Auditing the whole list would read as a permanently stuck "Setup required":
         a cloud-linked style will never have a workflow, and a just-added style is
-        not finished yet, and neither says anything about the next Visualize.
-        Per-style problems stay visible -- the panel marks the row, and selecting
-        that style in the card asks this question again about it.
+        not finished yet, and neither says anything about the next Visualize. The
+        bound style is what makes that a *choice* rather than a limitation -- ask the
+        question about another style and this answers about that one.
         """
         config = self.config
         graphs = {graph["id"]: graph for graph in self._graphs()}
-        style = active_style(config)
+        style = self.style
         label = style["label"] or style["id"]
         # External mode ships no default graph, so nothing pinned cannot render at
         # all -- the first thing to fix, ahead of checkpoints.
@@ -96,11 +99,14 @@ class ExternalComfyAdapter(ImageAdapter):
             }
         return {"ready": True, "reason": "", "detail": f"External ComfyUI at {config['external_comfy']['api_url']}"}
 
-    def _graph_has_negative(self, graph_id: str) -> bool:
-        """Whether `graph_id` maps a negative-prompt slot. A graph without one
-        discards the composed negative, so the composer is told to leave `avoid`
-        empty rather than spend effort on a negation the workflow throws away."""
-        return any(item["id"] == graph_id and "negative" in item["slots"] for item in self._graphs())
+    def _graph_slots(self, graph_id: str) -> Mapping[str, Any]:
+        """`graph_id`'s slot map, or an empty one when it no longer resolves.
+
+        Which optional roles a graph maps is what the RenderTarget's dynamic tier
+        answers about, so both questions -- negative prompt, output size -- read the
+        same map rather than each walking the list its own way.
+        """
+        return next((item["slots"] for item in self._graphs() if item["id"] == graph_id), {})
 
     def _graph_reference_slots(self, graph_id: str) -> tuple[Mapping[str, Any], ...]:
         """This graph's mapped slots, each carrying the policy ComfyUI imposes.
@@ -123,11 +129,13 @@ class ExternalComfyAdapter(ImageAdapter):
                 )
         return ()
 
-    def resolve_target(self, style: Mapping[str, Any], replay: Mapping[str, Any] | None) -> RenderTarget:
+    def resolve_target(self, replay: Mapping[str, Any] | None) -> RenderTarget:
+        style = self.style
         graph_id = style["workflow"]
-        checkpoint = style["checkpoint"]
         notes: list[str] = []
         if replay:
+            # The graph is this backend's alone, so it is replayed here rather than in
+            # `replayed_target` -- and it is the one pin that can be *gone*.
             stored_graph = replay.get("workflow_id")
             recorded = stored_graph if isinstance(stored_graph, str) and stored_graph else ""
             if recorded and not has_graph(self.config, recorded):
@@ -137,22 +145,29 @@ class ExternalComfyAdapter(ImageAdapter):
                     else f"the workflow this image used ({recorded}) is gone, and this style has no workflow assigned"
                 )
                 recorded = ""
-            stored_checkpoint = replay.get("backend_model")
-            # Empty means the original ran a graph carrying its own loaders, so fall
-            # through rather than invent a pin it never had.
-            if isinstance(stored_checkpoint, str) and stored_checkpoint:
-                checkpoint = stored_checkpoint
             graph_id = recorded or graph_id
+        checkpoint, width, height = replayed_target(
+            replay, model=style["checkpoint"], width=int(style["width"]), height=int(style["height"])
+        )
+        slots = self._graph_slots(graph_id)
+        # Per graph, not per backend: a t2i graph with an EmptyLatentImage takes a
+        # size, an img2img graph driven by its reference does not, and the second must
+        # keep behaving exactly as it did before this slot existed.
+        sized = "width" in slots and "height" in slots
+        if not sized and (width, height) != (DEFAULT_CLOUD_EDGE, DEFAULT_CLOUD_EDGE):
+            # Said here rather than left to be noticed, for the same reason the
+            # missing-negative disclosure is said: the picker is showing a resolution
+            # that this workflow will not apply.
+            notes.append("this workflow has no resolution inputs mapped; it decides its own output size")
         return RenderTarget(
             source=self.source_id,
             target_id=graph_id,
             model=checkpoint,
-            supports_negative_prompt=self._graph_has_negative(graph_id),
+            supports_negative_prompt="negative" in slots,
             supports_seed=True,
-            # The graph carries its own latent size; Orb never picks one.
-            supports_dimensions=False,
-            width=None,
-            height=None,
+            supports_dimensions=sized,
+            width=width if sized else None,
+            height=height if sized else None,
             reference_slots=self._graph_reference_slots(graph_id),
             notes=tuple(notes),
         )
@@ -239,6 +254,10 @@ class ExternalComfyAdapter(ImageAdapter):
                 "output_node": bool(entry.get("output_node")),
                 "text_inputs": _typed_inputs(entry, "STRING"),
                 "seed_inputs": [name for name in _typed_inputs(entry, "INT") if "seed" in name.lower()],
+                # Exact names only, unlike `seed`'s substring rule: a bare INT called
+                # `grounding_px` or `tile_size` is not a size, and mapping one patches
+                # something that is not the output resolution.
+                "dimension_inputs": [name for name in _typed_inputs(entry, "INT") if name.lower() in ("width", "height")],
                 "image_inputs": _image_upload_inputs(entry),
             }
         return roles
@@ -276,6 +295,10 @@ class ExternalComfyAdapter(ImageAdapter):
             negative_prompt=request.negative_prompt,
             seed=request.seed,
             checkpoint=target.model,
+            # Null unless this graph maps both size slots, which is what keeps a graph
+            # that decides its own size byte-identical to what it was before.
+            width=target.width,
+            height=target.height,
             references=[(reference.slot, uploaded[reference.digest]) for reference in request.references],
         )
         result = await client.generate(

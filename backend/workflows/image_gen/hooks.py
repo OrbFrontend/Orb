@@ -138,7 +138,7 @@ def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> l
 
 def _metadata(
     *,
-    config: Mapping[str, Any],
+    source: str,
     style: Mapping[str, Any],
     result,
     prompt: str,
@@ -149,7 +149,10 @@ def _metadata(
 ) -> dict:
     info = dict(result.backend_info)
     return {
-        "source": config["source"],
+        # What actually rendered, as the adapter reported it, falling back to the
+        # adapter that was asked. Never `config["source"]`: that answers about the
+        # *default* style, which is not necessarily the one that just rendered.
+        "source": info.get("source") or source,
         "style_id": style["id"],
         "workflow_id": info.get("workflow_id"),
         "backend_model": info.get("backend_model"),
@@ -251,10 +254,11 @@ async def _generate_fresh(
     if prefix is None:
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     selected_style = resolve_style(config, style_id)
-    adapter = get_adapter(config)
+    adapter = get_adapter(config, selected_style)
     # Resolved once, up front: the composer needs its negative-prompt answer,
-    # references need its slot list, and the render needs the target itself.
-    target = adapter.resolve_target(selected_style, None)
+    # references need its slot list, and the render needs the target itself. No style
+    # argument -- the adapter is bound to the one the router chose it for.
+    target = adapter.resolve_target(None)
     character = getattr(ctx, "character", None)
     profile_owner_name = str(character.get("name") or "") if isinstance(character, Mapping) else ""
     appearance = str(profile.get("appearance_prompt") or "")
@@ -309,7 +313,7 @@ async def _generate_fresh(
         progress=progress,
     )
     md = _metadata(
-        config=config,
+        source=adapter.source_id,
         style=style,
         result=result,
         prompt=prompt,
@@ -503,16 +507,20 @@ async def reroll_gen(ctx, params, seed):
         params.pop("workflow_id", None)
         params.pop("backend_model", None)
     # **After** those pops: a target resolved above them would answer off the
-    # previous style's record and re-render the old graph.
-    adapter = get_adapter(config)
-    target = adapter.resolve_target(style, params)
+    # previous style's record and re-render the old graph. Routed on `style`, not on
+    # the config's global source -- the style a rehydrate replays is the one the
+    # stored image named, which need not be the default one.
+    adapter = get_adapter(config, style)
+    target = adapter.resolve_target(params)
     # On top of the adapter's own: `target.notes` already reaches the attachment
     # through backend_info, so repeating them here would print each one twice.
     notes: list[str] = []
     # A stored image rendered on another backend cannot be reproduced by this one.
     # Re-rendering and disclosing beats refusing, which surfaces only as a 500.
+    # Against the adapter that is about to render, not the config's global source:
+    # this reroll may be on a style linked somewhere else entirely.
     recorded_source = params.get("source")
-    if isinstance(recorded_source, str) and recorded_source and recorded_source != config["source"]:
+    if isinstance(recorded_source, str) and recorded_source and recorded_source != adapter.source_id:
         was = next((s["label"] for s in list_sources() if s["id"] == recorded_source), recorded_source)
         notes.append(f"made on {was}, re-rendered on {adapter.label}, so it will not match")
     # Rehydrate promises the *same bytes back*, which a seedless API cannot give.

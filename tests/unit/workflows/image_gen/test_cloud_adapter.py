@@ -45,20 +45,29 @@ _MODELS = {
 }
 
 
-def _config(provider: str = "xai", model: str | None = None, **cloud) -> dict:
+def _config(provider: str = "xai", model: str | None = None, **style) -> dict:
     """One builder for every provider under test: the rows differ by provider id and
     model, and nothing else, so three near-identical builders were three places to
-    forget a field. `model=""` is a real answer -- Chutes ships no default."""
+    forget a field. `model=""` is a real answer -- Chutes ships no default.
+
+    The render settings sit on the style and the credential on the connection, which
+    is the split this whole fixture exists to exercise: `_MODELS` names one model per
+    provider, and a second style on the same connection could name another.
+    """
     return normalize_config(
         {
             "source": "cloud",
-            "styles": [{"id": "anime", "label": "Anime"}],
+            "styles": [
+                {
+                    "id": "anime",
+                    "label": "Anime",
+                    "connection": provider,
+                    "model": _MODELS[provider] if model is None else model,
+                    **style,
+                }
+            ],
             "default_style": "anime",
-            "cloud": {
-                "provider": provider,
-                "providers": {provider: {"api_key": "sk-test", "model": _MODELS[provider] if model is None else model}},
-                **cloud,
-            },
+            "cloud": {"provider": provider, "providers": {provider: {"api_key": "sk-test"}}},
         }
     )
 
@@ -76,11 +85,16 @@ def _adapter(config, handler) -> OpenAICompatibleImageAdapter:
                 transport=httpx.MockTransport(handler),
             )
 
-    return _Mocked(config)
+    return _Mocked(config, resolve_style(config, "anime"))
+
+
+def _bound(config) -> OpenAICompatibleImageAdapter:
+    """The adapter bound to the style under test, as the router builds it."""
+    return OpenAICompatibleImageAdapter(config, resolve_style(config, "anime"))
 
 
 def _target(adapter, config, replay=None):
-    return adapter.resolve_target(resolve_style(config, "anime"), replay)
+    return adapter.resolve_target(replay)
 
 
 def _request(**kwargs) -> ImageRequest:
@@ -175,7 +189,7 @@ async def test_a_rejected_key_fails_test_connection_even_though_the_list_would_p
 
 def test_a_fresh_target_reads_the_configured_model_and_resolution():
     config = _config(width=1536, height=1024)
-    target = _target(OpenAICompatibleImageAdapter(config), config)
+    target = _target(_bound(config), config)
     assert (target.source, target.target_id, target.model) == ("cloud", "", "grok-imagine-image")
     assert (target.width, target.height) == (1536, 1024)
     # xAI honours neither, so the composer is told not to write an `avoid` and the
@@ -189,7 +203,7 @@ def test_a_replay_pins_the_resolution_it_was_generated_at_not_todays():
     1024x1024 must not come back 1536x1024 because the picker moved since."""
     config = _config(width=1536, height=1024)
     target = _target(
-        OpenAICompatibleImageAdapter(config),
+        _bound(config),
         config,
         {"backend_model": "grok-imagine-image-quality", "width": 1024, "height": 1024},
     )
@@ -255,6 +269,11 @@ async def test_the_attachment_records_real_pixels_and_an_unhonoured_seed():
     ],
 )
 def test_readiness_names_the_gap(cloud, reason):
+    """Deliberately on the legacy shape -- no `styles` key, so both shipped styles
+    carry `connection: ""` and resolve through `cloud.provider`. That path is live on
+    every install that predates connection linking, and this is its coverage: the
+    model hoists off the entry, and readiness answers about it.
+    """
     config = normalize_config({"source": "cloud", "cloud": cloud})
     answer = OpenAICompatibleImageAdapter(config).readiness()
     assert answer["reason"] == reason
@@ -263,20 +282,70 @@ def test_readiness_names_the_gap(cloud, reason):
 
 
 def test_a_configured_provider_is_ready():
-    answer = OpenAICompatibleImageAdapter(_config()).readiness()
+    answer = _bound(_config()).readiness()
     assert answer["ready"] is True
     assert "grok-imagine-image" in answer["detail"]
 
     # xAI declares a default model, so pasting a key alone is enough to render.
-    assert OpenAICompatibleImageAdapter(_config("xai", model="")).readiness()["ready"] is True
+    assert _bound(_config("xai", model="")).readiness()["ready"] is True
 
 
 def test_readiness_judges_a_replay_on_the_model_it_recorded():
     """Clearing the model field must not refuse a rehydrate of an image whose own
     model is still there to render it -- the stored model is what will be sent."""
-    adapter = OpenAICompatibleImageAdapter(_config("chutes"))
+    adapter = _bound(_config("chutes"))
     assert adapter.readiness()["reason"] == "no_model"
     assert adapter.readiness("some/stored-model")["ready"] is True
+
+
+def test_two_styles_on_one_connection_render_differently():
+    """The case the old shape could not express at all. `cloud.providers` is keyed by
+    provider id and the panel allows one connection per provider, so "Kontext for
+    realistic, schnell for anime, both on Together AI" needed a second connection that
+    could not exist -- which is why the shipped install grew styles named after
+    providers.
+    """
+    config = normalize_config(
+        {
+            "source": "cloud",
+            "default_style": "kontext",
+            "styles": [
+                {
+                    "id": "kontext",
+                    "label": "Kontext",
+                    "connection": "togetherai",
+                    "model": "black-forest-labs/FLUX.1-kontext-pro",
+                    "width": 1024,
+                    "height": 1536,
+                    "reference_source": "character",
+                },
+                {
+                    "id": "draft",
+                    "label": "Draft",
+                    "connection": "togetherai",
+                    "model": "black-forest-labs/FLUX.1-schnell",
+                    "width": 1024,
+                    "height": 1024,
+                },
+            ],
+            "cloud": {"providers": {"togetherai": {"api_key": "sk-test"}}},
+        }
+    )
+    targets = {}
+    for sid in ("kontext", "draft"):
+        style = resolve_style(config, sid)
+        targets[sid] = OpenAICompatibleImageAdapter(config, style).resolve_target(None)
+
+    assert targets["kontext"].model == "black-forest-labs/FLUX.1-kontext-pro"
+    assert (targets["kontext"].width, targets["kontext"].height) == (1024, 1536)
+    assert len(targets["kontext"].reference_slots) == 1
+
+    assert targets["draft"].model == "black-forest-labs/FLUX.1-schnell"
+    assert (targets["draft"].width, targets["draft"].height) == (1024, 1024)
+    # References are off on this style, so no slot is offered -- and no note either,
+    # since nothing was asked for and silently dropped.
+    assert targets["draft"].reference_slots == ()
+    assert targets["draft"].notes == ()
 
 
 @pytest.mark.asyncio
@@ -322,11 +391,11 @@ def _reference(data: bytes, mime: str) -> ResolvedReference:
 
 def test_reference_slots_appear_only_when_the_source_is_turned_on():
     """Sending conversation images to a third party is opt-in, so "" is off."""
-    off = _target(OpenAICompatibleImageAdapter(_config()), _config())
+    off = _target(_bound(_config()), _config())
     assert off.reference_slots == ()
 
     config = _config(reference_source="previous_or_character")
-    on = _target(OpenAICompatibleImageAdapter(config), config)
+    on = _target(_bound(config), config)
     assert len(on.reference_slots) == 1
     assert on.reference_slots[0]["slot"] == list(CLOUD_REFERENCE_SLOT)
     assert on.reference_slots[0]["source"] == "previous_or_character"
@@ -376,7 +445,7 @@ def test_a_model_that_cannot_take_references_declares_no_slot_and_says_so():
     `image_url`, schnell returns 200 having ignored it. The note is the difference
     between that and the reference quietly going missing."""
     config = _config("togetherai", "black-forest-labs/FLUX.1-schnell", reference_source="character")
-    target = _target(OpenAICompatibleImageAdapter(config), config)
+    target = _target(_bound(config), config)
 
     assert target.reference_slots == ()
     assert any("does not accept reference images" in note for note in target.notes)
@@ -384,7 +453,7 @@ def test_a_model_that_cannot_take_references_declares_no_slot_and_says_so():
 
 def test_a_reference_capable_model_is_not_nagged_about_it():
     config = _config("togetherai", reference_source="character")
-    target = _target(OpenAICompatibleImageAdapter(config), config)
+    target = _target(_bound(config), config)
 
     assert len(target.reference_slots) == 1
     assert target.notes == ()
@@ -425,7 +494,7 @@ def test_the_reference_slot_declares_the_policy_that_bounds_it():
     mimes and the tighter base64-in-JSON cap. `test_display_encode` owns what those
     two then do to the bytes."""
     config = _config(reference_source="character")
-    (slot,) = _target(OpenAICompatibleImageAdapter(config), config).reference_slots
+    (slot,) = _target(_bound(config), config).reference_slots
 
     assert tuple(slot["mimes"]) == ("image/png", "image/jpeg")
     assert slot["max_bytes"] == CLOUD_REFERENCE_MAX_BYTES

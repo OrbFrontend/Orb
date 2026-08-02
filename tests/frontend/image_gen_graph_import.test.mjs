@@ -230,6 +230,46 @@ test("upload widgets become reference candidates from server typing", () => {
   assert.deepEqual(missingRoles(c), []);
 });
 
+test("size inputs are offered only where they are literally width and height", () => {
+  // Both edges come back in one bucket; the picker filters it into two selects. The
+  // point of the exactness is `grounding_px`: a bare INT that types identically and
+  // is not an output size, so mapping it patches something else entirely.
+  const sized = {
+    5: { class_type: "EmptyLatentImage", inputs: { width: 1024, height: 1024, batch_size: 1 } },
+    7: { class_type: "ImageScaleBy", inputs: { grounding_px: 768, upscale_method: "lanczos" } },
+    2: { class_type: "KSampler", inputs: { seed: 1 } },
+    3: { class_type: "SaveImage", inputs: { images: ["2", 0] } },
+  };
+  const typing = {
+    EmptyLatentImage: { output_node: false, dimension_inputs: ["width", "height"] },
+    // The server's rule already excluded it; this pins that the client agrees when
+    // the server is the one answering.
+    ImageScaleBy: { output_node: false, dimension_inputs: [] },
+    KSampler: { output_node: false, seed_inputs: ["seed"] },
+    SaveImage: { output_node: true },
+  };
+  assert.deepEqual(
+    slotCandidates(sized, typing).dimension.map((i) => splitCandidate(i.value)),
+    [
+      ["5", "width"],
+      ["5", "height"],
+    ],
+  );
+  // With the server unreachable the name list stands in, and reaches the same
+  // verdict on `grounding_px` -- a wrong guess here costs a broken render, so the
+  // fallback is deliberately exact rather than seed's substring rule.
+  assert.deepEqual(
+    slotCandidates(sized, {}).dimension.map((i) => splitCandidate(i.value)),
+    [
+      ["5", "width"],
+      ["5", "height"],
+    ],
+  );
+  // A graph that maps neither is unaffected: dimensions are never a missing role.
+  assert.deepEqual(slotCandidates(GRAPH, NODE_TYPES).dimension, []);
+  assert.deepEqual(missingRoles(slotCandidates(GRAPH, NODE_TYPES)), []);
+});
+
 test("the unreachable-server fallback still finds stock loaders", () => {
   const edit = {
     72: { class_type: "LoadImage", inputs: { image: "scene.png" } },

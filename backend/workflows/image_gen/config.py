@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Mapping
+from functools import partial
 from typing import Any
 from urllib.parse import SplitResult, urlsplit
 
@@ -24,8 +25,10 @@ MAX_USER_GRAPHS = 32
 # retained rather than replaced -- and, like everything here, bounded.
 MAX_CLOUD_PROVIDERS = 16
 CLOUD_QUALITIES = ("low", "medium", "high")
-# Canonical pixel bounds. Stored as width/height even for providers that speak
-# aspect ratios: one representation, converted at the wire.
+# Canonical pixel bounds, shared by both backends. Stored as width/height even for
+# providers that speak aspect ratios: one representation, converted at the wire. A
+# ComfyUI graph reads the same pair, through whichever node its `width`/`height`
+# slots map -- and ignores it entirely when it maps none.
 MIN_CLOUD_EDGE = 64
 MAX_CLOUD_EDGE = 4096
 DEFAULT_CLOUD_EDGE = 1024
@@ -61,6 +64,12 @@ CONFIG_DEFAULTS = {
     # derivation below would override it on every fresh config) and would re-pin a
     # style the user relinked if the defaults were re-seeded. The panel resolves ""
     # to whatever `source` says and writes the explicit id on first save.
+    #
+    # Deliberately silent about the render target -- no `model`, size or quality
+    # here. These rows are parsed through `_style` like any other, so declaring a
+    # size would out-rank the legacy `cloud.*` block they must inherit from: an
+    # install that configured cloud before styles were stored would silently reset
+    # to 1024x1024 on the first read.
     "styles": [
         {
             "id": "realistic",
@@ -95,28 +104,15 @@ CONFIG_DEFAULTS = {
         # A ComfyUI graph is meaningless to any other backend, so this one stays put.
         "user_graphs": [],
     },
+    # Connectivity only: an address and a credential, exactly as wide as
+    # `external_comfy`'s. What an image looks like belongs to the style.
     "cloud": {
         "provider": "xai",
-        "width": DEFAULT_CLOUD_EDGE,
-        "height": DEFAULT_CLOUD_EDGE,
-        "quality": "",
-        # "" is off. Sending conversation images to a third party is opt-in.
-        "reference_source": "",
         # One entry per cloud connection, keyed by provider id. One representative
         # entry ships so the preset-schema coverage walker can see the `api_key` leaf
         # under the map level; it is inert and the panel does not list it until it
         # holds something.
-        "providers": {
-            "xai": {
-                "api_key": "",
-                "model": "",
-                "base_url": "",
-                "width": DEFAULT_CLOUD_EDGE,
-                "height": DEFAULT_CLOUD_EDGE,
-                "quality": "",
-                "reference_source": "",
-            }
-        },
+        "providers": {"xai": {"api_key": "", "base_url": ""}},
     },
 }
 
@@ -127,7 +123,60 @@ def _text(value: Any, limit: int, default: str = "") -> str:
     return value.strip()[:limit] if isinstance(value, str) else default
 
 
-def _style(raw: Any) -> dict | None:
+def _edge(value: Any, default: int) -> int:
+    try:
+        pixels = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    return min(MAX_CLOUD_EDGE, max(MIN_CLOUD_EDGE, pixels))
+
+
+def _render_target(raw: Mapping[str, Any], cloud: Mapping[str, Any], connection: str) -> dict:
+    """The five fields that decide what an image looks like, and where they inherit
+    from while a stored config is still on its way to the new shape.
+
+    `cloud` is the **raw** cloud block, where four of them lived before styles took
+    them over. A style declaring none of its own takes them from the entry its
+    `connection` names, then from that block's top level -- so a config migrates on
+    first read and persists migrated on first write, no DB migration. Raw rather than
+    normalized because `_cloud` runs *after* styles are parsed (it needs the default
+    style's connection), so reading the normalized block would close a cycle.
+
+    Membership at each step, not truthiness: "" is a real stored value for `quality`
+    and `reference_source` ("provider default", "references off"), so a style that
+    declares one must not silently inherit the legacy global instead.
+
+    **The inheritance is the whole of the migration.** Once no install predates it,
+    everything below the `sources` line reduces to reading `raw`.
+    """
+    # An unlinked style renders on `cloud.provider`, so that is the entry it inherits
+    # from -- which is what makes the migration a no-op for what it next produces.
+    # Guarded on a non-empty id: `""` is not a connection, and `_cloud` drops an entry
+    # keyed by it, so inheriting from one would seed a style off a row that is about
+    # to cease to exist.
+    entries = cloud.get("providers")
+    source_id = connection or _text(cloud.get("provider"), 64)
+    entry = entries.get(source_id) if source_id and isinstance(entries, Mapping) else None
+    sources = (raw, entry if isinstance(entry, Mapping) else {}, cloud)
+
+    def inherited(name: str) -> Any:
+        return next((s[name] for s in sources if isinstance(s, Mapping) and name in s), None)
+
+    quality = _text(inherited("quality"), 16).lower()
+    reference_source = _text(inherited("reference_source"), 32)
+    return {
+        # "" means "the provider's own default", resolved at the adapter where the
+        # preset table lives -- not substituted here, so relinking to a provider with
+        # a different default does not need the stored value rewritten.
+        "model": _text(inherited("model"), 256),
+        "width": _edge(inherited("width"), DEFAULT_CLOUD_EDGE),
+        "height": _edge(inherited("height"), DEFAULT_CLOUD_EDGE),
+        "quality": quality if quality in CLOUD_QUALITIES else "",
+        "reference_source": reference_source if reference_source in REFERENCE_SOURCES else "",
+    }
+
+
+def _style(raw: Any, cloud: Mapping[str, Any]) -> dict | None:
     """One style entry, on the global style list.
 
     `connection` is what renders this style -- `COMFY_CONNECTION` or a cloud provider
@@ -135,11 +184,12 @@ def _style(raw: Any) -> dict | None:
     `source`, which is what lets an install upgrade without a style silently
     changing backend.
 
-    `checkpoint` and `workflow` are **ComfyUI-only fields on a shared object**, kept
-    per-style rather than moved into `external_comfy` so relinking to cloud and back
-    leaves a style's graph pin where it was. There is deliberately no per-style cloud
-    model: the model belongs to the connection, and two models on one provider is the
-    case for a second connection.
+    Both backends' render targets live here, and both halves are always present
+    whichever connection the style links to, so relinking cloud -> ComfyUI -> cloud
+    loses neither pin. `checkpoint`/`workflow` are the ComfyUI half; `model`,
+    `quality` and `reference_source` the cloud half (see `_render_target`);
+    `width`/`height` are read by both -- by ComfyUI only once its pinned graph maps
+    size slots.
     """
     if not isinstance(raw, Mapping):
         return None
@@ -167,6 +217,7 @@ def _style(raw: Any) -> dict | None:
         "connection": connection,
         "checkpoint": _text(raw.get("checkpoint"), 512),
         "workflow": workflow,
+        **_render_target(raw, cloud, connection),
     }
 
 
@@ -224,12 +275,15 @@ def _user_graph(raw: Any) -> dict | None:
     if len(json.dumps(graph, separators=(",", ":"), ensure_ascii=False).encode("utf-8")) > MAX_GRAPH_BYTES:
         return None
     slots: dict[str, Any] = {}
-    for name in ("positive", "negative", "seed", "output", "checkpoint"):
+    for name in ("positive", "negative", "seed", "output", "checkpoint", "width", "height"):
         parsed = _slot(slots_raw.get(name))
         if parsed is not None:
             slots[name] = parsed
-    # `negative` and `checkpoint` stay optional: a one-encoder prose graph has
-    # nothing to map negative to, and a self-contained graph keeps its own model.
+    # `negative`, `checkpoint` and the two size slots stay optional: a one-encoder
+    # prose graph has nothing to map negative to, a self-contained graph keeps its own
+    # model, and a graph whose output size comes from a reference image or an
+    # aspect-ratio node has no width/height pair to patch. Absent is how "unmapped"
+    # is encoded, which is also why no migration is needed for either.
     if not all(name in slots for name in ("positive", "seed", "output")):
         return None
     # Also optional, so a t2i graph normalizes unchanged: an unmapped LoadImage is
@@ -289,43 +343,22 @@ def _cloud_base_url(value: Any) -> str:
     return url.rstrip("/")
 
 
-def _edge(value: Any, default: int) -> int:
-    try:
-        pixels = int(float(value))
-    except (TypeError, ValueError):
-        return default
-    return min(MAX_CLOUD_EDGE, max(MIN_CLOUD_EDGE, pixels))
+def _cloud_provider_entry(raw: Any) -> dict:
+    """One cloud connection: an address and a credential, and nothing else.
 
+    Exactly as wide as the ComfyUI connection's `{api_url, api_key}`, because a
+    connection is how Orb *reaches* a backend. What an image looks like -- the model,
+    the resolution, the quality, whether a reference rides along -- is what a style
+    is, and lives there, so two styles on one provider can differ.
 
-def _cloud_provider_entry(raw: Any, legacy: Mapping[str, Any]) -> dict:
-    """One cloud connection: its credentials plus what it renders at.
-
-    Resolution, quality and reference images are per-connection because they are
-    provider-shaped facts -- xAI takes aspect ratios, OpenAI fixed sizes, most take
-    no references at all -- and styles link connections independently, so there is
-    no single active provider to hang one copy on.
-
-    `legacy` is the pre-connection cloud block, where those three lived at the top
-    level. An entry carrying none of its own inherits from there, so a stored config
-    migrates on first read and persists migrated on first write.
+    Those four did live here. They are not read off `raw` any more because `_style`
+    reads them off the same raw block on the way past; dropping them here is what
+    completes the migration on the next write.
     """
     raw = raw if isinstance(raw, Mapping) else {}
-    # Membership, not truthiness: "" is a real stored value for both ("provider
-    # default", "references off"), so declaring one must not inherit the old global.
-    quality = _text(raw["quality"] if "quality" in raw else legacy.get("quality"), 16).lower()
-    if quality not in CLOUD_QUALITIES:
-        quality = ""
-    reference_source = _text(raw["reference_source"] if "reference_source" in raw else legacy.get("reference_source"), 32)
-    if reference_source not in REFERENCE_SOURCES:
-        reference_source = ""
     return {
         "api_key": _text(raw.get("api_key"), 2_048),
-        "model": _text(raw.get("model"), 256),
         "base_url": _cloud_base_url(raw.get("base_url")),
-        "width": _edge(raw.get("width"), _edge(legacy.get("width"), DEFAULT_CLOUD_EDGE)),
-        "height": _edge(raw.get("height"), _edge(legacy.get("height"), DEFAULT_CLOUD_EDGE)),
-        "quality": quality,
-        "reference_source": reference_source,
     }
 
 
@@ -341,7 +374,8 @@ def _cloud(raw: Any, provider_override: str = "") -> dict:
 
     `provider_override` is the connection the style about to render links to, and it
     wins over the stored `provider` -- which is now a record of the last routing
-    decision rather than something the user picks.
+    decision rather than something the user picks. It survives as the legacy fallback
+    for a style carrying no `connection` at all, and that path is live.
     """
     raw = raw if isinstance(raw, Mapping) else {}
     defaults = CONFIG_DEFAULTS["cloud"]
@@ -359,21 +393,11 @@ def _cloud(raw: Any, provider_override: str = "") -> dict:
         pid = _text(candidate, 64)
         if not _ID_RE.fullmatch(pid) or pid in providers:
             continue
-        providers[pid] = _cloud_provider_entry(entry, raw)
+        providers[pid] = _cloud_provider_entry(entry)
         if len(providers) >= MAX_CLOUD_PROVIDERS:
             break
 
-    # The four render settings stay mirrored at the cloud level from whichever
-    # connection is routing, because that is where the adapter reads them.
-    active = providers.get(provider) or _cloud_provider_entry(None, raw)
-    return {
-        "provider": provider,
-        "width": active["width"],
-        "height": active["height"],
-        "quality": active["quality"],
-        "reference_source": active["reference_source"],
-        "providers": providers,
-    }
+    return {"provider": provider, "providers": providers}
 
 
 def _unique_by_id(candidates: Any, parse: Any, limit: int) -> list[dict]:
@@ -407,7 +431,17 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         raw_styles = external_raw.get("styles")
     if not isinstance(raw_styles, list):
         raw_styles = CONFIG_DEFAULTS["styles"]
-    styles = _unique_by_id(raw_styles, _style, MAX_STYLES) or copy.deepcopy(CONFIG_DEFAULTS["styles"])
+    cloud_value = raw.get("cloud")
+    cloud_raw: Mapping[str, Any] = cloud_value if isinstance(cloud_value, Mapping) else {}
+    # The raw cloud block is bound at the call site rather than by widening
+    # `_unique_by_id`, which `_user_graph` shares and has no cloud block to pass.
+    parse_style = partial(_style, cloud=cloud_raw)
+    # The shipped defaults go through the same parse rather than being copied in
+    # whole, so every path out of here produces one shape -- and so a config that
+    # never stored a style still inherits the cloud block it was configured with.
+    styles = _unique_by_id(raw_styles, parse_style, MAX_STYLES) or _unique_by_id(
+        CONFIG_DEFAULTS["styles"], parse_style, MAX_STYLES
+    )
     graphs = _unique_by_id(external_raw.get("user_graphs"), _user_graph, MAX_USER_GRAPHS)
 
     default_style = _text(raw.get("default_style"), 64, styles[0]["id"])
@@ -422,15 +456,14 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     if source not in SOURCES:
         source = DEFAULT_SOURCE
     # `source` is derived, not chosen: the form has a connection per style, so which
-    # backend routes is a property of the style the next render will use. Derived
-    # here rather than in the panel, so both surfaces route the same way. A style
-    # carrying no connection predates linking and leaves `source` alone.
-    connection = active_style({"styles": styles, "default_style": default_style})["connection"]
-    provider_override = ""
-    if connection == COMFY_CONNECTION:
-        source = "external_comfy"
-    elif connection:
-        source, provider_override = "cloud", connection
+    # backend routes is a property of the style, not of the config. Kept here only so
+    # `_status` and a stored attachment's record still have a global answer -- the
+    # render path routes per style through `style_source`, which is this same call
+    # with whichever style is actually about to render.
+    source, provider_override = style_source(
+        {"source": source, "cloud": cloud_raw},
+        active_style({"styles": styles, "default_style": default_style}),
+    )
 
     return {
         "source": source,
@@ -449,12 +482,36 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     }
 
 
+def style_source(config: Mapping[str, Any], style: Mapping[str, Any]) -> tuple[str, str]:
+    """`(source, provider_id)` for one style -- the one place routing is decided.
+
+    A style names its connection, so which backend renders it is a property of the
+    style rather than of the config. Routing on `config["source"]` instead was
+    survivable only while the cloud adapter ignored the style it was handed: a
+    rehydrate replays the style the *stored image* names, which need not be the
+    default one `source` was derived from.
+
+    `""` is a style that predates connection linking, and follows the stored global
+    so an existing install renders exactly where it always did. `source` is returned
+    unvalidated in that case -- the router degrades an unknown one, and a hand-edited
+    DB should not turn a page load into a 500.
+    """
+    connection = _text(style.get("connection"), 64) if isinstance(style, Mapping) else ""
+    if connection == COMFY_CONNECTION:
+        return "external_comfy", ""
+    if connection:
+        return "cloud", connection
+    cloud = config.get("cloud")
+    source = _text(config.get("source"), 32, DEFAULT_SOURCE) or DEFAULT_SOURCE
+    provider = _text(cloud.get("provider"), 64) if isinstance(cloud, Mapping) else ""
+    return source, (provider if source == "cloud" else "")
+
+
 def active_style(config: Mapping[str, Any]) -> dict:
     """The style the next render will use, unless a trigger names another.
 
-    The one place "which style is in play" is decided, because two things must
-    agree on it: `normalize_config` derives `source` from this style's connection,
-    and each adapter answers `readiness()` about it.
+    The one place "which style is in play" is decided when nothing names one: the
+    tools-panel card's status line, and any adapter built without a bound style.
     """
     styles = config["styles"]
     return next((s for s in styles if s["id"] == config["default_style"]), styles[0])

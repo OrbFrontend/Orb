@@ -33,8 +33,9 @@ def _config(default_style: str = "anime", **external) -> dict:
 
 
 def _target(config: dict, style_id: str, replay: dict | None = None):
-    """What the render path resolves: the config's adapter, asked about one style."""
-    return get_adapter(config).resolve_target(resolve_style(config, style_id), replay)
+    """What the render path resolves: the style's adapter, asked about that style."""
+    style = resolve_style(config, style_id)
+    return get_adapter(config, style).resolve_target(replay)
 
 
 def test_a_fresh_render_follows_the_style():
@@ -42,8 +43,52 @@ def test_a_fresh_render_follows_the_style():
     # target graph is empty; the adapter turns that into an "assign a workflow" error.
     target = _target(_config(), "anime")
     assert (target.source, target.target_id, target.model, target.notes) == ("external_comfy", "", "current.safetensors", ())
-    # The graph carries its own latent size, so Orb never pins one.
+    # No graph, so no mapped size slots: the workflow decides, exactly as before the
+    # slot existed. Orb pins a resolution only where it can actually write one.
     assert (target.supports_dimensions, target.width, target.height) == (False, None, None)
+
+
+def test_a_graph_mapping_size_slots_takes_the_styles_resolution():
+    sized = {
+        "id": "user_sized",
+        "label": "Sized",
+        "graph": {**GRAPH, "l": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512}}},
+        "slots": {**SLOTS, "width": ["l", "width"], "height": ["l", "height"]},
+    }
+    config = _config(
+        user_graphs=[sized, {"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}],
+        styles=[
+            {"id": "anime", "label": "Anime", "workflow": "user_sized", "width": 1024, "height": 1536},
+            {"id": "own", "label": "Own", "workflow": "user_a", "width": 1024, "height": 1536},
+        ],
+    )
+    sized_target = _target(config, "anime")
+    assert (sized_target.supports_dimensions, sized_target.width, sized_target.height) == (True, 1024, 1536)
+    assert sized_target.notes == ()
+
+    # The same style setting against a graph that maps nothing: inert, and disclosed
+    # rather than left to be noticed, because the picker still shows the resolution.
+    own = _target(config, "own")
+    assert (own.supports_dimensions, own.width, own.height) == (False, None, None)
+    assert any("decides its own output size" in note for note in own.notes)
+
+
+def test_a_replay_pins_the_resolution_it_was_generated_at():
+    """The substitution rehydrate exists to avoid, now reachable on ComfyUI too:
+    once Orb can write the size, reading today's picker hands a rehydrate an image of
+    a different shape than the one it promised to restore."""
+    sized = {
+        "id": "user_sized",
+        "label": "Sized",
+        "graph": {**GRAPH, "l": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512}}},
+        "slots": {**SLOTS, "width": ["l", "width"], "height": ["l", "height"]},
+    }
+    config = _config(
+        user_graphs=[sized],
+        styles=[{"id": "anime", "label": "Anime", "workflow": "user_sized", "width": 1536, "height": 1024}],
+    )
+    target = _target(config, "anime", {"workflow_id": "user_sized", "width": 1024, "height": 1024})
+    assert (target.width, target.height) == (1024, 1024)
 
 
 @pytest.mark.parametrize(
@@ -134,6 +179,57 @@ async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused
 
     with pytest.raises(ImageGenerationError, match="needs a reference image the stored image did not record"):
         await hooks.reroll_gen(_RerollCtx("plain"), params, "1")
+
+
+# ── routing, when the replayed style is not the default one ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_replay_routes_on_its_own_style_not_the_configs_default(monkeypatch):
+    """The regression this plan is fixing. `normalize_config` derives `source` from
+    the *default* style, and `/rehydrate` calls the hook with the attachment's stored
+    `style_id` -- whatever the image was originally made with. Routing on `source`
+    therefore handed a ComfyUI-linked style to the cloud adapter, which answered
+    "Choose a model for xAI" about a style holding a perfectly good checkpoint.
+
+    `/reroll-gen` never showed it because the widget overwrites `style_id` with the
+    default style on every reroll; rehydrate does not.
+    """
+    from backend.workflows.image_gen.engine.contracts import ImageResult
+
+    config = normalize_config(
+        {
+            "default_style": "remote",
+            "styles": [
+                {"id": "remote", "connection": "xai"},
+                {"id": "local", "connection": "comfy", "workflow": "user_a", "checkpoint": "anime.safetensors"},
+            ],
+            "external_comfy": {"user_graphs": [{"id": "user_a", "label": "Mine", "graph": GRAPH, "slots": SLOTS}]},
+            "cloud": {"providers": {"xai": {"api_key": "k"}}},
+        }
+    )
+    assert config["source"] == "cloud", "precondition: the default style routes to the cloud"
+
+    async def get_config(_workflow_id):
+        return config
+
+    captured: dict = {}
+
+    async def fake_generate(_adapter, request, *, target=None, progress=None):
+        captured["target"] = target
+        return ImageResult(image_bytes=b"rendered", mime="image/png", backend_info={"notes": []})
+
+    monkeypatch.setattr(hooks, "get_workflow_config", get_config)
+    monkeypatch.setattr(hooks, "resolve_and_generate", fake_generate)
+
+    params = {"prompt": "a quiet room", "negative_prompt": "", "style_id": "local", "source": "external_comfy"}
+    _, consumption = await hooks.reroll_gen(_RerollCtx("local"), params, "1")
+
+    assert captured["target"].source == "external_comfy"
+    assert (captured["target"].target_id, captured["target"].model) == ("user_a", "anime.safetensors")
+    assert consumption["source"] == "External ComfyUI"
+    # And nothing claims a backend change, because there was none.
+    assert not any("re-rendered on" in note for note in consumption.get("notes", []))
 
 
 # ── reference images on a cloud reroll ───────────────────────────────────────

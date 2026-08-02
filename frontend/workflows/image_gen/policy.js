@@ -91,8 +91,11 @@ export function connectionLabel(id, providers = []) {
   return providers.find((p) => p.id === id)?.label || id;
 }
 
+// A connection is credentials and an address, so those are the only fields that can
+// make one "held". The model used to count here and no longer exists at this level:
+// it is what a *style* renders with.
 function hasContent(entry) {
-  return !!(entry && (entry.api_key || entry.model || entry.base_url));
+  return !!(entry && (entry.api_key || entry.base_url));
 }
 
 function hostLabel(apiUrl) {
@@ -103,9 +106,19 @@ function hostLabel(apiUrl) {
   }
 }
 
+// What the collapsed cloud row says when nothing is wrong with it. The model was the
+// old answer and belongs to the style now, so the useful remaining fact is whether
+// anything renders here at all — an unlinked connection with a valid key is a real
+// state, and one worth seeing before wondering why a setting has no effect.
+function linkedLabel(count) {
+  if (!count) return "No styles";
+  return count === 1 ? "1 style" : `${count} styles`;
+}
+
 // Whether this connection could render right now, mirroring the backend
 // `readiness()` implementations — but only their *connection-level* clauses. A
-// ComfyUI style missing a workflow is a style problem, reported on the style row.
+// ComfyUI style missing a workflow, or a cloud style naming no model, is a style
+// problem, reported on the style row.
 function readiness(connection, entry, preset) {
   if (connection.source !== "cloud") {
     return connection.detail ? { ready: true, detail: connection.detail } : { ready: false, detail: "No server URL" };
@@ -113,8 +126,16 @@ function readiness(connection, entry, preset) {
   if (!preset) return { ready: false, detail: "Unknown provider" };
   if (preset.needs_base_url && !entry.base_url) return { ready: false, detail: "No API base URL" };
   if (!entry.api_key) return { ready: false, detail: "No API key" };
-  if (!connection.detail) return { ready: false, detail: "No model" };
   return { ready: true, detail: connection.detail };
+}
+
+// Every style that renders on `id`, through `styleConnectionId` so a style predating
+// connection linking counts against the connection it actually resolves to. The one
+// question the collapsed summary line and the privacy disclosure both ask, so they
+// cannot come to two different answers about which connection is in use.
+function stylesOn(config = {}, id) {
+  const styles = Array.isArray(config.styles) ? config.styles : [];
+  return styles.filter((style) => styleConnectionId(style, config) === id);
 }
 
 // Every connection the settings form should list, ComfyUI first.
@@ -126,12 +147,7 @@ function readiness(connection, entry, preset) {
 // which "counts because it holds something" would drop between the click and the
 // first keystroke.
 export function connectionList(config = {}, providers = [], pending = []) {
-  const comfy = config.external_comfy || {};
-  const cloud = config.cloud || {};
-  const entries = cloud.providers || {};
-  const styles = Array.isArray(config.styles) ? config.styles : [];
-  const linked = new Set([...styles.map((s) => s?.connection).filter(Boolean), ...pending]);
-
+  const entries = config.cloud?.providers || {};
   const list = [
     {
       id: COMFY_CONNECTION,
@@ -140,20 +156,23 @@ export function connectionList(config = {}, providers = [], pending = []) {
       kind: "Local",
       removable: false,
       preset: null,
-      detail: hostLabel(comfy.api_url || ""),
+      detail: hostLabel(config.external_comfy?.api_url || ""),
     },
   ];
   for (const [id, entry] of Object.entries(entries)) {
-    if (!hasContent(entry) && !linked.has(id)) continue;
-    const preset = providers.find((p) => p.id === id) || null;
+    const linked = stylesOn(config, id);
+    // A connection some style renders on is always listed, credentialed or not:
+    // otherwise "Paste an API key for xAI" names a row the panel does not show, and
+    // the one thing the user must fix is the one thing they cannot reach.
+    if (!hasContent(entry) && !linked.length && !pending.includes(id)) continue;
     list.push({
       id,
       source: "cloud",
       label: connectionLabel(id, providers),
       kind: "Cloud",
       removable: true,
-      preset,
-      detail: entry?.model || preset?.default_model || "",
+      preset: providers.find((p) => p.id === id) || null,
+      detail: linkedLabel(linked.length),
     });
   }
   return list.map((connection) => ({
@@ -200,22 +219,24 @@ export function modelTakesReferences(preset, model) {
 // per connection because a save can turn on a second remote backend without it ever
 // being "active"; an unlinked connection is not a boundary anything will cross.
 export function pendingDisclosures(config = {}, connections = []) {
-  const styles = Array.isArray(config.styles) ? config.styles : [];
-  const used = new Set(styles.map((style) => styleConnectionId(style, config)));
   const external = config.external_comfy || {};
-  const entries = config.cloud?.providers || {};
   const notices = [];
   for (const connection of connections) {
-    if (!used.has(connection.id)) continue;
-    const entry = entries[connection.id] || {};
+    const linked = stylesOn(config, connection.id);
+    // An unlinked connection is not a boundary anything will cross.
+    if (!linked.length) continue;
     const notice = privacyDisclosure({
       source: connection.source,
       apiUrl: external.api_url || "",
       providerId: connection.id,
       providerLabel: connection.label,
+      // Whether *anything reaching this connection* sends images. Reference images
+      // are a style setting now, so asking the connection would miss the case that
+      // matters: one style on this provider with references on is enough for the
+      // bigger disclosure, whatever its neighbours are set to.
       sendsImages:
         connection.source === "cloud"
-          ? !!entry.reference_source
+          ? linked.some((style) => !!style.reference_source)
           : (external.user_graphs || []).some((graph) => (graph?.slots?.references || []).length > 0),
     });
     if (notice) notices.push(notice);
