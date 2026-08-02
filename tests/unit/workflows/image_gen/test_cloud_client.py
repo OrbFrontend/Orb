@@ -133,6 +133,69 @@ async def test_all_three_model_list_shapes_are_read():
 
 
 @pytest.mark.asyncio
+async def test_the_nanogpt_shape_reads_ids_off_a_mapping_not_a_list():
+    """NanoGPT's image catalogue is `{"models": {"image": {id: {...}}}}` -- the ids
+    are the keys, and the values are per-model capability records Orb does not read.
+    Its documented `/v1/models` is a perfectly ordinary `{"data": [...]}` holding 653
+    models, none of which make an image, so a row that reads the ordinary shape gets
+    a full dropdown and no way to render."""
+    payload = {
+        "models": {
+            "text": {"claude-opus-5": {"name": "Claude"}},
+            "image": {"cyberrealistic-xl": {"iconLabel": "both"}, "flux-schnell": {"iconLabel": "text-to-image"}},
+            "video": {"veo": {}},
+        }
+    }
+    models = await _client(_ok(payload)).list_models("../models", "nanogpt_image_map")
+    assert models == ["cyberrealistic-xl", "flux-schnell"]
+
+
+@pytest.mark.asyncio
+async def test_the_nanogpt_shape_pointed_at_a_list_is_malformed():
+    """The same guard the other shapes get: a silently-empty picker reads to the
+    user as "this key has no models", not as "Orb parsed the wrong thing"."""
+    with pytest.raises(CloudImageError) as excinfo:
+        await _client(_ok({"data": [{"id": "flux"}]})).list_models("../models", "nanogpt_image_map")
+    assert excinfo.value.kind == "malformed"
+
+
+@pytest.mark.asyncio
+async def test_a_relative_models_path_climbs_off_the_version_prefix():
+    """NanoGPT serves `/api/v1/images/*` but `/api/models`, so the preset reaches it
+    with `../models` rather than the base URL being wrong for everything else."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"models": {"image": {"cyberrealistic-xl": {}}}})
+
+    await _client(handler).list_models("../models", "nanogpt_image_map")
+    assert seen == ["/models"]
+
+
+@pytest.mark.asyncio
+async def test_verify_key_raises_auth_on_a_401_and_is_silent_otherwise():
+    """The endpoint exists because NanoGPT serves its model list to anonymous
+    callers: resting Test connection on that list reports "Connected" for a key that
+    401s on the first render the user pays to discover."""
+    seen: list[str] = []
+
+    def good(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"object": "usage"})
+
+    assert await _client(good).verify_key("/usage") is None
+    assert seen == ["/v1/usage"]
+
+    rejected = lambda _request: httpx.Response(  # noqa: E731
+        401, json={"error": {"message": "Incorrect API key", "code": "invalid_api_key"}}
+    )
+    with pytest.raises(CloudImageError) as excinfo:
+        await _client(rejected).verify_key("/usage")
+    assert excinfo.value.kind == "auth"
+
+
+@pytest.mark.asyncio
 async def test_a_type_filter_keeps_only_that_modality():
     """Together hosts one catalogue for everything: 271 entries, 29 of them image
     models. Unfiltered, the picker is mostly chat models that cannot render."""
@@ -190,8 +253,12 @@ async def test_each_status_gets_its_own_message(status, payload, expected):
         (400, "Your request was rejected by our content policy", "m", "moderation", "content policy"),
         # Flagged so the adapter can re-render on the configured model and disclose.
         (404, "no such model", "grok-imagine-legacy", MODEL_NOT_FOUND, "grok-imagine-legacy"),
+        # The providers do not agree on the status: NanoGPT answers 400 for a model
+        # it does not have, so a branch gated on 404 alone leaves the degrade path
+        # dead there and a rehydrate of a retired model dying as a bare rejection.
+        (400, "Invalid image model specified.", "retired-model", MODEL_NOT_FOUND, "retired-model"),
     ],
-    ids=["moderation", "model gone"],
+    ids=["moderation", "model gone", "model gone on a 400"],
 )
 async def test_a_refusal_carries_the_kind_the_caller_degrades_on(status, message, model, kind, expected):
     handler = lambda _request: httpx.Response(status, json={"error": {"message": message}})  # noqa: E731
@@ -199,6 +266,46 @@ async def test_a_refusal_carries_the_kind_the_caller_degrades_on(status, message
         await _client(handler).create_image("/images/generations", {"model": model}, provider_id="xai", timeout=10)
     assert exc.value.kind == kind
     assert expected in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_model_is_recognised_from_the_code_when_the_message_is_prose():
+    """NanoGPT puts `invalid_model` in `error.code` and again at the top level. The
+    branch reads the codes rather than resting on the human sentence, which a
+    provider is free to reword between releases."""
+    handler = lambda _request: httpx.Response(  # noqa: E731
+        400,
+        json={
+            "error": {"message": "We could not run that.", "type": "invalid_request_error", "code": "invalid_model"},
+            "code": "invalid_model",
+        },
+    )
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "gone"}, provider_id="nanogpt", timeout=10)
+    assert exc.value.kind == MODEL_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_a_top_level_cost_is_read_when_there_is_no_usage_block():
+    """NanoGPT reports `{"cost": 0.0034}` beside `data`, in plain USD, and nothing
+    under `usage`. Reading `usage` alone showed no cost row on a render that had
+    one -- which reads as free rather than as unreported."""
+    payload = {"data": [{"b64_json": base64.b64encode(PNG).decode()}], "cost": 0.0034, "remainingBalance": "4.77"}
+    image = await _client(_ok(payload)).create_image("/images/generations", {"model": "m"}, provider_id="nanogpt", timeout=10)
+    assert image.cost == {"provider": "nanogpt", "unit": "usd", "value": 0.0034}
+
+
+@pytest.mark.asyncio
+async def test_a_usage_block_still_wins_over_a_top_level_cost():
+    """A provider reporting both means the nested one; the top level is the fallback
+    for providers that have no `usage` at all."""
+    payload = {
+        "data": [{"b64_json": base64.b64encode(PNG).decode()}],
+        "usage": {"cost_in_usd_ticks": 1400},
+        "cost": 99,
+    }
+    image = await _client(_ok(payload)).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+    assert image.cost == {"provider": "xai", "unit": "usd_ticks", "value": 1400}
 
 
 @pytest.mark.asyncio

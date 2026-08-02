@@ -39,8 +39,13 @@ reach.
 
 Where a provider hosts more than images, the dropdown lists only the models that
 generate them — Together AI publishes one catalogue of 271 models, of which 29
-make images. If a provider stops labelling its catalogue, the dropdown falls
+make images, and NanoGPT publishes its 202 image models in a different place from
+its 653 text ones. If a provider stops labelling its catalogue, the dropdown falls
 back to the full list rather than showing you nothing.
+
+On most providers, asking for the model list is also what proves your key works.
+NanoGPT hands out its catalogue to anyone, so **Test connection** checks the key
+against its usage endpoint first — still free, still not a render.
 
 Orb stores one key per provider. Switching provider keeps the key for the one you
 left, so you can move back and forth without pasting keys again.
@@ -55,7 +60,7 @@ All of these speak the same OpenAI-shaped `POST /v1/images/generations` contract
 | **OpenAI** | No | `gpt-image-1`. Uses `size` rather than aspect ratios. |
 | **OpenRouter** | No | Model catalogue varies by account. |
 | **Together AI** | Yes | Probed against the live API. Accepts a seed and arbitrary resolutions (any multiple of 16 up to 1792px). Reference images on its Kontext models only. Default model `black-forest-labs/FLUX.1-schnell`. |
-| **NanoGPT** | No | |
+| **NanoGPT** | Yes | Probed against the live API. 202 image models, including uncensored ones. Accepts a seed, a negative prompt, and any resolution. Reference images on many models but not all. Default model `cyberrealistic-xl`. |
 | **Chutes** | No | |
 | **Z.AI** | No | |
 | **AI/ML API** | No | |
@@ -90,7 +95,10 @@ The settings panel states this for the provider you selected. In general:
 - **Aspect ratios, not exact pixels.** Orb picks the nearest ratio or size the
   provider accepts and notes it on the image when the match is more than about 2%
   off. Providers that take exact pixels — Together AI — get the resolution you
-  asked for, snapped to the grid they accept.
+  asked for, snapped to the grid they accept. NanoGPT is sent the resolution
+  verbatim and picks the nearest size the chosen model supports, which is why
+  **Render details** records what actually came back rather than what was asked
+  for.
 
 Style prompts, the character appearance prompt, the camera, and the resolution
 all still apply.
@@ -110,6 +118,22 @@ wonder. To have negative prompts take effect, pick a non-distilled model.
 Together AI also honours a seed without guaranteeing it reproduces: the same
 seed usually returns the same image, but not always. Treat it as influence over
 the result rather than as a reproducibility guarantee.
+
+NanoGPT is the same story across a much larger catalogue: `hidream-i1-fast`
+returns the identical image whether you send a negative prompt or not, while
+`cyberrealistic-xl`, `wai-illustrious-sdxl` and `rev-animated` honour both the
+negative prompt and the seed exactly. Its resolution menu is per model too — a
+size the chosen model does not list still renders, at the nearest size it does,
+and on some models at a different price.
+
+### Content refusals are per model on NanoGPT
+
+NanoGPT is a broker, so the policy that refuses you is the upstream model's, not
+NanoGPT's. `ideogram/v4/instant` answers a clear
+`content_policy_violation` and Orb reports it as a refusal; `dall-e-3` answers a
+generic *"Invalid request parameters"* for the same prompt, which Orb can only
+report as a rejection. Its uncensored models — the SDXL and Illustrious
+checkpoints — render what the smaller commercial APIs will not.
 
 ## Cost
 
@@ -177,6 +201,21 @@ One thing the resolution picker cannot control: a Kontext render takes its size
 from the reference image, so a 512×512 reference returns a square whatever the
 picker says. The image notes this, and **Render details** records the size that
 actually came back.
+
+### On NanoGPT, check the model yourself
+
+Around 118 of NanoGPT's 202 image models accept a reference — every model whose
+catalogue entry is marked *image-to-image* or *both*, plus a number that are not.
+The rest return a perfectly good image that ignored it, and bill for it. Orb
+sends the reference to whichever model you chose rather than second-guessing a
+catalogue that gains models every week, so the model name in the picker is the
+thing to check. Anything with `edit`, `remix` or `kontext` in its name takes one;
+so do the SDXL and Illustrious checkpoints. `flux-schnell`, `z-image-turbo` and
+`fal-ai/krea-2/turbo` do not.
+
+Size behaviour varies with the model as well: a dedicated edit model like
+`step-image-edit-2` returns the reference's own dimensions, while the SDXL
+checkpoints keep the resolution you picked.
 
 The same is true when nothing resolves — a new conversation with no images yet
 and no character reference. The render goes to the generation endpoint and the

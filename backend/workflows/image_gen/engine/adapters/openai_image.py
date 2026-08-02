@@ -196,6 +196,11 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         """
         preset = self._require_preset()
         client = self._client(30.0)
+        if preset.auth_probe_path:
+            # First, so a bad key fails as "the API key was rejected" rather than
+            # succeeding: NanoGPT serves its model catalogue to anonymous callers, so
+            # the list below proves the provider is up and nothing about the key.
+            await client.verify_key(preset.auth_probe_path)
         models = await client.list_models(preset.models_path, preset.models_response, preset.models_type_filter)
         return {
             "ok": True,

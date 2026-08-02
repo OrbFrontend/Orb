@@ -63,6 +63,23 @@ def _together_config(model: str = "black-forest-labs/FLUX.1-kontext-pro", **clou
     )
 
 
+def _nanogpt_config(model: str = "cyberrealistic-xl", **cloud) -> dict:
+    """NanoGPT is the row where Test connection cannot rest on the model list: it
+    serves that list to anonymous callers, so the key is proved somewhere else."""
+    return normalize_config(
+        {
+            "source": "cloud",
+            "styles": [{"id": "anime", "label": "Anime"}],
+            "default_style": "anime",
+            "cloud": {
+                "provider": "nanogpt",
+                "providers": {"nanogpt": {"api_key": "sk-test", "model": model}},
+                **cloud,
+            },
+        }
+    )
+
+
 def _adapter(config, handler) -> OpenAICompatibleImageAdapter:
     """The adapter with its one network seam swapped for a MockTransport, exactly
     as `test_external_adapter` swaps `ComfyClient`."""
@@ -133,6 +150,41 @@ async def test_validate_connection_never_posts_to_the_generations_path():
     assert set(result) == {"ok", "capabilities", "system", "models"}
     assert result["system"] == {"provider": "xAI (Grok)", "host": "api.x.ai"}
     assert "devices" not in result["system"]
+
+
+@pytest.mark.asyncio
+async def test_a_declared_auth_probe_runs_first_and_still_never_renders():
+    """NanoGPT answers its model list to a bogus key and to no key at all, so a Test
+    connection resting on it reports "Connected" for a key that 401s on the first
+    render the user pays to discover. The probe is a free GET, before the list."""
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET", f"Test connection must not {request.method} {request.url.path}"
+        assert "generations" not in request.url.path
+        seen.append(request.url.path)
+        if request.url.path.endswith("/usage"):
+            return httpx.Response(200, json={"object": "usage"})
+        return httpx.Response(200, json={"models": {"image": {"cyberrealistic-xl": {}, "flux-schnell": {}}}})
+
+    result = await _adapter(_nanogpt_config(), handler).validate_connection()
+
+    assert seen == ["/v1/usage", "/models"]
+    assert result["models"] == ["cyberrealistic-xl", "flux-schnell"]
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_key_fails_test_connection_even_though_the_list_would_pass():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/usage"):
+            return httpx.Response(401, json={"error": {"message": "Incorrect API key", "code": "invalid_api_key"}})
+        raise AssertionError("the model list must not be reached once the key is known bad")
+
+    from backend.workflows.image_gen.engine.openai_image_client import CloudImageError
+
+    with pytest.raises(CloudImageError) as excinfo:
+        await _adapter(_nanogpt_config(), handler).validate_connection()
+    assert excinfo.value.kind == "auth"
 
 
 # ── targeting ────────────────────────────────────────────────────────────────

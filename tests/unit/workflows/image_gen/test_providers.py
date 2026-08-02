@@ -30,6 +30,9 @@ assert XAI is not None
 TOGETHER = get_preset("togetherai")
 assert TOGETHER is not None
 
+NANOGPT = get_preset("nanogpt")
+assert NANOGPT is not None
+
 
 def test_every_preset_endpoint_is_https():
     for preset in PRESETS:
@@ -43,7 +46,7 @@ def test_every_preset_endpoint_is_https():
         assert not parsed.username and not parsed.password, preset.id
     # An unverified row is a guess from vendor docs, and saying so in the table is
     # what keeps the next person from trusting it as measured fact.
-    assert [preset.id for preset in PRESETS if preset.verified] == ["xai", "togetherai"]
+    assert [preset.id for preset in PRESETS if preset.verified] == ["xai", "togetherai", "nanogpt"]
 
 
 def test_a_width_height_preset_declares_the_grid_it_snaps_to():
@@ -192,6 +195,32 @@ def test_an_overlong_prompt_is_truncated_with_a_note():
     assert any("truncated" in note for note in built.notes)
 
 
+def test_the_nanogpt_prompt_limit_is_the_one_it_enforces():
+    """3000, verified live: NanoGPT 400s a longer prompt rather than truncating it,
+    and a composed scene plus a style prompt clears the default 4000 easily. The
+    builder truncating is what keeps that from being a failed render."""
+    assert NANOGPT.max_prompt == 3_000
+    built = build_generation_body(NANOGPT, model="cyberrealistic-xl", prompt="x" * 4_000)
+    assert len(built.body["prompt"]) == 3_000
+    assert any("truncated" in note for note in built.notes)
+
+
+# ── size pass-through ────────────────────────────────────────────────────────
+
+
+def test_a_size_preset_with_no_menu_sends_the_request_verbatim():
+    """NanoGPT's resolution menu is a *per-model* fact -- 156 renderable models and
+    no size on more than 83 of them -- so there is no provider-wide menu to declare.
+    Verified live that it translates a `WxH` size into whatever the chosen model
+    speaks: an aspect-ratio model answered 1344x768 and a named-size model answered
+    1024x576. Snapping to a menu here would substitute a worse answer for that one,
+    and disclose the substitution as if it were what the provider did."""
+    assert NANOGPT.sizes == ()
+    built = build_generation_body(NANOGPT, model="cyberrealistic-xl", prompt="p", width=1024, height=576)
+    assert built.body["size"] == "1024x576"
+    assert built.notes == []
+
+
 # ── aspect mapping ───────────────────────────────────────────────────────────
 
 
@@ -309,6 +338,26 @@ def test_a_reference_render_discloses_that_it_overrode_the_resolution():
 def test_a_provider_whose_references_do_not_drive_the_size_says_nothing():
     built = build_edit_body(XAI, model="m", prompt="p", references=[_reference()], width=1024, height=1024)
     assert not any("set the output size" in note for note in built.notes)
+
+
+def test_nanogpt_carries_its_reference_as_a_bare_data_uri_under_image():
+    """The one spelling NanoGPT rejects is `images: [{"url": ...}]` -- the shape xAI
+    and OpenAI want -- which 400s with `missing_image_input`. A bare `data:` URI
+    under `image` is what was verified, on both the edits and the generations path."""
+    body = build_edit_body(NANOGPT, model="step-image-edit-2", prompt="p", references=[_reference()]).body
+    assert isinstance(body["image"], str)
+    assert body["image"].startswith("data:image/png;base64,")
+    assert "images" not in body
+
+
+def test_nanogpt_offers_references_on_every_model_and_names_the_trade_once():
+    """202 image models, 118 of which take a reference, and the id is in front of the
+    user when they choose it. An allowlist over a catalogue that size narrows itself
+    every time NanoGPT ships a model, so the panel states the trade once instead."""
+    assert NANOGPT.reference_models == ()
+    assert takes_references(NANOGPT, "cyberrealistic-xl") is True
+    assert takes_references(NANOGPT, "flux-schnell") is True
+    assert any("ignore them" in gap for gap in NANOGPT.gaps)
 
 
 def test_a_provider_without_reference_support_never_takes_them():

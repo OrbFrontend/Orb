@@ -8,14 +8,20 @@ so the API never tells you a parameter was wrong: send `negative_prompt` to a
 provider that has no such field and it returns a perfectly good image that ignored
 it. A field is emitted only when the preset declares it.
 
-Only the **xai** and **togetherai** rows are verified against the live API; every
-other row is declared from vendor documentation and marked ``verified=False``.
+Only the **xai**, **togetherai** and **nanogpt** rows are verified against the live
+API; every other row is declared from vendor documentation and marked
+``verified=False``.
 
 Together is the cautionary tale the paragraph above describes. It was declared
 ``dimension_mode="size"`` from its docs; the live API accepts `size`, ignores it,
 and renders the model default -- so a 1024x576 request was mapped to a square,
 disclosed to the user as a square, and came back 1024x768. Three separate wrong
 answers from one undeclared field. It speaks `width`/`height` integers instead.
+
+NanoGPT is the second: its documented `/v1/models` holds 653 models and **not one
+of them makes an image**, so the row Orb shipped from the docs would have filled the
+picker with chat models and offered no way to reach the 202 image ones. Its image
+catalogue is a different path, off the version prefix, in a third response shape.
 """
 
 from __future__ import annotations
@@ -41,12 +47,21 @@ class ProviderPreset:
     base_url: str
     generations_path: str = "/images/generations"
     edits_path: str = ""
+    # Joined onto `base_url`, so `../` reaches off the version prefix: NanoGPT's
+    # image catalogue lives at `/api/models` while everything else it serves is
+    # under `/api/v1`.
     models_path: str = "/models"
     # OpenAI answers `{"data":[{id}]}`; xAI's image-model endpoint answers
-    # `{"models":[{id, ...}]}`; Together answers a *bare JSON array*. Not the same
-    # shape, not interchangeable -- reading the wrong one yields an empty list and
-    # a Test connection button that fails against a perfectly healthy provider.
+    # `{"models":[{id, ...}]}`; Together answers a *bare JSON array*; NanoGPT answers
+    # `{"models": {"image": {id: {...}}}}` -- a mapping keyed by id, not a list at
+    # all. Not the same shape, not interchangeable -- reading the wrong one yields an
+    # empty list and a Test connection button that fails against a healthy provider.
     models_response: str = "openai_data"
+    # A free, *authenticated* GET that proves the key works. Only declared where the
+    # model list cannot: NanoGPT serves its catalogue to anonymous callers, so a Test
+    # connection resting on it answers "Connected" to a key that cannot render a
+    # thing. Never a generations path -- a Test button that bills is unacceptable.
+    auth_probe_path: str = ""
     # Kept only when an entry declares this `type`. Together's `/models` is one list
     # of everything it hosts -- 271 entries, 29 of them image models -- so without
     # this the picker is 242 chat models the user has to scroll past.
@@ -228,10 +243,51 @@ PRESETS: tuple[ProviderPreset, ...] = (
         id="nanogpt",
         label="NanoGPT",
         base_url="https://nano-gpt.com/api/v1",
+        edits_path="/images/edits",
+        # NOT `/v1/models`. That path answers 200 with 653 models and not one of them
+        # makes an image -- the image catalogue is 202 separate entries one level up,
+        # under `models.image`, keyed by id rather than listed.
+        models_path="../models",
+        models_response="nanogpt_image_map",
+        # `/v1/models` answers 200 to a bogus key *and* to no key at all, so a Test
+        # connection resting on it is not a test. `/v1/usage` is free and 401s.
+        auth_probe_path="/usage",
+        # Verified: `size: "1024x576"` is understood whatever vocabulary the chosen
+        # model publishes -- NanoGPT translates it, so an aspect-ratio model answered
+        # 1344x768 and a named-size model answered 1024x576. No `sizes` menu, because
+        # there is no provider-wide one to declare: each model publishes its own, and
+        # snapping the request to a menu the *next* model does not share would be a
+        # worse answer than the one the provider itself picks. See `gaps`.
         dimension_mode="size",
-        sizes=_OPENAI_SIZES,
+        supports_negative_prompt=True,
+        # Verified by rendering one seed with and without a contradicting negative
+        # prompt: byte-identical means the field was dropped. Sound here only because
+        # the same seed reproduces on this provider -- a third call proves that per
+        # model before the comparison is trusted, which is what stopped `pixelwave`
+        # from being listed on a run where two identical requests disagreed.
+        negative_prompt_blind=("hidream-i1",),
+        supports_seed=True,
+        # Verified live on `step-image-edit-2`: `image` as a bare `data:` URI, on
+        # either path. `images: [{"url": ...}]` -- the shape xAI and OpenAI want --
+        # is the one spelling NanoGPT rejects outright, with `missing_image_input`.
+        supports_references=True,
+        reference_field="image",
+        reference_encoding="string",
+        # Deliberately empty: 118 of the 202 image models take a reference, the model
+        # id is in front of the user when they choose it, and an allowlist over a
+        # catalogue this size is a maintenance burden that silently narrows as
+        # NanoGPT adds models. The `gaps` line states the trade instead.
+        default_model="cyberrealistic-xl",
+        # Verified: 3000, and it 400s rather than truncating.
+        max_prompt=3_000,
         docs_url="https://docs.nano-gpt.com/",
-        gaps=_GAPS_NO_CONTROLS,
+        verified=True,
+        gaps=(
+            "applies style prompts, the resolution, negative prompts and a seed",
+            "renders the nearest size its model supports, which may not be the one requested",
+            "accepts reference images on some models only; the rest bill for the render and ignore them",
+            "reports the cost of each render in USD",
+        ),
     ),
     ProviderPreset(
         id="chutes",
