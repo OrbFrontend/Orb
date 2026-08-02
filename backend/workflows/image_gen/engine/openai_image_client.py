@@ -1,15 +1,23 @@
 """HTTP client for the OpenAI-shaped `POST /v1/images/*` contract.
 
 Mirrors `comfy_client.py`: one class, a `transport=` seam so every path is
-testable under `httpx.MockTransport`, and **one error funnel** with a fixed
-vocabulary so no server internal reaches the user.
+testable under `httpx.MockTransport`, and **one error funnel** so no server
+internal reaches the user.
+
+**The funnel classifies only what changes Orb's behaviour, and never replaces what
+the provider said.** There is exactly one branch a caller acts on --
+`MODEL_NOT_FOUND`, which drives the re-render in the adapter. Every other branch
+picks a sentence to put *in front of* the provider's own words; none of them may
+swallow them. Classifying further does not scale: a marker list over provider prose
+has to be right about vocabulary no two providers share, and when it is wrong it
+replaces an actionable message with a confident wrong one. Guessing less and
+quoting more is the trade this module makes on purpose.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -43,30 +51,32 @@ _PATH_RE = re.compile(r"(?<![\w.])/[\w.\-/]+")
 _WHITESPACE_RE = re.compile(r"\s+")
 _EXCERPT_LIMIT = 200
 
-# Words a provider uses when it objected to the *content*, not the request. For
-# roleplay imagery on a commercial API this is the dominant failure mode, and the
-# whole difference between "Orb is broken" and "the provider said no".
-_MODERATION_MARKERS = (
-    "moderation",
-    "content_policy",
-    "content policy",
-    "safety",
-    "safety_violation",
-    "flagged",
-    "blocked",
-    "violat",
-    "nsfw",
-    "prohibited",
-    "not allowed",
-)
+# There was a `_MODERATION_MARKERS` list here, matching "blocked", "not allowed",
+# "violat" and friends to tell the user their prompt was refused on content. It is
+# gone because those are ordinary API-error English: *"Model gpt-image-1 is not
+# allowed for your account tier"* was reported as a content refusal, telling the
+# user to reword a prompt that was never the problem while discarding the sentence
+# that named the real one. A provider that refuses on content says so in its own
+# message, and that message now reaches the user intact -- which is the same
+# information without Orb asserting it over the cases it got wrong.
 
 
 class CloudImageError(ImageGenerationError):
-    """A provider failure, already sanitized, tagged with what kind it was."""
+    """A provider failure, already sanitized, tagged with what kind it was.
+
+    `kind` is a hint, never a substitute for the message: only `MODEL_NOT_FOUND` is
+    branched on, and the rest exist so a later caller can act without the funnel
+    having to hide anything to make room.
+    """
 
     def __init__(self, message: str, kind: str = "") -> None:
         super().__init__(message)
         self.kind = kind
+
+
+def _say(named: str, status: int, excerpt: str) -> str:
+    """What Orb can name, the status, and whatever the provider said about it."""
+    return f"{named} (HTTP {status}): {excerpt}" if excerpt else f"{named} (HTTP {status})"
 
 
 @dataclass(frozen=True)
@@ -92,8 +102,43 @@ def _scrub(text: str, secret: str = "") -> str:
     return _WHITESPACE_RE.sub(" ", text).strip()[:_EXCERPT_LIMIT]
 
 
+def _string_leaves(payload: Any, *, limit: int = 6, budget: int = 200) -> str:
+    """Every human-looking string in a body, outermost first.
+
+    The fallback for a shape nobody enumerated, and the reason the well-known keys
+    below can stay a short list instead of growing a row per provider. Breadth
+    first, because the outer strings are the summary and the inner ones the
+    particulars: OpenRouter buries its reason in `error.metadata.raw` and anything
+    FastAPI-shaped puts it in a `detail` *list*, both of which used to reach the
+    user as a bare "rejected the request" with nothing else in it.
+    """
+    found: list[str] = []
+    queue: list[Any] = [payload]
+    visited = 0
+    while queue and len(found) < limit and visited < budget:
+        node = queue.pop(0)
+        visited += 1
+        if isinstance(node, str):
+            text = node.strip()
+            # Long enough to be a payload rather than a sentence: an error body is
+            # not supposed to carry one, but `_scrub`'s cap is not a reason to let
+            # a base64 blob crowd out the message.
+            if text and len(text) <= 300:
+                found.append(text)
+        elif isinstance(node, Mapping):
+            queue.extend(node.values())
+        elif isinstance(node, (list, tuple)):
+            queue.extend(node)
+    return "; ".join(dict.fromkeys(found))
+
+
 def _body_text(payload: Any) -> str:
-    """The human half of an error body, whatever shape the provider chose."""
+    """The human half of an error body, whatever shape the provider chose.
+
+    The well-known keys first, because they yield the clean single sentence; the
+    generic walk only when they find nothing, because a walk over a body that *has*
+    an `error.message` drags its sibling codes along with it.
+    """
     if isinstance(payload, str):
         return payload
     if isinstance(payload, Mapping):
@@ -109,7 +154,7 @@ def _body_text(payload: Any) -> str:
             value = payload.get(key)
             if isinstance(value, str) and value:
                 return value
-    return ""
+    return _string_leaves(payload)
 
 
 def _body_codes(payload: Any) -> str:
@@ -161,32 +206,39 @@ class OpenAIImageClient:
     # ── the one error funnel ──────────────────────────────────────────────────
 
     def _failure(self, status: int, payload: Any, *, model: str = "") -> CloudImageError:
+        """One provider rejection, named as far as Orb can name it and quoted the
+        rest of the way.
+
+        The status code rides every message. It costs nothing, it means the same
+        thing on every provider, and it is what lets a user tell "out of credits"
+        (402) from "model gone" (404) without Orb having to recognise either.
+        """
         text = _body_text(payload)
         lowered = text.lower()
         codes = _body_codes(payload)
+        excerpt = _scrub(text, self.api_key)
         if status in (401, 403):
-            return CloudImageError(f"The API key for {self.label} was rejected", "auth")
-        if any(marker in lowered for marker in _MODERATION_MARKERS):
-            return CloudImageError(
-                f"{self.label} refused this prompt under its content policy. "
-                "Rewording the scene, or a different provider, is the only way through.",
-                "moderation",
-            )
-        # Before the generic 4xx branch, and not gated on 404: the providers disagree
-        # about the status, so the code and the message decide.
+            # 403 is the loose one -- some providers spend it on content refusals and
+            # plan restrictions rather than the key. The excerpt is what keeps that
+            # from being hidden behind a guess about which.
+            return CloudImageError(_say(f"The API key for {self.label} was rejected", status, excerpt), "auth")
+        # The one branch a caller acts on, and not gated on 404: the providers
+        # disagree about the status, so the code and the message decide. Carries the
+        # excerpt like the rest, because a wrong base URL 404s every path and the
+        # provider's own words are what distinguish that from a retired model.
         if status == 404 or any(marker in codes or marker in lowered for marker in _UNKNOWN_MODEL_MARKERS):
             named = f" the model {model!r}" if model else " that model"
-            return CloudImageError(f"{self.label} does not have{named}", MODEL_NOT_FOUND)
-        if status == 429:
-            return CloudImageError(f"{self.label} is rate-limiting this key; try again in a moment", "rate_limit")
+            return CloudImageError(_say(f"{self.label} does not have{named}", status, excerpt), MODEL_NOT_FOUND)
         if status >= 500:
-            return CloudImageError(f"Could not communicate with {self.label}", "server")
-        excerpt = _scrub(text, self.api_key)
-        # Everything else is a request the provider understood and rejected. The
-        # excerpt earns its place here and nowhere else.
+            # Not "could not communicate": the exchange succeeded and the provider
+            # answered with its own failure, which it often explains.
+            return CloudImageError(_say(f"{self.label} failed to render this request", status, excerpt), "server")
+        # Everything else the provider understood and rejected. 429 keeps a `kind` of
+        # its own but no bespoke sentence: it is not always a per-minute rate limit,
+        # and "try again in a moment" was the wrong advice for a key out of quota.
         return CloudImageError(
-            f"{self.label} rejected the request: {excerpt}" if excerpt else f"{self.label} rejected the request",
-            "request",
+            _say(f"{self.label} rejected the request", status, excerpt),
+            "rate_limit" if status == 429 else "request",
         )
 
     async def _send(
@@ -205,13 +257,28 @@ class OpenAIImageClient:
                 if response.status_code >= 400:
                     try:
                         payload: Any = response.json()
-                    except (json.JSONDecodeError, ValueError):
+                    except ValueError:
                         payload = response.text
                     raise self._failure(response.status_code, payload, model=model)
-                return response.json()
+                try:
+                    return response.json()
+                except ValueError as exc:
+                    # A 200 that is not JSON is a proxy or captive portal answering
+                    # in the provider's place. Reporting it as "could not
+                    # communicate" sent the user to look at their network for a
+                    # request that completed.
+                    raise CloudImageError(
+                        _say(f"{self.label} returned a malformed response", response.status_code, ""),
+                        "malformed",
+                    ) from exc
         except ImageGenerationError:
             raise
-        except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
+        except httpx.TimeoutException as exc:
+            # Named apart from every other transport failure: on a render this is the
+            # *expected* one, and "could not communicate" reads as a broken network
+            # rather than a provider that is simply slower than the timeout.
+            raise CloudImageError(f"{self.label} did not respond within {timeout:.0f}s", "timeout") from exc
+        except (httpx.HTTPError, ValueError) as exc:
             raise CloudImageError(f"Could not communicate with {self.label}", "transport") from exc
 
     # ── model discovery ───────────────────────────────────────────────────────
@@ -329,6 +396,8 @@ class OpenAIImageClient:
                         chunks.append(chunk)
         except ImageGenerationError:
             raise
+        except httpx.TimeoutException as exc:
+            raise CloudImageError(f"{self.label} did not send the generated image within {timeout:.0f}s", "timeout") from exc
         except httpx.HTTPError as exc:
             raise CloudImageError(f"Could not fetch the generated image from {self.label}", "transport") from exc
         data = b"".join(chunks)

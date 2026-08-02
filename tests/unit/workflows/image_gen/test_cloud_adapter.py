@@ -283,6 +283,54 @@ def test_a_configured_provider_is_ready():
     assert OpenAICompatibleImageAdapter(keyed).readiness()["ready"] is True
 
 
+def test_readiness_judges_a_replay_on_the_model_it_recorded():
+    """Clearing the model field must not refuse a rehydrate of an image whose own
+    model is still there to render it -- the stored model is what will be sent."""
+    config = normalize_config(
+        {"source": "cloud", "cloud": {"provider": "openrouter", "providers": {"openrouter": {"api_key": "k", "model": ""}}}}
+    )
+    adapter = OpenAICompatibleImageAdapter(config)
+    assert adapter.readiness()["reason"] == "no_model"
+    assert adapter.readiness("some/stored-model")["ready"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_render_with_no_model_says_so_instead_of_asking_the_provider():
+    """OpenRouter, Chutes, AI/ML API, ElectronHub and `custom` all ship no
+    `default_model`, so without this gate the render posts `model: ""` and the user
+    reads whatever that provider makes of an empty string."""
+    config = normalize_config(
+        {
+            "source": "cloud",
+            "styles": [{"id": "anime", "label": "Anime"}],
+            "default_style": "anime",
+            "cloud": {"provider": "openrouter", "providers": {"openrouter": {"api_key": "k", "model": ""}}},
+        }
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"nothing may be posted without a model, got {request.url.path}")
+
+    from backend.workflows.image_gen.engine.openai_image_client import CloudImageError
+
+    adapter = _adapter(config, handler)
+    with pytest.raises(CloudImageError) as excinfo:
+        await adapter.generate(_request(), target=_target(adapter, config))
+    assert excinfo.value.kind == "no_model"
+    assert "Choose a model for OpenRouter" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_test_connection_still_works_before_a_model_is_chosen():
+    """The discovery gate is deliberately weaker than the render gate: listing the
+    models is what fills the picker, so requiring one first makes it unreachable."""
+    config = normalize_config(
+        {"source": "cloud", "cloud": {"provider": "openrouter", "providers": {"openrouter": {"api_key": "k", "model": ""}}}}
+    )
+    handler = lambda _request: httpx.Response(200, json={"data": [{"id": "some/model"}]})  # noqa: E731
+    assert (await _adapter(config, handler).validate_connection())["models"] == ["some/model"]
+
+
 # ── references ───────────────────────────────────────────────────────────────
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 from collections.abc import Mapping
 from typing import Any, ClassVar
 from urllib.parse import urlsplit
@@ -32,6 +33,8 @@ from ..providers import (
 )
 from ..target import RenderTarget
 from .base import ImageAdapter
+
+logger = logging.getLogger(__name__)
 
 # Base64 inflates by 4/3 *inside a JSON body*, where ComfyUI's path is multipart,
 # so a bound that is fine for an upload is not fine here.
@@ -85,7 +88,13 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
     def _model(self) -> str:
         return str(self._entry.get("model") or "") or (self._preset.default_model if self._preset else "")
 
-    def readiness(self) -> dict:
+    def readiness(self, model: str = "") -> dict:
+        """The single statement of what this configuration is still missing.
+
+        `model` overrides the configured one so a *replay* is judged on the model it
+        recorded: clearing the model field in settings must not refuse a rehydrate
+        of an image whose own model is still there to render it.
+        """
         preset = self._preset
         if preset is None:
             return {
@@ -103,9 +112,13 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             }
         if not str(self._entry.get("api_key") or ""):
             return {"ready": False, "reason": "no_api_key", "detail": f"Paste an API key for {preset.label}"}
-        if not self._model():
-            return {"ready": False, "reason": "no_model", "detail": f"Choose a {preset.label} model"}
-        return {"ready": True, "reason": "", "detail": f"{preset.label} — {self._model()}"}
+        chosen = model or self._model()
+        if not chosen:
+            # "a model for X", never "a X model": the labels start with every letter
+            # ("a OpenAI", "a ElectronHub", "a xAI (Grok)"), and an article that reads
+            # correctly for all of them is a per-label table for one word of grammar.
+            return {"ready": False, "reason": "no_model", "detail": f"Choose a model for {preset.label}"}
+        return {"ready": True, "reason": "", "detail": f"{preset.label} — {chosen}"}
 
     def resolve_target(self, style: Mapping[str, Any], replay: Mapping[str, Any] | None) -> RenderTarget:
         preset = self._preset
@@ -176,15 +189,31 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             timeout=timeout,
         )
 
+    # Both gates read `readiness()` rather than restating its sentences, so there is
+    # one place a missing-configuration message is worded. They differ in *how much*
+    # they demand, which is not the same question:
     def _require_preset(self) -> ProviderPreset:
+        """Enough to reach the provider at all -- the discovery paths.
+
+        Deliberately not full readiness: Test connection is what the user presses
+        *before* choosing a model, because listing the models is what fills the
+        picker. Gating it on a chosen model makes the picker unreachable.
+        """
         preset = self._preset
-        if preset is None:
-            raise CloudImageError(
-                f"Unknown image provider {self._cloud['provider']!r}; pick one in settings",
-                "unknown_provider",
-            )
-        if not self._base_url():
-            raise CloudImageError(f"Enter the API base URL for {preset.label}", "no_base_url")
+        state = self.readiness()
+        if preset is None or state["reason"] in ("unknown_provider", "no_base_url"):
+            raise CloudImageError(str(state["detail"]), str(state["reason"]))
+        return preset
+
+    def _require_ready(self, model: str) -> ProviderPreset:
+        """Enough to render. Reached before a request is built, so a provider with no
+        `default_model` -- OpenRouter, Chutes, AI/ML API, ElectronHub and `custom` all
+        ship none -- says "choose a model" instead of posting `model: ""` and relaying
+        whatever the provider makes of it."""
+        preset = self._require_preset()
+        state = self.readiness(model)
+        if not state["ready"]:
+            raise CloudImageError(str(state["detail"]), str(state["reason"]))
         return preset
 
     async def validate_connection(self, *, allow_cached: bool = False) -> dict:
@@ -220,7 +249,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         target: RenderTarget,
         progress: ProgressCallback | None = None,
     ) -> ImageResult:
-        preset = self._require_preset()
+        preset = self._require_ready(target.model)
         client = self._client(request.timeout_seconds)
         # Synchronous API: one event at submit, no polling loop to report from.
         await emit(progress, "rendering", {"backend": self.label})
@@ -328,4 +357,9 @@ def _probe_size(data: bytes) -> tuple[int | None, int | None]:
         with Image.open(io.BytesIO(data)) as probe:
             return probe.size[0], probe.size[1]
     except Exception:
+        # Degrades rather than raises -- an unreadable header is no reason to throw
+        # away an image the user already paid for. Logged because the cost is a
+        # rehydrate that cannot pin its resolution, and silence made that look like
+        # a provider that reports no size rather than a probe that failed.
+        logger.warning("could not read the dimensions of the image returned by the cloud provider", exc_info=True)
         return None, None

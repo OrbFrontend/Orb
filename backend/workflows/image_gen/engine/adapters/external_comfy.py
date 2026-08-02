@@ -56,8 +56,11 @@ class ExternalComfyAdapter(ImageAdapter):
     def _graphs(self) -> Sequence[Mapping[str, Any]]:
         return self.config["external_comfy"]["user_graphs"]
 
-    def readiness(self) -> dict:
+    def readiness(self, model: str = "") -> dict:
         """Whether the style about to render can, not whether every style can.
+
+        `model` is ignored: a ComfyUI render is pinned by its graph, whose checkpoint
+        is a node inside it rather than a field a caller can substitute.
 
         Auditing the whole list would read as a permanently stuck "Setup required":
         a cloud-linked style will never have a workflow, and a just-added style is

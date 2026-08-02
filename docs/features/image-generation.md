@@ -134,12 +134,16 @@ cost row — it does not print a zero.
 Every **Reroll**, **Regenerate** and **Rehydrate** on a cloud backend is a new
 billed image.
 
-#### Content refusals
+#### When a render fails
 
-Commercial image APIs moderate prompts. When a provider refuses one, Orb says so
-directly — *"xAI (Grok) refused this prompt under its content policy"* — rather
-than reporting a generic failure. Rewording the scene, or a different provider,
-is the only way through; there is no Orb-side setting that changes it.
+Orb relays what the provider answered, with the HTTP status in front of it —
+*"NanoGPT rejected the request (HTTP 402): Insufficient credits"* — rather than
+sorting failures into categories of its own. Credentials and internal paths are
+stripped before the message is shown.
+
+Commercial image APIs also moderate prompts, and a refusal arrives the same way,
+quoting the provider's policy message. Rewording the scene, or a different
+provider, is the only way through; there is no Orb-side setting that changes it.
 
 ## Import a ComfyUI workflow
 
@@ -521,9 +525,11 @@ guaranteed.
 | The status says **Paste an API key**. | Open settings and paste the key for the selected provider. |
 | The status says **Choose a … model**. | Open settings and select a model, or pick a provider that ships a default. |
 | The status says **Unknown image provider**. | The stored provider id is not in Orb's table. Pick a provider from the list. Your key is kept, not deleted. |
-| The provider says the API key was rejected. | Check the key, and check that it is enabled for image generation on the provider's dashboard. |
-| The provider refused the prompt. | The provider's content policy rejected it. Reword the scene, or use a different provider. |
-| The provider is rate-limiting. | Wait and try again, or check your plan's limits with the provider. |
+| The provider says the API key was rejected. | Check the key, and check that it is enabled for image generation on the provider's dashboard. A 403 can also mean your plan does not cover the model; the provider's own message says which. |
+| A render failed with **HTTP 4xx** and the provider's message. | The provider understood the request and refused it. The message is theirs — a content policy, an unsupported parameter, an exhausted balance. Act on what it says. |
+| A render failed with **HTTP 429**. | Rate limit *or* exhausted quota, depending on the provider. The message says which; wait, or check your plan's limits. |
+| A render failed with **HTTP 5xx**. | The provider's own failure, not your configuration. Try again; if it persists, check the provider's status page. |
+| The provider **did not respond within** the timeout. | The render exceeded Orb's timeout. Large resolutions and busy models are the usual cause; try again or pick a faster model. |
 | A cloud image came back the wrong shape. | The provider renders fixed aspect ratios. **Render details** names the ratio it used. Pick a resolution closer to one the provider supports. |
 | **Seed** says *not used by this provider*. | Expected. The provider ignores seeds; the stored seed exists so the image can still be rehydrated. |
 

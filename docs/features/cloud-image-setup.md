@@ -146,13 +146,18 @@ Every button that produces an image spends money: **Visualize**, **Regenerate**,
 **Reroll**, and **Rehydrate**. Check your usage on the provider's dashboard;
 Orb has no view of your balance.
 
-## Content refusals
+## When a render fails
+
+Orb does not paraphrase a provider. A failed render shows what the provider
+answered, with the HTTP status in front of it — *"NanoGPT rejected the request
+(HTTP 402): Insufficient credits"* — so the reason is the provider's own words
+rather than Orb's guess at which category they fell into. Credentials and
+internal paths are stripped, and the message is capped.
 
 Commercial providers moderate prompts, and roleplay imagery is the case they
-refuse most often. When that happens Orb reports it as a refusal —
-*"xAI (Grok) refused this prompt under its content policy"* — rather than as a
-generic failure. There is no Orb-side setting that changes it. Reword the scene,
-or use a provider whose policy fits what you write.
+refuse most often. A refusal arrives the same way, quoting the provider's policy
+message. There is no Orb-side setting that changes it: reword the scene, or use a
+provider whose policy fits what you write.
 
 ## Reference images
 

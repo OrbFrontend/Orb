@@ -65,11 +65,15 @@ class ImageAdapter(ABC):
         adapter answers from its model-listing endpoint alone."""
 
     @abstractmethod
-    def readiness(self) -> dict:
+    def readiness(self, model: str = "") -> dict:
         """``{"ready", "reason", "detail"}`` from the saved config alone, no I/O.
 
         Deliberately not a health probe: the tools-panel card renders on every open,
         and making that wait on a remote server trades a fast answer for a slow one.
+
+        `model` asks the question about a specific model rather than the configured
+        one, so a replay is judged on what the stored image recorded. An adapter that
+        does not pick models per render may ignore it.
         """
 
     async def list_models(self) -> list[str]:

@@ -232,25 +232,112 @@ async def test_a_bare_list_shape_pointed_at_a_mapping_is_still_malformed():
 @pytest.mark.parametrize(
     "status, payload, expected",
     [
-        (401, {"error": {"message": "bad key"}}, "The API key for xAI (Grok) was rejected"),
-        (403, {"error": "forbidden"}, "The API key for xAI (Grok) was rejected"),
-        (429, {"error": {"message": "slow down"}}, "rate-limiting"),
-        (500, {"error": {"message": "boom"}}, "Could not communicate with xAI (Grok)"),
+        (401, {"error": {"message": "bad key"}}, "The API key for xAI (Grok) was rejected (HTTP 401): bad key"),
+        # 403 is the loose status -- providers spend it on content refusals and plan
+        # restrictions too -- so the excerpt is what keeps Orb's guess from hiding
+        # the reason when the guess is wrong.
+        (403, {"error": "forbidden"}, "The API key for xAI (Grok) was rejected (HTTP 403): forbidden"),
+        # No bespoke sentence for 429: it is not always a per-minute rate limit, and
+        # "try again in a moment" was the wrong advice for a key out of quota.
+        (429, {"error": {"message": "daily quota exhausted"}}, "rejected the request (HTTP 429): daily quota exhausted"),
+        # Not "could not communicate": the exchange succeeded, and the provider
+        # explained its own failure.
+        (500, {"error": {"message": "upstream overloaded"}}, "failed to render this request (HTTP 500): upstream overloaded"),
     ],
+    ids=["401", "403", "429 is not advice", "5xx is not a network failure"],
 )
-async def test_each_status_gets_its_own_message(status, payload, expected):
+async def test_every_status_carries_the_code_and_what_the_provider_said(status, payload, expected):
     handler = lambda _request: httpx.Response(status, json=payload)  # noqa: E731
-    with pytest.raises(CloudImageError, match=expected.replace("(", r"\(").replace(")", r"\)")):
+    with pytest.raises(CloudImageError) as exc:
         await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+    assert expected in str(exc.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload, expected",
+    [
+        # OpenRouter buries its reason under `error.metadata`; nothing FastAPI-shaped
+        # puts a string in `detail` at all. Both used to reach the user as a bare
+        # "rejected the request" with nothing after it.
+        ({"error": {"metadata": {"raw": "flagged upstream"}, "code": 403}}, "flagged upstream"),
+        ({"detail": [{"loc": ["body", "size"], "msg": "unexpected value"}]}, "unexpected value"),
+        ({"errors": [{"title": "quota exceeded"}]}, "quota exceeded"),
+    ],
+    ids=["nested under metadata", "a detail list", "a shape nobody enumerated"],
+)
+async def test_an_unenumerated_body_shape_still_says_something(payload, expected):
+    """The generic walk, which is why the well-known keys can stay a short list
+    instead of growing a row per provider."""
+    handler = lambda _request: httpx.Response(400, json=payload)  # noqa: E731
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+    assert expected in str(exc.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message",
+    [
+        # The `_MODERATION_MARKERS` list this replaced matched "not allowed" and
+        # "blocked", so both of these were reported as content refusals -- telling the
+        # user to reword a prompt that was never the problem, and dropping the
+        # sentence that named the real one.
+        "Model gpt-image-1 is not allowed for your account tier",
+        "Request blocked: negative_prompt not allowed for this model",
+    ],
+    ids=["a plan restriction", "an unsupported parameter"],
+)
+async def test_ordinary_api_english_is_not_read_as_a_content_refusal(message):
+    handler = lambda _request: httpx.Response(400, json={"error": {"message": message}})  # noqa: E731
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+    assert message in str(exc.value)
+    assert "content policy" not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_a_content_refusal_still_reaches_the_user_in_the_provider_s_own_words():
+    """The case the deleted branch existed for. For roleplay imagery on a commercial
+    API a refusal is the dominant failure mode -- it just does not need Orb to
+    recognise it, because the provider already said so."""
+    handler = lambda _request: httpx.Response(  # noqa: E731
+        400, json={"error": {"message": "Your request was rejected by our content policy"}}
+    )
+    with pytest.raises(CloudImageError, match="content policy"):
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+
+
+@pytest.mark.asyncio
+async def test_a_timeout_is_not_reported_as_a_broken_network():
+    """On a render this is the *expected* failure, and "could not communicate" sent
+    the user to look at their connection for a provider that was merely slow."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+    assert exc.value.kind == "timeout"
+    assert "did not respond within 10s" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_a_200_that_is_not_json_is_named_as_such():
+    """A proxy or captive portal answering in the provider's place. Reported as
+    "could not communicate" it sent the user to their network for a request that
+    completed."""
+    handler = lambda _request: httpx.Response(200, text="<html>Sign in to continue</html>")  # noqa: E731
+    with pytest.raises(CloudImageError) as exc:
+        await _client(handler).create_image("/images/generations", {"model": "m"}, provider_id="xai", timeout=10)
+    assert exc.value.kind == "malformed"
+    assert "malformed response (HTTP 200)" in str(exc.value)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("status", "message", "model", "kind", "expected"),
     [
-        # For roleplay imagery on a commercial API a refusal is the dominant failure
-        # mode, and the whole difference between "Orb is broken" and "it said no".
-        (400, "Your request was rejected by our content policy", "m", "moderation", "content policy"),
         # Flagged so the adapter can re-render on the configured model and disclose.
         (404, "no such model", "grok-imagine-legacy", MODEL_NOT_FOUND, "grok-imagine-legacy"),
         # The providers do not agree on the status: NanoGPT answers 400 for a model
@@ -258,7 +345,7 @@ async def test_each_status_gets_its_own_message(status, payload, expected):
         # dead there and a rehydrate of a retired model dying as a bare rejection.
         (400, "Invalid image model specified.", "retired-model", MODEL_NOT_FOUND, "retired-model"),
     ],
-    ids=["moderation", "model gone", "model gone on a 400"],
+    ids=["model gone", "model gone on a 400"],
 )
 async def test_a_refusal_carries_the_kind_the_caller_degrades_on(status, message, model, kind, expected):
     handler = lambda _request: httpx.Response(status, json={"error": {"message": message}})  # noqa: E731
