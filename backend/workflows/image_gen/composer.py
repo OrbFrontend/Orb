@@ -107,6 +107,14 @@ _SCENE_FORMAT_TAIL = (
 # The `avoid` list only reaches the image model when the workflow maps a negative
 # prompt slot. When it does not, tell the model plainly to leave `avoid` empty so
 # it spends no effort on a negation the workflow discards.
+_REFERENCE_INSTRUCTION = (
+    "A reference image of the subject is sent to the image model with this prompt. The image model takes the "
+    "likeness from that picture, not from your words. Do not describe permanent identity traits such as face "
+    "shape, eye colour, or natural hair colour. Describe what has changed or what is happening now: pose, action, "
+    "expression, current clothing, interaction, setting, lighting, and framing. Do not describe the reference "
+    "image itself and do not mention that a reference exists. "
+)
+
 _AVOID_INSTRUCTION = (
     "In `avoid`, write only a short comma-separated list of visual concepts that would contradict this shot and that the "
     "image model is likely to add. Use bare concepts that a negative encoder can suppress, not sentences or negations such "
@@ -436,12 +444,18 @@ def _compose_ooc(
     appearance: str = "",
     extra_instructions: str = "",
     supports_negative: bool = True,
+    has_references: bool = False,
     style_prompt: str = "",
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",
 ) -> str:
     guide = _format_guide(prompt_format, pov, structured=structured, supports_negative=supports_negative)
     profile = _profile_instruction(profile_owner_name, appearance)
+    # Placed with the other downstream facts, for the same reason they are here:
+    # what the image model receives *outside* this tool call changes what the
+    # prompt should spend its words on. An edit model handed a likeness and a
+    # paragraph re-specifying that likeness fights itself.
+    reference = _REFERENCE_INSTRUCTION if has_references else ""
     extra = _extra_block(extra_instructions)
     downstream = _downstream_blocks(
         style_prompt,
@@ -456,6 +470,7 @@ def _compose_ooc(
             + "Call compose_image_prompt for the structured scene below. "
             + profile
             + downstream
+            + reference
             + guide
             + extra
             + "]"
@@ -466,6 +481,7 @@ def _compose_ooc(
         + "Call compose_image_prompt for the assistant reply above. "
         + profile
         + downstream
+        + reference
         + guide
         + "  Use earlier conversation only for stable visible continuity such as "
         "identity, the current outfit, and the setting. " + extra + "]"
@@ -911,6 +927,7 @@ async def compose_scene(
     profile_owner_name: str = "",
     extra_instructions: str = "",
     supports_negative: bool = True,
+    has_references: bool = False,
     style_prompt: str = "",
     style_negative_prompt: str = "",
     profile_negative_prompt: str = "",
@@ -978,6 +995,7 @@ async def compose_scene(
                     appearance=appearance,
                     extra_instructions=extra_instructions,
                     supports_negative=supports_negative,
+                    has_references=has_references,
                     style_prompt=style_prompt,
                     style_negative_prompt=style_negative_prompt,
                     profile_negative_prompt=profile_negative_prompt,
@@ -997,6 +1015,7 @@ async def compose_scene(
                     appearance=appearance,
                     extra_instructions=extra_instructions,
                     supports_negative=supports_negative,
+                    has_references=has_references,
                     style_prompt=style_prompt,
                     style_negative_prompt=style_negative_prompt,
                     profile_negative_prompt=profile_negative_prompt,

@@ -137,6 +137,13 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                     # PNG/JPEG must not be handed the WebP every render is stored as.
                     "mimes": list(preset.reference_mimes),
                     "max_bytes": CLOUD_REFERENCE_MAX_BYTES,
+                    # Unlike a ComfyUI graph slot, this one is optional. The same
+                    # model has a plain generations endpoint one field away, so a
+                    # first Visualize in a chat with no images yet renders from the
+                    # prompt and says so -- refusing outright would make turning
+                    # references on break every new conversation until an image
+                    # exists in it.
+                    "required": False,
                 },
             )
         return RenderTarget(
@@ -256,6 +263,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                         "source": reference.source,
                         "origin": reference.origin,
                         "digest": reference.digest,
+                        "source_digest": reference.source_digest,
                     }
                     for reference in request.references
                 ],

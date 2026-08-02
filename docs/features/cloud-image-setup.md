@@ -123,10 +123,18 @@ Turning this on is a second, larger disclosure, and Orb asks for it separately
 from the prompt-only one. Renders then route to the provider's image-edit
 endpoint with the image sent inline. Orb converts it to a format the provider
 accepts — generated images are stored as WebP and most providers take only PNG
-and JPEG — and caps a cloud reference at 4 MB.
+and JPEG — and holds a cloud reference to 4 MB, resizing and re-compressing as
+needed because the image rides base64 inside a JSON request body. A reference
+that cannot be brought under the limit fails the render rather than being sent
+oversized.
 
 Not every provider in the table supports references. When the selected one does
 not, the option has no effect and renders go to the plain generation endpoint.
+
+The same is true when nothing resolves — a new conversation with no images yet
+and no character reference. The render goes to the generation endpoint and the
+image says so under **Render details**, so turning references on does not break
+the first Visualize in every new chat.
 
 ## Switch back to ComfyUI
 

@@ -47,6 +47,12 @@ const REFERENCE_SOURCES = [
 const MAX_REFERENCE_SLOTS = 4;
 const MAX_USER_GRAPHS = 32;
 const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
+// Mirrors backend config.REFERENCE_MIMES. The `accept` attribute is a filter
+// hint, not enforcement — every OS picker offers "All files" — and the backend
+// normalizer drops anything outside this list rather than truncating it. Checking
+// here is what turns that into a message instead of an image that previews fine
+// and is silently gone on the next open.
+const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
 
 // Resolution presets for the cloud picker. Stored as pixels even for providers
 // that speak aspect ratios — one canonical representation, converted at the wire
@@ -1251,13 +1257,18 @@ async function pickReferenceImage(input) {
     input.value = "";
     return;
   }
+  if (!REFERENCE_IMAGE_MIMES.includes((file.type || "").toLowerCase())) {
+    toast("Orb accepts PNG, JPEG and WebP reference images", "error");
+    input.value = "";
+    return;
+  }
   try {
     // Chunked so a multi-MB image does not blow the argument limit of
     // String.fromCharCode, which a single spread of the whole array would.
     const bytes = new Uint8Array(await file.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    setReferenceImage({ reference_image_b64: btoa(binary), reference_mime: file.type || "image/png" });
+    setReferenceImage({ reference_image_b64: btoa(binary), reference_mime: file.type.toLowerCase() });
   } catch {
     toast("Could not read that image", "error");
   }
@@ -1299,7 +1310,7 @@ async function saveProfile() {
   // sending blanks here would wipe a saved appearance.
   const appearanceEl = document.getElementById("ig-appearance");
   if (!appearanceEl || !getActiveConvId()) return;
-  await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
+  const res = await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
     action: "set_profile",
     profile: {
       appearance_prompt: appearanceEl.value || "",
@@ -1307,4 +1318,15 @@ async function saveProfile() {
       ...referenceImage,
     },
   });
+  // The normalizer drops a reference image it cannot accept. A save that reports
+  // success while quietly discarding what the form is still previewing is the
+  // one outcome the user cannot diagnose, so the handler's warning is shown and
+  // the local copy is brought back in line with what was actually stored.
+  if (res?.warning) {
+    toast(res.warning, "error");
+    referenceImage = {
+      reference_image_b64: res.profile?.reference_image_b64 || "",
+      reference_mime: res.profile?.reference_mime || "",
+    };
+  }
 }

@@ -20,6 +20,8 @@ from ..toolkit import (
 from . import pov as pov_mod
 from .composer import assemble_prompts, compose_scene
 from .config import (
+    MAX_REFERENCE_IMAGE_B64,
+    REFERENCE_MIMES,
     WORKFLOW_ID,
     normalize_config,
     normalize_profile,
@@ -227,6 +229,14 @@ def _consumption(
     return payload
 
 
+def _recorded_references(params: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The reference records on a stored image, as a list this hook can count."""
+    recorded = params.get("references")
+    if not isinstance(recorded, (list, tuple)):
+        return []
+    return [entry for entry in recorded if isinstance(entry, Mapping)]
+
+
 def _attachment(seed: int, result, metadata: dict, consumption: dict) -> dict:
     ext = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(result.mime, "img")
     return {
@@ -263,6 +273,21 @@ async def _generate_fresh(
     character = getattr(ctx, "character", None)
     profile_owner_name = str(character.get("name") or "") if isinstance(character, Mapping) else ""
     appearance = str(profile.get("appearance_prompt") or "")
+    # Resolved from the branch as it stands, here rather than in the engine: this
+    # is conversation state, and `engine/` stays ComfyUI-only. **Before** the
+    # composer, for two reasons: the composer must know whether the image model
+    # will be looking at a reference (an edit model takes its likeness from the
+    # picture, not from the prompt), and a required slot with nothing to fill it
+    # is a hard failure that should not cost a full prompt-composition call first.
+    references = await resolve_references(
+        target.reference_slots,
+        history=history,
+        anchor_id=int(message["id"]),
+        character_id=getattr(ctx, "character_id", None),
+        profile=profile,
+    )
+    # Only an *optional* slot can come back short -- see `references._required`.
+    unfilled = len(target.reference_slots) - len(references)
     # Resolved here, not in the caller's prep phase: the classifier's first call
     # loads a model, and that latency belongs behind the "Composing image
     # prompt..." pill rather than ahead of the stream's first frame.
@@ -281,23 +306,13 @@ async def _generate_fresh(
         profile_owner_name=profile_owner_name,
         extra_instructions=str(selected_style.get("extra_instructions") or ""),
         supports_negative=target.supports_negative_prompt,
+        has_references=bool(references),
         style_prompt=str(selected_style.get("prompt") or ""),
         style_negative_prompt=str(selected_style.get("negative_prompt") or ""),
         profile_negative_prompt=str(profile.get("negative_prompt") or ""),
     )
     prompt, negative, style = assemble_prompts(config, style_id, profile, scene, avoid)
     seed = _fresh_seed()
-    # Resolved from the branch as it stands, here rather than in the engine: this
-    # is conversation state, and `engine/` stays ComfyUI-only. An edit workflow
-    # with nothing to reference fails loudly -- rendering it without one would
-    # produce a picture of whatever the graph's stale filename pointed at.
-    references = await resolve_references(
-        target.reference_slots,
-        history=history,
-        anchor_id=int(message["id"]),
-        character_id=getattr(ctx, "character_id", None),
-        profile=profile,
-    )
     result = await resolve_and_generate(
         config,
         ImageRequest(
@@ -322,6 +337,13 @@ async def _generate_fresh(
         pov_source=pov_source,
     )
     consumption = _consumption(style, prompt, negative, result, record=md, source_label=adapter.label)
+    if unfilled > 0:
+        # An optional slot that resolved to nothing changed what was rendered, so
+        # it is disclosed on the image the user is looking at rather than left to
+        # be inferred from a missing Reference row.
+        consumption.setdefault("notes", []).append(
+            "no reference image was available for this render, so it was drawn from the prompt alone"
+        )
     return _attachment(seed, result, md, consumption)
 
 
@@ -344,7 +366,19 @@ async def on_demand(ctx, body):
             return {"error": "profile (dict) required"}
         normalized = normalize_profile(profile)
         await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, normalized)
-        return {"ok": True, "profile": normalized}
+        result = {"ok": True, "profile": normalized}
+        # The normalizer drops a reference image it cannot accept rather than
+        # truncating it -- half a base64 payload is not a smaller image. Saying
+        # "ok" and nothing else let the form preview an image, report success, and
+        # show it gone on reopen, with nothing to explain why.
+        sent = profile.get("reference_image_b64")
+        if isinstance(sent, str) and sent.strip() and not normalized["reference_image_b64"]:
+            accepted = ", ".join(mime.removeprefix("image/").upper() for mime in REFERENCE_MIMES)
+            result["warning"] = (
+                f"That reference image was not saved: Orb accepts {accepted} files up to "
+                f"{MAX_REFERENCE_IMAGE_B64 * 3 // 4 // (1024 * 1024)} MB."
+            )
+        return result
     return {"error": f"unknown action: {action!r}"}
 
 
@@ -559,19 +593,20 @@ async def regenerate(ctx, body):
     profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
     # RegenCtx history excludes the anchor; append it before rebuilding the prefix.
     ctx_with_history = _RegenCompositionCtx(ctx, tuple(list(ctx.history) + [message]))
-    try:
-        return [
-            await _generate_fresh(
-                ctx=ctx_with_history,
-                message=message,
-                config=config,
-                profile=profile,
-                style_id=style_id,
-            )
-        ]
-    except Exception:
-        logger.exception("image regenerate failed for attachment %s", ctx.attachment_id)
-        return []
+    # Deliberately unguarded. Swallowing the failure here returned an empty batch,
+    # which the route reports as a successful regenerate with nothing in it -- the
+    # button appears to do nothing at all. Every error this can raise is one the
+    # user can act on ("generate or upload an image in this chat first"), and the
+    # route logs and surfaces a raise. Let it.
+    return [
+        await _generate_fresh(
+            ctx=ctx_with_history,
+            message=message,
+            config=config,
+            profile=profile,
+            style_id=style_id,
+        )
+    ]
 
 
 class _RegenCompositionCtx:
@@ -610,20 +645,17 @@ async def reroll_gen(ctx, params, seed):
     if style_changed:
         params.pop("workflow_id", None)
         params.pop("backend_model", None)
-        # The recorded references name node ids in the OLD graph, and this ctx has
-        # no history to re-resolve from -- so a new graph that needs references is
-        # refused rather than submitted with its exporter's filenames still pinned.
-        params.pop("references", None)
-    # **After** the style_changed pops, never before: those three lines clear the
+        # `references` is deliberately **not** popped alongside them. Those two are
+        # pins naming things the old style owned; a recorded reference is an
+        # *origin* -- an attachment row or a card id -- which this ctx can re-fetch
+        # with no history at all. What it cannot carry over is the recorded slot,
+        # and `refetch_references` re-keys onto the new target's slots for exactly
+        # that reason.
+    # **After** the style_changed pops, never before: those two lines clear the
     # pins precisely so the new style resolves its own, and a target resolved above
     # them would answer off the previous style's record and re-render the old graph.
     adapter = get_adapter(config)
     target = adapter.resolve_target(style, params)
-    if style_changed and target.reference_slots:
-        raise ImageGenerationError(
-            f"{style['label']} uses reference images, which a reroll cannot carry over from another style. "
-            "Regenerate the image under this style instead."
-        )
     # Disclosure this hook adds *on top of* the adapter's own: `target.notes` already
     # reaches the attachment through the result's backend_info, so repeating them
     # here would print each one twice.
@@ -648,7 +680,39 @@ async def reroll_gen(ctx, params, seed):
         )
     # Strictly by recorded origin: a reroll promises only the seed changes, so
     # re-resolving from a branch that may have moved on is what must not happen.
-    references = await refetch_references(params.get("references"), slots=target.reference_slots)
+    recorded_references = _recorded_references(params)
+    if recorded_references and not target.reference_slots:
+        # The style this reroll renders under takes no reference images -- the
+        # connection's setting was turned off, or the graph has no mapped
+        # LoadImage. Submitting them anyway is what sent a stored WebP into a
+        # provider's edit endpoint that had declared PNG/JPEG; dropping them
+        # silently is the substitution this workflow refuses to make. So: drop,
+        # and say so on the image.
+        references = ()
+        notes.append(
+            "this style does not take reference images, so the reference the original used was not sent; "
+            "the picture will not match"
+        )
+    else:
+        references = await refetch_references(recorded_references, slots=target.reference_slots)
+        dropped = len(recorded_references) - len(references)
+        if dropped > 0:
+            notes.append(f"this style takes fewer reference images than the original, so {dropped} of them were not sent")
+    # The sibling this reroll persists records what was actually sent, re-keyed
+    # slots and all -- `params` is the dict the route stores as its
+    # generation_metadata, so leaving the previous target's slot ids in it would
+    # make the next reroll re-key from a record that was never true.
+    if recorded_references or references:
+        params["references"] = [
+            {
+                "slot": list(reference.slot),
+                "source": reference.source,
+                "origin": reference.origin,
+                "digest": reference.digest,
+                "source_digest": reference.source_digest,
+            }
+            for reference in references
+        ]
     resolved_seed = fold_seed(seed)
     result = await resolve_and_generate(
         config,

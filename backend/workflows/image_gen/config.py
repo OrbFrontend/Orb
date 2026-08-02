@@ -247,9 +247,23 @@ def _user_graph(raw: Any) -> dict | None:
     # Never required, so a t2i graph normalizes exactly as before: an unmapped
     # LoadImage is simply absent from the list, which is how "Not used" is encoded.
     references_raw = slots_raw.get("references")
-    references = [item for item in map(_reference, references_raw) if item] if isinstance(references_raw, list) else []
+    references: list[dict] = []
+    seen_slots: set[tuple[str, str]] = set()
+    for item in map(_reference, references_raw) if isinstance(references_raw, list) else []:
+        if item is None:
+            continue
+        # One entry per widget. Two rows on the same slot would both resolve, both
+        # be recorded, and the second would overwrite the first at patch time --
+        # so the record would claim a reference the render never used.
+        node, field = str(item["slot"][0]), str(item["slot"][1])
+        if (node, field) in seen_slots:
+            continue
+        seen_slots.add((node, field))
+        references.append(item)
+        if len(references) >= MAX_REFERENCE_SLOTS:
+            break
     if references:
-        slots["references"] = references[:MAX_REFERENCE_SLOTS]
+        slots["references"] = references
     return {
         "id": gid,
         "label": _text(raw.get("label"), 100, gid) or gid,

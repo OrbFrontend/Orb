@@ -9,8 +9,11 @@ the excluded anchor -- are pinned here rather than left to the end-to-end path.
 from __future__ import annotations
 
 import base64
+import hashlib
+import io
 
 import pytest
+from PIL import Image
 
 from backend.workflows.image_gen import references as refs
 from backend.workflows.image_gen.engine.contracts import ImageGenerationError
@@ -18,6 +21,25 @@ from backend.workflows.image_gen.engine.contracts import ImageGenerationError
 PNG = b"\x89PNG\r\n\x1a\n" + b"first"
 OTHER = b"\x89PNG\r\n\x1a\n" + b"second"
 AVATAR = b"\x89PNG\r\n\x1a\n" + b"avatar"
+
+# The walk-back tests only need bytes that are distinguishable, so the fakes above
+# stay fakes. The policy tests below re-encode, so they need bytes PIL can read.
+CLOUD_SLOTS = [
+    {
+        "slot": ["cloud", "image_0"],
+        "source": "previous",
+        "label": "Reference image",
+        "mimes": ["image/png", "image/jpeg"],
+        "max_bytes": 4 * 1024 * 1024,
+        "required": False,
+    }
+]
+
+
+def _real(fmt: str = "WEBP") -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (12, 34, 56)).save(buf, format=fmt)
+    return buf.getvalue()
 
 
 def _b64(data: bytes) -> str:
@@ -97,6 +119,50 @@ async def test_the_walk_back_lands_on_the_image_the_user_is_looking_at(history, 
 
 
 @pytest.mark.asyncio
+async def test_an_upload_in_a_format_orb_does_not_accept_is_walked_past():
+    """A phone HEIC or an SVG is `image/*` and is not something any image backend
+    can be handed. Skipping it continues the walk-back; taking it would put
+    undecodable bytes in a body labelled as PNG."""
+    heic = {"id": 5, "mime_type": "image/heic", "data_b64": _b64(OTHER)}
+    history = [_msg(1, workflow=[_gen(10)]), _msg(2, user=[heic])]
+
+    resolved = await _resolve(_entries(), history)
+
+    assert resolved[0].origin == "attachment:10"
+
+
+@pytest.mark.asyncio
+async def test_the_walk_back_stops_before_the_whole_branch():
+    """Unbounded, the first image in a conversation permanently retires the
+    character reference: `previous_or_character` would find something forever,
+    and a picture from two hundred messages ago is a worse likeness than the one
+    the user set on purpose."""
+    ancient = [_msg(1, workflow=[_gen(10)])]
+    # The image sits one message beyond the window: the walk scans `since` first,
+    # so reaching it costs len(since) + 1 steps.
+    since = [_msg(i) for i in range(2, 2 + refs.PREVIOUS_LOOKBACK_MESSAGES)]
+
+    assert refs._previous_image(ancient + since, 99) is None
+    # One message closer and it is back in range, so the bound is the only reason.
+    assert refs._previous_image(ancient + since[:-1], 99) is not None
+
+
+@pytest.mark.asyncio
+async def test_an_optional_slot_resolves_to_nothing_instead_of_failing():
+    """A cloud provider's synthetic slot is optional: the same model has a plain
+    generations endpoint one field away, so refusing would make turning reference
+    images on break every new conversation until an image exists in it."""
+    optional = [{**CLOUD_SLOTS[0], "source": "previous"}]
+
+    assert await _resolve(optional, [_msg(1)]) == ()
+
+    # A ComfyUI graph slot is not optional -- rendering it unfilled submits the
+    # exporter's own filename and draws whatever that machine had at that path.
+    with pytest.raises(ImageGenerationError):
+        await _resolve([{**CLOUD_SLOTS[0], "required": True}], [_msg(1)])
+
+
+@pytest.mark.asyncio
 async def test_both_sources_empty_names_the_slot_and_what_was_tried():
     with pytest.raises(ImageGenerationError) as raised:
         await _resolve(_entries("previous_or_character"), [_msg(1)], character_id="card-1")
@@ -173,3 +239,129 @@ async def test_a_character_origin_rereads_the_current_profile(monkeypatch):
 async def test_nothing_recorded_replays_as_no_references():
     assert await refs.refetch_references(None) == ()
     assert await refs.refetch_references([]) == ()
+
+
+@pytest.fixture
+def _stored_webp(monkeypatch):
+    """One recorded reference whose origin still holds a real WebP."""
+
+    async def by_id(_att_id):
+        return {"id": 10, "mime_type": "image/webp", "data_b64": _b64(_real("WEBP"))}
+
+    monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
+
+
+COMFY_SLOTS = [
+    {
+        "slot": ["72", "image"],
+        "source": "previous",
+        "label": "Load Image (#72)",
+        "mimes": ["image/png", "image/jpeg", "image/webp"],
+        "max_bytes": 8 * 1024 * 1024,
+        "required": True,
+    }
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_stored_webp")
+@pytest.mark.parametrize(
+    ("recorded_slot", "slots", "expected_slot"),
+    [
+        (["72", "image"], CLOUD_SLOTS, ("cloud", "image_0")),
+        (["cloud", "image_0"], COMFY_SLOTS, ("72", "image")),
+        # A graph re-exported with different node ids is the same problem in one
+        # backend, and gets the same answer.
+        (["72", "image"], [{**COMFY_SLOTS[0], "slot": ["81", "image"]}], ("81", "image")),
+    ],
+    ids=["comfy -> cloud", "cloud -> comfy", "graph re-exported"],
+)
+async def test_a_replay_rekeys_onto_the_slot_that_will_actually_carry_it(recorded_slot, slots, expected_slot):
+    """A ComfyUI reference is recorded against a node id and a cloud one against a
+    synthetic slot, so the two never match by key. Without the positional pass the
+    cloud direction handed a provider that declared PNG/JPEG the WebP every render
+    is stored as, and the ComfyUI direction patched a graph node named `cloud`."""
+    recorded = [{"slot": recorded_slot, "source": "previous", "origin": "attachment:10", "digest": "x"}]
+
+    resolved = await refs.refetch_references(recorded, slots=slots)
+
+    assert resolved[0].slot == expected_slot
+    assert resolved[0].mime in tuple(slots[0]["mimes"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_stored_webp")
+async def test_a_recorded_reference_with_no_slot_left_is_dropped_not_submitted():
+    """The caller counts what came back and discloses the drop. Submitting it
+    against a slot this render does not have is what patched a ComfyUI graph node
+    named `cloud`."""
+    recorded = [
+        {"slot": ["cloud", "image_0"], "source": "previous", "origin": "attachment:10"},
+        {"slot": ["cloud", "image_1"], "source": "previous", "origin": "attachment:10"},
+    ]
+
+    assert len(await refs.refetch_references(recorded, slots=CLOUD_SLOTS)) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_stored_webp")
+async def test_a_required_slot_with_nothing_recorded_for_it_refuses_the_replay():
+    required = [{**CLOUD_SLOTS[0], "required": True, "label": "Load Image (#r)"}]
+
+    with pytest.raises(ImageGenerationError, match="did not record"):
+        await refs.refetch_references([], slots=required)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_stored_webp")
+async def test_an_origin_whose_bytes_were_replaced_refuses_rather_than_substituting():
+    """Rehydrate rewrites an evicted row *in place*, and on a seedless provider
+    those are different bytes under the same id. Compared on `source_digest`,
+    which is taken before this target's mime policy converts anything -- `digest`
+    would differ for a re-keyed reference that never changed."""
+    recorded = [
+        {
+            "slot": ["cloud", "image_0"],
+            "source": "previous",
+            "origin": "attachment:10",
+            "source_digest": hashlib.sha256(b"what it used to be").hexdigest(),
+        }
+    ]
+
+    with pytest.raises(ImageGenerationError, match="has been replaced"):
+        await refs.refetch_references(recorded, slots=CLOUD_SLOTS)
+
+
+@pytest.mark.asyncio
+async def test_a_character_origin_is_exempt_from_the_replacement_check(monkeypatch):
+    """It addresses a setting, not a chat row: "change the reference, then reroll"
+    is the documented behaviour, so a changed digest there is the point."""
+
+    async def state(_card_id, _workflow_id):
+        return {"reference_image_b64": _b64(_real("PNG")), "reference_mime": "image/png"}
+
+    monkeypatch.setattr(refs, "get_workflow_character_state", state)
+    recorded = [
+        {
+            "slot": ["cloud", "image_0"],
+            "source": "character",
+            "origin": "character:card-1",
+            "source_digest": hashlib.sha256(b"the previous likeness").hexdigest(),
+        }
+    ]
+
+    assert len(await refs.refetch_references(recorded, slots=CLOUD_SLOTS)) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_stored_webp")
+async def test_a_replay_records_the_bytes_it_actually_sent():
+    """`digest` names the bytes on the wire (ComfyUI dedupes uploads by it);
+    `source_digest` names the bytes as fetched. A conversion makes them differ,
+    and only the second is comparable across renders."""
+    recorded = [{"slot": ["cloud", "image_0"], "source": "previous", "origin": "attachment:10"}]
+
+    resolved = await refs.refetch_references(recorded, slots=CLOUD_SLOTS)
+
+    assert resolved[0].source_digest == hashlib.sha256(_real("WEBP")).hexdigest()
+    assert resolved[0].digest != resolved[0].source_digest

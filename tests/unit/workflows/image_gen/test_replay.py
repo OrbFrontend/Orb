@@ -8,6 +8,8 @@ with a different image and reports success.
 
 from __future__ import annotations
 
+import base64
+
 import pytest
 
 from backend.workflows.image_gen import hooks
@@ -98,9 +100,10 @@ def _edit_config(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_edit_config")
-async def test_a_style_swap_on_reroll_drops_the_recorded_references():
-    """They name node ids in the OLD graph, so they cannot be replayed onto a
-    different one -- and RerollGenCtx carries no history to re-resolve from."""
+async def test_a_style_swap_on_reroll_drops_the_stale_graph_pins():
+    """`workflow_id` and `backend_model` name things the OLD style owned, so the
+    new style must resolve its own. `references` is not one of them -- it records
+    an *origin*, which re-fetches with no history and no graph."""
     # The override swapped this reroll from the edit style onto a plain one.
     params = {
         "prompt": "a quiet room",
@@ -115,15 +118,130 @@ async def test_a_style_swap_on_reroll_drops_the_recorded_references():
     # is what the persisted sibling records.
     with pytest.raises(ImageGenerationError, match="Import a ComfyUI workflow"):
         await hooks.reroll_gen(_RerollCtx("edit"), params, "1")
-    assert "references" not in params and "workflow_id" not in params
+    assert "workflow_id" not in params and "backend_model" not in params
 
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_edit_config")
-async def test_rerolling_onto_a_reference_style_is_refused_with_a_reason():
+async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused():
     """Submitting anyway would ship the new graph's exporter filenames, which
-    fails at ComfyUI with nothing the user can act on."""
+    fails at ComfyUI with nothing the user can act on. The refusal now fires on
+    what is actually unreplayable -- a required slot with no recorded origin to
+    fill it -- rather than on any style change that touches references at all."""
     params = {"prompt": "p", "negative_prompt": "", "style_id": "edit", "workflow_id": "user_other"}
 
-    with pytest.raises(ImageGenerationError, match="reference images"):
+    with pytest.raises(ImageGenerationError, match="needs a reference image the stored image did not record"):
         await hooks.reroll_gen(_RerollCtx("plain"), params, "1")
+
+
+# ── reference images on a cloud reroll ───────────────────────────────────────
+#
+# The cloud slot is synthetic and constant, so every question the ComfyUI cases
+# above answer about node ids has a different answer here -- which is exactly how
+# the two paths came to disagree.
+
+
+def _cloud_config(reference_source: str, styles=None) -> dict:
+    return normalize_config(
+        {
+            "source": "cloud",
+            "default_style": "anime",
+            "styles": styles or [{"id": "anime", "label": "Anime", "connection": "xai"}],
+            "cloud": {
+                "provider": "xai",
+                "reference_source": reference_source,
+                "providers": {
+                    "xai": {
+                        "api_key": "sk-test",
+                        "model": "grok-imagine-image",
+                        "reference_source": reference_source,
+                    }
+                },
+            },
+        }
+    )
+
+
+@pytest.fixture
+def _cloud_reroll(monkeypatch):
+    """Configure a cloud reroll and capture the request that reaches the adapter."""
+    import io
+
+    from PIL import Image
+
+    from backend.workflows.image_gen import references as refs
+    from backend.workflows.image_gen.engine.contracts import ImageResult
+
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (10, 20, 30)).save(buf, format="WEBP")
+    stored = buf.getvalue()
+
+    async def by_id(_att_id):
+        return {"id": 10, "mime_type": "image/webp", "data_b64": base64.b64encode(stored).decode()}
+
+    monkeypatch.setattr(refs, "get_workflow_attachment_by_id", by_id)
+    captured: dict = {}
+
+    async def fake_generate(_config, request, *, target=None, progress=None):
+        captured["request"] = request
+        captured["target"] = target
+        return ImageResult(image_bytes=b"rendered", mime="image/webp", backend_info={"notes": []})
+
+    monkeypatch.setattr(hooks, "resolve_and_generate", fake_generate)
+
+    def _configure(config: dict):
+        async def get_config(_workflow_id):
+            return config
+
+        monkeypatch.setattr(hooks, "get_workflow_config", get_config)
+        return captured
+
+    return _configure
+
+
+RECORDED_CLOUD = [{"slot": ["cloud", "image_0"], "source": "previous", "origin": "attachment:10", "digest": "x"}]
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_reroll_with_references_off_drops_them_and_says_so(_cloud_reroll):
+    """Submitting them anyway is what sent a stored WebP into an edits endpoint
+    that had declared PNG/JPEG -- the target's slot list is empty, so there was no
+    policy to convert under and the ComfyUI defaults applied."""
+    captured = _cloud_reroll(_cloud_config(""))
+    params = {"prompt": "p", "negative_prompt": "", "style_id": "anime", "references": list(RECORDED_CLOUD)}
+
+    _, consumption = await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
+
+    assert captured["request"].references == ()
+    assert any("does not take reference images" in note for note in consumption["notes"])
+    # And the sibling records what was actually sent, not what the parent recorded.
+    assert params["references"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_reroll_converts_the_reference_to_what_the_provider_takes(_cloud_reroll):
+    captured = _cloud_reroll(_cloud_config("previous"))
+    params = {"prompt": "p", "negative_prompt": "", "style_id": "anime", "references": list(RECORDED_CLOUD)}
+
+    await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
+
+    (reference,) = captured["request"].references
+    assert reference.mime in ("image/png", "image/jpeg")
+    assert reference.slot == ("cloud", "image_0")
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_style_change_carries_its_reference_over(_cloud_reroll):
+    """The old refusal fired on any style change that touched references, for a
+    reason that is true only of ComfyUI: recorded node ids. A cloud reference is
+    an origin against a constant synthetic slot, so it replays as it stands."""
+    styles = [
+        {"id": "anime", "label": "Anime", "connection": "xai"},
+        {"id": "realistic", "label": "Realistic", "connection": "xai"},
+    ]
+    captured = _cloud_reroll(_cloud_config("previous", styles=styles))
+    params = {"prompt": "p", "negative_prompt": "", "style_id": "realistic", "references": list(RECORDED_CLOUD)}
+
+    await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
+
+    assert len(captured["request"].references) == 1

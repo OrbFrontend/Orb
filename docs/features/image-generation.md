@@ -191,9 +191,17 @@ sends the resolved image inline with the request. Orb converts it to a format th
 provider accepts first — generated images are stored as WebP, and most providers
 take only PNG and JPEG. The size limit for a cloud reference is 4 MB, smaller
 than ComfyUI's, because the image is base64-encoded inside a JSON request body.
+Orb resizes and re-compresses to stay under that limit; if it cannot, the render
+fails and says so rather than sending an oversized request.
 
 The source choices are the same three listed below. Providers that accept only
 one reference image are sent the first, and Orb notes it on the image.
+
+A cloud reference is optional. When no source resolves — a new conversation with
+no images yet, and no character reference — the render goes to the plain
+generation endpoint instead, and the image says so under **Render details**. This
+is the one difference from ComfyUI, where a workflow built around a **Load
+Image** node cannot render at all without one.
 
 ### On ComfyUI
 
@@ -215,8 +223,17 @@ Each reference row offers these sources:
 The previous image is the most recent generated image or uploaded image before
 the reply you are visualizing. If a reply has image variants, Orb sends the
 variant that is currently shown. Orb never sends the image already attached to
-the reply you are visualizing. When no source resolves, the render fails and
-names the slot - Orb does not substitute a different image.
+the reply you are visualizing. When no source resolves on ComfyUI, the render
+fails and names the slot - Orb does not substitute a different image.
+
+Orb looks back at most 30 messages on the branch. Past that, **Previous image,
+else character reference** falls through to the character reference: a picture
+from far earlier in the conversation is usually a different scene, and often a
+different character, so the likeness you set on purpose is the better answer.
+
+Uploads count only in the formats Orb accepts - PNG, JPEG and WebP. An upload in
+any other format (a phone HEIC, for example) is skipped and the search continues
+to the next image.
 
 !!! note
     These workflows take the output size from the reference image or from a
@@ -227,19 +244,37 @@ names the slot - Orb does not substitute a different image.
 
 1. Open a conversation with the character, then open **Image Generation**
    settings and find **This Character Only**.
-2. Under **Reference image**, select an image file. The limit is 10 MB.
+2. Under **Reference image**, select a PNG, JPEG or WebP file. The limit is 10 MB.
 3. Select **Save**.
 
 When you set no reference image, Orb sends the character card's avatar.
+
+A file in another format, or over the limit, is not saved. Orb tells you so
+rather than accepting the save and dropping the image.
 
 ### Reference images and reroll
 
 Reroll changes the seed only. Orb records where each reference came from and
 fetches the same image again, so the picture keeps its subject. A character
 reference is re-read from the character profile, so changing it and rerolling
-applies the new image. If the source image was deleted or its bytes were
-evicted, or the reroll targets a different style whose workflow uses reference
-images, the reroll fails - use **Regenerate** instead.
+applies the new image.
+
+Rerolling under a different style carries the references over. Orb records an
+*origin* - a chat image or a character card - not a slot in one workflow, so it
+re-points them at whatever the new style loads them into, including across
+backends. Two cases still fail, and both say why: the source image was deleted or
+its bytes were evicted, or the new style needs a reference the stored image never
+recorded. Use **Regenerate** for those.
+
+Two cases re-render with a note instead of failing:
+
+- The new style takes no reference images at all. The reference is not sent, and
+  the picture will not match.
+- The new style takes fewer than the original recorded. The extras are not sent.
+
+If the image an origin points at has since been replaced - by rehydrating an
+evicted image on a backend that does not honour seeds, for example - the reroll
+fails rather than quietly using a different picture.
 
 !!! warning
     A ComfyUI server that is not on this machine receives your conversation
@@ -474,6 +509,11 @@ guaranteed.
 | The render times out. | Check the ComfyUI queue. Increase **Render timeout**. The allowed range is 10 to 900 seconds. |
 | A render says it needs a reference image. | Generate or upload an image in the chat first. Or set a character reference image, and set the slot to a source that includes it. |
 | A reroll says the reference image is gone. | The source image was deleted or its bytes were evicted. Select **Regenerate**. |
+| A reroll says the reference image was replaced. | The image that origin points at now holds different bytes, so the reroll cannot reproduce the picture. Select **Regenerate**. |
+| A reroll says the style needs a reference the image did not record. | That style loads more images than the stored one recorded. Select **Regenerate** under that style. |
+| A render says the reference image could not be read. | Orb accepts PNG, JPEG and WebP. Replace the upload or the character reference image. |
+| A render says the reference image is too large after resizing. | Use a smaller source image. Cloud providers cap a reference at 4 MB once encoded. |
+| A reference image was not saved on the character. | Orb accepts PNG, JPEG and WebP up to 10 MB. |
 | The connection test says a node needs an image on the server. | Map that node under **Reference images**, or put the file in ComfyUI's `input` directory. |
 | ComfyUI completes without an image. | Select a valid image-output node in the imported workflow. |
 | Orb cannot write an image prompt. | Check the Orb LLM endpoint. Use a model that can make tool calls. |

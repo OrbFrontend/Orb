@@ -371,6 +371,89 @@ async def test_a_cloud_style_is_never_asked_for_a_comfyui_workflow(client):
 
 
 @pytest.mark.asyncio
+async def test_a_reference_image_the_normalizer_drops_is_reported_not_swallowed(client):
+    """`normalize_profile` drops an image it cannot accept rather than truncating
+    it -- half a base64 payload is not a smaller image. Answering a bare "ok" let
+    the settings form preview the picture, report a successful save, and show it
+    gone on the next open with nothing to explain why."""
+    await create_character_card({"id": "ig-drop", "name": "Iris"})
+    await create_conversation("ig-drop-conv", "Images", "Iris", "A room", character_card_id="ig-drop")
+
+    async def save(profile: dict) -> dict:
+        response = await client.post(
+            "/api/conversations/ig-drop-conv/workflows/image_gen/trigger",
+            json={"action": "set_profile", "profile": profile},
+        )
+        assert response.status_code == 200
+        return response.json()
+
+    # A GIF is `image/*` and is not one of the three mimes Orb declares.
+    rejected = await save(
+        {"appearance_prompt": "silver hair", "reference_image_b64": "Ym9ndXM=", "reference_mime": "image/gif"}
+    )
+    assert rejected["profile"]["reference_image_b64"] == ""
+    assert "not saved" in rejected["warning"]
+    # The rest of the profile still saved, so the warning is about the image alone.
+    assert rejected["profile"]["appearance_prompt"] == "silver hair"
+
+    accepted = await save({"reference_image_b64": "Ym9ndXM=", "reference_mime": "image/png"})
+    assert accepted["profile"]["reference_image_b64"] == "Ym9ndXM="
+    assert "warning" not in accepted
+    # And a save that carries no image at all is not accused of losing one.
+    assert "warning" not in await save({"appearance_prompt": "silver hair"})
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_reference_that_resolves_to_nothing_renders_anyway_and_says_so(client, monkeypatch):
+    """A ComfyUI graph built around a `LoadImage` cannot render without one. A
+    cloud provider can -- the same model has a plain generations endpoint one
+    field away -- so refusing would make turning reference images on break every
+    new conversation until an image exists in it."""
+    await create_conversation("ig-optional", "Images", "Iris", "A quiet room")
+    mid, _ = await add_message("ig-optional", "assistant", "She turns toward the door.", 0)
+    await set_active_leaf("ig-optional", mid)
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "grok",
+            "styles": [{"id": "grok", "label": "Grok", "connection": "xai"}],
+            "cloud": {
+                "providers": {"xai": {"api_key": "k", "model": "grok-imagine-image", "reference_source": "previous"}},
+            },
+        },
+    )
+    captured: dict = {}
+
+    async def fake_compose(**kwargs):
+        captured["compose"] = kwargs
+        return "1girl, standing", "", "single_call"
+
+    async def fake_render(config, request, **kwargs):
+        captured["request"] = request
+        return ImageResult(image_bytes=b"\x89PNG\r\n\x1a\nimage", mime="image/png", backend_info={"source": "cloud"})
+
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.compose_scene", fake_compose)
+    monkeypatch.setattr("backend.workflows.image_gen.hooks.resolve_and_generate", fake_render)
+
+    response = await client.post(
+        "/api/conversations/ig-optional/workflows/image_gen/trigger",
+        json={"action": "generate", "message_id": mid},
+    )
+    assert response.status_code == 200
+    assert "event: image_gen_error" not in response.text
+
+    assert captured["request"].references == ()
+    # The composer is told there is no reference, so it still describes identity.
+    assert captured["compose"]["has_references"] is False
+    match = re.search(r'"attachment_id":(\d+)', response.text)
+    assert match
+    attachment = await get_workflow_attachment_by_id(int(match.group(1)))
+    assert attachment is not None
+    notes = json.loads(attachment["consumption_metadata"])["notes"]
+    assert any("no reference image was available" in note for note in notes)
+
+
+@pytest.mark.asyncio
 async def test_node_types_query_rejects_a_non_list_in_band(client):
     """A bad request shape is reported in-band (200 + {"error"}) like the rest of
     the query surface, not as an HTTP 4xx -- the caller degrades to conventional

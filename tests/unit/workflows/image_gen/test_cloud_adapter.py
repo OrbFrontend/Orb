@@ -21,6 +21,7 @@ from backend.workflows.image_gen.engine.adapters.openai_image import (
     OpenAICompatibleImageAdapter,
 )
 from backend.workflows.image_gen.engine.contracts import ImageRequest, ResolvedReference
+from backend.workflows.image_gen.engine.display_encode import shrink_for_display
 from backend.workflows.image_gen.engine.openai_image_client import OpenAIImageClient
 
 
@@ -33,6 +34,14 @@ def _png(width: int = 1024, height: int = 1024) -> bytes:
 def _webp() -> bytes:
     buf = io.BytesIO()
     Image.new("RGB", (512, 512), (90, 20, 20)).save(buf, format="WEBP")
+    return buf.getvalue()
+
+
+def _photo(width: int, height: int, *, fmt: str = "PNG") -> bytes:
+    """Noise, not a flat fill: a flat image compresses to nothing and would prove
+    nothing about a size cap or about which target format is smaller."""
+    buf = io.BytesIO()
+    Image.effect_noise((width, height), 64).convert("RGB").save(buf, format=fmt)
     return buf.getvalue()
 
 
@@ -293,4 +302,58 @@ async def test_a_stored_webp_reference_arrives_as_a_mime_the_provider_accepts():
     assert mime in preset_mimes
     # And the bytes really are that format, not just relabelled.
     with Image.open(io.BytesIO(data)) as probe:
-        assert probe.format == "PNG"
+        assert probe.format == "JPEG"
+
+
+def test_the_conversion_target_is_the_lossy_one_the_provider_allows():
+    """PNG is lossless and a reference is photographic, so preferring it tripled
+    the bytes of the WebP every render is already stored as -- on the common path,
+    not an edge case. The preference is by compression, not by preset order."""
+    from backend.workflows.image_gen.engine.display_encode import normalize_reference
+
+    source = _photo(1024, 1536)
+    stored, stored_mime = shrink_for_display(source, "image/png")
+    as_png, _ = normalize_reference(stored, stored_mime, allowed=("image/png",), max_bytes=4 * 1024 * 1024)
+    as_either, mime = normalize_reference(stored, stored_mime, allowed=("image/png", "image/jpeg"), max_bytes=4 * 1024 * 1024)
+
+    assert mime == "image/jpeg"
+    assert len(as_either) < len(as_png)
+
+
+@pytest.mark.parametrize(
+    ("data", "mime"),
+    [
+        # Bigger than the cap in a mime the provider already accepts: the old
+        # "keep whichever is smaller" rule handed this straight back, oversized.
+        (_photo(4000, 3000, fmt="JPEG"), "image/jpeg"),
+        # And the same picture arriving as the WebP a render is stored as.
+        (_photo(4000, 3000, fmt="WEBP"), "image/webp"),
+    ],
+    ids=["already an accepted mime", "needs conversion too"],
+)
+def test_an_oversized_cloud_reference_is_brought_under_the_declared_cap(data, mime):
+    """`max_bytes` is a contract, not a hint: the reference rides base64 inside a
+    JSON body, so an unenforced cap is a multi-megabyte POST the provider rejects."""
+    from backend.workflows.image_gen.engine.display_encode import normalize_reference
+
+    cap = 1024 * 1024
+    assert len(data) > cap
+    out, out_mime = normalize_reference(data, mime, allowed=("image/png", "image/jpeg"), max_bytes=cap)
+
+    assert len(out) <= cap
+    assert out_mime in ("image/png", "image/jpeg")
+
+
+def test_a_reference_orb_cannot_decode_is_refused_rather_than_mislabelled():
+    """`force`'s whole job is "the destination cannot read the input format". The
+    decode-failure path used to return the input unchanged, so an SVG or a HEIC
+    upload reached the provider inside a body that declared PNG."""
+    from backend.workflows.image_gen.engine.contracts import ImageGenerationError
+    from backend.workflows.image_gen.engine.display_encode import normalize_reference
+
+    with pytest.raises(ImageGenerationError, match="could not read"):
+        normalize_reference(b"<svg/>", "image/svg+xml", allowed=("image/png", "image/jpeg"), max_bytes=4 * 1024 * 1024)
+
+    # With nothing declared there is no contract to break, so the old promise
+    # holds: a reference Orb cannot read is still one ComfyUI probably can.
+    assert normalize_reference(b"<svg/>", "image/svg+xml") == (b"<svg/>", "image/svg+xml")

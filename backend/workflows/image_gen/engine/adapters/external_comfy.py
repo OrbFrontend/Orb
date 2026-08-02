@@ -6,7 +6,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
-from ...config import active_style
+from ...config import REFERENCE_MIMES, active_style
 from ..comfy_client import ComfyClient
 from ..contracts import (
     ImageBackendCapabilities,
@@ -26,6 +26,11 @@ from ..graph import (
 )
 from ..target import RenderTarget
 from .base import ImageAdapter
+
+# A multipart upload, so the ceiling is generous next to the cloud adapter's
+# base64-in-JSON one -- but it is still declared rather than left implicit, so
+# both backends answer the same question in the same place.
+COMFY_REFERENCE_MAX_BYTES = 8 * 1024 * 1024
 
 CAPABILITIES: ImageBackendCapabilities = {
     "can_generate": True,
@@ -104,9 +109,26 @@ class ExternalComfyAdapter(ImageAdapter):
         return any(item["id"] == graph_id and "negative" in item["slots"] for item in self._graphs())
 
     def _graph_reference_slots(self, graph_id: str) -> tuple[Mapping[str, Any], ...]:
+        """This graph's mapped slots, each carrying the policy ComfyUI imposes.
+
+        `mimes` is not decoration: the upload names the file by extension off the
+        mime (`_UPLOAD_EXTENSIONS`), so anything outside the three Orb declares
+        would land on the server as a `.png` that is not one. `required` is True
+        because a graph built around a `LoadImage` cannot render without it -- an
+        unfilled slot submits the exporter's own filename and draws whatever that
+        machine had at that path.
+        """
         for item in self._graphs():
             if item["id"] == graph_id:
-                return tuple(copy.deepcopy(reference_slots(item["slots"])))
+                return tuple(
+                    {
+                        **copy.deepcopy(entry),
+                        "mimes": list(REFERENCE_MIMES),
+                        "max_bytes": COMFY_REFERENCE_MAX_BYTES,
+                        "required": True,
+                    }
+                    for entry in reference_slots(item["slots"])
+                )
         return ()
 
     def resolve_target(self, style: Mapping[str, Any], replay: Mapping[str, Any] | None) -> RenderTarget:
@@ -289,13 +311,15 @@ class ExternalComfyAdapter(ImageAdapter):
                 "source": self.source_id,
                 "workflow_id": target.target_id,
                 # What a reroll re-fetches by: `origin` names the row or card the bytes
-                # came from, so replay reproduces the *same* reference.
+                # came from, so replay reproduces the *same* reference. `source_digest`
+                # is what proves it still holds the same picture -- see ResolvedReference.
                 "references": [
                     {
                         "slot": list(r.slot),
                         "source": r.source,
                         "origin": r.origin,
                         "digest": r.digest,
+                        "source_digest": r.source_digest,
                         "comfy_name": uploaded[r.digest],
                     }
                     for r in request.references

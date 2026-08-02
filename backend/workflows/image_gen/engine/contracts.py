@@ -39,7 +39,17 @@ class ResolvedReference:
 
     `origin` names *where the bytes came from* in a form a later replay can
     re-fetch by (``"attachment:<id>"``, ``"character:<card id>"``); `digest`
-    identifies the bytes, so two slots resolving to the same image upload once.
+    identifies the bytes *as sent*, so two slots resolving to the same image
+    upload once.
+
+    `source_digest` identifies the bytes *as fetched*, before the destination's
+    mime/size policy touched them. The two differ whenever a conversion ran, and
+    only this one is comparable across renders: a replay that re-keys a ComfyUI
+    reference onto a cloud slot normalizes it differently and would fail a
+    `digest` comparison for a reason that has nothing to do with the picture. It
+    is what lets replay notice that an origin's *content* changed underneath it
+    -- a rehydrate on a seedless provider rewrites a row's bytes in place, under
+    the same id.
     """
 
     slot: tuple[str, str]
@@ -48,6 +58,7 @@ class ResolvedReference:
     mime: str
     origin: str
     digest: str
+    source_digest: str = ""
 
 
 @dataclass(frozen=True)
