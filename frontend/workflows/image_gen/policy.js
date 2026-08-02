@@ -82,6 +82,158 @@ export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, s
   };
 }
 
+// ── connections ──────────────────────────────────────────────────────────────
+//
+// A connection is one place an image can be rendered: the ComfyUI server, or one
+// configured cloud provider. Styles link to a connection by id, which is what
+// lets a hand-tuned anime checkpoint and a commercial API be one dropdown apart
+// in the same conversation instead of a global mode switch away.
+//
+// The list is **derived, not stored**. ComfyUI is implied by `external_comfy`,
+// and a cloud connection is implied by a `cloud.providers` entry that either
+// holds something or is linked by a style. Deriving it is what keeps "this
+// connection exists" and "this connection has credentials" from becoming two
+// facts that can disagree — the failure the old global source picker had, where
+// a config could be pointed at cloud with no key anywhere in it.
+//
+// The ComfyUI id is reserved: `_ID_RE` on the backend accepts it as a provider
+// id too, so nothing may ever ship a cloud preset called `comfy`.
+export const COMFY_CONNECTION = "comfy";
+
+function hasContent(entry) {
+  return !!(entry && (entry.api_key || entry.model || entry.base_url));
+}
+
+function hostLabel(apiUrl) {
+  try {
+    return new URL(apiUrl).host;
+  } catch {
+    return apiUrl || "";
+  }
+}
+
+// Whether this connection could render right now, mirroring the two backend
+// `readiness()` implementations — but only their *connection-level* clauses. A
+// ComfyUI style missing a workflow is a style problem and is reported on the
+// style row; it says nothing about whether the server is configured.
+function readiness(connection, entry, preset) {
+  if (connection.source !== "cloud") {
+    return connection.detail ? { ready: true, detail: connection.detail } : { ready: false, detail: "No server URL" };
+  }
+  if (!preset) return { ready: false, detail: "Unknown provider" };
+  if (preset.needs_base_url && !entry.base_url) return { ready: false, detail: "No API base URL" };
+  if (!entry.api_key) return { ready: false, detail: "No API key" };
+  if (!connection.detail) return { ready: false, detail: "No model" };
+  return { ready: true, detail: connection.detail };
+}
+
+// Every connection the settings form should list, ComfyUI first.
+//
+// `providers` is the backend's preset catalogue (`status.providers`). A stored
+// entry whose provider the catalogue no longer knows is still listed, with
+// `preset: null` — the backend retains such rows precisely so a renamed provider
+// does not erase a key on the next save, and hiding the row here would make that
+// stored credential unreachable.
+//
+// `pending` is the ids the user has just added and not yet filled in. Several
+// presets ship no default model, so a freshly added one holds nothing at all —
+// and "counts as a connection because it holds something" would make it vanish
+// between the click and the first keystroke.
+export function connectionList(config = {}, providers = [], pending = []) {
+  const comfy = config.external_comfy || {};
+  const cloud = config.cloud || {};
+  const entries = cloud.providers || {};
+  const styles = Array.isArray(config.styles) ? config.styles : [];
+  const linked = new Set([...styles.map((s) => s?.connection).filter(Boolean), ...pending]);
+
+  const list = [
+    {
+      id: COMFY_CONNECTION,
+      source: "external_comfy",
+      label: "ComfyUI",
+      kind: "Local",
+      removable: false,
+      preset: null,
+      detail: hostLabel(comfy.api_url || ""),
+    },
+  ];
+  for (const [id, entry] of Object.entries(entries)) {
+    // The shipped config carries one empty `xai` row so the preset-schema walker
+    // can see the `api_key` leaf under the map level. It is not a connection the
+    // user made, so an untouched, unlinked, unadded one stays out of the list.
+    if (!hasContent(entry) && !linked.has(id)) continue;
+    const preset = providers.find((p) => p.id === id) || null;
+    list.push({
+      id,
+      source: "cloud",
+      label: preset?.label || id,
+      kind: "Cloud",
+      removable: true,
+      preset,
+      detail: entry?.model || preset?.default_model || "",
+    });
+  }
+  return list.map((connection) => ({
+    ...connection,
+    ...readiness(connection, entries[connection.id] || {}, connection.preset),
+  }));
+}
+
+// Which providers "Add connection" may still offer: the catalogue minus what is
+// already on the list. Adding a second connection to one provider would need a
+// synthetic id, and the credential map is keyed by provider id — so the honest
+// answer while that is true is that each provider appears once.
+export function addableProviders(connections, providers = []) {
+  const taken = new Set(connections.map((c) => c.id));
+  return providers.filter((p) => !taken.has(p.id));
+}
+
+// The connection a style renders on.
+//
+// `""` means the style predates connection linking. Those resolve to whatever
+// the global source picker was last set to, so an existing install reads exactly
+// as it did before this section existed and nothing silently re-routes.
+export function styleConnectionId(style, config = {}) {
+  const pinned = style?.connection || "";
+  if (pinned) return pinned;
+  const cloud = config.cloud || {};
+  return config.source === "cloud" ? String(cloud.provider || "") : COMFY_CONNECTION;
+}
+
+export function findConnection(connections, id) {
+  return connections.find((c) => c.id === id) || null;
+}
+
+// Every disclosure a save must collect, one per connection a style can actually
+// reach. The old panel asked about the *active* source only, which was already
+// the whole story while one global picker chose it. With styles linking
+// connections independently, a save can turn on a second remote backend without
+// that backend ever being "active" — so the question is asked per connection,
+// and an unlinked one is not a boundary anything will cross.
+export function pendingDisclosures(config = {}, connections = []) {
+  const styles = Array.isArray(config.styles) ? config.styles : [];
+  const used = new Set(styles.map((style) => styleConnectionId(style, config)));
+  const external = config.external_comfy || {};
+  const entries = config.cloud?.providers || {};
+  const notices = [];
+  for (const connection of connections) {
+    if (!used.has(connection.id)) continue;
+    const entry = entries[connection.id] || {};
+    const notice = privacyDisclosure({
+      source: connection.source,
+      apiUrl: external.api_url || "",
+      providerId: connection.id,
+      providerLabel: connection.label,
+      sendsImages:
+        connection.source === "cloud"
+          ? !!entry.reference_source
+          : (external.user_graphs || []).some((graph) => (graph?.slots?.references || []).length > 0),
+    });
+    if (notice) notices.push(notice);
+  }
+  return notices;
+}
+
 // Prompt formats, mirroring backend config.PROMPT_FORMATS. The format decides how
 // the composer writes the scene -- booru tags, mixed, or plain sentences -- so two
 // styles with the same name produce very different prompts. Both pickers name it

@@ -5,6 +5,11 @@
 .image-gen-settings input,.image-gen-settings select,.image-gen-settings textarea{width:100%}
 .image-gen-settings textarea{min-height:54px;resize:vertical}
 .image-gen-row{display:flex;align-items:center;gap:10px}
+/* The row's select carries the global width:100%, so it claims the line and the
+   button next to it is what gets squeezed — far enough to wrap its label onto a
+   second line. The button keeps its natural width; the select gives ground. */
+.image-gen-row>.btn{flex:none;white-space:nowrap}
+.image-gen-row>select{min-width:0}
 .image-gen-settings label.ig-toggle{display:flex;align-items:flex-start;gap:8px;cursor:pointer}
 .image-gen-settings label.ig-toggle input{width:auto;flex:none;margin-top:2px}
 .ig-toggle-body{display:grid;gap:3px}
@@ -35,7 +40,11 @@
    Grid children default to min-width:auto, which lets a long option label or an
    unbroken URL widen a track past the modal; every track is pinned to 0 instead. */
 .ig-section{display:grid;gap:10px}
-.image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
+/* A grid cell stretches its child, which turns "Add style" into a full-width bar
+   that reads as the section's primary action rather than an addition to the list
+   above it. */
+.ig-section>.btn{justify-self:start}
+.image-gen-settings :is(.ig-section,.ig-grid,.ig-style-body,.ig-styles,.ig-conn-list,.ig-conn-body,.ig-profile-fields,.image-gen-graph-picker)>*{min-width:0}
 .ig-heading{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary);padding-bottom:5px;border-bottom:1px solid var(--border)}
 .ig-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
 .ig-profile-fields{display:grid;gap:10px;margin-bottom:10px}
@@ -44,22 +53,51 @@
    One collapsed row per style so the list stays short as styles are added; the
    summary states how far each style departs from the Defaults section. */
 .ig-styles{display:grid;gap:6px}
-.ig-style{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated)}
-.ig-style>summary,.ig-advanced>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:12px;list-style:none}
-.ig-style>summary::-webkit-details-marker,.ig-advanced>summary::-webkit-details-marker{display:none}
-.ig-style>summary::before,.ig-advanced>summary::before{content:"▸";color:var(--text-muted);font-size:10px}
-.ig-style[open]>summary::before,.ig-advanced[open]>summary::before{content:"▾"}
-.ig-style[open]>summary{border-bottom:1px solid var(--border)}
-.ig-style>summary:hover,.ig-advanced>summary:hover{color:var(--text-primary)}
-/* The prompt format sits right after the name, not pushed to the far edge of a
-   wide row: it reads as part of the style's identity ("Krea-Alt (Prose)"). A long
-   name ellipsizes into it, like .ig-graph-name below, rather than pushing the
-   format -- the shorter and less guessable of the two -- out of the row. */
+.ig-style,.ig-conn{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated)}
+.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:12px;list-style:none}
+.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary::-webkit-details-marker{display:none}
+.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary::before{content:"▸";color:var(--text-muted);font-size:10px}
+.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)[open]>summary::before{content:"▾"}
+.image-gen-settings :is(.ig-style,.ig-conn)[open]>summary{border-bottom:1px solid var(--border)}
+.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary:hover{color:var(--text-primary)}
+/* The connection and the prompt format sit right after the name rather than at the
+   far edge of a wide row: all three read as one identity ("Krea-Alt · xAI (Grok) ·
+   Prose"), and all three change what the image looks like. A long name ellipsizes
+   into them, like .ig-graph-name below, rather than pushing the two shorter and
+   less guessable labels out of the row. */
 .ig-style-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--text-primary)}
+.ig-style-conn{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-secondary)}
 .ig-style-format{flex:1;white-space:nowrap;color:var(--text-muted)}
 .ig-style-body{display:grid;gap:10px;padding:10px}
 .ig-style-body>.ig-danger{justify-self:start}
 .ig-danger{color:var(--danger,var(--accent))}
+/* What a cloud-linked style gets from its connection instead of the ComfyUI
+   checkpoint/workflow pair. Set off by a rule so it reads as "supplied elsewhere",
+   not as another note about the fields above it. */
+.ig-style-backend{padding:6px 8px;border-left:2px solid var(--border);border-radius:0 var(--radius) var(--radius) 0}
+/* A text-shaped button: it navigates within the modal, so it must not look like
+   another Save/Remove sitting inside a sentence. */
+.ig-link{background:none;border:0;padding:0;font:inherit;color:var(--accent);cursor:pointer}
+.ig-link:hover{text-decoration:underline}
+
+/* ---- connections ----
+   One collapsed row per connection, matching the styles accordion above: the two
+   lists are read together (a style names a connection, a connection is what the
+   style renders on), so they must not look like different kinds of thing. */
+.ig-conn-list{display:grid;gap:6px}
+.ig-conn-name{flex:none;font-weight:500;color:var(--text-primary)}
+.ig-conn-kind{flex:none;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-muted)}
+.ig-conn-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--text-muted)}
+.ig-conn-body{display:grid;gap:10px;padding:10px}
+/* Remove hangs off the right edge, away from Test — one is a probe, the other
+   deletes credentials, and they must not be neighbours the hand can confuse. */
+.ig-conn-remove{margin-left:auto}
+.ig-conn-test{min-width:0;overflow-wrap:anywhere}
+/* Anything not yet usable: an unconfigured connection, a style pointing at one. */
+.ig-unready{color:var(--danger,var(--accent))}
+/* The collapsed state of a section has to say what is inside it, or collapsing it
+   just hides the answer. */
+.ig-summary-note{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--text-muted)}
 
 /* ---- imported workflow list ---- */
 .ig-graph-list{display:grid;gap:6px}

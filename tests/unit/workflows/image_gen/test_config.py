@@ -175,6 +175,63 @@ def test_source_is_one_of_the_declared_backends():
     assert normalize_config({"source": "managed_local"})["source"] == "external_comfy"
 
 
+# ── connections ──────────────────────────────────────────────────────────────
+#
+# A style names the connection it renders on, and `source` is derived from the
+# style that will render next. The settings panel deleted its global backend
+# picker, so this derivation is the only thing left that decides which adapter
+# `get_adapter` builds -- both directions of it are worth pinning.
+
+
+def _linked(connection: str, *, source: str = "external_comfy", cloud: dict | None = None) -> dict:
+    return normalize_config(
+        {
+            "source": source,
+            "default_style": "s",
+            "styles": [{"id": "s", "connection": connection}],
+            "cloud": cloud or {},
+        }
+    )
+
+
+def test_a_style_connection_is_an_id_or_nothing():
+    assert _linked("comfy")["styles"][0]["connection"] == "comfy"
+    assert _linked("xai")["styles"][0]["connection"] == "xai"
+    # Same shape as every other id here; anything else reads as unlinked rather
+    # than as a connection nothing will ever resolve.
+    assert _linked("../etc/passwd")["styles"][0]["connection"] == ""
+
+
+def test_the_default_styles_connection_decides_which_backend_routes():
+    assert _linked("comfy", source="cloud")["source"] == "external_comfy"
+
+    cloud = _linked("openai", cloud={"providers": {"openai": {"api_key": "k"}}})
+    assert cloud["source"] == "cloud"
+    # And which provider inside it: the panel has no provider dropdown any more.
+    assert cloud["cloud"]["provider"] == "openai"
+
+
+def test_an_unlinked_style_leaves_the_stored_source_alone():
+    """The upgrade path. Every existing style carries no connection, and silently
+    re-routing one on first read would change what the next image looks like."""
+    assert _linked("", source="cloud", cloud={"provider": "xai"})["source"] == "cloud"
+    assert _linked("")["source"] == "external_comfy"
+    # The shipped defaults are unlinked for exactly this reason.
+    assert [s["connection"] for s in normalize_config({})["styles"]] == ["", ""]
+
+
+def test_only_the_style_that_renders_next_decides_the_route():
+    """`default_style` is what the card picks and what a trigger falls back to, so
+    a second style pointing elsewhere must not drag the whole config with it."""
+    config = normalize_config(
+        {
+            "default_style": "local",
+            "styles": [{"id": "local", "connection": "comfy"}, {"id": "remote", "connection": "xai"}],
+        }
+    )
+    assert config["source"] == "external_comfy"
+
+
 # ── the cloud block ──────────────────────────────────────────────────────────
 
 
@@ -200,7 +257,18 @@ def test_an_unknown_provider_id_is_retained_with_its_key():
     cloud = _cloud(provider="renamed_in_v2", providers={"renamed_in_v2": {"api_key": "still-mine", "model": "m"}})
 
     assert cloud["provider"] == "renamed_in_v2"
-    assert cloud["providers"]["renamed_in_v2"] == {"api_key": "still-mine", "model": "m", "base_url": ""}
+    assert cloud["providers"]["renamed_in_v2"] == {
+        "api_key": "still-mine",
+        "model": "m",
+        "base_url": "",
+        # Render settings are per connection, so an entry with none of its own is
+        # completed from the defaults rather than left short of the shape the
+        # adapter reads.
+        "width": 1024,
+        "height": 1024,
+        "quality": "",
+        "reference_source": "",
+    }
 
 
 def test_switching_provider_keeps_the_other_providers_keys():
@@ -242,6 +310,64 @@ def test_cloud_quality_and_reference_source_default_to_off():
     assert _cloud()["reference_source"] == ""
     assert _cloud(reference_source="previous")["reference_source"] == "previous"
     assert _cloud(reference_source="whatever")["reference_source"] == ""
+
+
+def test_render_settings_hoist_from_the_cloud_level_into_each_connection():
+    """The migration for configs written before connections existed: those four
+    lived once for "cloud", and every stored connection inherits them on first read
+    rather than silently resetting to 1024x1024 with references off."""
+    cloud = _cloud(
+        provider="xai",
+        width=1536,
+        height=1024,
+        quality="high",
+        reference_source="previous",
+        providers={"xai": {"api_key": "a"}, "openai": {"api_key": "b"}},
+    )
+    for entry in cloud["providers"].values():
+        assert (entry["width"], entry["height"]) == (1536, 1024)
+        assert entry["quality"] == "high"
+        assert entry["reference_source"] == "previous"
+
+
+def test_a_connections_own_render_settings_win_over_the_hoisted_ones():
+    cloud = _cloud(
+        provider="openai",
+        width=1536,
+        quality="high",
+        reference_source="previous",
+        providers={
+            "openai": {"width": 1024, "height": 1536, "quality": "", "reference_source": ""},
+            "xai": {"api_key": "b"},
+        },
+    )
+    openai = cloud["providers"]["openai"]
+    # "" is a real answer for both -- "provider default" and "references off" -- so
+    # declaring one must not read as "absent, inherit the old global".
+    assert (openai["width"], openai["height"], openai["quality"], openai["reference_source"]) == (1024, 1536, "", "")
+    assert cloud["providers"]["xai"]["quality"] == "high"
+
+
+def test_the_routing_connections_settings_mirror_to_the_cloud_level():
+    """The adapter reads `cloud.width`/`quality`/`reference_source` directly. Keeping
+    the mirror is what lets per-connection settings land without the render path,
+    the replay record or the attachment metadata changing at all."""
+    config = normalize_config(
+        {
+            "default_style": "s",
+            "styles": [{"id": "s", "connection": "openai"}],
+            "cloud": {
+                "provider": "xai",
+                "providers": {
+                    "xai": {"api_key": "a", "width": 1024, "height": 1024, "quality": "low"},
+                    "openai": {"api_key": "b", "width": 1536, "height": 1024, "quality": "high"},
+                },
+            },
+        }
+    )
+    cloud = config["cloud"]
+    assert cloud["provider"] == "openai"
+    assert (cloud["width"], cloud["height"], cloud["quality"]) == (1536, 1024, "high")
 
 
 # ── reference slots ──────────────────────────────────────────────────────────

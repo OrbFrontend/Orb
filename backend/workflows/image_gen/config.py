@@ -14,6 +14,11 @@ from .pov import normalize_mode as normalize_pov_mode
 WORKFLOW_ID = "image_gen"
 SOURCES = ("external_comfy", "cloud")
 DEFAULT_SOURCE = "external_comfy"
+# The reserved connection id for the ComfyUI server. A style links to a
+# *connection*, and ComfyUI is the one connection that always exists and cannot be
+# removed; every other id in that namespace is a cloud provider id. Nothing may
+# ship a provider preset called "comfy".
+COMFY_CONNECTION = "comfy"
 MAX_STYLES = 32
 MAX_USER_GRAPHS = 32
 # How many provider credential sets the config keeps at once. Switching provider
@@ -58,6 +63,12 @@ CONFIG_DEFAULTS = {
             "prompt": "RAW photo, realistic illumination, realistic shadows, photography, photorealistic, cinematic lighting, detailed skin, high contrast",
             "negative_prompt": "cartoon, anime, drawing, paint, flat, illustration, painting, low detail, low quality, worst quality, bad quality, bad perspective",
             "extra_instructions": "",
+            # Deliberately unlinked. A shipped style that hard-pinned ComfyUI would
+            # make `source` a dead letter -- the derivation below would override it
+            # on every fresh config -- and would re-pin a style the user relinked if
+            # the defaults were ever re-seeded. The panel resolves "" to whatever
+            # `source` says and writes the explicit id on first save.
+            "connection": "",
             "checkpoint": "",
             "workflow": "",
         },
@@ -68,6 +79,12 @@ CONFIG_DEFAULTS = {
             "prompt": "masterpiece, best quality, anime illustration, very aesthetic, very detailed, high contrast, good perspective",
             "negative_prompt": "photorealistic, pixelated, 3d render, muddy colors, low quality, worst quality, bad quality, score_1, score_2, bad fingers, missing fingers, fused fingers, bad anatomy, bad hair, bad perspective, bad face",
             "extra_instructions": "",
+            # Deliberately unlinked. A shipped style that hard-pinned ComfyUI would
+            # make `source` a dead letter -- the derivation below would override it
+            # on every fresh config -- and would re-pin a style the user relinked if
+            # the defaults were ever re-seeded. The panel resolves "" to whatever
+            # `source` says and writes the explicit id on first save.
+            "connection": "",
             "checkpoint": "",
             "workflow": "",
         },
@@ -89,10 +106,22 @@ CONFIG_DEFAULTS = {
         "quality": "",
         # "" is off. Sending conversation images to a third party is opt-in.
         "reference_source": "",
-        # Keyed by provider id so switching provider does not destroy the previous
-        # key. One representative entry ships in the defaults so the preset-schema
-        # coverage walker can see the `api_key` leaf underneath the map level.
-        "providers": {"xai": {"api_key": "", "model": "", "base_url": ""}},
+        # One entry per cloud connection, keyed by provider id: switching the style
+        # that renders next must not destroy another connection's key. One
+        # representative entry ships in the defaults so the preset-schema coverage
+        # walker can see the `api_key` leaf underneath the map level -- it is inert
+        # and the settings panel does not list it until it holds something.
+        "providers": {
+            "xai": {
+                "api_key": "",
+                "model": "",
+                "base_url": "",
+                "width": DEFAULT_CLOUD_EDGE,
+                "height": DEFAULT_CLOUD_EDGE,
+                "quality": "",
+                "reference_source": "",
+            }
+        },
     },
 }
 
@@ -106,22 +135,28 @@ def _text(value: Any, limit: int, default: str = "") -> str:
 def _style(raw: Any) -> dict | None:
     """One style entry, on the now-global style list.
 
+    `connection` is which connection renders this style -- `COMFY_CONNECTION`, or a
+    cloud provider id. `""` means the style predates connection linking and follows
+    the config's stored `source`, which is what lets an existing install upgrade
+    without a single style silently changing backend.
+
     `checkpoint` and `workflow` are **ComfyUI-only fields on a shared object**: they
-    are meaningless under any other source, and are kept per-style rather than moved
-    into `external_comfy` so a backend switch and a switch back leave a style's graph
+    are meaningless under any other connection, and are kept per-style rather than
+    moved into `external_comfy` so relinking to cloud and back leaves a style's graph
     pin exactly where it was.
 
-    There is deliberately no per-style cloud model. SillyTavern has one model per
-    source, and `checkpoint` is a ComfyUI concept; the extension point, should a
-    per-style cloud model ever be wanted, is a `style.cloud_model` field read by
-    `OpenAICompatibleImageAdapter.resolve_target` in preference to the source-level
-    one.
+    There is deliberately no per-style cloud model. The model belongs to the
+    connection, which is the unit a style now points at; two styles wanting two
+    models on one provider is the case for a second connection, not a second field.
     """
     if not isinstance(raw, Mapping):
         return None
     sid = _text(raw.get("id"), 64)
     if not _ID_RE.fullmatch(sid):
         return None
+    connection = _text(raw.get("connection"), 64)
+    if connection and not _ID_RE.fullmatch(connection):
+        connection = ""
     prompt_format = _text(raw.get("prompt_format"), 16, DEFAULT_PROMPT_FORMAT).lower()
     if prompt_format not in PROMPT_FORMATS:
         prompt_format = DEFAULT_PROMPT_FORMAT
@@ -138,6 +173,7 @@ def _style(raw: Any) -> dict | None:
         "prompt": _text(raw.get("prompt"), 2_000),
         "negative_prompt": _text(raw.get("negative_prompt"), 2_000),
         "extra_instructions": _text(raw.get("extra_instructions"), 2_000),
+        "connection": connection,
         "checkpoint": _text(raw.get("checkpoint"), 512),
         "workflow": workflow,
     }
@@ -245,15 +281,6 @@ def _cloud_base_url(value: Any) -> str:
     return url.rstrip("/")
 
 
-def _cloud_provider_entry(raw: Any) -> dict:
-    raw = raw if isinstance(raw, Mapping) else {}
-    return {
-        "api_key": _text(raw.get("api_key"), 2_048),
-        "model": _text(raw.get("model"), 256),
-        "base_url": _cloud_base_url(raw.get("base_url")),
-    }
-
-
 def _edge(value: Any, default: int) -> int:
     try:
         pixels = int(float(value))
@@ -262,8 +289,43 @@ def _edge(value: Any, default: int) -> int:
     return min(MAX_CLOUD_EDGE, max(MIN_CLOUD_EDGE, pixels))
 
 
-def _cloud(raw: Any) -> dict:
-    """The cloud block, with every provider's credentials kept across a switch.
+def _cloud_provider_entry(raw: Any, legacy: Mapping[str, Any]) -> dict:
+    """One cloud connection: its credentials plus what it renders at.
+
+    Resolution, quality and reference images live **per connection**, not once for
+    "cloud". They are provider-shaped facts -- xAI takes aspect ratios, OpenAI takes
+    fixed sizes, most providers take no references at all -- and now that styles link
+    connections independently there is no single active provider to hang one copy on.
+
+    `legacy` is the pre-connection cloud block, where those three lived at the top
+    level. An entry that does not carry its own inherits from there, so an existing
+    config migrates on first read and persists migrated on first write -- the same
+    hoist `styles` got when it moved out of `external_comfy`, and for the same
+    reason: no DB migration for a JSON slot the normalizer already rewrites.
+    """
+    raw = raw if isinstance(raw, Mapping) else {}
+    # Membership, not truthiness: "" is a real stored value for both of these
+    # ("provider default" and "references off"), so an entry that declares one must
+    # not silently inherit the old global setting instead.
+    quality = _text(raw["quality"] if "quality" in raw else legacy.get("quality"), 16).lower()
+    if quality not in CLOUD_QUALITIES:
+        quality = ""
+    reference_source = _text(raw["reference_source"] if "reference_source" in raw else legacy.get("reference_source"), 32)
+    if reference_source not in REFERENCE_SOURCES:
+        reference_source = ""
+    return {
+        "api_key": _text(raw.get("api_key"), 2_048),
+        "model": _text(raw.get("model"), 256),
+        "base_url": _cloud_base_url(raw.get("base_url")),
+        "width": _edge(raw.get("width"), _edge(legacy.get("width"), DEFAULT_CLOUD_EDGE)),
+        "height": _edge(raw.get("height"), _edge(legacy.get("height"), DEFAULT_CLOUD_EDGE)),
+        "quality": quality,
+        "reference_source": reference_source,
+    }
+
+
+def _cloud(raw: Any, provider_override: str = "") -> dict:
+    """The cloud block, with every connection's credentials kept across a switch.
 
     An entry whose provider id the preset table does not know is **retained**, not
     dropped: this normalizer runs on GET, the panel assigns that answer into its
@@ -272,18 +334,17 @@ def _cloud(raw: Any) -> dict:
     user's next save, with no error and nothing to recover from. A retained unknown
     id is inert anyway: no preset means no client to build, which is exactly the
     `unknown_provider` readiness reason.
+
+    `provider_override` is the cloud connection the style about to render links to.
+    It wins over the stored `provider`, which is now a *record of the last routing
+    decision* rather than something the user picks: the settings form has a
+    connection per style, not one global provider dropdown.
     """
     raw = raw if isinstance(raw, Mapping) else {}
     defaults = CONFIG_DEFAULTS["cloud"]
-    provider = _text(raw.get("provider"), 64, defaults["provider"])
+    provider = _text(provider_override or raw.get("provider"), 64, defaults["provider"])
     if not _ID_RE.fullmatch(provider):
         provider = defaults["provider"]
-    quality = _text(raw.get("quality"), 16).lower()
-    if quality not in CLOUD_QUALITIES:
-        quality = ""
-    reference_source = _text(raw.get("reference_source"), 32)
-    if reference_source not in REFERENCE_SOURCES:
-        reference_source = ""
 
     raw_map = raw.get("providers")
     raw_map = raw_map if isinstance(raw_map, Mapping) else {}
@@ -295,16 +356,21 @@ def _cloud(raw: Any) -> dict:
         pid = _text(candidate, 64)
         if not _ID_RE.fullmatch(pid) or pid in providers:
             continue
-        providers[pid] = _cloud_provider_entry(entry)
+        providers[pid] = _cloud_provider_entry(entry, raw)
         if len(providers) >= MAX_CLOUD_PROVIDERS:
             break
 
+    # The four render settings stay mirrored at the cloud level from whichever
+    # connection is routing. The adapter reads them from here, and keeping that
+    # true is what lets per-connection settings land without the render path, the
+    # replay record or the attachment metadata changing at all.
+    active = providers.get(provider) or _cloud_provider_entry(None, raw)
     return {
         "provider": provider,
-        "width": _edge(raw.get("width"), defaults["width"]),
-        "height": _edge(raw.get("height"), defaults["height"]),
-        "quality": quality,
-        "reference_source": reference_source,
+        "width": active["width"],
+        "height": active["height"],
+        "quality": active["quality"],
+        "reference_source": active["reference_source"],
         "providers": providers,
     }
 
@@ -361,6 +427,20 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     source = _text(raw.get("source"), 32, DEFAULT_SOURCE)
     if source not in SOURCES:
         source = DEFAULT_SOURCE
+    # `source` is derived, not chosen. The settings form has no global backend
+    # picker any more -- it has a connection per style -- so which backend routes is
+    # a property of the style the next render will use. Deriving it here rather than
+    # in the panel is what makes the tools-card style picker route correctly too:
+    # both surfaces write the whole config through this one normalizer.
+    #
+    # A style carrying no connection predates linking and leaves `source` alone, so
+    # an existing install keeps routing exactly where it did until something links.
+    connection = active_style({"styles": styles, "default_style": default_style})["connection"]
+    provider_override = ""
+    if connection == COMFY_CONNECTION:
+        source = "external_comfy"
+    elif connection:
+        source, provider_override = "cloud", connection
 
     return {
         "source": source,
@@ -376,8 +456,20 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
             "api_key": _text(external_raw.get("api_key"), 2_048),
             "user_graphs": graphs,
         },
-        "cloud": _cloud(raw.get("cloud")),
+        "cloud": _cloud(raw.get("cloud"), provider_override),
     }
+
+
+def active_style(config: Mapping[str, Any]) -> dict:
+    """The style the next render will use, unless a trigger names another.
+
+    The one place "which style is in play" is decided. Two things read it and must
+    agree: `normalize_config` derives `source` from this style's connection, and
+    each adapter answers `readiness()` about it. If they disagreed, the card could
+    report a backend that is not the one about to run.
+    """
+    styles = config["styles"]
+    return next((s for s in styles if s["id"] == config["default_style"]), styles[0])
 
 
 def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:

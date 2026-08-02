@@ -301,6 +301,74 @@ async def test_status_reports_why_it_is_not_ready(client):
     assert third["ready"] is True
     assert third["style_count"] == 2
 
+    # A half-finished style, or one that renders somewhere else entirely, does not
+    # take the whole card offline. Auditing every style was right while ComfyUI was
+    # the only backend; it now reads as a permanently stuck "Setup required" the
+    # moment a cloud style exists -- a cloud style has no workflow and never will.
+    styles.append({"id": "cloud_style", "label": "Grok", "connection": "xai"})
+    styles.append({"id": "half_done", "label": "New style"})
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "a",
+            "external_comfy": {"styles": styles, "user_graphs": [override_graph, self_contained]},
+        },
+    )
+    fourth = await status()
+    assert fourth["ready"] is True
+    assert fourth["source"] == "external_comfy"
+
+    # And the answer follows the style that will render: pointing the config at the
+    # unfinished one reports that style by name, not a generic "assign one to each".
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "half_done",
+            "external_comfy": {"styles": styles, "user_graphs": [override_graph, self_contained]},
+        },
+    )
+    fifth = await status()
+    assert fifth["ready"] is False
+    assert fifth["reason"] == "no_workflow"
+    assert "New style" in fifth["detail"]
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_style_is_never_asked_for_a_comfyui_workflow(client):
+    """Workflows are a ComfyUI concept. Selecting a style that renders on a cloud
+    connection must route readiness to that connection's adapter, which knows
+    nothing about graphs -- the two backends' prerequisites never mix."""
+
+    async def status() -> dict:
+        response = await client.post("/api/workflows/image_gen/query", json={"action": "status"})
+        assert response.status_code == 200
+        return response.json()
+
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "grok",
+            # No user_graphs at all, and no workflow on the style: under the ComfyUI
+            # adapter this is the `no_workflow` case.
+            "styles": [{"id": "grok", "label": "Grok", "connection": "xai"}],
+            "cloud": {"providers": {"xai": {"api_key": "k", "model": "grok-imagine-image"}}},
+        },
+    )
+    ready = await status()
+    assert ready["source"] == "cloud"
+    assert ready["ready"] is True
+
+    # The cloud adapter's own prerequisites still apply, and they are its own.
+    await set_workflow_config(
+        "image_gen",
+        {
+            "default_style": "grok",
+            "styles": [{"id": "grok", "label": "Grok", "connection": "xai"}],
+            "cloud": {"providers": {"xai": {"api_key": "", "model": "grok-imagine-image"}}},
+        },
+    )
+    assert (await status())["reason"] == "no_api_key"
+
 
 @pytest.mark.asyncio
 async def test_node_types_query_rejects_a_non_list_in_band(client):

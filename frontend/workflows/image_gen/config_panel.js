@@ -19,12 +19,17 @@ import {
 } from "./graph_import.js";
 import { modelPickerState } from "./model_picker.js";
 import {
+  addableProviders,
+  COMFY_CONNECTION,
+  connectionList,
   DEFAULT_PROMPT_FORMAT,
+  findConnection,
   normalizePromptFormat,
   PROMPT_FORMATS,
+  pendingDisclosures,
   povChoices,
-  privacyDisclosure,
   promptFormatLabel,
+  styleConnectionId,
 } from "./policy.js";
 
 const WORKFLOW_ID = "image_gen";
@@ -69,31 +74,43 @@ const promptFormatBadge = (value) => `(${promptFormatLabel(value)})`;
 let cfg;
 let pendingGraph = null;
 // The backend's own answer about which sources exist and what each provider can
-// do. One payload behind the source picker, the provider dropdown and the
-// capability line, so the three can never disagree. Primed by the status query.
+// do. One payload behind the connection list, the Add picker and the capability
+// lines, so the three can never disagree. Primed by the status query.
 let backends = { sources: [], providers: [] };
-// The source the open form is editing. Read back on save rather than from `cfg`,
-// so switching source and saving in one go does what it looks like it does.
-let draftSource = "external_comfy";
-// The styles and imported graphs being edited. A working copy rather than cfg
-// itself: adding a graph and then closing without saving must not leave the
-// widget's shared config carrying an entry the server never stored.
-let draft = { styles: [], graphs: [] };
-// Checkpoint filenames discovered on the configured server. A non-empty probe
-// renders real selects; an empty/failed probe leaves plain text inputs.
-let checkpointNames = [];
-let checkpointProbeId = 0;
+// Everything the open form is editing. A working copy rather than cfg itself:
+// adding a connection and then closing without saving must not leave the widget's
+// shared config carrying credentials the server never stored.
+let draft = { styles: [], graphs: [], comfy: {}, connections: {} };
+// The derived connection list, recomputed from `draft` whenever it changes.
+// Nothing stores it: a connection *is* its credentials, so a list held alongside
+// them is a second copy that can disagree with the first.
+let connections = [];
+// Discovered model names, per connection id. Per connection rather than global
+// because that is what they are: checkpoints belong to one ComfyUI server, model
+// ids to one provider, and one shared list would offer a style the wrong menu.
+let modelsByConnection = {};
+// Probe generation per connection, so a slow answer for one never overwrites a
+// fresh answer for another.
+let probeIds = {};
+// Connections added in this modal that hold nothing yet. Several presets ship no
+// default model, so a fresh one is genuinely empty until the key is pasted — and
+// the derived list would otherwise drop the row between the click and the first
+// keystroke. Nothing persists them: an empty connection has nothing to store.
+let pendingConnections = new Set();
 
 export function initConfigPanel(sharedConfig) {
   cfg = sharedConfig;
   registerAction(WORKFLOW_ID, "settings", () => openSettings());
-  registerAction(WORKFLOW_ID, "pickStyle", (el) =>
-    saveConfigPatch({ default_style: el.value }, "Could not save default style"),
-  );
+  // Readiness is answered about the style that will render, so picking a different
+  // one is a question that has to be asked again — the new style may point at a
+  // connection with no key, or at a workflow that was never imported.
+  registerAction(WORKFLOW_ID, "pickStyle", async (el) => {
+    await saveConfigPatch({ default_style: el.value }, "Could not save default style");
+    refreshCardReadiness();
+  });
   registerAction(WORKFLOW_ID, "pickPov", (el) => saveConfigPatch({ pov_mode: el.value }, "Could not save the camera"));
   registerAction(WORKFLOW_ID, "editStyle", (el) => openSettings(el.dataset.styleId));
   registerAction(WORKFLOW_ID, "settingsClose", () => closeModal());
-  registerAction(WORKFLOW_ID, "test", () => testConnection());
   registerAction(WORKFLOW_ID, "save", () => saveSettings());
   registerAction(WORKFLOW_ID, "graphFile", (el) => importGraphFile(el));
   registerAction(WORKFLOW_ID, "referenceFile", (el) => pickReferenceImage(el));
@@ -105,8 +122,12 @@ export function initConfigPanel(sharedConfig) {
   registerAction(WORKFLOW_ID, "styleAdd", () => addStyle());
   registerAction(WORKFLOW_ID, "styleRemove", (el) => removeStyle(Number(el.dataset.styleIndex)));
   registerAction(WORKFLOW_ID, "styleChange", (el) => refreshStyleState(el));
-  registerAction(WORKFLOW_ID, "pickSource", (el) => pickSource(el.value));
-  registerAction(WORKFLOW_ID, "pickProvider", (el) => pickProvider(el.value));
+  registerAction(WORKFLOW_ID, "styleConnection", (el) => relinkStyle(el));
+  registerAction(WORKFLOW_ID, "connAdd", () => addConnection());
+  registerAction(WORKFLOW_ID, "connRemove", (el) => removeConnection(el.dataset.connId));
+  registerAction(WORKFLOW_ID, "connChange", (el) => refreshConnectionState(el));
+  registerAction(WORKFLOW_ID, "connTest", (el) => testConnection(el.dataset.connId));
+  registerAction(WORKFLOW_ID, "connOpen", (el) => revealConnection(el.dataset.connId));
 }
 
 // Every conversation-less config/discovery call rides the one QUERY route.
@@ -239,10 +260,13 @@ export async function refreshCardReadiness() {
   refreshCard();
 }
 
-// One collapsed row per style: the summary carries just the name, so a long
-// list stays scannable without opening anything.
+// ── styles ───────────────────────────────────────────────────────────────────
+
+// The checkpoint menu is the ComfyUI connection's model list, never the active
+// one: a style can be linked to a cloud provider and still be holding a
+// checkpoint for when it is linked back.
 function checkpointField(value) {
-  const state = modelPickerState(checkpointNames, value);
+  const state = modelPickerState(modelsByConnection[COMFY_CONNECTION], value);
   const attrs = 'data-ig-field="checkpoint" data-wf-action="image_gen:styleChange" data-wf-on="change"';
   if (state.kind === "input") {
     return `<input ${attrs} value="${escAttr(state.current)}" placeholder="checkpoint.safetensors">`;
@@ -271,37 +295,79 @@ function promptFormatOptions(value) {
   ).join("");
 }
 
-// Checkpoint and Workflow are ComfyUI-only fields on a now-shared style. They stay
-// rendered under cloud rather than hidden, because they are still stored and a
-// switch back must find them where they were left — but an unexplained pair of
-// dead fields reads as a bug, so say which backend they belong to.
-function comfyOnlyNote() {
-  if (draftSource !== "cloud") return "";
-  return `<div class="image-gen-note">Used only by the ComfyUI backend. A cloud provider uses one model for every style, set under <strong>Connection</strong>.</div>`;
+// The style's own connection picker. This is the control the redesign exists for:
+// where a style renders is a property *of the style*, so an anime checkpoint on
+// the local box and a photoreal commercial API are one dropdown apart instead of a
+// global mode switch that makes half of every other style inapplicable.
+function styleConnectionOptions(selected) {
+  const options = connections.map(
+    (c) => `<option value="${escAttr(c.id)}"${c.id === selected ? " selected" : ""}>${esc(c.label)}</option>`,
+  );
+  // A style pinned to a connection that has since been removed keeps naming it,
+  // rather than silently adopting whichever connection sorts first — the same rule
+  // the checkpoint and workflow fields already follow.
+  if (selected && !connections.some((c) => c.id === selected)) {
+    options.unshift(`<option value="${escAttr(selected)}" selected>${esc(selected)} (removed)</option>`);
+  }
+  if (!selected) options.unshift(`<option value="" selected>Choose a connection</option>`);
+  return options.join("");
+}
+
+// The half of a style that depends on which backend renders it. Rendered per
+// connection rather than always-present-and-explained: a pair of dead fields with
+// a note saying they are dead reads as a bug, and the note has to be believed
+// before the fields can be ignored.
+function backendFields(style, connection) {
+  if (connection && connection.source === "cloud") {
+    const entry = draft.connections[connection.id] || {};
+    const size = `${entry.width || 1024}×${entry.height || 1024}`;
+    return `<div class="image-gen-note ig-style-backend">Model and resolution come from this connection — ${esc(connection.detail || "no model yet")}, ${esc(size)}.
+      <button type="button" class="ig-link" data-wf-action="image_gen:connOpen" data-conn-id="${escAttr(connection.id)}">Edit connection</button></div>`;
+  }
+  return `<div class="ig-grid">
+      <label>Checkpoint${checkpointField(style.checkpoint || "")}</label>
+      <label>Workflow${workflowField(style.workflow || "")}</label>
+    </div>`;
+}
+
+// Stated where the text is typed, not on the render that discards it. A provider
+// with no negative field returns a perfectly good image that ignored it, so
+// nothing downstream will ever report this.
+function negativeNote(connection) {
+  if (!connection || connection.source !== "cloud") return "";
+  if (connection.preset?.supports_negative_prompt !== false) return "";
+  return `<div class="image-gen-note">${esc(connection.label)} has no negative prompt field — this text is not sent.</div>`;
+}
+
+// One `<details>` per style. The summary carries the name, the connection and the
+// prompt format: all three change what the image looks like, and all three are
+// otherwise invisible until the row is opened.
+function styleBody(style, index, connection) {
+  return `<label>Name<input data-ig-field="label" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(style.label || "")}"></label>
+      <div class="ig-grid">
+        <label>Connection<select data-ig-field="connection" data-wf-action="image_gen:styleConnection" data-wf-on="change">${styleConnectionOptions(styleConnectionId(style, cfg))}</select></label>
+        <label>Prompt format<select data-ig-field="prompt_format" data-wf-action="image_gen:styleChange" data-wf-on="change">${promptFormatOptions(style.prompt_format)}</select></label>
+      </div>
+      <label>Positive style prompt<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No positive style prompt">${esc(style.prompt || "")}</textarea></label>
+      <label>Negative style prompt<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No negative style prompt">${esc(style.negative_prompt || "")}</textarea></label>
+      ${negativeNote(connection)}
+      <label>Extra instructions<textarea data-ig-field="extra_instructions" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="Extra guidance for the prompter model (e.g. emphasize hand placement and use full-body framing).">${esc(style.extra_instructions || "")}</textarea></label>
+      ${backendFields(style, connection)}
+      <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${index}">Remove style</button>`;
 }
 
 function styleRows(expandIds = "") {
   const expanded = new Set(Array.isArray(expandIds) ? expandIds : [expandIds]);
   return draft.styles
     .map((s, i) => {
+      const connection = findConnection(connections, styleConnectionId(s, cfg));
       return `<details class="ig-style" data-style-index="${i}"${expanded.has(s.id) ? " open" : ""}>
         <summary>
           <span class="ig-style-name">${esc(s.label || s.id)}</span>
+          <span class="ig-style-conn${connection?.ready === false ? " ig-unready" : ""}">${esc(connection?.label || styleConnectionId(s, cfg) || "No connection")}</span>
           <span class="ig-style-format">${promptFormatBadge(s.prompt_format)}</span>
         </summary>
-        <div class="ig-style-body">
-          <label>Name<input data-ig-field="label" data-wf-action="image_gen:styleChange" data-wf-on="change" value="${escAttr(s.label || "")}"></label>
-          <label>Prompt format<select data-ig-field="prompt_format" data-wf-action="image_gen:styleChange" data-wf-on="change">${promptFormatOptions(s.prompt_format)}</select></label>
-          <label>Positive style prompt<textarea data-ig-field="prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No positive style prompt">${esc(s.prompt || "")}</textarea></label>
-          <label>Negative style prompt<textarea data-ig-field="negative_prompt" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="No negative style prompt">${esc(s.negative_prompt || "")}</textarea></label>
-          <label>Extra instructions<textarea data-ig-field="extra_instructions" data-wf-action="image_gen:styleChange" data-wf-on="change" placeholder="Extra guidance for the prompter model (e.g. emphasize hand placement and use full-body framing).">${esc(s.extra_instructions || "")}</textarea></label>
-          ${comfyOnlyNote()}
-          <div class="ig-grid">
-            <label>Checkpoint${checkpointField(s.checkpoint || "")}</label>
-            <label>Workflow${workflowField(s.workflow || "")}</label>
-          </div>
-          <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${i}">Remove style</button>
-        </div>
+        <div class="ig-style-body">${styleBody(s, i, connection)}</div>
       </details>`;
     })
     .join("");
@@ -315,15 +381,19 @@ function captureStyles() {
     const row = document.querySelector(`[data-style-index="${i}"]`);
     if (!row) return s;
     const get = (name) => row.querySelector(`[data-ig-field="${name}"]`)?.value ?? "";
+    // Checkpoint and workflow fall back to the stored values rather than to "":
+    // they are not rendered while the style is linked to a cloud connection, and
+    // blanking them there would make relinking to ComfyUI lose the pin.
     return {
       ...s,
       label: get("label").trim() || s.label || s.id,
+      connection: row.querySelector('[data-ig-field="connection"]')?.value ?? s.connection ?? "",
       prompt_format: normalizePromptFormat(get("prompt_format") || s.prompt_format),
       prompt: get("prompt"),
       negative_prompt: get("negative_prompt"),
       extra_instructions: get("extra_instructions"),
-      checkpoint: get("checkpoint"),
-      workflow: get("workflow"),
+      checkpoint: row.querySelector('[data-ig-field="checkpoint"]')?.value ?? s.checkpoint ?? "",
+      workflow: row.querySelector('[data-ig-field="workflow"]')?.value ?? s.workflow ?? "",
     };
   });
 }
@@ -336,15 +406,23 @@ function renderStyles(expandId = "") {
 function addStyle() {
   captureStyles();
   const id = `style_${Date.now().toString(36)}`;
+  // Adding a style is almost always "the same backend, written differently", so it
+  // inherits where the style above it renders — connection, and with it the
+  // ComfyUI pins that are meaningless anywhere else. Inheriting the connection but
+  // not the workflow would ship a style that cannot render until two more fields
+  // are filled in, which is the papercut this avoids. The prompts are what the
+  // user came here to write, so those start empty.
+  const previous = draft.styles.at(-1) || {};
   draft.styles.push({
     id,
     label: "New style",
+    connection: previous.connection || connections[0]?.id || COMFY_CONNECTION,
     prompt_format: DEFAULT_PROMPT_FORMAT,
     prompt: "",
     negative_prompt: "",
     extra_instructions: "",
-    checkpoint: "",
-    workflow: "",
+    checkpoint: previous.checkpoint || "",
+    workflow: previous.workflow || "",
   });
   renderStyles(id);
 }
@@ -376,6 +454,28 @@ function refreshStyleState(el) {
   // it is a select, and an unknown value normalizes to the default.
   if (nameEl && name) nameEl.textContent = name;
   if (formatEl) formatEl.textContent = promptFormatBadge(field("prompt_format"));
+}
+
+// Relinking a style swaps the half of its body that depends on the backend, so
+// the row is rebuilt rather than patched. Only this row: rebuilding the list would
+// collapse every other open style around a single dropdown change.
+function relinkStyle(el) {
+  const row = el.closest("[data-style-index]");
+  const index = Number(row?.dataset.styleIndex);
+  captureStyles();
+  const style = draft.styles[index];
+  const body = row?.querySelector(".ig-style-body");
+  if (!style || !body) return;
+  const connection = findConnection(connections, style.connection);
+  body.innerHTML = styleBody(style, index, connection);
+  const label = row.querySelector(".ig-style-conn");
+  if (label) {
+    label.textContent = connection?.label || style.connection || "No connection";
+    label.classList.toggle("ig-unready", connection?.ready === false);
+  }
+  // A ComfyUI-linked style needs the checkpoint menu, which is only probed when
+  // something asks for it.
+  if (!connection || connection.source !== "cloud") loadModels(COMFY_CONNECTION);
 }
 
 // The per-style workflow control. With nothing imported there is nothing to
@@ -427,69 +527,52 @@ function removeGraph(graphId) {
   renderStyles();
 }
 
-// Swap every model control together when discovery completes. Live values and
-// open accordions survive the asynchronous re-render.
-function applyCheckpoints(names) {
-  const openIds = Array.from(document.querySelectorAll(".ig-style[open]"))
-    .map((row) => draft.styles[Number(row.dataset.styleIndex)]?.id)
-    .filter(Boolean);
-  captureStyles();
-  captureCloud();
-  checkpointNames = modelPickerState(names).models;
-  renderStyles(openIds);
-  // Under cloud the model control lives in the Connection section rather than on
-  // each style, so a discovery that only re-rendered the styles would leave the
-  // one control the probe was for as a plain text input.
-  const host = document.getElementById("ig-cloud-model")?.parentElement;
-  if (draftSource === "cloud" && host) {
-    const { entry, preset } = cloudDraft();
-    host.innerHTML = `Model${cloudModelField(entry.model || "", preset)}`;
-  }
-}
-
-// Probes the saved connection after the modal is already open; a slow or
-// unreachable server must not delay the form. Failure leaves plain text fields.
-async function loadCheckpoints() {
-  const probeId = ++checkpointProbeId;
-  try {
-    const res = await query("models");
-    if (probeId === checkpointProbeId) applyCheckpoints(res?.models);
-  } catch {
-    if (probeId === checkpointProbeId) applyCheckpoints([]);
-  }
-}
-
-// ── the Backend section ──────────────────────────────────────────────────────
-
-function sourceOptions() {
-  const known = backends.sources.length
-    ? backends.sources
-    : [
-        { id: "external_comfy", label: "External ComfyUI" },
-        { id: "cloud", label: "Cloud API" },
-      ];
-  return known
-    .map(
-      (s) =>
-        `<option value="${escAttr(s.id)}"${s.id === draftSource ? " selected" : ""}>${esc(s.label || s.id)}</option>`,
-    )
-    .join("");
-}
+// ── the Connections section ──────────────────────────────────────────────────
+//
+// A connection is one place an image can be rendered. ComfyUI is always the first
+// row and is never removable: it is Orb's local backend, and a config with no
+// connection at all would leave every style pointing at nothing.
+//
+// The list is derived from the credentials themselves (`connectionList` in
+// policy.js) rather than stored beside them, so "this connection exists" and
+// "this connection has a key" can never become two facts that disagree.
 
 function providerFor(id) {
   return backends.providers.find((p) => p.id === id) || null;
 }
 
-function cloudDraft() {
-  const cloud = cfg.cloud || {};
-  const providers = cloud.providers || {};
-  const id = String(cloud.provider || "xai");
-  return { cloud, id, entry: providers[id] || {}, preset: providerFor(id) };
+// Recomputed from the working copy after anything that adds, removes or
+// re-credentials a connection. `cfg` supplies only the pre-linking fallback
+// (`source`/`cloud.provider`), which the form has no control over and never edits.
+function rebuildConnections() {
+  connections = connectionList(
+    {
+      source: cfg.source,
+      styles: draft.styles,
+      external_comfy: draft.comfy,
+      cloud: { ...(cfg.cloud || {}), providers: draft.connections },
+    },
+    backends.providers,
+    pendingConnections,
+  );
 }
 
-// The permanent gaps, stated once under the picker instead of as a note on every
-// render. "xAI ignores negative prompts" is true of every image forever, and a
-// note that fires 100% of the time is one users learn to skip — which then hides
+const connField = (name) => `data-ig-conn-field="${name}" data-wf-action="image_gen:connChange" data-wf-on="change"`;
+
+// Which rows are open, captured before an innerHTML swap discards the answer.
+function openConnectionIds() {
+  return Array.from(document.querySelectorAll("details.ig-conn[open]")).map((el) => el.dataset.connId);
+}
+
+function openStyleIds() {
+  return Array.from(document.querySelectorAll(".ig-style[open]"))
+    .map((row) => draft.styles[Number(row.dataset.styleIndex)]?.id)
+    .filter(Boolean);
+}
+
+// The permanent gaps, stated once under the connection instead of as a note on
+// every render. "xAI ignores negative prompts" is true of every image forever, and
+// a note that fires 100% of the time is one users learn to skip — which then hides
 // the per-render disclosures that actually vary.
 function capabilityLine(preset) {
   if (!preset) return "";
@@ -501,69 +584,29 @@ function capabilityLine(preset) {
   return `<div class="image-gen-note ig-capability">${esc(`${preset.label} ${gaps.join(". ")}.`)}${esc(unverified)}</div>`;
 }
 
-function comfyConnectionHtml(ext) {
+function comfyFields() {
+  const comfy = draft.comfy;
   return `<div class="ig-grid">
-      <label>ComfyUI URL<input id="ig-url" value="${escAttr(ext.api_url || "http://127.0.0.1:8188")}"></label>
-      <label>API key<input id="ig-key" type="password" value="${escAttr(ext.api_key || "")}"></label>
-    </div>`;
-}
-
-function cloudConnectionHtml() {
-  const { cloud, id, entry, preset } = cloudDraft();
-  const options = backends.providers
-    .map((p) => `<option value="${escAttr(p.id)}"${p.id === id ? " selected" : ""}>${esc(p.label)}</option>`)
-    .join("");
-  const baseUrl = preset?.needs_base_url
-    ? `<label>API base URL<input id="ig-cloud-base-url" value="${escAttr(entry.base_url || "")}" placeholder="https://api.example.com/v1"></label>`
-    : "";
-  const docs = preset?.docs_url
-    ? `<div class="image-gen-note"><a href="${escAttr(preset.docs_url)}" target="_blank" rel="noopener noreferrer">${esc(preset.label)} API documentation</a></div>`
-    : "";
-  const sizes = CLOUD_SIZES.map(
-    ([w, h, label]) =>
-      `<option value="${w}x${h}"${Number(cloud.width) === w && Number(cloud.height) === h ? " selected" : ""}>${esc(label)}</option>`,
-  ).join("");
-  const qualities = CLOUD_QUALITIES.map(
-    ([value, label]) =>
-      `<option value="${escAttr(value)}"${(cloud.quality || "") === value ? " selected" : ""}>${esc(label)}</option>`,
-  ).join("");
-  const referenceOptions = [
-    `<option value=""${cloud.reference_source ? "" : " selected"}>Off — send prompts only</option>`,
-  ]
-    .concat(
-      REFERENCE_SOURCES.map(
-        ([value, text]) =>
-          `<option value="${value}"${cloud.reference_source === value ? " selected" : ""}>${esc(text)}</option>`,
-      ),
-    )
-    .join("");
-  const quality = preset?.supports_quality
-    ? `<label>Quality<select id="ig-cloud-quality">${qualities}</select></label>`
-    : "";
-  return `<div class="ig-grid">
-      <label>Provider<select id="ig-cloud-provider" data-wf-action="image_gen:pickProvider" data-wf-on="change">${options}</select></label>
-      <label>API key<input id="ig-cloud-key" type="password" value="${escAttr(entry.api_key || "")}" placeholder="Paste your key"></label>
-      ${baseUrl}
-      <label>Model${cloudModelField(entry.model || "", preset)}</label>
-      <label>Resolution<select id="ig-cloud-size">${sizes}</select></label>
-      ${quality}
-      <label>Reference images<select id="ig-cloud-reference">${referenceOptions}</select></label>
+      <label>Server URL<input ${connField("api_url")} value="${escAttr(comfy.api_url || "http://127.0.0.1:8188")}"></label>
+      <label>API key<input type="password" ${connField("api_key")} value="${escAttr(comfy.api_key || "")}"></label>
     </div>
-    <div class="image-gen-note">Aspect ratio is chosen automatically from the resolution.</div>
-    ${capabilityLine(preset)}${docs}`;
+    <div class="image-gen-note">Orb's local backend. It cannot be removed — a style whose cloud connection is deleted falls back to it.</div>`;
 }
 
-// The same unmodified picker the checkpoint field uses: a probed list becomes a
-// select, a failed probe stays a text input so a model can still be typed.
-function cloudModelField(value, preset) {
-  const state = modelPickerState(checkpointNames, value);
+// The same picker the checkpoint field uses, per connection: a probed list becomes
+// a select, an empty or failed probe stays a text input so a model id can still be
+// typed for a provider whose listing endpoint Orb cannot read.
+function cloudModelField(id) {
+  const entry = draft.connections[id] || {};
+  const preset = providerFor(id);
+  const state = modelPickerState(modelsByConnection[id], entry.model || "");
   if (state.kind === "input") {
-    return `<input id="ig-cloud-model" value="${escAttr(state.current)}" placeholder="${escAttr(preset?.default_model || "model id")}">`;
+    return `<input ${connField("model")} value="${escAttr(state.current)}" placeholder="${escAttr(preset?.default_model || "model id")}">`;
   }
   const options = [];
   if (!state.current) {
     options.push(
-      `<option value="" selected>${escAttr(preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model")}</option>`,
+      `<option value="" selected>${esc(preset?.default_model ? `Default — ${preset.default_model}` : "Choose a model")}</option>`,
     );
   } else if (!state.models.includes(state.current)) {
     options.push(`<option value="${escAttr(state.current)}" selected>${esc(state.current)} (not detected)</option>`);
@@ -573,100 +616,361 @@ function cloudModelField(value, preset) {
       (name) => `<option value="${escAttr(name)}"${name === state.current ? " selected" : ""}>${esc(name)}</option>`,
     ),
   );
-  return `<select id="ig-cloud-model">${options.join("")}</select>`;
+  return `<select ${connField("model")}>${options.join("")}</select>`;
 }
 
-function connectionHtml() {
-  return draftSource === "cloud" ? cloudConnectionHtml() : comfyConnectionHtml(cfg.external_comfy || {});
+// Resolution, quality and references belong to the connection, not to "cloud":
+// they are provider-shaped facts, and two connections can legitimately want two
+// answers. Only the fields the preset declares are rendered.
+function cloudFields(connection) {
+  const id = connection.id;
+  const entry = draft.connections[id] || {};
+  const preset = connection.preset;
+  const baseUrl =
+    !preset || preset.needs_base_url
+      ? `<label>API base URL<input ${connField("base_url")} value="${escAttr(entry.base_url || "")}" placeholder="https://api.example.com/v1"></label>`
+      : "";
+  const sizes = CLOUD_SIZES.map(
+    ([w, h, label]) =>
+      `<option value="${w}x${h}"${Number(entry.width) === w && Number(entry.height) === h ? " selected" : ""}>${esc(label)}</option>`,
+  ).join("");
+  const qualities = CLOUD_QUALITIES.map(
+    ([value, label]) =>
+      `<option value="${escAttr(value)}"${(entry.quality || "") === value ? " selected" : ""}>${esc(label)}</option>`,
+  ).join("");
+  const referenceOptions = [
+    `<option value=""${entry.reference_source ? "" : " selected"}>Off — send prompts only</option>`,
+  ]
+    .concat(
+      REFERENCE_SOURCES.map(
+        ([value, text]) =>
+          `<option value="${value}"${entry.reference_source === value ? " selected" : ""}>${esc(text)}</option>`,
+      ),
+    )
+    .join("");
+  const quality = preset?.supports_quality
+    ? `<label>Quality<select ${connField("quality")}>${qualities}</select></label>`
+    : "";
+  const references =
+    !preset || preset.supports_references
+      ? `<label>Reference images<select ${connField("reference_source")}>${referenceOptions}</select></label>`
+      : "";
+  const unknown = preset
+    ? ""
+    : `<div class="image-gen-note ig-unready">Orb has no preset for "${esc(id)}". Its credentials are kept, but nothing can render on it — this is usually a provider that was renamed in a later release.</div>`;
+  const docs = preset?.docs_url
+    ? `<div class="image-gen-note"><a href="${escAttr(preset.docs_url)}" target="_blank" rel="noopener noreferrer">${esc(preset.label)} API documentation</a></div>`
+    : "";
+  return `${unknown}<div class="ig-grid">
+      <label>API key<input type="password" ${connField("api_key")} value="${escAttr(entry.api_key || "")}" placeholder="Paste your key"></label>
+      ${baseUrl}
+      <label class="ig-conn-model">Model${cloudModelField(id)}</label>
+      <label>Resolution<select ${connField("size")}>${sizes}</select></label>
+      ${quality}
+      ${references}
+    </div>
+    <div class="image-gen-note">Aspect ratio is chosen automatically from the resolution.</div>
+    ${capabilityLine(preset)}${docs}`;
 }
 
-// Re-renders only the Connection section and re-runs the model probe. Styles and
-// imported graphs are untouched, because they are untouched by a source switch.
-function renderConnection() {
-  const host = document.getElementById("ig-connection");
-  if (host) host.innerHTML = connectionHtml();
-  const result = document.getElementById("ig-test-result");
-  if (result) result.textContent = "";
-  checkpointNames = [];
-  renderStyles();
-  loadCheckpoints();
+function connectionBody(connection) {
+  const id = connection.id;
+  const fields = id === COMFY_CONNECTION ? comfyFields() : cloudFields(connection);
+  const remove = connection.removable
+    ? `<button class="btn btn-sm ig-danger ig-conn-remove" data-wf-action="image_gen:connRemove" data-conn-id="${escAttr(id)}">Remove</button>`
+    : "";
+  return `${fields}
+    <div class="image-gen-row">
+      <button class="btn btn-sm" data-wf-action="image_gen:connTest" data-conn-id="${escAttr(id)}">Test connection</button>
+      <span class="image-gen-note ig-conn-test" data-ig-test="${escAttr(id)}"></span>
+      ${remove}
+    </div>`;
 }
 
-function pickSource(value) {
+function connectionRows(expandIds = []) {
+  const expanded = new Set(expandIds);
+  return connections
+    .map(
+      (c) => `<details class="ig-conn" data-conn-id="${escAttr(c.id)}"${expanded.has(c.id) ? " open" : ""}>
+        <summary>
+          <span class="ig-conn-name">${esc(c.label)}</span>
+          <span class="ig-conn-kind">${esc(c.kind)}</span>
+          <span class="ig-conn-detail${c.ready ? "" : " ig-unready"}">${esc(c.detail || "Not configured")}</span>
+        </summary>
+        <div class="ig-conn-body">${connectionBody(c)}</div>
+      </details>`,
+    )
+    .join("");
+}
+
+// Each provider appears once: the credential map is keyed by provider id, so a
+// second connection to the same provider would need a synthetic id. Saying so by
+// running out of options beats offering a duplicate that silently overwrites.
+function addRowHtml() {
+  const options = addableProviders(connections, backends.providers);
+  if (!options.length) return `<span class="image-gen-note">Every provider Orb knows already has a connection.</span>`;
+  return `<select id="ig-conn-add">${options.map((p) => `<option value="${escAttr(p.id)}">${esc(p.label)}</option>`).join("")}</select>
+    <button class="btn btn-sm" data-wf-action="image_gen:connAdd">Add connection</button>`;
+}
+
+// Which rows a freshly opened modal should already have expanded. Nothing, on a
+// working setup — but "Finish setup" lands here, and making the user hunt for the
+// row that is actually blocking them is the whole failure that button exists to
+// avoid. The first unready connection, else ComfyUI, which is the one every
+// install starts from.
+function setupTargets() {
+  if (cardReadiness.ready) return [];
+  return [connections.find((c) => !c.ready)?.id || COMFY_CONNECTION];
+}
+
+function connectionSummaryText() {
+  const unready = connections.filter((c) => !c.ready).length;
+  const names = connections.map((c) => c.label).join(", ");
+  return unready ? `${names} — ${unready} needs setup` : names;
+}
+
+function refreshConnectionSummary() {
+  const el = document.getElementById("ig-conn-summary");
+  if (el) el.textContent = connectionSummaryText();
+}
+
+function renderConnections(alsoOpen = "") {
+  const open = new Set(openConnectionIds());
+  if (alsoOpen) open.add(alsoOpen);
+  const host = document.getElementById("ig-conn-list");
+  if (host) host.innerHTML = connectionRows([...open]);
+  const add = document.getElementById("ig-conn-add-row");
+  if (add) add.innerHTML = addRowHtml();
+  refreshConnectionSummary();
+}
+
+// Reads every open connection body's live values back into the working copy.
+// Called before anything that re-renders, so an in-progress edit survives an add
+// or a delete elsewhere in the list. A collapsed row's fields are still in the
+// DOM — `<details>` hides its body, it does not drop it — so nothing is lost.
+function captureConnections() {
+  for (const row of document.querySelectorAll("details.ig-conn")) {
+    const id = row.dataset.connId;
+    const get = (name) => row.querySelector(`[data-ig-conn-field="${name}"]`)?.value;
+    if (id === COMFY_CONNECTION) {
+      draft.comfy = {
+        ...draft.comfy,
+        api_url: get("api_url") ?? draft.comfy.api_url ?? "",
+        api_key: get("api_key") ?? draft.comfy.api_key ?? "",
+      };
+      continue;
+    }
+    const entry = draft.connections[id] || {};
+    const [width, height] = String(get("size") ?? `${entry.width || 1024}x${entry.height || 1024}`).split("x");
+    // Every field falls back to the stored value rather than to "": a preset that
+    // declares no quality or no references renders no such control, and reading a
+    // missing element as empty would blank a setting the user never saw.
+    draft.connections[id] = {
+      ...entry,
+      api_key: get("api_key") ?? entry.api_key ?? "",
+      model: get("model") ?? entry.model ?? "",
+      base_url: get("base_url") ?? entry.base_url ?? "",
+      width: Number(width) || 1024,
+      height: Number(height) || 1024,
+      quality: get("quality") ?? entry.quality ?? "",
+      reference_source: get("reference_source") ?? entry.reference_source ?? "",
+    };
+  }
+}
+
+function addConnection() {
+  const id = document.getElementById("ig-conn-add")?.value;
+  if (!id) return;
   captureStyles();
-  captureCloud();
-  draftSource = value === "cloud" ? "cloud" : "external_comfy";
-  renderConnection();
-}
-
-function pickProvider(value) {
-  // Read the open form back into cfg first: the key the user just typed belongs to
-  // the *previous* provider, and the whole point of the per-provider map is that
-  // switching does not destroy it.
-  captureCloud();
-  cfg.cloud = { ...(cfg.cloud || {}), provider: value };
-  renderConnection();
-}
-
-// The cloud form's live values, folded into the shared config's provider map.
-// Called before anything re-renders the section and once more on save.
-function captureCloud() {
-  if (draftSource !== "cloud") return;
-  const provider = document.getElementById("ig-cloud-provider");
-  if (!provider) return;
-  const cloud = cfg.cloud || {};
-  const id = String(cloud.provider || provider.value || "xai");
-  const [width, height] = String(document.getElementById("ig-cloud-size")?.value || "1024x1024").split("x");
-  cfg.cloud = {
-    ...cloud,
-    provider: id,
-    width: Number(width) || 1024,
-    height: Number(height) || 1024,
-    quality: document.getElementById("ig-cloud-quality")?.value ?? cloud.quality ?? "",
-    reference_source: document.getElementById("ig-cloud-reference")?.value ?? cloud.reference_source ?? "",
-    providers: {
-      ...(cloud.providers || {}),
-      [id]: {
-        ...(cloud.providers?.[id] || {}),
-        api_key: document.getElementById("ig-cloud-key")?.value ?? "",
-        model: document.getElementById("ig-cloud-model")?.value ?? "",
-        base_url: document.getElementById("ig-cloud-base-url")?.value ?? cloud.providers?.[id]?.base_url ?? "",
-      },
-    },
+  captureConnections();
+  const preset = providerFor(id);
+  const existing = draft.connections[id] || {};
+  draft.connections[id] = {
+    width: 1024,
+    height: 1024,
+    quality: "",
+    reference_source: "",
+    ...existing,
+    api_key: existing.api_key || "",
+    // Seeding the preset's model is what makes a fresh connection one field (the
+    // key) from ready, instead of two — and it is the model the provider's own
+    // documentation opens with.
+    model: existing.model || preset?.default_model || "",
+    base_url: existing.base_url || "",
   };
+  pendingConnections.add(id);
+  rebuildConnections();
+  renderConnections(id);
+  renderStyles(openStyleIds());
+  // No probe here on purpose: a brand-new connection has no key, so listing models
+  // is a request guaranteed to 401. `refreshConnectionState` fires one the moment
+  // a key is pasted, which is the first time the answer can be real.
+}
+
+function removeConnection(id) {
+  captureStyles();
+  captureConnections();
+  delete draft.connections[id];
+  delete modelsByConnection[id];
+  pendingConnections.delete(id);
+  // Styles pinned to it fall back to ComfyUI rather than keeping a dangling id:
+  // the user just deleted the connection, and "renders nowhere" is not a state the
+  // render path has an answer for. Said out loud, because it silently changes what
+  // those styles will produce.
+  const orphaned = draft.styles.filter((s) => s.connection === id).length;
+  draft.styles = draft.styles.map((s) => (s.connection === id ? { ...s, connection: COMFY_CONNECTION } : s));
+  rebuildConnections();
+  renderConnections();
+  renderStyles(openStyleIds());
+  if (orphaned) toast(`${orphaned} style${orphaned > 1 ? "s" : ""} moved to ComfyUI`);
+}
+
+// Keeps the collapsed summary honest as fields are edited, and re-renders the
+// styles so a linked style's "model and resolution come from this connection" line
+// never names last minute's model.
+function refreshConnectionState(el) {
+  const row = el.closest("details.ig-conn");
+  const id = row?.dataset.connId;
+  if (!id) return;
+  captureStyles();
+  captureConnections();
+  rebuildConnections();
+  const connection = findConnection(connections, id);
+  const detail = row.querySelector(".ig-conn-detail");
+  if (detail && connection) {
+    detail.textContent = connection.detail || "Not configured";
+    detail.classList.toggle("ig-unready", !connection.ready);
+  }
+  refreshConnectionSummary();
+  renderStyles(openStyleIds());
+  // Credentials are what the model list sits behind: pasting a key is the first
+  // moment the menu can be filled, and changing a URL is when the old one stopped
+  // being true. Picking a resolution is neither.
+  if (["api_key", "base_url", "api_url"].includes(el.dataset.igConnField)) loadModels(id);
+}
+
+// Opens the Connections section on a specific row — the "Edit connection" link on
+// a cloud-linked style, which is otherwise a scroll and a guess away.
+function revealConnection(id) {
+  const section = document.getElementById("ig-connections");
+  if (section) section.open = true;
+  const row = document.querySelector(`details.ig-conn[data-conn-id="${CSS.escape(id)}"]`);
+  if (!row) return;
+  row.open = true;
+  row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  loadModels(id);
+}
+
+// The config as it would be if the style rendering next were on `id`. Every
+// discovery call answers for one connection, and the backend routes on the
+// *default style's* connection — so overriding that style is how a probe asks
+// about a connection nothing is currently pointed at, with no special case on the
+// query route.
+function configForConnection(id) {
+  const next = readConfig();
+  const styles = next.styles.map((s) => ({ ...s }));
+  const active = styles.find((s) => s.id === next.default_style) || styles[0];
+  if (active) active.connection = id;
+  return { ...next, styles };
+}
+
+// Swap the model controls this probe answers for. Live values and open accordions
+// survive the asynchronous re-render.
+function applyModels(id, names) {
+  const openStyles = openStyleIds();
+  captureStyles();
+  captureConnections();
+  modelsByConnection[id] = modelPickerState(names).models;
+  rebuildConnections();
+  if (id === COMFY_CONNECTION) {
+    // The ComfyUI list feeds every style's checkpoint field.
+    renderStyles(openStyles);
+    return;
+  }
+  const host = document.querySelector(`details.ig-conn[data-conn-id="${CSS.escape(id)}"] .ig-conn-model`);
+  if (host) host.innerHTML = `Model${cloudModelField(id)}`;
+}
+
+// Probes one connection after the modal is already open; a slow or unreachable
+// server must not delay the form. Failure leaves a plain text field.
+async function loadModels(id) {
+  probeIds[id] = (probeIds[id] || 0) + 1;
+  const probeId = probeIds[id];
+  let models = [];
+  try {
+    const res = await query("models", { config: configForConnection(id) });
+    models = Array.isArray(res?.models) ? res.models : [];
+  } catch {
+    models = [];
+  }
+  if (probeIds[id] === probeId) applyModels(id, models);
+}
+
+async function testConnection(id) {
+  const result = document.querySelector(`[data-ig-test="${CSS.escape(id)}"]`);
+  if (result) result.textContent = "Testing...";
+  probeIds[id] = (probeIds[id] || 0) + 1;
+  const probeId = probeIds[id];
+  try {
+    const res = await query("test", { config: configForConnection(id) });
+    if (probeIds[id] !== probeId) return;
+    // The probe names the unmet prerequisite in `error`, which is more use than
+    // "failed"; a route-level fault falls through to the catch instead.
+    if (res?.error) {
+      applyModels(id, []);
+      if (result) result.textContent = res.error;
+      return;
+    }
+    // Tested against the form's unsaved credentials, so this is the only probe that
+    // can fill the model list for a connection that has not been saved yet.
+    applyModels(id, res?.models);
+    // ComfyUI names a GPU; a cloud provider names itself. Neither is guaranteed,
+    // and a bare "Connected" is still a true answer.
+    const who = res?.system?.devices?.[0]?.name || res?.system?.provider;
+    if (result) result.textContent = who ? `Connected — ${who}` : "Connected";
+  } catch {
+    if (probeIds[id] !== probeId) return;
+    applyModels(id, []);
+    if (result) result.textContent = "Connection failed";
+  }
 }
 
 function openSettings(expandStyleId = "") {
   const ext = cfg.external_comfy || {};
+  const cloud = cfg.cloud || {};
   pendingGraph = null;
-  draftSource = cfg.source === "cloud" ? "cloud" : "external_comfy";
-  // Start honest: discovery for a previous modal/server must not make this one
-  // look probed before its own request completes, and a reference image picked
-  // for a different character must not survive into this form.
-  checkpointProbeId += 1;
-  checkpointNames = [];
+  // Start honest: discovery for a previous modal must not make this one look
+  // probed before its own request completes, and a reference image picked for a
+  // different character must not survive into this form.
+  probeIds = {};
+  modelsByConnection = {};
+  pendingConnections = new Set();
   referenceImage = { reference_image_b64: "", reference_mime: "" };
   draft = {
     styles: (Array.isArray(cfg.styles) ? cfg.styles : []).map((s) => ({ ...s })),
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
+    comfy: { api_url: ext.api_url || "", api_key: ext.api_key || "" },
+    connections: Object.fromEntries(Object.entries(cloud.providers || {}).map(([id, entry]) => [id, { ...entry }])),
   };
+  rebuildConnections();
+  // Sections are ordered by how often they are touched. Styles first: the sidebar
+  // card picks between them, and this is where they are written. Connections sits
+  // directly under them because that is what a style links to — and it collapses,
+  // because a working setup is configured once and then left alone.
   showModal(`<h2>Image Generation</h2><div class="image-gen-settings">
-    <section class="ig-section">
-      <div class="ig-heading">Backend</div>
-      <div class="ig-grid">
-        <label>Image source<select id="ig-source" data-wf-action="image_gen:pickSource" data-wf-on="change">${sourceOptions()}</select></label>
-      </div>
-    </section>
-    <section class="ig-section">
-      <div class="ig-heading">Connection</div>
-      <div id="ig-connection">${connectionHtml()}</div>
-      <div class="image-gen-row"><button class="btn btn-sm" data-wf-action="image_gen:test">Test connection</button><span id="ig-test-result" class="image-gen-note"></span></div>
-    </section>
     <section class="ig-section">
       <div class="ig-heading">Styles</div>
       <div class="ig-styles">${styleRows(expandStyleId)}</div>
       <button class="btn btn-sm" data-wf-action="image_gen:styleAdd">Add style</button>
     </section>
+    <details class="ig-advanced" id="ig-connections"${cardReadiness.ready ? "" : " open"}>
+      <summary>Connections<span class="ig-summary-note" id="ig-conn-summary">${esc(connectionSummaryText())}</span></summary>
+      <div class="ig-advanced-body">
+        <div class="image-gen-note">Where images render. Every style links to one, so a local checkpoint and a commercial API can sit side by side. ComfyUI is always available and cannot be removed.</div>
+        <div id="ig-conn-list" class="ig-conn-list">${connectionRows(setupTargets())}</div>
+        <div id="ig-conn-add-row" class="image-gen-row">${addRowHtml()}</div>
+      </div>
+    </details>
     <section class="ig-section">
       <div class="ig-heading">This Character Only</div>
       <div id="ig-profile" class="image-gen-note">Open a conversation to edit its character-specific prompt.</div>
@@ -680,9 +984,9 @@ function openSettings(expandStyleId = "") {
       <label class="ig-toggle"><input id="ig-prompter-reasoning" type="checkbox"${cfg.prompter_reasoning === true ? " checked" : ""}><span class="ig-toggle-body"><span class="ig-toggle-label">Enable prompter thinking</span><span class="image-gen-note">Uses thinking for scene analysis and prompt composition. For best prompt-cache reuse, match Editor reasoning config.</span></span></label>
     </section>
     <details class="ig-advanced">
-      <summary>Imported ComfyUI workflows</summary>
+      <summary>Imported ComfyUI workflows<span class="ig-summary-note">${draft.graphs.length || "none"}</span></summary>
       <div class="ig-advanced-body">
-        <div class="image-gen-note">Use a PNG generated by ComfyUI or a dev-mode Export (API) JSON file. Imported workflows run only on your external server, and are kept whichever image source is selected.</div>
+        <div class="image-gen-note">Use a PNG generated by ComfyUI or a dev-mode Export (API) JSON file. Imported workflows run only on the ComfyUI connection, and are kept whichever connection a style links to.</div>
         <div id="ig-graph-list" class="ig-graph-list">${graphRows()}</div>
         <input type="file" accept=".json,.png,application/json,image/png" data-wf-action="image_gen:graphFile" data-wf-on="change">
         <div id="ig-graph-picker"></div>
@@ -690,15 +994,26 @@ function openSettings(expandStyleId = "") {
     </details>
   </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" data-wf-action="image_gen:save">Save</button></div>`);
   populateProfile();
-  loadCheckpoints();
+  // ComfyUI always, because every style's checkpoint field reads its list. Cloud
+  // connections only once they hold a key: listing models is free, but a probe per
+  // configured provider on every modal open is a burst of requests for menus most
+  // of which will not be looked at.
+  loadModels(COMFY_CONNECTION);
+  for (const connection of connections) {
+    if (connection.source === "cloud" && draft.connections[connection.id]?.api_key) loadModels(connection.id);
+  }
 }
 
 function readConfig() {
   captureStyles();
-  captureCloud();
+  captureConnections();
   const ext = cfg.external_comfy || {};
   return {
-    source: document.getElementById("ig-source")?.value || draftSource,
+    // `source` and `cloud.provider` are derived by the backend normalizer from the
+    // connection the default style links to. The form has no control for either any
+    // more; passing the stored values through is what keeps a config whose styles
+    // predate connection linking routing exactly where it always did.
+    source: cfg.source || "external_comfy",
     // Chosen in the tools-panel card now, not here; carry the live values through.
     default_style: cfg.default_style || draft.styles[0]?.id || "realistic",
     pov_mode: cfg.pov_mode || "auto",
@@ -708,16 +1023,16 @@ function readConfig() {
     styles: draft.styles,
     external_comfy: {
       ...ext,
-      // The ComfyUI fields are only rendered under that source. Falling back to the
-      // stored values rather than to "" is what keeps a switch to cloud and back
-      // from silently blanking the URL and the key.
-      api_url: document.getElementById("ig-url")?.value ?? ext.api_url ?? "",
-      api_key: document.getElementById("ig-key")?.value ?? ext.api_key ?? "",
+      api_url: draft.comfy.api_url ?? ext.api_url ?? "",
+      api_key: draft.comfy.api_key ?? ext.api_key ?? "",
       user_graphs: draft.graphs,
     },
-    // Spread whole, so per-provider credentials the form never rendered survive
-    // the save. The map is the reason switching provider is not destructive.
-    cloud: { ...(cfg.cloud || {}) },
+    // `draft.connections` is seeded from the *whole* stored map, not from the
+    // rendered list, so an entry the panel never shows — the inert shipped row, or
+    // an unknown id retained across a provider rename — survives the save with its
+    // key intact. It is also therefore the authority on what exists: writing it
+    // alone is what makes Remove actually remove.
+    cloud: { ...(cfg.cloud || {}), providers: { ...draft.connections } },
   };
 }
 
@@ -849,34 +1164,6 @@ function addPendingGraph() {
   pendingGraph = null;
 }
 
-async function testConnection() {
-  const result = document.getElementById("ig-test-result");
-  if (result) result.textContent = "Testing...";
-  const probeId = ++checkpointProbeId;
-  try {
-    const res = await query("test", { config: readConfig() });
-    if (probeId !== checkpointProbeId) return;
-    // The probe names the unmet prerequisite in `error`, which is more use than
-    // "failed"; a route-level fault falls through to the catch instead.
-    if (res?.error) {
-      applyCheckpoints([]);
-      if (result) result.textContent = res.error;
-      return;
-    }
-    // Tested against the form's unsaved URL/key, so this is the only probe that can
-    // fill the model list for a backend that has not been saved yet.
-    applyCheckpoints(res?.models);
-    // ComfyUI names a GPU; a cloud provider names itself. Neither is guaranteed,
-    // and a bare "Connected" is still a true answer.
-    const who = res?.system?.devices?.[0]?.name || res?.system?.provider;
-    if (result) result.textContent = who ? `Connected — ${who}` : "Connected";
-  } catch {
-    if (probeId !== checkpointProbeId) return;
-    applyCheckpoints([]);
-    if (result) result.textContent = "Connection failed";
-  }
-}
-
 async function saveSettings() {
   const next = readConfig();
   if (!confirmRemotePrivacy(next)) return;
@@ -912,23 +1199,19 @@ async function saveSettings() {
 // Uploading conversation images is a materially bigger disclosure than sending
 // prompt text, so it gets its own acknowledgement key: a user who accepted the
 // prompt-only wording is asked again the first time references are turned on.
+//
+// One question per connection a style can reach, because a save can now light up a
+// second remote backend without it ever being the "active" one.
 function confirmRemotePrivacy(next) {
-  const provider = String(next.cloud?.provider || "");
-  const disclosure = privacyDisclosure({
-    source: next.source,
-    apiUrl: next.external_comfy?.api_url || "",
-    providerId: provider,
-    providerLabel: providerFor(provider)?.label || provider,
-    sendsImages:
-      next.source === "cloud"
-        ? !!next.cloud?.reference_source
-        : (next.external_comfy?.user_graphs || []).some((g) => (g?.slots?.references || []).length > 0),
-  });
-  if (!disclosure) return true;
-  if (localStorage.getItem(disclosure.key) === "acknowledged") return true;
-  const accepted = window.confirm(disclosure.message);
-  if (accepted) localStorage.setItem(disclosure.key, "acknowledged");
-  return accepted;
+  // Derived from `next` rather than read off module state: this is the last gate
+  // before credentials are sent, and it must describe the config being saved even
+  // if a field changed after the last re-render.
+  for (const disclosure of pendingDisclosures(next, connectionList(next, backends.providers))) {
+    if (localStorage.getItem(disclosure.key) === "acknowledged") continue;
+    if (!window.confirm(disclosure.message)) return false;
+    localStorage.setItem(disclosure.key, "acknowledged");
+  }
+  return true;
 }
 
 // The character's reference image as the form currently holds it — loaded with

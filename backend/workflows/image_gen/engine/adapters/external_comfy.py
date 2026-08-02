@@ -6,6 +6,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 
+from ...config import active_style
 from ..comfy_client import ComfyClient
 from ..contracts import (
     ImageBackendCapabilities,
@@ -53,33 +54,43 @@ class ExternalComfyAdapter(ImageAdapter):
         return self.config["external_comfy"]["user_graphs"]
 
     def readiness(self) -> dict:
+        """Whether the style about to render can render, not whether every style can.
+
+        Auditing the whole style list was right while ComfyUI was the only backend
+        and every style therefore needed a graph. It is wrong now, in two ways that
+        both surface as a permanently stuck "Setup required": a style linked to a
+        cloud connection will never have a workflow, and a style the user has just
+        added has not been finished yet. Neither says anything about whether the
+        next Visualize will work.
+
+        Per-style problems are still visible -- the settings panel marks the row,
+        and selecting that style in the card asks this question again about it.
+        """
         config = self.config
         graphs = {graph["id"]: graph for graph in self._graphs()}
+        style = active_style(config)
+        label = style["label"] or style["id"]
         # External mode ships no default graph, so a style with nothing pinned cannot
         # render at all -- the first thing to fix, ahead of checkpoints.
-        needs_workflow = any(not style["workflow"] for style in config["styles"])
-        unresolved = sorted(
-            {style["workflow"] for style in config["styles"] if style["workflow"] and style["workflow"] not in graphs}
-        )
-        # A checkpoint is only required when the pinned graph exposes a model slot for
-        # Orb's selection to override; a self-contained graph carries its own.
-        needs_checkpoint = any(
-            not style["checkpoint"] and style["workflow"] in graphs and "checkpoint" in graphs[style["workflow"]]["slots"]
-            for style in config["styles"]
-        )
-        if needs_workflow:
+        if not style["workflow"]:
             return {
                 "ready": False,
                 "reason": "no_workflow",
-                "detail": "Import a ComfyUI workflow and assign it to each style",
+                "detail": f"Import a ComfyUI workflow and assign it to {label!r}",
             }
-        if unresolved:
-            return {"ready": False, "reason": "unknown_workflow", "detail": f"Unknown workflow: {', '.join(unresolved)}"}
-        if needs_checkpoint:
+        if style["workflow"] not in graphs:
+            return {
+                "ready": False,
+                "reason": "unknown_workflow",
+                "detail": f"{label!r} names a workflow that is not imported: {style['workflow']}",
+            }
+        # A checkpoint is only required when the pinned graph exposes a model slot for
+        # Orb's selection to override; a self-contained graph carries its own.
+        if not style["checkpoint"] and "checkpoint" in graphs[style["workflow"]]["slots"]:
             return {
                 "ready": False,
                 "reason": "no_checkpoint",
-                "detail": "Choose a checkpoint in settings before generating",
+                "detail": f"Choose a checkpoint for {label!r} before generating",
             }
         return {"ready": True, "reason": "", "detail": f"External ComfyUI at {config['external_comfy']['api_url']}"}
 
