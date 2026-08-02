@@ -85,6 +85,12 @@ export function privacyDisclosure({ source, apiUrl, providerId, providerLabel, s
 // id too, so nothing may ever ship a cloud preset called `comfy`.
 export const COMFY_CONNECTION = "comfy";
 
+export function connectionLabel(id, providers = []) {
+  if (id === COMFY_CONNECTION) return "ComfyUI";
+  if (!id) return "No connection";
+  return providers.find((p) => p.id === id)?.label || id;
+}
+
 function hasContent(entry) {
   return !!(entry && (entry.api_key || entry.model || entry.base_url));
 }
@@ -130,7 +136,7 @@ export function connectionList(config = {}, providers = [], pending = []) {
     {
       id: COMFY_CONNECTION,
       source: "external_comfy",
-      label: "ComfyUI",
+      label: connectionLabel(COMFY_CONNECTION),
       kind: "Local",
       removable: false,
       preset: null,
@@ -138,15 +144,12 @@ export function connectionList(config = {}, providers = [], pending = []) {
     },
   ];
   for (const [id, entry] of Object.entries(entries)) {
-    // The shipped config carries one empty `xai` row so the preset-schema walker
-    // sees the `api_key` leaf. It is not a connection the user made, so an
-    // untouched, unlinked, unadded one stays out of the list.
     if (!hasContent(entry) && !linked.has(id)) continue;
     const preset = providers.find((p) => p.id === id) || null;
     list.push({
       id,
       source: "cloud",
-      label: preset?.label || id,
+      label: connectionLabel(id, providers),
       kind: "Cloud",
       removable: true,
       preset,

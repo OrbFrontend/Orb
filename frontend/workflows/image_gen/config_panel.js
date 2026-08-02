@@ -12,6 +12,7 @@ import { modelPickerState } from "./model_picker.js";
 import {
   addableProviders,
   COMFY_CONNECTION,
+  connectionLabel,
   connectionList,
   DEFAULT_PROMPT_FORMAT,
   findConnection,
@@ -142,12 +143,13 @@ let cardReadiness = { text: "", ready: true };
 let cardPov = { classifier: true, fallback: "third" };
 let cardStyles = [];
 
-// An <option> carries no markup, so the prompt format rides the text as "Krea-Alt
-// (Prose)". Picking a style here is picking a format too, and that is not visible
-// anywhere else on the card.
 function cardStyleOptions() {
   return optionList(
-    cardStyles.map((s) => [s.id, `${s.label || s.id} ${promptFormatBadge(s.prompt_format)}`]),
+    cardStyles.map((s) => {
+      const label = s.label || s.id;
+      const connection = connectionLabel(styleConnectionId(s, cfg), backends.providers);
+      return [s.id, label === connection ? label : `${label} — ${connection}`];
+    }),
     cfg?.default_style || "",
   );
 }
@@ -377,10 +379,6 @@ function renderStyles(expandId = "") {
 function addStyle() {
   captureStyles();
   const id = `style_${Date.now().toString(36)}`;
-  // Adding a style is almost always "the same backend, written differently", so it
-  // inherits where the style above it renders, pins included — inheriting the
-  // connection alone would ship a style that cannot render until two more fields
-  // are filled. The prompts are what the user came to write, so those start empty.
   const previous = draft.styles.at(-1) || {};
   draft.styles.push({
     id,
@@ -656,9 +654,13 @@ function setupTargets() {
   return [connections.find((c) => !c.ready)?.id || COMFY_CONNECTION];
 }
 
+const SUMMARY_NAMES = 2;
+
 function connectionSummaryText() {
   const unready = connections.filter((c) => !c.ready).length;
-  const names = connections.map((c) => c.label).join(", ");
+  const hidden = connections.length - SUMMARY_NAMES;
+  const shown = connections.slice(0, hidden > 1 ? SUMMARY_NAMES : connections.length).map((c) => c.label);
+  const names = hidden > 1 ? `${shown.join(", ")}, and ${hidden} others` : shown.join(", ");
   return unready ? `${names} — ${unready} needs setup` : names;
 }
 
