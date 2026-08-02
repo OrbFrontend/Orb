@@ -124,6 +124,19 @@ def replayed_target(replay: Mapping[str, Any] | None, *, model: str, width: int,
     return model, width, height
 
 
+def replayed_text(replay: Mapping[str, Any] | None, key: str, current: str) -> str:
+    """One recorded string setting, falling back to what the bound style says now.
+
+    Membership is not the test and truthiness is not either: `""` is a real recorded
+    value for both settings this serves -- "the provider's default quality", "no
+    reference" -- while a *typed* absence is what an attachment made on a backend
+    with no such setting records, and what every attachment predating the record has.
+    So the rule is "a string wins, anything else falls through".
+    """
+    stored = (replay or {}).get(key)
+    return stored if isinstance(stored, str) else current
+
+
 def _recorded_edge(value: Any) -> int | None:
     """One recorded edge, or None when it is absent or not a positive whole number.
 

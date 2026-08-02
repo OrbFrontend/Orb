@@ -68,6 +68,15 @@ class RenderTarget:
     height: int | None
     reference_slots: tuple[Mapping[str, Any], ...] = ()
     notes: tuple[str, ...] = ()
+    # Cloud-only, and here for the same reason `model` and the size are: read off
+    # the style at request-build time instead, a replay is billed and rendered at
+    # today's quality rather than the one the stored image recorded. "" is a real
+    # value ("whatever the provider defaults to"), so absence is not falsiness.
+    quality: str = ""
+    # Which slot the style offers, kept next to `reference_slots` because it is the
+    # *decision* rather than the outcome: an optional slot that resolved to nothing
+    # records an empty list either way, so the list alone cannot replay the choice.
+    reference_source: str = ""
 
 
 @dataclass(frozen=True)

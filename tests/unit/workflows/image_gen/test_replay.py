@@ -124,11 +124,13 @@ EDIT_SLOTS = {**SLOTS, "references": [{"slot": ["r", "image"], "source": "charac
 
 
 class _RerollCtx:
-    def __init__(self, prior_style: str, *, stored_seed: str = "1234"):
+    def __init__(self, prior_style: str, *, stored_seed: str = "1234", replay: bool = False):
         self.prior_consumption_metadata = {"style_id": prior_style}
-        # The rehydrate discriminator reads this: same seed back means rehydrate,
-        # a freshly minted one means reroll.
         self.original_attachment = {"seed": stored_seed}
+        # What the route declares, and the only thing this hook branches on:
+        # False is /reroll-gen (render on today's style), True is /rehydrate
+        # (reproduce what the row recorded).
+        self.replay = replay
 
 
 @pytest.fixture
@@ -147,7 +149,7 @@ def _edit_config(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("_edit_config")
-async def test_a_style_swap_on_reroll_drops_the_stale_graph_pins():
+async def test_a_style_swap_on_reroll_ignores_the_stale_graph_pins():
     """`workflow_id` and `backend_model` name things the OLD style owned, so the
     new style must resolve its own. `references` is not one of them -- it records
     an *origin*, which re-fetches with no history and no graph."""
@@ -161,11 +163,11 @@ async def test_a_style_swap_on_reroll_drops_the_stale_graph_pins():
     }
 
     # The plain style pins no workflow, so the render dies on the normal "assign a
-    # workflow" path -- but only after the stale pins are gone from `params`, which
-    # is what the persisted sibling records.
+    # workflow" path. The recorded graph is still sitting in `params` and is simply
+    # not consulted -- what the sibling records is rewritten from the render that
+    # succeeds, so there is nothing to pop on the path that does not.
     with pytest.raises(ImageGenerationError, match="Import a ComfyUI workflow"):
         await hooks.reroll_gen(_RerollCtx("edit"), params, "1")
-    assert "workflow_id" not in params and "backend_model" not in params
 
 
 @pytest.mark.asyncio
@@ -179,6 +181,118 @@ async def test_rerolling_onto_a_style_needing_an_unrecorded_reference_is_refused
 
     with pytest.raises(ImageGenerationError, match="needs a reference image the stored image did not record"):
         await hooks.reroll_gen(_RerollCtx("plain"), params, "1")
+
+
+# ── which configuration a reroll renders on ──────────────────────────────────
+#
+# The one thing the two routes backed by this hook disagree about. /rehydrate owes
+# the row the image it lost, so it pins what the row recorded; /reroll-gen owes the
+# user another variant of the same subject, so it renders on the style as it stands.
+# Reading the stored record on both is what made a style's resolution picker inert
+# for every image already made -- change it, press the dice, get the old size back.
+
+SIZED_GRAPH = {**GRAPH, "l": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512}}}
+SIZED_SLOTS = {**SLOTS, "width": ["l", "width"], "height": ["l", "height"]}
+# What the parent recorded: an older, smaller render on a checkpoint since replaced.
+STORED_COMFY = {"workflow_id": "user_sized", "backend_model": "old.safetensors", "width": 512, "height": 512}
+
+
+@pytest.fixture
+def _sized_comfy(monkeypatch):
+    """Two ComfyUI styles on one sized graph; yields the resolved target per render."""
+    from backend.workflows.image_gen.engine.contracts import ImageResult
+
+    config = _config(
+        user_graphs=[{"id": "user_sized", "label": "Sized", "graph": SIZED_GRAPH, "slots": SIZED_SLOTS}],
+        styles=[
+            {
+                "id": "anime",
+                "label": "Anime",
+                "workflow": "user_sized",
+                "checkpoint": "new.safetensors",
+                "width": 1024,
+                "height": 1536,
+            },
+            {
+                "id": "other",
+                "label": "Other",
+                "workflow": "user_sized",
+                "checkpoint": "other.safetensors",
+                "width": 704,
+                "height": 1408,
+            },
+        ],
+    )
+    captured: dict = {}
+
+    async def fake_generate(_adapter, request, *, target=None, progress=None):
+        captured["target"] = target
+        # As the real adapter reports it: read back off the render that executed.
+        return ImageResult(
+            image_bytes=b"rendered",
+            mime="image/png",
+            backend_info={
+                "source": "external_comfy",
+                "workflow_id": target.target_id,
+                "backend_model": target.model,
+                "width": target.width,
+                "height": target.height,
+                "notes": [],
+            },
+        )
+
+    async def get_config(_workflow_id):
+        return config
+
+    monkeypatch.setattr(hooks, "get_workflow_config", get_config)
+    monkeypatch.setattr(hooks, "resolve_and_generate", fake_generate)
+    return captured
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("style_id", "expected"),
+    [("anime", (1024, 1536, "new.safetensors")), ("other", (704, 1408, "other.safetensors"))],
+    ids=["same style, resolution since changed", "rerolled onto another style"],
+)
+async def test_a_reroll_renders_on_the_style_as_it_stands_now(_sized_comfy, style_id, expected):
+    """The reported bug. Editing a style's resolution and pressing the dice has to
+    render at the new resolution -- on the style being rerolled *and* on one the
+    picker has since moved to, which resolves its own everything."""
+    params = {"prompt": "a quiet room", "negative_prompt": "", "style_id": style_id, **STORED_COMFY}
+
+    await hooks.reroll_gen(_RerollCtx("anime"), params, "99")
+
+    target = _sized_comfy["target"]
+    assert (target.width, target.height, target.model) == expected
+
+
+@pytest.mark.asyncio
+async def test_a_rehydrate_still_pins_what_the_row_recorded(_sized_comfy):
+    """The other half: these bytes are meant to *be* the ones the row lost, so
+    today's picker must not reshape them."""
+    params = {"prompt": "a quiet room", "negative_prompt": "", "style_id": "anime", **STORED_COMFY}
+
+    await hooks.reroll_gen(_RerollCtx("anime", replay=True), params, "1234")
+
+    target = _sized_comfy["target"]
+    assert (target.width, target.height, target.model) == (512, 512, "old.safetensors")
+
+
+@pytest.mark.asyncio
+async def test_the_rerolled_sibling_records_the_render_it_actually_got(_sized_comfy):
+    """`params` is what the route persists as the sibling's generation_metadata, and
+    that sibling is itself rehydratable. Left naming the parent's target, its own
+    rehydrate would restore an image it never made."""
+    params = {"prompt": "a quiet room", "negative_prompt": "", "style_id": "other", **STORED_COMFY}
+
+    _, consumption = await hooks.reroll_gen(_RerollCtx("anime"), params, "99")
+
+    assert (params["width"], params["height"]) == (704, 1408)
+    assert params["backend_model"] == "other.safetensors"
+    # And the size reaches the display half, so Render details can show what was drawn
+    # rather than leaving a stale one to be noticed by eye.
+    assert (consumption["width"], consumption["height"]) == (704, 1408)
 
 
 # ── routing, when the replayed style is not the default one ──────────────────

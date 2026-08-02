@@ -441,7 +441,7 @@ def _split_reroll_gen_result(result, workflow_id: str | None) -> tuple[object, d
 
 
 def _build_reroll_gen_ctx(
-    cid: str, mid: int, aid: int, att: Mapping[str, Any], settings: Mapping[str, Any], client
+    cid: str, mid: int, aid: int, att: Mapping[str, Any], settings: Mapping[str, Any], client, *, replay: bool
 ) -> RerollGenCtx:
     prior_cm = _decode_stored_consumption_metadata(att)
     return RerollGenCtx(
@@ -452,6 +452,9 @@ def _build_reroll_gen_ctx(
         settings=_readonly(settings),
         client=client,
         prior_consumption_metadata=_readonly(prior_cm) if prior_cm is not None else None,
+        # Keyword-only and required, so the two routes cannot share this builder
+        # while silently sharing an answer they disagree about.
+        replay=replay,
     )
 
 
@@ -506,7 +509,10 @@ async def api_reroll_gen_attachment(
         client = client_from_settings(settings_snapshot)
 
         with _hook_failures("reroll_gen hook", wid, aid, defect="reroll_gen handler raised; see server logs"):
-            ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
+            # Not a replay: this route promises another variant of the same subject,
+            # not the stored image back, so a workflow whose configuration has moved
+            # renders on today's.
+            ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client, replay=False)
             result = await sub.callable(ctx, params, seed)
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)
@@ -609,7 +615,9 @@ async def api_rehydrate_attachment(
         client = client_from_settings(settings_snapshot)
 
         with _hook_failures("reroll_gen (rehydrate)", wid, aid, defect="reroll_gen handler raised; see server logs"):
-            ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client)
+            # A replay: these bytes are meant to be the ones this row lost, so every
+            # stored parameter is reproduced rather than re-read from settings.
+            ctx = _build_reroll_gen_ctx(cid, mid, aid, att, settings_snapshot, client, replay=True)
             result = await sub.callable(ctx, params, seed)
 
         data, new_consumption_metadata = _split_reroll_gen_result(result, wid)

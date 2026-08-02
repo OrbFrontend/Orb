@@ -136,6 +136,37 @@ def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> l
     raise ValueError("that message is not on this conversation's active branch")
 
 
+# Every render setting a *replay* reads back off a stored attachment. Read from the
+# render that executed rather than from the ids that asked for it, so the record says
+# what was actually drawn: `describe_render_params` reads them off the patched graph,
+# and the cloud adapter probes the returned image.
+_RENDER_FACTS = ("workflow_id", "backend_model", "width", "height", "steps", "cfg", "sampler", "scheduler")
+# The cloud half of the same question. Absent (None) on ComfyUI, which has no such
+# setting -- `replayed_text` reads a non-string as "this backend does not say".
+_CLOUD_FACTS = ("quality", "reference_source")
+
+
+def _render_record(result, *, source: str) -> dict:
+    """What a render reported about itself, in the shape a replay reads back.
+
+    Shared by the fresh path and the reroll path, because the sibling a reroll
+    persists is itself rehydratable: a record naming the parent's target would pin
+    the wrong one for every later replay of a row that never rendered on it.
+    """
+    info: Mapping[str, Any] = result.backend_info
+    return {
+        # What actually rendered, as the adapter reported it, falling back to the
+        # adapter that was asked. Never `config["source"]`: that answers about the
+        # *default* style, which is not necessarily the one that just rendered.
+        "source": info.get("source") or source,
+        **{key: info.get(key) for key in (*_RENDER_FACTS, *_CLOUD_FACTS)},
+        # Whether the stored seed means anything. A seedless API is nondeterministic,
+        # so the attachment says so rather than printing a hex the render never saw.
+        # The seed is still minted and stored -- rehydrate 409s on a null one.
+        "seed_honored": info.get("seed_honored") is not False,
+    }
+
+
 def _metadata(
     *,
     source: str,
@@ -147,15 +178,10 @@ def _metadata(
     pov: str,
     pov_source: str,
 ) -> dict:
-    info = dict(result.backend_info)
+    info: Mapping[str, Any] = result.backend_info
     return {
-        # What actually rendered, as the adapter reported it, falling back to the
-        # adapter that was asked. Never `config["source"]`: that answers about the
-        # *default* style, which is not necessarily the one that just rendered.
-        "source": info.get("source") or source,
+        **_render_record(result, source=source),
         "style_id": style["id"],
-        "workflow_id": info.get("workflow_id"),
-        "backend_model": info.get("backend_model"),
         "composer_mode": composer_mode,
         # Which camera was drawn and which lever chose it: a wrong POV must be
         # traceable to manual/classifier/default rather than guessed at.
@@ -163,15 +189,9 @@ def _metadata(
         "pov_source": pov_source,
         "prompt": prompt,
         "negative_prompt": negative_prompt,
-        # A reroll re-fetches strictly by these origins, so only the seed moves.
+        # A rehydrate re-fetches strictly by these origins, so only the bytes behind
+        # them can have moved.
         "references": info.get("references") or [],
-        # Whether the stored seed means anything. A seedless API is nondeterministic,
-        # so the attachment says so rather than printing a hex the render never saw.
-        # The seed is still minted and stored -- rehydrate 409s on a null one.
-        "seed_honored": info.get("seed_honored") is not False,
-        # Read back off the graph that executed, so replay compares what an image
-        # was actually rendered with rather than what its ids imply.
-        **{key: info.get(key) for key in ("width", "height", "steps", "cfg", "sampler", "scheduler")},
     }
 
 
@@ -193,6 +213,13 @@ def _consumption(
         "prompt": prompt,
         "negative_prompt": negative_prompt,
     }
+    # The size that was actually drawn, on the display-safe half so Render details can
+    # show it. A resolution that silently did not take is only ever noticed by
+    # eyeballing the picture against the picker, which is exactly how a stale one
+    # survives; *record* carries what the render reported, not what was asked for.
+    width, height = record.get("width"), record.get("height")
+    if isinstance(width, int) and isinstance(height, int) and not isinstance(width, bool) and not isinstance(height, bool):
+        payload["width"], payload["height"] = width, height
     # Copied through in whatever unit the provider named; see `_cost` in
     # engine/openai_image_client.py for why nothing here converts it.
     cost = info.get("cost")
@@ -495,23 +522,25 @@ async def reroll_gen(ctx, params, seed):
     # The style first: it is the one step that can reject, and discovering it was
     # deleted after a full render wastes a minute.
     style = resolve_style(config, style_id)
-    # An override that changed the style retargets the render, so the stored graph
-    # and checkpoint pins -- which describe the OLD style -- go. Popped from `params`
-    # itself, not a copy, so the sibling the route persists records no stale pins.
-    # `references` is deliberately kept: those two are pins, a recorded reference is
-    # an *origin* this ctx can re-fetch with no history, and `refetch_references`
-    # re-keys it onto the new target's slots.
     prior_style = (ctx.prior_consumption_metadata or {}).get("style_id")
     style_changed = bool(prior_style) and prior_style != style_id
-    if style_changed:
-        params.pop("workflow_id", None)
-        params.pop("backend_model", None)
-    # **After** those pops: a target resolved above them would answer off the
-    # previous style's record and re-render the old graph. Routed on `style`, not on
-    # the config's global source -- the style a rehydrate replays is the one the
-    # stored image named, which need not be the default one.
+    # The one line that separates the two routes this hook backs. A rehydrate owes
+    # the row the image it lost, so the stored record picks the target -- graph,
+    # checkpoint, model, size, quality, reference slot. A reroll owes the user
+    # another variant of the same subject, so the *style* picks all of it, exactly as
+    # a fresh render would: changing a style's resolution and pressing the dice has
+    # to render at the new resolution, or the picker is a control that does nothing.
+    # Only the prompt pair carries over, which is what makes Regenerate the button
+    # for "these words are wrong" and this one the button for everything else.
+    #
+    # `references` is not read from here either way: a recorded reference is an
+    # *origin* this ctx can re-fetch with no history, and `refetch_references` re-keys
+    # it onto whichever slots the resolved target turns out to have.
+    #
+    # Routed on `style`, not on the config's global source -- the style a rehydrate
+    # replays is the one the stored image named, which need not be the default one.
     adapter = get_adapter(config, style)
-    target = adapter.resolve_target(params)
+    target = adapter.resolve_target(params if ctx.replay else None)
     # On top of the adapter's own: `target.notes` already reaches the attachment
     # through backend_info, so repeating them here would print each one twice.
     notes: list[str] = []
@@ -523,14 +552,15 @@ async def reroll_gen(ctx, params, seed):
     if isinstance(recorded_source, str) and recorded_source and recorded_source != adapter.source_id:
         was = next((s["label"] for s in list_sources() if s["id"] == recorded_source), recorded_source)
         notes.append(f"made on {was}, re-rendered on {adapter.label}, so it will not match")
-    # Rehydrate promises the *same bytes back*, which a seedless API cannot give.
-    # The discriminator is the seed, not the eviction marker: /rehydrate hands back
-    # the row's own stored seed, /reroll-gen mints a fresh one, and the widget puts
-    # a reroll button on the evicted card one click away.
-    if not target.supports_seed and str(seed) == str(ctx.original_attachment.get("seed") or ""):
+    # Rehydrate promises the *same bytes back*, which a seedless API cannot give. Off
+    # `ctx.replay` rather than off a seed comparison: that comparison was only ever a
+    # proxy for this question, and it is the reroll of an evicted card -- one click
+    # away in the widget -- that it would have answered wrongly.
+    if not target.supports_seed and ctx.replay:
         notes.append("this provider takes no seed: a fresh render of the same prompt, billed as one, not the original image")
-    # Strictly by recorded origin: a reroll promises only the seed changes, so
-    # re-resolving from a branch that may have moved on is what must not happen.
+    # Strictly by recorded origin, on both routes: what the reference *was* is the one
+    # thing a reroll still owes the parent, and re-resolving from a branch that may
+    # have moved on since would quietly visualize a different message.
     recorded_references = _recorded_references(params)
     if recorded_references and not target.reference_slots:
         # This style takes no reference images. Submitting them anyway is what sent
@@ -559,10 +589,17 @@ async def reroll_gen(ctx, params, seed):
             timeout_seconds=config["timeout_seconds"],
             references=references,
         ),
-        # Never through the style: that would re-render an old attachment on
-        # whatever checkpoint the style points at today.
+        # Never through the style: `target` is the resolved answer, which for a
+        # rehydrate is the stored image's own target rather than today's.
         target=target,
     )
+    # `params` is the sibling's generation_metadata, and that sibling is itself
+    # rehydratable -- so it has to record the render that just happened, not the one
+    # its parent recorded. Without this a reroll that moved to a new resolution or
+    # model would hand its own later rehydrate the *parent's* target and restore an
+    # image this row never made. Written on both routes so there is one answer;
+    # rehydrate persists no params, so for it this is bookkeeping `_consumption` reads.
+    params.update(_render_record(result, source=adapter.source_id))
     # The camera cannot have changed under a new seed, so carry what `params`
     # already records rather than re-resolving it.
     consumption = _consumption(style, prompt, negative, result, params, source_label=adapter.label)

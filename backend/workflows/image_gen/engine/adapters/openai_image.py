@@ -35,7 +35,7 @@ from ..providers import (
     get_preset,
     takes_references,
 )
-from .base import ImageAdapter, replayed_target
+from .base import ImageAdapter, replayed_target, replayed_text
 
 logger = logging.getLogger(__name__)
 
@@ -154,9 +154,13 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         model, width, height = replayed_target(
             replay, model=self._model(), width=int(style["width"]), height=int(style["height"])
         )
+        # The other two halves of "what this image looks like", replayed by the same
+        # rule: quality is billed at a different rate, and turning references off in
+        # settings would otherwise re-render a rehydrate from the prompt alone.
+        quality = replayed_text(replay, "quality", str(style.get("quality") or ""))
         references: tuple[Mapping[str, Any], ...] = ()
         notes: list[str] = []
-        source = str(style.get("reference_source") or "")
+        source = replayed_text(replay, "reference_source", str(style.get("reference_source") or ""))
         # Gated on the capability, not on `edits_path`: Together has no
         # `/images/edits` and still takes references, on the generations body.
         if preset is not None and preset.supports_references and source in REFERENCE_SOURCES:
@@ -195,6 +199,8 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             height=height,
             reference_slots=references,
             notes=tuple(notes),
+            quality=quality,
+            reference_source=source,
         )
 
     # ── network ───────────────────────────────────────────────────────────────
@@ -314,6 +320,11 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 "workflow_id": None,
                 "backend_model": model,
                 "provider": preset.id,
+                # Recorded so a later replay can pin them; see `replayed_text`. Both
+                # are strings including "", which is why they are written even when
+                # empty rather than only when set.
+                "quality": target.quality,
+                "reference_source": target.reference_source,
                 # Probed off the returned image, not echoed from the request: an
                 # aspect-only provider decides the actual size.
                 "width": width,
@@ -350,7 +361,10 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
             "seed": request.seed if target.supports_seed else None,
             "width": target.width,
             "height": target.height,
-            "quality": str(self.style.get("quality") or ""),
+            # Off the target, never `self.style`: a replay resolved its quality from
+            # what the stored image recorded, and reading the style back here is what
+            # made a rehydrate bill at today's setting.
+            "quality": target.quality,
             # Always one: Orb stores one image per attachment, and `n` is the field
             # that silently multiplies the bill.
             "n": 1,

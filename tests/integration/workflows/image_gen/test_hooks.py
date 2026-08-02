@@ -147,7 +147,15 @@ def _capture_comfy(monkeypatch) -> dict:
 
     async def capture(_self, request, *, target, progress=None):
         captured.update(checkpoint=target.model, graph_id=target.target_id, seed=request.seed, prompt=request.prompt)
-        return _image(notes=list(target.notes))
+        # Reported back off the target, as the real adapter reads it off the patched
+        # graph -- what a render says it did is what the next replay reads.
+        return _image(
+            workflow_id=target.target_id,
+            backend_model=target.model,
+            width=target.width,
+            height=target.height,
+            notes=list(target.notes),
+        )
 
     monkeypatch.setattr(_COMFY_GENERATE, capture)
     return captured
@@ -254,29 +262,73 @@ async def test_two_concurrent_triggers_on_one_message_stay_separate_roots(client
 
 
 # ── replay ───────────────────────────────────────────────────────────────────
+#
+# One hook, two routes, one thing they disagree about. /rehydrate owes the row the
+# image it lost, so it renders what the row recorded; /reroll-gen owes the user
+# another variant of the same subject, so it renders on the style as it stands --
+# otherwise every render setting is inert on any image already made, and only
+# Regenerate, which rewrites the prompt too, can pick a new one up.
+
+# Styles that pin targets of their own, so "what the row recorded" and "what the
+# style says now" are two different answers rather than the same one twice.
+PINNED_CONFIG = {
+    **CONFIG,
+    "styles": [
+        {"id": "anime", "label": "Anime", "connection": "comfy", "workflow": "user_a", "checkpoint": "current.safetensors"},
+        {
+            "id": "realistic",
+            "label": "Realistic",
+            "connection": "comfy",
+            "workflow": "user_a",
+            "checkpoint": "photo.safetensors",
+        },
+    ],
+}
 
 
 @pytest.mark.asyncio
-async def test_reroll_replays_the_stored_graph_and_model_not_todays_style(client, monkeypatch):
-    """Resolving replay through the style would re-render an old attachment on
-    whatever checkpoint that style points at now."""
-    mid = await _seed("ig-reroll")
+async def test_reroll_renders_on_the_style_as_it_stands_now(client, monkeypatch):
+    """The dice is the button for "same subject, different roll", so a checkpoint
+    (or resolution, or model) changed since has to take effect. Replaying the stored
+    target here is what made those pickers do nothing on an existing image."""
+    mid = await _seed("ig-reroll", config=PINNED_CONFIG)
     aid = await _attach(mid, prompt="1girl, standing", workflow_id="user_a", backend_model="original.safetensors")
     captured = _capture_comfy(monkeypatch)
 
     await _replay(client, "ig-reroll", mid, aid)
 
-    assert captured["checkpoint"] == "original.safetensors"
+    assert captured["checkpoint"] == "current.safetensors"
     assert captured["graph_id"] == "user_a"
     assert captured["seed"] != 1234, "a reroll must move the seed or it silently returns the cached image"
+    # And the sibling records the render it got rather than the one its parent got:
+    # it is itself rehydratable, and a record naming the parent's checkpoint would
+    # restore an image this row never made.
+    assert json.loads((await _sibling(mid, aid))["generation_metadata"])["backend_model"] == "current.safetensors"
 
 
 @pytest.mark.asyncio
-async def test_a_style_override_drops_the_old_style_pins_and_discloses_the_wording(client, monkeypatch):
-    """Swapping style retargets the render; the pins describe the OLD style, so they
-    go. The prompt text cannot follow -- only the assembled string is stored -- so
-    say so."""
-    mid = await _seed("ig-swap")
+async def test_rehydrate_replays_the_stored_model_not_todays_style(client, monkeypatch):
+    """The other half of the same switch: these bytes are meant to *be* the ones the
+    row lost, so resolving through the style would restore a different image and
+    report success."""
+    mid = await _seed("ig-rehydrate", config=PINNED_CONFIG)
+    aid = await _attach(mid, prompt="1girl, standing", workflow_id="user_a", backend_model="original.safetensors")
+    from backend.workflows.attachment_cache import evict
+
+    await evict(aid)
+    captured = _capture_comfy(monkeypatch)
+
+    await _replay(client, "ig-rehydrate", mid, aid, action="rehydrate")
+
+    assert captured["checkpoint"] == "original.safetensors"
+    assert captured["seed"] == 1234, "a rehydrate hands back the row's own seed"
+
+
+@pytest.mark.asyncio
+async def test_a_style_override_renders_on_the_new_style_and_discloses_the_wording(client, monkeypatch):
+    """Swapping style retargets the render entirely. The prompt text cannot follow --
+    only the assembled string is stored, never the scene/avoid halves -- so say so."""
+    mid = await _seed("ig-swap", config=PINNED_CONFIG)
     aid = await _attach(
         mid,
         workflow_id="user_a",
@@ -287,22 +339,21 @@ async def test_a_style_override_drops_the_old_style_pins_and_discloses_the_wordi
 
     await _replay(client, "ig-swap", mid, aid, params={"style_id": "realistic"})
 
-    assert captured["graph_id"] == ""  # the realistic style pins neither
-    assert captured["checkpoint"] == ""
+    assert captured["checkpoint"] == "photo.safetensors"
     sibling = await _sibling(mid, aid)
     stored = json.loads(sibling["generation_metadata"])
     assert stored["style_id"] == "realistic"
-    # Dropped, not blanked: the sibling carries no pins at all, so its own future
-    # rerolls resolve through the style it now names.
-    assert "workflow_id" not in stored and "backend_model" not in stored
+    # Rewritten, not left behind: the sibling names the target it actually ran on, so
+    # its own rehydrate restores this image rather than its parent's.
+    assert stored["backend_model"] == "photo.safetensors"
     cm = json.loads(sibling["consumption_metadata"])
     assert cm["style_id"] == "realistic"
     assert any("still carries the previous style" in note for note in cm["notes"])
 
 
 @pytest.mark.asyncio
-async def test_an_override_that_keeps_the_style_keeps_the_pins(client, monkeypatch):
-    mid = await _seed("ig-noswap")
+async def test_an_override_that_keeps_the_style_still_renders_on_it(client, monkeypatch):
+    mid = await _seed("ig-noswap", config=PINNED_CONFIG)
     aid = await _attach(
         mid,
         workflow_id="user_a",
@@ -314,8 +365,10 @@ async def test_an_override_that_keeps_the_style_keeps_the_pins(client, monkeypat
     await _replay(client, "ig-noswap", mid, aid, params={"style_id": "anime", "prompt": "edited"})
 
     assert captured["graph_id"] == "user_a"
-    assert captured["checkpoint"] == "original.safetensors"
+    assert captured["checkpoint"] == "current.safetensors"
     assert captured["prompt"] == "edited"
+    # No note: nothing was substituted. The style is the one the image already named,
+    # and rendering on its current checkpoint is what this button is for.
     assert "notes" not in json.loads((await _sibling(mid, aid))["consumption_metadata"])
 
 

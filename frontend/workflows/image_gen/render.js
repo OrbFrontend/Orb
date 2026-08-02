@@ -112,9 +112,13 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
   const camera = cm.pov
     ? `<dt>Camera</dt><dd>${esc(POV_LABELS[cm.pov] || cm.pov)}${source ? esc(` — ${source}`) : ""}</dd>`
     : "";
+  // What was actually drawn, not what the style's picker reads today: the two differ
+  // on a rehydrate by design, and a reroll that ignored the picker was invisible
+  // precisely because this row did not exist. Omitted on images predating the record.
+  const size = cm.width && cm.height ? `<dt>Size</dt><dd>${esc(`${cm.width} × ${cm.height}`)}</dd>` : "";
   return `<details class="image-gen-details" open><summary>Render details</summary>
     <dl><dt>Style</dt><dd>${style}</dd>
-      <dt>Backend</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${camera}${referenceRows(cm, esc)}
+      <dt>Backend</dt><dd>${esc(cm.source || "External ComfyUI")}</dd>${size}${camera}${referenceRows(cm, esc)}
       <dt>Seed</dt><dd>${cm.seed_honored === false ? esc(UNUSED_SEED) : `<code>${esc(att?.seed || "")}</code>`}</dd>${costRow(cm, esc)}
       <dt>Prompt ${pencil("prompt", "Prompt")}</dt><dd>${field("prompt", "Prompt", pending?.prompt ?? cm.prompt ?? "")}${marker}</dd>
       <dt>Negative ${pencil("negative_prompt", "Negative prompt")}</dt><dd>${field("negative_prompt", "Negative prompt", pending?.negative_prompt ?? cm.negative_prompt ?? "")}</dd>${notes}</dl>

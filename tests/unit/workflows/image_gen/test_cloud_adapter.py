@@ -211,6 +211,53 @@ def test_a_replay_pins_the_resolution_it_was_generated_at_not_todays():
     assert target.model == "grok-imagine-image-quality"
 
 
+def test_a_replay_pins_the_quality_and_reference_slot_it_was_made_with():
+    """The two settings that used to be read off the style at request-build time --
+    so a rehydrate billed at today's quality, and turning references off in settings
+    re-rendered an evicted image from the prompt alone and overwrote the row with it.
+
+    `""` is a real recorded value for both ("the provider's default", "no reference"),
+    which is why the rule is "a string wins" rather than truthiness.
+    """
+    config = _config(quality="high", reference_source="character")
+    replayed = _target(_bound(config), config, {"quality": "", "reference_source": ""})
+    assert replayed.quality == ""
+    assert replayed.reference_slots == ()
+
+    # An attachment from before the record -- or one made on ComfyUI, which has no
+    # such setting and records None -- falls through to what the style says now.
+    unrecorded = _target(_bound(config), config, {"quality": None, "width": 1024, "height": 1024})
+    assert unrecorded.quality == "high"
+    assert len(unrecorded.reference_slots) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_attachment_records_the_quality_and_reference_slot_it_used():
+    """Nothing can be replayed that was never written down."""
+    record: dict = {}
+    config = _config(quality="high", reference_source="character")
+    adapter = _adapter(config, _generation_handler(record))
+    target = _target(adapter, config)
+
+    result = await adapter.generate(_request(), target=target)
+
+    assert result.backend_info["quality"] == "high"
+    assert result.backend_info["reference_source"] == "character"
+
+
+@pytest.mark.asyncio
+async def test_the_request_is_built_with_the_targets_quality_not_todays():
+    """The last hop: `resolve_target` can pin all it likes if the body is assembled
+    off `self.style` anyway."""
+    record: dict = {}
+    config = _config(provider="openai", model="gpt-image-1", quality="high")
+    adapter = _adapter(config, _generation_handler(record))
+
+    await adapter.generate(_request(), target=_target(adapter, config, {"quality": "low"}))
+
+    assert record["body"]["quality"] == "low"
+
+
 @pytest.mark.asyncio
 async def test_a_recorded_model_that_is_gone_degrades_with_disclosure():
     """The cloud analogue of ComfyUI's `unknown_workflow` degradation. A 404 costs
