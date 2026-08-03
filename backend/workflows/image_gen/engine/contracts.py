@@ -8,9 +8,6 @@ from typing import Any, TypedDict
 
 from ...errors import WorkflowUserFacingError
 
-# A render's progress reported back to the hook layer, which turns each stage into
-# a phase label on the wire. Sync or async: a callback that only enqueues a string
-# has no reason to be a coroutine.
 ProgressCallback = Callable[[str, Mapping[str, Any]], Awaitable[None] | None]
 
 
@@ -68,26 +65,16 @@ class RenderTarget:
     """
 
     source: str
-    # comfy: the imported graph's id. cloud: "" -- there is no graph.
     target_id: str
-    # comfy: the checkpoint filename. cloud: the model id.
     model: str
     supports_negative_prompt: bool
     supports_seed: bool
     supports_dimensions: bool
-    # comfy: None, the graph decides. cloud: the replay's recorded size, else config.
     width: int | None
     height: int | None
     reference_slots: tuple[Mapping[str, Any], ...] = ()
     notes: tuple[str, ...] = ()
-    # Cloud-only, and here for the same reason `model` and the size are: read off
-    # the style at request-build time instead, a replay is billed and rendered at
-    # today's quality rather than the one the stored image recorded. "" is a real
-    # value ("whatever the provider defaults to"), so absence is not falsiness.
     quality: str = ""
-    # Which slot the style offers, kept next to `reference_slots` because it is the
-    # *decision* rather than the outcome: an optional slot that resolved to nothing
-    # records an empty list either way, so the list alone cannot replay the choice.
     reference_source: str = ""
 
 

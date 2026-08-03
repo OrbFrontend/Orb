@@ -8,10 +8,6 @@ from typing import Any
 
 from .contracts import ImageGenerationError
 
-# Slot roles a graph may simply not have. Named once because three places must agree
-# on the set: patching skips them, structural validation skips them, and the importer
-# offers each a "None" option. `checkpoint` is guarded separately -- it is the one
-# whose absence changes what a *present* argument means.
 OPTIONAL_SLOTS = ("negative", "width", "height")
 
 
@@ -89,8 +85,6 @@ def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -
         params["cfg"] = _scalar(sampler_inputs, "cfg", (int, float))
         params["sampler"] = _scalar(sampler_inputs, "sampler_name", (str,))
         params["scheduler"] = _scalar(sampler_inputs, "scheduler", (str,))
-    # The mapped size slots first: those name the node Orb actually patched, so once
-    # it writes to one, the scan below could describe a *different* node's size.
     mapped = {}
     for role in ("width", "height"):
         inputs = _slot_inputs(graph, slots.get(role))
@@ -99,10 +93,6 @@ def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -
         params["width"], params["height"] = mapped["width"], mapped["height"]
         params["size_measured"] = True
         return params
-    # Unmapped, so the size is wherever the graph keeps it: whichever latent/resize
-    # node carries the pair. Node ids are strings of ints in practice, so sort
-    # numerically to keep the choice stable across runs rather than dict-order
-    # dependent -- it is still a guess, which is why the slots win when they exist.
     for node_id in sorted(graph, key=lambda k: (len(str(k)), str(k))):
         node = graph[node_id]
         inputs = node.get("inputs") if isinstance(node, Mapping) else None
@@ -158,11 +148,6 @@ def patch_graph(
         ("width", width),
         ("height", height),
     ):
-        # Three of the five are optional, and for the same reason: a prose-trained
-        # graph (Flux, SD3) has one text encoder and no negative conditioning, and a
-        # graph taking its size from a reference image or an aspect-ratio node has no
-        # width/height pair to patch. `positive` and `seed` are what "render this
-        # prompt with this seed" means, so an absent slot for either is an error.
         if role in OPTIONAL_SLOTS and (role not in slots or value is None):
             continue
         inputs, name = _input_slot(patched, slots.get(role), role)
@@ -172,15 +157,9 @@ def patch_graph(
         if not checkpoint:
             raise ImageGenerationError("Select a checkpoint before generating")
         inputs[name] = checkpoint
-    # Each reference is the widget value the caller already uploaded ("orb/<name>"),
-    # written through the same slot helper the checkpoint override uses.
     for slot, value in references:
         inputs, name = _input_slot(patched, slot, "reference image")
         inputs[name] = value
-    # Imported graphs often wire the prompt into a save node's filename_prefix, and
-    # Orb's long scene prompts overflow the OS 255-byte filename limit. The image is
-    # fetched by the name ComfyUI reports, never by this prefix, so pinning it to a
-    # constant is always safe.
     for node in patched.values():
         node_inputs = node.get("inputs") if isinstance(node, Mapping) else None
         if isinstance(node_inputs, dict) and "filename_prefix" in node_inputs:
@@ -203,9 +182,6 @@ def is_image_upload(spec: Any) -> bool:
 def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any], object_info: Mapping[str, Any]) -> None:
     if not graph:
         raise ImageGenerationError("The selected workflow is empty")
-    # A mapped reference's widget value is replaced per render with a file this
-    # server does not have yet, so its combo membership says nothing. Without the
-    # exemption, Test connection rejects every edit workflow.
     mapped = {(str(entry["slot"][0]), str(entry["slot"][1])) for entry in reference_slots(slots) if entry.get("slot")}
     for node_id, node in graph.items():
         if (
@@ -224,8 +200,6 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
             if isinstance(spec, (list, tuple)) and spec and isinstance(spec[0], list) and not isinstance(value, list):
                 if (str(node_id), name) in mapped or value in spec[0]:
                     continue
-                # An unmapped upload widget carries the exporting machine's
-                # filename, so "no longer available" would read as a broken install.
                 if is_image_upload(spec):
                     raise ImageGenerationError(
                         f"Node {node_id} needs image {value!r} on the ComfyUI server, or map it as a reference image"
@@ -237,8 +211,6 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
         _input_slot(graph, slots.get(role), role)
     if "checkpoint" in slots:
         _input_slot(graph, slots["checkpoint"], "checkpoint")
-    # A dangling reference would otherwise only surface mid-render, after the
-    # upload and a minute of queue time.
     for entry in reference_slots(slots):
         _input_slot(graph, entry.get("slot"), "reference image")
     output = slots.get("output")

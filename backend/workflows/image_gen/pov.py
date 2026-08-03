@@ -27,27 +27,16 @@ logger = logging.getLogger(__name__)
 FIRST = "first_person"
 THIRD = "third_person"
 
-# What the user may choose, globally. "auto" runs the classifier and degrades to
-# DEFAULT_POV when it is absent or toggled off. The picker hides "auto" in that
-# state (it would draw the same camera as the fallback) but the mode stays valid
-# here, so a config set to auto keeps it and gets it back when the classifier does.
 POV_MODES = ("auto", "first", "third")
 DEFAULT_MODE = "auto"
 DEFAULT_POV = THIRD
 
 _MANUAL = {"first": FIRST, "third": THIRD}
 
-# DEFAULT_POV as a picker mode, so the UI can name the camera "Auto" will actually
-# produce without keeping its own copy of the default.
 DEFAULT_POV_MODE = next(mode for mode, viewpoint in _MANUAL.items() if viewpoint == DEFAULT_POV)
 
-# First- and second-person narration are the same camera: both put it behind the
-# user's eyes. Only third-person narration watches from outside.
 _CLASSIFIER_POV = {"first": FIRST, "second": FIRST, "third": THIRD}
 
-# How far back the classifier may walk while it keeps answering "ambiguous". Deep
-# enough to cross a couple of terse replies, shallow enough that it cannot inherit
-# the POV of a scene that has since changed.
 LOOKBACK = 3
 
 FEATURE = "pov_classifier"
@@ -115,8 +104,6 @@ async def resolve(
     manual = _MANUAL.get(normalize_mode(mode))
     if manual is not None:
         return manual, "manual"
-    # Two ways "auto" lands on the default, fixed in two different places: install
-    # or enable the classifier, or pin the mode by hand.
     if not await classifier_ready():
         return DEFAULT_POV, "no_classifier"
     classified = await _classify(history)

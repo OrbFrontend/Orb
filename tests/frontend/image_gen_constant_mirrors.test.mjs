@@ -2,10 +2,9 @@
 // normalizer, because the picker has to gate a file *before* any query resolves —
 // there is no payload to read them from at that moment.
 //
-// Every one of those comments says the two gates must agree "or they disagree in
-// both directions", and until this file nothing checked that. The backend values are
-// read straight out of the .py sources rather than duplicated here: a test that
-// restates the number it is guarding proves only that someone typed it twice.
+// The backend values are read straight out of the .py sources rather than duplicated
+// here: a test that restates the number it is guarding proves only that someone typed
+// it twice.
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

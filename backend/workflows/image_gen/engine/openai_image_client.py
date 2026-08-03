@@ -29,42 +29,21 @@ from .contracts import ImageGenerationError
 from .display_encode import shrink_for_display
 from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
-# Raised as an ordinary ImageGenerationError, but flagged so the adapter can tell
-# "this model is gone" apart from every other failure and degrade with disclosure.
 MODEL_NOT_FOUND = "model_not_found"
 
-# What a provider says when the model id is not one it has. Matched in *addition* to
-# a 404, because the status code is not agreed on: xAI answers 404, NanoGPT answers
-# 400 with `{"code": "invalid_model"}`. Without this the degrade path -- re-render on
-# the configured model and say so -- never fires on half the providers, and a
-# rehydrate of an image whose model was retired dies as a generic rejection.
 _UNKNOWN_MODEL_MARKERS = (
     "invalid_model",
     "model_not_found",
     "unknown model",
     "invalid image model",
     "no such model",
-    # OpenAI: HTTP 400, `code: "invalid_value"` -- a code it also spends on a bad
-    # `size` and a bad `quality` -- so the sentence is the only thing that separates
-    # a retired model from a rejected parameter here, and without it the degrade
-    # path is dead on OpenAI.
     "does not exist",
 )
 
 _URL_RE = re.compile(r"https?://\S+")
 _PATH_RE = re.compile(r"(?<![\w.])/[\w.\-/]+")
 _WHITESPACE_RE = re.compile(r"\s+")
-# 240 rather than 200 because OpenAI's content refusal is 203 characters and puts the
-# one actionable token last: a 200-char cap ended it at "safety_violations=[sexua",
-# spending the whole budget on a support address and a request id to truncate the
-# only part that says *why*.
 _EXCERPT_LIMIT = 240
-
-# There is deliberately no content-refusal branch. Markers like "blocked" and "not
-# allowed" are ordinary API-error English -- *"Model gpt-image-1 is not allowed for
-# your account tier"* was reported as a content refusal -- and a provider refusing
-# on content says so in its own words anyway. See
-# `test_ordinary_api_english_is_not_read_as_a_content_refusal`.
 
 
 class CloudImageError(ImageGenerationError):
@@ -89,8 +68,6 @@ def _say(named: str, status: int, excerpt: str) -> str:
 class CloudImage:
     data: bytes
     mime: str
-    # In the provider's own unit; None when it said nothing, since inventing a zero
-    # would read as "this was free".
     cost: dict | None
 
 
@@ -126,9 +103,6 @@ def _string_leaves(payload: Any, *, limit: int = 6, budget: int = 200) -> str:
         visited += 1
         if isinstance(node, str):
             text = node.strip()
-            # Long enough to be a payload rather than a sentence: an error body is
-            # not supposed to carry one, but `_scrub`'s cap is not a reason to let
-            # a base64 blob crowd out the message.
             if text and len(text) <= 300:
                 found.append(text)
         elif isinstance(node, Mapping):
@@ -150,8 +124,6 @@ def _body_text(payload: Any) -> str:
     if isinstance(payload, Mapping):
         error = payload.get("error")
         if isinstance(error, Mapping):
-            # `type` is read here but never at the top level, where it names the
-            # *category* that failed ("invalid_request_error") rather than the fault.
             for key in ("message", "detail", "code", "type"):
                 value = error.get(key)
                 if isinstance(value, str) and value:
@@ -225,8 +197,6 @@ class OpenAIImageClient:
             transport=self.transport,
         )
 
-    # ── the one error funnel ──────────────────────────────────────────────────
-
     def _bad(self, said: str, kind: str = "malformed") -> CloudImageError:
         """Every failure that is not a provider rejection, named with the provider.
 
@@ -249,30 +219,15 @@ class OpenAIImageClient:
         codes = _body_codes(payload)
         upstream = _upstream(payload)
         if upstream and upstream.lower() not in lowered:
-            # In front of the provider's words, never instead of them, and only when
-            # the words do not already name it -- so a broker that says "Google AI
-            # Studio returned an error" is not made to say it twice.
             text = f"{upstream}: {text}"
         excerpt = _scrub(text, self.api_key)
         if status in (401, 403):
-            # 403 is the loose one -- some providers spend it on content refusals and
-            # plan restrictions rather than the key. The excerpt is what keeps that
-            # from being hidden behind a guess about which.
             return CloudImageError(_say(f"The API key for {self.label} was rejected", status, excerpt), "auth")
-        # The one branch a caller acts on, and not gated on 404: the providers
-        # disagree about the status, so the code and the message decide. Carries the
-        # excerpt like the rest, because a wrong base URL 404s every path and the
-        # provider's own words are what distinguish that from a retired model.
         if status == 404 or any(marker in codes or marker in lowered for marker in _UNKNOWN_MODEL_MARKERS):
             named = f" the model {model!r}" if model else " that model"
             return CloudImageError(_say(f"{self.label} does not have{named}", status, excerpt), MODEL_NOT_FOUND)
         if status >= 500:
-            # Not "could not communicate": the exchange succeeded and the provider
-            # answered with its own failure, which it often explains.
             return CloudImageError(_say(f"{self.label} failed to render this request", status, excerpt), "server")
-        # Everything else the provider understood and rejected. 429 keeps a `kind` of
-        # its own but no bespoke sentence: it is not always a per-minute rate limit,
-        # and "try again in a moment" was the wrong advice for a key out of quota.
         return CloudImageError(
             _say(f"{self.label} rejected the request", status, excerpt),
             "rate_limit" if status == 429 else "request",
@@ -300,22 +255,13 @@ class OpenAIImageClient:
                 try:
                     return response.json()
                 except ValueError as exc:
-                    # A 200 that is not JSON is a proxy or captive portal answering
-                    # in the provider's place. Reporting it as "could not
-                    # communicate" sent the user to look at their network for a
-                    # request that completed.
                     raise self._bad(f"returned a malformed response (HTTP {response.status_code})") from exc
         except ImageGenerationError:
             raise
         except httpx.TimeoutException as exc:
-            # Named apart from every other transport failure: on a render this is the
-            # *expected* one, and "could not communicate" reads as a broken network
-            # rather than a provider that is simply slower than the timeout.
             raise self._bad(f"did not respond within {timeout:.0f}s", "timeout") from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise CloudImageError(f"Could not communicate with {self.label}", "transport") from exc
-
-    # ── model discovery ───────────────────────────────────────────────────────
 
     async def list_models(self, path: str, response_shape: str, model_filter: str = "") -> list[str]:
         """The provider's model ids, narrowed to the ones that make images.
@@ -324,17 +270,11 @@ class OpenAIImageClient:
         reach the generations path -- see `validate_connection` on ImageAdapter.
         """
         decoded = await self._send("GET", path, timeout=min(30.0, self.timeout))
-        # Which shape each provider speaks is declared on its preset -- see
-        # `models_response` in providers.py. Reading the wrong one yields an empty
-        # list, which reads to the user as "this key has no models" rather than as
-        # a parser pointed at the wrong key, so a mismatch is malformed, not empty.
         if response_shape == "bare_list":
             entries: Any = decoded
         elif response_shape == "nanogpt_image_map":
             catalogue = decoded.get("models") if isinstance(decoded, Mapping) else None
             images = catalogue.get("image") if isinstance(catalogue, Mapping) else None
-            # The ids are the *keys*; the values are per-model capability records Orb
-            # does not read. A mapping, so `_model_ids` gets the list it expects.
             entries = list(images) if isinstance(images, Mapping) else None
         else:
             key = "models" if response_shape == "models_list" else "data"
@@ -343,9 +283,6 @@ class OpenAIImageClient:
             raise self._bad("returned a malformed model list")
         names = _model_ids(entries, model_filter)
         if not names and model_filter:
-            # The filter is an optimisation, never a gate: a provider that stops
-            # tagging its entries should cost the user a longer list, not an empty
-            # picker that reads as "this key has no models".
             names = _model_ids(entries, "")
         return names
 
@@ -358,8 +295,6 @@ class OpenAIImageClient:
         that will 401 on the first render the user pays to discover.
         """
         await self._send("GET", path, timeout=min(30.0, self.timeout))
-
-    # ── generation ────────────────────────────────────────────────────────────
 
     async def create_image(
         self,
@@ -383,7 +318,6 @@ class OpenAIImageClient:
             mime = image_mime(data)
         except ImageGenerationError as exc:
             raise self._bad("returned data that is not a supported image") from exc
-        # Full-res source -> capped WebP off-thread (CPU-bound) before it is stored.
         shrunk, mime = await asyncio.to_thread(shrink_for_display, data, mime)
         return CloudImage(data=shrunk, mime=mime, cost=_cost(payload, provider_id))
 
@@ -463,9 +397,6 @@ def _is_an_openai_image_id(entry: Mapping[str, Any]) -> bool:
     return isinstance(ident, str) and ("image" in ident or ident.startswith("dall-e"))
 
 
-# Which rule a provider uses is declared on its preset -- see `models_filter` in
-# providers.py. An unknown name filters nothing, so a preset typo costs a longer
-# picker rather than an empty one, matching the fallback in `list_models`.
 _MODEL_FILTERS: dict[str, Callable[[Mapping[str, Any]], bool]] = {
     "type_image": _declares_image_type,
     "output_image": _outputs_an_image,

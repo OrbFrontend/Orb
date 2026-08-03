@@ -1,5 +1,3 @@
-// Pure state for the image-generation checkpoint control. Keeping this free of
-// DOM and workflow imports makes the success/fallback rules directly testable.
 export function modelPickerState(discovered, current = "") {
   const models = [];
   const seen = new Set();

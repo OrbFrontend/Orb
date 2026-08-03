@@ -28,8 +28,6 @@ from ..graph import (
 )
 from .base import ImageAdapter, replayed_target
 
-# Generous next to the cloud adapter's base64-in-JSON cap, because this is a
-# multipart upload -- but still declared, so both backends answer in one place.
 COMFY_REFERENCE_MAX_BYTES = 8 * 1024 * 1024
 
 CAPABILITIES: ImageBackendCapabilities = {
@@ -37,10 +35,6 @@ CAPABILITIES: ImageBackendCapabilities = {
     "can_list_models": True,
     "can_install_curated_models": False,
     "managed_runtime": False,
-    # Per-*graph* facts here, not per-backend: the static answer is "this backend
-    # can express them", and what one graph honours is on the RenderTarget. Size is
-    # expressible now that a graph can map `width`/`height` slots -- whether one
-    # actually does is the target's answer, not this one's.
     "supports_negative_prompt": True,
     "supports_seed": True,
     "supports_dimensions": True,
@@ -52,8 +46,6 @@ class ExternalComfyAdapter(ImageAdapter):
     source_id: ClassVar[str] = "external_comfy"
     display_name: ClassVar[str] = "External ComfyUI"
     capabilities: ClassVar[ImageBackendCapabilities] = CAPABILITIES
-
-    # ── configuration-only answers, no network I/O ────────────────────────────
 
     def _graphs(self) -> Sequence[Mapping[str, Any]]:
         return self.config["external_comfy"]["user_graphs"]
@@ -75,8 +67,6 @@ class ExternalComfyAdapter(ImageAdapter):
         graphs = {graph["id"]: graph for graph in self._graphs()}
         style = self.style
         label = style["label"] or style["id"]
-        # External mode ships no default graph, so nothing pinned cannot render at
-        # all -- the first thing to fix, ahead of checkpoints.
         if not style["workflow"]:
             return {
                 "ready": False,
@@ -89,8 +79,6 @@ class ExternalComfyAdapter(ImageAdapter):
                 "reason": "unknown_workflow",
                 "detail": f"{label!r} names a workflow that is not imported: {style['workflow']}",
             }
-        # A checkpoint is only required when the pinned graph exposes a model slot for
-        # Orb's selection to override; a self-contained graph carries its own.
         if not style["checkpoint"] and "checkpoint" in graphs[style["workflow"]]["slots"]:
             return {
                 "ready": False,
@@ -134,8 +122,6 @@ class ExternalComfyAdapter(ImageAdapter):
         graph_id = style["workflow"]
         notes: list[str] = []
         if replay:
-            # The graph is this backend's alone, so it is replayed here rather than in
-            # `replayed_target` -- and it is the one pin that can be *gone*.
             stored_graph = replay.get("workflow_id")
             recorded = stored_graph if isinstance(stored_graph, str) and stored_graph else ""
             if recorded and not has_graph(self.config, recorded):
@@ -150,14 +136,8 @@ class ExternalComfyAdapter(ImageAdapter):
             replay, model=style["checkpoint"], width=int(style["width"]), height=int(style["height"])
         )
         slots = self._graph_slots(graph_id)
-        # Per graph, not per backend: a t2i graph with an EmptyLatentImage takes a
-        # size, an img2img graph driven by its reference does not, and the second must
-        # keep behaving exactly as it did before this slot existed.
         sized = "width" in slots and "height" in slots
         if not sized and (width, height) != (DEFAULT_CLOUD_EDGE, DEFAULT_CLOUD_EDGE):
-            # Said here rather than left to be noticed, for the same reason the
-            # missing-negative disclosure is said: the picker is showing a resolution
-            # that this workflow will not apply.
             notes.append("this workflow has no resolution inputs mapped; it decides its own output size")
         return RenderTarget(
             source=self.source_id,
@@ -171,8 +151,6 @@ class ExternalComfyAdapter(ImageAdapter):
             reference_slots=self._graph_reference_slots(graph_id),
             notes=tuple(notes),
         )
-
-    # ── network ───────────────────────────────────────────────────────────────
 
     def _client(self) -> ComfyClient:
         ext = self.config["external_comfy"]
@@ -190,8 +168,6 @@ class ExternalComfyAdapter(ImageAdapter):
         stats = await client.system_stats()
         info = await client.object_info(allow_cached=allow_cached)
         checked: set[str] = set()
-        # Only pinned workflows: a style with none has no graph to validate, and
-        # readiness reports that gap separately.
         selections = [(s["workflow"], s["checkpoint"]) for s in config["styles"] if s["workflow"]]
         models: list[str] | None = None
 
@@ -207,8 +183,6 @@ class ExternalComfyAdapter(ImageAdapter):
                 continue
             checked.add(key)
             graph, slots = resolve_graph(config, graph_id)
-            # Override the model before validating, so Test connection checks what
-            # will actually run rather than the filename the graph was imported with.
             if "checkpoint" in slots:
                 graph, _ = patch_graph(
                     graph,
@@ -222,8 +196,6 @@ class ExternalComfyAdapter(ImageAdapter):
         try:
             discovered = await available_checkpoints()
         except ImageGenerationError:
-            # Discovery only fills the settings dropdown. A server that validated
-            # every selected graph is connected whether or not it lists models.
             discovered = []
         return {
             "ok": True,
@@ -254,9 +226,6 @@ class ExternalComfyAdapter(ImageAdapter):
                 "output_node": bool(entry.get("output_node")),
                 "text_inputs": _typed_inputs(entry, "STRING"),
                 "seed_inputs": [name for name in _typed_inputs(entry, "INT") if "seed" in name.lower()],
-                # Exact names only, unlike `seed`'s substring rule: a bare INT called
-                # `grounding_px` or `tile_size` is not a size, and mapping one patches
-                # something that is not the output resolution.
                 "dimension_inputs": [name for name in _typed_inputs(entry, "INT") if name.lower() in ("width", "height")],
                 "image_inputs": _image_upload_inputs(entry),
             }
@@ -271,13 +240,9 @@ class ExternalComfyAdapter(ImageAdapter):
     ) -> ImageResult:
         graph, slots = resolve_graph(self.config, target.target_id)
         notes = target.notes
-        # A graph with no negative slot discards everything the composer routed to
-        # the negative, so say so rather than let the user wonder why it had no effect.
         if "negative" not in slots and request.negative_prompt.strip():
             notes = (*notes, "this workflow has no negative prompt input; negative prompt was not applied")
         client = self._client()
-        # Distinct digests only: two slots pointing at the same image are one file
-        # on the server.
         uploaded: dict[str, str] = {}
         for reference in request.references:
             if reference.digest not in uploaded:
@@ -295,8 +260,6 @@ class ExternalComfyAdapter(ImageAdapter):
             negative_prompt=request.negative_prompt,
             seed=request.seed,
             checkpoint=target.model,
-            # Null unless this graph maps both size slots, which is what keeps a graph
-            # that decides its own size byte-identical to what it was before.
             width=target.width,
             height=target.height,
             references=[(reference.slot, uploaded[reference.digest]) for reference in request.references],
@@ -316,8 +279,6 @@ class ExternalComfyAdapter(ImageAdapter):
                 "source": self.source_id,
                 "workflow_id": target.target_id,
                 "references": [{**r.record(), "comfy_name": uploaded[r.digest]} for r in request.references],
-                # Recorded only when the graph actually applied it: a self-contained
-                # graph ignores the value, and replay reads null as "its own model".
                 "backend_model": target.model if "checkpoint" in slots else None,
                 "seed_honored": True,
                 "notes": list(notes),

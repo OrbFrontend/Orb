@@ -1,41 +1,15 @@
-// DOM-free parsing and slot-candidate derivation for user-imported ComfyUI
-// graphs. Kept free of the plugin facade so it loads under `node --test`.
-//
-// Node typing comes from the server's /object_info via the compact
-// `node_types` query action and is passed in as `nodeTypes`; this module owns
-// only the shape rules. When typing is unavailable (server unreachable, unknown
-// class) it falls back to the conventional input names, which is a degraded
-// picker rather than a broken one.
-
 const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
-// Mirrors MAX_GRAPH_BYTES in backend/workflows/image_gen/config.py, so an oversized
-// graph is refused at the picker where the user can still see which file they chose,
-// rather than dropped by normalization and reported as a count that came back short.
-// The measurement must match the backend's — UTF-8 bytes, taken *after* `is_changed`
-// is stripped — or the two gates disagree in both directions.
 const MAX_GRAPH_BYTES = 512_000;
 
 const FALLBACK_TEXT_INPUTS = ["text"];
 const FALLBACK_SEED_INPUTS = ["seed", "noise_seed"];
 const FALLBACK_OUTPUT_CLASSES = ["SaveImage", "PreviewImage"];
-// Upload widgets are typed server-side off /object_info's `image_upload` flag. With
-// the server unreachable only the stock loaders are guessed, since a wrong guess
-// would offer a reference slot that patches something else.
 const FALLBACK_IMAGE_CLASSES = ["LoadImage", "LoadImageMask"];
 const FALLBACK_IMAGE_INPUTS = ["image"];
-// Widget inputs naming the diffusion model a loader reads, offered as a "Model" slot
-// so Orb's checkpoint overrides the filename the PNG was exported with.
 const MODEL_INPUTS = ["ckpt_name", "unet_name"];
-// Deliberately exact, and deliberately the same list the server's `dimension_inputs`
-// rule uses: a bare INT named `grounding_px` or `tile_size` is not an output size, and
-// a wrong guess here patches something that is not one. Unlike the seed fallback,
-// there is no near-miss spelling worth catching — an unoffered slot costs the user
-// one unmapped picker, a wrong one costs a broken render.
 const FALLBACK_DIMENSION_INPUTS = ["width", "height"];
 
-// Mirrors `_strip_machine_local_state` in the backend normalizer. Measured on a copy:
-// the caller stores the graph it passed in, and the backend strips again on arrival.
 function graphByteLength(graph) {
   const stripped = Object.fromEntries(
     Object.entries(graph).map(([nodeId, node]) => {
@@ -113,8 +87,6 @@ function label(nodeId, node) {
   return `${typeof title === "string" && title ? title : node.class_type} (#${nodeId})`;
 }
 
-// A ComfyUI link is encoded as [nodeId, slot], so an array-valued input is wired
-// from another node and has no widget to patch — never a slot candidate.
 function isWidget(value) {
   return !Array.isArray(value);
 }
@@ -143,18 +115,10 @@ export function slotCandidates(graph, nodeTypes = {}) {
     for (const name of Object.keys(inputs)) {
       if (!isWidget(inputs[name])) continue;
       const item = { value: `${nodeId}\u001f${name}`, nodeId, input: name, label: `${label(nodeId, node)} — ${name}` };
-      // A save/preview node's STRING widget (filename_prefix) types as text but is
-      // never conditioning: offering it makes it the default positive slot whenever
-      // the output node sorts before the encoder, landing the prompt on the filename.
       if (!isOutput && textInputs.includes(name)) text.push(item);
       if (seedInputs.includes(name)) (isOutput ? seedTail : seed).push(item);
       if (MODEL_INPUTS.includes(name)) (isOutput ? checkpointTail : checkpoint).push(item);
-      // One bucket for both edges rather than two, because the caller filters it by
-      // `input` anyway — and a multi-stage graph legitimately offers the same node to
-      // both pickers, so splitting here would only duplicate the filter.
       if (dimensionInputs.includes(name)) dimension.push(item);
-      // Labelled by node, not input name: a two-reference graph asks which LoadImage
-      // is the identity and which is the scene.
       if (imageInputs.includes(name)) image.push({ ...item, label: label(nodeId, node) });
     }
     if (isOutput) {
@@ -171,10 +135,6 @@ export function slotCandidates(graph, nodeTypes = {}) {
   };
 }
 
-// The three roles a graph cannot render without. `negative` and the two size slots
-// are deliberately absent: a one-encoder prose graph has no negative conditioning and
-// an img2img graph takes its size from its reference, and the backend slot map treats
-// all three as optional for the same reason.
 export function missingRoles({ text, seed, output }) {
   const missing = [];
   if (!text.length) missing.push("a prompt input");
@@ -183,9 +143,6 @@ export function missingRoles({ text, seed, output }) {
   return missing;
 }
 
-// U+001F, not NUL: these values land in an <option value> via innerHTML, and the
-// HTML tokenizer rewrites U+0000 in an attribute to U+FFFD, so a NUL separator does
-// not survive the round-trip and split() finds nothing.
 export function splitCandidate(value) {
   const [nodeId, input] = String(value || "").split("\u001f");
   return nodeId && input ? [nodeId, input] : null;

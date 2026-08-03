@@ -18,7 +18,6 @@ from .config import WORKFLOW_ID, active_style, normalize_config
 from .engine import ImageGenerationError, comfy_adapter, get_adapter, list_sources
 from .engine.providers import provider_catalogue
 
-# Bounds the `node_types` sweep, so a malformed import cannot fan out unbounded.
 MAX_INSPECTED_CLASS_TYPES = 200
 
 
@@ -51,15 +50,10 @@ async def _status(body) -> dict:
     return {
         "source": config["source"],
         "capabilities": dict(adapter.capabilities),
-        # The source picker, the provider dropdown and the capability line all read
-        # from here, so the three cannot disagree. `providers` is the preset table
-        # *projected* -- no configured api_key may enter this payload.
         "sources": list_sources(),
         "providers": provider_catalogue(),
         "api_url": external["api_url"],
         "default_style": config["default_style"],
-        # The camera picker labels "Auto" off these two. Both are local, so they
-        # ride this answer instead of costing a second round trip.
         "classifier_ready": await pov_mod.classifier_ready(),
         "fallback_mode": pov_mod.DEFAULT_POV_MODE,
         "style_count": len(config["styles"]),
@@ -82,8 +76,6 @@ async def _styles(body) -> dict:
 
 
 async def _test_connection(body) -> dict:
-    # Only the readiness probe (which sends no config) may answer from the cached
-    # node catalogue -- pressing Test means "look again".
     explicit = isinstance(body, dict) and isinstance(body.get("config"), dict)
     config = await _config_from_query(body)
     try:
@@ -119,7 +111,6 @@ async def _node_types(body) -> dict:
         return {"nodes": {}}
 
 
-# A table rather than a branch chain, so adding an action is a single edit.
 _QUERY_ACTIONS = {
     "status": _status,
     "styles": _styles,

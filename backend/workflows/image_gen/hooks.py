@@ -67,15 +67,12 @@ async def _render_inputs(ctx, body) -> tuple[dict, str, dict]:
     differently would silently re-render on another backend.
     """
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
-    # An explicit request style, otherwise today's global selection.
     requested = body.get("style_id") if isinstance(body, Mapping) else None
     profile = normalize_profile(await get_workflow_character_state(ctx.character_id, WORKFLOW_ID) if ctx.character_id else None)
     return config, requested or config["default_style"], profile
 
 
 def _phase(label: str) -> dict:
-    # No `channel`: the one consumer (the Visualize modal) keys the phase pill per
-    # message id, so a channel written here could only disagree with it.
     return {"event": "phase_status", "data": {"label": label}}
 
 
@@ -111,7 +108,6 @@ def _progress_label(stage: str, detail: Mapping[str, Any]) -> str | None:
     if stage == "uploading":
         return "Uploading reference image..."
     if stage == "rendering":
-        # A cloud adapter names itself; ComfyUI's wording is the fallback.
         backend = detail.get("backend")
         return f"Rendering on {backend}..." if isinstance(backend, str) and backend else "Rendering in ComfyUI..."
     if stage == "queued":
@@ -137,19 +133,7 @@ def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> l
     raise ValueError("that message is not on this conversation's active branch")
 
 
-# Both tuples are read off the render that executed rather than off the ids that asked
-# for it, so the record says what was actually drawn: `describe_render_params` reads
-# them back off the patched graph, and the cloud adapter probes the returned image.
-#
-# The split is which ones a *replay* honours. Every key here is resolved by some
-# adapter's `resolve_target`, so adding one without a reader there records a pin
-# nothing applies. `workflow_id` is ComfyUI's alone and `quality`/`reference_source`
-# are the cloud's -- each absent (None) on the other backend, which `replayed_target`
-# and `replayed_text` read as "this one does not say".
 _REPLAYED_FACTS = ("workflow_id", "backend_model", "width", "height", "quality", "reference_source")
-# Recorded, never replayed: no adapter resolves these, and ComfyUI's own graph carries
-# them. They are here to be *read* -- by a user comparing two renders, and by anyone
-# asking why an image looks the way it does. The cloud has no equivalent, so None.
 _DISCLOSED_FACTS = ("steps", "cfg", "sampler", "scheduler")
 
 
@@ -162,17 +146,9 @@ def _render_record(result, *, source: str) -> dict:
     """
     info: Mapping[str, Any] = result.backend_info
     return {
-        # What actually rendered, as the adapter reported it, falling back to the
-        # adapter that was asked. Never `config["source"]`: that answers about the
-        # *default* style, which is not necessarily the one that just rendered.
         "source": info.get("source") or source,
         **{key: info.get(key) for key in (*_REPLAYED_FACTS, *_DISCLOSED_FACTS)},
-        # Whether the stored seed means anything. A seedless API is nondeterministic,
-        # so the attachment says so rather than printing a hex the render never saw.
-        # The seed is still minted and stored -- rehydrate 409s on a null one.
         "seed_honored": info.get("seed_honored") is not False,
-        # The same grading for the size. Unlike `seed_honored` it defaults to *not*
-        # trusted: a seed is honoured unless a backend says otherwise, a size is not.
         "size_measured": info.get("size_measured") is True,
     }
 
@@ -193,14 +169,10 @@ def _metadata(
         **_render_record(result, source=source),
         "style_id": style["id"],
         "composer_mode": composer_mode,
-        # Which camera was drawn and which lever chose it: a wrong POV must be
-        # traceable to manual/classifier/default rather than guessed at.
         "pov": pov,
         "pov_source": pov_source,
         "prompt": prompt,
         "negative_prompt": negative_prompt,
-        # A rehydrate re-fetches strictly by these origins, so only the bytes behind
-        # them can have moved.
         "references": info.get("references") or [],
     }
 
@@ -223,26 +195,15 @@ def _consumption(
         "prompt": prompt,
         "negative_prompt": negative_prompt,
     }
-    # The size that was actually drawn, on the display-safe half so Render details can
-    # show it: a resolution that silently did not take is only ever noticed by
-    # eyeballing the picture against the picker. Graded, though -- ComfyUI falls back
-    # to scanning the graph for any width/height pair and can land on an upscale node,
-    # and a guess is worst in exactly the row a user checks their picker against.
     if record.get("size_measured") is True:
         width, height = recorded_edge(record.get("width")), recorded_edge(record.get("height"))
         if width is not None and height is not None:
             payload["width"], payload["height"] = width, height
-    # Copied through in whatever unit the provider named; see `_cost` in
-    # engine/openai_image_client.py for why nothing here converts it.
     cost = info.get("cost")
     if isinstance(cost, Mapping) and cost.get("value") is not None:
         payload["cost"] = dict(cost)
     if info.get("seed_honored") is False:
         payload["seed_honored"] = False
-    # The camera and references ride both halves: generation_metadata is the replay
-    # record the UI never reads, and a wrong POV or reference is exactly the failure
-    # a user needs traced while looking at the bad image. *record* is whichever dict
-    # already carries them -- fresh metadata on a generate, stored params on a reroll.
     for key in ("pov", "pov_source"):
         value = record.get(key)
         if value:
@@ -252,7 +213,6 @@ def _consumption(
         payload["references"] = [
             {key: entry.get(key) for key in ("slot", "source", "origin")} for entry in references if isinstance(entry, Mapping)
         ]
-    # Disclosure lives in the display-safe half, on the attachment being looked at.
     if notes:
         payload["notes"] = notes
     return payload
@@ -294,17 +254,10 @@ async def _generate_fresh(
         prefix = await build_offturn_prefix(ctx.conversation_id, history, ctx.settings, lane="agent")
     selected_style = resolve_style(config, style_id)
     adapter = get_adapter(config, selected_style)
-    # Resolved once, up front: the composer needs its negative-prompt answer,
-    # references need its slot list, and the render needs the target itself. No style
-    # argument -- the adapter is bound to the one the router chose it for.
     target = adapter.resolve_target(None)
     character = getattr(ctx, "character", None)
     profile_owner_name = str(character.get("name") or "") if isinstance(character, Mapping) else ""
     appearance = str(profile.get("appearance_prompt") or "")
-    # Above the engine, because this reads conversation state. **Before** the
-    # composer, because the composer must know whether the image model will be
-    # looking at a reference, and because a required slot with nothing to fill it
-    # should fail before a full prompt-composition call is paid for.
     references = await resolve_references(
         target.reference_slots,
         history=history,
@@ -312,10 +265,7 @@ async def _generate_fresh(
         character_id=getattr(ctx, "character_id", None),
         profile=profile,
     )
-    # Only an *optional* slot can come back short -- see `references._required`.
     unfilled = len(target.reference_slots) - len(references)
-    # Here, not in the caller's prep phase: the classifier's first call loads a
-    # model, and that latency belongs behind the "Composing..." pill.
     pov, pov_source = await pov_mod.resolve(mode=config["pov_mode"], history=history)
     logger.info("[image_gen] camera: %s (from %s)", pov, pov_source)
     scene, avoid, composer_mode = await compose_scene(
@@ -363,8 +313,6 @@ async def _generate_fresh(
     )
     consumption = _consumption(style, prompt, negative, result, md, source_label=adapter.label)
     if unfilled > 0:
-        # An optional slot resolving to nothing changed what was rendered, so say
-        # so rather than leave it inferred from a missing Reference row.
         consumption.setdefault("notes", []).append("no reference image was available, so this was drawn from the prompt alone")
     return _attachment(seed, result, md, consumption)
 
@@ -379,9 +327,6 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
     if message.get("role") != "assistant":
         return _failed_stream("Images can only be generated for assistant messages")
     config, style_id, profile = await _render_inputs(ctx, body)
-    # The stream body runs after the trigger route releases its workflow locks, so
-    # every DB-backed prefix component is rebuilt now and captured into the
-    # generator; rendering itself stays unlocked.
     try:
         resolve_style(config, style_id)
         history = _history_through(ctx.history, mid)
@@ -399,8 +344,6 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
             if label:
                 labels.put_nowait(label)
 
-        # A task, not an inline await: progress must reach the wire while the render
-        # is still in flight, or every label sits behind a minute-long call.
         task = asyncio.create_task(
             _generate_fresh(
                 ctx=ctx,
@@ -432,10 +375,6 @@ async def _generate_response(ctx, body) -> WorkflowEventStream:
             logger.exception("image generation failed for message %s", mid)
             error = "Image generation failed"
         finally:
-            # Teardown only -- never a yield. A client disconnecting mid-render
-            # throws GeneratorExit at the suspended yield above, and yielding under
-            # that raises "async generator ignored GeneratorExit" with no reader
-            # left anyway. Cancelling keeps the render from outliving the request.
             task.cancel()
         for event in _terminal(attachment_id, error):
             yield event
@@ -461,9 +400,6 @@ async def _set_profile(ctx, body) -> dict:
     normalized = normalize_profile(profile)
     await set_workflow_character_state(ctx.character_id, WORKFLOW_ID, normalized)
     result = {"ok": True, "profile": normalized}
-    # The normalizer drops a reference image it cannot accept rather than
-    # truncating it, so a bare "ok" would let the form preview the image,
-    # report success, and show it gone on reopen with nothing to explain why.
     sent = profile.get("reference_image_b64")
     if isinstance(sent, str) and sent.strip() and not normalized["reference_image_b64"]:
         accepted = ", ".join(mime.removeprefix("image/").upper() for mime in REFERENCE_MIMES)
@@ -474,7 +410,6 @@ async def _set_profile(ctx, body) -> dict:
     return result
 
 
-# A table rather than a branch chain, so adding an action is a single edit.
 _ON_DEMAND_ACTIONS = {"generate": _generate_response, "get_profile": _get_profile, "set_profile": _set_profile}
 
 
@@ -488,14 +423,8 @@ async def regenerate(ctx, body):
     message = await get_message_by_id(ctx.message_id)
     if message is None or message.get("role") != "assistant":
         return []
-    # Full regenerate recomposes from current settings. Only reroll/rehydrate
-    # replay the predecessor attachment's stored generation parameters.
     config, style_id, profile = await _render_inputs(ctx, body)
-    # RegenCtx history excludes the anchor; append it before rebuilding the prefix.
     ctx_with_history = _RegenCompositionCtx(ctx, tuple(list(ctx.history) + [message]))
-    # Deliberately unguarded: an empty batch reads to the route as a successful
-    # regenerate with nothing in it, so the button appears to do nothing. Every
-    # error this raises is one the user can act on, and the route surfaces it.
     return [
         await _generate_fresh(
             ctx=ctx_with_history,
@@ -515,7 +444,6 @@ class _RegenCompositionCtx:
         self.agent_client = ctx.agent_client
         self.agent_model_name = ctx.agent_model_name
         self.character = ctx.character
-        # Carried for reference resolution: `character` reads the card by id.
         self.character_id = ctx.character_id
 
 
@@ -523,66 +451,26 @@ async def reroll_gen(ctx, params, seed):
     if not isinstance(params, dict):
         raise ValueError("stored image parameters are missing")
     prompt, negative, style_id = params.get("prompt"), params.get("negative_prompt"), params.get("style_id")
-    # Spelled as `isinstance` per field rather than an `all(...)` sweep: the sweep
-    # reads the same but narrows nothing, which is what the two bare `assert
-    # isinstance` lines below it were paying for.
     if not isinstance(prompt, str) or not isinstance(negative, str) or not isinstance(style_id, str):
         raise ValueError("stored image parameters are incomplete")
     if not prompt or not style_id:
         raise ValueError("stored image parameters are incomplete")
     config = normalize_config(await get_workflow_config(WORKFLOW_ID))
-    # The style first: it is the one step that can reject, and discovering it was
-    # deleted after a full render wastes a minute.
     style = resolve_style(config, style_id)
     prior_style = (ctx.prior_consumption_metadata or {}).get("style_id")
     style_changed = bool(prior_style) and prior_style != style_id
-    # The one line that separates the two routes this hook backs. A rehydrate owes
-    # the row the image it lost, so the stored record picks the target -- graph,
-    # checkpoint, model, size, quality, reference slot. A reroll owes the user
-    # another variant of the same subject, so the *style* picks all of it, exactly as
-    # a fresh render would: changing a style's resolution and pressing the dice has
-    # to render at the new resolution, or the picker is a control that does nothing.
-    # Only the prompt pair carries over, which is what makes Regenerate the button
-    # for "these words are wrong" and this one the button for everything else.
-    #
-    # `references` is not read from here either way: a recorded reference is an
-    # *origin* this ctx can re-fetch with no history, and `refetch_references` re-keys
-    # it onto whichever slots the resolved target turns out to have.
-    #
-    # Routed on `style`, not on the config's global source -- the style a rehydrate
-    # replays is the one the stored image named, which need not be the default one.
     adapter = get_adapter(config, style)
     target = adapter.resolve_target(params if ctx.replay else None)
-    # On top of the adapter's own: `target.notes` already reaches the attachment
-    # through backend_info, so repeating them here would print each one twice.
     notes: list[str] = []
-    # Appended to every note below that reports a substitution. "it will not match"
-    # is a broken promise, and only a replay made one: a reroll is *allowed* to land
-    # on another backend or lose a slot the new style lacks, because rendering on
-    # today's configuration is what it is for. Both routes still say what changed.
     mismatch = "; it will not match" if ctx.replay else ""
-    # A stored image rendered on another backend cannot be reproduced by this one.
-    # Re-rendering and disclosing beats refusing, which surfaces only as a 500.
-    # Against the adapter that is about to render, not the config's global source:
-    # this reroll may be on a style linked somewhere else entirely.
     recorded_source = params.get("source")
     if isinstance(recorded_source, str) and recorded_source and recorded_source != adapter.source_id:
         was = next((s["label"] for s in list_sources() if s["id"] == recorded_source), recorded_source)
         notes.append(f"made on {was}, re-rendered on {adapter.label}{mismatch}")
-    # Rehydrate promises the *same bytes back*, which a seedless API cannot give. Off
-    # `ctx.replay` rather than off a seed comparison: that comparison was only ever a
-    # proxy for this question, and it is the reroll of an evicted card -- one click
-    # away in the widget -- that it would have answered wrongly.
     if not target.supports_seed and ctx.replay:
         notes.append("this provider takes no seed: a fresh render of the same prompt, billed as one, not the original image")
-    # Strictly by recorded origin, on both routes: what the reference *was* is the one
-    # thing a reroll still owes the parent, and re-resolving from a branch that may
-    # have moved on since would quietly visualize a different message.
     recorded_references = _recorded_references(params)
     if recorded_references and not target.reference_slots:
-        # This style takes no reference images. Submitting them anyway is what sent
-        # a stored WebP into an edit endpoint that had declared PNG/JPEG, and
-        # dropping them silently is the substitution this workflow refuses to make.
         references = ()
         notes.append(f"this style does not take reference images, so the original's reference was not sent{mismatch}")
     else:
@@ -590,9 +478,6 @@ async def reroll_gen(ctx, params, seed):
         dropped = len(recorded_references) - len(references)
         if dropped > 0:
             notes.append(f"this style takes fewer reference images, so {dropped} of them were not sent")
-    # `params` is what the route stores as the sibling's generation_metadata, so it
-    # records what was actually sent, re-keyed slots and all -- leaving the previous
-    # target's slot ids would make the next reroll re-key off a record never true.
     if recorded_references or references:
         params["references"] = [reference.record() for reference in references]
     resolved_seed = fold_seed(seed)
@@ -606,25 +491,13 @@ async def reroll_gen(ctx, params, seed):
             timeout_seconds=config["timeout_seconds"],
             references=references,
         ),
-        # Never through the style: `target` is the resolved answer, which for a
-        # rehydrate is the stored image's own target rather than today's.
         target=target,
     )
-    # `params` is the sibling's generation_metadata, and that sibling is itself
-    # rehydratable -- so it has to record the render that just happened, not the one
-    # its parent recorded. Without this a reroll that moved to a new resolution or
-    # model would hand its own later rehydrate the *parent's* target and restore an
-    # image this row never made. Written on both routes so there is one answer;
-    # rehydrate persists no params, so for it this is bookkeeping `_consumption` reads.
     params.update(_render_record(result, source=adapter.source_id))
-    # The camera cannot have changed under a new seed, so carry what `params`
-    # already records rather than re-resolving it.
     consumption = _consumption(style, prompt, negative, result, params, source_label=adapter.label)
     if notes:
         consumption["notes"] = [*notes, *consumption.get("notes", [])]
     if style_changed:
-        # Only the assembled prompt is stored, never the scene/avoid halves, so a
-        # style swap cannot re-word it -- say so rather than substitute silently.
         consumption.setdefault("notes", []).append(
             f"style changed to {style['label']}; the prompt still carries the previous style's wording"
         )

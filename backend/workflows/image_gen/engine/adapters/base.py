@@ -34,14 +34,6 @@ class ImageAdapter(ABC):
 
     def __init__(self, config: Mapping[str, Any], style: Mapping[str, Any] | None = None) -> None:
         self.config = config
-        # The style this adapter answers about: which connection it reaches, which
-        # model it names, what it renders at. `None` falls back to the config's
-        # default style, so `comfy_adapter` -- which asks a pure network question and
-        # has no style in scope -- and any diagnostic construction stay valid.
-        #
-        # The asymmetry with `get_adapter`, where the style is required, is
-        # deliberate: the router is the seam where forgetting it would silently route
-        # a rehydrate to the wrong backend, and here it is merely a default.
         self.style = style if style is not None else active_style(config)
 
     @property

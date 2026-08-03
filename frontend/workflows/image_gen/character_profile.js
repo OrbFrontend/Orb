@@ -1,25 +1,10 @@
-// The "This Character Only" section of the settings modal: the per-character
-// appearance prompts and the reference image.
-//
-// Split out of config_panel.js because it shares nothing with the rest of the form —
-// no draft, no connection list, no style rows. It reads and writes one conversation's
-// character state over the trigger route, and its only contract with the panel is
-// four calls: mount, reset, populate, save.
-
 import { api, convUrl, esc, escAttr, getActiveConvId, registerAction, toast } from "/static/workflow_api.js";
 
 const WORKFLOW_ID = "image_gen";
 
-// Mirrored from the backend normalizer, which drops what it will not store. Checked
-// here so an over-size or unsupported file becomes a message, rather than an image
-// that previews fine and is silently gone on the next open.
 export const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
 export const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
 
-// The character's reference image as the form holds it — loaded with the profile,
-// replaced by the picker, emptied by Clear, written back on Save. Module state
-// rather than read off the rendered <img>, so a save that never touched the picker
-// round-trips the stored bytes untouched.
 let referenceImage = { reference_image_b64: "", reference_mime: "" };
 
 export function initCharacterProfile() {
@@ -29,8 +14,6 @@ export function initCharacterProfile() {
   );
 }
 
-// Called as the modal opens: a reference image picked for a different character must
-// not survive into this form.
 export function resetCharacterProfile() {
   referenceImage = { reference_image_b64: "", reference_mime: "" };
 }
@@ -70,8 +53,6 @@ async function pickReferenceImage(input) {
     return;
   }
   try {
-    // Chunked: a single spread of the whole array blows String.fromCharCode's
-    // argument limit on a multi-MB image.
     const bytes = new Uint8Array(await file.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -113,8 +94,6 @@ export async function populateProfile() {
 }
 
 export async function saveProfile() {
-  // No fields rendered means no active character: sending blanks would wipe a
-  // saved appearance.
   const appearanceEl = document.getElementById("ig-appearance");
   if (!appearanceEl || !getActiveConvId()) return;
   const res = await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
@@ -125,9 +104,6 @@ export async function saveProfile() {
       ...referenceImage,
     },
   });
-  // A save that reports success while discarding what the form is still previewing
-  // is the one outcome the user cannot diagnose, so the handler's warning is shown
-  // and the local copy is brought back in line with what was stored.
   if (res?.warning) {
     toast(res.warning, "error");
     referenceImage = {

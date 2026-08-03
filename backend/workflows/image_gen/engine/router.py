@@ -16,11 +16,7 @@ from .adapters.base import ImageAdapter
 logger = logging.getLogger(__name__)
 
 _REGISTRY: dict[str, type[ImageAdapter]] = {}
-# Also held by name: `node_types` needs the ComfyUI adapter with its ComfyUI-only
-# `node_roles` still visible on the type.
 _COMFY: type[ExternalComfyAdapter] | None = None
-
-# ── Register adapters (graceful — skip if a dependency is missing) ────────────
 
 try:
     from .adapters.external_comfy import ExternalComfyAdapter
@@ -37,9 +33,6 @@ try:
 except ImportError:  # pragma: no cover — httpx is a hard dependency today
     logger.info("httpx not installed — cloud API image backend disabled")
 
-# What an unknown or unavailable source falls back to. Never raising is deliberate:
-# `source` arrives from a stored config, and a hand-edited DB should not turn every
-# page load into a 500.
 _FALLBACK = "external_comfy"
 
 

@@ -21,22 +21,11 @@ from PIL import Image
 from .contracts import ImageGenerationError
 
 _WEBP_QUALITY = 95
-# A ceiling on phone-sized uploads, not a target size: identity-edit workflows lose
-# face detail to a downscale, and a graph wanting a specific size already carries a
-# scale node.
 _REFERENCE_MAX_EDGE = 4096
 _REFERENCE_MAX_BYTES = 8 * 1024 * 1024
 
 _FORMATS = {"image/webp": "WEBP", "image/png": "PNG", "image/jpeg": "JPEG"}
-# Which mime to convert *to* when a destination declares a list, ordered by bytes
-# per unit of visible quality rather than by the provider's listing order: a
-# reference is photographic, and preferring lossless PNG turns the 0.37 MB WebP a
-# render is stored as into a 1.05 MB body.
 _TARGET_PREFERENCE = ("image/webp", "image/jpeg", "image/png")
-# Tried in order until one fits `max_bytes`. Quality moves before resolution because
-# face identity -- what a reference exists to carry -- survives q75 far better than
-# a halved edge. The first rung is the display quality, so a reference that already
-# fits re-encodes to exactly what it would have anyway.
 _REFERENCE_QUALITIES = (95, 85, 75)
 _REFERENCE_EDGES = (_REFERENCE_MAX_EDGE, 3072, 2048, 1536, 1024)
 
@@ -56,8 +45,6 @@ def _load(data: bytes, fmt: str) -> Image.Image:
     handle so the caller can re-encode it down the ladder without reopening."""
     with Image.open(io.BytesIO(data)) as src:
         src.load()
-        # JPEG has no alpha channel, so RGBA is flattened rather than handed to a
-        # save that would raise.
         wanted = ("RGB",) if fmt == "JPEG" else ("RGB", "RGBA")
         return src.copy() if src.mode in wanted else src.convert("RGB")
 
@@ -69,7 +56,6 @@ def _encode(image: Image.Image, fmt: str, quality: int) -> bytes:
     elif fmt == "JPEG":
         image.save(buf, format=fmt, quality=quality, optimize=True)
     else:
-        # PNG is lossless: quality is not a lever on it, only the edge is.
         image.save(buf, format=fmt, optimize=True)
     return buf.getvalue()
 
@@ -86,8 +72,6 @@ def _bounded(image: Image.Image, fmt: str, max_bytes: int) -> bytes:
     smallest = b""
     tried: set[int] = set()
     for edge in _REFERENCE_EDGES:
-        # Clamped, never upscaled, and a clamp landing on an already-encoded size is
-        # skipped rather than paying for the same bytes twice.
         effective = min(edge, longest)
         if effective in tried:
             continue

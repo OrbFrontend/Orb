@@ -16,17 +16,8 @@ from .contracts import ImageGenerationError, ImageResult, ProgressCallback, emit
 from .display_encode import shrink_for_display
 from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
-# One subfolder of ComfyUI's input directory, so Orb's leftovers are identifiable.
-# Core ComfyUI exposes no delete API for input files, so it grows by one file per
-# distinct reference; content-addressed names keep repeats from adding to that.
 REFERENCE_SUBFOLDER = "orb"
 
-# `/object_info` is the one enormous response in this contract -- a real install
-# with custom-node packs reports ~2000 node types, tens of megabytes. Readiness
-# probes run on every Visualize modal open, so an uncached fetch would put that
-# transfer in front of a button click. Node sets change only when the server
-# restarts with different packs installed, so a short TTL is safe; an explicit
-# Test connection asks for a fresh copy.
 _OBJECT_INFO_TTL = 60.0
 _OBJECT_INFO_MAX_ENTRIES = 8
 _object_info_cache: dict[str, tuple[float, dict]] = {}
@@ -149,9 +140,6 @@ class ComfyClient:
                 response = await client.post(
                     "/upload/image",
                     files={"image": (name, data, mime or "application/octet-stream")},
-                    # ComfyUI compares `overwrite` against the strings "true"/"1", so
-                    # a bool would silently mean "no" and every render would land a
-                    # new "orb_… (1).webp" beside the last.
                     data={"subfolder": REFERENCE_SUBFOLDER, "type": "input", "overwrite": "true"},
                 )
                 if response.status_code >= 400:
@@ -163,8 +151,6 @@ class ComfyClient:
             raise ImageGenerationError("Could not upload the reference image to ComfyUI") from exc
         if not isinstance(payload, Mapping) or not isinstance(payload.get("name"), str):
             raise ImageGenerationError("ComfyUI did not confirm the reference image upload")
-        # Trust the server's own answer over the name we sent: it renames on
-        # collision, and the widget must carry the file that actually exists.
         subfolder = payload.get("subfolder")
         stored = payload["name"]
         return f"{subfolder}/{stored}" if isinstance(subfolder, str) and subfolder else stored
@@ -196,7 +182,6 @@ class ComfyClient:
         for key in ("queue_running", "queue_pending"):
             entries = payload.get(key)
             for entry in entries if isinstance(entries, list) else []:
-                # Entries are [number, prompt_id, prompt, extra_data, outputs].
                 if not isinstance(entry, (list, tuple)) or not entry:
                     continue
                 position = entry[0]
@@ -224,8 +209,6 @@ class ComfyClient:
         number = submitted.get("number")
         queue_timeout = min(10.0, timeout_seconds)
         ahead = await self.queue_ahead(number, timeout=queue_timeout)
-        # An unknown position (None) reads as "not waiting on anyone": the render
-        # is under way as far as the caller can tell, which is the honest label.
         waiting = bool(ahead)
         await emit(progress, "queued" if waiting else "rendering", {"number": number, "ahead": ahead})
 
@@ -241,8 +224,6 @@ class ComfyClient:
                     break
                 if isinstance(status, Mapping) and status.get("status_str") == "error":
                     raise ImageGenerationError("ComfyUI could not complete the image")
-            # Re-poll the queue only while something is still ahead; once this
-            # job reaches the front the extra request per second stops.
             if waiting:
                 previous, ahead = ahead, await self.queue_ahead(number, timeout=queue_timeout)
                 waiting = bool(ahead)
@@ -274,7 +255,6 @@ class ComfyClient:
             raise
         except httpx.HTTPError as exc:
             raise ImageGenerationError("Could not fetch the generated image from ComfyUI") from exc
-        # Full-res PNG -> capped WebP off-thread (CPU-bound) before it is stored/inlined.
         data, mime = await asyncio.to_thread(shrink_for_display, data, mime)
         return ImageResult(
             image_bytes=data,
