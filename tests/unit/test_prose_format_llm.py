@@ -2,10 +2,20 @@
 
 No LLM, no DB: the loop is exercised with stub async-generator judge/enforce
 factories, and the validators/patcher/state helpers are table-tested directly.
+The transport-interop cases at the end are pure as well -- they push this
+workflow's own registered tool schemas through the functions the structured
+forced-call path is built from, without a wire.
 """
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
+from backend.inference.client import parse_tool_calls, strictify_schema
+from backend.inference.text_completion import forced_schema, forced_tool_message
+from backend.workflows.prose_format_llm import ANALYZE_TOOL, PATCH_TOOL, REPORT_TOOL
 from backend.workflows.prose_format_llm.loop import run_enforcement_loop
 from backend.workflows.prose_format_llm.patching import apply_patches
 from backend.workflows.prose_format_llm.statedoc import filled_elements, is_armed, seed
@@ -234,3 +244,50 @@ async def test_loop_surfaces_apply_errors():
         run_enforcement_loop("draft", 1, _stub_judge([_V, []], log), _stub_enforce(log), _apply_with_errors, lambda: False)
     )
     assert any(e["data"]["pass"].endswith(":enforce") and "skipped" in e["data"]["delta"] for e in events)
+
+
+# --- structured-output transport interop ---
+
+# Every path in this workflow is a forced tool call, so on an endpoint whose
+# profile opts into structured output the transport withholds `tools` entirely
+# and rebuilds the call from `response_format` plus a synthesized message. These
+# cases pin that our three schemas survive that rewrite; the transport's own
+# behavior is covered in tests/unit/test_structured_tool_calls.py.
+_INTEROP_CASES = [
+    (ANALYZE_TOOL, {"records": [{"category": "narration", "denotation": "asterisks, past, third"}]}),
+    (REPORT_TOOL, {"violations": [{"excerpt": "He ran.", "category": "narration"}]}),
+    (PATCH_TOOL, {"patches": [{"search": "He ran.", "replace": "*He ran.*"}]}),
+]
+_INTEROP_IDS = [spec.name for spec, _ in _INTEROP_CASES]
+
+
+@pytest.mark.parametrize(("spec", "args"), _INTEROP_CASES, ids=_INTEROP_IDS)
+def test_tool_schema_survives_strict_rewrite(spec, args):
+    schema = forced_schema([spec.schema], spec.choice)
+    # A ToolSpec whose choice does not name its own schema yields None here, and
+    # the transport then sends no response_format at all -- the forced call would
+    # quietly degrade to an unforced one.
+    assert schema is not None
+    strict = strictify_schema(schema)
+
+    assert strict["additionalProperties"] is False
+    (array_key,) = strict["required"]
+
+    items = strict["properties"][array_key]["items"]
+    assert items["additionalProperties"] is False
+    # `_array_tool` marks every item property required, so strict mode must not
+    # widen any of them to `["string", "null"]`. A nullable leaf would decode as
+    # None and be dropped by the string guards in violations.py / patching.py --
+    # a silently empty result rather than a visible failure.
+    assert set(items["required"]) == set(items["properties"])
+    assert all(prop["type"] == "string" for prop in items["properties"].values())
+    # Keeps the sample payloads honest if the item properties ever change.
+    assert set(args[array_key][0]) == set(items["properties"])
+
+
+@pytest.mark.parametrize(("spec", "args"), _INTEROP_CASES, ids=_INTEROP_IDS)
+def test_structured_content_round_trips_to_args(spec, args):
+    """The transport synthesizes a tool-call message from grammar-constrained
+    content; the arguments the workflow reads must come back byte-identical."""
+    message = forced_tool_message(spec.name, json.dumps(args))
+    assert parse_tool_calls(message) == [{"name": spec.name, "arguments": args}]
