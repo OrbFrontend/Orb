@@ -16,7 +16,12 @@ import { fileURLToPath } from "node:url";
 // this test can import; everything else is read as source. That is not a workaround —
 // a constant the picker uses before any fetch resolves is a *literal*, and reading
 // the literal is what proves the two literals match.
-import { DEFAULT_PROMPT_FORMAT, POV_MODES, PROMPT_FORMATS } from "../../frontend/workflows/image_gen/policy.js";
+import {
+  DEFAULT_PROMPT_FORMAT,
+  MAX_REFERENCE_SLOTS,
+  POV_MODES,
+  PROMPT_FORMATS,
+} from "../../frontend/workflows/image_gen/policy.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (p) => readFileSync(join(root, p), "utf8");
@@ -60,7 +65,7 @@ test("graph size cap agrees, or the importer and the normalizer refuse different
 });
 
 test("collection caps agree, or the panel lets the user build what the server drops", () => {
-  assert.equal(jsInt(panel, "MAX_REFERENCE_SLOTS"), pyInt(config, "MAX_REFERENCE_SLOTS"));
+  assert.equal(MAX_REFERENCE_SLOTS, pyInt(config, "MAX_REFERENCE_SLOTS"));
   assert.equal(jsInt(panel, "MAX_USER_GRAPHS"), pyInt(config, "MAX_USER_GRAPHS"));
 });
 

@@ -105,8 +105,11 @@
 .ig-advanced-body{display:grid;gap:10px;padding:10px;border-top:1px solid var(--border)}
 .image-gen-graph-picker{display:grid;gap:10px}
 .image-gen-graph-picker button{justify-self:start}
-/* A sub-section of the picker, not a peer of the modal's top-level headings. */
+/* A sub-section of a style body or the picker, not a peer of the modal's top-level
+   headings. The importer only *names* the image slots it found -- picking a source for
+   each is a style's job -- so they read as a list rather than as fields. */
 .ig-reference-heading{margin-top:2px}
+.ig-slot-list{margin:0;padding-left:18px;display:grid;gap:2px;font-size:12px;color:var(--text-secondary)}
 
 /* ---- per-character reference image ----
    Thumbnail beside its controls, so what is stored and how to change it read as one

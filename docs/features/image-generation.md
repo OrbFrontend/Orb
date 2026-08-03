@@ -184,15 +184,18 @@ To import the workflow, do these steps:
 6. Optionally set **Width** and **Height**. See
    [Let Orb set the resolution](#let-orb-set-the-resolution) below. Both default
    to **None — the workflow decides**.
-7. If the workflow loads images, set each row under **Reference images**. See
-   [Reference images](#reference-images) below. Leave a row as **Not used** to
-   keep the file the workflow was exported with.
+7. If the workflow loads images, check the list under **Reference images**. It
+   names each **Load Image** widget the importer found. You choose what Orb feeds
+   them per style, in step 10.
 8. Select **Confirm slots and add workflow**.
 9. In a style, select the imported workflow.
-10. If your workflow is complex, review the nodes - make sure Orb points to the right node numbers.
-11. Select a checkpoint if Orb must replace the model in the workflow.
-12. Select **Test connection** to validate everything works.
-13. Select **Save**.
+10. If the workflow loads images, set each row under **Reference images** on that
+    style. See [Reference images](#reference-images) below. Leave a row **Off** to
+    keep the file the workflow was exported with.
+11. If your workflow is complex, review the nodes - make sure Orb points to the right node numbers.
+12. Select a checkpoint if Orb must replace the model in the workflow.
+13. Select **Test connection** to validate everything works.
+14. Select **Save**.
 
 ### Let Orb set the resolution
 
@@ -257,6 +260,17 @@ nodes for you: each render uploads the image to ComfyUI and points the node at
 the uploaded file. Orb fills only the **Load Image** nodes the workflow already
 contains and never adds nodes, so a workflow that takes two reference images
 must be exported with two **Load Image** nodes.
+
+Set **Reference images** on the style, the same place a cloud style sets it. The
+style shows one row per **Load Image** widget its assigned workflow declares, and
+each row is **off** by default. Because it is a style setting, two styles can
+share one workflow and feed it differently - one drawing on the chat, another
+rendering from the prompt alone - and you can change your mind without
+re-importing the workflow.
+
+A row left **Off** keeps the filename the workflow was exported with. That file
+has to exist on your ComfyUI server, and **Test connection** says so if it does
+not.
 
 Each reference row offers these sources:
 
@@ -453,7 +467,7 @@ Orb ships **Realistic** and **Anime** styles out of the box. A style contains th
 | **Model** | Selects the model this style renders with. Cloud only. Leave it on the provider's default if you have no preference. |
 | **Resolution** | Sets the output size. Always shown for a cloud connection; on ComfyUI, only when the assigned workflow has **Width** and **Height** slots mapped. |
 | **Quality** | Sets the provider's quality tier, on providers that expose one. Cloud only. |
-| **Reference images** | Sends an image with the prompt. Cloud only, and off by default. See [Reference images](#reference-images). |
+| **Reference images** | Chooses what Orb feeds each image input this style's render target has - one on a cloud provider, one per **Load Image** widget on a ComfyUI workflow. Off by default. See [Reference images](#reference-images). |
 
 A style owns everything that decides what the image looks like. A connection owns
 only how Orb reaches a backend — a URL and a key.
@@ -575,7 +589,7 @@ guaranteed.
 | A render says the reference image could not be read. | Orb accepts PNG, JPEG and WebP. Replace the upload or the character reference image. |
 | A render says the reference image is too large after resizing. | Use a smaller source image. Cloud providers cap a reference at 4 MB once encoded. |
 | A reference image was not saved on the character. | Orb accepts PNG, JPEG and WebP up to 10 MB. |
-| The connection test says a node needs an image on the server. | Map that node under **Reference images**, or put the file in ComfyUI's `input` directory. |
+| The connection test says a node needs an image on the server. | The message names the style. Either point that slot at a source under that style's **Reference images**, so Orb overwrites the filename, or put the file in ComfyUI's `input` directory so the style that leaves the slot **Off** can render it. |
 | ComfyUI completes without an image. | Select a valid image-output node in the imported workflow. |
 | Orb cannot write an image prompt. | Check the Orb LLM endpoint. Use a model that can make tool calls. |
 | An old image shows **Bytes evicted**. | Select **Rehydrate**. Orb uses the stored prompt, settings, and seed to make the image again. On a cloud backend this is a fresh billed render, disclosed on the image. |

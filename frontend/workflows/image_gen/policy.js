@@ -134,6 +134,24 @@ export function findConnection(connections, id) {
   return connections.find((c) => c.id === id) || null;
 }
 
+export const MAX_REFERENCE_SLOTS = 4;
+
+// The image slots one imported graph declares, as normalization stored them. A graph
+// that loads no image has no `references` key at all.
+export function graphReferenceSlots(graphs, workflowId) {
+  const declared = (graphs || []).find((g) => g.id === workflowId)?.slots?.references;
+  return Array.isArray(declared) ? declared.slice(0, MAX_REFERENCE_SLOTS) : [];
+}
+
+// What a style will actually send, which is never simply what it stores: a style keeps
+// both backends' answers across a relink, so `["", "character"]` under a cloud provider
+// is one slot and it is off. Anything reading the stored list to decide what leaves the
+// machine asks the user to approve an upload the panel shows as Off and no adapter makes.
+export function effectiveReferenceSources(style, { graphs = [], source = "" } = {}) {
+  const stored = Array.isArray(style?.reference_sources) ? style.reference_sources : [];
+  return stored.slice(0, source === "cloud" ? 1 : graphReferenceSlots(graphs, style?.workflow).length);
+}
+
 export function modelTakesReferences(preset, model) {
   if (!preset?.supports_references) return false;
   const allowed = Array.isArray(preset.reference_models) ? preset.reference_models : [];
@@ -153,10 +171,15 @@ export function pendingDisclosures(config = {}, connections = []) {
       apiUrl: external.api_url || "",
       providerId: connection.id,
       providerLabel: connection.label,
-      sendsImages:
-        connection.source === "cloud"
-          ? linked.some((style) => !!style.reference_source)
-          : (external.user_graphs || []).some((graph) => (graph?.slots?.references || []).length > 0),
+      // One rule for both backends now that a style owns its reference sources. The
+      // ComfyUI half used to ask whether *any* imported graph mapped a slot, which
+      // over-asked for a server no style pointed a reference at and — worse — went on
+      // asking after every style had turned them off. Effective, not stored: what the
+      // adapter will send is the question, and a style carries answers for slots its
+      // current target does not have.
+      sendsImages: linked.some((style) =>
+        effectiveReferenceSources(style, { graphs: external.user_graphs, source: connection.source }).some(Boolean),
+      ),
     });
     if (notice) notices.push(notice);
   }

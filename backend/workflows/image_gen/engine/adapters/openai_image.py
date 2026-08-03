@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 from PIL import Image
 
-from ...config import REFERENCE_SOURCES, style_source
+from ...config import REFERENCE_SOURCES, style_reference_sources, style_source
 from ..contracts import (
     ImageBackendCapabilities,
     ImageRequest,
@@ -136,7 +136,11 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         quality = replayed_text(replay, "quality", str(style.get("quality") or ""))
         references: tuple[Mapping[str, Any], ...] = ()
         notes: list[str] = []
-        source = replayed_text(replay, "reference_source", str(style.get("reference_source") or ""))
+        # Position 0 because this backend declares exactly one slot. The style stores a
+        # list so a ComfyUI graph's several `LoadImage` widgets can each answer, and a
+        # style relinked between the two keeps its first answer either way -- so the
+        # rest of the list is stored but inert here, and nothing may read it as intent.
+        source = replayed_text(replay, "reference_source", next(iter(style_reference_sources(style)), ""))
         if preset is not None and preset.supports_references and source in REFERENCE_SOURCES:
             if not takes_references(preset, model):
                 notes.append(_NO_REFERENCES.format(model=model))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import partial
 from typing import Any
 from urllib.parse import SplitResult, urlsplit
@@ -131,7 +131,40 @@ def _edge(value: Any, default: int) -> int:
     return min(MAX_CLOUD_EDGE, max(MIN_CLOUD_EDGE, pixels))
 
 
-def _render_target(raw: Mapping[str, Any], cloud: Mapping[str, Any], connection: str) -> dict:
+def _reference_sources(raw: Mapping[str, Any], legacy: Sequence[Any]) -> list[str]:
+    """Where each of this style's reference slots draws from, by position.
+
+    Position *i* answers for the *i*-th slot the render target declares -- the cloud
+    adapter's one synthetic slot, or the *i*-th image slot the assigned ComfyUI graph
+    declares. Positional rather than keyed by slot because the two backends key their
+    slots differently and one style may be relinked between them; it is the same rule
+    `_pair_with_slots` re-keys a stored reference by on replay.
+
+    `""` at a position is a real value -- *that* slot is off -- so only **trailing**
+    blanks are trimmed, and a style whose every slot is off stores `[]`.
+
+    `legacy` is what a style declaring none of its own inherits; which of the two older
+    shapes that is depends on what renders it, so the caller picks (see `_render_target`).
+    """
+    values = raw["reference_sources"] if "reference_sources" in raw else legacy
+    sources: list[str] = []
+    for value in values if isinstance(values, (list, tuple)) else []:
+        name = _text(value, 32)
+        sources.append(name if name in REFERENCE_SOURCES else "")
+        if len(sources) >= MAX_REFERENCE_SLOTS:
+            break
+    while sources and not sources[-1]:
+        sources.pop()
+    return sources
+
+
+def _render_target(
+    raw: Mapping[str, Any],
+    cloud: Mapping[str, Any],
+    connection: str,
+    workflow: str,
+    legacy_slots: Sequence[str],
+) -> dict:
     """The five fields that decide what an image looks like, and where they inherit
     from while a stored config is still on its way to the new shape.
 
@@ -143,8 +176,9 @@ def _render_target(raw: Mapping[str, Any], cloud: Mapping[str, Any], connection:
     style's connection), so reading the normalized block would close a cycle.
 
     Membership at each step, not truthiness: "" is a real stored value for `quality`
-    and `reference_source` ("provider default", "references off"), so a style that
-    declares one must not silently inherit the legacy global instead.
+    ("the provider's default"), so a style that declares one must not silently inherit
+    the legacy global instead. `reference_sources` has a second legacy shape of its own,
+    picked below and resolved in `_reference_sources`.
 
     **The inheritance is the whole of the migration.** Once no install predates it,
     everything below the `sources` line reduces to reading `raw`.
@@ -163,7 +197,14 @@ def _render_target(raw: Mapping[str, Any], cloud: Mapping[str, Any], connection:
         return next((s[name] for s in sources if isinstance(s, Mapping) and name in s), None)
 
     quality = _text(inherited("quality"), 16).lower()
-    reference_source = _text(inherited("reference_source"), 32)
+    # Which older shape a style with no `reference_sources` of its own inherits depends
+    # on what renders it. `legacy_slots` is what a ComfyUI graph pinned per slot back
+    # when the source lived on the graph, already aligned to the same declared list. The
+    # lone `reference_source` is the cloud half's, and a graph-bound style deliberately
+    # does **not** inherit it -- it reaches every style through the raw cloud block
+    # whatever the connection, so honouring it here would silently start uploading
+    # conversation images to a ComfyUI server that never asked.
+    legacy = legacy_slots or ([] if workflow else [inherited("reference_source")])
     return {
         # "" means "the provider's own default", resolved at the adapter where the
         # preset table lives -- not substituted here, so relinking to a provider with
@@ -172,11 +213,11 @@ def _render_target(raw: Mapping[str, Any], cloud: Mapping[str, Any], connection:
         "width": _edge(inherited("width"), DEFAULT_CLOUD_EDGE),
         "height": _edge(inherited("height"), DEFAULT_CLOUD_EDGE),
         "quality": quality if quality in CLOUD_QUALITIES else "",
-        "reference_source": reference_source if reference_source in REFERENCE_SOURCES else "",
+        "reference_sources": _reference_sources(raw, legacy),
     }
 
 
-def _style(raw: Any, cloud: Mapping[str, Any]) -> dict | None:
+def _style(raw: Any, cloud: Mapping[str, Any], legacy_references: Mapping[str, Sequence[str]]) -> dict | None:
     """One style entry, on the global style list.
 
     `connection` is what renders this style -- `COMFY_CONNECTION` or a cloud provider
@@ -186,10 +227,14 @@ def _style(raw: Any, cloud: Mapping[str, Any]) -> dict | None:
 
     Both backends' render targets live here, and both halves are always present
     whichever connection the style links to, so relinking cloud -> ComfyUI -> cloud
-    loses neither pin. `checkpoint`/`workflow` are the ComfyUI half; `model`,
-    `quality` and `reference_source` the cloud half (see `_render_target`);
-    `width`/`height` are read by both -- by ComfyUI only once its pinned graph maps
-    size slots.
+    loses neither pin. `checkpoint`/`workflow` are the ComfyUI half; `model` and
+    `quality` the cloud half (see `_render_target`); `width`/`height` are read by both
+    -- by ComfyUI only once its pinned graph maps size slots -- and so is
+    `reference_sources`, which is why a graph declares *which* of its inputs load an
+    image while the style alone says where each one draws from.
+
+    `legacy_references` is `{graph id: [source per declared slot]}` for the configs
+    that stored that on the graph; `_reference_sources` migrates it onto the styles.
     """
     if not isinstance(raw, Mapping):
         return None
@@ -217,7 +262,7 @@ def _style(raw: Any, cloud: Mapping[str, Any]) -> dict | None:
         "connection": connection,
         "checkpoint": _text(raw.get("checkpoint"), 512),
         "workflow": workflow,
-        **_render_target(raw, cloud, connection),
+        **_render_target(raw, cloud, connection, workflow, legacy_references.get(workflow) or ()),
     }
 
 
@@ -233,16 +278,44 @@ def _slot(value: Any) -> list[str] | None:
     return [node_s, field_s]
 
 
-def _reference(raw: Any) -> dict | None:
-    """One `LoadImage` widget mapped to a reference source, or None to drop it."""
-    if not isinstance(raw, Mapping):
-        return None
-    slot = _slot(raw.get("slot"))
-    source = _text(raw.get("source"), 32)
-    if slot is None or source not in REFERENCE_SOURCES:
-        return None
-    label = _text(raw.get("label"), 120) or f"{slot[0]} — {slot[1]}"
-    return {"slot": slot, "source": source, "label": label}
+def _declared_references(raw: Any) -> list[tuple[dict, str]]:
+    """This graph's image slots, each paired with the source a legacy config pinned to it.
+
+    The slot is **structural** -- which node inputs load an image is a fact about the
+    graph, discovered at import against ComfyUI's `/object_info` -- so it is stored
+    here, for every image widget the importer found rather than only the ones pointed
+    somewhere. Where the bytes come from is not a fact about the graph: that is the
+    style's to say, so two styles on one workflow can differ and either can turn a slot
+    off. The second element is only what an older config recorded, for `_style` to
+    migrate onto the styles using this graph.
+
+    Returned as pairs so the two lists cannot fall out of alignment -- the style's
+    answer is positional against the declared one.
+    """
+    entries: list[tuple[dict, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, Mapping):
+            continue
+        slot = _slot(item.get("slot"))
+        if slot is None:
+            continue
+        # One entry per widget: two rows on one slot would both resolve and both be
+        # recorded, but only the second survives patching, so the record would claim
+        # a reference the render never used.
+        if (slot[0], slot[1]) in seen:
+            continue
+        seen.add((slot[0], slot[1]))
+        source = _text(item.get("source"), 32)
+        entries.append(
+            (
+                {"slot": slot, "label": _text(item.get("label"), 120) or f"{slot[0]} — {slot[1]}"},
+                source if source in REFERENCE_SOURCES else "",
+            )
+        )
+        if len(entries) >= MAX_REFERENCE_SLOTS:
+            break
+    return entries
 
 
 def _strip_machine_local_state(graph: dict) -> dict:
@@ -261,7 +334,13 @@ def _strip_machine_local_state(graph: dict) -> dict:
     return stripped
 
 
-def _user_graph(raw: Any) -> dict | None:
+def _user_graph(raw: Any, legacy_sources: dict[str, list[str]] | None = None) -> dict | None:
+    """One imported graph, optionally recording what an older config pinned per slot.
+
+    `legacy_sources` is filled in only for a graph that actually parses, and only for
+    the first entry claiming an id -- exactly the ones `_unique_by_id` keeps, so the
+    style inheriting from a graph id never inherits from a row that was discarded.
+    """
     if not isinstance(raw, Mapping):
         return None
     gid = _text(raw.get("id"), 64)
@@ -286,26 +365,15 @@ def _user_graph(raw: Any) -> dict | None:
     # is encoded, which is also why no migration is needed for either.
     if not all(name in slots for name in ("positive", "seed", "output")):
         return None
-    # Also optional, so a t2i graph normalizes unchanged: an unmapped LoadImage is
-    # simply absent from the list, which is how "Not used" is encoded.
-    references_raw = slots_raw.get("references")
-    references: list[dict] = []
-    seen_slots: set[tuple[str, str]] = set()
-    for item in map(_reference, references_raw) if isinstance(references_raw, list) else []:
-        if item is None:
-            continue
-        # One entry per widget: two rows on one slot would both resolve and both be
-        # recorded, but only the second survives patching, so the record would claim
-        # a reference the render never used.
-        node, field = str(item["slot"][0]), str(item["slot"][1])
-        if (node, field) in seen_slots:
-            continue
-        seen_slots.add((node, field))
-        references.append(item)
-        if len(references) >= MAX_REFERENCE_SLOTS:
-            break
+    # Also optional, so a t2i graph normalizes unchanged: a graph that loads no image
+    # has no `references` key at all, which is how "not an edit workflow" is encoded.
+    # "Off" is not encoded here any more -- it is a style saying `""` for this slot.
+    declared = _declared_references(slots_raw.get("references"))
+    references = [entry for entry, _ in declared]
     if references:
         slots["references"] = references
+    if legacy_sources is not None:
+        legacy_sources.setdefault(gid, [source for _, source in declared])
     return {
         "id": gid,
         "label": _text(raw.get("label"), 100, gid) or gid,
@@ -433,16 +501,22 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         raw_styles = CONFIG_DEFAULTS["styles"]
     cloud_value = raw.get("cloud")
     cloud_raw: Mapping[str, Any] = cloud_value if isinstance(cloud_value, Mapping) else {}
-    # The raw cloud block is bound at the call site rather than by widening
-    # `_unique_by_id`, which `_user_graph` shares and has no cloud block to pass.
-    parse_style = partial(_style, cloud=cloud_raw)
+    # Graphs parse first because a style inherits from the one it names: the sources
+    # now on the style were stored per slot on the graph, and `_user_graph` drops them
+    # on the way past, so it hands them out here on its way past instead.
+    legacy_references: dict[str, list[str]] = {}
+    graphs = _unique_by_id(
+        external_raw.get("user_graphs"), partial(_user_graph, legacy_sources=legacy_references), MAX_USER_GRAPHS
+    )
+    # The raw cloud block and the legacy map are bound at the call site rather than by
+    # widening `_unique_by_id`, which `_user_graph` shares and has neither to pass.
+    parse_style = partial(_style, cloud=cloud_raw, legacy_references=legacy_references)
     # The shipped defaults go through the same parse rather than being copied in
     # whole, so every path out of here produces one shape -- and so a config that
     # never stored a style still inherits the cloud block it was configured with.
     styles = _unique_by_id(raw_styles, parse_style, MAX_STYLES) or _unique_by_id(
         CONFIG_DEFAULTS["styles"], parse_style, MAX_STYLES
     )
-    graphs = _unique_by_id(external_raw.get("user_graphs"), _user_graph, MAX_USER_GRAPHS)
 
     default_style = _text(raw.get("default_style"), 64, styles[0]["id"])
     if default_style not in {s["id"] for s in styles}:
@@ -525,6 +599,18 @@ def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:
     # render path turns "no workflow" into an "assign one" error rather than
     # silently substituting.
     return dict(style)
+
+
+def style_reference_sources(style: Mapping[str, Any]) -> list[str]:
+    """One style's per-slot reference sources, by position.
+
+    A bare read rather than `normalize_config`'s guarantee, because `validate_connection`
+    walks every style in the config and one hand-edited row must not turn Test connection
+    into a 500. Shared by both adapters so neither invents its own read of the field --
+    the cloud one takes position 0, ComfyUI pairs the whole list with its graph.
+    """
+    values = style.get("reference_sources")
+    return [_text(value, 32) for value in values] if isinstance(values, (list, tuple)) else []
 
 
 def normalize_profile(raw: Mapping[str, Any] | None) -> dict:

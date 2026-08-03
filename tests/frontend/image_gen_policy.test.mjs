@@ -272,7 +272,7 @@ test("a loopback ComfyUI style adds no question to a cloud save", () => {
   const next = config({
     styles: [
       { id: "a", connection: COMFY_CONNECTION },
-      { id: "b", connection: "xai", reference_source: "previous" },
+      { id: "b", connection: "xai", reference_sources: ["previous"] },
     ],
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
@@ -288,7 +288,7 @@ test("one style with references on is enough to ask the larger cloud question", 
   const next = config({
     styles: [
       { id: "a", connection: "xai" },
-      { id: "b", connection: "xai", reference_source: "character" },
+      { id: "b", connection: "xai", reference_sources: ["character"] },
     ],
     cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
   });
@@ -303,6 +303,61 @@ test("one style with references on is enough to ask the larger cloud question", 
   assert.deepEqual(
     pendingDisclosures(off, connectionList(off, PROVIDERS)).map((d) => d.key),
     ["orb:image-gen-privacy-cloud:xai"],
+  );
+});
+
+test("a remote ComfyUI is asked the image question by its styles, not by its imports", () => {
+  // It used to be asked whether *any* imported graph mapped a slot. That over-asked
+  // for a server no style pointed a reference at, and went on asking after every
+  // style had switched them off — a graph is global, so one import spoke for all.
+  const graphs = [{ id: "g", slots: { references: [{ slot: ["11", "image"], label: "Load Image (#11)" }] } }];
+  const external = { api_url: "https://comfy.example.com", user_graphs: graphs };
+  const off = config({
+    styles: [{ id: "a", connection: COMFY_CONNECTION, workflow: "g" }],
+    external_comfy: external,
+  });
+  assert.deepEqual(
+    pendingDisclosures(off, connectionList(off, PROVIDERS)).map((d) => d.key),
+    ["orb:image-gen-privacy:https://comfy.example.com"],
+  );
+
+  const on = config({
+    styles: [
+      { id: "a", connection: COMFY_CONNECTION, workflow: "g" },
+      { id: "b", connection: COMFY_CONNECTION, workflow: "g", reference_sources: ["character"] },
+    ],
+    external_comfy: external,
+  });
+  assert.deepEqual(
+    pendingDisclosures(on, connectionList(on, PROVIDERS)).map((d) => d.key),
+    ["orb:image-gen-privacy-images:https://comfy.example.com"],
+  );
+});
+
+test("a source stored for a slot the render target does not have is not an upload", () => {
+  // A style keeps both backends' answers across a relink, so its stored list outlives
+  // the target that shaped it. Reading it raw asks the user to approve an upload the
+  // panel shows as Off and no adapter makes — the disclosure has to match the render.
+  const cloud = config({
+    // Slot 0 off, slot 1 on: a two-`LoadImage` ComfyUI style, since relinked to xAI,
+    // which declares one slot and so reads position 0 alone.
+    styles: [{ id: "a", connection: "xai", reference_sources: ["", "character"] }],
+    cloud: { provider: "xai", providers: { xai: { api_key: "k" } } },
+  });
+  assert.deepEqual(
+    pendingDisclosures(cloud, connectionList(cloud, PROVIDERS)).map((d) => d.key),
+    ["orb:image-gen-privacy-cloud:xai"],
+  );
+
+  // The same in the other direction: a workflow that loads no image at all declares no
+  // slot for the answer left over from the one before it.
+  const comfy = config({
+    styles: [{ id: "a", connection: COMFY_CONNECTION, workflow: "t2i", reference_sources: ["character"] }],
+    external_comfy: { api_url: "https://comfy.example.com", user_graphs: [{ id: "t2i", slots: {} }] },
+  });
+  assert.deepEqual(
+    pendingDisclosures(comfy, connectionList(comfy, PROVIDERS)).map((d) => d.key),
+    ["orb:image-gen-privacy:https://comfy.example.com"],
   );
 });
 

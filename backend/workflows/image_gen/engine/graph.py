@@ -34,11 +34,31 @@ def has_graph(config: Mapping[str, Any], graph_id: str) -> bool:
 
 
 def reference_slots(slots: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    """The mapped reference entries, as normalization stored them. A graph with no
-    mapped `LoadImage` has no `references` key at all, so callers treat "no
-    references" and "not an edit workflow" as one case."""
+    """The image slots this graph declares, as normalization stored them. A graph that
+    loads no image has no `references` key at all, so callers treat "not an edit
+    workflow" and "no image inputs" as one case.
+
+    Declared, not enabled: whether a slot is actually filled is the rendering style's
+    answer, and `enabled_references` is where the two meet.
+    """
     entries = slots.get("references")
     return [entry for entry in entries if isinstance(entry, Mapping)] if isinstance(entries, list) else []
+
+
+def enabled_references(slots: Mapping[str, Any], sources: Sequence[str]) -> list[tuple[Mapping[str, Any], str]]:
+    """The declared slots a style has actually pointed at a source, with that source.
+
+    Paired by **position**: `sources[i]` answers for the *i*-th slot the graph declares,
+    which is the shape the style stores and the only one that survives a style being
+    relinked to a backend that keys its slots differently.
+
+    A slot the style left blank -- or one past the end of a shorter list, which `zip`
+    truncates and is how a style that has never been opened since the graph gained a
+    slot reads -- is absent from the result. That is the same render as the old "Not
+    used": the `LoadImage` keeps whatever filename the workflow was exported with, and
+    nothing about the conversation is uploaded for it.
+    """
+    return [(entry, source) for entry, source in zip(reference_slots(slots), sources) if source]
 
 
 def _scalar(inputs: Mapping[str, Any], name: str, kinds: tuple[type, ...]) -> Any:
@@ -179,10 +199,24 @@ def is_image_upload(spec: Any) -> bool:
     return isinstance(spec[1], Mapping) and spec[1].get("image_upload") is True
 
 
-def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any], object_info: Mapping[str, Any]) -> None:
+def validate_graph_structure(
+    graph: Mapping[str, Any],
+    slots: Mapping[str, Any],
+    object_info: Mapping[str, Any],
+    *,
+    filled: Sequence[Mapping[str, Any]] = (),
+) -> None:
+    """Prove this graph can run here, given the slots a render will actually fill.
+
+    `filled` is the style's *enabled* reference slots, not the graph's declared ones.
+    An image widget Orb is about to overwrite may name a file this server has never
+    seen; one it will leave alone may not, because that filename is what will render.
+    Defaulting to none is the strict reading, so a caller that forgets cannot get the
+    exemption by accident.
+    """
     if not graph:
         raise ImageGenerationError("The selected workflow is empty")
-    mapped = {(str(entry["slot"][0]), str(entry["slot"][1])) for entry in reference_slots(slots) if entry.get("slot")}
+    mapped = {(str(entry["slot"][0]), str(entry["slot"][1])) for entry in filled if entry.get("slot")}
     for node_id, node in graph.items():
         if (
             not isinstance(node, Mapping)
@@ -202,7 +236,8 @@ def validate_graph_structure(graph: Mapping[str, Any], slots: Mapping[str, Any],
                     continue
                 if is_image_upload(spec):
                     raise ImageGenerationError(
-                        f"Node {node_id} needs image {value!r} on the ComfyUI server, or map it as a reference image"
+                        f"Node {node_id} needs image {value!r} on the ComfyUI server, "
+                        "or point this style's reference image at it"
                     )
                 raise ImageGenerationError(f"Node {node_id} input {name!r} is no longer available on this server")
     for role in ("positive", "negative", "seed", "width", "height"):

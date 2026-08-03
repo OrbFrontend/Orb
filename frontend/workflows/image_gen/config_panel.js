@@ -16,6 +16,8 @@ import {
   connectionList,
   DEFAULT_PROMPT_FORMAT,
   findConnection,
+  graphReferenceSlots,
+  MAX_REFERENCE_SLOTS,
   modelTakesReferences,
   normalizePromptFormat,
   PROMPT_FORMATS,
@@ -32,7 +34,6 @@ const REFERENCE_SOURCES = [
   ["previous", "Previous image in the chat"],
   ["character", "Character reference image"],
 ];
-const MAX_REFERENCE_SLOTS = 4;
 const MAX_USER_GRAPHS = 32;
 
 const DEFAULT_EDGE = 1024;
@@ -244,29 +245,58 @@ function styleConnectionOptions(selected) {
   return optionList(pairs, selected);
 }
 
+// Which slot each select answers for is its *position*, matching how the style stores
+// them and how the backend pairs them with whatever its target declares.
+const styleSources = (style) => (Array.isArray(style?.reference_sources) ? style.reference_sources : []);
+
+// `structural` marks the one select whose value another field reads back — the cloud
+// model-compatibility note. A ComfyUI row has no such reader, so it captures in place
+// rather than re-rendering the whole style body under the user's cursor.
+function referenceSelect(index, selected, structural = false) {
+  const field = structural ? ' data-ig-field="reference_sources"' : "";
+  return `<select data-ig-ref-source="${index}"${field} data-wf-action="image_gen:styleChange" data-wf-on="change">${optionList(
+    [["", "Off — send prompts only"], ...REFERENCE_SOURCES],
+    selected || "",
+  )}</select>`;
+}
+
+function comfyReferenceFields(style) {
+  const slots = graphReferenceSlots(draft.graphs, style.workflow);
+  if (!slots.length) return "";
+  const sources = styleSources(style);
+  const rows = slots
+    .map(
+      (entry, i) =>
+        `<label>${esc(entry.label || `${entry.slot?.[0]} — ${entry.slot?.[1]}`)}${referenceSelect(i, sources[i])}</label>`,
+    )
+    .join("");
+  return `<div class="ig-heading ig-reference-heading">Reference images</div>
+    <div class="image-gen-note">This workflow loads ${slots.length === 1 ? "an image" : `${slots.length} images`}. Point each one at what Orb should feed it, or leave it off to keep the file the workflow was exported with.</div>
+    <div class="ig-grid">${rows}</div>`;
+}
+
 function backendFields(style, connection) {
   if (connection && connection.source === "cloud") return cloudStyleFields(style, connection);
   return `<div class="ig-grid">
       <label>Checkpoint${checkpointField(style.checkpoint || "")}</label>
       <label>Workflow${workflowField(style.workflow || "")}</label>
       ${graphTakesSize(style.workflow) ? resolutionField(style) : ""}
-    </div>`;
+    </div>
+    ${comfyReferenceFields(style)}`;
 }
 
 function cloudStyleFields(style, connection) {
   const preset = connection.preset;
+  const [source] = styleSources(style);
   const quality = preset?.supports_quality
     ? `<label>Quality<select ${styleField("quality")}>${optionList(CLOUD_QUALITIES, style.quality || "")}</select></label>`
     : "";
+  // One slot, so one select at position 0 — the same control a single-`LoadImage`
+  // workflow gets, which is the whole point of the sources living on the style.
   const references =
-    !preset || preset.supports_references
-      ? `<label>Reference images<select ${styleField("reference_source")}>${optionList(
-          [["", "Off — send prompts only"], ...REFERENCE_SOURCES],
-          style.reference_source || "",
-        )}</select></label>`
-      : "";
+    !preset || preset.supports_references ? `<label>Reference images${referenceSelect(0, source, true)}</label>` : "";
   const referenceModelNote =
-    preset && style.reference_source && !modelTakesReferences(preset, style.model)
+    preset && source && !modelTakesReferences(preset, style.model)
       ? `<div class="image-gen-note ig-unready">${esc(
           style.model || preset?.default_model || "This model",
         )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`
@@ -334,6 +364,17 @@ function capturedSize(row, style) {
   return { width: Number(width) || storedW, height: Number(height) || storedH };
 }
 
+function capturedSources(row, style) {
+  // A row rendering no reference control at all — a workflow with no image inputs, a
+  // provider that takes none — keeps what is stored rather than blanking it, the same
+  // way `stored()` keeps the other half's fields across a relink.
+  const selects = [...row.querySelectorAll("[data-ig-ref-source]")];
+  if (!selects.length) return styleSources(style);
+  const sources = selects.map((el) => el.value);
+  while (sources.length && !sources.at(-1)) sources.pop();
+  return sources;
+}
+
 function captureStyles() {
   draft.styles = draft.styles.map((s, i) => {
     const row = document.querySelector(`[data-style-index="${i}"]`);
@@ -352,7 +393,7 @@ function captureStyles() {
       workflow: stored("workflow"),
       model: stored("model"),
       quality: stored("quality"),
-      reference_source: stored("reference_source"),
+      reference_sources: capturedSources(row, s),
       ...capturedSize(row, s),
     };
   });
@@ -381,7 +422,7 @@ function addStyle() {
     width: previous.width || DEFAULT_EDGE,
     height: previous.height || DEFAULT_EDGE,
     quality: previous.quality || "",
-    reference_source: previous.reference_source || "",
+    reference_sources: [...styleSources(previous)],
   });
   renderStyles(id);
 }
@@ -396,7 +437,7 @@ function removeStyle(index) {
   renderStyles();
 }
 
-const STRUCTURAL_STYLE_FIELDS = ["model", "reference_source", "workflow"];
+const STRUCTURAL_STYLE_FIELDS = ["model", "reference_sources", "workflow"];
 
 function refreshStyleSummary(row) {
   const style = draft.styles[Number(row?.dataset.styleIndex)];
@@ -857,19 +898,18 @@ function dimensionRows(items) {
     .join("");
 }
 
-function referenceRows(items) {
-  if (!items.length) return "";
-  const options = optionList([["", "Not used"], ...REFERENCE_SOURCES], "");
-  const rows = items
-    .slice(0, MAX_REFERENCE_SLOTS)
-    .map(
-      (item, i) =>
-        `<label>${esc(item.label)}<select data-ig-ref="${i}" data-ig-ref-slot="${escAttr(item.value)}">${options}</select></label>`,
-    )
-    .join("");
+function referenceRows() {
+  // No source picker here: which inputs load an image is a fact about the graph and is
+  // all that gets stored, while where each draws from is a style's answer and is asked
+  // there. Listing them still matters — it is the confirmation that the importer saw
+  // the widget, which no later screen can prove once the file is gone. Listed off the
+  // same call that stores them, so the confirmation cannot name a slot that is dropped.
+  const slots = declaredReferenceSlots();
+  if (!slots.length) return "";
+  const one = slots.length === 1;
   return `<div class="ig-heading ig-reference-heading">Reference images</div>
-    <div class="image-gen-note">This workflow loads images. Point each one at what Orb should feed it, or leave it unused to keep the file the workflow was exported with.</div>
-    <div class="ig-grid">${rows}</div>`;
+    <div class="image-gen-note">This workflow loads ${one ? "an image" : `${slots.length} images`}. Choose what Orb feeds ${one ? "it" : "each of them"} per style, under <strong>Styles</strong> above — including leaving ${one ? "it" : "them"} as the ${one ? "file" : "files"} this workflow was exported with.</div>
+    <ul class="ig-slot-list">${slots.map((item) => `<li>${esc(item.label)}</li>`).join("")}</ul>`;
 }
 
 async function importGraphFile(input) {
@@ -898,7 +938,7 @@ async function importGraphFile(input) {
         <label>Model<select id="ig-slot-model">${candidateOptions(candidates.checkpoint, model, "None — keep the workflow's own model")}</select></label>
         ${dimensionRows(candidates.dimension)}
       </div>
-      ${referenceRows(candidates.image)}
+      ${referenceRows()}
       <button class="btn btn-sm" data-wf-action="image_gen:graphAdd">Confirm slots and add workflow</button>
     </div>`;
   } catch (e) {
@@ -907,15 +947,13 @@ async function importGraphFile(input) {
   }
 }
 
-function readReferenceRows() {
-  const references = [];
-  for (const el of document.querySelectorAll("[data-ig-ref]")) {
-    const slot = splitCandidate(el.dataset.igRefSlot);
-    if (!el.value || !slot) continue;
-    const item = pendingGraph?.candidates?.image?.[Number(el.dataset.igRef)];
-    references.push({ slot, source: el.value, label: item?.label || `${slot[0]} — ${slot[1]}` });
+function declaredReferenceSlots() {
+  const declared = [];
+  for (const item of (pendingGraph?.candidates?.image || []).slice(0, MAX_REFERENCE_SLOTS)) {
+    const slot = splitCandidate(item.value);
+    if (slot) declared.push({ slot, label: item.label || `${slot[0]} — ${slot[1]}` });
   }
-  return references;
+  return declared;
 }
 
 function addPendingGraph() {
@@ -938,7 +976,7 @@ function addPendingGraph() {
     slots.width = width;
     slots.height = height;
   }
-  const references = readReferenceRows();
+  const references = declaredReferenceSlots();
   if (references.length) slots.references = references;
   draft.graphs.push({ id, label, graph: pendingGraph.graph, slots });
   const list = document.getElementById("ig-graph-list");

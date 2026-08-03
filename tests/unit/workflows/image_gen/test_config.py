@@ -177,21 +177,38 @@ def _references(*entries: dict) -> list:
     return _stored(_user_graph(slots={**_BASE_SLOTS, "references": list(entries)}))["slots"].get("references", [])
 
 
-def test_reference_slots_survive_normalization_and_unstorable_ones_are_dropped():
+def test_a_graph_stores_which_inputs_load_an_image_and_never_where_from():
+    """The split this whole feature turns on. Which node inputs load an image is
+    structural -- discovered at import against `/object_info`, unchangeable without
+    re-importing -- so the graph keeps it. Where each one draws from is a *style's*
+    answer, so no `source` survives here; two styles on one workflow can differ and
+    either can switch a slot off."""
     stored = _references(
         {"slot": ["72", "image"], "source": "previous_or_character", "label": "Load Image (#72)"},
-        {"slot": [90, "image"], "source": "character"},
-        {"slot": ["99", "image"], "source": "whatever_the_user_typed"},
+        {"slot": [90, "image"]},
+        {"slot": ["99"]},
     )
-    assert stored[0] == {"slot": ["72", "image"], "source": "previous_or_character", "label": "Load Image (#72)"}
+    assert stored[0] == {"slot": ["72", "image"], "label": "Load Image (#72)"}
     # A numeric node id normalizes to a string, and a missing label gets a usable one.
     assert stored[1]["slot"] == ["90", "image"]
     assert stored[1]["label"]
-    # An unknown source is not a slot Orb can fill, so it is not stored as one.
+    # A malformed slot names no widget to patch, so it is not stored as one.
     assert [r["slot"] for r in stored] == [["72", "image"], ["90", "image"]]
 
-    entries = [{"slot": [str(i), "image"], "source": "character"} for i in range(MAX_REFERENCE_SLOTS + 3)]
+    entries = [{"slot": [str(i), "image"]} for i in range(MAX_REFERENCE_SLOTS + 3)]
     assert len(_references(*entries)) == MAX_REFERENCE_SLOTS
+
+
+def test_one_entry_per_widget_so_the_style_answers_a_stable_position():
+    """Two rows on one slot would both resolve and both be recorded, but only the
+    second survives patching -- and, now that the style answers positionally, the
+    duplicate would silently consume the answer meant for the next slot."""
+    stored = _references(
+        {"slot": ["72", "image"], "label": "first"},
+        {"slot": ["72", "image"], "label": "again"},
+        {"slot": ["73", "image"], "label": "second"},
+    )
+    assert [r["label"] for r in stored] == ["first", "second"]
 
 
 # ── connections ──────────────────────────────────────────────────────────────
@@ -329,10 +346,16 @@ def test_a_styles_render_settings_are_bounded_and_default_to_off():
     # provider with a different one needs no rewrite here.
     assert _style()["model"] == ""
     assert _style(model="black-forest-labs/FLUX.1-kontext-pro")["model"] == "black-forest-labs/FLUX.1-kontext-pro"
-    # Sending conversation images to a third party is opt-in.
-    assert _style()["reference_source"] == ""
-    assert _style(reference_source="previous")["reference_source"] == "previous"
-    assert _style(reference_source="whatever")["reference_source"] == ""
+    # Sending conversation images anywhere is opt-in, per slot.
+    assert _style()["reference_sources"] == []
+    assert _style(reference_sources=["previous"])["reference_sources"] == ["previous"]
+    assert _style(reference_sources=["whatever"])["reference_sources"] == []
+    assert _style(reference_sources="previous")["reference_sources"] == []
+    # A blank between two answers is a real value -- *that* slot is off -- so only
+    # trailing ones are trimmed, or every slot after it would shift up one.
+    assert _style(reference_sources=["", "character", ""])["reference_sources"] == ["", "character"]
+    over = _style(reference_sources=["character"] * (MAX_REFERENCE_SLOTS + 3))["reference_sources"]
+    assert len(over) == MAX_REFERENCE_SLOTS
 
 
 def test_both_backend_halves_are_kept_whichever_connection_is_linked():
@@ -379,7 +402,7 @@ def test_render_settings_hoist_from_the_connection_onto_each_style_that_links_it
     for sid in ("realistic", "anime"):
         assert styles[sid]["model"] == "black-forest-labs/FLUX.1-schnell"
         assert (styles[sid]["width"], styles[sid]["height"]) == (1024, 1536)
-        assert (styles[sid]["quality"], styles[sid]["reference_source"]) == ("high", "previous")
+        assert (styles[sid]["quality"], styles[sid]["reference_sources"]) == ("high", ["previous"])
     # Membership, not truthiness: "" is a real answer for quality ("provider
     # default"), so a style declaring one must not read as "absent, inherit".
     assert (styles["square"]["width"], styles["square"]["height"], styles["square"]["quality"]) == (1024, 1024, "")
@@ -388,8 +411,84 @@ def test_render_settings_hoist_from_the_connection_onto_each_style_that_links_it
     assert (styles["local"]["width"], styles["local"]["height"]) == (1536, 1024)
     # And the entry keeps only what a connection is.
     assert config["cloud"]["providers"]["togetherai"] == {"api_key": "k", "base_url": ""}
-    # A fixed point: re-normalizing the hoisted config changes nothing.
-    assert normalize_config(config)["styles"] == config["styles"]
+
+
+def _migrated_config(*, style: dict, references: list[dict], cloud: dict | None = None) -> dict:
+    graph = _user_graph("user_a", slots={**_BASE_SLOTS, "references": references})
+    return normalize_config(
+        {
+            "default_style": "s",
+            "styles": [{"id": "s", **style}],
+            "external_comfy": {"user_graphs": [graph]},
+            "cloud": cloud or {},
+        }
+    )
+
+
+def _migrated(**kwargs) -> dict:
+    return _migrated_config(**kwargs)["styles"][0]
+
+
+def test_a_graphs_own_per_slot_sources_hoist_onto_every_style_that_names_it():
+    """The other half of the migration. Those sources lived on the graph, where they
+    were fixed at import and shared by every style using it; they land on the style in
+    the same order the graph declares its slots, so an upgraded install renders exactly
+    as it did and can then diverge per style."""
+    style = _migrated(
+        style={"connection": "comfy", "workflow": "user_a"},
+        references=[
+            {"slot": ["11", "image"], "source": "previous", "label": "Load Image (#11)"},
+            {"slot": ["31", "image"], "source": "character", "label": "IPAdapter (#31)"},
+        ],
+    )
+    assert style["reference_sources"] == ["previous", "character"]
+
+
+def test_a_comfyui_style_does_not_inherit_the_cloud_blocks_reference_setting():
+    """`reference_source` reached *every* style through the raw cloud block, whatever
+    it was linked to, because nothing but the cloud adapter ever read it. Honouring it
+    for a graph-bound style would silently start uploading conversation images to a
+    ComfyUI server on the strength of a setting made for a commercial API."""
+    cloud = {"provider": "xai", "reference_source": "character", "providers": {"xai": {"api_key": "k"}}}
+    on_comfy = _migrated(style={"connection": "comfy", "workflow": "user_a"}, references=[], cloud=cloud)
+    assert on_comfy["reference_sources"] == []
+    # The style it *was* made for still inherits it.
+    on_cloud = _migrated(style={"connection": "xai"}, references=[], cloud=cloud)
+    assert on_cloud["reference_sources"] == ["character"]
+
+
+def test_the_style_wins_over_both_legacy_shapes_and_the_migration_is_idempotent():
+    style = {"connection": "comfy", "workflow": "user_a", "reference_sources": ["character"]}
+    references = [{"slot": ["11", "image"], "source": "previous", "label": "Load Image (#11)"}]
+    assert _migrated(style=style, references=references)["reference_sources"] == ["character"]
+
+    # Membership, not truthiness: a style that has switched every slot off must not
+    # read as "absent, inherit" on the next read and turn them back on.
+    off = _migrated(style={**style, "reference_sources": []}, references=references)
+    assert off["reference_sources"] == []
+
+    # A fixed point: the hoist happens on the first read and the first write persists
+    # it, so re-normalizing what came out must change nothing. Without this the graph's
+    # legacy source would keep out-ranking a style that had since switched the slot off.
+    hoisted = _migrated_config(style={"connection": "comfy", "workflow": "user_a"}, references=references)
+    assert normalize_config(hoisted) == hoisted
+
+
+def test_the_legacy_sources_come_from_the_graph_row_that_survived_parsing():
+    """`_unique_by_id` keeps the first candidate that *parses*, so the sources have to
+    be recorded on that same pass. Collected by a second walk of the raw list, a
+    discarded row claiming the id would answer for the graph the style renders on."""
+    references = [{"slot": ["11", "image"], "source": "previous", "label": "Load Image (#11)"}]
+    kept = _user_graph("user_a", slots={**_BASE_SLOTS, "references": references})
+    config = normalize_config(
+        {
+            "default_style": "s",
+            "styles": [{"id": "s", "connection": "comfy", "workflow": "user_a"}],
+            # Same id, unparseable, and first -- so it is the one a raw walk would find.
+            "external_comfy": {"user_graphs": [{**kept, "graph": "not a graph", "slots": dict(_BASE_SLOTS)}, kept]},
+        }
+    )
+    assert config["styles"][0]["reference_sources"] == ["previous"]
 
 
 def test_an_unlinked_style_inherits_from_the_connection_it_actually_renders_on():

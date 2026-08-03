@@ -178,6 +178,27 @@ async def test_object_info_is_cached_for_probes_and_refetched_on_an_explicit_tes
     assert calls["object_info"] == 2
 
 
+@pytest.mark.asyncio
+async def test_the_style_that_fails_validation_is_named(monkeypatch):
+    """Test connection walks every style with a workflow, and now that the sources are
+    the style's, two styles on one workflow can genuinely disagree about whether it
+    passes. A config-wide failure naming only a node number leaves the user nowhere
+    to go."""
+    _install_client(monkeypatch, _handler(httpx.Response(200, json=[])))
+    # The graph's `LoadImage` pins a filename from the exporting machine. The style
+    # that overwrites it is exempt; the one rendering from the prompt alone submits it.
+    config = _config(
+        user_graphs=[EDIT_USER_GRAPH],
+        styles=[
+            {"id": "edit", "label": "Edit", "workflow": "user_edit", "reference_sources": ["character"]},
+            {"id": "plain", "label": "Prompt only", "workflow": "user_edit", "reference_sources": []},
+        ],
+    )
+
+    with pytest.raises(ImageGenerationError, match=r"Style 'Prompt only': Node 0 needs image"):
+        await ExternalComfyAdapter(config).validate_connection()
+
+
 # ── slot typing for the importer ─────────────────────────────────────────────
 
 
@@ -252,6 +273,28 @@ def test_whether_a_resolution_applies_is_a_per_graph_answer():
     # Disclosed rather than left to be noticed: the picker still shows a resolution
     # this workflow will not apply, mirroring the missing-negative-prompt note.
     assert any("decides its own output size" in note for note in own.notes)
+
+
+def test_a_rehydrate_fills_the_slots_the_stored_render_filled_not_the_style_of_today():
+    """The sources live on the style now, where they can be edited after the fact, so
+    replaying them off the style would quietly reproduce a *different* picture -- the
+    one failure a rehydrate is not allowed to have. The record names the node input
+    each reference filled, and that re-keys onto the graph's declared list."""
+    config = _config(user_graphs=[EDIT_USER_GRAPH], styles=[{"id": "s", "label": "S", "workflow": "user_edit"}])
+    # The migration turned the graph's own pin into the style's answer; switch it off,
+    # as someone editing the style since the render would have.
+    off = normalize_config({**config, "styles": [{**config["styles"][0], "reference_sources": []}]})
+    adapter = _bound(off, "s")
+    assert adapter.resolve_target(None).reference_slots == ()
+
+    replay = {"references": [{"slot": ["0", "image"], "source": "character", "origin": "character:card-1"}]}
+    (slot,) = adapter.resolve_target(replay).reference_slots
+    assert (slot["slot"], slot["source"]) == (["0", "image"], "character")
+
+    # A record landing on no declared slot is about some other graph, so it is no
+    # answer at all and the style stays the better guess.
+    stale = {"references": [{"slot": ["99", "image"], "source": "character", "origin": "character:card-1"}]}
+    assert adapter.resolve_target(stale).reference_slots == ()
 
 
 def test_a_default_resolution_on_an_unmapped_graph_says_nothing():
