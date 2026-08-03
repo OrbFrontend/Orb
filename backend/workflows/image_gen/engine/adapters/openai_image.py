@@ -139,7 +139,7 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
         chosen = model or self._model()
         if not chosen:
             # "a model for X", never "a X model": the labels start with every letter
-            # ("a OpenAI", "a ElectronHub", "a xAI (Grok)"), and an article that reads
+            # ("a OpenAI", "a AI/ML API", "a xAI (Grok)"), and an article that reads
             # correctly for all of them is a per-label table for one word of grammar.
             return {"ready": False, "reason": "no_model", "detail": f"Choose a model for {preset.label}"}
         return {"ready": True, "reason": "", "detail": f"{preset.label} — {chosen}"}
@@ -228,9 +228,9 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
 
     def _require_ready(self, model: str) -> ProviderPreset:
         """Enough to render. Reached before a request is built, so a provider with no
-        `default_model` -- Chutes, AI/ML API, ElectronHub and `custom` all ship none --
-        says "choose a model" instead of posting `model: ""` and relaying whatever the
-        provider makes of it."""
+        `default_model` -- AI/ML API and `custom` both ship none -- says "choose a
+        model" instead of posting `model: ""` and relaying whatever the provider makes
+        of it."""
         state = self.readiness(model)
         return self._pass(state, blocked=not state["ready"])
 

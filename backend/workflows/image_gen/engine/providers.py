@@ -14,6 +14,9 @@ and marked ``verified=False`` -- and every verified row contradicted its own cat
 or docs on a field that fails silently, which is what the flag is warning about.
 Each row carries the measurement that corrected it.
 
+**A provider with no JSON reference field is not a row here.** Chutes, Z.AI and
+ElectronHub were, and were dropped on that test; the comment above `aimlapi` says why.
+
 OpenAI is the row that shows an unverified one is not merely imprecise but can be
 *inert*: declared from its documentation it sent `response_format`, which that API
 rejects outright, so every render 400'd before it began.
@@ -373,42 +376,34 @@ PRESETS: tuple[ProviderPreset, ...] = (
         ),
     ),
     # ── declared from vendor docs, unverified ────────────────────────────────
-    ProviderPreset(
-        id="chutes",
-        label="Chutes",
-        base_url="https://llm.chutes.ai/v1",
-        dimension_mode="size",
-        sizes=_OPENAI_SIZES,
-        docs_url="https://chutes.ai/",
-        gaps=_GAPS_NO_CONTROLS,
-    ),
-    ProviderPreset(
-        id="zai",
-        label="Z.AI",
-        base_url="https://api.z.ai/api/paas/v4",
-        dimension_mode="size",
-        sizes=_OPENAI_SIZES,
-        default_model="cogview-4",
-        docs_url="https://docs.z.ai/",
-        gaps=_GAPS_NO_CONTROLS,
-    ),
+    # Dropped for having no JSON reference field, recorded so nobody re-adds them from
+    # the same docs: **Chutes** has no OpenAI-shaped images endpoint at all -- `/v1` is
+    # chat, `/images/` is *container* images, and its image models answer per-chute at
+    # `{user}-{slug}.chutes.ai/generate`; **Z.AI** documents `model`, `prompt`,
+    # `quality`, `size`, `user_id` and no edits path; **ElectronHub** has
+    # `/images/edits`, but multipart with a PNG file part, over a text-to-image-only
+    # generations body. Each is a row again the day it ships a JSON reference field.
     ProviderPreset(
         id="aimlapi",
         label="AI/ML API",
         base_url="https://api.aimlapi.com/v1",
         dimension_mode="size",
         sizes=_OPENAI_SIZES,
-        docs_url="https://docs.aimlapi.com/",
-        gaps=_GAPS_NO_CONTROLS,
-    ),
-    ProviderPreset(
-        id="electronhub",
-        label="ElectronHub",
-        base_url="https://api.electronhub.ai/v1",
-        dimension_mode="size",
-        sizes=_OPENAI_SIZES,
-        docs_url="https://docs.electronhub.ai/",
-        gaps=_GAPS_NO_CONTROLS,
+        # No `edits_path`: `/images/edits` here is multipart taking a local file, so the
+        # reference rides the generations body as on Together. The field is documented
+        # as "a list of URLs or local Base64 encoded images" -- unverified like the rest
+        # of the row, so nobody has watched a `data:` URI come back in an image.
+        supports_references=True,
+        reference_field="image_url",
+        reference_encoding="string",
+        # `reference_models` empty for NanoGPT's reason: a broker whose image-to-image
+        # models name themselves (`flux/kontext-pro/image-to-image`, `bytedance/uso`),
+        # so the id is in front of the user at the moment they choose it.
+        docs_url="https://docs.aimlapi.com/api-references/image-models",
+        gaps=(
+            *_GAPS_NO_CONTROLS,
+            "accepts reference images on its image-to-image models only; the rest bill for the render and ignore them",
+        ),
     ),
     ProviderPreset(
         id="custom",

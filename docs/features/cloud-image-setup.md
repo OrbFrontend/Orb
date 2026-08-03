@@ -74,10 +74,7 @@ All of these speak the same OpenAI-shaped `POST /v1/images/generations` contract
 | **OpenRouter** | Yes | Probed against the live API. One broker key across Google and OpenAI image models. No seed, no negative prompt, and no reference images on any model. Default model `google/gemini-2.5-flash-image`. |
 | **Together AI** | Yes | Probed against the live API. Accepts a seed and arbitrary resolutions (any multiple of 16 up to 1792px). Reference images on its Kontext models only. Default model `black-forest-labs/FLUX.1-schnell`. |
 | **NanoGPT** | Yes | Probed against the live API. 202 image models, including uncensored ones. Accepts a seed, a negative prompt, and any resolution. Reference images on many models but not all. Default model `cyberrealistic-xl`. |
-| **Chutes** | No | |
-| **Z.AI** | No | |
-| **AI/ML API** | No | |
-| **ElectronHub** | No | |
+| **AI/ML API** | No | Declared from its documentation. Reference images on its image-to-image models only. Ships no default model, so pick one before rendering. |
 | **Custom (OpenAI-compatible)** | No | Enter your own **API base URL**. Use this for a self-hosted or proxied endpoint. |
 
 "Verified" means someone has probed that provider's live API and corrected Orb's
@@ -85,6 +82,17 @@ declared settings against what it actually accepts. An unverified row is Orb's
 reading of that provider's published documentation; the settings panel says so
 under the provider picker. If one is wrong, the fix is a single row in
 `backend/workflows/image_gen/engine/providers.py`.
+
+### Providers Orb dropped
+
+Chutes, Z.AI and ElectronHub were on this list. None of them documents a way to put
+a reference image on a JSON request, and a provider that cannot take one renders a
+different face every time: Chutes has no OpenAI-shaped images endpoint at all, Z.AI's
+generations body takes a prompt and a size and it has no edit path, and ElectronHub's
+edit endpoint wants a PNG file upload rather than JSON.
+
+A key you already saved is not deleted. The connection stays and reports an unknown
+provider until you point the style at one that is still here.
 
 ### A custom base URL
 
@@ -298,6 +306,15 @@ One thing the resolution picker cannot control: a Kontext render takes its size
 from the reference image, so a 512×512 reference returns a square whatever the
 picker says. The image notes this, and **Render details** records the size that
 actually came back.
+
+### On AI/ML API, the model names itself
+
+Its image-to-image models say so in the id — `flux/kontext-pro/image-to-image`,
+`bytedance/uso`, `reve/remix`. The plain text-to-image ones take no reference and bill
+for the render anyway, so read the id before turning references on.
+
+This row is declared from AI/ML API's documentation and has not been probed against
+the live API, so check that your first render actually used the reference.
 
 ### On NanoGPT, check the model yourself
 
