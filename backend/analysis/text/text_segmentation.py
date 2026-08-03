@@ -2,11 +2,9 @@
 text_segmentation.py — Shared paragraph, sentence, and dialogue segmentation
 used by all detectors.
 
-Every detector used to carry its own copy of these helpers, and they had silently
-drifted apart: some treated "…" as a sentence terminator and some didn't; some
-recognized single curly quotes and some didn't; one was missing the
-trailing-marker tolerance the others had. This module is the single source of
-truth so all detectors split text the same way.
+This module is the single source of truth so all detectors split text the same
+way: one ruling on "…" as a sentence terminator, on single curly quotes, and on
+how much trailing punctuation a marker tolerates.
 
 Two splitting functions serve two families of consumers:
 

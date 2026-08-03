@@ -105,6 +105,60 @@ def apply_reasoning_effort(body: dict, effort: str, param: str = "", value: str 
     body["reasoning"] = {**reasoning, "effort": effort}
 
 
+# RFC 7230 token: the only characters a header name may contain. Must stay
+# identical to the API-layer check in schemas.py, so a row saved through the API
+# is never silently dropped here.
+_HEADER_NAME_RE = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
+
+
+def parse_extra_headers(text: str) -> dict[str, str]:
+    """Parse ``Name: value`` lines into a header dict.
+
+    Blank lines and ``#`` comments are skipped; a malformed line is dropped with
+    a warning rather than raised on. The API layer rejects malformed input at
+    save time, so this tolerance only ever covers a row that predates that
+    validation or was edited in the DB by hand -- such a row degrades to "send
+    fewer headers" instead of killing every turn.
+    """
+    out: dict[str, str] = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, sep, value = line.partition(":")
+        name, value = name.strip(), value.strip()
+        if not sep:
+            logger.warning("Ignoring extra header line, no colon: %r", line)
+            continue
+        if not _HEADER_NAME_RE.fullmatch(name):
+            logger.warning("Ignoring extra header line, name is not an HTTP token: %r", line)
+            continue
+        if not value.isascii() or any(ord(c) < 0x20 and c != "\t" for c in value):
+            logger.warning("Ignoring extra header line, value is not printable ASCII: %r", line)
+            continue
+        out[name] = value
+    return out
+
+
+def parse_extra_body(text: str) -> dict:
+    """Parse a JSON object of extra body fields; ``{}`` when absent or unusable.
+
+    Permissive for the same reason as :func:`parse_extra_headers`.
+    """
+    text = (text or "").strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        logger.warning("Ignoring extra body: not valid JSON")
+        return {}
+    if not isinstance(parsed, dict):
+        logger.warning("Ignoring extra body: expected a JSON object, got %s", type(parsed).__name__)
+        return {}
+    return parsed
+
+
 def strictify_schema(schema: dict) -> dict:
     """Copy *schema* into OpenAI strict-mode shape, recursively.
 
@@ -178,6 +232,8 @@ class LLMClient:
         reasoning_effort: str = "",
         reasoning_effort_param: str = "",
         reasoning_effort_value: str = "",
+        extra_headers: str = "",
+        extra_body: str = "",
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -194,6 +250,9 @@ class LLMClient:
         # Empty string (the settings default = "no proxy") normalizes to None so
         # httpx connects directly; httpx rejects "" as a proxy URL.
         self.proxy = proxy or None
+        # Parsed once here rather than on every request.
+        self.extra_headers = parse_extra_headers(extra_headers)
+        self.extra_body = parse_extra_body(extra_body)
         # Shared across the turn's clients when passed in; otherwise a private
         # token so a standalone client (e.g. a workflow hook) is still abortable.
         self.abort_token = abort_token or AbortToken()
@@ -209,9 +268,17 @@ class LLMClient:
         return self.abort_token.is_aborted
 
     def _headers(self) -> dict:
+        base: dict = {}
         if self.api_key:
-            return {"Authorization": f"Bearer {self.api_key}"}
-        return {}
+            base["Authorization"] = f"Bearer {self.api_key}"
+        # HTTP header names are case-insensitive but dict keys are not, so drop a
+        # base header the configured set respells: a lowercase 'authorization'
+        # override -- the form most provider docs use -- would otherwise send the
+        # Bearer key alongside it. These ride every transport, unlike extra_body.
+        configured = {k.lower() for k in self.extra_headers}
+        headers = {k: v for k, v in base.items() if k.lower() not in configured}
+        headers.update(self.extra_headers)
+        return headers
 
     def _url(self) -> str:
         return f"{self.base_url}/chat/completions"
@@ -242,6 +309,11 @@ class LLMClient:
         them; chat mode then forces via ``response_format`` and omits ``tools``
         from the body. For a forced call this is decoding-only on both
         transports — prompt bytes and KV cache untouched.
+
+        Endpoints whose profile sets ``structured_tool_calls`` drop the pair on
+        every call, flag or no flag: forced calls ride ``response_format``, and
+        ``tools``/``tool_choice`` never enter the body, so that endpoint's
+        server-rendered prompts carry no schemas at all (see ``_complete_chat``).
 
         Yields:
             ``{"type": "reasoning", "delta": str}`` — zero or more reasoning chunks
@@ -339,23 +411,18 @@ class LLMClient:
         # schema, which guarantees byte-exact argument keys where free-decoded
         # tool calls do not (e.g. GLM-5.2 snake-cases hyphenated keys). Two
         # triggers:
-        #   * profile opt-in -- ``tools`` stays in the body so the
-        #     server-rendered prompt (and with it the KV cache) is unchanged;
-        #     only ``tool_choice`` is replaced.
+        #   * profile opt-in -- the endpoint honors strict json_schema for the
+        #     models it fronts (``supports_structured_tool_calls``).
         #   * ``tools_in_prompt=False`` -- the caller's conversation has no
         #     tools in its cached prefix (doc-mode auditor), so the schema must
-        #     not touch the prompt at all: ``tools`` is dropped from the body
-        #     and the forced call rides response_format alone. (Non-forced
-        #     tool_choice with the flag drops both -- a choice about absent
-        #     tools is meaningless.)
+        #     not touch the prompt at all.
         # The caller-supplied ``json_schema`` (per-fragment director steps)
         # narrows the schema exactly as it narrows the text-mode grammar.
         tools_in_prompt = params.pop("tools_in_prompt", True)
         schema_override = params.pop("json_schema", None)
+        structured = endpoint_profiles.supports_structured_tool_calls(self.base_url, model)
         forced_name: str | None = None
-        if isinstance(tool_choice, dict) and (
-            not tools_in_prompt or endpoint_profiles.supports_structured_tool_calls(self.base_url, model)
-        ):
+        if isinstance(tool_choice, dict) and (not tools_in_prompt or structured):
             name = (tool_choice.get("function") or {}).get("name")
             schema = schema_override or text_completion.forced_schema(tools, tool_choice)
             if name and schema:
@@ -365,7 +432,29 @@ class LLMClient:
                     "json_schema": {"name": name, "strict": True, "schema": strictify_schema(schema)},
                 }
                 tool_choice = None
-        if not tools_in_prompt:
+        # Both triggers withhold the tool blob -- and ``tool_choice`` with it --
+        # from the body; on a structured-output endpoint that holds for EVERY
+        # pass, not just the forced ones. Two reasons:
+        #
+        # Correctness -- a model that can still see ``tools`` may answer with a
+        # native tool call instead, and that path bypasses the schema entirely.
+        # DeepSeek rewrites the argument keys when it does (0/39 came back
+        # intact under ``tools`` + strict schema, 22/22 without ``tools``), so
+        # the caller's lookup by the name it sent silently finds nothing.
+        #
+        # Caching -- the server renders ``tools`` into the prompt, so dropping
+        # it only on forced passes would leave the writer with a different
+        # prefix from the director and editor and thrash the shared KV base
+        # they sit on (Invariant 3, docs/architecture/kv-cache.md). Dropping it
+        # for every pass keeps one stable prefix, and a smaller one. For
+        # ``tools_in_prompt=False`` callers the same drop is simply the flag's
+        # contract: their prefix never had schemas to begin with.
+        #
+        # ``tools`` still arrives here: it is the source of the response_format
+        # schema built above. If that derivation fails the call goes out with
+        # neither tools nor tool_choice and degrades to the parse_tool_calls
+        # recovery chain, which is the same posture as any unforced pass.
+        if not tools_in_prompt or structured:
             tools = None
             tool_choice = None
 
@@ -383,6 +472,13 @@ class LLMClient:
         body.setdefault("stream_options", {"include_usage": True})
 
         apply_reasoning_effort(body, self.reasoning_effort, self.reasoning_effort_param, self.reasoning_effort_value)
+
+        # Same ordering as apply_reasoning_effort above, for the reason its
+        # docstring gives. Chat-only by design: the text transport builds its
+        # params from an allowlist.
+        if self.extra_body:
+            body.update(self.extra_body)
+            logger.info("LLM extra body fields: %s", sorted(self.extra_body))
 
         # Provider-specific body translation (profiles + session-learned
         # workarounds) lives entirely in endpoint_profiles; the client just
@@ -757,7 +853,9 @@ class LLMClient:
             bool(grammar),
         )
 
-        splitter = text_completion.ThinkSplitter(tags, already_open=pre_opened)
+        # trim_lead off on a prefilled call: the stream continues an open assistant
+        # turn, so a leading space is the word separator, not template padding.
+        splitter = text_completion.ThinkSplitter(tags, already_open=pre_opened, trim_lead=not prefill)
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         forced_buf: list[str] = []
@@ -908,6 +1006,8 @@ def client_from_settings(settings: Mapping[str, Any], *, abort_token: AbortToken
         reasoning_effort=settings.get("reasoning_effort", ""),
         reasoning_effort_param=settings.get("reasoning_effort_param", ""),
         reasoning_effort_value=settings.get("reasoning_effort_value", ""),
+        extra_headers=settings.get("extra_headers", ""),
+        extra_body=settings.get("extra_body", ""),
     )
 
 
@@ -926,6 +1026,8 @@ def agent_client_from_settings(settings: Mapping[str, Any], *, abort_token: Abor
         reasoning_effort=settings.get("agent_reasoning_effort", settings.get("reasoning_effort", "")),
         reasoning_effort_param=settings.get("agent_reasoning_effort_param", settings.get("reasoning_effort_param", "")),
         reasoning_effort_value=settings.get("agent_reasoning_effort_value", settings.get("reasoning_effort_value", "")),
+        extra_headers=settings.get("agent_extra_headers", settings.get("extra_headers", "")),
+        extra_body=settings.get("agent_extra_body", settings.get("extra_body", "")),
     )
 
 

@@ -5,7 +5,7 @@ A lorebook entry activates from any of three sources:
   * ``constant`` — always active; rides the cached system-prompt prefix
     (:func:`compute_constant_lorebook_block`), never the trailing block. Unless
     it also sets ``at_depth``, in which case it rides the per-turn tail instead
-    (:func:`compute_depth_lorebook_block`) — SillyTavern's ``@ Depth``.
+    (:func:`compute_depth_lorebook_block`) — the ``@ Depth`` placement.
   * keyword scan — a keyword appears (substring) within the last ``scan_depth`` messages.
   * director pick — the agentic Director named the entry.
 
@@ -319,8 +319,9 @@ def compute_depth_lorebook_block(
 ) -> str:
     """Depth path: render the ``constant`` + ``at_depth`` entries for the tail.
 
-    SillyTavern's ``position: 4`` (@ Depth): always injected, but into the
-    per-turn tail after the user message rather than the cached prefix. Two
+    The ``@ Depth`` placement (``position: 4`` in a World Info file): always
+    injected, but into the per-turn tail after the user message rather than
+    the cached prefix. Two
     things follow from that placement, and both are the point of it —
     instructions land next to the generation boundary, and inline macros are
     resolved *unseeded*, so ``{{roll}}`` yields fresh dice every turn instead of

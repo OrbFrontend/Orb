@@ -14,7 +14,7 @@ Two ways to bring a file's data into the live DB:
     the references translated. Existing data the preset doesn't mention is left
     alone.
   * **restore** -- roll the live DB back to the file. A *full-coverage* file is
-    swapped in whole (``restore_full``). A *partial* file is restored
+    copied over the live DB whole (``restore_full``). A *partial* file is restored
     domain-scoped (``restore_partial``): the same merge machinery as apply, but
     each covered domain is emptied first, so those domains end up *exactly*
     matching the file (rows added since are dropped) while domains the file
@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import sqlite3
+import time
 
 from ...database import preset_schema as ps
 from ...database.migrations import MIGRATIONS, run_pending
@@ -45,6 +46,11 @@ META_TABLE = "orb_preset_meta"
 # informational (meta stores them sorted); the actual merge order is the
 # schema-derived topological sort in _build_schema_model().
 ALL_DOMAINS: list[str] = sorted(set(ps.DOMAIN_ROOTS.values()))
+
+# How long a full restore waits for the live DB's write lock before giving up.
+# Routes already serialise restores behind maintenance_lock, so the only thing
+# to wait out is an ordinary request's short write transaction.
+RESTORE_LOCK_TIMEOUT = 15.0
 
 
 def _roots_for(domain: str) -> list[str]:
@@ -483,9 +489,9 @@ def _write_meta(conn: sqlite3.Connection, included: list[str], label: str, kind:
         "  keys_stripped INTEGER NOT NULL DEFAULT 0"
         ")"
     )
-    conn.execute(f"DELETE FROM {META_TABLE}")
+    conn.execute(f"DELETE FROM {META_TABLE}")  # nosec B608 — schema-derived identifier, values parameterised
     conn.execute(
-        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) VALUES (1, ?, ?, ?, ?, ?)",
+        f"INSERT INTO {META_TABLE} (id, included_domains, created_at, label, kind, keys_stripped) VALUES (1, ?, ?, ?, ?, ?)",  # nosec B608 — schema-derived identifier, values parameterised
         (json.dumps(sorted(included)), datetime.datetime.now().isoformat(timespec="seconds"), label, kind, int(keys_stripped)),
     )
 
@@ -512,7 +518,7 @@ def read_meta(path: str) -> dict | None:
     conn = sqlite3.connect(path)
     try:
         row = conn.execute(
-            f"SELECT included_domains, created_at, label, kind, keys_stripped FROM {META_TABLE} WHERE id = 1"
+            f"SELECT included_domains, created_at, label, kind, keys_stripped FROM {META_TABLE} WHERE id = 1"  # nosec B608 — schema-derived identifier, values parameterised
         ).fetchone()
     except sqlite3.OperationalError:
         return None
@@ -550,6 +556,63 @@ def _assert_integrity(conn: sqlite3.Connection, what: str) -> None:
 _EXCLUDED_MAY_HAVE_ROWS: frozenset[str] = frozenset({META_TABLE, "schema_migrations"})
 
 
+def _blank_json_leaf(node: object, path: tuple[str, ...]) -> bool:
+    """Blank the leaf `path` names inside `node`. Returns whether anything changed.
+
+    ``"*"`` matches every key at that level, which is what a provider map keyed by
+    provider id needs: ``cloud.providers.<any id>.api_key``. Everything not on a
+    declared path is left byte-identical -- an imported ComfyUI graph's node inputs
+    sit in the same column and must survive untouched.
+    """
+    if not isinstance(node, dict) or not path:
+        return False
+    head, rest = path[0], path[1:]
+    keys = list(node) if head == "*" else ([head] if head in node else [])
+    changed = False
+    for key in keys:
+        if rest:
+            changed = _blank_json_leaf(node[key], rest) or changed
+        elif node[key] != "":
+            node[key] = ""
+            changed = True
+    return changed
+
+
+def _blank_json_paths(conn: sqlite3.Connection, table: str, column: str, paths: tuple[tuple[str, ...], ...]) -> None:
+    """Blank every declared secret path inside one JSON column, row by row.
+
+    Read-walk-write in Python rather than ``json_set``: the wildcard level has no
+    SQL spelling, and only ``settings`` is a singleton -- the three
+    ``workflow_state`` columns hang off non-singleton tables, which is exactly why
+    ``_scrub_configs``'s singleton-only ``SECRET_COLUMNS`` loop never reached the
+    TTS key and let it ship in every ``characters`` export.
+    """
+    if not paths:
+        return
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+        return
+    rows = conn.execute(f"SELECT rowid, {column} FROM {table}").fetchall()  # nosec B608 — schema-derived identifier
+    for rowid, raw in rows:
+        if not isinstance(raw, str) or not raw:
+            continue
+        try:
+            payload = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        changed = False
+        for path in paths:
+            # Not `any(...)`: every declared path must be walked, and a generator
+            # would stop at the first one that matched.
+            changed = _blank_json_leaf(payload, path) or changed
+        if changed:
+            conn.execute(
+                f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # nosec B608 — schema-derived identifier, values parameterised
+                (json.dumps(payload), rowid),
+            )
+
+
 def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     """Strip personal config + secrets when 'configs' is not exported.
 
@@ -562,13 +625,19 @@ def _scrub_configs(conn: sqlite3.Connection, schema: _Schema) -> None:
     -- only that nothing personal remains. Both the set of configs roots and the
     blanked columns are derived/declared, so a new configs table or secret column
     is covered without editing here.
+
+    The JSON pass is not scoped to singletons: a credential inside a free-form
+    ``workflow_state`` rides a character card, so it ships in a ``characters``
+    export that never touches ``settings`` at all.
     """
     for root, domain in ps.DOMAIN_ROOTS.items():
         if domain == "configs" and schema.tables[root].kind != "singleton":
-            conn.execute(f"DELETE FROM {root}")
+            conn.execute(f"DELETE FROM {root}")  # nosec B608 — schema-derived identifier, values parameterised
     for (table, col), blank in ps.SECRET_COLUMNS.items():
         if schema.tables[table].kind == "singleton":
-            conn.execute(f"UPDATE {table} SET {col} = ?", (blank,))
+            conn.execute(f"UPDATE {table} SET {col} = ?", (blank,))  # nosec B608 — schema-derived identifier, values parameterised
+    for (table, col), paths in ps.SECRET_JSON_PATHS.items():
+        _blank_json_paths(conn, table, col, paths)
 
 
 def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
@@ -608,7 +677,7 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                 continue
             if not c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl,)).fetchone():
                 continue
-            if c.execute(f"SELECT 1 FROM {tbl} LIMIT 1").fetchone():
+            if c.execute(f"SELECT 1 FROM {tbl} LIMIT 1").fetchone():  # nosec B608 — schema-derived identifier, values parameterised
                 raise PresetError(
                     f"Excluded table {tbl!r} has rows but is invisible to export and merge; "
                     f"its data would silently never be backed up. Give its root a domain in "
@@ -626,10 +695,15 @@ def build_preset(selected_domains, strip_keys: bool, label: str = "") -> str:
                 continue
             for root in _roots_for(domain):
                 if schema.tables[root].kind != "singleton":
-                    c.execute(f"DELETE FROM {root}")
+                    c.execute(f"DELETE FROM {root}")  # nosec B608 — schema-derived identifier, values parameterised
         if "configs" in selected and strip_keys:
             for table, col in ((t, col) for (t, col) in ps.SECRET_COLUMNS if col == "api_key"):
-                c.execute(f"UPDATE {table} SET {col} = ''")
+                c.execute(f"UPDATE {table} SET {col} = ''")  # nosec B608 — schema-derived identifier, values parameterised
+            # The same rule, one level deeper: "every declared secret whose leaf is
+            # api_key", not "every column literally named api_key". A key inside a
+            # JSON column is the same key.
+            for (table, col), paths in ps.SECRET_JSON_PATHS.items():
+                _blank_json_paths(c, table, col, tuple(p for p in paths if p and p[-1] == "api_key"))
             keys_stripped = True
         _stamp_migrations(c)
         _write_meta(c, sorted(selected), label, kind, keys_stripped)
@@ -665,7 +739,7 @@ def _existing(conn: sqlite3.Connection, cache: dict[str, set], parent: str, to_c
     set is stable once built.
     """
     if parent not in cache:
-        cache[parent] = {r[0] for r in conn.execute(f"SELECT {to_col} FROM main.{parent}")}
+        cache[parent] = {r[0] for r in conn.execute(f"SELECT {to_col} FROM main.{parent}")}  # nosec B608 — schema-derived identifier, values parameterised
     return cache[parent]
 
 
@@ -724,7 +798,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
         # keep their local values (cache bookkeeping, not config from the file).
         pk = t.pk[0]
         keep = set(t.pk) | set(ps.PRESERVED_COLUMNS.get(table, ()))
-        row = conn.execute(f"SELECT {','.join(cols)} FROM preset.{table} WHERE {pk} = 1").fetchone()
+        row = conn.execute(f"SELECT {','.join(cols)} FROM preset.{table} WHERE {pk} = 1").fetchone()  # nosec B608 — schema-derived identifier, values parameterised
         if row is None:
             return
         sets, vals = [], []
@@ -735,14 +809,14 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
                 v, _ = _resolve_fk(v, fks[c], idmaps, conn, cache)
             sets.append(f"{c} = ?")
             vals.append(v)
-        conn.execute(f"UPDATE main.{table} SET {', '.join(sets)} WHERE {pk} = 1", vals)
+        conn.execute(f"UPDATE main.{table} SET {', '.join(sets)} WHERE {pk} = 1", vals)  # nosec B608 — schema-derived identifier, values parameterised
         return
 
     if t.kind == "stable":
         # Identity is portable: upsert by primary key (the child-replace in
         # phase B already cleared any subtree this row owns).
         ph = ",".join("?" * len(cols))
-        for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():
+        for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():  # nosec B608 — schema-derived identifier, values parameterised
             vals = list(row)
             for i, c in enumerate(cols):
                 if c in deferred:
@@ -757,7 +831,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
     ins_cols = [c for c in cols if c != pk]
     ph = ",".join("?" * len(ins_cols))
     idmap: dict[int, int] = {}
-    for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():
+    for row in conn.execute(f"SELECT {','.join(cols)} FROM preset.{table}").fetchall():  # nosec B608 — schema-derived identifier, values parameterised
         rowd = dict(zip(cols, row))
         vals, drop = [], False
         for c in ins_cols:
@@ -771,7 +845,7 @@ def _merge_table(conn, schema, table, idmaps, cache) -> None:
             vals.append(v)
         if drop:
             continue  # an owning parent did not survive the import; drop the orphan
-        new = conn.execute(f"INSERT INTO main.{table} ({','.join(ins_cols)}) VALUES ({ph})", vals).lastrowid
+        new = conn.execute(f"INSERT INTO main.{table} ({','.join(ins_cols)}) VALUES ({ph})", vals).lastrowid  # nosec B608 — schema-derived identifier, values parameterised
         assert new is not None
         idmap[rowd[pk]] = new
     idmaps[table] = idmap
@@ -784,8 +858,7 @@ def _break_self_cycles(pointer: dict) -> None:
     space, so a self-parented or otherwise cyclic chain in the source (a malformed
     import: ``messages.parent_id`` looping, a workflow-attachment self ref) would
     survive as a loop the app's tree-walk can spin on. Walk each chain and, the
-    moment it revisits a node, null that node's pointer so the chain reaches root
-    -- matching the old engine, which attached such messages to the root.
+    moment it revisits a node, null that node's pointer so the chain reaches root.
     """
     for start in pointer:
         seen: set = set()
@@ -814,7 +887,7 @@ def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
     pk = t.pk[0]
     own_map = idmaps.get(table)  # surrogate tables only
     resolved: dict = {}  # new_pk -> new_val, in the post-merge id space
-    for row in conn.execute(f"SELECT {pk}, {from_col} FROM preset.{table}").fetchall():
+    for row in conn.execute(f"SELECT {pk}, {from_col} FROM preset.{table}").fetchall():  # nosec B608 — schema-derived identifier, values parameterised
         old_pk, old_val = row[0], row[1]
         if own_map is not None and old_pk not in own_map:
             continue  # row was dropped during insert
@@ -824,7 +897,7 @@ def _fixup_deferred(conn, schema, table, from_col, idmaps, cache) -> None:
     if fk.is_self:
         _break_self_cycles(resolved)
     for new_pk, new_val in resolved.items():
-        conn.execute(f"UPDATE main.{table} SET {from_col} = ? WHERE {pk} = ?", (new_val, new_pk))
+        conn.execute(f"UPDATE main.{table} SET {from_col} = ? WHERE {pk} = ?", (new_val, new_pk))  # nosec B608 — schema-derived identifier, values parameterised
 
 
 def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache, remap: bool) -> None:
@@ -852,12 +925,12 @@ def _reconcile_crossref(conn, schema, fk: _FK, idmaps, cache, remap: bool) -> No
         conn.execute("CREATE TEMP TABLE _fk_remap (old INTEGER PRIMARY KEY, new INTEGER)")
         conn.executemany("INSERT INTO _fk_remap (old, new) VALUES (?, ?)", list(pmap.items()))
         conn.execute(
-            f"UPDATE main.{table} SET {col} = (SELECT new FROM _fk_remap WHERE old = {col}) "
+            f"UPDATE main.{table} SET {col} = (SELECT new FROM _fk_remap WHERE old = {col}) "  # nosec B608 — schema-derived identifier, values parameterised
             f"WHERE {col} IN (SELECT old FROM _fk_remap)"
         )
         conn.execute("DROP TABLE _fk_remap")
     conn.execute(
-        f"UPDATE main.{table} SET {col} = NULL "
+        f"UPDATE main.{table} SET {col} = NULL "  # nosec B608 — schema-derived identifier, values parameterised
         f"WHERE {col} IS NOT NULL AND {col} NOT IN (SELECT {fk.to_col} FROM main.{fk.parent})"
     )
 
@@ -877,7 +950,7 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
             roots = _roots_for(domain)
             if roots and all(schema.tables[r].kind == "stable" for r in roots):
                 for table in reversed(schema.domain_tables(domain)):
-                    conn.execute(f"DELETE FROM main.{table}")
+                    conn.execute(f"DELETE FROM main.{table}")  # nosec B608 — schema-derived identifier, values parameterised
                     fully_replaced.add(table)
 
     # B. Child-replace: clear the subtree each incoming entity supersedes, child
@@ -892,9 +965,9 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
         root = schema.root_of(table)
         if root.kind == "stable":
             if table != root.name:
-                conn.execute(f"DELETE FROM main.{table} WHERE {_scope_clause(schema, table, root.name)}")
+                conn.execute(f"DELETE FROM main.{table} WHERE {_scope_clause(schema, table, root.name)}")  # nosec B608 — schema-derived identifier, values parameterised
         else:
-            conn.execute(f"DELETE FROM main.{table}")
+            conn.execute(f"DELETE FROM main.{table}")  # nosec B608 — schema-derived identifier, values parameterised
             fully_replaced.add(table)
 
     # C. Insert/upsert in topological order so every parent precedes its children.
@@ -928,7 +1001,7 @@ def _merge(conn: sqlite3.Connection, included: set[str], replace: bool) -> dict[
         if any(schema.tables[r].kind == "singleton" for r in roots):
             summary[domain] = 1
         else:
-            summary[domain] = sum(conn.execute(f"SELECT COUNT(*) FROM preset.{r}").fetchone()[0] for r in roots)
+            summary[domain] = sum(conn.execute(f"SELECT COUNT(*) FROM preset.{r}").fetchone()[0] for r in roots)  # nosec B608 — schema-derived identifier, values parameterised
     return summary
 
 
@@ -1022,34 +1095,90 @@ def create_snapshot(label: str = "") -> str:
     return name
 
 
+def _align_page_size(prepared: str, live: str) -> None:
+    """Give the prepared copy the live DB's page size.
+
+    ``sqlite3_backup_step`` cannot change the destination's page size while the
+    destination is in WAL mode -- it fails with SQLITE_READONLY ("attempt to
+    write a readonly database"), which says nothing about the actual cause.
+    Library files inherit their page size from the DB they were vacuumed out of,
+    so this only bites for a preset imported from an install configured
+    differently; the rewrite is a no-op in every other case.
+    """
+    probe = sqlite3.connect(live)
+    try:
+        want = int(probe.execute("PRAGMA page_size").fetchone()[0])
+    finally:
+        probe.close()
+    conn = sqlite3.connect(prepared, isolation_level=None)
+    try:
+        if int(conn.execute("PRAGMA page_size").fetchone()[0]) == want:
+            return
+        conn.execute(f"PRAGMA page_size={want}")  # PRAGMA values cannot be bound; want is an int read from the live DB
+        conn.execute("VACUUM")  # a page-size change only takes effect on rebuild
+    finally:
+        conn.close()
+
+
+def _copy_over_live(prepared: str, live: str) -> None:
+    """Copy a prepared database over the live one via SQLite's online backup.
+
+    The copy runs as a single write transaction on the destination, so it either
+    lands whole or leaves the live DB byte-for-byte untouched (``backup_finish``
+    rolls back an incomplete copy).
+
+    ``Connection.backup`` retries SQLITE_BUSY forever by default, which would
+    turn a stuck writer into a hung request rather than a failed restore. The
+    progress callback runs after every step and aborts the backup when it
+    raises, which is what bounds the wait.
+    """
+    deadline = time.monotonic() + RESTORE_LOCK_TIMEOUT
+
+    def _bound_wait(status: int, remaining: int, total: int) -> None:
+        if status != sqlite3.SQLITE_DONE and time.monotonic() > deadline:
+            raise PresetError(
+                f"Restore could not get a write lock on the database within {RESTORE_LOCK_TIMEOUT:.0f}s "
+                "-- another operation still holds it. Nothing was changed; try again."
+            )
+
+    src = sqlite3.connect(prepared)
+    try:
+        dest = sqlite3.connect(live, timeout=RESTORE_LOCK_TIMEOUT)
+        try:
+            src.backup(dest, progress=_bound_wait)
+        finally:
+            dest.close()
+    finally:
+        src.close()
+
+
 def restore_full(name: str) -> None:
-    """Replace the live DB file with a library file (clean rollback).
+    """Replace the live DB's contents with a library file (clean rollback).
 
-    The replacement is prepared out-of-place and swapped in with an atomic
-    ``os.replace``. We never write to (or delete the WAL/SHM of) the live path
-    while it is open: the running app serves overlapping requests on their own
-    short-lived connections, and overwriting the file or removing its ``-wal``
-    out from under one leaves it holding a lock, which made the prep writes
-    below fail with "database is locked". After the swap, any still-open
-    connection keeps running on the now-unlinked old inode and finishes
-    cleanly, while new connections see the restored file.
+    The replacement is prepared out-of-place -- preset marker dropped, migrated,
+    vacuumed, integrity- and FK-checked on a private temp copy -- and only then
+    copied into the live database through SQLite's online backup API.
 
-    The swapped-in file is in rollback (DELETE) journal mode, but the *old*
-    live DB ran in WAL mode, so its ``-wal``/``-shm`` are still sitting at the
-    live path beside the freshly restored file. Clearing the ``-wal`` is NOT
-    cosmetic: SQLite replays a ``-wal`` it finds next to a database on open
-    *regardless of that database's own journal mode* (verified on 3.45), so a
-    surviving stale ``-wal`` is recovered over the restored file and silently
-    reverts the restore to the previous database's contents (a truncated one
-    can instead leave a malformed file). We therefore treat the removal as
-    mandatory and raise if the ``-wal`` cannot be cleared, rather than letting
-    a latent revert surface on the next restart.
+    Why not prepare a file and ``os.replace`` it over the live path: that swap is
+    POSIX-only. Windows opens files without ``FILE_SHARE_DELETE`` and SQLite's
+    win32 VFS is no exception, so renaming over a database *any* connection still
+    holds open fails with ``PermissionError: [WinError 5]``. The app serves
+    overlapping requests on their own short-lived connections, so on Windows the
+    swap lost a coin flip against any concurrent request -- and failed outright
+    under the test suite, which holds an assertion connection open for the whole
+    test. Going through SQLite is portable and strictly stronger: the write takes
+    the ordinary locking protocol, so connections already open on the live path
+    follow the restore (the schema-cookie bump re-prepares their statements)
+    instead of being stranded on an unlinked inode.
 
-    Residual race, not closed here: a reader that opens the live path in the
-    brief window between the ``os.replace`` and the removal below can itself
-    replay the stale ``-wal``. Fully closing it means gating ``get_db`` opens
-    for the duration of the swap (a process-wide reader/writer barrier), which
-    is out of scope for this file-swap helper.
+    It also retires the stale-WAL hazard the swap carried. A swapped-in file left
+    the *previous* database's ``-wal``/``-shm`` at the live path, and SQLite
+    replays a ``-wal`` it finds beside a database regardless of that database's
+    own journal mode -- silently reverting the restore on the next open, and with
+    a truncated ``-wal``, leaving a malformed file. It closes that path's
+    residual race too (a reader opening the live path mid-swap could replay the
+    stale WAL): here the live file, its WAL and its readers are the same objects
+    throughout, so there is nothing stale to clear and no window to race.
     """
     src = _library_path(name)
     live = _db_path()
@@ -1077,8 +1206,12 @@ def restore_full(name: str) -> None:
                 vac.execute("VACUUM")
             finally:
                 vac.close()
-        # The temp copy is about to become the live DB; refuse a structurally
-        # broken or FK-inconsistent file rather than swapping it in.
+        # The page size has to match before the copy, and rewriting it rebuilds
+        # the file -- so do it ahead of the checks below, which must validate the
+        # exact bytes that land in the live DB.
+        _align_page_size(tmp, live)
+        # The temp copy's contents are about to become the live DB; refuse a
+        # structurally broken or FK-inconsistent file rather than copying it in.
         chk = sqlite3.connect(tmp)
         try:
             _assert_integrity(chk, "the restore target")
@@ -1087,31 +1220,17 @@ def restore_full(name: str) -> None:
                 raise PresetError(f"Restore target has {len(fk)} foreign-key violations; aborted.")
         finally:
             chk.close()
-        os.replace(tmp, live)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        raise
-    # Clear the previous inode's WAL/SHM left at the live path. Removing the
-    # -wal is mandatory (see above): SQLite would otherwise replay it over the
-    # restored file on the next open and silently revert the restore. -shm
-    # alone is inert, so its removal stays best-effort. On Linux the unlink
-    # succeeds even while a finishing connection holds the file open; if the
-    # -wal still cannot be cleared, fail loudly so the user retries instead of
-    # discovering the revert only after a restart.
-    for sfx in ("-wal", "-shm"):
-        p = live + sfx
-        if os.path.exists(p):
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-    wal = live + "-wal"
-    if os.path.exists(wal):
-        raise PresetError(
-            f"Restore finished but a stale WAL file could not be cleared ({os.path.basename(wal)}); "
-            "the database may revert on the next restart. Close other connections and restore again."
-        )
+        _copy_over_live(tmp, live)
+    finally:
+        # Unlike the old rename, the copy leaves the temp file behind on success
+        # as well as on failure -- plus any journal our own connections created.
+        for sfx in ("", "-wal", "-shm"):
+            p = tmp + sfx
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
 
 def list_library() -> list[dict]:

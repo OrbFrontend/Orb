@@ -54,8 +54,8 @@ async def update_interactive_fragment(fid: str, data: dict) -> InteractiveFragme
         if sets:
             vals.append(fid)
             await db.execute(
-                f"UPDATE interactive_fragments SET {', '.join(sets)} WHERE id = ?",
-                vals,  # nosec B608 — cols from hardcoded allowlist, values parameterised
+                f"UPDATE interactive_fragments SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                vals,
             )
             await db.commit()
         return await get_interactive_fragment(fid)

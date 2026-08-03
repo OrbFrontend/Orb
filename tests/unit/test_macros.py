@@ -255,7 +255,7 @@ def test_date_resolves_to_iso_date():
     assert resolve_inline("say `{{date}}`") == "say `{{date}}`"
 
 
-# ── {{// comment }} (SillyTavern's author-note macro) ────────────────────────
+# ── {{// comment }} (the author-note macro) ──────────────────────────────────
 
 
 def test_comment_stripped_with_its_line():

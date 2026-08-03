@@ -1,5 +1,5 @@
 """
-0051_lorebook_at_depth -- SillyTavern `@Depth` placement for constant entries.
+0051_lorebook_at_depth -- `@ Depth` placement for constant entries.
 
 A constant entry with `at_depth` rides the per-turn tail (after the user
 message, macros re-resolved every turn) instead of the cached system prefix.

@@ -223,12 +223,23 @@ class RerollGenCtx:
     re-call its generation model with caller-supplied ``params`` + ``seed``
     and return bytes.
 
-    The hook does not branch on the triggering route. It may return either
-    raw ``bytes`` or a ``(bytes, dict | None)`` tuple; the optional dict is
-    a fresh ``consumption_metadata`` payload honored on both routes -- it
-    becomes the new sibling's metadata on reroll-gen, and overwrites the
-    original row's metadata in place on rehydrate. A raw ``bytes`` return
-    (or a ``None`` second element) leaves the stored value unchanged.
+    The hook does not branch on the triggering route -- it branches on
+    ``replay``, which is the one thing the two routes genuinely disagree
+    about. ``/rehydrate`` promises the bytes it evicted back, so every
+    stored parameter must be reproduced; ``/reroll-gen`` promises a new
+    variant of the same subject, so a workflow whose settings have moved
+    since should render on today's configuration rather than pin an old
+    one. Naming that bit here rather than leaving each workflow to infer
+    it: the only available inference was comparing ``seed`` against the
+    stored one, which is a 128-bit coincidence away from being wrong and
+    says nothing at all on a backend that takes no seed.
+
+    It may return either raw ``bytes`` or a ``(bytes, dict | None)``
+    tuple; the optional dict is a fresh ``consumption_metadata`` payload
+    honored on both routes -- it becomes the new sibling's metadata on
+    reroll-gen, and overwrites the original row's metadata in place on
+    rehydrate. A raw ``bytes`` return (or a ``None`` second element)
+    leaves the stored value unchanged.
 
     ``prior_consumption_metadata`` is the parent attachment's stored
     ``consumption_metadata`` pre-decoded from JSON, exposed for workflows
@@ -244,6 +255,13 @@ class RerollGenCtx:
     settings: MappingProxyType
     client: Any
     prior_consumption_metadata: MappingProxyType | None = None
+    # Both routes pass this explicitly -- ``_build_reroll_gen_ctx`` makes it
+    # required -- so the default covers only a ctx constructed directly, in a
+    # test or out of tree. Reproducing is the safe end of it: a wrong ``True``
+    # costs a render nobody asked for, while a wrong ``False`` hands
+    # ``/rehydrate`` a *different* image and overwrites the row with it, which is
+    # the one failure on these two routes that destroys something.
+    replay: bool = True
 
 
 @dataclass(frozen=True)

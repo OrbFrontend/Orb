@@ -889,6 +889,12 @@ def test_splitter_trims_pre_state_content_run():
     assert c == "Just answering."
 
 
+def test_splitter_keeps_the_continuation_space_on_a_prefilled_call():
+    # Doc mode's open assistant turn: the leading space joins "He" to "saw".
+    r, c = _run(tc.ThinkSplitter(tc._GEMMA4, trim_lead=False), [" saw", " a banana."])
+    assert c == " saw a banana."
+
+
 def test_splitter_retrims_after_a_late_open_tag():
     # Provisional pre-span whitespace is a false start: the trim re-arms so the
     # real reply after the close is still clean.

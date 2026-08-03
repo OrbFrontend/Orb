@@ -59,8 +59,8 @@ async def test_lorebook_export_round_trip(client, db):
     assert bool(copied["Prologue"]["case_insensitive"]) is False
 
 
-async def test_import_sillytavern_world_info_maps_at_depth(client, db):
-    """A SillyTavern World Info export (entries as an object, `position: 4` = @ Depth).
+async def test_import_world_info_file_maps_at_depth(client, db):
+    """A standalone World Info export (entries as an object, `position: 4` = @ Depth).
 
     This is the shape community "rules module" lorebooks ship in — always-on
     entries injected after the latest message so their {{roll}} macros re-roll.
@@ -107,6 +107,46 @@ async def test_import_sillytavern_world_info_maps_at_depth(client, db):
     copied = {e["name"]: e for e in (await client.get(f"/api/worlds/{world2['id']}/entries")).json()}
     assert bool(copied["Rules"]["at_depth"]) is True
     assert bool(copied["Sheet"]["at_depth"]) is False
+
+
+async def test_character_book_extensions_round_trip(client, db):
+    """The card-embedded `character_book` shape: placement + case live in `extensions`.
+
+    World Info readers take `extensions.position` / `extensions.case_sensitive`
+    and title the entry from `comment`, so the export has to fill those in or a
+    round-trip through another frontend loses all three.
+    """
+    world = (await client.post("/api/worlds", json={"name": "Book"})).json()
+    payload = {
+        "entries": [
+            {
+                "keys": ["dragon"],
+                "content": "Dragons breathe fire.",
+                "comment": "Dragons",
+                "enabled": True,
+                "position": "after_char",
+                "extensions": {"position": 4, "depth": 2, "case_sensitive": True},
+            }
+        ]
+    }
+    assert (await client.post(f"/api/worlds/{world['id']}/import", json=payload)).json()["imported"] == 1
+
+    entry = (await client.get(f"/api/worlds/{world['id']}/entries")).json()[0]
+    assert entry["name"] == "Dragons"
+    assert bool(entry["at_depth"]) is True
+    assert bool(entry["case_insensitive"]) is False
+
+    book = (await client.get(f"/api/worlds/{world['id']}/export")).json()
+    exported = book["entries"][0]
+    assert exported["comment"] == "Dragons"  # readers take the title from here
+    assert exported["extensions"]["position"] == 4
+    assert exported["extensions"]["case_sensitive"] is True
+
+    world2 = (await client.post("/api/worlds", json={"name": "Copy"})).json()
+    await client.post(f"/api/worlds/{world2['id']}/import", json={"entries": book["entries"]})
+    copied = (await client.get(f"/api/worlds/{world2['id']}/entries")).json()[0]
+    assert bool(copied["at_depth"]) is True
+    assert bool(copied["case_insensitive"]) is False
 
 
 async def test_lorebook_export_missing_world_404(client, db):

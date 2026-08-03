@@ -152,7 +152,9 @@ async def test_forced_call_rewritten_as_structured_output():
     body, events = await _run(client, _content_lines(ARGS_JSON), tools=[DIRECT_SCENE], tool_choice=FORCED)
 
     assert "tool_choice" not in body
-    assert body["tools"] == [DIRECT_SCENE]  # prompt/KV stability: tools stay
+    # The schema is derived from `tools`, but `tools` itself is withheld: left
+    # in, the model can answer with a native tool call that bypasses the schema.
+    assert "tools" not in body
     rf = body["response_format"]
     assert rf["type"] == "json_schema"
     assert rf["json_schema"]["name"] == "direct_scene"
@@ -218,17 +220,44 @@ async def test_tools_in_prompt_false_non_forced_drops_tools_and_choice():
 async def test_auto_choice_not_rewritten():
     client = LLMClient("https://nano-gpt.com/api/v1")
     body, events = await _run(client, _content_lines("plain prose"), tools=[DIRECT_SCENE], tool_choice="auto")
-    assert body["tool_choice"] == "auto"
-    assert "response_format" not in body
+    assert "response_format" not in body  # only a forced call becomes structured
     assert [e for e in events if e["type"] == "content"]  # prose streams normally
 
 
-async def test_forced_without_schema_falls_through():
+async def test_structured_endpoint_omits_tools_on_every_pass():
+    """The tool blob is withheld for unforced passes too, not just forced ones.
+
+    This is what keeps one stable prefix. The server renders `tools` into the
+    prompt, so sending it on the writer's pass and not the director's would
+    hand the two different prefixes and thrash the KV base they share.
+    """
+    client = LLMClient("https://nano-gpt.com/api/v1")
+    for choice in (FORCED, "auto", "none", "required", None):
+        body, _ = await _run(client, _content_lines("hi"), tools=[DIRECT_SCENE], tool_choice=choice)
+        assert "tools" not in body, choice
+        assert "tool_choice" not in body, choice
+
+
+async def test_unlisted_endpoint_still_sends_tools():
+    # The omission is scoped to endpoints that take structured output; everyone
+    # else keeps ordinary tool calling.
+    client = LLMClient("http://localhost:5000/v1")
+    body, _ = await _run(client, _content_lines("hi"), tools=[DIRECT_SCENE], tool_choice="auto")
+    assert body["tools"] == [DIRECT_SCENE]
+    assert body["tool_choice"] == "auto"
+
+
+async def test_forced_without_schema_degrades_to_plain_completion():
+    # The forced name is not in `tools`, so no schema can be built. Rather than
+    # send a tool_choice pointing at a tool the body no longer carries, the call
+    # goes out unconstrained and the parse_tool_calls recovery chain handles the
+    # reply -- the same posture as any unforced pass.
     client = LLMClient("https://nano-gpt.com/api/v1")
     unknown_forced = {"type": "function", "function": {"name": "not_in_tools"}}
     body, _ = await _run(client, _content_lines("hi"), tools=[DIRECT_SCENE], tool_choice=unknown_forced)
-    assert body["tool_choice"] == unknown_forced
     assert "response_format" not in body
+    assert "tools" not in body
+    assert "tool_choice" not in body
 
 
 async def test_real_tool_calls_win_over_synthesis():

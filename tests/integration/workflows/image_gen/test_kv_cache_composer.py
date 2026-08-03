@@ -106,7 +106,7 @@ async def test_composer_forced_calls_ride_the_turn_prefix(client, llm_mock, monk
     )
     await set_workflow_character_state(card_id, "image_gen", {"appearance_prompt": "long silver hair"})
 
-    async def fake_render(config, request, **kwargs):
+    async def fake_render(adapter, request, **kwargs):
         return ImageResult(
             image_bytes=b"\x89PNG\r\n\x1a\nimage",
             mime="image/png",

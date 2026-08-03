@@ -35,6 +35,7 @@ class ModelSpec:
     repo_id: str
     filename: str
     size_mb: int
+    revision: str  # pinned commit sha — a repo re-point can't swap the weights under us
 
 
 MODELS: dict[str, ModelSpec] = {
@@ -42,27 +43,31 @@ MODELS: dict[str, ModelSpec] = {
         repo_id="chartreuse-verte/orb-human-typeahead-1b-v2.2",
         filename="GGUF/orb-human-typeahead-1b-v2.2-Q4_0.gguf",
         size_mb=930,
+        revision="2e340db799eca2ef36ef80fc6938e40ab1ece111",
     ),
     "slop_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin150m-purple-GGUF",
         filename="ettin150m-purple-q8_0.gguf",
         size_mb=161,
+        revision="125cf38d62e78b7091c23e6d523d805c7ec2f47e",
     ),
     "emotion_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin-emotion-28-multilabel-68m",
         filename="gguf/ettin-emotion-28ml-68m-q8_0.gguf",
         size_mb=71,
+        revision="9f8d0100e45c133e713283499e55105f61d29118",
     ),
     "pov_classifier": ModelSpec(
         repo_id="chartreuse-verte/ettin-povtense-17m",
         filename="gguf/povtense-17m-q8_0.gguf",
         size_mb=20,
+        revision="1245e55c47f9afc3d4938ef70f5228580228d899",
     ),
 }
 
 # The 28 go-emotions labels in standard id2label order (neutral last, index 27).
 # Order MUST match the GGUF head's logit order — the classifier reads argmax(v[0:28])
-# and maps back through this tuple. Also == SillyTavern's default expression set.
+# and maps back through this tuple. Also the standard expression-pack label set.
 GO_EMOTIONS: tuple[str, ...] = (
     "admiration",
     "amusement",
@@ -159,11 +164,19 @@ def _import_llama():
     return Llama
 
 
+def _shell_quote(path: str) -> str:
+    """Quote only when needed — `C:\\Program Files\\...` breaks an unquoted paste."""
+    return f'"{path}"' if " " in path else path
+
+
 def install_cmd() -> str:
-    """Install command for THIS interpreter — a bare `pip` targets whatever's on
-    PATH, not the venv/uv env the server actually runs under, so the extras land
-    in the wrong Python and the button stays gray."""
-    return f"{sys.executable} -m pip install -r requirements-ml.txt"
+    """Install command for THIS interpreter, fully qualified — a bare `pip` targets
+    whatever's on PATH, not the venv/uv env the server actually runs under, so the
+    extras land in the wrong Python and the button stays gray; and a bare
+    requirements filename only resolves if the shell happens to be cwd'd into the
+    repo, which a fresh cmd prompt is not."""
+    req = os.path.join(_ROOT, "requirements-ml.txt")
+    return f"{_shell_quote(sys.executable)} -m pip install -r {_shell_quote(req)}"
 
 
 def deps_ok() -> tuple[bool, str]:
@@ -202,7 +215,7 @@ def download(feature: str) -> None:
     from huggingface_hub import hf_hub_download  # noqa: PLC0415 — deferred
 
     spec = MODELS[feature]
-    hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, local_dir=model_dir())
+    hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, revision=spec.revision, local_dir=model_dir())
     prune_stale()  # after fetch: new file lands before old ones go, so a failed download keeps the old model
 
 

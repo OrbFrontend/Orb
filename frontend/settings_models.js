@@ -6,7 +6,7 @@ import { api } from "./api.js";
 import { renderInspector } from "./chat.js";
 import { showConfirmModal } from "./modal.js";
 import { S } from "./state.js";
-import { $, esc, toast } from "./utils.js";
+import { $, esc, escAttr, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 const MODEL_HYPERPARAM_KEYS = [
@@ -21,6 +21,8 @@ const MODEL_HYPERPARAM_KEYS = [
   "reasoning_effort",
   "reasoning_effort_param",
   "reasoning_effort_value",
+  "extra_headers",
+  "extra_body",
 ];
 
 // Standard OpenAI reasoning_effort levels: the union across current models
@@ -55,6 +57,21 @@ const SETTING_FIELDS = [
   { k: "top_k", l: "Top K", t: "number", s: "1", mn: "0", mx: "200" },
   { k: "repetition_penalty", l: "Rep. Penalty", t: "number", s: "0.05", mn: "1", mx: "2" },
   { k: "reasoning_effort", l: "Reasoning Effort", t: "reasoning_effort" },
+  { k: "extra_headers", l: "Extra Request Headers", t: "textarea", ph: "X-Provider: deepinfra" },
+  {
+    k: "extra_body",
+    l: "Extra Request Body (JSON, chat mode only)",
+    t: "textarea",
+    ph: '{"provider": {"only": ["deepinfra"]}}',
+  },
+];
+
+// Field grouping for both forms (agent keys derived by prefixing). Keys not
+// listed here render flat at the top -- the connection basics you always need.
+const FIELD_GROUPS = [
+  { l: "Prompts", cls: " ep-chat-only", keys: ["shared_system_prompt", "system_prompt"] },
+  { l: "Sampling", open: true, keys: ["temperature", "max_tokens", "top_p", "min_p", "top_k", "repetition_penalty"] },
+  { l: "Advanced", keys: ["reasoning_effort", "extra_headers", "extra_body"] },
 ];
 
 const AGENT_MODEL_HYPERPARAM_KEYS = [
@@ -65,6 +82,8 @@ const AGENT_MODEL_HYPERPARAM_KEYS = [
   "agent_reasoning_effort",
   "agent_reasoning_effort_param",
   "agent_reasoning_effort_value",
+  "agent_extra_headers",
+  "agent_extra_body",
 ];
 
 const AGENT_SETTING_FIELDS = [
@@ -86,6 +105,13 @@ const AGENT_SETTING_FIELDS = [
   { k: "agent_top_p", l: "Agent Top P", t: "number", s: "0.05", mn: "0", mx: "1" },
   { k: "agent_repetition_penalty", l: "Agent Rep. Penalty", t: "number", s: "0.05", mn: "1", mx: "2" },
   { k: "agent_reasoning_effort", l: "Agent Reasoning Effort", t: "reasoning_effort" },
+  { k: "agent_extra_headers", l: "Agent Extra Request Headers", t: "textarea", ph: "X-Provider: deepinfra" },
+  {
+    k: "agent_extra_body",
+    l: "Agent Extra Request Body (JSON, chat mode only)",
+    t: "textarea",
+    ph: '{"provider": {"only": ["deepinfra"]}}',
+  },
 ];
 
 // Descriptor objects that parameterise all writer vs. agent differences.
@@ -148,8 +174,9 @@ export function renderEndpoints() {
       const rows = f.k === "system_prompt" || f.k === "agent_system_prompt" ? ' rows="2"' : "";
       // System-prompt fields are chat-only: hidden in document mode (see document.css).
       const cls = f.k === "system_prompt" || f.k === "shared_system_prompt" ? " ep-chat-only" : "";
+      const ph = f.ph ? ` placeholder="${escAttr(f.ph)}"` : "";
       return `<div class="field${cls}"><label>${f.l}</label>
-                <textarea data-key="${f.k}"${rows} onchange="${saveFn}(this)">${v}</textarea>
+                <textarea data-key="${f.k}"${rows}${ph} onchange="${saveFn}(this)">${v}</textarea>
               </div>`;
     }
     if (f.t === "api_key") {
@@ -215,11 +242,30 @@ export function renderEndpoints() {
             </div>`;
   }
 
+  function renderForm(fields, isAgent) {
+    const p = isAgent ? "agent_" : "";
+    const byKey = new Map(fields.map((f) => [f.k, f]));
+    const grouped = new Set(FIELD_GROUPS.flatMap((g) => g.keys.map((k) => p + k)));
+    let html = fields
+      .filter((f) => !grouped.has(f.k))
+      .map((f) => renderField(f, isAgent))
+      .join("");
+    for (const g of FIELD_GROUPS) {
+      const members = g.keys.map((k) => byKey.get(p + k)).filter(Boolean);
+      if (!members.length) continue;
+      html += `<details class="ep-group${g.cls || ""}"${g.open ? " open" : ""}>
+        <summary>${g.l}</summary>
+        ${members.map((f) => renderField(f, isAgent)).join("")}
+      </details>`;
+    }
+    return html;
+  }
+
   const agentHidden = S.agentSameAsWriter ? ' style="display:none"' : "";
 
   // The whole Agent block is chat-only: hidden in document mode (see document.css).
   $("endpoints-form").innerHTML = `
-    ${SETTING_FIELDS.map((f) => renderField(f, false)).join("")}
+    ${renderForm(SETTING_FIELDS, false)}
     <div class="ep-chat-only">
       <div style="display:flex;align-items:center;gap:12px;margin:12px 0 8px"><div style="flex:1;height:1px;background:var(--accent-dim)"></div><span style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-dim)">Agent</span><div style="flex:1;height:1px;background:var(--accent-dim)"></div></div>
       <div class="tool-card" style="margin-bottom:12px">
@@ -233,7 +279,7 @@ export function renderEndpoints() {
         <div class="tool-card-desc">Use the same endpoint and model for Agent passes as the Writer.</div>
       </div>
       <div id="agent-fields"${agentHidden}>
-        ${AGENT_SETTING_FIELDS.map((f) => renderField(f, true)).join("")}
+        ${renderForm(AGENT_SETTING_FIELDS, true)}
       </div>
     </div>
   `;
@@ -719,6 +765,8 @@ async function _syncModelConfigRecord(ctx, modelName, hyperparams) {
       reasoning_effort: get("reasoning_effort", ""),
       reasoning_effort_param: get("reasoning_effort_param", ""),
       reasoning_effort_value: get("reasoning_effort_value", ""),
+      extra_headers: get("extra_headers", ""),
+      extra_body: get("extra_body", ""),
     });
     S[ctx.configsKey].push(mc);
     S[ctx.configIdKey] = mc.id;
@@ -799,7 +847,16 @@ async function _doSaveEndpointSetting(ctx, el) {
     } else if (key === ctx.modelField) {
       await _syncModelConfigRecord(ctx, v, payload);
     } else if (ctx.hyperparamKeys.includes(key) && S[ctx.configIdKey]) {
-      await api.put(`/models/${S[ctx.configIdKey]}`, { [baseKey]: v });
+      // Pinned across the await: a combobox model switch runs outside the save
+      // queue and can repoint S[ctx.configIdKey] mid-flight.
+      const configId = S[ctx.configIdKey];
+      await api.put(`/models/${configId}`, { [baseKey]: v });
+      // The /settings response above predates this write, so keys the server
+      // serves from the model-config overlay come back one save behind. The
+      // cached row is read outside this module without a refetch.
+      S.settings[key] = v;
+      const cfg = S[ctx.configsKey].find((m) => m.id === configId);
+      if (cfg) cfg[baseKey] = v;
     }
   } catch (e) {
     console.error("Endpoint/model sync error:", e);

@@ -1,5 +1,6 @@
-"""Image backend adapters."""
+"""Image backend adapters.
 
-from .external_comfy import CAPABILITIES, generate, list_models, validate_connection
-
-__all__ = ["CAPABILITIES", "generate", "list_models", "validate_connection"]
+Deliberately re-exports nothing: every importer names the adapter module it
+wants, and eagerly importing them here would defeat the router's per-adapter
+ImportError guard by pulling each one's dependencies in through `adapters.base`.
+"""

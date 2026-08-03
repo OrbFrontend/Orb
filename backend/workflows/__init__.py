@@ -55,9 +55,9 @@ from .format_consistency.hooks import (
 )
 from .image_gen import image_gen_workflow
 from .image_gen.hooks import on_demand as _image_gen_on_demand
-from .image_gen.hooks import query as _image_gen_query
 from .image_gen.hooks import regenerate as _image_gen_regenerate
 from .image_gen.hooks import reroll_gen as _image_gen_reroll_gen
+from .image_gen.queries import query as _image_gen_query
 from .prose_format_llm import prose_format_llm_workflow
 from .prose_format_llm.hooks import (
     on_demand as _pf_on_demand,

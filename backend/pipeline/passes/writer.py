@@ -44,7 +44,7 @@ def build_writer_content(
     dropped — no tool harness is rendered, so the instruction is meaningless.
 
     *depth_block* (``at_depth`` lorebook entries) goes last, *after* the user
-    message — SillyTavern's ``@ Depth`` position, which is the whole point of the
+    message — the ``@ Depth`` position, which is the whole point of the
     flag: the directives sit at the generation boundary.
     """
     tail = ""

@@ -214,8 +214,9 @@ async def test_model_config_reasoning_effort_round_trip(client, db):
 
 
 async def test_settings_overlay_reasoning_effort(client, db):
-    """The active model config's reasoning_effort reaches get_settings, and the
-    agent inherits it when sharing the writer endpoint."""
+    """The active model config's reasoning settings -- including a custom param
+    name and its value -- reach get_settings, and the agent lane inherits them
+    when it shares the writer's endpoint."""
     endpoint_resp = await client.post(
         "/api/endpoints",
         json={"url": "https://api.overlay.com", "api_key": "key"},
@@ -223,7 +224,12 @@ async def test_settings_overlay_reasoning_effort(client, db):
     endpoint_id = endpoint_resp.json()["id"]
     model_resp = await client.post(
         f"/api/endpoints/{endpoint_id}/models",
-        json={"model_name": "overlay-model", "reasoning_effort": "high"},
+        json={
+            "model_name": "overlay-model",
+            "reasoning_effort": "custom",
+            "reasoning_effort_param": "reasoning_effort",
+            "reasoning_effort_value": "max",
+        },
     )
     config_id = model_resp.json()["id"]
 
@@ -233,8 +239,91 @@ async def test_settings_overlay_reasoning_effort(client, db):
     resp = await client.get("/api/settings")
     assert resp.status_code == 200
     settings = resp.json()
-    assert settings["reasoning_effort"] == "high"
-    assert settings["agent_reasoning_effort"] == "high"
+    assert settings["reasoning_effort"] == "custom"
+    assert settings["agent_reasoning_effort"] == "custom"
+    assert settings["reasoning_effort_param"] == "reasoning_effort"
+    assert settings["reasoning_effort_value"] == "max"
+    assert settings["agent_reasoning_effort_value"] == "max"
+
+
+async def test_model_config_extra_request_round_trip(client, db):
+    """extra_headers/extra_body persist through create and update."""
+    endpoint_resp = await client.post(
+        "/api/endpoints",
+        json={"url": "https://api.extra.com", "api_key": "key"},
+    )
+    endpoint_id = endpoint_resp.json()["id"]
+
+    resp = await client.post(
+        f"/api/endpoints/{endpoint_id}/models",
+        json={
+            "model_name": "routed-model",
+            "extra_headers": "X-Provider: deepinfra",
+            "extra_body": '{"provider": {"only": ["deepinfra"]}}',
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["extra_headers"] == "X-Provider: deepinfra"
+    assert data["extra_body"] == '{"provider": {"only": ["deepinfra"]}}'
+
+    update_resp = await client.put(f"/api/models/{data['id']}", json={"extra_headers": "X-Provider: together"})
+    assert update_resp.status_code == 200
+    assert update_resp.json()["extra_headers"] == "X-Provider: together"
+
+    async with db.execute(
+        "SELECT extra_headers, extra_body FROM model_configs WHERE id = ?",
+        (data["id"],),
+    ) as cur:
+        row = await cur.fetchone()
+    assert row["extra_headers"] == "X-Provider: together"
+    assert row["extra_body"] == '{"provider": {"only": ["deepinfra"]}}'
+
+
+async def test_settings_overlay_extra_request(client, db):
+    """The active model config's extra fields reach get_settings, and the agent
+    inherits them when sharing the writer endpoint."""
+    endpoint_resp = await client.post(
+        "/api/endpoints",
+        json={"url": "https://api.extraoverlay.com", "api_key": "key"},
+    )
+    endpoint_id = endpoint_resp.json()["id"]
+    model_resp = await client.post(
+        f"/api/endpoints/{endpoint_id}/models",
+        json={
+            "model_name": "overlay-routed",
+            "extra_headers": "X-Provider: deepinfra",
+            "extra_body": '{"seed": 7}',
+        },
+    )
+    config_id = model_resp.json()["id"]
+
+    await client.put("/api/settings", json={"active_endpoint_id": endpoint_id, "agent_same_as_writer": True})
+    await client.put(f"/api/endpoints/{endpoint_id}", json={"active_model_config_id": config_id})
+
+    resp = await client.get("/api/settings")
+    assert resp.status_code == 200
+    settings = resp.json()
+    assert settings["extra_headers"] == "X-Provider: deepinfra"
+    assert settings["extra_body"] == '{"seed": 7}'
+    assert settings["agent_extra_headers"] == "X-Provider: deepinfra"
+    assert settings["agent_extra_body"] == '{"seed": 7}'
+
+
+async def test_model_config_rejects_malformed_extra_body(client, db):
+    """A create payload is complete apart from the bad field, so the 422 can
+    only come from the extra_body validator."""
+    endpoint_resp = await client.post(
+        "/api/endpoints",
+        json={"url": "https://api.extrareject.com", "api_key": "key"},
+    )
+    endpoint_id = endpoint_resp.json()["id"]
+
+    resp = await client.post(
+        f"/api/endpoints/{endpoint_id}/models",
+        json={"model_name": "bad-model", "extra_body": "{nope"},
+    )
+    assert resp.status_code == 422
 
 
 async def test_endpoint_crud_workflow(client, db):

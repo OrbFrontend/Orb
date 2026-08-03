@@ -6,7 +6,7 @@ the split: the constant entry lands as a byte-identical ``## Lorebook`` section
 in both the writer and agent prefixes (KV cache Invariant 1), while the
 trailing block excludes it.
 
-Plus the ``at_depth`` (SillyTavern ``@ Depth``) opt-out: such an entry leaves the
+Plus the ``at_depth`` (``@ Depth``) opt-out: such an entry leaves the
 prefix for the per-turn tail block, where its inline macros re-roll every turn.
 """
 
@@ -118,7 +118,7 @@ def test_trailing_block_excludes_constant():
     assert "Canon" not in block
 
 
-# ── at_depth (SillyTavern @ Depth) ───────────────────────────────────────────
+# ── at_depth (@ Depth) ───────────────────────────────────────────────────────
 
 
 def test_at_depth_constant_leaves_the_prefix():
@@ -145,7 +145,7 @@ def test_at_depth_entry_never_reaches_the_keyword_block():
 
 
 def test_depth_block_sits_after_the_user_message_in_the_writer_tail():
-    # SillyTavern's depth 0: last thing the model reads before generating.
+    # Depth 0: last thing the model reads before generating.
     content = build_writer_content("", "", {}, "I attack", None, None, depth_block="**Lorebook (Depth)**\n\nDice: 7")
     assert content == "___\n\nI attack\n\n___\n\n**Lorebook (Depth)**\n\nDice: 7\n\n"
 

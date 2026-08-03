@@ -45,8 +45,8 @@ async def update_mood_fragment(fid: str, data: dict) -> MoodFragmentRow | None:
         if sets:
             vals.append(fid)
             await db.execute(
-                f"UPDATE mood_fragments SET {', '.join(sets)} WHERE id = ?",
-                vals,  # nosec B608 — cols from hardcoded allowlist, values parameterised
+                f"UPDATE mood_fragments SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                vals,
             )
             await db.commit()
         return await get_mood_fragment(fid)

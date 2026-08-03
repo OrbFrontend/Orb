@@ -1,7 +1,7 @@
 """Backend database package.
 
-Re-exports the public API previously provided by the monolithic
-backend/database.py module so existing call sites keep working.
+Re-exports the layer's public API so call sites import one name from
+``backend.database`` rather than reaching into its submodules.
 """
 
 from __future__ import annotations

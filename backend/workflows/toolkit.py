@@ -4,7 +4,9 @@ Workflows import from this module rather than reaching directly into
 ``backend.inference.client``, ``backend.inference.prompt_builder``, etc. The set of
 re-exports is the workflow author's API: LLM client, tool-schema
 assembly, prompt assembly, macro resolution, read-only DB helpers for
-core state, workflow-scoped storage wrappers, the locks guarding
+core state (including the character avatar and the single-attachment
+reader, for workflows that consume prior artifacts as input),
+workflow-scoped storage wrappers, the locks guarding
 read-modify-write on that storage, the forced-call helper,
 the tool-overlay helper, the ``local_ml`` scaffold (for workflows that
 run a small in-process classifier alongside their LLM calls), and the
@@ -38,6 +40,7 @@ from ..core import (
 from ..core.domain_types import AgentLane
 from ..database import (
     get_active_lorebook_entries,
+    get_character_avatar,
     get_character_card,
     get_conversation,
     get_director_state,
@@ -47,8 +50,10 @@ from ..database import (
     get_mood_fragments,
     get_phrase_bank,
     get_settings,
+    get_user_attachments_for_message,
     get_user_persona,
     get_user_personas,
+    get_workflow_attachment_by_id,
     resolve_char_context,
 )
 from ..inference import (
@@ -65,7 +70,7 @@ from ..inference import (
     separate_agent_lane_configured,
 )
 from ._forced_call import forced_tool_call
-from .attachment_cache import insert_workflow_attachment
+from .attachment_cache import EVICTED_MARKER, insert_workflow_attachment
 from .registry import (
     get_workflow_character_state,
     get_workflow_config,
@@ -79,6 +84,7 @@ from .registry import (
 )
 
 __all__ = [
+    "EVICTED_MARKER",
     "FormatDriftReport",
     "LLMClient",
     "Macros",
@@ -89,6 +95,7 @@ __all__ = [
     "forced_tool_call",
     "format_message_with_attachments",
     "format_report",
+    "get_character_avatar",
     "get_character_card",
     "get_conversation",
     "get_interactive_fragments",
@@ -98,8 +105,10 @@ __all__ = [
     "get_mood_fragments",
     "get_phrase_bank",
     "get_settings",
+    "get_user_attachments_for_message",
     "get_user_personas",
     "get_user_persona",
+    "get_workflow_attachment_by_id",
     "get_workflow_character_state",
     "get_workflow_config",
     "get_workflow_message_state",

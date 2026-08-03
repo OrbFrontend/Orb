@@ -15,6 +15,7 @@ from backend.database import (
     insert_workflow_attachment_row,
     set_active_leaf,
 )
+from backend.workflows.errors import WorkflowUserFacingError
 
 from ._fixtures import make_workflow, must_get_workflow_attachment, register_for_test
 
@@ -214,6 +215,35 @@ async def test_hook_raise_returns_500_and_no_insert(client):
 
     rows = await get_workflow_attachments_for_message(mid)
     assert len(rows) == 1
+
+
+async def test_a_user_facing_hook_failure_is_relayed_not_swallowed(client):
+    """The reroll button's half of the render-failure contract.
+
+    A provider rejection reached the streaming path as the provider's own sentence
+    and this route as "reroll_gen handler raised; see server logs" -- the same failed
+    render reading two different ways depending on which button was pressed. 502
+    rather than 500: the backend Orb depends on is what did not deliver.
+    """
+    cid, mid, aid = await _seed_with_metadata(client)
+    said = "OpenRouter rejected the request (HTTP 400): Google AI Studio: User location is not supported."
+
+    async def reroll(ctx, params, seed):
+        raise WorkflowUserFacingError(said)
+
+    wf = make_workflow("img", regenerate=lambda ctx, body: [], reroll_gen=reroll, produces_artifacts=True)
+    with register_for_test(wf):
+        resp = await client.post(
+            f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{aid}/reroll-gen",
+            json={},
+        )
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == said
+
+    # A failed reroll still costs the user nothing: no sibling was written.
+    from backend.database import get_workflow_attachments_for_message
+
+    assert len(await get_workflow_attachments_for_message(mid)) == 1
 
 
 async def test_hook_returns_non_bytes_500(client):

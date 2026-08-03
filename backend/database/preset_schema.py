@@ -8,6 +8,7 @@ only the handful of facts no ``PRAGMA`` can reveal:
     which domain a table belongs to    -> DOMAIN_ROOTS
     which tables to ignore entirely     -> EXCLUDED_TABLES
     which columns are secret/personal   -> SECRET_COLUMNS  (tripwire: SENSITIVE_*)
+    where a secret hides inside JSON    -> SECRET_JSON_PATHS
     product rules layered on top         -> IMPLIED_DOMAINS, PRESERVED_COLUMNS
 
 You don't have to remember when to touch them: ``tests/integration/
@@ -33,7 +34,9 @@ tripwire, so they fail loudly instead:
     a secret-canary test that seeds a unique sentinel into every secret column,
     exports without ``configs`` (and with ``strip_keys``), and greps the produced
     file's raw bytes for any surviving canary -- a generic leak check, not just the
-    declared columns' happy path.
+    declared columns' happy path. The same canary is derived from
+    ``SECRET_JSON_PATHS`` as well, so every declared path is proved to be *walked*
+    rather than merely declared.
 """
 
 from __future__ import annotations
@@ -84,6 +87,42 @@ SECRET_COLUMNS: dict[tuple[str, str], str] = {
     ("settings", "agent_shared_system_prompt"): "",
     ("endpoints", "api_key"): "",
     ("endpoints", "proxy"): "",
+    # Free-form and user-supplied, so its contents are unknown and may be
+    # sensitive; declared secret alongside endpoints.proxy. model_configs is not
+    # a singleton table, so these rows are dropped by the cascade when configs is
+    # not exported rather than blanked in place. extra_body is deliberately not
+    # declared -- it holds routing and tuning config worth carrying across.
+    ("model_configs", "extra_headers"): "",
+}
+
+# Touch when: a workflow starts storing a credential inside one of the free-form
+# JSON columns (the coverage test walks every registered workflow's normalized
+# config/profile and fails here naming the missing path). Maps
+# ``(table, column) -> the JSON paths whose leaf must be blanked``, with ``"*"``
+# standing for "every key at this level" (a provider map keyed by provider id).
+#
+# A JSON column can never be name-detected -- ``is_sensitive_column("workflow_config")``
+# is False and always will be -- so ``SECRET_COLUMNS`` cannot express this. Nor can
+# the column simply be declared secret there: blanking ``settings.workflow_config``
+# wholesale would destroy every style, imported graph and TTS setting, and a blind
+# recursive blank-by-key-name would mangle the node inputs of an imported ComfyUI
+# graph. Paths are the only statement narrow enough to be correct.
+#
+# **All three ``workflow_state`` columns are declared, two of them empty.**
+# ``workflow_state`` is the same free-form per-workflow JSON slot on ``conversations``,
+# ``character_cards`` and ``messages``, written through the same toolkit helpers; only
+# the character one holds a credential today. Declaring all three makes this table a
+# statement about every column that *could* hold one, and gives the coverage test
+# something to assert completeness against -- an absent key and an empty tuple say
+# different things.
+SECRET_JSON_PATHS: dict[tuple[str, str], tuple[tuple[str, ...], ...]] = {
+    ("settings", "workflow_config"): (
+        ("image_gen", "external_comfy", "api_key"),
+        ("image_gen", "cloud", "providers", "*", "api_key"),
+    ),
+    ("character_cards", "workflow_state"): (("tts", "api_key"),),
+    ("conversations", "workflow_state"): (),
+    ("messages", "workflow_state"): (),
 }
 
 # Touch when: exporting one domain only makes sense alongside another (a product

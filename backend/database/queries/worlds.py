@@ -56,7 +56,7 @@ async def update_world(world_id: str, data: dict) -> WorldRow | None:
             vals.append(datetime.now(UTC).isoformat())
             vals.append(world_id)
             await db.execute(
-                f"UPDATE worlds SET {', '.join(sets)} WHERE id = ?",
+                f"UPDATE worlds SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()
@@ -146,7 +146,7 @@ async def update_lorebook_entry(entry_id: int, data: dict) -> LorebookEntryRow |
             vals.append(datetime.now(UTC).isoformat())
             vals.append(entry_id)
             await db.execute(
-                f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",
+                f"UPDATE lorebook_entries SET {', '.join(sets)} WHERE id = ?",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
                 vals,
             )
             await db.commit()

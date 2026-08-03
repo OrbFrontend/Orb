@@ -417,6 +417,25 @@ function _isNetworkError(e) {
   return e instanceof TypeError && e.status === undefined;
 }
 
+// The failure chip under an artifact group, once for regenerate and reroll: same
+// shape, same one-chip-per-group rule, only the class and the verb differ.
+//
+// A bare "Reroll failed" taught the user only that a button did not work; the
+// sentence behind it is usually one they can act on — "OpenRouter rejected the
+// request (HTTP 400): Google AI Studio: User location is not supported for the API
+// use." The backend already sanitized and capped it, and every status but 500
+// carries a detail meant for the user (see the 502 arm in api/routes/workflows.py).
+// A 500's is deliberately "see server logs", and a transport failure has no status
+// and a browser string for a message.
+function _showActionFailure(container, cls, action, e) {
+  if (!container || container.querySelector(`.${cls}`)) return;
+  const reason = typeof e?.message === "string" ? e.message.trim() : "";
+  const cap = document.createElement("div");
+  cap.className = cls;
+  cap.textContent = reason && e?.status && e.status !== 500 ? `${action} failed: ${reason}` : `${action} failed`;
+  container.appendChild(cap);
+}
+
 function _rootSiblingIds(msg, rootId) {
   const atts = msg?.workflow_attachments || [];
   return new Set(atts.filter((a) => (a.parent_attachment_id || a.id) === rootId).map((a) => a.id));
@@ -587,12 +606,7 @@ window.workflowRegenerate = async (msgId, attId, btn) => {
       // Recovered (or navigated away) -- no failure chip owed.
     } else {
       console.error("Regenerate failed:", e);
-      if (container && !container.querySelector(".workflow-regen-error")) {
-        const cap = document.createElement("div");
-        cap.className = "workflow-regen-error";
-        cap.textContent = "Regenerate failed";
-        container.appendChild(cap);
-      }
+      _showActionFailure(container, "workflow-regen-error", "Regenerate", e);
     }
   } finally {
     clearWorkflowPhase(ch);
@@ -644,12 +658,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
       // Recovered (or navigated away) -- no failure chip owed.
     } else {
       console.error("Reroll failed:", e);
-      if (container && !container.querySelector(".workflow-reroll-error")) {
-        const cap = document.createElement("div");
-        cap.className = "workflow-reroll-error";
-        cap.textContent = "Reroll failed";
-        container.appendChild(cap);
-      }
+      _showActionFailure(container, "workflow-reroll-error", "Reroll", e);
     }
   } finally {
     clearWorkflowPhase(ch);

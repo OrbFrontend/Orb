@@ -113,7 +113,7 @@ async def api_import_lorebook(world_id: str, payload: LorebookImportPayload):
     raw_entries = payload.entries
     # Normalise both formats into a flat list of dicts
     if isinstance(raw_entries, dict):
-        # SillyTavern standalone: {"0": {...}, "1": {...}}
+        # Standalone World Info export: {"0": {...}, "1": {...}}
         items = list(raw_entries.values())
     elif isinstance(raw_entries, list):
         # Tavern V2 character_book: [...]

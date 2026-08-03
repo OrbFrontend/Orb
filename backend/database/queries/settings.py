@@ -79,6 +79,8 @@ async def get_settings() -> SettingsRow:
                             "reasoning_effort",
                             "reasoning_effort_param",
                             "reasoning_effort_value",
+                            "extra_headers",
+                            "extra_body",
                         ):
                             if mc.get(field) is not None:
                                 s[field] = mc[field]
@@ -127,6 +129,8 @@ async def get_settings() -> SettingsRow:
                             "reasoning_effort",
                             "reasoning_effort_param",
                             "reasoning_effort_value",
+                            "extra_headers",
+                            "extra_body",
                         ):
                             if amc.get(field) is not None:
                                 s[f"agent_{field}"] = amc[field]
@@ -138,7 +142,13 @@ async def get_settings() -> SettingsRow:
         s.setdefault("agent_completion_mode", s["completion_mode"])
         s.setdefault("proxy", "")
         s.setdefault("agent_proxy", s["proxy"])
-        for field in ("reasoning_effort", "reasoning_effort_param", "reasoning_effort_value"):
+        for field in (
+            "reasoning_effort",
+            "reasoning_effort_param",
+            "reasoning_effort_value",
+            "extra_headers",
+            "extra_body",
+        ):
             s.setdefault(field, "")
             s.setdefault(f"agent_{field}", s[field])
         return cast(SettingsRow, s)
@@ -296,8 +306,8 @@ async def update_settings(data: dict) -> SettingsRow:
         )
         if sets:
             await db.execute(
-                f"UPDATE settings SET {', '.join(sets)} WHERE id = 1",
-                vals,  # nosec B608 — cols from hardcoded allowlist, values parameterised
+                f"UPDATE settings SET {', '.join(sets)} WHERE id = 1",  # nosec B608 — cols from a hardcoded allowlist, values parameterised
+                vals,
             )
             await db.commit()
         return await get_settings()

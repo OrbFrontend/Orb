@@ -47,7 +47,7 @@ def _rebuild(conn: sqlite3.Connection, table: str) -> None:
     new_cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table}_new)").fetchall()]
     old_cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     cols = ", ".join(c for c in new_cols if c in old_cols)
-    conn.execute(f"INSERT INTO {table}_new ({cols}) SELECT {cols} FROM {table}")
+    conn.execute(f"INSERT INTO {table}_new ({cols}) SELECT {cols} FROM {table}")  # nosec B608 — table/cols are module literals
     conn.execute(f"DROP TABLE {table}")
     conn.execute(f"ALTER TABLE {table}_new RENAME TO {table}")
     print(f"[migrations] 0027: rebuilt {table} with the persona_lock_id foreign key")

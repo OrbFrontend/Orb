@@ -88,7 +88,7 @@ async def api_create_character(data: CharacterCardCreate):
 
 @router.post("/api/characters/import")
 async def api_import_character(file: Annotated[UploadFile, File(...)]):
-    """Import a SillyTavern-compatible character card PNG."""
+    """Import a character card PNG (V3 chunk preferred, V2/V1 fallback)."""
     if not file.filename or not file.filename.lower().endswith(".png"):
         raise HTTPException(status_code=400, detail="Only .png character card files are supported")
 
@@ -207,7 +207,7 @@ async def api_get_avatar(card_id: str, request: Request):
 
 @router.get("/api/characters/{card_id}/export")
 async def api_export_character(card_id: str):
-    """Export a character card as a SillyTavern V2-compatible PNG."""
+    """Export a character card as a V2-compatible card PNG."""
     card = await get_character_card(card_id, include_avatar=True)
     if not card:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -245,7 +245,7 @@ async def api_export_character(card_id: str):
     )
 
 
-# ── Character expressions (SillyTavern-style expression packs) ────────────────
+# ── Character expressions (expression packs) ──────────────────────────────────
 
 
 @router.post("/api/characters/{card_id}/expressions")

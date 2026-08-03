@@ -1,17 +1,15 @@
-"""Re-encode ComfyUI's full-res PNG to WebP before it is stored.
+"""Re-encode images on the way out (display) and on the way in (references).
 
-ComfyUI hands back a full-resolution PNG -- a 1472x2304 render is ~4.7 MB, and a
-chat that keeps eight of them inlines ~33 MB of base64 into one message payload,
-which the browser must parse on every open. WebP at high quality is visually
-identical and roughly 6x smaller, so far less base64 ships and gets parsed.
+**Display.** A full-resolution PNG render is ~4.7 MB, so a chat holding eight of
+them inlines ~33 MB of base64 the browser parses on every open. WebP at q95 is
+visually identical and roughly 6x smaller. Resolution is preserved, so what shows
+inline is still the full-quality picture; the conversion is lossy and one-way, but
+reroll/rehydrate re-render from the backend, so replay fidelity is unaffected.
 
-Resolution is preserved (no downscale) -- the stored image is still full-res, so
-what shows inline is the full-quality picture. The per-image *decode* cost is set
-by pixel count regardless of format; that is handled on the frontend by
-content-visibility, which only decodes the messages actually on screen.
-
-Lossy (q90, visually indistinguishable) and one-way -- the exact PNG bytes are not
-kept. Reroll/rehydrate re-render from ComfyUI, so replay fidelity is unaffected.
+**References.** A reference goes the other way, into a backend that has declared
+what it accepts. `normalize_reference` is where that contract is *enforced* -- see
+its docstring for the split between a destination that declared one and one that
+did not.
 """
 
 from __future__ import annotations
@@ -20,25 +18,149 @@ import io
 
 from PIL import Image
 
+from .contracts import ImageGenerationError
+
 _WEBP_QUALITY = 95
+_REFERENCE_MAX_EDGE = 4096
+_REFERENCE_MAX_BYTES = 8 * 1024 * 1024
+
+_FORMATS = {"image/webp": "WEBP", "image/png": "PNG", "image/jpeg": "JPEG"}
+_TARGET_PREFERENCE = ("image/webp", "image/jpeg", "image/png")
+_REFERENCE_QUALITIES = (95, 85, 75)
+_REFERENCE_EDGES = (_REFERENCE_MAX_EDGE, 3072, 2048, 1536, 1024)
+
+
+def _target_mime(allowed: tuple[str, ...]) -> str:
+    """The mime to convert to for a destination that declared `allowed`."""
+    if not allowed:
+        return "image/webp"
+    for candidate in _TARGET_PREFERENCE:
+        if candidate in allowed:
+            return candidate
+    return allowed[0]
+
+
+def _load(data: bytes, fmt: str) -> Image.Image:
+    """A decoded copy in a mode the target format can save, detached from the file
+    handle so the caller can re-encode it down the ladder without reopening."""
+    with Image.open(io.BytesIO(data)) as src:
+        src.load()
+        wanted = ("RGB",) if fmt == "JPEG" else ("RGB", "RGBA")
+        return src.copy() if src.mode in wanted else src.convert("RGB")
+
+
+def _encode(image: Image.Image, fmt: str, quality: int) -> bytes:
+    buf = io.BytesIO()
+    if fmt == "WEBP":
+        image.save(buf, format=fmt, quality=quality, method=4)
+    elif fmt == "JPEG":
+        image.save(buf, format=fmt, quality=quality, optimize=True)
+    else:
+        image.save(buf, format=fmt, optimize=True)
+    return buf.getvalue()
+
+
+def _bounded(image: Image.Image, fmt: str, max_bytes: int) -> bytes:
+    """The first encoding that fits `max_bytes`, else the smallest one tried.
+
+    Returning the smallest attempt rather than raising leaves the decision about an
+    unmeetable budget with the caller, the only place that knows whether the
+    destination declared it as a contract or as a preference.
+    """
+    qualities = _REFERENCE_QUALITIES if fmt in ("WEBP", "JPEG") else (_WEBP_QUALITY,)
+    longest = max(image.size)
+    smallest = b""
+    tried: set[int] = set()
+    for edge in _REFERENCE_EDGES:
+        effective = min(edge, longest)
+        if effective in tried:
+            continue
+        tried.add(effective)
+        candidate_image = image
+        if effective < longest:
+            candidate_image = image.copy()
+            candidate_image.thumbnail((effective, effective), Image.Resampling.LANCZOS)
+        for quality in qualities:
+            candidate = _encode(candidate_image, fmt, quality)
+            if len(candidate) <= max_bytes:
+                return candidate
+            if not smallest or len(candidate) < len(smallest):
+                smallest = candidate
+    return smallest
 
 
 def shrink_for_display(data: bytes, mime: str) -> tuple[bytes, str]:
-    """Re-encode to WebP at full resolution.
+    """Re-encode a render to WebP at full resolution, for storage and inlining.
 
-    Returns ``(webp_bytes, "image/webp")``, or the input ``(data, mime)`` unchanged
-    when re-encoding would not help or fails. Never raises: a display optimization
-    must not sink a generation that already cost a minute of GPU time.
+    Never raises, and never grows a payload: this is purely an optimization, so
+    an already-small source that encodes larger as WebP keeps its own bytes and
+    an unreadable one is handed back untouched.
     """
     try:
-        with Image.open(io.BytesIO(data)) as img:
-            img.load()
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGB")
-            buf = io.BytesIO()
-            img.save(buf, format="WEBP", quality=_WEBP_QUALITY, method=4)
+        image = _load(data, "WEBP")
+        out = _encode(image, "WEBP", _WEBP_QUALITY)
     except Exception:
         return data, mime
-    out = buf.getvalue()
-    # An already-small source can encode larger as WebP -- keep whichever is smaller.
     return (out, "image/webp") if len(out) < len(data) else (data, mime)
+
+
+def normalize_reference(
+    data: bytes,
+    mime: str,
+    *,
+    allowed: tuple[str, ...] = (),
+    max_bytes: int = _REFERENCE_MAX_BYTES,
+) -> tuple[bytes, str]:
+    """Bound a reference image to what the backend about to receive it accepts.
+
+    Untouched unless it genuinely breaches the contract -- a 12 MP camera upload,
+    not a render. Two rules, split on whether the destination declared anything:
+
+    * **`allowed` given** -- a stated contract, enforced, raising
+      `ImageGenerationError` when it cannot be met. Shipping a WebP inside a JSON
+      body that tells the provider PNG is not a smaller failure than saying so.
+    * **`allowed` empty** -- nothing declared, so best effort and never raising: a
+      reference Orb cannot decode is still one the backend probably can.
+
+    A size gate alone would not do for the first rule: every render is stored as
+    WebP, so a reference resolving to the previous image sails under both ceilings
+    unconverted. A disallowed *input* mime therefore forces the re-encode
+    irrespective of size, and the byte budget is met by the ladder above.
+    """
+    target = _target_mime(allowed)
+    fmt = _FORMATS.get(target, "WEBP")
+
+    def give_up() -> tuple[bytes, str]:
+        """Orb cannot convert these bytes: hand them back, or refuse a contract."""
+        if not allowed:
+            return data, mime
+        raise ImageGenerationError(_unreadable(max_bytes)) from None
+
+    incompatible = bool(allowed) and mime not in allowed
+    if not incompatible and len(data) <= max_bytes:
+        try:
+            with Image.open(io.BytesIO(data)) as probe:
+                if max(probe.size) <= _REFERENCE_MAX_EDGE:
+                    return data, mime
+        except Exception:
+            return give_up()
+    try:
+        image = _load(data, fmt)
+    except Exception:
+        return give_up()
+    out = _bounded(image, fmt, max_bytes)
+    if not out:
+        return give_up()
+    if len(out) > max_bytes and allowed:
+        raise ImageGenerationError(
+            f"This reference image is still {len(out) // (1024 * 1024)} MB after Orb resized it, and the image "
+            f"backend accepts at most {max_bytes // (1024 * 1024)} MB. Use a smaller image."
+        )
+    return out, target
+
+
+def _unreadable(max_bytes: int) -> str:
+    return (
+        "Orb could not read this reference image, so it cannot convert it to a format the image backend accepts. "
+        f"Use a PNG, JPEG or WebP under {max_bytes // (1024 * 1024)} MB."
+    )

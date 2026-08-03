@@ -27,6 +27,15 @@ def test_deps_ok_reports_missing_extra():
         assert "requirements-ml.txt" in reason
 
 
+def test_install_cmd_paths_are_absolute():
+    # Pasted into a fresh cmd prompt with no cwd in the repo, so neither the
+    # interpreter nor the requirements file may be relative.
+    cmd = local_ml.install_cmd()
+    req = cmd.split("-r ", 1)[1].strip('"')
+    assert os.path.isabs(req) and req.endswith("requirements-ml.txt")
+    assert os.path.isabs(cmd.split(" -m ", 1)[0].strip('"'))
+
+
 def test_model_dir_is_created(monkeypatch, tmp_path):
     monkeypatch.setattr(local_ml, "_ROOT", str(tmp_path))
     d = local_ml.model_dir()

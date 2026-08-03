@@ -106,6 +106,25 @@
 
 .sidebar-section-body.collapsed { display: none; }
 
+/* Endpoint field groups (native <details>) -- styled to echo the section
+   headers one level up, but lighter so the nesting reads as nesting. */
+.ep-group {
+  border-top: 1px solid var(--accent-dim);
+  margin-top: 10px;
+}
+
+.ep-group > summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.ep-group > summary:hover { color: var(--text-primary); }
+
 /* Conversation list items */
 .conv-item {
   display: flex;

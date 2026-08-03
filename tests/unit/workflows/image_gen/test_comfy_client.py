@@ -123,48 +123,67 @@ def _recorder():
 
 @pytest.mark.asyncio
 async def test_queue_position_counts_only_entries_ahead():
-    queue = {
-        "queue_running": [[2, "other-a"]],
-        "queue_pending": [[3, "other-b"], [5, "p1"], [9, "later"]],
-    }
+    queue = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"], [5, "p1"], [9, "later"]]}
     client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server([queue])))
     # 2 and 3 are ahead; this job's own entry and the one behind it are not.
     assert await client.queue_ahead(5) == 2
 
 
+_BUSY = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"]]}
+
+
 @pytest.mark.asyncio
-async def test_progress_reports_position_then_rendering():
-    busy = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"]]}
+@pytest.mark.parametrize(
+    ("queue_bodies", "expected"),
+    [
+        # Queued behind two, no repeat while the position is unchanged, then rendering.
+        ([_BUSY, _BUSY, {"queue_running": [[5, "p1"]], "queue_pending": []}], [("queued", 2), ("rendering", 0)]),
+        ([], [("rendering", 0)]),
+        # An unavailable /queue leaves the position unknown, never guessed, and the
+        # render proceeds regardless.
+        ([httpx.Response(404)], [("rendering", None)]),
+    ],
+    ids=["queued then rendering", "queue empty", "queue endpoint missing"],
+)
+async def test_progress_reports_the_position_it_can_actually_see(queue_bodies, expected):
     seen, progress = _recorder()
-    client = ComfyClient(
-        "http://comfy.test",
-        transport=httpx.MockTransport(_server([busy, busy, {"queue_running": [[5, "p1"]], "queue_pending": []}])),
-    )
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server(queue_bodies)))
     result = await client.generate({"9": {}}, "9", timeout_seconds=10, progress=progress)
     assert result.mime == "image/png"
-    # Queued behind two, no repeat while the position is unchanged, then rendering.
-    assert seen == [("queued", 2), ("rendering", 0)]
+    assert seen == expected
 
 
 @pytest.mark.asyncio
-async def test_progress_reports_rendering_when_queue_is_empty():
-    seen, progress = _recorder()
-    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server([])))
-    await client.generate({"9": {}}, "9", timeout_seconds=10, progress=progress)
-    assert seen == [("rendering", 0)]
+async def test_reference_upload_posts_multipart_and_returns_the_widget_value():
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/upload/image"
+        seen["auth"] = request.headers.get("authorization") or ""
+        seen["body"] = request.content.decode("latin-1")
+        return httpx.Response(200, json={"name": "orb_0123456789abcdef.webp", "subfolder": "orb", "type": "input"})
+
+    client = ComfyClient("http://comfy.test", "sekrit", transport=httpx.MockTransport(handler))
+    value = await client.upload_image(b"RIFFxxxxWEBP", "image/webp", digest="0123456789abcdef" + "f" * 48)
+
+    # `folder_paths.get_annotated_filepath` resolves a bare "<subfolder>/<name>"
+    # under the input directory, which is what the LoadImage widget must carry.
+    assert value == "orb/orb_0123456789abcdef.webp"
+    assert seen["auth"] == "Bearer sekrit"
+    body = seen["body"]
+    assert 'name="image"; filename="orb_0123456789abcdef.webp"' in body
+    assert 'name="subfolder"' in body and "orb" in body
+    assert 'name="type"' in body and "input" in body
+    # ComfyUI compares `overwrite` against the strings "true"/"1"; a bool would
+    # silently mean "no" and leave a new file behind on every render.
+    assert 'name="overwrite"' in body and "true" in body
 
 
 @pytest.mark.asyncio
-async def test_unavailable_queue_endpoint_does_not_fail_the_render():
-    seen, progress = _recorder()
-    client = ComfyClient(
-        "http://comfy.test",
-        transport=httpx.MockTransport(_server([httpx.Response(404)])),
-    )
-    result = await client.generate({"9": {}}, "9", timeout_seconds=10, progress=progress)
-    # Position is unknown, never guessed, and the render proceeds regardless.
-    assert result.mime == "image/png"
-    assert seen == [("rendering", None)]
+async def test_a_refused_reference_upload_funnels_through_the_one_error_type():
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(lambda _: httpx.Response(413)))
+    with pytest.raises(ImageGenerationError, match="reference image"):
+        await client.upload_image(b"x", "image/png", digest="a" * 64)
 
 
 @pytest.mark.asyncio
