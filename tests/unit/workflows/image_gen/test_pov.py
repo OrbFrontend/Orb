@@ -61,12 +61,8 @@ def test_pov_from_logits_marginalizes_tense_rather_than_taking_the_top_cell():
 # --- the levers ----------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "value, expected",
-    [("auto", "auto"), ("first", "first"), ("third", "third"), ("nonsense", "auto"), (None, "auto"), (7, "auto")],
-)
-def test_normalize_mode_falls_back_to_the_default(value, expected):
-    assert pov.normalize_mode(value) == expected
+# `normalize_mode` itself is pinned through the config route it exists for, in
+# `test_hooks::test_pov_mode_is_global_config`.
 
 
 @pytest.mark.parametrize("mode, expected", [("first", pov.FIRST), ("third", pov.THIRD)])

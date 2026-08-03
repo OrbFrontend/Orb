@@ -11,7 +11,9 @@ that drives the generic engine across every domain at once.
 from __future__ import annotations
 
 import importlib
+import json
 import sqlite3
+import sys
 
 import pytest
 
@@ -652,30 +654,227 @@ async def test_build_preset_rejects_rows_in_excluded_table(client, db_path):
     assert "message_attachments" in str(exc.value)
 
 
+# ── secrets hiding inside free-form JSON columns ─────────────────────────────────
+
+
+def _sensitive_leaves(node, prefix: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+    """Every path under `node` whose leaf key reads as a credential.
+
+    ``is_sensitive_column``'s own rule, run one level down: these columns hold JSON,
+    so the name check that guards a real column has to be applied to the keys inside
+    it. A list level contributes ``"*"``, the same wildcard a map keyed by provider
+    id does.
+    """
+    found: list[tuple[str, ...]] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, (dict, list)):
+                found.extend(_sensitive_leaves(value, (*prefix, str(key))))
+            elif presets.ps.is_sensitive_column(str(key)):
+                found.append((*prefix, str(key)))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_sensitive_leaves(item, (*prefix, "*")))
+    return found
+
+
+def _path_is_declared(declared: tuple[tuple[str, ...], ...], found: tuple[str, ...]) -> bool:
+    return any(
+        len(path) == len(found) and all(a == "*" or a == b for a, b in zip(path, found, strict=True)) for path in declared
+    )
+
+
+def _profile_surfaces(workflow_id: str) -> list[dict]:
+    """``normalize_profile({})`` for every module of a workflow that defines one.
+
+    Found by scanning modules already imported rather than by walking the package:
+    registering the workflows imports every ``hooks`` module, which is what pulls
+    both of today's normalizers in, while a tree walk would import optional adapter
+    dependencies that need not be installed.
+    """
+    prefix = f"backend.workflows.{workflow_id}."
+    seen: set[int] = set()
+    out: list[dict] = []
+    for name, module in list(sys.modules.items()):
+        if not name.startswith(prefix):
+            continue
+        fn = getattr(module, "normalize_profile", None)
+        if callable(fn) and id(fn) not in seen:
+            seen.add(id(fn))
+            out.append(fn({}))
+    return out
+
+
+def test_secret_json_paths_declare_every_workflow_credential():
+    """Walk what the workflows actually *normalize to* -- not ``CONFIG_DEFAULTS``.
+
+    A ``CONFIG_DEFAULTS`` walk would pass while the leak it exists to guard sat
+    undefended: the TTS key is not config at all, it is a per-character profile
+    field, and TTS's ``CONFIG_DEFAULTS`` carries no ``api_key``. ``Workflow`` exposes
+    no profile-defaults field for a walker to find either, so the normalized
+    surfaces are the only honest thing to walk.
+
+    The test may import both the registry and ``preset_schema``; ``preset_schema``
+    must not import the registry (layering), so the table stays hand-maintained and
+    this asserts it matches.
+    """
+    from backend.workflows import list_workflows
+
+    undeclared: list[tuple[str, str, tuple[str, ...]]] = []
+    for workflow in list_workflows():
+        normalizer = workflow.config_normalizer
+        surfaces = [("settings", "workflow_config", normalizer({}) if normalizer else dict(workflow.config_defaults))]
+        surfaces += [("character_cards", "workflow_state", profile) for profile in _profile_surfaces(workflow.id)]
+        for table, column, payload in surfaces:
+            declared = presets.ps.SECRET_JSON_PATHS[(table, column)]
+            for leaf in _sensitive_leaves(payload):
+                path = (workflow.id, *leaf)
+                if not _path_is_declared(declared, path):
+                    undeclared.append((table, column, path))
+    assert undeclared == [], f"declare these in preset_schema.SECRET_JSON_PATHS: {undeclared}"
+
+
+def test_every_free_form_workflow_json_column_is_declared(tmp_path):
+    """An absent key and an empty tuple say different things.
+
+    The three ``workflow_state`` columns are the same free-form per-workflow slot,
+    written through the same toolkit helpers; only one holds a credential today. All
+    of them must therefore be a deliberate declaration rather than an oversight.
+    """
+    conn = _fresh_schema_db(tmp_path)
+    try:
+        columns = set()
+        for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+            if table in presets.ps.EXCLUDED_TABLES:
+                continue
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall():
+                if row[1] in ("workflow_config", "workflow_state"):
+                    columns.add((table, row[1]))
+    finally:
+        conn.close()
+    assert columns == set(presets.ps.SECRET_JSON_PATHS)
+
+
+async def test_workflow_config_scrub_blanks_only_the_declared_key(client, db_path):
+    """The reason the column is declared by *path* and not by name.
+
+    Declaring ``settings.workflow_config`` secret would blank the whole slot and
+    destroy every style, imported graph and TTS setting; a blind recursive
+    blank-by-key-name would mangle an imported ComfyUI graph's node inputs. So this
+    asserts both halves: the key goes, everything beside it survives byte-for-byte.
+    """
+    blob = {
+        "image_gen": {
+            "source": "cloud",
+            "external_comfy": {
+                "api_key": "comfy-key-must-not-ship",
+                "api_url": "http://127.0.0.1:8188",
+                # A node input literally named api_key inside a user-imported graph:
+                # not Orb's credential, and a by-name blank would destroy it.
+                "user_graphs": [{"id": "user_a", "graph": {"7": {"inputs": {"api_key": "graph-node-value"}}}}],
+            },
+            # The model rides the style, not the connection -- a connection is an
+            # address and a credential, so `api_key` is the only leaf here to blank.
+            "styles": [{"id": "realistic", "prompt": "RAW photo", "model": "grok-imagine-image"}],
+            "cloud": {"providers": {"xai": {"api_key": "xai-key-must-not-ship", "base_url": ""}}},
+        },
+        "tts": {"auto_play": True},
+    }
+    seed = sqlite3.connect(str(db_path))
+    try:
+        seed.execute("UPDATE settings SET workflow_config = ?", (json.dumps(blob),))
+        seed.commit()
+    finally:
+        seed.close()
+
+    name = (await client.post("/api/presets/export", json={"domains": ["characters"], "strip_keys": False})).json()["name"]
+    exported = sqlite3.connect(presets._library_path(name))
+    try:
+        stored = json.loads(exported.execute("SELECT workflow_config FROM settings WHERE id = 1").fetchone()[0])
+    finally:
+        exported.close()
+
+    assert stored["image_gen"]["external_comfy"]["api_key"] == ""
+    assert stored["image_gen"]["cloud"]["providers"]["xai"]["api_key"] == ""
+    # Everything the user would lose if this were a column-level blank.
+    assert stored["image_gen"]["styles"] == blob["image_gen"]["styles"]
+    assert stored["image_gen"]["styles"][0]["model"] == "grok-imagine-image"
+    assert stored["image_gen"]["external_comfy"]["user_graphs"] == blob["image_gen"]["external_comfy"]["user_graphs"]
+    assert stored["image_gen"]["cloud"]["providers"]["xai"]["base_url"] == ""
+    assert stored["tts"] == {"auto_play": True}
+
+
 # ── secret-canary leak sentinel ──────────────────────────────────────────────────
 
 
+def _nest(path: tuple[str, ...], value: str) -> dict:
+    node: object = value
+    for key in reversed(path):
+        node = {("representative" if key == "*" else key): node}
+    assert isinstance(node, dict)
+    return node
+
+
+def _deep_merge(dst: dict, src: dict) -> dict:
+    for key, value in src.items():
+        if isinstance(value, dict) and isinstance(dst.get(key), dict):
+            _deep_merge(dst[key], value)
+        else:
+            dst[key] = value
+    return dst
+
+
 async def test_no_secret_canary_leaks_in_exports(client, db_path):
-    """Seed a unique sentinel into every SECRET_COLUMNS column, then prove no leak
-    path ships it: (a) any single domain exported without ``configs`` must contain
-    no sentinel at all; (b) a full export with ``strip_keys`` must contain no
-    *api_key* sentinel. A future leak fails this generically, not just for the
-    declared columns' happy path."""
+    """Seed a unique sentinel into every declared secret -- column *and* JSON path --
+    then prove no leak path ships it: (a) any single domain exported without
+    ``configs`` must contain no sentinel at all; (b) a full export with
+    ``strip_keys`` must contain no *api_key* sentinel. A future leak fails this
+    generically, not just for the declared columns' happy path.
+
+    Deriving the JSON canaries from ``SECRET_JSON_PATHS`` proves more than a
+    table-shape assertion can: it proves ``_blank_json_paths`` actually *walks* each
+    declared path. Seeding ``character_cards.workflow_state`` is also the failing-
+    then-passing proof of the live TTS leak -- before this landed, the ``characters``
+    domain exported with that key intact.
+    """
     path = str(db_path)
 
     def canary(table: str, col: str) -> bytes:
         return f"LEAK-CANARY-{table}-{col}".encode()
 
+    def json_canary(table: str, col: str, leaf: tuple[str, ...]) -> bytes:
+        return "LEAK-CANARY-{}-{}-{}".format(table, col, ".".join(leaf)).encode()
+
+    # The JSON canaries need rows to live on: character_cards is where the TTS key
+    # sits, and it is empty on a fresh DB.
+    await client.post("/api/characters", json={"name": "Canary"})
+
+    json_canaries: list[bytes] = []
     seed = sqlite3.connect(path)
     try:
         for table, col in presets.ps.SECRET_COLUMNS:
             seed.execute(f"UPDATE {table} SET {col} = ?", (canary(table, col).decode(),))
+        for (table, col), paths in presets.ps.SECRET_JSON_PATHS.items():
+            if not paths:
+                continue
+            payload: dict = {}
+            for leaf in paths:
+                value = json_canary(table, col, leaf)
+                json_canaries.append(value)
+                _deep_merge(payload, _nest(leaf, value.decode()))
+            seed.execute(f"UPDATE {table} SET {col} = ?", (json.dumps(payload),))
         seed.commit()
     finally:
         seed.close()
+    assert json_canaries, "SECRET_JSON_PATHS declares no path; this test would prove nothing"
 
-    all_canaries = [canary(t, c) for (t, c) in presets.ps.SECRET_COLUMNS]
-    api_key_canaries = [canary(t, c) for (t, c) in presets.ps.SECRET_COLUMNS if c == "api_key"]
+    all_canaries = [canary(t, c) for (t, c) in presets.ps.SECRET_COLUMNS] + json_canaries
+    api_key_canaries = [canary(t, c) for (t, c) in presets.ps.SECRET_COLUMNS if c == "api_key"] + [
+        json_canary(t, c, leaf)
+        for (t, c), paths in presets.ps.SECRET_JSON_PATHS.items()
+        for leaf in paths
+        if leaf[-1] == "api_key"
+    ]
 
     # (a) every single domain that does NOT pull in configs -> nothing personal ships.
     non_configs = [d for d in presets.ALL_DOMAINS if d != "configs"]

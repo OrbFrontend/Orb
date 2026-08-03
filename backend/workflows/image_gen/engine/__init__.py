@@ -1,38 +1,29 @@
-"""Narrow public facade for external image generation."""
+"""Narrow public facade for image generation.
 
-from .adapters.external_comfy import (
-    CAPABILITIES,
-    list_models,
-    node_roles,
-    validate_connection,
-)
-from .comfy_client import ProgressCallback, invalidate_object_info
+Only what crosses out of `engine/`: the hook layer's render seam, the adapter
+lookups the query actions dispatch through, and the error type every caller
+funnels on. Adapters, capabilities and the graph helpers are imported from their
+own modules -- re-exporting them here would advertise a surface nothing uses.
+"""
+
 from .contracts import (
-    ImageBackendCapabilities,
     ImageGenerationError,
     ImageRequest,
     ImageResult,
-    ResolvedReference,
+    ProgressCallback,
+    recorded_edge,
 )
-from .graph import graph_has_negative, graph_reference_slots, has_graph
-from .render import RenderTarget, resolve_and_generate, resolve_render_target
+from .render import resolve_and_generate
+from .router import comfy_adapter, get_adapter, list_sources
 
 __all__ = [
-    "CAPABILITIES",
-    "ImageBackendCapabilities",
     "ImageGenerationError",
     "ImageRequest",
     "ImageResult",
     "ProgressCallback",
-    "RenderTarget",
-    "ResolvedReference",
-    "graph_has_negative",
-    "graph_reference_slots",
-    "has_graph",
-    "invalidate_object_info",
-    "list_models",
-    "node_roles",
+    "comfy_adapter",
+    "get_adapter",
+    "list_sources",
+    "recorded_edge",
     "resolve_and_generate",
-    "resolve_render_target",
-    "validate_connection",
 ]

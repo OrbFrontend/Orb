@@ -6,29 +6,18 @@ import asyncio
 import json
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
 
-from .contracts import ImageGenerationError, ImageResult
+from ..config import MIME_EXTENSIONS
+from .contracts import ImageGenerationError, ImageResult, ProgressCallback, emit
 from .display_encode import shrink_for_display
+from .image_bytes import MAX_IMAGE_BYTES, image_mime
 
-MAX_IMAGE_BYTES = 20 * 1024 * 1024
-ProgressCallback = Callable[[str, Mapping[str, Any]], Awaitable[None] | None]
-
-# One subfolder of ComfyUI's input directory, so Orb's leftovers are identifiable.
-# Core ComfyUI exposes no delete API for input files, so it grows by one file per
-# distinct reference; content-addressed names keep repeats from adding to that.
 REFERENCE_SUBFOLDER = "orb"
-_UPLOAD_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 
-# `/object_info` is the one enormous response in this contract -- a real install
-# with custom-node packs reports ~2000 node types, tens of megabytes. Readiness
-# probes run on every Visualize modal open, so an uncached fetch would put that
-# transfer in front of a button click. Node sets change only when the server
-# restarts with different packs installed, so a short TTL is safe; an explicit
-# Test connection asks for a fresh copy.
 _OBJECT_INFO_TTL = 60.0
 _OBJECT_INFO_MAX_ENTRIES = 8
 _object_info_cache: dict[str, tuple[float, dict]] = {}
@@ -40,14 +29,6 @@ def invalidate_object_info(api_url: str | None = None) -> None:
         _object_info_cache.clear()
     else:
         _object_info_cache.pop(api_url.rstrip("/"), None)
-
-
-async def _emit(progress: ProgressCallback | None, stage: str, detail: Mapping[str, Any]) -> None:
-    if not progress:
-        return
-    maybe = progress(stage, detail)
-    if maybe is not None:
-        await maybe
 
 
 def _validation_message(payload: Any) -> str:
@@ -77,16 +58,6 @@ def _validation_message(payload: Any) -> str:
     if error_type:
         return f"ComfyUI rejected the workflow ({error_type})"
     return "ComfyUI rejected the workflow"
-
-
-def _image_mime(data: bytes, content_type: str = "") -> str:
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    raise ImageGenerationError("ComfyUI returned data that is not a supported image")
 
 
 class ComfyClient:
@@ -162,16 +133,13 @@ class ComfyClient:
         that is what the widget carries. The name is content-addressed off `digest`, so
         repeat renders overwrite one file and a reroll resolves to the same name.
         """
-        name = f"orb_{digest[:16]}.{_UPLOAD_EXTENSIONS.get(mime, 'png')}"
-        await _emit(progress, "uploading", {"name": name, "bytes": len(data)})
+        name = f"orb_{digest[:16]}.{MIME_EXTENSIONS.get(mime, 'png')}"
+        await emit(progress, "uploading", {"name": name, "bytes": len(data)})
         try:
             async with self._http(timeout) as client:
                 response = await client.post(
                     "/upload/image",
                     files={"image": (name, data, mime or "application/octet-stream")},
-                    # ComfyUI compares `overwrite` against the strings "true"/"1", so
-                    # a bool would silently mean "no" and every render would land a
-                    # new "orb_… (1).webp" beside the last.
                     data={"subfolder": REFERENCE_SUBFOLDER, "type": "input", "overwrite": "true"},
                 )
                 if response.status_code >= 400:
@@ -183,8 +151,6 @@ class ComfyClient:
             raise ImageGenerationError("Could not upload the reference image to ComfyUI") from exc
         if not isinstance(payload, Mapping) or not isinstance(payload.get("name"), str):
             raise ImageGenerationError("ComfyUI did not confirm the reference image upload")
-        # Trust the server's own answer over the name we sent: it renames on
-        # collision, and the widget must carry the file that actually exists.
         subfolder = payload.get("subfolder")
         stored = payload["name"]
         return f"{subfolder}/{stored}" if isinstance(subfolder, str) and subfolder else stored
@@ -216,7 +182,6 @@ class ComfyClient:
         for key in ("queue_running", "queue_pending"):
             entries = payload.get(key)
             for entry in entries if isinstance(entries, list) else []:
-                # Entries are [number, prompt_id, prompt, extra_data, outputs].
                 if not isinstance(entry, (list, tuple)) or not entry:
                     continue
                 position = entry[0]
@@ -244,10 +209,8 @@ class ComfyClient:
         number = submitted.get("number")
         queue_timeout = min(10.0, timeout_seconds)
         ahead = await self.queue_ahead(number, timeout=queue_timeout)
-        # An unknown position (None) reads as "not waiting on anyone": the render
-        # is under way as far as the caller can tell, which is the honest label.
         waiting = bool(ahead)
-        await _emit(progress, "queued" if waiting else "rendering", {"number": number, "ahead": ahead})
+        await emit(progress, "queued" if waiting else "rendering", {"number": number, "ahead": ahead})
 
         deadline = time.monotonic() + timeout_seconds
         record: Mapping[str, Any] | None = None
@@ -261,15 +224,13 @@ class ComfyClient:
                     break
                 if isinstance(status, Mapping) and status.get("status_str") == "error":
                     raise ImageGenerationError("ComfyUI could not complete the image")
-            # Re-poll the queue only while something is still ahead; once this
-            # job reaches the front the extra request per second stops.
             if waiting:
                 previous, ahead = ahead, await self.queue_ahead(number, timeout=queue_timeout)
                 waiting = bool(ahead)
                 if not waiting:
-                    await _emit(progress, "rendering", {"number": number, "ahead": ahead})
+                    await emit(progress, "rendering", {"number": number, "ahead": ahead})
                 elif ahead != previous:
-                    await _emit(progress, "queued", {"number": number, "ahead": ahead})
+                    await emit(progress, "queued", {"number": number, "ahead": ahead})
             await asyncio.sleep(1.0)
         if record is None:
             raise ImageGenerationError("Image generation timed out")
@@ -289,12 +250,11 @@ class ComfyClient:
                 data = response.content
                 if not data or len(data) > MAX_IMAGE_BYTES:
                     raise ImageGenerationError("ComfyUI image output is empty or too large")
-                mime = _image_mime(data, response.headers.get("content-type", ""))
+                mime = image_mime(data)
         except ImageGenerationError:
             raise
         except httpx.HTTPError as exc:
             raise ImageGenerationError("Could not fetch the generated image from ComfyUI") from exc
-        # Full-res PNG -> capped WebP off-thread (CPU-bound) before it is stored/inlined.
         data, mime = await asyncio.to_thread(shrink_for_display, data, mime)
         return ImageResult(
             image_bytes=data,

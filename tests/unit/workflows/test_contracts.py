@@ -273,7 +273,21 @@ class TestRerollGenCtxFields:
             "settings",
             "client",
             "prior_consumption_metadata",
+            "replay",
         }
+
+    def test_replay_defaults_to_reproducing(self):
+        """The safe default: a ctx built without the field replays its stored
+        parameters, which is what every caller did before the field existed."""
+        rg = RerollGenCtx(
+            conversation_id="c",
+            message_id=1,
+            attachment_id=2,
+            original_attachment=_readonly({}),
+            settings=_readonly({}),
+            client=object(),
+        )
+        assert rg.replay is True
 
     def test_original_attachment_is_mapping_proxy_in_practice(self):
         rg = RerollGenCtx(

@@ -123,48 +123,34 @@ def _recorder():
 
 @pytest.mark.asyncio
 async def test_queue_position_counts_only_entries_ahead():
-    queue = {
-        "queue_running": [[2, "other-a"]],
-        "queue_pending": [[3, "other-b"], [5, "p1"], [9, "later"]],
-    }
+    queue = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"], [5, "p1"], [9, "later"]]}
     client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server([queue])))
     # 2 and 3 are ahead; this job's own entry and the one behind it are not.
     assert await client.queue_ahead(5) == 2
 
 
+_BUSY = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"]]}
+
+
 @pytest.mark.asyncio
-async def test_progress_reports_position_then_rendering():
-    busy = {"queue_running": [[2, "other-a"]], "queue_pending": [[3, "other-b"]]}
+@pytest.mark.parametrize(
+    ("queue_bodies", "expected"),
+    [
+        # Queued behind two, no repeat while the position is unchanged, then rendering.
+        ([_BUSY, _BUSY, {"queue_running": [[5, "p1"]], "queue_pending": []}], [("queued", 2), ("rendering", 0)]),
+        ([], [("rendering", 0)]),
+        # An unavailable /queue leaves the position unknown, never guessed, and the
+        # render proceeds regardless.
+        ([httpx.Response(404)], [("rendering", None)]),
+    ],
+    ids=["queued then rendering", "queue empty", "queue endpoint missing"],
+)
+async def test_progress_reports_the_position_it_can_actually_see(queue_bodies, expected):
     seen, progress = _recorder()
-    client = ComfyClient(
-        "http://comfy.test",
-        transport=httpx.MockTransport(_server([busy, busy, {"queue_running": [[5, "p1"]], "queue_pending": []}])),
-    )
+    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server(queue_bodies)))
     result = await client.generate({"9": {}}, "9", timeout_seconds=10, progress=progress)
     assert result.mime == "image/png"
-    # Queued behind two, no repeat while the position is unchanged, then rendering.
-    assert seen == [("queued", 2), ("rendering", 0)]
-
-
-@pytest.mark.asyncio
-async def test_progress_reports_rendering_when_queue_is_empty():
-    seen, progress = _recorder()
-    client = ComfyClient("http://comfy.test", transport=httpx.MockTransport(_server([])))
-    await client.generate({"9": {}}, "9", timeout_seconds=10, progress=progress)
-    assert seen == [("rendering", 0)]
-
-
-@pytest.mark.asyncio
-async def test_unavailable_queue_endpoint_does_not_fail_the_render():
-    seen, progress = _recorder()
-    client = ComfyClient(
-        "http://comfy.test",
-        transport=httpx.MockTransport(_server([httpx.Response(404)])),
-    )
-    result = await client.generate({"9": {}}, "9", timeout_seconds=10, progress=progress)
-    # Position is unknown, never guessed, and the render proceeds regardless.
-    assert result.mime == "image/png"
-    assert seen == [("rendering", None)]
+    assert seen == expected
 
 
 @pytest.mark.asyncio

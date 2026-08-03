@@ -5,23 +5,46 @@ from __future__ import annotations
 import copy
 import re
 from collections.abc import Mapping
+from functools import partial
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from .pov import DEFAULT_MODE as DEFAULT_POV_MODE
 from .pov import normalize_mode as normalize_pov_mode
 
 WORKFLOW_ID = "image_gen"
+SOURCES = ("external_comfy", "cloud")
+DEFAULT_SOURCE = "external_comfy"
+# The reserved connection id for the ComfyUI server -- the one connection that
+# always exists and cannot be removed. Every other id in that namespace is a cloud
+# provider id, so nothing may ship a provider preset called "comfy".
+COMFY_CONNECTION = "comfy"
 MAX_STYLES = 32
 MAX_USER_GRAPHS = 32
+# Switching provider must not destroy the previous key, so the credential map is
+# retained rather than replaced -- and, like everything here, bounded.
+MAX_CLOUD_PROVIDERS = 16
+CLOUD_QUALITIES = ("low", "medium", "high")
+# Canonical pixel bounds, shared by both backends. Stored as width/height even for
+# providers that speak aspect ratios: one representation, converted at the wire. A
+# ComfyUI graph reads the same pair, through whichever node its `width`/`height`
+# slots map -- and ignores it entirely when it maps none.
+MIN_CLOUD_EDGE = 64
+MAX_CLOUD_EDGE = 4096
+DEFAULT_CLOUD_EDGE = 1024
 MAX_GRAPH_BYTES = 512_000
 MAX_REFERENCE_SLOTS = 4
-# Base64 cap for the per-character reference image: the profile lives on
-# `character_cards.workflow_state` and is read on every generate, so an unbounded
-# upload is paid for per render. The picker's 10 MB raw cap plus base64's 4/3.
+# The picker's 10 MB raw cap plus base64's 4/3. Bounded because the profile lives
+# on `character_cards.workflow_state` and is read on every generate.
 MAX_REFERENCE_IMAGE_B64 = 13_400_000
 PROMPT_FORMATS = ("tags", "hybrid", "prose")
 DEFAULT_PROMPT_FORMAT = "hybrid"
+# The three formats Orb carries end to end, each mapped to the extension it is named
+# by. One table rather than three, because "a mime Orb accepts" and "a mime Orb can
+# name as a file" are the same set: ComfyUI's multipart upload takes the extension
+# from here, and so does a stored attachment's filename.
+MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+REFERENCE_MIMES = tuple(MIME_EXTENSIONS)
 # Where a mapped `LoadImage` gets its bytes, as an ordered resolution list. The
 # combined source is the default so the choice has no cold-start cliff: a slot
 # pinned to `previous` alone hard-fails on a new conversation's first Visualize.
@@ -33,8 +56,44 @@ REFERENCE_SOURCES: dict[str, tuple[str, ...]] = {
 DEFAULT_REFERENCE_SOURCE = "previous_or_character"
 
 CONFIG_DEFAULTS = {
-    "source": "external_comfy",
+    "source": DEFAULT_SOURCE,
     "default_style": "realistic",
+    # Top level, shared by every source: a style is a way of writing the prompt, and
+    # that survives a backend switch. `connection` is deliberately unlinked on both
+    # shipped styles -- hard-pinning ComfyUI would make `source` a dead letter (the
+    # derivation below would override it on every fresh config) and would re-pin a
+    # style the user relinked if the defaults were re-seeded. The panel resolves ""
+    # to whatever `source` says and writes the explicit id on first save.
+    #
+    # Deliberately silent about the render target -- no `model`, size or quality
+    # here. These rows are parsed through `_style` like any other, so declaring a
+    # size would out-rank the legacy `cloud.*` block they must inherit from: an
+    # install that configured cloud before styles were stored would silently reset
+    # to 1024x1024 on the first read.
+    "styles": [
+        {
+            "id": "realistic",
+            "label": "Realistic",
+            "prompt_format": DEFAULT_PROMPT_FORMAT,
+            "prompt": "RAW photo, realistic illumination, realistic shadows, photography, photorealistic, cinematic lighting, detailed skin, high contrast",
+            "negative_prompt": "cartoon, anime, drawing, paint, flat, illustration, painting, low detail, low quality, worst quality, bad quality, bad perspective",
+            "extra_instructions": "",
+            "connection": "",
+            "checkpoint": "",
+            "workflow": "",
+        },
+        {
+            "id": "anime",
+            "label": "Anime",
+            "prompt_format": DEFAULT_PROMPT_FORMAT,
+            "prompt": "masterpiece, best quality, anime illustration, very aesthetic, very detailed, high contrast, good perspective",
+            "negative_prompt": "photorealistic, pixelated, 3d render, muddy colors, low quality, worst quality, bad quality, score_1, score_2, bad fingers, missing fingers, fused fingers, bad anatomy, bad hair, bad perspective, bad face",
+            "extra_instructions": "",
+            "connection": "",
+            "checkpoint": "",
+            "workflow": "",
+        },
+    ],
     "pov_mode": DEFAULT_POV_MODE,
     "scene_analysis": False,
     "prompter_reasoning": False,
@@ -42,29 +101,18 @@ CONFIG_DEFAULTS = {
     "external_comfy": {
         "api_url": "http://127.0.0.1:8188",
         "api_key": "",
-        "styles": [
-            {
-                "id": "realistic",
-                "label": "Realistic",
-                "prompt_format": DEFAULT_PROMPT_FORMAT,
-                "prompt": "RAW photo, realistic illumination, realistic shadows, photography, photorealistic, cinematic lighting, detailed skin, high contrast",
-                "negative_prompt": "cartoon, anime, drawing, paint, flat, illustration, painting, low detail, low quality, worst quality, bad quality, bad perspective",
-                "extra_instructions": "",
-                "checkpoint": "",
-                "workflow": "",
-            },
-            {
-                "id": "anime",
-                "label": "Anime",
-                "prompt_format": DEFAULT_PROMPT_FORMAT,
-                "prompt": "masterpiece, best quality, anime illustration, very aesthetic, very detailed, high contrast, good perspective",
-                "negative_prompt": "photorealistic, pixelated, 3d render, muddy colors, low quality, worst quality, bad quality, score_1, score_2, bad fingers, missing fingers, fused fingers, bad anatomy, bad hair, bad perspective, bad face",
-                "extra_instructions": "",
-                "checkpoint": "",
-                "workflow": "",
-            },
-        ],
+        # A ComfyUI graph is meaningless to any other backend, so this one stays put.
         "user_graphs": [],
+    },
+    # Connectivity only: an address and a credential, exactly as wide as
+    # `external_comfy`'s. What an image looks like belongs to the style.
+    "cloud": {
+        "provider": "xai",
+        # One entry per cloud connection, keyed by provider id. One representative
+        # entry ships so the preset-schema coverage walker can see the `api_key` leaf
+        # under the map level; it is inert and the panel does not list it until it
+        # holds something.
+        "providers": {"xai": {"api_key": "", "base_url": ""}},
     },
 }
 
@@ -75,18 +123,87 @@ def _text(value: Any, limit: int, default: str = "") -> str:
     return value.strip()[:limit] if isinstance(value, str) else default
 
 
-def _style(raw: Any) -> dict | None:
+def _edge(value: Any, default: int) -> int:
+    try:
+        pixels = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    return min(MAX_CLOUD_EDGE, max(MIN_CLOUD_EDGE, pixels))
+
+
+def _render_target(raw: Mapping[str, Any], cloud: Mapping[str, Any], connection: str) -> dict:
+    """The five fields that decide what an image looks like, and where they inherit
+    from while a stored config is still on its way to the new shape.
+
+    `cloud` is the **raw** cloud block, where four of them lived before styles took
+    them over. A style declaring none of its own takes them from the entry its
+    `connection` names, then from that block's top level -- so a config migrates on
+    first read and persists migrated on first write, no DB migration. Raw rather than
+    normalized because `_cloud` runs *after* styles are parsed (it needs the default
+    style's connection), so reading the normalized block would close a cycle.
+
+    Membership at each step, not truthiness: "" is a real stored value for `quality`
+    and `reference_source` ("provider default", "references off"), so a style that
+    declares one must not silently inherit the legacy global instead.
+
+    **The inheritance is the whole of the migration.** Once no install predates it,
+    everything below the `sources` line reduces to reading `raw`.
+    """
+    # An unlinked style renders on `cloud.provider`, so that is the entry it inherits
+    # from -- which is what makes the migration a no-op for what it next produces.
+    # Guarded on a non-empty id: `""` is not a connection, and `_cloud` drops an entry
+    # keyed by it, so inheriting from one would seed a style off a row that is about
+    # to cease to exist.
+    entries = cloud.get("providers")
+    source_id = connection or _text(cloud.get("provider"), 64)
+    entry = entries.get(source_id) if source_id and isinstance(entries, Mapping) else None
+    sources = (raw, entry if isinstance(entry, Mapping) else {}, cloud)
+
+    def inherited(name: str) -> Any:
+        return next((s[name] for s in sources if isinstance(s, Mapping) and name in s), None)
+
+    quality = _text(inherited("quality"), 16).lower()
+    reference_source = _text(inherited("reference_source"), 32)
+    return {
+        # "" means "the provider's own default", resolved at the adapter where the
+        # preset table lives -- not substituted here, so relinking to a provider with
+        # a different default does not need the stored value rewritten.
+        "model": _text(inherited("model"), 256),
+        "width": _edge(inherited("width"), DEFAULT_CLOUD_EDGE),
+        "height": _edge(inherited("height"), DEFAULT_CLOUD_EDGE),
+        "quality": quality if quality in CLOUD_QUALITIES else "",
+        "reference_source": reference_source if reference_source in REFERENCE_SOURCES else "",
+    }
+
+
+def _style(raw: Any, cloud: Mapping[str, Any]) -> dict | None:
+    """One style entry, on the global style list.
+
+    `connection` is what renders this style -- `COMFY_CONNECTION` or a cloud provider
+    id. `""` means the style predates connection linking and follows the stored
+    `source`, which is what lets an install upgrade without a style silently
+    changing backend.
+
+    Both backends' render targets live here, and both halves are always present
+    whichever connection the style links to, so relinking cloud -> ComfyUI -> cloud
+    loses neither pin. `checkpoint`/`workflow` are the ComfyUI half; `model`,
+    `quality` and `reference_source` the cloud half (see `_render_target`);
+    `width`/`height` are read by both -- by ComfyUI only once its pinned graph maps
+    size slots.
+    """
     if not isinstance(raw, Mapping):
         return None
     sid = _text(raw.get("id"), 64)
     if not _ID_RE.fullmatch(sid):
         return None
+    connection = _text(raw.get("connection"), 64)
+    if connection and not _ID_RE.fullmatch(connection):
+        connection = ""
     prompt_format = _text(raw.get("prompt_format"), 16, DEFAULT_PROMPT_FORMAT).lower()
     if prompt_format not in PROMPT_FORMATS:
         prompt_format = DEFAULT_PROMPT_FORMAT
-    # "external_core" was the shipped default graph; it no longer exists. Migrate
-    # a config that still names it to unconfigured so the style reads as "assign a
-    # workflow", not as a reference to a graph that will never resolve.
+    # "external_core" was the shipped default graph and no longer exists; a config
+    # still naming it must read as "assign a workflow", not as a dangling reference.
     workflow = _text(raw.get("workflow"), 64)
     if workflow == "external_core":
         workflow = ""
@@ -97,8 +214,10 @@ def _style(raw: Any) -> dict | None:
         "prompt": _text(raw.get("prompt"), 2_000),
         "negative_prompt": _text(raw.get("negative_prompt"), 2_000),
         "extra_instructions": _text(raw.get("extra_instructions"), 2_000),
+        "connection": connection,
         "checkpoint": _text(raw.get("checkpoint"), 512),
         "workflow": workflow,
+        **_render_target(raw, cloud, connection),
     }
 
 
@@ -129,13 +248,11 @@ def _reference(raw: Any) -> dict | None:
 def _strip_machine_local_state(graph: dict) -> dict:
     """A deep copy of `graph` with each node's top-level `is_changed` removed.
 
-    ComfyUI's API export embeds `is_changed` -- for a `LoadImage`, a hash of the
-    file on the *exporter's* disk. `IsChangedCache.get` returns a client-supplied
-    value verbatim (`execution.py`) as one component of the node's cache signature,
-    so a pinned hash masks a change of file *contents at an unchanged path* and the
-    render silently returns the previously decoded image (seen on ComfyUI 0.29.0).
-    Stripped at import, before the size cap is measured, so machine-local state
-    never reaches storage or a submission.
+    ComfyUI's API export embeds `is_changed` -- for a `LoadImage`, a hash of the file
+    on the *exporter's* disk. `IsChangedCache.get` returns the client-supplied value
+    verbatim as part of the node's cache signature, so a pinned hash masks a change
+    of file contents at an unchanged path and the render returns the previously
+    decoded image. Stripped before the size cap is measured.
     """
     stripped = copy.deepcopy(graph)
     for node in stripped.values():
@@ -158,21 +275,37 @@ def _user_graph(raw: Any) -> dict | None:
     if len(json.dumps(graph, separators=(",", ":"), ensure_ascii=False).encode("utf-8")) > MAX_GRAPH_BYTES:
         return None
     slots: dict[str, Any] = {}
-    for name in ("positive", "negative", "seed", "output", "checkpoint"):
+    for name in ("positive", "negative", "seed", "output", "checkpoint", "width", "height"):
         parsed = _slot(slots_raw.get(name))
         if parsed is not None:
             slots[name] = parsed
-    # `negative` and `checkpoint` stay optional: a one-encoder prose graph has
-    # nothing to map negative to, and a self-contained graph keeps its own model
-    # rather than mapping a checkpoint slot for Orb's selection to override.
+    # `negative`, `checkpoint` and the two size slots stay optional: a one-encoder
+    # prose graph has nothing to map negative to, a self-contained graph keeps its own
+    # model, and a graph whose output size comes from a reference image or an
+    # aspect-ratio node has no width/height pair to patch. Absent is how "unmapped"
+    # is encoded, which is also why no migration is needed for either.
     if not all(name in slots for name in ("positive", "seed", "output")):
         return None
-    # Never required, so a t2i graph normalizes exactly as before: an unmapped
-    # LoadImage is simply absent from the list, which is how "Not used" is encoded.
+    # Also optional, so a t2i graph normalizes unchanged: an unmapped LoadImage is
+    # simply absent from the list, which is how "Not used" is encoded.
     references_raw = slots_raw.get("references")
-    references = [item for item in map(_reference, references_raw) if item] if isinstance(references_raw, list) else []
+    references: list[dict] = []
+    seen_slots: set[tuple[str, str]] = set()
+    for item in map(_reference, references_raw) if isinstance(references_raw, list) else []:
+        if item is None:
+            continue
+        # One entry per widget: two rows on one slot would both resolve and both be
+        # recorded, but only the second survives patching, so the record would claim
+        # a reference the render never used.
+        node, field = str(item["slot"][0]), str(item["slot"][1])
+        if (node, field) in seen_slots:
+            continue
+        seen_slots.add((node, field))
+        references.append(item)
+        if len(references) >= MAX_REFERENCE_SLOTS:
+            break
     if references:
-        slots["references"] = references[:MAX_REFERENCE_SLOTS]
+        slots["references"] = references
     return {
         "id": gid,
         "label": _text(raw.get("label"), 100, gid) or gid,
@@ -181,39 +314,135 @@ def _user_graph(raw: Any) -> dict | None:
     }
 
 
+def _is_loopback(hostname: str) -> bool:
+    host = hostname.lower()
+    return host in ("localhost", "::1", "0:0:0:0:0:0:0:1") or host == "127.0.0.1" or host.startswith("127.")
+
+
+def _is_addressable(parsed: SplitResult) -> bool:
+    """Whether Orb will talk to this URL at all -- the rule both endpoint fields
+    share. Embedded credentials are refused rather than carried: they would ride
+    every request URL into logs and back out to the settings form."""
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname) and not parsed.username and not parsed.password
+
+
+def _cloud_base_url(value: Any) -> str:
+    """A user-supplied cloud endpoint override, or "" to use the preset's own.
+
+    The ComfyUI URL's rules plus one more: a cloud request carries a bearer key on
+    every call, so plaintext is tolerable only when the "network" is this machine.
+    """
+    url = _text(value, 2_048)
+    if not url:
+        return ""
+    parsed = urlsplit(url)
+    if not _is_addressable(parsed):
+        return ""
+    if parsed.scheme != "https" and not _is_loopback(parsed.hostname or ""):
+        return ""
+    return url.rstrip("/")
+
+
+def _cloud_provider_entry(raw: Any) -> dict:
+    """One cloud connection: an address and a credential, and nothing else.
+
+    Exactly as wide as the ComfyUI connection's `{api_url, api_key}`, because a
+    connection is how Orb *reaches* a backend. What an image looks like -- the model,
+    the resolution, the quality, whether a reference rides along -- is what a style
+    is, and lives there, so two styles on one provider can differ.
+
+    Those four did live here. They are not read off `raw` any more because `_style`
+    reads them off the same raw block on the way past; dropping them here is what
+    completes the migration on the next write.
+    """
+    raw = raw if isinstance(raw, Mapping) else {}
+    return {
+        "api_key": _text(raw.get("api_key"), 2_048),
+        "base_url": _cloud_base_url(raw.get("base_url")),
+    }
+
+
+def _cloud(raw: Any, provider_override: str = "") -> dict:
+    """The cloud block, with every connection's credentials kept across a switch.
+
+    An entry whose provider id the preset table does not know is **retained**: this
+    normalizer runs on GET, the panel assigns that answer into its shared config, and
+    `readConfig()` spreads it back into the next PUT -- so dropping a row renamed in a
+    later release would silently erase the stored key on the next save. A retained
+    unknown id is inert: no preset means no client, the `unknown_provider` readiness
+    reason.
+
+    `provider_override` is the connection the style about to render links to, and it
+    wins over the stored `provider` -- which is now a record of the last routing
+    decision rather than something the user picks. It survives as the legacy fallback
+    for a style carrying no `connection` at all, and that path is live.
+    """
+    raw = raw if isinstance(raw, Mapping) else {}
+    defaults = CONFIG_DEFAULTS["cloud"]
+    provider = _text(provider_override or raw.get("provider"), 64, defaults["provider"])
+    if not _ID_RE.fullmatch(provider):
+        provider = defaults["provider"]
+
+    raw_map = raw.get("providers")
+    raw_map = raw_map if isinstance(raw_map, Mapping) else {}
+    providers: dict[str, dict] = {}
+    # The selected provider goes in first, so the cap can never be the reason the
+    # credentials the user is actively using are the ones that go missing.
+    ordered = [(provider, raw_map.get(provider))] + [(key, value) for key, value in raw_map.items() if key != provider]
+    for candidate, entry in ordered:
+        pid = _text(candidate, 64)
+        if not _ID_RE.fullmatch(pid) or pid in providers:
+            continue
+        providers[pid] = _cloud_provider_entry(entry)
+        if len(providers) >= MAX_CLOUD_PROVIDERS:
+            break
+
+    return {"provider": provider, "providers": providers}
+
+
+def _unique_by_id(candidates: Any, parse: Any, limit: int) -> list[dict]:
+    """Parse each candidate, dropping what does not normalize or repeats an id."""
+    items: list[dict] = []
+    seen: set[str] = set()
+    for candidate in candidates if isinstance(candidates, list) else []:
+        item = parse(candidate)
+        if item and item["id"] not in seen:
+            items.append(item)
+            seen.add(item["id"])
+        if len(items) >= limit:
+            break
+    return items
+
+
 def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     raw = raw if isinstance(raw, Mapping) else {}
     external_value = raw.get("external_comfy")
     external_raw: Mapping[str, Any] = external_value if isinstance(external_value, Mapping) else {}
     url = _text(external_raw.get("api_url"), 2_048, CONFIG_DEFAULTS["external_comfy"]["api_url"])
-    parsed = urlsplit(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+    if not _is_addressable(urlsplit(url)):
         url = CONFIG_DEFAULTS["external_comfy"]["api_url"]
     url = url.rstrip("/")
 
-    styles: list[dict] = []
-    seen: set[str] = set()
-    raw_styles = external_raw.get("styles")
-    for candidate in raw_styles if isinstance(raw_styles, list) else CONFIG_DEFAULTS["external_comfy"]["styles"]:
-        item = _style(candidate)
-        if item and item["id"] not in seen:
-            styles.append(item)
-            seen.add(item["id"])
-        if len(styles) >= MAX_STYLES:
-            break
-    if not styles:
-        styles = copy.deepcopy(CONFIG_DEFAULTS["external_comfy"]["styles"])
-
-    graphs: list[dict] = []
-    graph_seen: set[str] = set()
-    raw_graphs = external_raw.get("user_graphs")
-    for candidate in raw_graphs if isinstance(raw_graphs, list) else []:
-        item = _user_graph(candidate)
-        if item and item["id"] not in graph_seen:
-            graphs.append(item)
-            graph_seen.add(item["id"])
-        if len(graphs) >= MAX_USER_GRAPHS:
-            break
+    # Styles were nested inside `external_comfy` before they were shared. The
+    # normalizer runs on every read and every write, so a legacy config hoists on
+    # first read and persists hoisted on first write -- no DB migration.
+    raw_styles = raw.get("styles")
+    if not isinstance(raw_styles, list):
+        raw_styles = external_raw.get("styles")
+    if not isinstance(raw_styles, list):
+        raw_styles = CONFIG_DEFAULTS["styles"]
+    cloud_value = raw.get("cloud")
+    cloud_raw: Mapping[str, Any] = cloud_value if isinstance(cloud_value, Mapping) else {}
+    # The raw cloud block is bound at the call site rather than by widening
+    # `_unique_by_id`, which `_user_graph` shares and has no cloud block to pass.
+    parse_style = partial(_style, cloud=cloud_raw)
+    # The shipped defaults go through the same parse rather than being copied in
+    # whole, so every path out of here produces one shape -- and so a config that
+    # never stored a style still inherits the cloud block it was configured with.
+    styles = _unique_by_id(raw_styles, parse_style, MAX_STYLES) or _unique_by_id(
+        CONFIG_DEFAULTS["styles"], parse_style, MAX_STYLES
+    )
+    graphs = _unique_by_id(external_raw.get("user_graphs"), _user_graph, MAX_USER_GRAPHS)
 
     default_style = _text(raw.get("default_style"), 64, styles[0]["id"])
     if default_style not in {s["id"] for s in styles}:
@@ -223,9 +452,23 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
     except (TypeError, ValueError):
         timeout = 180.0
 
+    source = _text(raw.get("source"), 32, DEFAULT_SOURCE)
+    if source not in SOURCES:
+        source = DEFAULT_SOURCE
+    # `source` is derived, not chosen: the form has a connection per style, so which
+    # backend routes is a property of the style, not of the config. Kept here only so
+    # `_status` and a stored attachment's record still have a global answer -- the
+    # render path routes per style through `style_source`, which is this same call
+    # with whichever style is actually about to render.
+    source, provider_override = style_source(
+        {"source": source, "cloud": cloud_raw},
+        active_style({"styles": styles, "default_style": default_style}),
+    )
+
     return {
-        "source": "external_comfy",
+        "source": source,
         "default_style": default_style,
+        "styles": styles,
         "pov_mode": normalize_pov_mode(raw.get("pov_mode")),
         "scene_analysis": bool(raw.get("scene_analysis", False)),
         "prompter_reasoning": raw.get("prompter_reasoning") is True,
@@ -233,31 +476,62 @@ def normalize_config(raw: Mapping[str, Any] | None) -> dict:
         "external_comfy": {
             "api_url": url,
             "api_key": _text(external_raw.get("api_key"), 2_048),
-            "styles": styles,
             "user_graphs": graphs,
         },
+        "cloud": _cloud(raw.get("cloud"), provider_override),
     }
 
 
+def style_source(config: Mapping[str, Any], style: Mapping[str, Any]) -> tuple[str, str]:
+    """`(source, provider_id)` for one style -- the one place routing is decided.
+
+    A style names its connection, so which backend renders it is a property of the
+    style rather than of the config. Routing on `config["source"]` instead was
+    survivable only while the cloud adapter ignored the style it was handed: a
+    rehydrate replays the style the *stored image* names, which need not be the
+    default one `source` was derived from.
+
+    `""` is a style that predates connection linking, and follows the stored global
+    so an existing install renders exactly where it always did. `source` is returned
+    unvalidated in that case -- the router degrades an unknown one, and a hand-edited
+    DB should not turn a page load into a 500.
+    """
+    connection = _text(style.get("connection"), 64) if isinstance(style, Mapping) else ""
+    if connection == COMFY_CONNECTION:
+        return "external_comfy", ""
+    if connection:
+        return "cloud", connection
+    cloud = config.get("cloud")
+    source = _text(config.get("source"), 32, DEFAULT_SOURCE) or DEFAULT_SOURCE
+    provider = _text(cloud.get("provider"), 64) if isinstance(cloud, Mapping) else ""
+    return source, (provider if source == "cloud" else "")
+
+
+def active_style(config: Mapping[str, Any]) -> dict:
+    """The style the next render will use, unless a trigger names another.
+
+    The one place "which style is in play" is decided when nothing names one: the
+    tools-panel card's status line, and any adapter built without a bound style.
+    """
+    styles = config["styles"]
+    return next((s for s in styles if s["id"] == config["default_style"]), styles[0])
+
+
 def resolve_style(config: Mapping[str, Any], style_id: str) -> dict:
-    external = config["external_comfy"]
-    style = next((s for s in external["styles"] if s["id"] == style_id), None)
+    style = next((s for s in config["styles"] if s["id"] == style_id), None)
     if style is None:
         raise ValueError(f"unknown image style {style_id!r}")
     # An empty workflow stays empty: external mode has no default graph, so the
-    # render path turns "no workflow" into a clear "assign one" error rather than
+    # render path turns "no workflow" into an "assign one" error rather than
     # silently substituting.
     return dict(style)
 
 
-REFERENCE_MIMES = ("image/png", "image/jpeg", "image/webp")
-
-
 def normalize_profile(raw: Mapping[str, Any] | None) -> dict:
     raw = raw if isinstance(raw, Mapping) else {}
-    # The per-character reference image, for slots resolving to `character`. Dropped
-    # rather than truncated when oversized -- half a base64 payload is not a smaller
-    # image. Both halves ride together: bytes with no mime cannot be read by ComfyUI.
+    # The per-character reference, for slots resolving to `character`. Dropped rather
+    # than truncated when oversized (half a base64 payload is not a smaller image),
+    # and both halves ride together: bytes with no mime cannot be read.
     image_raw = raw.get("reference_image_b64")
     image = image_raw.strip() if isinstance(image_raw, str) else ""
     mime = _text(raw.get("reference_mime"), 64).lower()
