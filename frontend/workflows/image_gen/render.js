@@ -114,7 +114,9 @@ export function attachmentDetailsHtml(att, { esc, escAttr, pending }) {
     : "";
   // What was actually drawn, not what the style's picker reads today: the two differ
   // on a rehydrate by design, and a reroll that ignored the picker was invisible
-  // precisely because this row did not exist. Omitted on images predating the record.
+  // precisely because this row did not exist. Absent on images predating the record
+  // and on any render whose size the backend could only infer -- the server withholds
+  // the pair rather than sending a guess, so there is nothing to second-guess here.
   const size = cm.width && cm.height ? `<dt>Size</dt><dd>${esc(`${cm.width} × ${cm.height}`)}</dd>` : "";
   return `<details class="image-gen-details" open><summary>Render details</summary>
     <dl><dt>Style</dt><dd>${style}</dd>

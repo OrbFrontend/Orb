@@ -21,6 +21,7 @@ from ..contracts import (
     ImageResult,
     ProgressCallback,
     RenderTarget,
+    recorded_edge,
 )
 
 
@@ -118,7 +119,7 @@ def replayed_target(replay: Mapping[str, Any] | None, *, model: str, width: int,
     stored_model = replay.get("backend_model")
     if isinstance(stored_model, str) and stored_model:
         model = stored_model
-    stored_w, stored_h = _recorded_edge(replay.get("width")), _recorded_edge(replay.get("height"))
+    stored_w, stored_h = recorded_edge(replay.get("width")), recorded_edge(replay.get("height"))
     if stored_w is not None and stored_h is not None:
         width, height = stored_w, stored_h
     return model, width, height
@@ -135,12 +136,3 @@ def replayed_text(replay: Mapping[str, Any] | None, key: str, current: str) -> s
     """
     stored = (replay or {}).get(key)
     return stored if isinstance(stored, str) else current
-
-
-def _recorded_edge(value: Any) -> int | None:
-    """One recorded edge, or None when it is absent or not a positive whole number.
-
-    `isinstance(True, int)` is True, so bools are excluded by hand -- a hand-edited
-    record must not resolve to a 1-pixel edge.
-    """
-    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None

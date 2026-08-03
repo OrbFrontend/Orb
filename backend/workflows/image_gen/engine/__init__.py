@@ -11,6 +11,7 @@ from .contracts import (
     ImageRequest,
     ImageResult,
     ProgressCallback,
+    recorded_edge,
 )
 from .render import resolve_and_generate
 from .router import comfy_adapter, get_adapter, list_sources
@@ -23,5 +24,6 @@ __all__ = [
     "comfy_adapter",
     "get_adapter",
     "list_sources",
+    "recorded_edge",
     "resolve_and_generate",
 ]

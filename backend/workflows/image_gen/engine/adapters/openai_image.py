@@ -329,6 +329,10 @@ class OpenAICompatibleImageAdapter(ImageAdapter):
                 # aspect-only provider decides the actual size.
                 "width": width,
                 "height": height,
+                # Read off the bytes themselves, so it is the one size on either
+                # backend that is measured rather than inferred -- except when the
+                # probe could not read the header, which is exactly a `None` pair.
+                "size_measured": width is not None,
                 "steps": None,
                 "cfg": None,
                 "sampler": None,

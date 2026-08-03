@@ -23,6 +23,18 @@ async def emit(progress: ProgressCallback | None, stage: str, detail: Mapping[st
         await maybe
 
 
+def recorded_edge(value: Any) -> int | None:
+    """One recorded pixel edge, or None when it is absent or not a positive whole number.
+
+    `isinstance(True, int)` is True, so bools are excluded by hand -- a hand-edited
+    record must not resolve to a 1-pixel edge.
+
+    Shared rather than copied per caller: the adapters resolve a replayed size with it
+    and the hook grades a recorded one, and the copy that drifted first lost `> 0`.
+    """
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
 class ImageBackendCapabilities(TypedDict):
     """What a backend *can ever* do -- static, per adapter class.
 

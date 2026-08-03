@@ -198,9 +198,17 @@ STORED_COMFY = {"workflow_id": "user_sized", "backend_model": "old.safetensors",
 
 
 @pytest.fixture
-def _sized_comfy(monkeypatch):
-    """Two ComfyUI styles on one sized graph; yields the resolved target per render."""
+def _sized_comfy(monkeypatch, request):
+    """Two ComfyUI styles on one sized graph; yields the resolved target per render.
+
+    `request.param` grades the size the fake reports, as `describe_render_params`
+    grades a real one: True for a graph whose size slots are mapped, False for one
+    where the value could only be scanned off some node. Defaults to True, which is
+    what SIZED_SLOTS below actually describes.
+    """
     from backend.workflows.image_gen.engine.contracts import ImageResult
+
+    size_measured = getattr(request, "param", True)
 
     config = _config(
         user_graphs=[{"id": "user_sized", "label": "Sized", "graph": SIZED_GRAPH, "slots": SIZED_SLOTS}],
@@ -237,6 +245,7 @@ def _sized_comfy(monkeypatch):
                 "backend_model": target.model,
                 "width": target.width,
                 "height": target.height,
+                "size_measured": size_measured,
                 "notes": [],
             },
         )
@@ -293,6 +302,25 @@ async def test_the_rerolled_sibling_records_the_render_it_actually_got(_sized_co
     # And the size reaches the display half, so Render details can show what was drawn
     # rather than leaving a stale one to be noticed by eye.
     assert (consumption["width"], consumption["height"]) == (704, 1408)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("_sized_comfy", [False], indirect=True)
+async def test_a_size_the_backend_only_guessed_at_is_not_shown(_sized_comfy):
+    """The display half is a claim about the image, so it takes only a graded answer.
+
+    ComfyUI degrades to scanning the graph for any node carrying a width/height pair
+    -- which `test_graph` pins as able to pick an upscale node over the latent one --
+    and the row a user would check their picker against is the last place to print a
+    guess. The replay half still records it: a best-effort record degrades rather
+    than failing, it just does not get to be shown as fact.
+    """
+    params = {"prompt": "a quiet room", "negative_prompt": "", "style_id": "anime", **STORED_COMFY}
+
+    _, consumption = await hooks.reroll_gen(_RerollCtx("anime"), params, "99")
+
+    assert "width" not in consumption and "height" not in consumption
+    assert (params["width"], params["height"]) == (1024, 1536), "still recorded, just not shown"
 
 
 # ── routing, when the replayed style is not the default one ──────────────────
@@ -396,7 +424,21 @@ def _cloud_reroll(monkeypatch):
     async def fake_generate(_adapter, request, *, target=None, progress=None):
         captured["request"] = request
         captured["target"] = target
-        return ImageResult(image_bytes=b"rendered", mime="image/webp", backend_info={"notes": []})
+        # Mirrors what the real cloud adapter reports about itself, which is the half
+        # of the round-trip below that a fake can silently stop doing: it writes these
+        # off the *target*, so the record names what rendered rather than what the
+        # style says now.
+        return ImageResult(
+            image_bytes=b"rendered",
+            mime="image/webp",
+            backend_info={
+                "source": "cloud",
+                "backend_model": target.model,
+                "quality": target.quality,
+                "reference_source": target.reference_source,
+                "notes": [],
+            },
+        )
 
     monkeypatch.setattr(hooks, "resolve_and_generate", fake_generate)
 
@@ -411,6 +453,68 @@ def _cloud_reroll(monkeypatch):
 
 
 RECORDED_CLOUD = [{"slot": ["cloud", "image_0"], "source": "previous", "origin": "attachment:10", "digest": "x"}]
+
+
+def _styled(quality: str, reference_source: str) -> dict:
+    """`_cloud_config`, with both replayable settings on the style where they live."""
+    return _cloud_config(
+        "", styles=[{"id": "anime", "connection": "xai", "quality": quality, "reference_source": reference_source}]
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_cloud_record_round_trips_from_the_hook_into_resolve_target(_cloud_reroll):
+    """The names are written in `hooks._REPLAYED_FACTS` and read in the adapter's
+    `resolve_target`: two files matched by nothing but a string.
+
+    A typo on either side degrades in silence to "use whatever the style says today"
+    -- the exact substitution this module exists to prevent -- and every adapter-level
+    test still passes, because those hand-build the replay dict instead of taking one
+    the hook produced. So this records through the hook, moves the settings, and
+    replays through the real resolver.
+    """
+    captured = _cloud_reroll(_styled(quality="high", reference_source="character"))
+    params = {"prompt": "p", "negative_prompt": "", "style_id": "anime"}
+
+    await hooks.reroll_gen(_RerollCtx("anime"), params, "1")
+
+    assert (params["quality"], params["reference_source"]) == ("high", "character")
+
+    # Both pickers move, as they would between the original render and a rehydrate of
+    # it months later. Nothing about the row changed; only the settings did.
+    captured = _cloud_reroll(_styled(quality="low", reference_source=""))
+    await hooks.reroll_gen(_RerollCtx("anime", replay=True), params, "1")
+
+    target = captured["target"]
+    assert target.quality == "high", "a rehydrate billed at today's quality is a rehydrate that lied"
+    assert target.reference_source == "character"
+    assert len(target.reference_slots) == 1, "turning references off must not re-render this from the prompt alone"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("replay", [True, False], ids=["rehydrate", "reroll"])
+async def test_only_a_replay_calls_its_substitutions_a_mismatch(_cloud_reroll, replay):
+    """ "it will not match" reports a broken promise, and only a replay made one.
+
+    A reroll is *allowed* to land on another backend or drop a reference the new
+    style has no slot for -- rendering on today's configuration is what the button
+    does. Both routes still say what changed; only one calls it a failure.
+    """
+    captured = _cloud_reroll(_cloud_config(""))
+    params = {
+        "prompt": "p",
+        "negative_prompt": "",
+        "style_id": "anime",
+        "source": "external_comfy",
+        "references": list(RECORDED_CLOUD),
+    }
+
+    _, consumption = await hooks.reroll_gen(_RerollCtx("anime", replay=replay), params, "1")
+
+    graded = [n for n in consumption["notes"] if "re-rendered on" in n or "does not take reference images" in n]
+    assert len(graded) == 2, "both substitutions still disclosed on both routes"
+    assert all(("will not match" in note) is replay for note in graded)
+    assert captured["request"].references == ()
 
 
 @pytest.mark.asyncio

@@ -34,6 +34,7 @@ from .engine import (
     ProgressCallback,
     get_adapter,
     list_sources,
+    recorded_edge,
     resolve_and_generate,
 )
 from .references import refetch_references, resolve_references
@@ -136,14 +137,20 @@ def _history_through(history: Sequence[Mapping[str, Any]], message_id: int) -> l
     raise ValueError("that message is not on this conversation's active branch")
 
 
-# Every render setting a *replay* reads back off a stored attachment. Read from the
-# render that executed rather than from the ids that asked for it, so the record says
-# what was actually drawn: `describe_render_params` reads them off the patched graph,
-# and the cloud adapter probes the returned image.
-_RENDER_FACTS = ("workflow_id", "backend_model", "width", "height", "steps", "cfg", "sampler", "scheduler")
-# The cloud half of the same question. Absent (None) on ComfyUI, which has no such
-# setting -- `replayed_text` reads a non-string as "this backend does not say".
-_CLOUD_FACTS = ("quality", "reference_source")
+# Both tuples are read off the render that executed rather than off the ids that asked
+# for it, so the record says what was actually drawn: `describe_render_params` reads
+# them back off the patched graph, and the cloud adapter probes the returned image.
+#
+# The split is which ones a *replay* honours. Every key here is resolved by some
+# adapter's `resolve_target`, so adding one without a reader there records a pin
+# nothing applies. `workflow_id` is ComfyUI's alone and `quality`/`reference_source`
+# are the cloud's -- each absent (None) on the other backend, which `replayed_target`
+# and `replayed_text` read as "this one does not say".
+_REPLAYED_FACTS = ("workflow_id", "backend_model", "width", "height", "quality", "reference_source")
+# Recorded, never replayed: no adapter resolves these, and ComfyUI's own graph carries
+# them. They are here to be *read* -- by a user comparing two renders, and by anyone
+# asking why an image looks the way it does. The cloud has no equivalent, so None.
+_DISCLOSED_FACTS = ("steps", "cfg", "sampler", "scheduler")
 
 
 def _render_record(result, *, source: str) -> dict:
@@ -159,11 +166,14 @@ def _render_record(result, *, source: str) -> dict:
         # adapter that was asked. Never `config["source"]`: that answers about the
         # *default* style, which is not necessarily the one that just rendered.
         "source": info.get("source") or source,
-        **{key: info.get(key) for key in (*_RENDER_FACTS, *_CLOUD_FACTS)},
+        **{key: info.get(key) for key in (*_REPLAYED_FACTS, *_DISCLOSED_FACTS)},
         # Whether the stored seed means anything. A seedless API is nondeterministic,
         # so the attachment says so rather than printing a hex the render never saw.
         # The seed is still minted and stored -- rehydrate 409s on a null one.
         "seed_honored": info.get("seed_honored") is not False,
+        # The same grading for the size. Unlike `seed_honored` it defaults to *not*
+        # trusted: a seed is honoured unless a backend says otherwise, a size is not.
+        "size_measured": info.get("size_measured") is True,
     }
 
 
@@ -214,12 +224,14 @@ def _consumption(
         "negative_prompt": negative_prompt,
     }
     # The size that was actually drawn, on the display-safe half so Render details can
-    # show it. A resolution that silently did not take is only ever noticed by
-    # eyeballing the picture against the picker, which is exactly how a stale one
-    # survives; *record* carries what the render reported, not what was asked for.
-    width, height = record.get("width"), record.get("height")
-    if isinstance(width, int) and isinstance(height, int) and not isinstance(width, bool) and not isinstance(height, bool):
-        payload["width"], payload["height"] = width, height
+    # show it: a resolution that silently did not take is only ever noticed by
+    # eyeballing the picture against the picker. Graded, though -- ComfyUI falls back
+    # to scanning the graph for any width/height pair and can land on an upscale node,
+    # and a guess is worst in exactly the row a user checks their picker against.
+    if record.get("size_measured") is True:
+        width, height = recorded_edge(record.get("width")), recorded_edge(record.get("height"))
+        if width is not None and height is not None:
+            payload["width"], payload["height"] = width, height
     # Copied through in whatever unit the provider named; see `_cost` in
     # engine/openai_image_client.py for why nothing here converts it.
     cost = info.get("cost")
@@ -544,6 +556,11 @@ async def reroll_gen(ctx, params, seed):
     # On top of the adapter's own: `target.notes` already reaches the attachment
     # through backend_info, so repeating them here would print each one twice.
     notes: list[str] = []
+    # Appended to every note below that reports a substitution. "it will not match"
+    # is a broken promise, and only a replay made one: a reroll is *allowed* to land
+    # on another backend or lose a slot the new style lacks, because rendering on
+    # today's configuration is what it is for. Both routes still say what changed.
+    mismatch = "; it will not match" if ctx.replay else ""
     # A stored image rendered on another backend cannot be reproduced by this one.
     # Re-rendering and disclosing beats refusing, which surfaces only as a 500.
     # Against the adapter that is about to render, not the config's global source:
@@ -551,7 +568,7 @@ async def reroll_gen(ctx, params, seed):
     recorded_source = params.get("source")
     if isinstance(recorded_source, str) and recorded_source and recorded_source != adapter.source_id:
         was = next((s["label"] for s in list_sources() if s["id"] == recorded_source), recorded_source)
-        notes.append(f"made on {was}, re-rendered on {adapter.label}, so it will not match")
+        notes.append(f"made on {was}, re-rendered on {adapter.label}{mismatch}")
     # Rehydrate promises the *same bytes back*, which a seedless API cannot give. Off
     # `ctx.replay` rather than off a seed comparison: that comparison was only ever a
     # proxy for this question, and it is the reroll of an evicted card -- one click
@@ -567,7 +584,7 @@ async def reroll_gen(ctx, params, seed):
         # a stored WebP into an edit endpoint that had declared PNG/JPEG, and
         # dropping them silently is the substitution this workflow refuses to make.
         references = ()
-        notes.append("this style does not take reference images, so the original's reference was not sent; it will not match")
+        notes.append(f"this style does not take reference images, so the original's reference was not sent{mismatch}")
     else:
         references = await refetch_references(recorded_references, slots=target.reference_slots)
         dropped = len(recorded_references) - len(references)

@@ -255,9 +255,12 @@ class RerollGenCtx:
     settings: MappingProxyType
     client: Any
     prior_consumption_metadata: MappingProxyType | None = None
-    # Defaults to the reproducing answer, so a workflow written before this
-    # field -- or any caller constructing the ctx without it -- keeps replaying
-    # exactly as it did. Only ``/reroll-gen`` passes False.
+    # Both routes pass this explicitly -- ``_build_reroll_gen_ctx`` makes it
+    # required -- so the default covers only a ctx constructed directly, in a
+    # test or out of tree. Reproducing is the safe end of it: a wrong ``True``
+    # costs a render nobody asked for, while a wrong ``False`` hands
+    # ``/rehydrate`` a *different* image and overwrites the row with it, which is
+    # the one failure on these two routes that destroys something.
     replay: bool = True
 
 

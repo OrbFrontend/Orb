@@ -409,6 +409,14 @@ def _apply_param_overrides(params: dict, body: Mapping[str, Any] | None) -> None
     client can retarget a render it can see (an edited prompt, today's style) without
     inventing parameters the workflow never wrote. Reached only from /reroll-gen:
     /rehydrate must replay its row exactly to recover the bytes it lost.
+
+    What *sticks* is narrower than what is accepted, and deliberately so. The hook
+    receives this dict and may amend it in place, so a workflow that records what its
+    render actually did will overwrite any key describing the render itself. An
+    override therefore survives into the sibling only where it names the *subject* --
+    the prompt, the style -- rather than the machinery. Overriding a key the workflow
+    rewrites is accepted and then lost, which is the honest outcome: a stored record
+    has to describe the render that happened, not the one a client asked for.
     """
     overrides = body.get("params") if isinstance(body, Mapping) else None
     if not isinstance(overrides, Mapping):

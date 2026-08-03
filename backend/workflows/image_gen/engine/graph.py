@@ -74,8 +74,14 @@ def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -
     Recorded on the attachment so a later replay can say what changed. Read from the
     graph because external mode has no catalog: a user-imported graph is described
     wherever it uses the standard node inputs, and `None` wherever it does not.
+
+    `size_measured` grades the size this returns, because the two ways it is reached
+    are not equally true: the mapped slots name the node Orb wrote to, the fallback
+    scan names whichever node sorted first carrying a width/height pair and can pick
+    an upscale node over the latent one.
     """
     params: dict[str, Any] = dict.fromkeys(("width", "height", "steps", "cfg", "sampler", "scheduler"))
+    params["size_measured"] = False
     seed_slot = slots.get("seed")
     sampler_inputs = _slot_inputs(graph, seed_slot)
     if isinstance(sampler_inputs, Mapping):
@@ -91,6 +97,7 @@ def describe_render_params(graph: Mapping[str, Any], slots: Mapping[str, Any]) -
         mapped[role] = _scalar(inputs, str(slots[role][1]), (int,)) if inputs is not None else None
     if mapped["width"] and mapped["height"]:
         params["width"], params["height"] = mapped["width"], mapped["height"]
+        params["size_measured"] = True
         return params
     # Unmapped, so the size is wherever the graph keeps it: whichever latent/resize
     # node carries the pair. Node ids are strings of ints in practice, so sort

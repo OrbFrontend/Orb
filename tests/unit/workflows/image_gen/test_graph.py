@@ -276,6 +276,10 @@ def test_render_params_are_read_back_off_the_graph_that_executes():
     assert params == {
         "width": 1024,
         "height": 1024,
+        # False because `_core()` maps no size slots, so the pair above came from the
+        # scan. The value is still recorded -- it is a best-effort record -- but it is
+        # graded, so a consumer that shows a size as fact can decline this one.
+        "size_measured": False,
         "steps": 24,
         "cfg": 6.0,
         "sampler": "euler",
@@ -303,11 +307,19 @@ def test_the_mapped_size_slots_win_over_the_positional_scan():
     graph, slots = _core()
     # Sorts before the EmptyLatentImage at "5", and is not what Orb patches.
     graph["2"] = {"class_type": "ImageScale", "inputs": {"width": 512, "height": 512}}
-    assert describe_render_params(graph, slots)["width"] == 512, "precondition: the scan picks the wrong node"
+    scanned = describe_render_params(graph, slots)
+    assert scanned["width"] == 512, "precondition: the scan picks the wrong node"
+    # And says so, which is the whole reason the flag exists: this number reaches a
+    # user-facing "Size" row, and one guessed off an upscale node must not be shown
+    # as what the image was rendered at.
+    assert scanned["size_measured"] is False
 
     sized = describe_render_params(graph, {**slots, "width": ["5", "width"], "height": ["5", "height"]})
     assert (sized["width"], sized["height"]) == (1024, 1024)
+    assert sized["size_measured"] is True, "the mapped slots name the node Orb wrote to"
     # A slot pointing at a node that is gone falls back to the scan rather than
-    # reporting nothing: a best-effort record degrades, it does not fail.
+    # reporting nothing: a best-effort record degrades, it does not fail. It degrades
+    # to an *ungraded* answer too, or the fallback would inherit the mapping's credit.
     dangling = describe_render_params(graph, {**slots, "width": ["999", "width"], "height": ["999", "height"]})
     assert dangling["width"] == 512
+    assert dangling["size_measured"] is False
