@@ -33,7 +33,7 @@ Dependency order (top to bottom — each layer may only import layers below it):
 
 | Layer | Purpose |
 |-------|---------|
-| `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `utils` |
+| `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `text_segmentation`, `utils` |
 | `database/` | aiosqlite foundation: schema, migrations, queries, models (TypedDicts) |
 | `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`) |
 | `analysis/` | Pure prose-quality detection: `audit.py` + detectors; shared by editor + workflows |
@@ -64,12 +64,14 @@ features/<name>/
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
 | `backend/inference/tool_registry.py` | All tool schemas + `TOOLS`/`PRE_WRITER_TOOLS`/`POST_WRITER_TOOLS` |
+| `backend/core/text_segmentation.py` | Canonical non-workflow backend sentence/quote policy; sentences never contain line breaks |
 | `backend/database/models.py` | TypedDict row contracts (the model layer) |
 | `backend/database/schema.py` | `CREATE TABLES` — source of truth for columns |
 | `backend/database/preset_schema.py` | Preset policy: `DOMAIN_ROOTS`, `SECRET_COLUMNS`, etc. |
 | `frontend/state.js` | Global `S` object — every key declared here; pub/sub bus |
 | `frontend/chat.js` | Barrel re-exporting `chat_core/stream/messages/inspector/workflow/conversations` |
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
+| `frontend/text_segmentation.js` | Canonical non-workflow frontend sentence policy; line breaks are standalone stream units |
 | `frontend/workflow_api.js` | Plugin facade ABI v2 — the only import for `frontend/workflows/**` |
 
 ## Database Schema (summary)
@@ -126,7 +128,7 @@ Controlled by `settings.agent_same_as_writer` (default `true`).
 
 ## Frontend Architecture
 
-Vanilla ES modules, no build step. State in `state.js` (global `S`, all keys declared). Streaming via `sse.js`. All chat generation routes through `runStreamRequest()` in `chat_stream.js`. Plugin modules in `frontend/workflows/**` import only `workflow_api.js`. Plugin buttons use `registerAction(wid, name, fn)` + `data-wf-action="wid:name"` — never `window.*` or inline `on*`.
+Vanilla ES modules, no build step. State in `state.js` (global `S`, all keys declared). Streaming via `sse.js`. All chat generation routes through `runStreamRequest()` in `chat_stream.js`. Plugin modules in `frontend/workflows/**` import only `workflow_api.js` and their own local modules. Workflows own any backend/frontend lexical parsing they need instead of importing application segmentation; shared fixtures pin cross-runtime behavior. Plugin buttons use `registerAction(wid, name, fn)` + `data-wf-action="wid:name"` — never `window.*` or inline `on*`.
 
 Guardrails enforced by `scripts/check_frontend_layers.py` (run via `scripts/lint.sh`): layer import direction, ABI snapshot, plugin-import rule, ratchets for inline handlers and underscore cross-module imports.
 

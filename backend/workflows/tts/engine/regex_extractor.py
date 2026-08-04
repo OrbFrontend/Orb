@@ -1,7 +1,7 @@
 """
 backend/tts/regex_extractor.py — Algorithmic dialogue extractor.
 
-Extracts speakable dialogue from RP text using regex/heuristics.
+Extracts speakable dialogue from RP text using a workflow-private scanner.
 Zero LLM calls, zero latency, zero cost. This is the only
 extraction path; model-backed expressive extraction is deferred.
 
@@ -14,8 +14,6 @@ Pattern handling:
 """
 
 from __future__ import annotations
-
-import re
 
 from .base import SpeakableChunk
 
@@ -62,21 +60,128 @@ AUDIBLE_EMOTION_MAP = {alias: emotion for aliases, _, emotion in _BEAT_EFFECTS i
 
 
 # ---------------------------------------------------------------------------
-# Regex patterns
+# Workflow-private markup scanner
 # ---------------------------------------------------------------------------
 
-# Matches action beats in asterisks: *she laughs softly*
-RE_ASTERISK = re.compile(r"\*([^*]+)\*")
+# This workflow intentionally owns its parser instead of importing application
+# lexical utilities. Keep its frontend twin independent too; shared adversarial
+# fixtures enforce behavior across the Python/JavaScript boundary.
+_QUOTE_PAIRS = {
+    "“": "”",
+    "‘": "’",
+    "«": "»",
+    "‹": "›",
+    "「": "」",
+    "『": "』",
+    "„": "“",
+    "‚": "‘",
+}
+_OPEN_QUOTES = frozenset(_QUOTE_PAIRS)
+_CLOSE_QUOTES = frozenset(_QUOTE_PAIRS.values())
+_HARD_BREAKS = frozenset("\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029")
 
-# Matches thoughts in parentheses: (maybe I should...)
-# Only match if the parens are NOT wrapping quoted dialogue
-RE_PARENTHETICAL = re.compile(r"\(([^)]+)\)")
 
-# Matches double-quoted dialogue: "Hello there" and \u201cHello there\u201d
-RE_QUOTED = re.compile(r'[\u201c"]([^\u201d"]+)[\u201d"]')
+def _escaped(text: str, index: int) -> bool:
+    slashes = 0
+    index -= 1
+    while index >= 0 and text[index] == "\\":
+        slashes += 1
+        index -= 1
+    return bool(slashes % 2)
 
-# Matches em-dash dialogue (some RP styles): —Hello.—
-RE_EMDASH = re.compile(r"\u2014([^\u2014]+?)\u2014")
+
+def _find_quoted_spans(text: str) -> list[tuple[int, int, int, int]]:
+    """Outer balanced quotes as ``(start, end, content_start, content_end)``."""
+    spans: list[tuple[int, int, int, int]] = []
+    stack: list[str] = []
+    outer_start = 0
+    for index, char in enumerate(text):
+        if char == '"' and _escaped(text, index):
+            continue
+        if char == "’" and 0 < index < len(text) - 1 and text[index - 1].isalnum() and text[index + 1].isalnum():
+            continue
+        if char == '"' and not stack and index > 0 and text[index - 1].isdigit():
+            continue
+
+        if stack and char == stack[-1]:
+            stack.pop()
+            if not stack:
+                spans.append((outer_start, index + 1, outer_start + 1, index))
+            continue
+        if char == '"':
+            if not stack:
+                outer_start = index
+            stack.append(char)
+        elif char in _OPEN_QUOTES:
+            if not stack:
+                outer_start = index
+            stack.append(_QUOTE_PAIRS[char])
+        elif char in _CLOSE_QUOTES and stack:
+            if char in stack:
+                while stack:
+                    if stack.pop() == char:
+                        break
+            if not stack:
+                spans.append((outer_start, index + 1, outer_start + 1, index))
+    return spans
+
+
+def _overlaps(start: int, end: int, spans: list[tuple[int, ...]]) -> bool:
+    return any(start < span[1] and span[0] < end for span in spans)
+
+
+def _find_parenthetical_spans(text: str, quoted: list[tuple[int, ...]]) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    stack: list[int] = []
+    for index, char in enumerate(text):
+        if _overlaps(index, index + 1, quoted):
+            continue
+        if char == "(":
+            stack.append(index)
+        elif char == ")" and stack:
+            start = stack.pop()
+            if not stack:
+                spans.append((start, index + 1))
+    return spans
+
+
+def _find_beat_spans(
+    text: str, quoted: list[tuple[int, ...]], parentheticals: list[tuple[int, ...]]
+) -> list[tuple[int, int, int, int]]:
+    spans: list[tuple[int, int, int, int]] = []
+    opener: int | None = None
+    for index, char in enumerate(text):
+        if char != "*" or _escaped(text, index) or _overlaps(index, index + 1, quoted + parentheticals):
+            continue
+        if (index > 0 and text[index - 1] == "*") or (index + 1 < len(text) and text[index + 1] == "*"):
+            continue
+        if opener is None:
+            if index + 1 < len(text) and not text[index + 1].isspace() and text[index + 1] not in _HARD_BREAKS:
+                opener = index
+        elif index > opener + 1 and not text[index - 1].isspace():
+            spans.append((opener, index + 1, opener + 1, index))
+            opener = None
+    return spans
+
+
+def _find_emdash_spans(text: str, protected: list[tuple[int, ...]]) -> list[tuple[int, int, int, int]]:
+    spans: list[tuple[int, int, int, int]] = []
+    opener: int | None = None
+    for index, char in enumerate(text):
+        if char != "—" or _overlaps(index, index + 1, protected):
+            continue
+        if opener is None:
+            opener = index
+        else:
+            if index > opener + 1:
+                spans.append((opener, index + 1, opener + 1, index))
+            opener = None
+    return spans
+
+
+def _spoken_text(text: str) -> str:
+    """Normalize whitespace so a speakable block never contains a line break."""
+    return " ".join(text.split())
 
 
 # ---------------------------------------------------------------------------
@@ -86,16 +191,16 @@ RE_EMDASH = re.compile(r"\u2014([^\u2014]+?)\u2014")
 
 def _infer_emotion(text: str) -> str:
     """Guess emotion from punctuation and text patterns."""
-    raw = text.rstrip(" '\"")
-    if raw.endswith("?!") or raw.endswith("!?"):
+    raw = text.rstrip(" '\"”’»›」』")
+    if raw.endswith(("?!", "!?", "？！", "！？", "؟!", "!؟")):
         return "surprised"
-    if raw.endswith("!!"):
+    if raw.endswith(("!!", "！！")):
         return "angry"
-    if raw.endswith("!"):
+    if raw.endswith(("!", "！")):
         return "warm"
-    if raw.endswith("..."):
+    if raw.endswith(("...", "…")):
         return "soft"
-    stripped = raw.rstrip(".!?")
+    stripped = raw.rstrip(".!?…。！？؟۔｡．।॥")
     if stripped.isupper() and len(stripped) > 3:
         return "angry"
 
@@ -147,110 +252,63 @@ def regex_extract(
     if not text or not text.strip():
         return []
 
-    # Remove parenthetical thoughts entirely (inner monologue)
-    cleaned = RE_PARENTHETICAL.sub("", text)
+    quoted = _find_quoted_spans(text)
+    parentheticals = _find_parenthetical_spans(text, quoted)
+    beats = _find_beat_spans(text, quoted, parentheticals)
+    emdashes = _find_emdash_spans(text, quoted + parentheticals + beats)
+    dialogues = [span for span in quoted + emdashes if not _overlaps(span[0], span[1], parentheticals)]
 
-    # Build a segment list by tokenizing the text into beats and text
-    # using the original positions (no string mutation)
-    segments = []  # list of (type, data) — type is "beat" or "text"
-    pos = 0
+    events: list[tuple[int, str, tuple[int, int, int, int]]] = [
+        *((span[0], "beat", span) for span in beats),
+        *((span[0], "dialogue", span) for span in dialogues),
+    ]
+    events.sort(key=lambda item: (item[0], item[1] != "beat"))
 
-    # Mask quoted regions so asterisks inside "..." aren't treated as action beats.
-    # E.g. "I *really* mean it" — the *really* is emphasis, not a beat.
-    quoted_spans = set()
-    for qm in RE_QUOTED.finditer(cleaned):
-        quoted_spans.add((qm.start(), qm.end()))
-
-    for m in RE_ASTERISK.finditer(cleaned):
-        # Skip asterisks that fall inside a quoted span
-        if any(qs <= m.start() and m.end() <= qe for qs, qe in quoted_spans):
+    chunks: list[SpeakableChunk] = []
+    last_beat = None  # Most recent beat before the next dialogue
+    for _start, event_type, span in events:
+        if event_type == "beat":
+            action = _extract_beat_action(text[span[2] : span[3]])
+            last_beat = {
+                "action": action,
+                "is_audible": action in AUDIBLE_BEATS or action in AUDIBLE_EMOTION_MAP,
+                "emotion": AUDIBLE_EMOTION_MAP.get(action, ""),
+                "tag": AUDIBLE_TAG_MAP.get(action, ""),
+            }
             continue
-        # Text before this beat
-        if m.start() > pos:
-            segments.append(("text", cleaned[pos : m.start()]))
-        # The beat itself
-        action = _extract_beat_action(m.group(1))
-        is_audible = action in AUDIBLE_BEATS or action in AUDIBLE_EMOTION_MAP
-        segments.append(
-            (
-                "beat",
-                {
-                    "action": action,
-                    "is_audible": is_audible,
-                    "emotion": AUDIBLE_EMOTION_MAP.get(action, ""),
-                    "tag": AUDIBLE_TAG_MAP.get(action, ""),
-                },
+
+        dialogue_text = _spoken_text(text[span[2] : span[3]])
+        if not dialogue_text:
+            continue
+
+        pause_before = 0
+        beat_emotion = ""
+        beat_tag = ""
+        if last_beat:
+            if last_beat["is_audible"]:
+                pause_before = 400
+                beat_emotion = last_beat.get("emotion", "")
+                if supports_emotion_tags and last_beat["tag"]:
+                    beat_tag = last_beat["tag"]
+            else:
+                pause_before = 200
+            last_beat = None
+        if chunks and pause_before == 0:
+            pause_before = 300
+
+        emotion = _infer_emotion(dialogue_text)
+        if beat_emotion and emotion == "neutral":
+            emotion = beat_emotion
+        final_text = f"{beat_tag} {dialogue_text}" if beat_tag else dialogue_text
+        chunks.append(
+            SpeakableChunk(
+                text=final_text,
+                spoken_text=dialogue_text,
+                emotion=emotion,
+                pause_before_ms=pause_before,
+                pause_after_ms=0,
             )
         )
-        pos = m.end()
-    # Remaining text after last beat
-    if pos < len(cleaned):
-        segments.append(("text", cleaned[pos:]))
-
-    if not segments:
-        return []
-
-    # Now extract quoted dialogue from text segments, interleaving beat info
-    chunks = []
-    last_beat = None  # Most recent beat before the next dialogue
-
-    for seg_type, seg_data in segments:
-        if seg_type == "beat":
-            last_beat = seg_data
-            continue
-
-        # Extract quoted dialogue from this text segment
-        dialogue_matches = list(RE_QUOTED.finditer(seg_data))
-        if not dialogue_matches:
-            dialogue_matches = list(RE_EMDASH.finditer(seg_data))
-        if not dialogue_matches:
-            last_beat = None
-            continue
-
-        for dm in dialogue_matches:
-            dialogue_text = dm.group(1).strip()
-            if not dialogue_text:
-                continue
-
-            # Determine pause and emotion from preceding beat
-            pause_before = 0
-            beat_emotion = ""
-            beat_tag = ""
-
-            if last_beat:
-                if last_beat["is_audible"]:
-                    pause_before = 400
-                    beat_emotion = last_beat.get("emotion", "")
-                    if supports_emotion_tags and last_beat["tag"]:
-                        beat_tag = last_beat["tag"]
-                else:
-                    # Silent action (smiles, shrugs, etc.)
-                    pause_before = 200
-                last_beat = None  # Consume the beat
-
-            # Add inter-dialogue pause if not the first chunk
-            if chunks and pause_before == 0:
-                pause_before = 300
-
-            # Determine emotion from text + beat context
-            emotion = _infer_emotion(dialogue_text)
-            if beat_emotion and emotion == "neutral":
-                emotion = beat_emotion
-
-            # Build final text with optional tag prefix
-            final_text = dialogue_text
-            if beat_tag:
-                final_text = f"{beat_tag} {dialogue_text}"
-
-            chunks.append(
-                SpeakableChunk(
-                    text=final_text,
-                    spoken_text=dialogue_text,
-                    emotion=emotion,
-                    pause_before_ms=pause_before,
-                    pause_after_ms=0,
-                )
-            )
 
     if not chunks:
         return []

@@ -29,7 +29,7 @@ ALLOWED: dict[str, set[str]] = {
     "core": set(),
     "database": {"core"},
     "inference": {"core"},
-    "analysis": {"database"},
+    "analysis": {"core", "database"},
     "workflows": {"core", "database", "inference", "analysis"},
     "features": {"core", "database", "inference", "analysis"},
     "pipeline": {"core", "database", "inference", "analysis", "workflows", "features"},

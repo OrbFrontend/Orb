@@ -1,10 +1,8 @@
 """Analysis layer — pure prose-quality detection.
 
-Depends only on ``database.models`` (+ stdlib); it does **not** depend on
-``core`` or ``inference``. It sits below ``workflows`` and ``pipeline``,
-parallel to ``inference`` — shared by the editor pass (``pipeline.passes.editor``)
-and the workflow tools (``workflows.toolkit``). Extracting it is what keeps the
-one-way rule (it was the lone ``workflows → passes`` back-edge).
+Depends only on ``core`` and ``database.models`` (+ stdlib). It sits below
+``workflows`` and ``pipeline``, parallel to ``inference`` — shared by the editor
+pass and workflow tools without any sideways analysis/inference dependency.
 
 The facade re-exports the auditor entry points and the public result types.
 Detector *functions* (``detect_cliches``, ``detect_opening_monotony``, …) and

@@ -119,6 +119,11 @@ async def synthesize(text: str, profile: dict) -> tuple[bytes, str]:
     return result.audio_bytes, result.content_type
 
 
+def _alignment_key(token: str) -> str:
+    """Workflow-private ASCII karaoke key, mirrored by the frontend plugin."""
+    return "".join(char for char in token.lower() if char.isascii() and char.isalnum())
+
+
 def _alignable_tokens(text: str) -> list[str]:
     """Whitespace tokens of ``text`` carrying at least one ASCII letter or digit.
 
@@ -127,7 +132,7 @@ def _alignable_tokens(text: str) -> list[str]:
     Punctuation-only and non-ASCII-only tokens are dropped on both sides, so the
     k-th span produced here lines up with the k-th highlighted on-screen word.
     """
-    return [t for t in text.split() if any(c.isascii() and c.isalnum() for c in t)]
+    return [token for token in text.split() if _alignment_key(token)]
 
 
 def estimate_word_spans(dialogue_text: str) -> list[dict]:

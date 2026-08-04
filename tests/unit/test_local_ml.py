@@ -48,3 +48,8 @@ def test_pov_input_treats_every_line_break_as_a_hard_sentence_edge():
     shaped = local_ml.pov_input(text)
     assert shaped == "kept third kept fourth kept fifth"
     assert not any(mark in shaped for mark in "\r\n\u2028")
+
+
+def test_pov_input_uses_core_quote_and_sentence_policy():
+    text = "Old。 ‘I don’t count.’ Second؟ 「Nor do I。」 Third. Fourth."
+    assert local_ml.pov_input(text) == "Second؟ Third. Fourth."

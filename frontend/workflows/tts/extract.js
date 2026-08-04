@@ -1,52 +1,157 @@
-// Ordered speakable substrings of a message, one per synthesized audio block.
-// This mirrors the backend dialogue extractor (regex_extractor.py): the block
-// COUNT and ORDER must match `regex_extract` so block i here lines up with clip
-// i in the attachment. Only the spoken substrings are produced -- emotion tags
-// and pauses are backend-only and irrelevant to mapping rendered words to
-// clips. Kept in sync with the Python extractor by hand; drift costs only
-// click-to-block precision (a word may not be clickable), never playback.
+// Workflow-private dialogue parser. It intentionally does not import the app's
+// text utilities: TTS must remain portable as a plugin. The backend owns an
+// independent implementation; shared adversarial fixtures pin their behavior.
 
-// Parentheticals are inner monologue and are stripped before extraction.
-const RE_PARENTHETICAL = /\([^)]+\)/g;
-// Action beats in asterisks; only beats outside quoted spans split the text.
-const RE_ASTERISK = /\*([^*]+)\*/g;
-// Double-quoted dialogue, straight or curly quotes (U+201C open / U+201D close).
-const RE_QUOTED = /[\u201c"]([^\u201d"]+)[\u201d"]/g;
-// Em-dash (U+2014) dialogue, used only when a segment has no double-quoted dialogue.
-const RE_EMDASH = /\u2014([^\u2014]+?)\u2014/g;
+const QUOTE_PAIRS = new Map([
+  ["“", "”"],
+  ["‘", "’"],
+  ["«", "»"],
+  ["‹", "›"],
+  ["「", "」"],
+  ["『", "』"],
+  ["„", "“"],
+  ["‚", "‘"],
+]);
+const OPEN_QUOTES = new Set(QUOTE_PAIRS.keys());
+const CLOSE_QUOTES = new Set(QUOTE_PAIRS.values());
+const HARD_BREAKS = new Set([..."\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029"]);
+const ALNUM = /[\p{L}\p{N}]/u;
+
+function escaped(text, index) {
+  let slashes = 0;
+  for (index -= 1; index >= 0 && text[index] === "\\"; index--) slashes += 1;
+  return slashes % 2 === 1;
+}
+
+function overlaps(start, end, spans) {
+  return spans.some((span) => start < span.end && span.start < end);
+}
+
+function isWorkflowWhitespace(char) {
+  return char != null && (/\s/u.test(char) || HARD_BREAKS.has(char));
+}
+
+function findQuotedSpans(text) {
+  const spans = [];
+  const stack = [];
+  let outerStart = 0;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === '"' && escaped(text, index)) continue;
+    if (
+      char === "’" &&
+      index > 0 &&
+      index + 1 < text.length &&
+      ALNUM.test(text[index - 1]) &&
+      ALNUM.test(text[index + 1])
+    ) {
+      continue;
+    }
+    if (char === '"' && !stack.length && index > 0 && /\d/u.test(text[index - 1])) continue;
+
+    if (stack.length && char === stack.at(-1)) {
+      stack.pop();
+      if (!stack.length)
+        spans.push({ start: outerStart, end: index + 1, contentStart: outerStart + 1, contentEnd: index });
+      continue;
+    }
+    if (char === '"') {
+      if (!stack.length) outerStart = index;
+      stack.push(char);
+    } else if (OPEN_QUOTES.has(char)) {
+      if (!stack.length) outerStart = index;
+      stack.push(QUOTE_PAIRS.get(char));
+    } else if (CLOSE_QUOTES.has(char) && stack.length) {
+      const found = stack.lastIndexOf(char);
+      if (found >= 0) stack.splice(found);
+      if (!stack.length)
+        spans.push({ start: outerStart, end: index + 1, contentStart: outerStart + 1, contentEnd: index });
+    }
+  }
+  return spans;
+}
+
+function findParentheticalSpans(text, quoted) {
+  const spans = [];
+  const stack = [];
+  for (let index = 0; index < text.length; index++) {
+    if (overlaps(index, index + 1, quoted)) continue;
+    if (text[index] === "(") stack.push(index);
+    else if (text[index] === ")" && stack.length) {
+      const start = stack.pop();
+      if (!stack.length) spans.push({ start, end: index + 1 });
+    }
+  }
+  return spans;
+}
+
+function findBeatSpans(text, quoted, parentheticals) {
+  const spans = [];
+  let opener = null;
+  const protectedSpans = [...quoted, ...parentheticals];
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] !== "*" || escaped(text, index) || overlaps(index, index + 1, protectedSpans)) continue;
+    if (text[index - 1] === "*" || text[index + 1] === "*") continue;
+    if (opener == null) {
+      if (index + 1 < text.length && !isWorkflowWhitespace(text[index + 1])) opener = index;
+    } else if (index > opener + 1 && !isWorkflowWhitespace(text[index - 1])) {
+      spans.push({ start: opener, end: index + 1, contentStart: opener + 1, contentEnd: index });
+      opener = null;
+    }
+  }
+  return spans;
+}
+
+function findEmdashSpans(text, protectedSpans) {
+  const spans = [];
+  let opener = null;
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] !== "—" || overlaps(index, index + 1, protectedSpans)) continue;
+    if (opener == null) opener = index;
+    else {
+      if (index > opener + 1)
+        spans.push({ start: opener, end: index + 1, contentStart: opener + 1, contentEnd: index });
+      opener = null;
+    }
+  }
+  return spans;
+}
+
+function whitespaceTokens(text) {
+  const tokens = [];
+  let start = null;
+  for (let index = 0; index <= text.length; index++) {
+    const separator = index === text.length || isWorkflowWhitespace(text[index]);
+    if (!separator && start == null) start = index;
+    if (separator && start != null) {
+      tokens.push(text.slice(start, index));
+      start = null;
+    }
+  }
+  return tokens;
+}
+
+function spokenText(text) {
+  return whitespaceTokens(text).join(" ");
+}
+
+export function alignmentKey(token) {
+  return token.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function alignableKeys(text) {
+  return whitespaceTokens(text).map(alignmentKey).filter(Boolean);
+}
 
 export function extractBlocks(content) {
   if (!content?.trim()) return [];
-  const cleaned = content.replace(RE_PARENTHETICAL, "");
-
-  // Asterisks inside quotes are emphasis, not action beats; mask the quoted
-  // spans so they do not split the text into separate segments.
-  const quotedSpans = [];
-  for (const qm of cleaned.matchAll(RE_QUOTED)) {
-    quotedSpans.push([qm.index, qm.index + qm[0].length]);
-  }
-
-  // Split the text at action beats that fall outside quoted spans; the beats
-  // themselves carry no dialogue and are dropped.
-  const segments = [];
-  let pos = 0;
-  for (const m of cleaned.matchAll(RE_ASTERISK)) {
-    const start = m.index;
-    const end = m.index + m[0].length;
-    if (quotedSpans.some(([qs, qe]) => qs <= start && end <= qe)) continue;
-    if (start > pos) segments.push(cleaned.slice(pos, start));
-    pos = end;
-  }
-  if (pos < cleaned.length) segments.push(cleaned.slice(pos));
-
-  const blocks = [];
-  for (const seg of segments) {
-    let matches = [...seg.matchAll(RE_QUOTED)];
-    if (!matches.length) matches = [...seg.matchAll(RE_EMDASH)];
-    for (const dm of matches) {
-      const dialogue = dm[1].trim();
-      if (dialogue) blocks.push(dialogue);
-    }
-  }
-  return blocks;
+  const quoted = findQuotedSpans(content);
+  const parentheticals = findParentheticalSpans(content, quoted);
+  const beats = findBeatSpans(content, quoted, parentheticals);
+  const emdashes = findEmdashSpans(content, [...quoted, ...parentheticals, ...beats]);
+  return [...quoted, ...emdashes]
+    .filter((span) => !overlaps(span.start, span.end, parentheticals))
+    .sort((left, right) => left.start - right.start)
+    .map((span) => spokenText(content.slice(span.contentStart, span.contentEnd)))
+    .filter(Boolean);
 }
