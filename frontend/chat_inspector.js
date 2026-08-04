@@ -8,7 +8,7 @@ import { USER_NOTE_ID } from "./direction_notes_panel.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
 import { preserveScroll } from "./scroll_follow.js";
 import { effectiveWorkflowEnabled, interactiveFragmentsView, moodFragmentsView, S } from "./state.js";
-import { $, esc, sentenceTail } from "./utils.js";
+import { $, esc, escAttr, escHandlerArg, sentenceTail } from "./utils.js";
 
 // ── Inspector — Reasoning stepper rail
 
@@ -194,7 +194,7 @@ function _buildSecondaryReasoningHtml() {
           const lineColor = hasText ? "var(--accent)" : "var(--border)";
           return (
             `<div class="reasoning-dot-col">
-              <button class="reasoning-dot" onclick="selectWorkflowPipelinePass('${pipeline.id}','${p.id}')" style="${dotStyle}">${i + 1}</button>
+              <button class="reasoning-dot" onclick="selectWorkflowPipelinePass('${escHandlerArg(pipeline.id)}','${escHandlerArg(p.id)}')" style="${dotStyle}">${i + 1}</button>
               <span class="reasoning-pass-label" style="margin:0">${esc(p.label || p.id)}</span>
             </div>` +
             (i < pipeline.passes.length - 1
@@ -204,10 +204,10 @@ function _buildSecondaryReasoningHtml() {
         })
         .join("");
       const text = S.reasoningByPass[selectedId] || "";
-      return `<div class="workflow-card workflow-pipeline-card" data-pipeline-id="${esc(pipeline.id)}">
+      return `<div class="workflow-card workflow-pipeline-card" data-pipeline-id="${escAttr(pipeline.id)}">
         <h4>${esc(pipeline.label || pipeline.id)}</h4>
         <div class="reasoning-stepper">${dotsHtml}</div>
-        <div class="reasoning-box" id="reasoning-box-${esc(pipeline.id)}" data-pass-id="${esc(selectedId)}">${esc(text)}</div>
+        <div class="reasoning-box" id="reasoning-box-${escAttr(pipeline.id)}" data-pass-id="${escAttr(selectedId)}">${esc(text)}</div>
       </div>`;
     })
     .join("");

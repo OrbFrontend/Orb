@@ -11,7 +11,7 @@ import { renderDefaultWidget } from "./default_widget.js";
 import { closeModal, showModal } from "./modal.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
 import { broadcastWorkflowMutation, requestSendPermission, setWorkflowMutationCallback } from "./tabLock.js";
-import { $, convUrl, esc, markChatProgrammaticScroll, toast } from "./utils.js";
+import { $, convUrl, esc, escAttr, markChatProgrammaticScroll, toast } from "./utils.js";
 
 // Eviction sentinel for workflow attachment bytes -- must match
 // `EVICTED_MARKER` in backend/workflows/attachment_cache.py.
@@ -32,7 +32,7 @@ function _evictedAttachmentHtml(msg, att) {
     // Rehydrate re-runs the workflow's generative hook (gated server-side when
     // off), so the action is suppressed; the evicted-card display is consumption
     // and stays. Restoring the bytes requires re-enabling the workflow.
-    btn = `<span class="workflow-rehydrate-disabled" title="Re-enable ${esc(_workflowLabel(att))} to restore">Workflow off</span>`;
+    btn = `<span class="workflow-rehydrate-disabled" title="Re-enable ${escAttr(_workflowLabel(att))} to restore">Workflow off</span>`;
   } else {
     btn = `<button class="workflow-rehydrate-button" onclick="event.stopPropagation();workflowRehydrate(${msg.id},${att.id},this)">Rehydrate</button>`;
   }
@@ -129,7 +129,9 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
   const idx = _activeIndexForGroup(atts, root);
   const active = atts[idx];
   const minimized = _workflowMinimized.has(rootId);
-  const label = esc(_workflowLabel(active));
+  const rawLabel = _workflowLabel(active);
+  const label = esc(rawLabel);
+  const labelAttr = escAttr(rawLabel);
   // The variant count rides the label only while collapsed; expanded widgets
   // already show it in the swipe counter below the body.
   const countBadge = minimized && total > 1 ? ` <span class="workflow-artifact-label-count">(${total})</span>` : "";
@@ -141,7 +143,7 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
   // the control is still keyboard/AT reachable, and both chrome buttons stop
   // propagation so the strip's handler cannot double-fire.
   const header = `<div class="workflow-artifact-header" onclick="workflowToggleMinimize('${instanceId}')">
-      <span class="workflow-artifact-label" title="${label}">${label}${countBadge}</span>
+      <span class="workflow-artifact-label" title="${labelAttr}">${label}${countBadge}</span>
       <div class="workflow-artifact-controls">
         <button class="workflow-chrome-btn workflow-min-btn${minimized ? " collapsed" : ""}" title="${minimized ? "Expand" : "Minimize"}" aria-expanded="${minimized ? "false" : "true"}" onclick="event.stopPropagation();workflowToggleMinimize('${instanceId}')">${ICON_CHEVRON}</button>
         <button class="workflow-chrome-btn workflow-del-btn" title="Delete" onclick="event.stopPropagation();workflowDeleteAttachment('${instanceId}')">${ICON_DEL}</button>
@@ -179,7 +181,7 @@ function _renderWorkflowSwipeContainer(msg, rootId, atts) {
     } else {
       widgetHtml = defaultHtml;
     }
-    bodyHtml = `<div class="workflow-widget" data-workflow-id="${esc(active.workflow_id)}" data-attachment-id="${active.id}">${widgetHtml}</div>`;
+    bodyHtml = `<div class="workflow-widget" data-workflow-id="${escAttr(active.workflow_id)}" data-attachment-id="${active.id}">${widgetHtml}</div>`;
   }
   const indicator = total > 1 ? `<span class="workflow-artifact-counter">${idx + 1} / ${total}</span>` : "";
   // No cycling: each arrow dies at its end of the list (also when there is only

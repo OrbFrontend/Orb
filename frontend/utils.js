@@ -349,7 +349,7 @@ function _formatProse(text) {
         const hasNewline = !!codeMatch[2];
         const lang = hasNewline ? codeMatch[1] : "";
         const code = esc(hasNewline ? codeMatch[3] : codeMatch[1] + codeMatch[3]);
-        const langAttr = lang ? ` class="language-${esc(lang)}"` : "";
+        const langAttr = lang ? ` class="language-${escAttr(lang)}"` : "";
         return (
           `<div class="code-block">` +
           `<div class="code-block-bar">` +
