@@ -65,6 +65,15 @@ def test_trim_single_partial_sentence_yields_empty_core():
     assert trim_incomplete_tail("just a fragment with no end") == ("", "just a fragment with no end")
 
 
+def test_trim_does_not_mistake_title_abbreviation_for_complete_sentence():
+    draft = "Dr. Rivera was still wal"
+    assert trim_incomplete_tail(draft) == ("", draft)
+
+
+def test_trim_uses_unicode_sentence_terminators():
+    assert trim_incomplete_tail("彼は帰った。 次の断片") == ("彼は帰った。 ", "次の断片")
+
+
 def test_trim_empty_and_whitespace():
     assert trim_incomplete_tail("") == ("", "")
     assert trim_incomplete_tail("   \n") == ("", "   \n")

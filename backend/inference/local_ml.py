@@ -415,7 +415,10 @@ _POV_SENTENCES = 3
 # first. Straight and curly quotes both; asterisk-wrapped action is narration and
 # stays.
 _POV_DIALOGUE_RE = re.compile(r"[\"“”«»][^\"“”«»]*[\"“”«»]")
-_POV_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+# A line break is always a hard sentence edge, even without punctuation. This
+# mirrors the analysis splitter's invariant without importing sideways from the
+# peer ``analysis`` layer.
+_POV_SENTENCE_SPLIT_RE = re.compile(r"(?:(?<=[.!?…])\s+|[\r\n\u0085\u2028\u2029]+)")
 
 
 def pov_input(text: str) -> str:

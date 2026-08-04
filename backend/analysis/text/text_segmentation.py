@@ -30,6 +30,7 @@ tolerance as SENT_SPLIT).
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 
 __all__ = [
     "PARA_SPLIT",
@@ -40,6 +41,8 @@ __all__ = [
     "EMPHASIS_RE",
     "split_paragraphs",
     "split_sentences",
+    "sentence_boundary_ends",
+    "ends_with_sentence_terminator",
     "split_segment_sentences",
     "extract_narration",
     "split_narration_sentences",
@@ -58,16 +61,26 @@ __all__ = [
 # Paragraph break: a blank line, optionally filled with whitespace.
 PARA_SPLIT = re.compile(r"\n\s*\n")
 
-# Sentence boundary: a terminator (. ! ? …) followed by whitespace. Trailing
-# closing markers (quotes, markdown emphasis, brackets) between the terminator
-# and the whitespace are tolerated — e.g. Hiro.* or done." — so a terminator
-# hidden behind a markdown marker still splits correctly rather than merging
-# adjacent sentences into one.
-SENT_SPLIT = re.compile(r"(?<=[.!?…])[\"\u201d\u2019'*_)\]]*\s+")
+# Compatibility regex for the original coarse boundary contract. Public
+# splitting/counting now uses the scanner below, which preserves closing markup,
+# understands abbreviations, and supports non-ASCII terminators.
+SENT_SPLIT = re.compile(r"(?:(?<=[.!?…])[\"\u201d\u2019'*_)\]]*\s+|(?:\r\n|[\n\r\u0085\u2028\u2029])+)")
 
-# Curly directional quotes are unambiguous: left opens, right closes.
-OPEN_QUOTES = frozenset({"\u201c", "\u2018"})  # " '
-CLOSE_QUOTES = frozenset({"\u201d", "\u2019"})  # " '
+# Directional pairs cover common English, European, and CJK dialogue marks. A
+# closer that is also an opener in another convention closes the current
+# matching pair first.
+_QUOTE_PAIRS = {
+    "“": "”",
+    "‘": "’",
+    "«": "»",
+    "‹": "›",
+    "「": "」",
+    "『": "』",
+    "„": "“",
+    "‚": "‘",
+}
+OPEN_QUOTES = frozenset(_QUOTE_PAIRS)
+CLOSE_QUOTES = frozenset(_QUOTE_PAIRS.values())
 # Straight double quote has no direction; we toggle on each occurrence.
 # The straight single quote is intentionally excluded from every set so that
 # contractions like I'm and don't survive. U+2019 also doubles as a typographic
@@ -75,8 +88,181 @@ CLOSE_QUOTES = frozenset({"\u201d", "\u2019"})  # " '
 # characters (castle's, don't) and only treats it as a closing quote otherwise.
 TOGGLE_QUOTES = frozenset({'"'})
 
+_TERMINATORS = frozenset(".!?…。！？؟۔｡．।॥")
+_QUESTION_TERMINATORS = frozenset("?？؟")
+_TIGHT_TERMINATORS = frozenset("…。！？؟۔｡．।॥")
+_TRAILING_MARKERS = frozenset("'»›」』*_)]}>") | CLOSE_QUOTES | TOGGLE_QUOTES
+
+# Periods need lexical context. This deliberately stays conservative: it
+# suppresses only forms that are overwhelmingly non-terminal, leaving
+# ambiguous abbreviations such as ``etc.`` to end a sentence before a capital.
+_ALWAYS_NONTERMINAL_ABBREVIATIONS = frozenset({"e.g.", "i.e.", "a.k.a.", "vs.", "v.", "cf."})
+_LOWERCASE_CONTINUATION_ABBREVIATIONS = frozenset(
+    {"a.m.", "p.m.", "approx.", "dept.", "est.", "misc.", "incl.", "esp.", "min.", "max.", "ref.", "sec."}
+)
+_TITLE_ABBREVIATIONS = frozenset(
+    {
+        "mr.",
+        "mrs.",
+        "ms.",
+        "mx.",
+        "dr.",
+        "prof.",
+        "rev.",
+        "hon.",
+        "pres.",
+        "gov.",
+        "sen.",
+        "rep.",
+        "sr.",
+        "jr.",
+        "st.",
+        "mt.",
+        "capt.",
+        "cpt.",
+        "lt.",
+        "col.",
+        "gen.",
+        "sgt.",
+        "adm.",
+        "maj.",
+    }
+)
+_NUMBER_ABBREVIATIONS = frozenset(
+    {
+        "no.",
+        "fig.",
+        "eq.",
+        "ch.",
+        "vol.",
+        "pp.",
+        "jan.",
+        "feb.",
+        "mar.",
+        "apr.",
+        "jun.",
+        "jul.",
+        "aug.",
+        "sep.",
+        "sept.",
+        "oct.",
+        "nov.",
+        "dec.",
+    }
+)
+_ABBREVIATION_BEFORE_PERIOD = re.compile(r"(?:[^\W\d_]+\.)+$", re.UNICODE)
+
 
 # ---------- paragraph / sentence splitting (dialogue preserved) ----------
+
+
+def _period_is_nonterminal(text: str, period: int, next_char: int) -> bool:
+    """Whether ``text[period]`` belongs to an abbreviation rather than ending
+    a sentence. Decimal points never reach this helper because they have no
+    following whitespace, but the explicit check makes the contract robust for
+    callers that feed unusual spaced numeric forms."""
+    if period > 0 and period + 1 < len(text) and text[period - 1].isdigit() and text[period + 1].isdigit():
+        return True
+
+    match = _ABBREVIATION_BEFORE_PERIOD.search(text[: period + 1])
+    if match is None:
+        return False
+    raw_abbreviation = match.group(0)
+    abbreviation = raw_abbreviation.casefold()
+    next_value = text[next_char] if next_char < len(text) else ""
+
+    if abbreviation in _ALWAYS_NONTERMINAL_ABBREVIATIONS:
+        return True
+    if abbreviation in _TITLE_ABBREVIATIONS and next_value.isalnum():
+        return True
+    if abbreviation in _NUMBER_ABBREVIATIONS and next_value.isdigit():
+        return True
+
+    letters = raw_abbreviation.replace(".", "")
+    # Initials and uppercase acronyms before a following name/noun: ``J. R. R.
+    # Tolkien`` and ``U.S. Army``. Lowercase ``a.m. She`` remains a boundary.
+    if next_value.isalnum() and (len(letters) == 1 or (abbreviation.count(".") >= 2 and letters.isupper())):
+        return True
+
+    # Explicit ambiguous abbreviations continue only before lowercase prose
+    # (``approx. three hours``); ``It was 5 p.m. She left.`` still splits.
+    return abbreviation in _LOWERCASE_CONTINUATION_ABBREVIATIONS and next_value.islower()
+
+
+def sentence_boundary_ends(text: str) -> Iterator[int]:
+    """Yield exclusive ends of complete sentence boundaries in *text*.
+
+    Each end includes trailing quote/emphasis/bracket markers and the separator
+    whitespace. This makes ``text[start:end]`` lossless for document-tail
+    trimming while split helpers can simply ``strip()`` each unit. Periods in
+    common abbreviations/initials are suppressed.
+    """
+    i = 0
+    size = len(text)
+    while i < size:
+        if text[i] not in _TERMINATORS:
+            i += 1
+            continue
+
+        terminal_end = i + 1
+        while terminal_end < size and text[terminal_end] in _TERMINATORS:
+            terminal_end += 1
+
+        marker_end = terminal_end
+        while marker_end < size and text[marker_end] in _TRAILING_MARKERS:
+            marker_end += 1
+
+        boundary_end = marker_end
+        while boundary_end < size and text[boundary_end].isspace():
+            boundary_end += 1
+        has_separator = boundary_end > marker_end
+        allows_tight_boundary = any(ch in _TIGHT_TERMINATORS for ch in text[i:terminal_end])
+        if not has_separator and not (allows_tight_boundary and marker_end < size):
+            i = terminal_end
+            continue
+
+        only_one_period = terminal_end == i + 1 and text[i] == "."
+        if not (only_one_period and _period_is_nonterminal(text, i, boundary_end)):
+            yield boundary_end
+            i = boundary_end
+        else:
+            i = terminal_end
+
+
+def _split_sentence_line(text: str) -> list[str]:
+    units: list[str] = []
+    start = 0
+    for end in sentence_boundary_ends(text):
+        unit = text[start:end].strip()
+        if unit:
+            units.append(unit)
+        start = end
+    tail = text[start:].strip()
+    if tail:
+        units.append(tail)
+    return units
+
+
+def _split_sentence_units(text: str) -> list[str]:
+    """Split punctuation-delimited units with every line break as a hard edge.
+
+    ``str.splitlines`` covers LF, CRLF, bare CR, and Unicode line separators.
+    Line endings are separators rather than sentence content, so no returned
+    unit can contain one even when neither adjacent line has punctuation.
+    """
+    units: list[str] = []
+    for line in text.splitlines():
+        units.extend(_split_sentence_line(line))
+    return units
+
+
+def ends_with_sentence_terminator(text: str) -> bool:
+    """True when *text* ends in sentence punctuation, allowing trailing
+    closing quote/emphasis/bracket markers and whitespace."""
+    trimmed = text.rstrip()
+    while trimmed and trimmed[-1] in _TRAILING_MARKERS:
+        trimmed = trimmed[:-1].rstrip()
+    return bool(trimmed and trimmed[-1] in _TERMINATORS)
 
 
 def split_paragraphs(text: str) -> list[str]:
@@ -92,10 +278,7 @@ def split_sentences(text: str) -> list[str]:
     """
     sentences: list[str] = []
     for para in split_paragraphs(text):
-        for raw in SENT_SPLIT.split(para):
-            s = raw.strip()
-            if s:
-                sentences.append(s)
+        sentences.extend(_split_sentence_units(para))
     return sentences
 
 
@@ -105,78 +288,65 @@ def split_sentences(text: str) -> list[str]:
 def extract_narration(paragraph: str) -> str:
     """Return only the text from paragraph that falls outside any quoted span.
 
-    The caller splits into paragraphs first, so quote state resets at each
-    paragraph boundary — an unclosed quote inside one paragraph can't bleed
-    into the next. Spaces are inserted where quotes are stripped to prevent
-    adjacent words from fusing.
+    The caller splits into paragraphs first. Only balanced quoted spans are
+    removed; an unmatched opener is literal prose rather than a reason to drop
+    the rest of the paragraph. Spaces prevent adjacent words from fusing.
     """
-    out: list[str] = []
-    inside = False
-    prev_was_quote = False
-
-    for i, ch in enumerate(paragraph):
-        # U+2019 doubles as the typographic apostrophe. When it sits between two
-        # word characters (don't, castle's, it's) it's a contraction/possessive,
-        # not a closing single-quote — keep it so the word survives intact rather
-        # than being clipped to "castle s".
-        is_apostrophe = (
-            ch == "’" and i > 0 and paragraph[i - 1].isalnum() and i + 1 < len(paragraph) and paragraph[i + 1].isalnum()
-        )
-        if not is_apostrophe:
-            if ch in TOGGLE_QUOTES:
-                inside = not inside
-                prev_was_quote = True
-                continue
-            if ch in OPEN_QUOTES:
-                inside = True
-                prev_was_quote = True
-                continue
-            if ch in CLOSE_QUOTES:
-                inside = False
-                prev_was_quote = True
-                continue
-
-        if not inside:
-            # Insert a space where a quote was stripped, to prevent fusion.
-            if prev_was_quote and out and out[-1] not in " \t\n":
-                out.append(" ")
-            out.append(ch)
-        else:
-            # Inside quotes — still guard against fusion at the boundary.
-            if out and out[-1] not in " \t\n":
-                out.append(" ")
-
-        prev_was_quote = False
-
-    return " ".join("".join(out).split())  # Normalize whitespace
+    pieces: list[str] = []
+    cursor = 0
+    for start, end in find_quote_spans(paragraph):
+        pieces.append(paragraph[cursor:start])
+        pieces.append(" ")  # Prevent the words on either side from fusing.
+        cursor = end
+    pieces.append(paragraph[cursor:])
+    return " ".join("".join(pieces).split())
 
 
 def split_narration_sentences(text: str) -> list[str]:
     """Split text into narration sentences, stripping dialogue in the process.
 
     Splitting is paragraph-aware so quote state and terminators don't bleed
-    across paragraph boundaries.
+    across paragraph boundaries. Narration runs on opposite sides of dialogue
+    are kept separate rather than fused into a synthetic string that never
+    appeared in the source; every returned fragment is therefore a contiguous
+    substring suitable for an editor search/replace patch.
     """
     sentences: list[str] = []
+
+    def append_run(run: str, *, touches_dialogue: bool) -> None:
+        units = _split_sentence_units(run)
+        if touches_dialogue:
+            # In punctuation-outside-quote styles (``"Enough". Then``), the
+            # period is a narration block of its own. It is quote punctuation,
+            # not a prose sentence and must not break an opener run.
+            units = [unit for unit in units if any(ch.isalnum() for ch in unit)]
+        sentences.extend(units)
+
     for para in split_paragraphs(text):
-        narration = extract_narration(para).strip()
-        if not narration:
-            continue
-        for raw in SENT_SPLIT.split(narration):
-            s = raw.strip()
-            if s:
-                sentences.append(s)
+        run_start: int | None = None
+        run_end = 0
+        after_dialogue = False
+        for typ, start, end in extract_block_spans(para):
+            if typ == "SPEECH":
+                if run_start is not None:
+                    append_run(para[run_start:run_end], touches_dialogue=True)
+                    run_start = None
+                after_dialogue = True
+                continue
+            if run_start is None:
+                run_start = start
+            run_end = end
+        if run_start is not None:
+            append_run(para[run_start:run_end], touches_dialogue=after_dialogue)
     return sentences
 
 
 # ---------- out-of-character asides ----------
 
-# Out-of-character asides are wrapped in square brackets in this app (the system
-# itself emits ``[OOC: ...]`` directives, and users follow the same convention).
-# They are instructions *to* the model, not in-character speech — including any
-# quotes nested inside them. Matching the innermost brackets and re-running until
-# stable clears nested asides without letting a stray inner quote survive.
-_OOC_BRACKET_RE = re.compile(r"\[[^\[\]]*\]")
+# Out-of-character asides are explicitly tagged ``[OOC: ...]``. Ordinary
+# bracketed prose (stage directions, citations, literal dialogue) is content and
+# must survive. The scanner below balances nested brackets inside an OOC aside.
+_OOC_START_RE = re.compile(r"\[\s*ooc\b", re.IGNORECASE)
 
 
 def strip_ooc(text: str) -> str:
@@ -186,43 +356,94 @@ def strip_ooc(text: str) -> str:
     Used by anti_echo to drop the user's directives (and any quotes nested
     inside them) before reading their in-character dialogue.
     """
-    prev = None
-    while prev != text:
-        prev = text
-        text = _OOC_BRACKET_RE.sub(" ", text)
-    return text
+    pieces: list[str] = []
+    cursor = 0
+    while match := _OOC_START_RE.search(text, cursor):
+        pieces.append(text[cursor : match.start()])
+        depth = 0
+        end = len(text)
+        for i in range(match.start(), len(text)):
+            if text[i] == "[":
+                depth += 1
+            elif text[i] == "]":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        pieces.append(" ")
+        cursor = end
+    pieces.append(text[cursor:])
+    return "".join(pieces)
 
 
 # ---------- structural helpers ----------
 
 
 def find_quote_spans(text: str) -> list[tuple[int, int]]:
-    """Return (start, end) character spans of every quoted region, inclusive of
-    the quote marks themselves.
+    """Return (start, end) character spans of maximal quoted regions, inclusive
+    of the outer quote marks themselves. Nested quotes stay inside their outer
+    span, so returned spans never overlap.
 
     Used by detectors that need quote positions rather than stripped narration
     (e.g. structural_repetition, anti_echo). Uses the same quote definitions as
     extract_narration so the two functions agree on what counts as dialogue.
     """
     spans: list[tuple[int, int]] = []
-    inside = False
-    start = 0
+    stack: list[str] = []  # expected closing marks
+    outer_start = 0
     for i, ch in enumerate(text):
+        # Backslash-escaped straight quotes are literal. An even number of
+        # preceding slashes means the quote itself is not escaped.
         if ch in TOGGLE_QUOTES:
-            if not inside:
-                inside = True
-                start = i
-            else:
-                spans.append((start, i + 1))
-                inside = False
+            slashes = 0
+            j = i - 1
+            while j >= 0 and text[j] == "\\":
+                slashes += 1
+                j -= 1
+            if slashes % 2:
+                continue
+
+        # U+2019 is also the normal typographic apostrophe. Between two word
+        # characters it never closes curly-single dialogue.
+        if ch == "’" and i > 0 and i + 1 < len(text) and text[i - 1].isalnum() and text[i + 1].isalnum():
+            continue
+
+        # A straight double quote immediately after a digit is normally an inch
+        # or arc-second mark. It can still close already-open dialogue ending in
+        # a number, but must not open a bogus span between two measurements.
+        if ch in TOGGLE_QUOTES and not stack and i > 0 and text[i - 1].isdigit():
+            continue
+
+        if stack and ch == stack[-1]:
+            stack.pop()
+            if not stack:
+                spans.append((outer_start, i + 1))
+            continue
+
+        if ch in TOGGLE_QUOTES:
+            if not stack:
+                outer_start = i
+            stack.append(ch)
         elif ch in OPEN_QUOTES:
-            if not inside:
-                inside = True
-                start = i
-        elif ch in CLOSE_QUOTES:
-            if inside:
-                spans.append((start, i + 1))
-                inside = False
+            if not stack:
+                outer_start = i
+            stack.append(_QUOTE_PAIRS[ch])
+        elif ch in CLOSE_QUOTES and stack:
+            # A matching closer deeper in the stack recovers malformed nested
+            # markup through that level. A wholly mismatched closer is literal:
+            # notably, a possessive apostrophe inside double-quoted speech must
+            # not close the double quote.
+            if ch in stack:
+                while stack:
+                    expected = stack.pop()
+                    if expected == ch:
+                        break
+            if not stack:
+                spans.append((outer_start, i + 1))
+
+    # An unmatched opener is treated as literal prose. This is the conservative
+    # recovery: it cannot swallow the rest of a paragraph as dialogue, and keeps
+    # find_quote_spans/extract_narration/extract_block_spans consistent.
     return spans
 
 
@@ -235,14 +456,12 @@ def count_sentences(text: str) -> int:
     stripped = text.strip()
     if not stripped:
         return 0
-    pieces = [s.strip() for s in SENT_SPLIT.split(stripped) if s.strip()]
-    return len(pieces) if pieces else 1
+    return len(_split_sentence_units(stripped))
 
 
 # Trailing closing markers SENT_SPLIT tolerates after a terminator, plus the
 # other terminal punctuation that can ride alongside a ``?`` (e.g. "?!", "??").
-_TRAILING_MARKERS = " \t\n\"”’'*_)]}>"
-_TRAILING_TERMINALS = "!.…"
+_TRAILING_TERMINALS = "!.…。！۔｡．।॥"
 
 
 def ends_with_question(sentence: str) -> bool:
@@ -251,8 +470,8 @@ def ends_with_question(sentence: str) -> bool:
 
     Used by anti_echo to pick out the interrogative sentences in a draft.
     """
-    trimmed = sentence.rstrip(_TRAILING_MARKERS).rstrip(_TRAILING_TERMINALS)
-    return trimmed.endswith("?")
+    trimmed = sentence.rstrip().rstrip("".join(_TRAILING_MARKERS)).rstrip(_TRAILING_TERMINALS)
+    return bool(trimmed and trimmed[-1] in _QUESTION_TERMINATORS)
 
 
 # ---------- block extraction (SPEECH / EMPHASIS / NARRATION) ----------
@@ -265,16 +484,17 @@ def ends_with_question(sentence: str) -> bool:
 # a rewrite). Both go through extract_block_spans so they agree on segmentation.
 
 EMPHASIS_RE = re.compile(
-    r"(?<!\w)\*(?!\s)([^*\n]+?)\*(?!\w)"  # *thought*  (not bullet)
+    r"(?<![\w*\\])\*(?![\s*])([^*\n]+?)\*(?![\w*])"  # *thought* (not bullet/bold/escaped)
     r"|"
-    r"(?<!\w)_(?!\s)([^_\n]+?)_(?!\w)",  # _thought_
+    r"(?<![\w_\\])_(?![\s_])([^_\n]+?)_(?![\w_])",  # _thought_ (not __bold__)
 )
 
 
 def find_emphasis_spans(text: str) -> list[tuple[int, int]]:
     """Return (start, end) spans of *asterisk* / _underscore_ emphasis runs,
     inclusive of the markers. A leading ``*`` that is the first non-space on its
-    line and followed by a space is treated as a markdown bullet and skipped."""
+    line and followed by a space is treated as a markdown bullet and skipped.
+    Escaped markers and Markdown ``**bold**`` / ``__bold__`` are also skipped."""
     spans = []
     for m in EMPHASIS_RE.finditer(text):
         if m.group(0).startswith("*"):
@@ -285,10 +505,6 @@ def find_emphasis_spans(text: str) -> list[tuple[int, int]]:
                 continue
         spans.append((m.start(), m.end()))
     return spans
-
-
-def _start_inside(start: int, spans: list[tuple[int, int]]) -> bool:
-    return any(qs <= start < qe for qs, qe in spans)
 
 
 def extract_block_spans(para: str) -> list[tuple[str, int, int]]:
@@ -304,7 +520,11 @@ def extract_block_spans(para: str) -> list[tuple[str, int, int]]:
     a ``*`` inside dialogue is never treated as emphasis.
     """
     quote_spans = find_quote_spans(para)
-    emphasis_spans = [(s, e) for s, e in find_emphasis_spans(para) if not _start_inside(s, quote_spans)]
+    emphasis_spans = [
+        (s, e)
+        for s, e in find_emphasis_spans(para)
+        if not any(s < quote_end and quote_start < e for quote_start, quote_end in quote_spans)
+    ]
 
     typed = sorted([(s, e, "SPEECH") for s, e in quote_spans] + [(s, e, "EMPHASIS") for s, e in emphasis_spans])
 
@@ -338,10 +558,7 @@ def split_segment_sentences(text: str) -> list[str]:
     segments: list[str] = []
     for para in split_paragraphs(text):
         for _typ, s, e in extract_block_spans(para):
-            for raw in SENT_SPLIT.split(para[s:e]):
-                seg = raw.strip()
-                if seg:
-                    segments.append(seg)
+            segments.extend(_split_sentence_units(para[s:e]))
     return segments
 
 

@@ -41,3 +41,10 @@ def test_model_dir_is_created(monkeypatch, tmp_path):
     d = local_ml.model_dir()
     assert os.path.isdir(d)
     assert d.endswith(os.path.join("backend", "data", "models"))
+
+
+def test_pov_input_treats_every_line_break_as_a_hard_sentence_edge():
+    text = "discarded first\ndiscarded second\r\nkept third\u2028kept fourth\nkept fifth"
+    shaped = local_ml.pov_input(text)
+    assert shaped == "kept third kept fourth kept fifth"
+    assert not any(mark in shaped for mark in "\r\n\u2028")
