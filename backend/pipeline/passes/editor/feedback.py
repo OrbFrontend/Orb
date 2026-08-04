@@ -121,8 +121,9 @@ async def feedback_step(
 
     resp: dict = {}
     # Errors propagate out like the director/writer/editor passes.
-    async for event in base.complete(
+    async for event in base.complete_into(
         client,
+        resp,
         label="feedback",
         trailing=trailing,
         tool_choice=GIVE_FEEDBACK_CHOICE,
@@ -130,10 +131,7 @@ async def feedback_step(
         **hyperparams,
         **reasoning_cfg(reasoning_on, reasoning_prefill),
     ):
-        if event["type"] == "reasoning":
-            yield {"type": "reasoning", "delta": event["delta"]}
-        elif event["type"] == "done":
-            resp = event["message"]
+        yield event
 
     agent_raw = json.dumps(resp, default=str)
     logger.info("Feedback step output:\n%s", agent_raw)

@@ -261,14 +261,24 @@ function _reapplyInFlightSwipes() {
   }
 }
 
-window.workflowArtifactStep = async (instanceId, delta) => {
+// Resolve a widget's DOM instance id to the message and artifact group it
+// renders. Returns `{}` when any link in the chain is gone (element removed,
+// message evicted, group deleted), so callers gate on a destructured `group`.
+// Every widget action starts from this lookup.
+function _resolveWorkflowWidget(instanceId) {
   const el = document.getElementById(instanceId);
-  if (!el) return;
+  if (!el) return {};
   const msgId = Number(el.dataset.msgId);
   const rootId = Number(el.dataset.rootId);
   const msg = S.messages.find((m) => m.id === msgId);
-  if (!msg) return;
+  if (!msg) return {};
   const group = _workflowAttachmentGroups(msg).find((g) => g.rootId === rootId);
+  if (!group) return {};
+  return { el, msgId, rootId, msg, group };
+}
+
+window.workflowArtifactStep = async (instanceId, delta) => {
+  const { el, msgId, rootId, msg, group } = _resolveWorkflowWidget(instanceId);
   if (!group || group.atts.length <= 1) return;
   if (_workflowSwipeInFlight.has(rootId)) return;
   if (!requestSendPermission()) return;
@@ -673,13 +683,7 @@ window.workflowReroll = async (msgId, attId, btn) => {
 // it is not gated on the single-writer tab lock. Re-renders just this widget in
 // place, the same surgical outerHTML swap workflowArtifactStep uses.
 window.workflowToggleMinimize = (instanceId) => {
-  const el = document.getElementById(instanceId);
-  if (!el) return;
-  const msgId = Number(el.dataset.msgId);
-  const rootId = Number(el.dataset.rootId);
-  const msg = S.messages.find((m) => m.id === msgId);
-  if (!msg) return;
-  const group = _workflowAttachmentGroups(msg).find((g) => g.rootId === rootId);
+  const { el, rootId, msg, group } = _resolveWorkflowWidget(instanceId);
   if (!group) return;
   if (_workflowMinimized.has(rootId)) _workflowMinimized.delete(rootId);
   else _workflowMinimized.add(rootId);
@@ -694,13 +698,7 @@ window.workflowToggleMinimize = (instanceId) => {
 let _wfDeleteTarget = null;
 
 window.workflowDeleteAttachment = (instanceId) => {
-  const el = document.getElementById(instanceId);
-  if (!el) return;
-  const msgId = Number(el.dataset.msgId);
-  const rootId = Number(el.dataset.rootId);
-  const msg = S.messages.find((m) => m.id === msgId);
-  if (!msg) return;
-  const group = _workflowAttachmentGroups(msg).find((g) => g.rootId === rootId);
+  const { msgId, rootId, group } = _resolveWorkflowWidget(instanceId);
   if (!group) return;
   const root = group.atts.find((a) => a.id === rootId) || group.atts[0];
   const idx = _activeIndexForGroup(group.atts, root);

@@ -33,8 +33,8 @@ from .registry import get_workflow
 logger = logging.getLogger(__name__)
 
 # EVICTED_MARKER is re-exported from the database boundary above (where it
-# describes the persisted ``data_b64`` shape) so the eviction layer here and
-# the route layer in main.py can keep importing it from this module.
+# describes the persisted ``data_b64`` shape) so eviction's callers -- the
+# routes, toolkit, and image_gen references -- import it from this module.
 
 
 class RehydrateAlreadyDoneError(ValueError):
@@ -175,17 +175,17 @@ async def _get_budget_bytes_on(db) -> int:
     return int(rows[0]["attachment_cache_budget_bytes"]) if rows else 0
 
 
+# Single source of truth: bytes live in data_b64. The byte count is derived from
+# the column's length rather than stored separately, so no second column can
+# drift from the bytes it claims to describe. Base64 math: every 4 input chars
+# encode 3 bytes, minus 1 for each trailing '=' padding char.
+_SIZE_EXPR = "((length(data_b64) / 4) * 3) - (length(data_b64) - length(rtrim(data_b64, '='))) AS size"
+
+
 async def _byte_bearing_candidates_on(db) -> list[dict]:
-    # Single source of truth: bytes live in data_b64. The byte count is
-    # computed from the column's length rather than stored separately so
-    # there is no way for a separate column to drift from the bytes it
-    # claims to describe. Base64 math: every 4 input chars encode 3 bytes
-    # minus 1 for each trailing '=' padding char.
     rows = list(
         await db.execute_fetchall(
-            "SELECT id, "
-            "((length(data_b64) / 4) * 3) - (length(data_b64) - length(rtrim(data_b64, '='))) AS size, "
-            "recent_accesses, seed, generation_metadata "
+            f"SELECT id, {_SIZE_EXPR}, recent_accesses, seed, generation_metadata "  # nosec B608
             "FROM workflow_attachments WHERE data_b64 != ? ORDER BY id ASC",
             (EVICTED_MARKER,),
         )
@@ -335,18 +335,11 @@ async def _aged_candidates_on(db, cutoff: str | None) -> list[tuple[int, int]]:
     is stored in that same format, so a plain string compare orders correctly
     -- the trick queries/stats.py already documents and relies on.
 
-    The size expression is the one from ``_byte_bearing_candidates_on``: bytes
-    are derived from ``data_b64``'s length rather than stored, so there is no
-    separate column that can drift. ``_stored_rehydratable`` is applied here in
-    Python rather than as SQL: it JSON-decodes ``generation_metadata`` and
-    shape-checks it, which a ``seed IS NOT NULL`` test cannot approximate.
+    ``_stored_rehydratable`` is applied here in Python rather than as SQL: it
+    JSON-decodes ``generation_metadata`` and shape-checks it, which a
+    ``seed IS NOT NULL`` test cannot approximate.
     """
-    sql = (
-        "SELECT id, "
-        "((length(data_b64) / 4) * 3) - (length(data_b64) - length(rtrim(data_b64, '='))) AS size, "
-        "seed, generation_metadata "
-        "FROM workflow_attachments WHERE data_b64 != ?"
-    )
+    sql = f"SELECT id, {_SIZE_EXPR}, seed, generation_metadata FROM workflow_attachments WHERE data_b64 != ?"  # nosec B608
     params: tuple[Any, ...] = (EVICTED_MARKER,)
     if cutoff is not None:
         sql += " AND created_at < ?"
@@ -966,6 +959,22 @@ async def set_active_sibling(
         await db.commit()
 
 
+async def _active_sibling_on(db, root_id: int) -> int | None:
+    """Read a group root's ``active_sibling_id``; None when the row is gone."""
+    rows = list(await db.execute_fetchall("SELECT active_sibling_id FROM workflow_attachments WHERE id = ?", (root_id,)))
+    return rows[0]["active_sibling_id"] if rows else None
+
+
+def _delete_result(deleted_ids: list[int], *, group_empty: bool, root_id: int, active_sibling_id: int | None) -> dict:
+    """The one return shape of :func:`delete_workflow_attachments` (see its docstring)."""
+    return {
+        "deleted_ids": deleted_ids,
+        "group_empty": group_empty,
+        "root_id": root_id,
+        "active_sibling_id": active_sibling_id,
+    }
+
+
 async def delete_workflow_attachments(
     target_id: int,
     *,
@@ -1023,13 +1032,7 @@ async def delete_workflow_attachments(
         if root_id == target_id:
             root_active = target["active_sibling_id"]
         else:
-            root_rows = list(
-                await db.execute_fetchall(
-                    "SELECT active_sibling_id FROM workflow_attachments WHERE id = ?",
-                    (root_id,),
-                )
-            )
-            root_active = root_rows[0]["active_sibling_id"] if root_rows else None
+            root_active = await _active_sibling_on(db, root_id)
 
         if scope == "group":
             del_ids = [
@@ -1044,28 +1047,13 @@ async def delete_workflow_attachments(
                 (root_id, root_id),
             )
             await db.commit()
-            return {
-                "deleted_ids": del_ids,
-                "group_empty": True,
-                "root_id": root_id,
-                "active_sibling_id": None,
-            }
+            return _delete_result(del_ids, group_empty=True, root_id=root_id, active_sibling_id=None)
 
         if target_id != root_id:
             await db.execute("DELETE FROM workflow_attachments WHERE id = ?", (target_id,))
-            after = list(
-                await db.execute_fetchall(
-                    "SELECT active_sibling_id FROM workflow_attachments WHERE id = ?",
-                    (root_id,),
-                )
-            )
+            after = await _active_sibling_on(db, root_id)
             await db.commit()
-            return {
-                "deleted_ids": [target_id],
-                "group_empty": False,
-                "root_id": root_id,
-                "active_sibling_id": after[0]["active_sibling_id"] if after else None,
-            }
+            return _delete_result([target_id], group_empty=False, root_id=root_id, active_sibling_id=after)
 
         survivors = [
             x["id"]
@@ -1077,12 +1065,7 @@ async def delete_workflow_attachments(
         if not survivors:
             await db.execute("DELETE FROM workflow_attachments WHERE id = ?", (root_id,))
             await db.commit()
-            return {
-                "deleted_ids": [root_id],
-                "group_empty": True,
-                "root_id": root_id,
-                "active_sibling_id": None,
-            }
+            return _delete_result([root_id], group_empty=True, root_id=root_id, active_sibling_id=None)
         new_root = survivors[0]
         new_active = root_active if (root_active is not None and root_active != root_id and root_active in survivors) else None
         await db.execute(
@@ -1100,12 +1083,7 @@ async def delete_workflow_attachments(
         await _set_active_sibling_on(db, new_root, new_active)
         await db.execute("DELETE FROM workflow_attachments WHERE id = ?", (root_id,))
         await db.commit()
-        return {
-            "deleted_ids": [root_id],
-            "group_empty": False,
-            "root_id": new_root,
-            "active_sibling_id": new_active,
-        }
+        return _delete_result([root_id], group_empty=False, root_id=new_root, active_sibling_id=new_active)
 
 
 # Wire this module's batch persister into the database layer's add_message

@@ -497,6 +497,34 @@ export function renderInspector() {
   renderInspectorSecondary();
 }
 
+// The settled director panel, rendered from either of two sources: the pinned
+// per-message inspector payload, or the live director state. The markup lives
+// here once so the two can never drift; each caller resolves its own values.
+function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedback, directionNotes }) {
+  const stylesHtml = moodFragmentsView()
+    .map((f) => `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""}">${esc(f.label)}</span>`)
+    .join("");
+  withReasoningScroll(() => {
+    $("inspector-content").innerHTML = `
+      <div class="inspector-block" id="inspector-context-size"></div>
+      <div class="inspector-block"><h4>Moods</h4>
+        <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
+      </div>
+      ${_buildReasoningHtml()}
+      ${buildFeedbackHtml(feedback)}
+      ${buildDirectionNotesHtml(directionNotes)}
+      ${toolCalls.length ? _buildToolCallsHtml(toolCalls) : ""}
+      ${injection ? _buildInjectionBlockHtml(injection) : ""}
+      ${
+        latency
+          ? `<div class="inspector-block"><h4>Agent Latency</h4>
+               <div style="font-size:12px;color:var(--text-secondary)">${latency}ms</div></div>`
+          : ""
+      }`;
+  });
+  renderContextSize();
+}
+
 function _renderInspectorMain() {
   const withReasoningScroll = (mutate) =>
     preserveScroll(() => document.getElementById("reasoning-box"), REASONING_BOTTOM_THRESHOLD, mutate);
@@ -527,33 +555,14 @@ function _renderInspectorMain() {
   const insp = S.inspectedMsgId && S.inspectedDirectorData ? S.inspectedDirectorData : null;
 
   if (insp) {
-    const activeIds = insp.active_moods || [];
-    const stylesHtml = moodFragmentsView()
-      .map((f) => `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""}">${esc(f.label)}</span>`)
-      .join("");
-    const lat = insp.agent_latency_ms || 0;
-    const tc = insp.tool_calls || [];
-    const inj = insp.injection_block || "";
-    withReasoningScroll(() => {
-      $("inspector-content").innerHTML = `
-      <div class="inspector-block" id="inspector-context-size"></div>
-      <div class="inspector-block">
-        <h4>Moods</h4>
-        <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
-      </div>
-      ${_buildReasoningHtml()}
-      ${buildFeedbackHtml(insp.feedback)}
-      ${buildDirectionNotesHtml(insp.direction_notes)}
-      ${tc.length ? _buildToolCallsHtml(tc) : ""}
-      ${inj ? _buildInjectionBlockHtml(inj) : ""}
-      ${
-        lat
-          ? `<div class="inspector-block"><h4>Agent Latency</h4>
-                 <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
-          : ""
-      }`;
+    _renderDirectorPanel({
+      activeIds: insp.active_moods || [],
+      latency: insp.agent_latency_ms || 0,
+      toolCalls: insp.tool_calls || [],
+      injection: insp.injection_block || "",
+      feedback: insp.feedback,
+      directionNotes: insp.direction_notes,
     });
-    renderContextSize();
     return;
   }
 
@@ -581,32 +590,14 @@ function _renderInspectorMain() {
 
   const ds = S.directorState || {};
   const ld = S.lastDirectorData || {};
-  const activeIds = ld.active_moods || ds.active_moods || [];
-  const stylesHtml = moodFragmentsView()
-    .map((f) => `<span class="style-tag ${activeIds.includes(f.id) ? "active" : ""}">${esc(f.label)}</span>`)
-    .join("");
-  const lat = ld.agent_latency_ms || 0;
-  const tc = ld.tool_calls || [];
-  const inj = ld.injection_block || "";
-  withReasoningScroll(() => {
-    $("inspector-content").innerHTML = `
-    <div class="inspector-block" id="inspector-context-size"></div>
-    <div class="inspector-block"><h4>Moods</h4>
-      <div>${stylesHtml || '<span style="color:var(--text-muted);font-size:12px">None</span>'}</div>
-    </div>
-    ${_buildReasoningHtml()}
-    ${buildFeedbackHtml(S.lastFeedback?.values)}
-    ${buildDirectionNotesHtml(S.lastDirectionNotes?.notes)}
-    ${tc.length ? _buildToolCallsHtml(tc) : ""}
-    ${inj ? _buildInjectionBlockHtml(inj) : ""}
-    ${
-      lat
-        ? `<div class="inspector-block"><h4>Agent Latency</h4>
-               <div style="font-size:12px;color:var(--text-secondary)">${lat}ms</div></div>`
-        : ""
-    }`;
+  _renderDirectorPanel({
+    activeIds: ld.active_moods || ds.active_moods || [],
+    latency: ld.agent_latency_ms || 0,
+    toolCalls: ld.tool_calls || [],
+    injection: ld.injection_block || "",
+    feedback: S.lastFeedback?.values,
+    directionNotes: S.lastDirectionNotes?.notes,
   });
-  renderContextSize();
 }
 
 // Expression polling: while the avatar popup is open and the character has an

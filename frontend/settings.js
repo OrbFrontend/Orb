@@ -325,7 +325,9 @@ export const AUDIT_TYPE_DEFS = [
   },
 ];
 
-async function persistSettings(payload) {
+// The single settings-write path. Every toggle in the app funnels through here
+// so one failure story ("Failed to save setting") covers them all.
+export async function persistSettings(payload) {
   try {
     S.settings = await api.put("/settings", payload);
   } catch (_e) {

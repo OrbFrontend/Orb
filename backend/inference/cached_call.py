@@ -70,6 +70,15 @@ async def cached_complete(
         yield event
 
 
+async def _relay_reasoning(stream: AsyncIterator[dict], reply: dict) -> AsyncIterator[dict]:
+    """Forward *stream*'s reasoning deltas; collect its ``done`` message in *reply*."""
+    async for event in stream:
+        if event["type"] == "reasoning":
+            yield {"type": "reasoning", "delta": event["delta"]}
+        elif event["type"] == "done":
+            reply.update(event["message"])
+
+
 @dataclass(frozen=True)
 class CachedBase:
     """The shared bottom of the prompt stack for one turn on one server.
@@ -128,3 +137,15 @@ class CachedBase:
             record=record,
             **params,
         )
+
+    def complete_into(self, client: Any, reply: dict, **kw: Any) -> AsyncIterator[dict]:
+        """:meth:`complete`, demuxed the way every agentic pass consumes it.
+
+        Yields only the reasoning deltas — for the pass to forward onto its own
+        event stream — and collects the terminal assembled message into *reply*.
+        *reply* is filled in place rather than returned because an async
+        generator cannot return a value; it stays ``{}`` when the call produced
+        no message, which is the "model skipped" shape the passes already
+        handle.
+        """
+        return _relay_reasoning(self.complete(client, **kw), reply)

@@ -108,6 +108,14 @@ def test_full_markup_to_quotes_only_strips_narration_asterisks():
     assert '"You came back,"' in out  # dialogue untouched
 
 
+# The recurring baseline for these cases: quoted dialogue, bare narration,
+# already internally consistent — so any change a draft causes is the draft's.
+QUOTES_BASELINE = [
+    'She smiles. "Hello there," she says warmly.',
+    'He nods. "Welcome back," he replies.',
+]
+
+
 # ---------- no-op safety ----------
 
 
@@ -183,10 +191,7 @@ def test_asterisk_inside_quotes_is_not_narration():
 def test_bold_italic_run_preserved_while_prose_normalizes():
     # The reported breakage: a `***…***` block beside real markup used to come back
     # mangled. Now the run is carried through untouched and the rest normalizes.
-    base = [
-        'She smiles. "Hello there," she says warmly.',
-        'He nods. "Welcome back," he replies.',
-    ]
+    base = QUOTES_BASELINE
     draft = '*He leans in close.* "You came back." ***He could not believe it.***'
     new, rep = normalize_to_baseline(draft, base, enabled=True)
     assert rep.changed
@@ -195,29 +200,20 @@ def test_bold_italic_run_preserved_while_prose_normalizes():
 
 
 def test_bold_italic_run_left_byte_identical_when_prose_is_consistent():
-    base = [
-        'She smiles. "Hello there," she says warmly.',
-        'He nods. "Welcome back," he replies.',
-    ]
+    base = QUOTES_BASELINE
     draft = '***She steps closer, watching him.*** "Are you sure?"'
     # The `***…***` is protected and the quoted dialogue already matches: no-op.
     _assert_unchanged(draft, base)
 
 
 def test_four_asterisk_run_preserved():
-    base = [
-        'She smiles. "Hello there," she says warmly.',
-        'He nods. "Welcome back," he replies.',
-    ]
+    base = QUOTES_BASELINE
     draft = "He was ****really**** angry."
     _assert_unchanged(draft, base)  # ****really**** carried through intact
 
 
 def test_scene_divider_run_preserved_with_surrounding_text():
-    base = [
-        'She smiles. "Hello there," she says warmly.',
-        'He nods. "Welcome back," he replies.',
-    ]
+    base = QUOTES_BASELINE
     draft = "She turns away.\n\n***\n\nThe room falls silent."
     _assert_unchanged(draft, base)  # divider and its blank-line spacing untouched
 
@@ -236,10 +232,7 @@ def test_code_block_markup_does_not_sway_classification():
 
 
 def test_code_block_passes_through_rewrite_verbatim():
-    base = [
-        'She smiles. "Hello there," she says warmly.',
-        'He nods. "Welcome back," he replies.',
-    ]
+    base = QUOTES_BASELINE
     draft = '*He leans in.* "You came back."\n\n```python\nx = a ***b*** c  # not RP markup\n```'
     new, rep = normalize_to_baseline(draft, base, enabled=True)
     assert rep.changed  # the prose narration asterisks were stripped
@@ -249,10 +242,7 @@ def test_code_block_passes_through_rewrite_verbatim():
 def test_asterisk_runs_preserved_in_both_prose_and_code():
     # A `***…***` run is protected whether it sits in prose or inside a fence; both
     # survive verbatim and the bare narration around them is already consistent.
-    base = [
-        'She smiles. "Hello there," she says warmly.',
-        'He nods. "Welcome back," he replies.',
-    ]
+    base = QUOTES_BASELINE
     draft = "She turns. ***Important.***\n\n```\nkeep ***this***\n```"
     _assert_unchanged(draft, base)
 

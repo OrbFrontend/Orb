@@ -75,8 +75,9 @@ async def lorebook_select_step(
 
     resp: dict = {}
     try:
-        async for event in base.complete(
+        async for event in base.complete_into(
             client,
+            resp,
             label="select_lorebook",
             trailing=trailing,
             tool_choice=SELECT_LOREBOOK_CHOICE,
@@ -84,10 +85,7 @@ async def lorebook_select_step(
             **hyperparams,
             **reasoning_cfg(reasoning_on, reasoning_prefill),
         ):
-            if event["type"] == "reasoning":
-                yield {"type": "reasoning", "delta": event["delta"]}
-            elif event["type"] == "done":
-                resp = event["message"]
+            yield event
     except Exception:
         # A failed call selects nothing but must not propagate: the writer still runs
         # with the deterministic constant/keyword lorebook entries.

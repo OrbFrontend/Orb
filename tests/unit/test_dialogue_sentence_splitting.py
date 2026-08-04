@@ -9,6 +9,8 @@ are reported with an unusably long sentence context that the editor can't locate
 in the draft.
 """
 
+import pytest
+
 from backend.analysis.audit import format_report, run_audit
 from backend.analysis.detectors.contrastive_negation import (
     _split_sentences as neg_split,
@@ -16,41 +18,37 @@ from backend.analysis.detectors.contrastive_negation import (
 from backend.analysis.detectors.slop_detector import _split_sentences as slop_split
 from backend.analysis.detectors.slop_detector import detect_cliches
 
+# The boundary cases both splitters must agree on: a closing quote (straight or
+# curly) after . ! ? ends the sentence, so the action tag becomes its own unit.
+quote_boundary_cases = pytest.mark.parametrize(
+    ("text", "tail"),
+    [
+        ('"Stop it!" she cried.', "she cried."),
+        ('"Are you sure?" he asked.', "he asked."),
+        ('"I am done." She turned away.', "She turned away."),
+        ("“Stop it!” she cried.", "she cried."),
+        ("“Are you sure?” he asked.", "he asked."),
+    ],
+    ids=[
+        "exclamation_straight_quote",
+        "question_straight_quote",
+        "period_straight_quote",
+        "exclamation_curly_quote",
+        "question_curly_quote",
+    ],
+)
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # slop_detector._split_sentences
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
 class TestSlopSplitterDialogueQuotes:
-    def test_exclamation_straight_quote_splits(self):
-        """!" (straight quote) followed by space must be a sentence boundary."""
-        sentences = slop_split('"Stop it!" she cried.')
+    @quote_boundary_cases
+    def test_terminator_then_close_quote_splits(self, text, tail):
+        sentences = slop_split(text)
         assert len(sentences) == 2
-        assert "she cried." in sentences
-
-    def test_question_straight_quote_splits(self):
-        """?" (straight quote) followed by space must be a sentence boundary."""
-        sentences = slop_split('"Are you sure?" he asked.')
-        assert len(sentences) == 2
-        assert "he asked." in sentences
-
-    def test_period_straight_quote_splits(self):
-        """." (straight quote) followed by space must be a sentence boundary."""
-        sentences = slop_split('"I am done." She turned away.')
-        assert len(sentences) == 2
-        assert "She turned away." in sentences
-
-    def test_exclamation_curly_quote_splits(self):
-        """” (curly right quote) after ! must be a sentence boundary."""
-        sentences = slop_split("“Stop it!” she cried.")
-        assert len(sentences) == 2
-        assert "she cried." in sentences
-
-    def test_question_curly_quote_splits(self):
-        """” (curly right quote) after ? must be a sentence boundary."""
-        sentences = slop_split("“Are you sure?” he asked.")
-        assert len(sentences) == 2
-        assert "he asked." in sentences
+        assert tail in sentences
 
     def test_action_tag_after_multi_sentence_dialogue(self):
         """Action tag following a closing !" must be its own isolated sentence."""
@@ -98,30 +96,11 @@ class TestSlopSplitterDialogueQuotes:
 
 
 class TestContrastiveNegationSplitterDialogueQuotes:
-    def test_exclamation_straight_quote_splits(self):
-        sentences = neg_split('"Stop it!" she cried.')
+    @quote_boundary_cases
+    def test_terminator_then_close_quote_splits(self, text, tail):
+        sentences = neg_split(text)
         assert len(sentences) == 2
-        assert "she cried." in sentences
-
-    def test_question_straight_quote_splits(self):
-        sentences = neg_split('"Are you sure?" he asked.')
-        assert len(sentences) == 2
-        assert "he asked." in sentences
-
-    def test_period_straight_quote_splits(self):
-        sentences = neg_split('"I am done." She turned away.')
-        assert len(sentences) == 2
-        assert "She turned away." in sentences
-
-    def test_exclamation_curly_quote_splits(self):
-        sentences = neg_split("“Stop it!” she cried.")
-        assert len(sentences) == 2
-        assert "she cried." in sentences
-
-    def test_question_curly_quote_splits(self):
-        sentences = neg_split("“Are you sure?” he asked.")
-        assert len(sentences) == 2
-        assert "he asked." in sentences
+        assert tail in sentences
 
     def test_action_tag_after_multi_sentence_dialogue(self):
         text = (

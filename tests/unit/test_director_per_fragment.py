@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import json
 
-from backend.inference import build_direct_scene_tool, build_director_scene_step_prompt
+from backend.inference import (
+    CachedBase,
+    build_direct_scene_tool,
+    build_director_scene_step_prompt,
+)
 from backend.pipeline.passes.director.director import director_pass
 
 _MOODS = [{"id": "tense", "description": "suspenseful"}]
@@ -39,7 +43,13 @@ def _ds_message(args: dict) -> dict:
 
 class _FakeBase:
     """Stands in for ``CachedBase``: serves canned completions and records the
-    per-call request tail so feed-forward and isolation can be asserted."""
+    per-call request tail so feed-forward and isolation can be asserted.
+
+    ``complete_into`` is borrowed from the real class rather than restated, so
+    the pass's event demux under test is the shipped one.
+    """
+
+    complete_into = CachedBase.complete_into
 
     def __init__(self, fragments: list[dict], responses: list[dict]):
         self.tools = [build_direct_scene_tool(fragments)]

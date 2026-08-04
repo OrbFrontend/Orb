@@ -214,8 +214,9 @@ async def director_pass(
                 trailing = [{"role": "user", "content": content}]
                 resp = {}
                 try:
-                    async for event in base.complete(
+                    async for event in base.complete_into(
                         client,
+                        resp,
                         label="director:direct_scene",
                         trailing=trailing,
                         tool_choice=TOOLS["direct_scene"]["choice"],
@@ -224,10 +225,7 @@ async def director_pass(
                         **hyperparams,
                         **reasoning_params,
                     ):
-                        if event["type"] == "reasoning":
-                            yield {"type": "reasoning", "delta": event["delta"]}
-                        elif event["type"] == "done":
-                            resp = event["message"]
+                        yield event
                 except Exception:
                     # A failed call skips this fragment but must not propagate: the
                     # remaining fragments and the writer still run, like the
@@ -284,8 +282,9 @@ async def director_pass(
         reasoning_params = reasoning_cfg(reasoning_on, reasoning_prefill)
         hyperparams = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
         try:
-            async for event in base.complete(
+            async for event in base.complete_into(
                 client,
+                resp,
                 label=f"director:{name}",
                 trailing=trailing,
                 tool_choice=TOOLS[name]["choice"],
@@ -293,10 +292,7 @@ async def director_pass(
                 **hyperparams,
                 **reasoning_params,
             ):
-                if event["type"] == "reasoning":
-                    yield {"type": "reasoning", "delta": event["delta"]}
-                elif event["type"] == "done":
-                    resp = event["message"]
+                yield event
         except Exception:
             logger.exception("Agent tool=%s: call failed; skipping", name)
             continue

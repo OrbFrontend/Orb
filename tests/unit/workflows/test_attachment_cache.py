@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 import tempfile
 
+import pytest
+
 from backend.workflows.attachment_cache import (
     EVICTED_MARKER,
     plan_eviction,
@@ -117,68 +119,34 @@ def test_validator_rejects_non_dict():
     assert reason == "not a dict"
 
 
-def test_validator_rejects_missing_workflow_id():
+@pytest.mark.parametrize(
+    ("mutate", "reason"),
+    [
+        (lambda a: a.pop("workflow_id"), "workflow_id must be a non-empty string"),
+        (lambda a: a.update(workflow_id=""), "workflow_id must be a non-empty string"),
+        (lambda a: a.update(filename=123), "filename must be a string"),
+        (lambda a: a.update(mime=None), "mime must be a string"),
+        (lambda a: a.update(path="/tmp/whatever"), "exactly one of 'data' or 'path' required"),
+        (lambda a: a.pop("data"), "exactly one of 'data' or 'path' required"),
+        (lambda a: a.update(data="string-not-bytes"), "data must be bytes"),
+        (lambda a: a.update(data=b""), "data is empty"),
+    ],
+    ids=[
+        "missing_workflow_id",
+        "empty_workflow_id",
+        "non_string_filename",
+        "non_string_mime",
+        "both_data_and_path",
+        "neither_data_nor_path",
+        "data_wrong_type",
+        "empty_data",
+    ],
+)
+def test_validator_rejects(mutate, reason):
+    """Each gate fails closed with its own verbatim reason (a response contract)."""
     att = _valid_bytes_att()
-    del att["workflow_id"]
-    ok, reason = validate_workflow_attachment_shape(att)
-    assert ok is False
-    assert reason == "workflow_id must be a non-empty string"
-
-
-def test_validator_rejects_empty_workflow_id():
-    att = _valid_bytes_att()
-    att["workflow_id"] = ""
-    ok, reason = validate_workflow_attachment_shape(att)
-    assert ok is False
-    assert reason == "workflow_id must be a non-empty string"
-
-
-def test_validator_rejects_non_string_filename():
-    att = _valid_bytes_att()
-    att["filename"] = 123
-    ok, reason = validate_workflow_attachment_shape(att)
-    assert ok is False
-    assert reason == "filename must be a string"
-
-
-def test_validator_rejects_non_string_mime():
-    att = _valid_bytes_att()
-    att["mime"] = None
-    ok, reason = validate_workflow_attachment_shape(att)
-    assert ok is False
-    assert reason == "mime must be a string"
-
-
-def test_validator_rejects_both_data_and_path():
-    att = _valid_bytes_att()
-    att["path"] = "/tmp/whatever"
-    ok, reason = validate_workflow_attachment_shape(att)
-    assert ok is False
-    assert reason == "exactly one of 'data' or 'path' required"
-
-
-def test_validator_rejects_neither_data_nor_path():
-    att = _valid_bytes_att()
-    del att["data"]
-    ok, reason = validate_workflow_attachment_shape(att)
-    assert ok is False
-    assert reason == "exactly one of 'data' or 'path' required"
-
-
-def test_validator_rejects_data_wrong_type():
-    att = _valid_bytes_att()
-    att["data"] = "string-not-bytes"
-    ok, reason = validate_workflow_attachment_shape(att)
-    assert ok is False
-    assert reason == "data must be bytes"
-
-
-def test_validator_rejects_empty_data():
-    att = _valid_bytes_att()
-    att["data"] = b""
-    ok, reason = validate_workflow_attachment_shape(att)
-    assert ok is False
-    assert reason == "data is empty"
+    mutate(att)
+    assert validate_workflow_attachment_shape(att) == (False, reason)
 
 
 def test_validator_passes_valid_path():

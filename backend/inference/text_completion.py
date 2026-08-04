@@ -421,6 +421,18 @@ def synthesize_usage(final: Mapping[str, Any]) -> dict:
     }
 
 
+def terminal_state(final: Mapping[str, Any]) -> tuple[dict, str]:
+    """``(usage, finish_reason)`` for a ``/completion`` final chunk.
+
+    llama.cpp flags a token-budget cutoff as ``stopped_limit`` (older builds)
+    or ``stop_type == "limit"`` (newer). Mapping either to ``"length"`` mirrors
+    the chat transport's ``finish_reason``, so consumers (doc-mode cut-off
+    detection) see one contract across both transports.
+    """
+    limit = bool(final.get("stopped_limit") or final.get("stop_type") == "limit")
+    return synthesize_usage(final), "length" if limit else "stop"
+
+
 def forced_tool_message(name: str, arguments: str) -> dict:
     """Assemble the ``done`` message for a grammar-forced tool call.
 

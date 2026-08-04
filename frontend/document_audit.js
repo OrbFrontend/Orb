@@ -11,7 +11,7 @@
 
 import { api } from "./api.js";
 import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panels.js";
-import { AUDIT_TYPE_DEFS, showPhraseBankModal } from "./settings.js";
+import { AUDIT_TYPE_DEFS, persistSettings, showPhraseBankModal } from "./settings.js";
 import { S } from "./state.js";
 import { $, esc, escAttr, toast } from "./utils.js";
 
@@ -35,14 +35,6 @@ export function initDocAudit(ctx) {
 
 function docAuditEnabled() {
   return Boolean(S.settings?.document_audit_enabled);
-}
-
-async function persistDocAuditSettings(payload) {
-  try {
-    S.settings = await api.put("/settings", payload);
-  } catch (_e) {
-    toast("Failed to save setting", true);
-  }
 }
 
 export function toggleDocWorkflowPanel() {
@@ -100,16 +92,16 @@ export function renderDocAuditPane() {
 
   // Wired here, not inline — the layer-check ratchet forbids new on*= handlers.
   $("doc-audit-enable-chk").addEventListener("change", async (e) => {
-    await persistDocAuditSettings({ document_audit_enabled: e.target.checked });
+    await persistSettings({ document_audit_enabled: e.target.checked });
     renderDocAuditPane();
   });
   $("doc-audit-autopatch-chk")?.addEventListener("change", (e) =>
-    persistDocAuditSettings({ document_audit_autopatch: e.target.checked }),
+    persistSettings({ document_audit_autopatch: e.target.checked }),
   );
   for (const input of pane.querySelectorAll("[data-doc-audit-key]")) {
     input.addEventListener("change", (e) => {
       const cur = S.settings?.document_audit_toggles || {};
-      persistDocAuditSettings({ document_audit_toggles: { ...cur, [e.target.dataset.docAuditKey]: e.target.checked } });
+      persistSettings({ document_audit_toggles: { ...cur, [e.target.dataset.docAuditKey]: e.target.checked } });
     });
   }
   $("doc-audit-phrasebank-btn").addEventListener("click", showPhraseBankModal);
