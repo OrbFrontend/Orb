@@ -418,23 +418,45 @@ async def _drain(agen):
     return [e async for e in agen]
 
 
-async def test_complete_text_forced_call_end_to_end():
+def _wired_text_client(template="P", props="", pieces=("x",), captured=None, final=None) -> LLMClient:
+    """Text client with deterministic /apply-template, /props and stream seams."""
     client = _text_client()
+    captured = captured if captured is not None else {}
 
     async def fake_apply(root, msgs, chat_template_kwargs=None):
-        return "PROMPT"
+        captured["msgs"] = list(msgs)
+        captured["ctk"] = chat_template_kwargs
+        return template(msgs, chat_template_kwargs) if callable(template) else template
 
     async def fake_props(root):
-        return "<|channel>thought"
+        return props
 
     async def fake_stream(url, body):
-        for piece in ['{"mood"', ':"happy"', ',"score":1}']:
+        captured["body"] = body
+        captured["prompt"] = body["prompt"]
+        for piece in pieces:
             yield {"content": piece, "stop": False}
-        yield {"content": "", "stop": True, "tokens_evaluated": 10, "tokens_predicted": 5, "timings": {"prompt_n": 4}}
+        yield final or {
+            "content": "",
+            "stop": True,
+            "tokens_evaluated": 1,
+            "tokens_predicted": 1,
+            "timings": {"prompt_n": 1},
+        }
 
     client._apply_template = fake_apply  # type: ignore[method-assign]
     client._fetch_chat_template = fake_props  # type: ignore[method-assign]
     client._stream_completion = fake_stream  # type: ignore[method-assign]
+    return client
+
+
+async def test_complete_text_forced_call_end_to_end():
+    client = _wired_text_client(
+        template="PROMPT",
+        props="<|channel>thought",
+        pieces=['{"mood"', ':"happy"', ',"score":1}'],
+        final={"content": "", "stop": True, "tokens_evaluated": 10, "tokens_predicted": 5, "timings": {"prompt_n": 4}},
+    )
 
     tools = [{"type": "function", "function": {"name": "rate", "parameters": {"type": "object"}}}]
     choice = {"type": "function", "function": {"name": "rate"}}
@@ -453,24 +475,14 @@ async def test_complete_text_enable_thinking_delegated_to_template_no_manual_suf
     # The template owns reasoning on/off: the client forwards enable_thinking to
     # /apply-template and does NOT hand-append disable bytes (which double-opened
     # Qwen3's pre-opened <think>). The fake template echoes what it was told.
-    client = _text_client()
     captured: dict = {}
-
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
-        captured["ctk"] = chat_template_kwargs
+    client = _wired_text_client(
         # Mimic a template that closes an empty think block when thinking is off.
-        return "BASE" + ("" if (chat_template_kwargs or {}).get("enable_thinking", True) else GEMMA_DISABLE)
-
-    async def fake_props(root):
-        return "<|channel>thought"
-
-    async def fake_stream(url, body):
-        captured["prompt"] = body["prompt"]
-        yield {"content": "hi", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
-
-    client._apply_template = fake_apply  # type: ignore[method-assign]
-    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
-    client._stream_completion = fake_stream  # type: ignore[method-assign]
+        template=lambda _msgs, ctk: "BASE" + ("" if (ctk or {}).get("enable_thinking", True) else GEMMA_DISABLE),
+        props="<|channel>thought",
+        pieces=["hi"],
+        captured=captured,
+    )
 
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(False)))
     assert captured["ctk"] == {"enable_thinking": False, "thinking": False}  # both toggle aliases
@@ -485,24 +497,11 @@ async def test_complete_text_primes_splitter_when_prompt_pre_opens_think():
     # Qwen3 case: template pre-opens <think> in the prompt, so the model stream
     # starts INSIDE reasoning (no leading <think>). The splitter must classify the
     # CoT as reasoning and only the post-</think> text as content.
-    client = _text_client()
-    events_seen: list = []
-
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
-        return "<|im_start|>assistant\n<think>\n"  # ends with the open tag
-
-    async def fake_props(root):
-        return "<think>...</think>"  # sniffs to _THINK
-
-    async def fake_stream(url, body):
-        for piece in ["Analyzing", " the ask.", "</think>", "\n\nSarah smiled."]:
-            yield {"content": piece, "stop": False}
-        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
-
-    client._apply_template = fake_apply  # type: ignore[method-assign]
-    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
-    client._stream_completion = fake_stream  # type: ignore[method-assign]
-
+    client = _wired_text_client(
+        template="<|im_start|>assistant\n<think>\n",  # ends with the open tag
+        props="<think>...</think>",  # sniffs to _THINK
+        pieces=["Analyzing", " the ask.", "</think>", "\n\nSarah smiled."],
+    )
     events_seen = await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True)))
     reasoning = "".join(e["delta"] for e in events_seen if e.get("type") == "reasoning")
     content = "".join(e["delta"] for e in events_seen if e.get("type") == "content")
@@ -512,24 +511,8 @@ async def test_complete_text_primes_splitter_when_prompt_pre_opens_think():
 
 
 async def test_complete_text_prefill_appends_assistant_message():
-    client = _text_client()
     captured: dict = {}
-
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
-        captured["msgs"] = list(msgs)
-        captured["ctk"] = chat_template_kwargs
-        return "P"
-
-    async def fake_props(root):
-        return ""  # non-thinking; no suffix regardless
-
-    async def fake_stream(url, body):
-        captured["prompt"] = body["prompt"]
-        yield {"content": "x", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
-
-    client._apply_template = fake_apply  # type: ignore[method-assign]
-    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
-    client._stream_completion = fake_stream  # type: ignore[method-assign]
+    client = _wired_text_client(captured=captured)  # non-thinking; no suffix regardless
 
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", prefill="Once upon"))
     assert captured["msgs"][-1] == {"role": "assistant", "content": "Once upon"}
@@ -539,22 +522,7 @@ async def test_complete_text_prefill_appends_assistant_message():
 async def test_complete_text_forced_prefill_prepends_arguments():
     # Editor prefill path: arguments = prompt-side prefill bytes + generated
     # remainder, so json.loads sees one complete object.
-    client = _text_client()
-
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
-        return "P"
-
-    async def fake_props(root):
-        return ""
-
-    async def fake_stream(url, body):
-        for piece in ['REPL"', "}]}"]:
-            yield {"content": piece, "stop": False}
-        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
-
-    client._apply_template = fake_apply  # type: ignore[method-assign]
-    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
-    client._stream_completion = fake_stream  # type: ignore[method-assign]
+    client = _wired_text_client(pieces=['REPL"', "}]}"])
 
     tools = [{"type": "function", "function": {"name": "editor_apply_patch", "parameters": {"type": "object"}}}]
     choice = {"type": "function", "function": {"name": "editor_apply_patch"}}
@@ -577,22 +545,11 @@ async def test_complete_text_pre_open_detected_from_bytes_even_when_reasoning_of
     # `enable_thinking` we send, so a reasoning-OFF request still renders a
     # pre-opened <think>. The splitter must detect the pre-open from the rendered
     # bytes (not our flag) and route the CoT to reasoning instead of collapsing.
-    client = _text_client()
-
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
-        return "<|im_assistant|>assistant<|im_middle|><think>"  # pre-opened despite off
-
-    async def fake_props(root):
-        return "<think>...</think>"  # sniffs to _THINK
-
-    async def fake_stream(url, body):
-        for piece in ["reasoning here", "</think>", "the answer"]:
-            yield {"content": piece, "stop": False}
-        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
-
-    client._apply_template = fake_apply  # type: ignore[method-assign]
-    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
-    client._stream_completion = fake_stream  # type: ignore[method-assign]
+    client = _wired_text_client(
+        template="<|im_assistant|>assistant<|im_middle|><think>",  # pre-opened despite off
+        props="<think>...</think>",  # sniffs to _THINK
+        pieces=["reasoning here", "</think>", "the answer"],
+    )
 
     events = await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(False)))
     reasoning = "".join(e["delta"] for e in events if e.get("type") == "reasoning")
@@ -603,22 +560,8 @@ async def test_complete_text_pre_open_detected_from_bytes_even_when_reasoning_of
 
 
 async def test_complete_text_grammar_overrides_json_schema():
-    client = _text_client()
     captured: dict = {}
-
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
-        return "P"
-
-    async def fake_props(root):
-        return ""
-
-    async def fake_stream(url, body):
-        captured["body"] = body
-        yield {"content": "x", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
-
-    client._apply_template = fake_apply  # type: ignore[method-assign]
-    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
-    client._stream_completion = fake_stream  # type: ignore[method-assign]
+    client = _wired_text_client(captured=captured)
 
     tools = [{"type": "function", "function": {"name": "t", "parameters": {"type": "object"}}}]
     choice = {"type": "function", "function": {"name": "t"}}
@@ -638,22 +581,8 @@ async def test_complete_text_grammar_overrides_json_schema():
 async def test_complete_text_json_schema_narrows_forced_grammar():
     # Per-fragment director steps: the caller-supplied json_schema replaces the
     # tool-derived one, constraining decoding without touching the prompt.
-    client = _text_client()
     captured: dict = {}
-
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
-        return "P"
-
-    async def fake_props(root):
-        return ""
-
-    async def fake_stream(url, body):
-        captured["body"] = body
-        yield {"content": "{}", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
-
-    client._apply_template = fake_apply  # type: ignore[method-assign]
-    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
-    client._stream_completion = fake_stream  # type: ignore[method-assign]
+    client = _wired_text_client(pieces=["{}"], captured=captured)
 
     full = {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "string"}}}
     narrow = {"type": "object", "properties": {"a": {"type": "string"}}, "required": []}
@@ -741,33 +670,6 @@ async def test_chat_transport_drops_prefill():
 # ── Reasoning prefill ─────────────────────────────────────────────────────────
 
 
-def _prefill_client(template: str, props: str, pieces: list[str], captured: dict) -> LLMClient:
-    """A text client whose three HTTP seams return fixed bytes.
-
-    *template* is what /apply-template renders, *props* what the tag sniff sees,
-    *pieces* the streamed content chunks. The outbound prompt lands in
-    ``captured["prompt"]``.
-    """
-    client = _text_client()
-
-    async def fake_apply(root, msgs, chat_template_kwargs=None):
-        return template
-
-    async def fake_props(root):
-        return props
-
-    async def fake_stream(url, body):
-        captured["prompt"] = body["prompt"]
-        for piece in pieces:
-            yield {"content": piece, "stop": False}
-        yield {"content": "", "stop": True, "tokens_evaluated": 1, "tokens_predicted": 1, "timings": {"prompt_n": 1}}
-
-    client._apply_template = fake_apply  # type: ignore[method-assign]
-    client._fetch_chat_template = fake_props  # type: ignore[method-assign]
-    client._stream_completion = fake_stream  # type: ignore[method-assign]
-    return client
-
-
 def test_reasoning_cfg_carries_prefill_only_when_reasoning_on():
     assert reasoning_cfg(True, "seed")["reasoning_prefill"] == "seed"
     assert "reasoning_prefill" not in reasoning_cfg(True)
@@ -780,7 +682,7 @@ async def test_reasoning_prefill_appends_to_pre_opened_think():
     # appended (no second open tag), and it is echoed as reasoning ahead of the
     # model's own deltas.
     captured: dict = {}
-    client = _prefill_client("<|im_start|>assistant\n<think>\n", "<think>...</think>", ["CoT", "</think>", "text"], captured)
+    client = _wired_text_client("<|im_start|>assistant\n<think>\n", "<think>...</think>", ["CoT", "</think>", "text"], captured)
     events = await _drain(
         client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True, "I will think. "))
     )
@@ -795,14 +697,14 @@ async def test_reasoning_prefill_appends_to_pre_opened_think():
 async def test_reasoning_prefill_opens_think_when_template_does_not():
     # Gemma 4 shape: the template leaves the open tag to the model, so Orb injects it.
     captured: dict = {}
-    client = _prefill_client("BASE", "<|channel>thought", ["x"], captured)
+    client = _wired_text_client("BASE", "<|channel>thought", ["x"], captured)
     await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True, "Seed.")))
     assert captured["prompt"] == "BASE" + GEMMA_OPEN + "Seed."
 
 
 async def test_reasoning_prefill_ignored_when_reasoning_off():
     captured: dict = {}
-    client = _prefill_client("BASE", "<|channel>thought", ["x"], captured)
+    client = _wired_text_client("BASE", "<|channel>thought", ["x"], captured)
     events = await _drain(
         client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(False, "Seed."))
     )
@@ -812,7 +714,7 @@ async def test_reasoning_prefill_ignored_when_reasoning_off():
 
 async def test_reasoning_prefill_ignored_on_non_thinking_template():
     captured: dict = {}
-    client = _prefill_client("BASE", "", ["x"], captured)  # props sniff → _NONE
+    client = _wired_text_client("BASE", "", ["x"], captured)  # props sniff → _NONE
     events = await _drain(
         client.complete(messages=[{"role": "user", "content": "hi"}], model="m", **reasoning_cfg(True, "Seed."))
     )
@@ -824,7 +726,7 @@ async def test_assistant_prefill_wins_over_reasoning_prefill():
     # The assistant prefill already owns the prompt tail (a trailing assistant
     # turn in render_prompt); the two cannot both.
     captured: dict = {}
-    client = _prefill_client("BASE", "<|channel>thought", ["x"], captured)
+    client = _wired_text_client("BASE", "<|channel>thought", ["x"], captured)
     events = await _drain(
         client.complete(
             messages=[{"role": "user", "content": "hi"}],
@@ -841,7 +743,7 @@ async def test_reasoning_prefill_preserves_retry_window():
     # The echo is emitted on the first streamed chunk, not before the POST, so a
     # transient failure is still a clean retry (no event yielded yet).
     captured: dict = {}
-    client = _prefill_client("BASE", "<|channel>thought", ["x"], captured)
+    client = _wired_text_client("BASE", "<|channel>thought", ["x"], captured)
     client.retry = RetryPolicy(count=1, delay=0)
     attempts = {"n": 0}
     real_stream = client._stream_completion

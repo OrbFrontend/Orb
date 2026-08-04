@@ -58,26 +58,64 @@ def _pipeline_kwargs(enabled_tools: dict | None = None) -> dict:
     }
 
 
+async def _run_pre_hooks(
+    accumulators: dict,
+    *,
+    enabled_tools: dict | None = None,
+    last_user_message: str = "hi",
+    turn_scratch: dict | None = None,
+    client=None,
+) -> list[dict]:
+    enabled_tools = dict(enabled_tools or {})
+    return [
+        event
+        async for event in _iterate_pre_pipeline_hooks(
+            conversation_id="c1",
+            history=[],
+            last_user_message=last_user_message,
+            settings=_SETTINGS,
+            prefix_base=_PREFIX,
+            enabled_tools_pre_merge=enabled_tools,
+            turn_scratch=turn_scratch if turn_scratch is not None else {},
+            client=client,
+            kv_tracker=_KVCacheTracker(),
+            schema_overrides={},
+            accumulators=accumulators,
+        )
+    ]
+
+
+async def _run_with_writer(
+    writer,
+    *,
+    client: LLMClient | None = None,
+    last_user_message: str = "hello",
+    history: list[dict] | None = None,
+    pipeline_kwargs: dict | None = None,
+) -> list[dict]:
+    kwargs = _pipeline_kwargs()
+    kwargs.update(pipeline_kwargs or {})
+    with patch("backend.pipeline.passes.writer.writer_pass", new=writer):
+        return await _drain(
+            _run_pipeline(
+                client or _make_client(),
+                _SETTINGS,
+                _DIRECTOR_STATE,
+                [],
+                [],
+                last_user_message,
+                history=history or [],
+                **kwargs,
+            )
+        )
+
+
 # -- _iterate_pre_pipeline_hooks ------------------------------------------
 
 
 async def test_pre_pipeline_iter_empty_registry_no_events_no_accumulator_change():
     accumulators = {"merged_enabled_tools": {"a": True}, "extras": []}
-    events = []
-    async for ev in _iterate_pre_pipeline_hooks(
-        conversation_id="c1",
-        history=[],
-        last_user_message="hello",
-        settings={"model_name": "test"},
-        prefix_base=_PREFIX,
-        enabled_tools_pre_merge={"a": True},
-        turn_scratch={},
-        client=None,
-        kv_tracker=_KVCacheTracker(),
-        schema_overrides={},
-        accumulators=accumulators,
-    ):
-        events.append(ev)
+    events = await _run_pre_hooks(accumulators, enabled_tools={"a": True}, last_user_message="hello")
     assert events == []
     assert accumulators["merged_enabled_tools"] == {"a": True}
     assert accumulators["extras"] == []
@@ -90,21 +128,7 @@ async def test_pre_pipeline_iter_enable_tools_dict_merges_only_true_entries():
     w = make_workflow("tw_enable", pre_pipeline=hook)
     with register_for_test(w):
         accumulators = {"merged_enabled_tools": {"editor_apply_patch": True}, "extras": []}
-        events = []
-        async for ev in _iterate_pre_pipeline_hooks(
-            conversation_id="c1",
-            history=[],
-            last_user_message="hi",
-            settings={"model_name": "test"},
-            prefix_base=_PREFIX,
-            enabled_tools_pre_merge={"editor_apply_patch": True},
-            turn_scratch={},
-            client=None,
-            kv_tracker=_KVCacheTracker(),
-            schema_overrides={},
-            accumulators=accumulators,
-        ):
-            events.append(ev)
+        events = await _run_pre_hooks(accumulators, enabled_tools={"editor_apply_patch": True})
 
     assert events == []
     assert accumulators["merged_enabled_tools"]["editor_apply_patch"] is True
@@ -120,20 +144,7 @@ async def test_pre_pipeline_iter_enable_tools_set_form_treats_each_as_true():
     w = make_workflow("tw_set", pre_pipeline=hook)
     with register_for_test(w):
         accumulators = {"merged_enabled_tools": {}, "extras": []}
-        async for _ in _iterate_pre_pipeline_hooks(
-            conversation_id="c1",
-            history=[],
-            last_user_message="hi",
-            settings={"model_name": "test"},
-            prefix_base=_PREFIX,
-            enabled_tools_pre_merge={},
-            turn_scratch={},
-            client=None,
-            kv_tracker=_KVCacheTracker(),
-            schema_overrides={},
-            accumulators=accumulators,
-        ):
-            pass
+        await _run_pre_hooks(accumulators)
     assert accumulators["merged_enabled_tools"] == {"direct_scene": True}
 
 
@@ -144,20 +155,7 @@ async def test_pre_pipeline_iter_unregistered_tool_name_dropped():
     w = make_workflow("tw_drop", pre_pipeline=hook)
     with register_for_test(w):
         accumulators = {"merged_enabled_tools": {}, "extras": []}
-        async for _ in _iterate_pre_pipeline_hooks(
-            conversation_id="c1",
-            history=[],
-            last_user_message="hi",
-            settings={"model_name": "test"},
-            prefix_base=_PREFIX,
-            enabled_tools_pre_merge={},
-            turn_scratch={},
-            client=None,
-            kv_tracker=_KVCacheTracker(),
-            schema_overrides={},
-            accumulators=accumulators,
-        ):
-            pass
+        await _run_pre_hooks(accumulators)
     assert accumulators["merged_enabled_tools"] == {}
 
 
@@ -173,20 +171,7 @@ async def test_pre_pipeline_iter_system_prompt_collected_in_subscription_order()
     w_b = make_workflow("w_b", pre_pipeline=hook_b)
     with register_for_test(w_a), register_for_test(w_b):
         accumulators = {"merged_enabled_tools": {}, "extras": []}
-        async for _ in _iterate_pre_pipeline_hooks(
-            conversation_id="c1",
-            history=[],
-            last_user_message="hi",
-            settings={"model_name": "test"},
-            prefix_base=_PREFIX,
-            enabled_tools_pre_merge={},
-            turn_scratch={},
-            client=None,
-            kv_tracker=_KVCacheTracker(),
-            schema_overrides={},
-            accumulators=accumulators,
-        ):
-            pass
+        await _run_pre_hooks(accumulators)
     assert accumulators["extras"] == ["block-a", "block-b"]
 
 
@@ -199,20 +184,7 @@ async def test_pre_pipeline_iter_empty_system_prompt_block_dropped():
     w = make_workflow("tw_empty", pre_pipeline=hook)
     with register_for_test(w):
         accumulators = {"merged_enabled_tools": {}, "extras": []}
-        async for _ in _iterate_pre_pipeline_hooks(
-            conversation_id="c1",
-            history=[],
-            last_user_message="hi",
-            settings={"model_name": "test"},
-            prefix_base=_PREFIX,
-            enabled_tools_pre_merge={},
-            turn_scratch={},
-            client=None,
-            kv_tracker=_KVCacheTracker(),
-            schema_overrides={},
-            accumulators=accumulators,
-        ):
-            pass
+        await _run_pre_hooks(accumulators)
     assert accumulators["extras"] == ["real"]
 
 
@@ -223,21 +195,7 @@ async def test_pre_pipeline_iter_passes_through_unknown_event_types():
     w = make_workflow("tw_pass", pre_pipeline=hook)
     with register_for_test(w):
         accumulators = {"merged_enabled_tools": {}, "extras": []}
-        events = []
-        async for ev in _iterate_pre_pipeline_hooks(
-            conversation_id="c1",
-            history=[],
-            last_user_message="hi",
-            settings={"model_name": "test"},
-            prefix_base=_PREFIX,
-            enabled_tools_pre_merge={},
-            turn_scratch={},
-            client=None,
-            kv_tracker=_KVCacheTracker(),
-            schema_overrides={},
-            accumulators=accumulators,
-        ):
-            events.append(ev)
+        events = await _run_pre_hooks(accumulators)
     assert events == [{"event": "custom_sse", "data": {"hello": "world"}}]
 
 
@@ -262,22 +220,7 @@ async def test_pre_pipeline_iter_drops_malformed_public_events(bad_event):
     w = make_workflow("tw_bad_public", pre_pipeline=hook)
     with register_for_test(w):
         accumulators = {"merged_enabled_tools": {}, "extras": []}
-        events = [
-            ev
-            async for ev in _iterate_pre_pipeline_hooks(
-                conversation_id="c1",
-                history=[],
-                last_user_message="hi",
-                settings={"model_name": "test"},
-                prefix_base=_PREFIX,
-                enabled_tools_pre_merge={},
-                turn_scratch={},
-                client=None,
-                kv_tracker=_KVCacheTracker(),
-                schema_overrides={},
-                accumulators=accumulators,
-            )
-        ]
+        events = await _run_pre_hooks(accumulators)
     assert events == []
 
 
@@ -339,20 +282,7 @@ async def test_pre_pipeline_iter_hook_exception_logged_and_iteration_continues()
     w_b = make_workflow("w_survive", pre_pipeline=hook_b)
     with register_for_test(w_a), register_for_test(w_b):
         accumulators = {"merged_enabled_tools": {}, "extras": []}
-        async for _ in _iterate_pre_pipeline_hooks(
-            conversation_id="c1",
-            history=[],
-            last_user_message="hi",
-            settings={"model_name": "test"},
-            prefix_base=_PREFIX,
-            enabled_tools_pre_merge={},
-            turn_scratch={},
-            client=None,
-            kv_tracker=_KVCacheTracker(),
-            schema_overrides={},
-            accumulators=accumulators,
-        ):
-            pass
+        await _run_pre_hooks(accumulators)
     assert survived == ["b_ran"]
     assert accumulators["extras"] == ["still here"]
 
@@ -533,8 +463,6 @@ def test_stage_attachment_non_dict_consumption_metadata_coerces_to_none_without_
 
 
 async def test_run_pipeline_emits_single_result_with_staged_attachments():
-    client = _make_client()
-
     async def mock_writer(c, *args, **kwargs):
         for ch in ["draft "]:
             yield {"type": "content", "delta": ch}
@@ -570,18 +498,7 @@ async def test_run_pipeline_emits_single_result_with_staged_attachments():
         reroll_gen=lambda ctx, params, seed: b"",
     )
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            events = await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    **_pipeline_kwargs(),
-                )
-            )
+        events = await _run_with_writer(mock_writer)
 
     results = [e for e in events if e["event"] == "_result"]
     assert len(results) == 1
@@ -592,8 +509,6 @@ async def test_run_pipeline_emits_single_result_with_staged_attachments():
 
 
 async def test_run_pipeline_drops_attach_artifact_with_mismatched_source():
-    client = _make_client()
-
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "draft"}
 
@@ -617,26 +532,13 @@ async def test_run_pipeline_drops_attach_artifact_with_mismatched_source():
         reroll_gen=lambda ctx, params, seed: b"",
     )
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            events = await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    **_pipeline_kwargs(),
-                )
-            )
+        events = await _run_with_writer(mock_writer)
 
     [result] = [e for e in events if e["event"] == "_result"]
     assert result["data"]["staged_attachments"] == []
 
 
 async def test_run_pipeline_draft_replaced_emits_writer_rewrite_and_updates_result():
-    client = _make_client()
-
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "original"}
 
@@ -647,18 +549,7 @@ async def test_run_pipeline_draft_replaced_emits_writer_rewrite_and_updates_resu
 
     w = make_workflow("rewriter", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            events = await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    **_pipeline_kwargs(),
-                )
-            )
+        events = await _run_with_writer(mock_writer)
 
     rewrites = [e for e in events if e["event"] == "writer_rewrite"]
     assert len(rewrites) == 1
@@ -691,37 +582,16 @@ async def test_run_pipeline_turn_scratch_ref_shared_pre_to_post():
     with register_for_test(w):
         turn_scratch: dict = {}
         accumulators = {"merged_enabled_tools": {}, "extras": []}
-        async for _ in _iterate_pre_pipeline_hooks(
-            conversation_id="c1",
-            history=[],
-            last_user_message="hi",
-            settings=_SETTINGS,
-            prefix_base=_PREFIX,
-            enabled_tools_pre_merge={},
-            turn_scratch=turn_scratch,
+        await _run_pre_hooks(accumulators, turn_scratch=turn_scratch, client=client)
+        await _run_with_writer(
+            mock_writer,
             client=client,
-            kv_tracker=_KVCacheTracker(),
-            schema_overrides={},
-            accumulators=accumulators,
-        ):
-            pass
-
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hi",
-                    prefix=_PREFIX,
-                    enabled_tools=accumulators["merged_enabled_tools"],
-                    turn_scratch=turn_scratch,
-                    kv_tracker=_KVCacheTracker(),
-                    schema_overrides={},
-                )
-            )
+            last_user_message="hi",
+            pipeline_kwargs={
+                "enabled_tools": accumulators["merged_enabled_tools"],
+                "turn_scratch": turn_scratch,
+            },
+        )
 
     assert captured["pre_id"] == captured["post_id"]
     assert captured["post_value"] == "stash"
@@ -741,23 +611,8 @@ async def test_run_pipeline_turn_scratch_fresh_across_turns():
 
     w = make_workflow("scratch_lifetime", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            for _ in range(2):
-                await _drain(
-                    _run_pipeline(
-                        client,
-                        _SETTINGS,
-                        _DIRECTOR_STATE,
-                        [],
-                        [],
-                        "hi",
-                        prefix=_PREFIX,
-                        enabled_tools={},
-                        turn_scratch={},
-                        kv_tracker=_KVCacheTracker(),
-                        schema_overrides={},
-                    )
-                )
+        for _ in range(2):
+            await _run_with_writer(mock_writer, client=client, last_user_message="hi")
     assert captured[0] != captured[1]
 
 
@@ -765,23 +620,11 @@ async def test_run_pipeline_empty_registry_emits_single_result_no_staged():
     """No workflow registered: pipeline still emits exactly one _result with
     an empty staged_attachments list. This is the load-bearing parity property
     of the post-pipeline iteration."""
-    client = _make_client()
 
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "plain draft"}
 
-    with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-        events = await _drain(
-            _run_pipeline(
-                client,
-                _SETTINGS,
-                _DIRECTOR_STATE,
-                [],
-                [],
-                "hello",
-                **_pipeline_kwargs(),
-            )
-        )
+    events = await _run_with_writer(mock_writer)
 
     results = [e for e in events if e["event"] == "_result"]
     assert len(results) == 1
@@ -792,8 +635,6 @@ async def test_run_pipeline_empty_registry_emits_single_result_no_staged():
 
 
 async def test_run_pipeline_post_hook_exception_logged_and_pipeline_completes():
-    client = _make_client()
-
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "draft"}
 
@@ -803,18 +644,7 @@ async def test_run_pipeline_post_hook_exception_logged_and_pipeline_completes():
 
     w = make_workflow("crasher", post_pipeline=crasher)
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            events = await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hi",
-                    **_pipeline_kwargs(),
-                )
-            )
+        events = await _run_with_writer(mock_writer, last_user_message="hi")
 
     [result] = [e for e in events if e["event"] == "_result"]
     assert result["data"]["resp_text"] == "draft"
@@ -824,7 +654,6 @@ async def test_run_pipeline_writer_abort_emits_result_skips_post_pipeline():
     """A writer-pass abort still produces persistence via a final _result,
     but the post-pipeline iteration is skipped entirely so a downstream
     hook never sees an aborted turn."""
-    client = _make_client()
     post_ran = []
 
     async def mock_writer(c, *args, **kwargs):
@@ -838,18 +667,7 @@ async def test_run_pipeline_writer_abort_emits_result_skips_post_pipeline():
 
     w = make_workflow("never_runs", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            events = await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hi",
-                    **_pipeline_kwargs(),
-                )
-            )
+        events = await _run_with_writer(mock_writer, last_user_message="hi")
 
     [result] = [e for e in events if e["event"] == "_result"]
     assert result["data"]["resp_text"] == "partial"
@@ -858,8 +676,6 @@ async def test_run_pipeline_writer_abort_emits_result_skips_post_pipeline():
 
 
 async def test_run_pipeline_set_message_state_collected_and_not_forwarded():
-    client = _make_client()
-
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "draft"}
 
@@ -868,18 +684,7 @@ async def test_run_pipeline_set_message_state_collected_and_not_forwarded():
 
     w = make_workflow("ms", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            events = await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    **_pipeline_kwargs(),
-                )
-            )
+        events = await _run_with_writer(mock_writer)
 
     [result] = [e for e in events if e["event"] == "_result"]
     assert result["data"]["staged_message_state"] == {"ms": {"seen": 1}}
@@ -888,8 +693,6 @@ async def test_run_pipeline_set_message_state_collected_and_not_forwarded():
 
 
 async def test_run_pipeline_set_message_state_non_dict_dropped():
-    client = _make_client()
-
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "draft"}
 
@@ -898,26 +701,13 @@ async def test_run_pipeline_set_message_state_non_dict_dropped():
 
     w = make_workflow("ms", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            events = await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    **_pipeline_kwargs(),
-                )
-            )
+        events = await _run_with_writer(mock_writer)
 
     [result] = [e for e in events if e["event"] == "_result"]
     assert result["data"]["staged_message_state"] == {}
 
 
 async def test_run_pipeline_set_message_state_keyed_per_workflow():
-    client = _make_client()
-
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "draft"}
 
@@ -930,18 +720,7 @@ async def test_run_pipeline_set_message_state_keyed_per_workflow():
     wa = make_workflow("wf_a", post_pipeline=hook_a)
     wb = make_workflow("wf_b", post_pipeline=hook_b)
     with register_for_test(wa), register_for_test(wb):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            events = await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    **_pipeline_kwargs(),
-                )
-            )
+        events = await _run_with_writer(mock_writer)
 
     [result] = [e for e in events if e["event"] == "_result"]
     assert result["data"]["staged_message_state"] == {"wf_a": {"from": "a"}, "wf_b": {"from": "b"}}
@@ -949,7 +728,6 @@ async def test_run_pipeline_set_message_state_keyed_per_workflow():
 
 async def test_post_pipeline_ctx_carries_readonly_history():
     captured = {}
-    client = _make_client()
 
     async def mock_writer(c, *args, **kwargs):
         yield {"type": "content", "delta": "draft"}
@@ -960,19 +738,7 @@ async def test_post_pipeline_ctx_carries_readonly_history():
 
     w = make_workflow("hist", post_pipeline=post_hook)
     with register_for_test(w):
-        with patch("backend.pipeline.passes.writer.writer_pass", new=mock_writer):
-            await _drain(
-                _run_pipeline(
-                    client,
-                    _SETTINGS,
-                    _DIRECTOR_STATE,
-                    [],
-                    [],
-                    "hello",
-                    history=[{"role": "user", "content": "earlier"}],
-                    **_pipeline_kwargs(),
-                )
-            )
+        await _run_with_writer(mock_writer, history=[{"role": "user", "content": "earlier"}])
 
     history = captured["history"]
     assert [m["role"] for m in history] == ["user"]

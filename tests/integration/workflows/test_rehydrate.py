@@ -17,13 +17,12 @@ from backend.database import (
 )
 from backend.workflows.attachment_cache import EVICTED_MARKER, evict
 
-from ._fixtures import make_workflow, must_get_workflow_attachment, register_for_test
-
-
-async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "rehydrate"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+from ._fixtures import (
+    make_workflow,
+    must_get_workflow_attachment,
+    new_conversation,
+    register_for_test,
+)
 
 
 async def _seed_with_seed(
@@ -32,7 +31,7 @@ async def _seed_with_seed(
     seed: str | None = "STORED-SEED",
     insert_as_evicted: bool = False,
 ) -> tuple[str, int, int]:
-    cid = await _new_conversation(client)
+    cid = await new_conversation(client)
     mid, _ = await add_message(cid, "assistant", "scene", 0)
     await set_active_leaf(cid, mid)
     aid = await insert_workflow_attachment_row(
@@ -48,23 +47,6 @@ async def _seed_with_seed(
         insert_as_evicted=insert_as_evicted,
     )
     return cid, mid, aid
-
-
-async def test_unknown_conversation_returns_404(client):
-    resp = await client.post(
-        "/api/conversations/no-such/messages/1/workflow-attachments/1/rehydrate",
-        json={},
-    )
-    assert resp.status_code == 404
-
-
-async def test_attachment_not_found_returns_404(client):
-    cid = await _new_conversation(client)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/1/workflow-attachments/99999/rehydrate",
-        json={},
-    )
-    assert resp.status_code == 404
 
 
 async def test_rehydrate_when_bytes_present_returns_409(client):

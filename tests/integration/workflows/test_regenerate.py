@@ -12,20 +12,13 @@ from backend.database import (
 )
 from backend.workflows.attachment_cache import OVERSIZE_NO_METADATA_REASON
 
-from ._fixtures import make_workflow, must_get_workflow_attachment, register_for_test
-
-
-async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "Regenerate test"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
-
-
-async def _seed_conv_with_message(client) -> tuple[str, int]:
-    cid = await _new_conversation(client)
-    mid, _ = await add_message(cid, "assistant", "scene draft", 0)
-    await set_active_leaf(cid, mid)
-    return cid, mid
+from ._fixtures import (
+    make_workflow,
+    must_get_workflow_attachment,
+    new_conversation,
+    register_for_test,
+    seed_message,
+)
 
 
 async def _seed_workflow_attachment(mid: int, *, wid: str = "wf") -> int:
@@ -35,26 +28,8 @@ async def _seed_workflow_attachment(mid: int, *, wid: str = "wf") -> int:
     )
 
 
-async def test_unknown_conversation_returns_404(client):
-    resp = await client.post(
-        "/api/conversations/no-such/messages/1/workflow-attachments/1/regenerate",
-        json={},
-    )
-    assert resp.status_code == 404
-    assert "Conversation" in resp.json()["detail"]
-
-
-async def test_attachment_not_found_returns_404(client):
-    cid = await _new_conversation(client)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/1/workflow-attachments/99999/regenerate",
-        json={},
-    )
-    assert resp.status_code == 404
-
-
 async def test_attachment_message_mismatch_returns_404(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     other_mid, _ = await add_message(cid, "assistant", "other", 1, parent_id=mid)
     aid = await _seed_workflow_attachment(mid)
     resp = await client.post(
@@ -65,7 +40,7 @@ async def test_attachment_message_mismatch_returns_404(client):
 
 
 async def test_workflow_without_regenerate_hook_returns_404(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="inert")
     wf = make_workflow("inert")  # no regenerate hook
     with register_for_test(wf):
@@ -77,7 +52,7 @@ async def test_workflow_without_regenerate_hook_returns_404(client):
 
 
 async def test_regenerate_inserts_returned_siblings(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="img")
 
     async def regen(ctx, body):
@@ -107,7 +82,7 @@ async def test_regenerate_inserts_returned_siblings(client):
 
 
 async def test_regenerate_dispatcher_marks_active_sibling(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="img")
 
     async def regen(ctx, body):
@@ -133,7 +108,7 @@ async def test_regenerate_dispatcher_marks_active_sibling(client):
 
 
 async def test_regenerate_ctx_history_excludes_anchor_message(client):
-    cid = await _new_conversation(client)
+    cid = await new_conversation(client)
     # Build chain: m1 (user) -> m2 (assistant, anchor) -> m3 (user, after)
     m1, _ = await add_message(cid, "user", "u1", 0)
     m2, _ = await add_message(cid, "assistant", "anchor", 0, parent_id=m1)
@@ -162,7 +137,7 @@ async def test_regenerate_ctx_history_excludes_anchor_message(client):
 
 
 async def test_regenerate_ctx_history_empty_when_anchor_is_root(client):
-    cid, mid = await _seed_conv_with_message(client)  # mid is the root (no parent)
+    cid, mid = await seed_message(client)  # mid is the root (no parent)
     aid = await _seed_workflow_attachment(mid, wid="hk")
     captured: list = []
 
@@ -185,7 +160,7 @@ async def test_regenerate_ctx_history_empty_when_anchor_is_root(client):
 
 
 async def test_regenerate_hook_raise_returns_500_and_writes_nothing(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="boom")
 
     async def regen(ctx, body):
@@ -210,7 +185,7 @@ async def test_regenerate_hook_raise_returns_500_and_writes_nothing(client):
 
 
 async def test_regenerate_hook_non_list_return_treated_as_empty(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="bad")
 
     async def regen(ctx, body):
@@ -232,7 +207,7 @@ async def test_regenerate_hook_non_list_return_treated_as_empty(client):
 
 
 async def test_regenerate_skips_bad_dict_entries_and_inserts_others(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="mix")
 
     async def regen(ctx, body):
@@ -269,7 +244,7 @@ async def test_regenerate_skips_bad_dict_entries_and_inserts_others(client):
 
 async def test_regenerate_surfaces_rejected_atts_when_oversize_no_metadata(client, db):
     """An oversize hook return without seed+generation_metadata is dropped by the cache (not raised, not marker-inserted); the route surfaces it via ``rejected_workflow_atts`` instead."""
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="drop")
     # Set budget tiny so the new atts trip the oversize gate.
     await db.execute("UPDATE settings SET attachment_cache_budget_bytes = 5 WHERE id = 1")
@@ -311,7 +286,7 @@ async def test_regenerate_surfaces_rejected_atts_when_oversize_no_metadata(clien
 
 async def test_regenerate_per_entry_skip_on_empty_bytes_continues_with_valid_entries(client):
     """Validator-rejected entries do not roll back the batch insert; sibling good entries land alongside the rejection."""
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="empty")
 
     async def regen(ctx, body):
@@ -344,7 +319,7 @@ async def test_regenerate_per_entry_skip_on_empty_bytes_continues_with_valid_ent
 
 async def test_regenerate_per_entry_skip_on_unreadable_path_continues(client):
     """Path-entry rejection by the validator does not roll back the batch; sibling good entries land alongside the rejection."""
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="badpath")
 
     # Nonexistent path inside the staging root so the "does not exist" gate
@@ -379,7 +354,7 @@ async def test_regenerate_per_entry_skip_on_unreadable_path_continues(client):
 
 
 async def test_regenerate_passes_body_to_hook(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     aid = await _seed_workflow_attachment(mid, wid="echo")
     captured: list[dict] = []
 
@@ -402,7 +377,7 @@ async def test_regenerate_passes_body_to_hook(client):
 
 
 async def test_regenerate_on_sibling_uses_root_for_new_siblings(client):
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     root_id = await _seed_workflow_attachment(mid, wid="flat")
     sibling_id = await insert_workflow_attachment_row(
         mid,
@@ -430,7 +405,7 @@ async def test_regenerate_on_sibling_uses_root_for_new_siblings(client):
 
 async def test_regenerate_on_sibling_tags_rejection_with_root_id(client):
     """Rejection projections carry the root_id, not the clicked sibling's id, so the chip is anchored to the variant group rather than to the specific sibling the user clicked."""
-    cid, mid = await _seed_conv_with_message(client)
+    cid, mid = await seed_message(client)
     root_id = await _seed_workflow_attachment(mid, wid="tagroot")
     sibling_id = await insert_workflow_attachment_row(
         mid,

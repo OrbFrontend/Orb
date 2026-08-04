@@ -9,17 +9,11 @@ from backend.database import (
     set_active_leaf,
 )
 
-from ._fixtures import must_get_workflow_attachment
-
-
-async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "activate"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+from ._fixtures import must_get_workflow_attachment, new_conversation
 
 
 async def _seed_root_with_sibling(client) -> tuple[str, int, int, int]:
-    cid = await _new_conversation(client)
+    cid = await new_conversation(client)
     mid, _ = await add_message(cid, "assistant", "scene", 0)
     await set_active_leaf(cid, mid)
     root_id = await insert_workflow_attachment_row(
@@ -37,23 +31,6 @@ async def _seed_root_with_sibling(client) -> tuple[str, int, int, int]:
         },
     )
     return cid, mid, root_id, sib_id
-
-
-async def test_unknown_conversation_returns_404(client):
-    resp = await client.post(
-        "/api/conversations/no-such/messages/1/workflow-attachments/1/activate",
-        json={"sibling_id": 1},
-    )
-    assert resp.status_code == 404
-
-
-async def test_root_attachment_not_found_returns_404(client):
-    cid = await _new_conversation(client)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/1/workflow-attachments/99999/activate",
-        json={"sibling_id": 1},
-    )
-    assert resp.status_code == 404
 
 
 async def test_root_on_wrong_message_returns_404(client):

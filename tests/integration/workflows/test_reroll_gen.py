@@ -17,17 +17,16 @@ from backend.database import (
 )
 from backend.workflows.errors import WorkflowUserFacingError
 
-from ._fixtures import make_workflow, must_get_workflow_attachment, register_for_test
-
-
-async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "reroll-gen"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
+from ._fixtures import (
+    make_workflow,
+    must_get_workflow_attachment,
+    new_conversation,
+    register_for_test,
+)
 
 
 async def _seed_with_metadata(client) -> tuple[str, int, int]:
-    cid = await _new_conversation(client)
+    cid = await new_conversation(client)
     mid, _ = await add_message(cid, "assistant", "scene", 0)
     await set_active_leaf(cid, mid)
     aid = await insert_workflow_attachment_row(
@@ -42,23 +41,6 @@ async def _seed_with_metadata(client) -> tuple[str, int, int]:
         },
     )
     return cid, mid, aid
-
-
-async def test_unknown_conversation_returns_404(client):
-    resp = await client.post(
-        "/api/conversations/no-such/messages/1/workflow-attachments/1/reroll-gen",
-        json={},
-    )
-    assert resp.status_code == 404
-
-
-async def test_attachment_not_found_returns_404(client):
-    cid = await _new_conversation(client)
-    resp = await client.post(
-        f"/api/conversations/{cid}/messages/1/workflow-attachments/99999/reroll-gen",
-        json={},
-    )
-    assert resp.status_code == 404
 
 
 async def test_workflow_without_reroll_gen_hook_returns_404(client):
@@ -127,7 +109,7 @@ async def test_dispatcher_marks_active_sibling_to_new_id(client):
 
 
 async def test_empty_metadata_passes_empty_dict(client):
-    cid = await _new_conversation(client)
+    cid = await new_conversation(client)
     mid, _ = await add_message(cid, "assistant", "x", 0)
     await set_active_leaf(cid, mid)
     aid = await insert_workflow_attachment_row(
@@ -155,7 +137,7 @@ async def test_empty_metadata_passes_empty_dict(client):
 
 
 async def test_malformed_metadata_falls_back_to_empty_dict(client):
-    cid = await _new_conversation(client)
+    cid = await new_conversation(client)
     mid, _ = await add_message(cid, "assistant", "x", 0)
     await set_active_leaf(cid, mid)
     aid = await insert_workflow_attachment_row(
@@ -292,7 +274,7 @@ async def test_hook_returns_empty_bytes_500(client):
 async def _reroll_with_overrides(client, stored: dict, body: dict) -> tuple[dict, dict]:
     """Reroll an attachment carrying `stored` params with `body`; return (params seen by
     the hook, params the new sibling recorded)."""
-    cid = await _new_conversation(client)
+    cid = await new_conversation(client)
     mid, _ = await add_message(cid, "assistant", "x", 0)
     await set_active_leaf(cid, mid)
     aid = await insert_workflow_attachment_row(

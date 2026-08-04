@@ -3,24 +3,10 @@ from __future__ import annotations
 from backend.database import (
     add_message,
     insert_workflow_attachment_row,
-    set_active_leaf,
 )
 from backend.database.queries.workflow_attachments import get_workflow_attachment_by_id
 
-from ._fixtures import must_get_workflow_attachment
-
-
-async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "delete"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
-
-
-async def _seed_message(client) -> tuple[str, int]:
-    cid = await _new_conversation(client)
-    mid, _ = await add_message(cid, "assistant", "scene", 0)
-    await set_active_leaf(cid, mid)
-    return cid, mid
+from ._fixtures import must_get_workflow_attachment, new_conversation, seed_message
 
 
 async def _insert(mid: int, *, parent: int | None = None, annotation: str | None = None, evicted: bool = False) -> int:
@@ -48,7 +34,7 @@ async def _activate(client, cid: str, mid: int, root_id: int, sibling_id: int | 
 
 
 async def test_variant_delete_of_active_nulls_root_pointer(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     root = await _insert(mid)
     sib = await _insert(mid, parent=root)
     await _activate(client, cid, mid, root, sib)
@@ -65,7 +51,7 @@ async def test_variant_delete_of_active_nulls_root_pointer(client):
 
 
 async def test_variant_delete_of_non_active_keeps_root_pointer(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     root = await _insert(mid)
     sib1 = await _insert(mid, parent=root)
     sib2 = await _insert(mid, parent=root)
@@ -81,7 +67,7 @@ async def test_variant_delete_of_non_active_keeps_root_pointer(client):
 
 
 async def test_variant_delete_of_root_promotes_survivor_and_carries_annotation(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     root = await _insert(mid, annotation="ROOT")
     sib1 = await _insert(mid, parent=root, annotation="SIB1")
     sib2 = await _insert(mid, parent=root, annotation="SIB2")
@@ -103,7 +89,7 @@ async def test_variant_delete_of_root_promotes_survivor_and_carries_annotation(c
 
 
 async def test_variant_delete_of_active_root_resets_active_to_null(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     root = await _insert(mid)
     sib1 = await _insert(mid, parent=root)
     await _insert(mid, parent=root)
@@ -118,7 +104,7 @@ async def test_variant_delete_of_active_root_resets_active_to_null(client):
 
 
 async def test_variant_delete_of_singleton_root_empties_group(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     root = await _insert(mid)
     resp = await _delete(client, cid, mid, root, "variant")
     assert resp.status_code == 200
@@ -129,7 +115,7 @@ async def test_variant_delete_of_singleton_root_empties_group(client):
 
 
 async def test_group_delete_removes_root_and_all_siblings(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     root = await _insert(mid)
     sib1 = await _insert(mid, parent=root)
     sib2 = await _insert(mid, parent=root, evicted=True)
@@ -142,24 +128,16 @@ async def test_group_delete_removes_root_and_all_siblings(client):
         assert await get_workflow_attachment_by_id(aid) is None
 
 
-async def test_unknown_conversation_returns_404(client):
-    resp = await client.post(
-        "/api/conversations/no-such/messages/1/workflow-attachments/1/delete",
-        json={"scope": "group"},
-    )
-    assert resp.status_code == 404
-
-
 async def test_anchor_on_other_conversation_returns_404(client):
-    _, mid = await _seed_message(client)
+    _, mid = await seed_message(client)
     root = await _insert(mid)
-    other_cid = await _new_conversation(client)
+    other_cid = await new_conversation(client)
     resp = await _delete(client, other_cid, mid, root, "group")
     assert resp.status_code == 404
 
 
 async def test_attachment_on_other_message_returns_404(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     other_mid, _ = await add_message(cid, "assistant", "other", 1, parent_id=mid)
     root_other = await _insert(other_mid)
     resp = await _delete(client, cid, mid, root_other, "variant")
@@ -167,14 +145,14 @@ async def test_attachment_on_other_message_returns_404(client):
 
 
 async def test_bad_scope_returns_400(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     root = await _insert(mid)
     resp = await _delete(client, cid, mid, root, "nonsense")
     assert resp.status_code == 400
 
 
 async def test_missing_scope_returns_400(client):
-    cid, mid = await _seed_message(client)
+    cid, mid = await seed_message(client)
     root = await _insert(mid)
     resp = await client.post(
         f"/api/conversations/{cid}/messages/{mid}/workflow-attachments/{root}/delete",

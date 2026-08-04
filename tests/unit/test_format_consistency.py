@@ -20,6 +20,13 @@ ASTERISKS_ONLY = "*She smiles and steps back, turning to the window.* I won't go
 FULL_MARKUP = '*He leans on the doorframe, arms crossed.* "You came back," *he murmurs.*'
 
 
+def _assert_unchanged(draft: str, base: list[str], *, enabled: bool = True):
+    new, report = normalize_to_baseline(draft, base, enabled=enabled)
+    assert not report.changed
+    assert new == draft
+    return report
+
+
 def test_axis_enums_render_as_wire_values():
     assert str(Dialogue.QUOTED) == "quoted"
     assert f"{Narration.ASTERISK}" == "asterisk"
@@ -107,9 +114,7 @@ def test_full_markup_to_quotes_only_strips_narration_asterisks():
 def test_already_consistent_is_byte_identical():
     base = ['She smiles. "Hello there," she says warmly.']
     draft = 'He nods slowly. "I understand," he replies.'
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 def test_embedded_thought_message_is_noop_against_quotes_baseline():
@@ -119,25 +124,19 @@ def test_embedded_thought_message_is_noop_against_quotes_baseline():
         "*Was he really serious about this?* "
         '"Tell me the truth," she said quietly.'
     )
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 def test_disabled_is_noop():
     base = ["*She smiles.* Hello there."]
     draft = 'She smiles. "Hello there."'
-    new, rep = normalize_to_baseline(draft, base, enabled=False)
-    assert not rep.changed
-    assert new == draft
+    rep = _assert_unchanged(draft, base, enabled=False)
     assert rep.note == "disabled"
 
 
 def test_no_baseline_is_noop():
     draft = 'She smiles. "Hello there."'
-    new, rep = normalize_to_baseline(draft, [], enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, [])
 
 
 def test_unstable_baseline_is_noop():
@@ -147,9 +146,7 @@ def test_unstable_baseline_is_noop():
     assert target.dialogue == Dialogue.UNKNOWN
     assert target.narration == Narration.UNKNOWN
     draft = 'She frowns. "What now?"'
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 # ---------- preservation of incidental markup ----------
@@ -203,10 +200,8 @@ def test_bold_italic_run_left_byte_identical_when_prose_is_consistent():
         'He nods. "Welcome back," he replies.',
     ]
     draft = '***She steps closer, watching him.*** "Are you sure?"'
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
     # The `***…***` is protected and the quoted dialogue already matches: no-op.
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 def test_four_asterisk_run_preserved():
@@ -215,9 +210,7 @@ def test_four_asterisk_run_preserved():
         'He nods. "Welcome back," he replies.',
     ]
     draft = "He was ****really**** angry."
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft  # ****really**** carried through intact
+    _assert_unchanged(draft, base)  # ****really**** carried through intact
 
 
 def test_scene_divider_run_preserved_with_surrounding_text():
@@ -226,19 +219,7 @@ def test_scene_divider_run_preserved_with_surrounding_text():
         'He nods. "Welcome back," he replies.',
     ]
     draft = "She turns away.\n\n***\n\nThe room falls silent."
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft  # divider and its blank-line spacing untouched
-
-
-def test_no_asterisk_run_stays_byte_identical():
-    # A draft with no 3+ run is unaffected: single-* emphasis and already-consistent
-    # text still come back untouched.
-    base = ['She smiles. "Hello there," she says warmly.']
-    draft = 'He frowns. "Do you think I am *stupid*?"'
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)  # divider and its blank-line spacing untouched
 
 
 # ---------- fenced code blocks (literal content, never reformatted) ----------
@@ -273,17 +254,13 @@ def test_asterisk_runs_preserved_in_both_prose_and_code():
         'He nods. "Welcome back," he replies.',
     ]
     draft = "She turns. ***Important.***\n\n```\nkeep ***this***\n```"
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 def test_code_only_draft_is_byte_identical():
     base = ['She smiles. "Hello there," she says warmly.']
     draft = "```\n*not* RP markup, ***at all***\n```"
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 # ---------- *emphasis* inside dialogue (LLMs do this constantly) ----------
@@ -294,9 +271,7 @@ def test_emphasis_in_dialogue_is_noop_against_quotes_baseline():
     # already consistent and must come back byte-identical.
     base = ['She smiles. "Hello there," she says warmly.']
     draft = 'He frowns. "Do you think I am *stupid*?"'
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 def test_emphasis_in_dialogue_survives_narration_strip():
@@ -360,9 +335,7 @@ def test_pure_bare_narration_without_dialogue_is_noop():
     # dialogue in an asterisk-only chat), so the normalizer leaves it alone.
     base = ["*She paces the room nervously, glancing at the clock.* Right."]
     draft = "She was really nervous about the whole thing."
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 # ---------- multi-turn baselines (the cross-message regression) ----------
@@ -408,9 +381,7 @@ def test_drift_in_only_the_latest_turn_does_not_change_a_consistent_draft():
         'He nods. "Welcome back."',
     ]
     draft = 'She tilts her head. "What brings you here?"'
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 # ---------- within-message drift (dominant style matches, a few spans do not) ----------
@@ -467,9 +438,7 @@ def test_genuine_asterisk_convention_draft_is_not_misread_as_full_markup():
         "*She turns to face him.* It has been too long.",
     ]
     draft = "*He shifts his weight.*\n\nAre you sure about this?\n\n*She waits.*"
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft  # "Are you sure about this?" stays bare dialogue
+    _assert_unchanged(draft, base)  # "Are you sure about this?" stays bare dialogue
 
 
 # ---------- punctuation / glyph preservation across a rewrite ----------
@@ -544,9 +513,7 @@ def test_asterisk_narration_without_quotes_is_ambiguous_noop():
     draft = "*She steps closer.* Are you sure? *She hesitates.* Really sure?"
     style = classify_axes(draft)
     assert style.dialogue == Dialogue.UNKNOWN
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 # ---------- classification edge cases ----------
@@ -561,21 +528,15 @@ def test_smart_quotes_classified_as_quoted_dialogue():
 def test_single_word_message_is_ambiguous_noop():
     base = ['She smiles. "Hello there."']
     draft = "Okay."
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)
 
 
 def test_empty_draft_is_noop():
     base = ['She smiles. "Hello there."']
-    new, rep = normalize_to_baseline("", base, enabled=True)
-    assert not rep.changed
-    assert new == ""
+    _assert_unchanged("", base)
 
 
 def test_whitespace_only_draft_is_noop():
     base = ['She smiles. "Hello there."']
     draft = "   \n  "
-    new, rep = normalize_to_baseline(draft, base, enabled=True)
-    assert not rep.changed
-    assert new == draft
+    _assert_unchanged(draft, base)

@@ -23,7 +23,9 @@ from backend.workflows.attachment_cache import (
     insert_workflow_attachments,
 )
 
-from ._fixtures import make_workflow, must_get_workflow_attachment, register_for_test
+from ._fixtures import must_get_workflow_attachment, registered_artifact_workflow
+from ._fixtures import new_conversation as _new_conversation
+from ._fixtures import seed_message as _seed_message
 
 
 @pytest.fixture(autouse=True)
@@ -33,27 +35,8 @@ def _register_wf_workflow():
     without this fixture every entry would land in the policy-rejection
     partition instead of exercising the oversize / eviction branches under
     test."""
-    wf = make_workflow(
-        "wf",
-        produces_artifacts=True,
-        regenerate=lambda ctx, body: [],
-        reroll_gen=lambda ctx, params, seed: b"",
-    )
-    with register_for_test(wf):
+    with registered_artifact_workflow():
         yield
-
-
-async def _new_conversation(client) -> str:
-    resp = await client.post("/api/conversations", json={"title": "Batch test"})
-    assert resp.status_code == 200
-    return resp.json()["id"]
-
-
-async def _seed_message(client) -> tuple[str, int]:
-    cid = await _new_conversation(client)
-    mid, _ = await add_message(cid, "assistant", "scene", 0)
-    await set_active_leaf(cid, mid)
-    return cid, mid
 
 
 async def _seed_row(
