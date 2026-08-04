@@ -142,10 +142,6 @@ class KokoroTTSAdapter(TTSAdapter):
     def backend_name(self) -> str:
         return "Kokoro-82M"
 
-    @property
-    def supports_streaming(self) -> bool:
-        return False
-
 
 # ---------------------------------------------------------------------------
 # WAV helpers for per-chunk concatenation
@@ -194,90 +190,29 @@ _LANG_TO_KOKORO = {
 }
 
 
-# Default voice list (used when server is not reachable)
+# Default voice list (used when server is not reachable). Derive display fields
+# from Kokoro's two-letter voice prefix so the fallback cannot drift internally.
 _DEFAULT_VOICES = [
     {
-        "id": "af_heart",
-        "name": "Heart (American Female)",
-        "language": "en-US",
-        "gender": "Female",
-    },
-    {
-        "id": "af_bella",
-        "name": "Bella (American Female)",
-        "language": "en-US",
-        "gender": "Female",
-    },
-    {
-        "id": "af_nicole",
-        "name": "Nicole (American Female)",
-        "language": "en-US",
-        "gender": "Female",
-    },
-    {
-        "id": "af_sarah",
-        "name": "Sarah (American Female)",
-        "language": "en-US",
-        "gender": "Female",
-    },
-    {
-        "id": "af_nova",
-        "name": "Nova (American Female)",
-        "language": "en-US",
-        "gender": "Female",
-    },
-    {
-        "id": "af_river",
-        "name": "River (American Female)",
-        "language": "en-US",
-        "gender": "Female",
-    },
-    {
-        "id": "af_sky",
-        "name": "Sky (American Female)",
-        "language": "en-US",
-        "gender": "Female",
-    },
-    {
-        "id": "am_adam",
-        "name": "Adam (American Male)",
-        "language": "en-US",
-        "gender": "Male",
-    },
-    {
-        "id": "am_michael",
-        "name": "Michael (American Male)",
-        "language": "en-US",
-        "gender": "Male",
-    },
-    {
-        "id": "am_liam",
-        "name": "Liam (American Male)",
-        "language": "en-US",
-        "gender": "Male",
-    },
-    {
-        "id": "bf_emma",
-        "name": "Emma (British Female)",
-        "language": "en-GB",
-        "gender": "Female",
-    },
-    {
-        "id": "bf_alice",
-        "name": "Alice (British Female)",
-        "language": "en-GB",
-        "gender": "Female",
-    },
-    {
-        "id": "bm_george",
-        "name": "George (British Male)",
-        "language": "en-GB",
-        "gender": "Male",
-    },
-    {
-        "id": "bm_daniel",
-        "name": "Daniel (British Male)",
-        "language": "en-GB",
-        "gender": "Male",
-    },
+        "id": voice_id,
+        "name": f"{voice_id.split('_', 1)[1].title()} ({'American' if voice_id[0] == 'a' else 'British'} {_GENDER_MAP[voice_id[1]]})",
+        "language": _VOICE_LANG_MAP[voice_id[0]],
+        "gender": _GENDER_MAP[voice_id[1]],
+    }
+    for voice_id in (
+        "af_heart",
+        "af_bella",
+        "af_nicole",
+        "af_sarah",
+        "af_nova",
+        "af_river",
+        "af_sky",
+        "am_adam",
+        "am_michael",
+        "am_liam",
+        "bf_emma",
+        "bf_alice",
+        "bm_george",
+        "bm_daniel",
+    )
 ]

@@ -43,6 +43,8 @@ def _format_pitch(pitch: float) -> str:
 class EdgeTTSAdapter(TTSAdapter):
     """TTS adapter using Microsoft Edge's online TTS service via edge-tts."""
 
+    _supports_streaming = True
+
     async def synthesize(
         self,
         chunks: list[SpeakableChunk],
@@ -133,11 +135,3 @@ class EdgeTTSAdapter(TTSAdapter):
     @property
     def backend_name(self) -> str:
         return "Microsoft Edge TTS"
-
-    @property
-    def supports_streaming(self) -> bool:
-        return True
-
-    @property
-    def supports_emotion_tags(self) -> bool:
-        return False

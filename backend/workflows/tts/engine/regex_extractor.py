@@ -23,126 +23,42 @@ from .base import SpeakableChunk
 # Audible vs silent action beats
 # ---------------------------------------------------------------------------
 
-# Actions that produce sound → convert to pause + optional tag
+# Actions that produce sound → convert to pause + optional tag. The compact
+# string keeps this public set byte-for-byte stable; effect aliases below also
+# include ``giggle``, which was historically recognized through the emotion map.
 AUDIBLE_BEATS = frozenset(
-    {
-        "laughs",
-        "laugh",
-        "giggles",
-        "chuckles",
-        "chuckle",
-        "sighs",
-        "sigh",
-        "gasps",
-        "gasp",
-        "moans",
-        "moan",
-        "groans",
-        "groan",
-        "sniffles",
-        "sniffle",
-        "coughs",
-        "cough",
-        "cries",
-        "cry",
-        "sobs",
-        "sob",
-        "whimpers",
-        "whimper",
-        "screams",
-        "scream",
-        "shouts",
-        "shout",
-        "whispers",
-        "whisper",
-        "mutters",
-        "mutter",
-        "murmurs",
-        "murmur",
-        "hums",
-        "hum",
-        "hisses",
-        "hiss",
-        "growls",
-        "growl",
-        "pants",
-        "pant",
-        "breathes",
-        "breathe",
-        "snorts",
-        "snort",
-    }
+    """laughs laugh giggles chuckles chuckle sighs sigh gasps gasp moans moan
+    groans groan sniffles sniffle coughs cough cries cry sobs sob whimpers whimper
+    screams scream shouts shout whispers whisper mutters mutter murmurs murmur hums
+    hum hisses hiss growls growl pants pant breathes breathe snorts snort""".split()
 )
 
-# Tags for backends that support them (ElevenLabs, Fish Speech, etc.)
-AUDIBLE_TAG_MAP = {
-    "laughs": "[laugh]",
-    "laugh": "[laugh]",
-    "giggles": "[laugh]",
-    "giggle": "[laugh]",
-    "chuckles": "[chuckle]",
-    "chuckle": "[chuckle]",
-    "sighs": "[sigh]",
-    "sigh": "[sigh]",
-    "gasps": "[gasp]",
-    "gasp": "[gasp]",
-    "moans": "[moan]",
-    "moan": "[moan]",
-    "groans": "[groan]",
-    "groan": "[groan]",
-    "coughs": "[cough]",
-    "cough": "[cough]",
-    "screams": "[scream]",
-    "scream": "[scream]",
-    "shouts": "[scream]",
-    "shout": "[scream]",
-    "whispers": "[whisper]",
-    "whisper": "[whisper]",
-    "hisses": "[hiss]",
-    "hiss": "[hiss]",
-    "growls": "[growl]",
-    "growl": "[growl]",
-}
-
-# Emotions inferred from audible action beats
-AUDIBLE_EMOTION_MAP = {
-    "laughs": "amused",
-    "laugh": "amused",
-    "giggles": "amused",
-    "giggle": "amused",
-    "chuckles": "amused",
-    "chuckle": "amused",
-    "sighs": "soft",
-    "sigh": "soft",
-    "gasps": "surprised",
-    "gasp": "surprised",
-    "moans": "soft",
-    "moan": "soft",
-    "groans": "angry",
-    "groan": "angry",
-    "cries": "sad",
-    "cry": "sad",
-    "sobs": "sad",
-    "sob": "sad",
-    "whimpers": "fearful",
-    "whimper": "fearful",
-    "screams": "fearful",
-    "scream": "fearful",
-    "shouts": "angry",
-    "shout": "angry",
-    "whispers": "whispered",
-    "whisper": "whispered",
-    "mutters": "angry",
-    "mutter": "angry",
-    "murmurs": "soft",
-    "murmur": "soft",
-    "hisses": "angry",
-    "hiss": "angry",
-    "growls": "angry",
-    "growl": "angry",
-    "pants": "breathless",
-    "pant": "breathless",
-}
+# Aliases share one source of truth for backend tags and inferred emotions.
+# Empty fields mean that an audible beat has no corresponding effect.
+_BEAT_EFFECTS = (
+    (("laughs", "laugh", "giggles", "giggle"), "[laugh]", "amused"),
+    (("chuckles", "chuckle"), "[chuckle]", "amused"),
+    (("sighs", "sigh"), "[sigh]", "soft"),
+    (("gasps", "gasp"), "[gasp]", "surprised"),
+    (("moans", "moan"), "[moan]", "soft"),
+    (("groans", "groan"), "[groan]", "angry"),
+    (("sniffles", "sniffle"), "", ""),
+    (("coughs", "cough"), "[cough]", ""),
+    (("cries", "cry", "sobs", "sob"), "", "sad"),
+    (("whimpers", "whimper"), "", "fearful"),
+    (("screams", "scream"), "[scream]", "fearful"),
+    (("shouts", "shout"), "[scream]", "angry"),
+    (("whispers", "whisper"), "[whisper]", "whispered"),
+    (("mutters", "mutter"), "", "angry"),
+    (("murmurs", "murmur"), "", "soft"),
+    (("hums", "hum"), "", ""),
+    (("hisses", "hiss"), "[hiss]", "angry"),
+    (("growls", "growl"), "[growl]", "angry"),
+    (("pants", "pant"), "", "breathless"),
+    (("breathes", "breathe", "snorts", "snort"), "", ""),
+)
+AUDIBLE_TAG_MAP = {alias: tag for aliases, tag, _ in _BEAT_EFFECTS if tag for alias in aliases}
+AUDIBLE_EMOTION_MAP = {alias: emotion for aliases, _, emotion in _BEAT_EFFECTS if emotion for alias in aliases}
 
 
 # ---------------------------------------------------------------------------
