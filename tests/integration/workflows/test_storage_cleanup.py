@@ -17,14 +17,11 @@ from __future__ import annotations
 
 import pytest
 
-from backend.database import (
-    add_message,
-    insert_workflow_attachment_row,
-    set_active_leaf,
-)
+from backend.database import insert_workflow_attachment_row
 from backend.database.queries.workflow_attachments import EVICTED_MARKER
 
-from ._fixtures import make_workflow, register_for_test
+from ._fixtures import registered_artifact_workflow
+from ._fixtures import seed_message as _conversation
 
 OLD = "2020-01-01T00:00:00+00:00"
 RECENT = "2999-01-01T00:00:00+00:00"
@@ -32,23 +29,8 @@ RECENT = "2999-01-01T00:00:00+00:00"
 
 @pytest.fixture(autouse=True)
 def _register_wf_workflow():
-    wf = make_workflow(
-        "wf",
-        produces_artifacts=True,
-        regenerate=lambda ctx, body: [],
-        reroll_gen=lambda ctx, params, seed: b"",
-    )
-    with register_for_test(wf):
+    with registered_artifact_workflow():
         yield
-
-
-async def _conversation(client) -> tuple[str, int]:
-    resp = await client.post("/api/conversations", json={"title": "Cleanup test"})
-    assert resp.status_code == 200
-    cid = resp.json()["id"]
-    mid, _ = await add_message(cid, "assistant", "scene", 0)
-    await set_active_leaf(cid, mid)
-    return cid, mid
 
 
 async def _attachment(db, mid: int, *, created_at: str, rehydratable: bool = True, data: bytes = b"payload-bytes") -> int:

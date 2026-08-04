@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 
+from backend.database import add_message, set_active_leaf
 from backend.database.queries.conversations import (
     get_workflow_state,
     set_workflow_state,
@@ -33,6 +34,25 @@ from backend.workflows import (
     subscribe,
 )
 from backend.workflows import registry as _registry
+
+
+async def new_conversation(client, title: str = "Workflow test") -> str:
+    resp = await client.post("/api/conversations", json={"title": title})
+    assert resp.status_code == 200
+    return resp.json()["id"]
+
+
+async def seed_message(
+    client,
+    *,
+    title: str = "Workflow test",
+    role: str = "assistant",
+    content: str = "scene",
+) -> tuple[str, int]:
+    cid = await new_conversation(client, title)
+    mid, _ = await add_message(cid, role, content, 0)
+    await set_active_leaf(cid, mid)
+    return cid, mid
 
 
 async def must_get_workflow_attachment(att_id: int) -> dict:
@@ -157,6 +177,19 @@ def register_for_test(workflow: Workflow, *, finalize: bool = True) -> Iterator[
         # without subscribe() tripping its duplicate-(workflow_id, hook_type)
         # guard.
         workflow.subscriptions.clear()
+
+
+@contextmanager
+def registered_artifact_workflow(workflow_id: str = "wf") -> Iterator[Workflow]:
+    """Register the minimal artifact-producing workflow used by cache tests."""
+    workflow = make_workflow(
+        workflow_id,
+        produces_artifacts=True,
+        regenerate=lambda ctx, body: [],
+        reroll_gen=lambda ctx, params, seed: b"",
+    )
+    with register_for_test(workflow):
+        yield workflow
 
 
 # Each factory below returns ``(hook, gate, release)``: the hook awaits

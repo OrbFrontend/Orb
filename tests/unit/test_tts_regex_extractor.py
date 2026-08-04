@@ -6,6 +6,9 @@ using pure heuristics — zero LLM calls.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from backend.workflows.tts.engine.regex_extractor import (
     AUDIBLE_BEATS,
     AUDIBLE_EMOTION_MAP,
@@ -13,6 +16,13 @@ from backend.workflows.tts.engine.regex_extractor import (
     _infer_emotion,
     regex_extract,
 )
+
+
+def test_backend_matches_workflow_extraction_contract():
+    fixture = Path(__file__).parents[1] / "fixtures" / "tts_extraction_cases.json"
+    for case in json.loads(fixture.read_text(encoding="utf-8")):
+        actual = [chunk.spoken_text for chunk in regex_extract(case["text"])]
+        assert actual == case["blocks"], case["name"]
 
 
 class TestSpokenText:
@@ -130,6 +140,10 @@ class TestEmotionHeuristics:
         text = '"I don\'t know..."'
         chunks = regex_extract(text)
         assert chunks[0].emotion == "soft"
+
+    def test_unicode_punctuation(self):
+        assert regex_extract("「止まれ！」")[0].emotion == "warm"
+        assert regex_extract("«Attends…»")[0].emotion == "soft"
 
     def test_surprise_mark(self):
         text = '"What?!"'

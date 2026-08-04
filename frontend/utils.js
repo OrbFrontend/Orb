@@ -1,5 +1,6 @@
 import { createScrollFollow } from "./scroll_follow.js";
 import { charactersView, S } from "./state.js";
+import { endsWithSentenceTerminator, sentenceStream } from "./text_segmentation.js";
 
 export function $(id) {
   return document.getElementById(id);
@@ -159,48 +160,9 @@ export function formatRelativeDate(iso) {
 
 // ── Sentence-level diff
 
-function _tokenizeSentences(text) {
-  // Split on sentence boundaries: [.!?] + space before a capital letter, or at newlines.
-  // Heuristic avoids splitting on mid-sentence abbreviations like "e.g." because those
-  // are rarely followed directly by a capital letter.
-  // Each token retains its terminating punctuation; the inter-sentence space stays with
-  // the preceding token so round-tripping via join('') reproduces the original.
-  //
-  // We split on newlines too, but we KEEP the \n inside the token (as the last character).
-  // Previously the regex-based split consumed/discarded newlines, which meant that when
-  // _mergeOps() merged consecutive equal ops a multiline quote could never be reassembled
-  // with its original line breaks — so the .quoted regex matched nothing. By preserving
-  // the newline character, _mergeOps() rebuilds "This is\na poem." verbatim, and the
-  // regex [^"]+ happily spans across the \n.
-  const tokens = [];
-  let current = "";
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    current += ch;
-
-    if (/[.!?]/.test(ch)) {
-      let j = i + 1;
-      while (j < text.length && text[j] === " ") j++;
-      if (j < text.length && /[A-Z]/.test(text[j])) {
-        const spaces = j - (i + 1);
-        for (let k = 0; k < spaces; k++) {
-          current += text[i + 1 + k];
-        }
-        i += spaces;
-        tokens.push(current);
-        current = "";
-      }
-    }
-
-    if (ch === "\n") {
-      tokens.push(current);
-      current = "";
-    }
-  }
-
-  if (current.length) tokens.push(current);
-  return tokens.length > 0 ? tokens : [text];
+function _sentenceDiffTokens(text) {
+  const units = sentenceStream(text).map((unit) => unit.text);
+  return units.length ? units : [text];
 }
 
 function _lcs(a, b) {
@@ -253,14 +215,25 @@ function _mergeOps(ops) {
 // doesn't end at a sentence boundary is discarded so the result only changes
 // when a sentence completes — callers deduping on it stay quiet mid-sentence.
 export function sentenceTail(text, n = 3, dropFragment = false) {
-  let tokens = _tokenizeSentences(text);
-  // The tokenizer pushes the final remainder unconditionally; it's a fragment
-  // unless the text itself ends at a boundary (terminal punctuation, optionally
-  // wrapped in closing quotes/markers, or a newline).
-  if (dropFragment && !/[.!?…]["'”’*_)\]]*\s*$/.test(text) && !/\n\s*$/.test(text)) {
-    tokens = tokens.slice(0, -1);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const units = sentenceStream(text);
+  const sentenceIndices = units.flatMap((unit, index) => (unit.kind === "sentence" ? [index] : []));
+  let end = units.length;
+  const lastSentence = sentenceIndices.at(-1);
+  if (dropFragment && lastSentence != null) {
+    const closedByLineBreak = units.slice(lastSentence + 1).some((unit) => unit.kind === "linebreak");
+    if (!closedByLineBreak && !endsWithSentenceTerminator(units[lastSentence].text)) {
+      sentenceIndices.pop();
+      end = lastSentence;
+    }
   }
-  return tokens.slice(-n).join("").trim();
+  const start = sentenceIndices.slice(-Math.floor(n))[0];
+  if (start == null) return "";
+  return units
+    .slice(start, end)
+    .map((unit) => unit.text)
+    .join("")
+    .trim();
 }
 
 // Returns merged diff ops: [{type: 'equal'|'insert'|'delete', text}]
@@ -268,14 +241,15 @@ export function sentenceTail(text, n = 3, dropFragment = false) {
 // rather than fragmented word-level edits.
 export function sentenceDiff(oldText, newText) {
   if (!oldText || !newText) return [{ type: "equal", text: newText || "" }];
-  return _mergeOps(_lcs(_tokenizeSentences(oldText), _tokenizeSentences(newText)));
+  return _mergeOps(_lcs(_sentenceDiffTokens(oldText), _sentenceDiffTokens(newText)));
 }
+
+const INLINE_QUOTE_RE = /"[^"]+"|“[^”]+”|‘[^’]+’|«[^»]+»|‹[^›]+›|「[^」]+」|『[^』]+』|„[^“]+“|‚[^‘]+‘/g;
 
 function _applyInlineFormatting(escaped) {
   escaped = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   escaped = escaped.replace(/\*([^*]+?)\*/g, "<em>$1</em>");
-  escaped = escaped.replace(/"([^"]+)"/g, '<span class="quoted">"$1"</span>');
-  return escaped.replace(/\u201c([^\u201d]+)\u201d/g, '<span class="quoted">\u201c$1\u201d</span>');
+  return escaped.replace(INLINE_QUOTE_RE, '<span class="quoted">$&</span>');
 }
 
 // Renders diff ops as HTML with change highlights.
@@ -375,7 +349,7 @@ function _formatProse(text) {
         const hasNewline = !!codeMatch[2];
         const lang = hasNewline ? codeMatch[1] : "";
         const code = esc(hasNewline ? codeMatch[3] : codeMatch[1] + codeMatch[3]);
-        const langAttr = lang ? ` class="language-${esc(lang)}"` : "";
+        const langAttr = lang ? ` class="language-${escAttr(lang)}"` : "";
         return (
           `<div class="code-block">` +
           `<div class="code-block-bar">` +
@@ -394,11 +368,7 @@ function _formatProse(text) {
       if (i < parts.length - 1) prose = prose.replace(/\n$/, ""); // before a code block
       // Normal prose: apply inline formatting
       // esc() does not affect # or `, so all patterns are applied post-escape
-      let escaped = esc(prose);
-      escaped = escaped.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-      escaped = escaped.replace(/\*([^*]+?)\*/g, "<em>$1</em>");
-      escaped = escaped.replace(/"([^"]+)"/g, '<span class="quoted">"$1"</span>');
-      escaped = escaped.replace(/\u201c([^\u201d]+)\u201d/g, '<span class="quoted">\u201c$1\u201d</span>');
+      let escaped = _applyInlineFormatting(esc(prose));
       escaped = escaped.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
       // Headers applied last so prior patterns don't corrupt the injected HTML attributes
       escaped = escaped.replace(

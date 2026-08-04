@@ -318,18 +318,27 @@ export function initChatSwipeNav() {
 }
 
 // ── Edit Message
+
+// Read an edit textarea and validate it. Returns the raw text, or null when the
+// textarea is gone or the content is invalid (in which case the error toasts).
+// Every save path — edit, fork-edit, pending — enters through here.
+function readEditDraft(textareaId) {
+  const ta = $(textareaId);
+  if (!ta) return null;
+  const validation = validate.validateEditMessage(ta.value);
+  if (!validation.valid) {
+    toast(validation.error, true);
+    return null;
+  }
+  return ta.value;
+}
+
 export async function saveEdit(msgId, _role) {
   // Multi-tab guard sits here (not canStartGeneration): edits are legal during
   // streaming via the queued-edit path below, which that helper would block.
   if (!requestSendPermission()) return;
-  const ta = $(`edit-textarea-${msgId}`);
-  if (!ta) return;
-  const content = ta.value;
-  const validation = validate.validateEditMessage(content);
-  if (!validation.valid) {
-    toast(validation.error, true);
-    return;
-  }
+  const content = readEditDraft(`edit-textarea-${msgId}`);
+  if (content === null) return;
   S.editingMsgId = null;
   S.editingPendingUserMsg = false;
 
@@ -367,14 +376,8 @@ export async function saveEdit(msgId, _role) {
 // user row repaints with its sibling swipe-nav (afterStream's in-place finalize
 // fast path only adds nav to the assistant bubble).
 export async function saveForkEdit(msgId) {
-  const ta = $(`edit-textarea-${msgId}`);
-  if (!ta) return;
-  const content = ta.value;
-  const validation = validate.validateEditMessage(content);
-  if (!validation.valid) {
-    toast(validation.error, true);
-    return;
-  }
+  const content = readEditDraft(`edit-textarea-${msgId}`);
+  if (content === null) return;
   if (!S.activeConvId || !canStartGeneration()) return;
 
   const original = S.messages.find((m) => m.id === msgId);
@@ -429,14 +432,8 @@ export function startEditPending() {
 }
 
 export async function saveEditPending() {
-  const ta = $("edit-textarea-pending");
-  if (!ta) return;
-  const content = ta.value;
-  const validation = validate.validateEditMessage(content);
-  if (!validation.valid) {
-    toast(validation.error, true);
-    return;
-  }
+  const content = readEditDraft("edit-textarea-pending");
+  if (content === null) return;
   const trimmed = content.trim();
   S.editingPendingUserMsg = false;
 

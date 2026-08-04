@@ -11,7 +11,7 @@ import { closeUtilityPanel, isUtilityPanelOpen, openUtilityPanel } from "./panel
 import { initComboboxes, loadAgentModelConfigs, loadEndpoints, renderEndpoints } from "./settings_models.js";
 import { loadPersonas, updateUserBtn } from "./settings_personas.js";
 import { effectiveWorkflowEnabled, S } from "./state.js";
-import { $, esc, formatBytes, toast } from "./utils.js";
+import { $, esc, escAttr, formatBytes, toast } from "./utils.js";
 import { validate } from "./validate.js";
 
 // Re-export the sub-module public surfaces so "./settings.js" remains the stable
@@ -325,7 +325,9 @@ export const AUDIT_TYPE_DEFS = [
   },
 ];
 
-async function persistSettings(payload) {
+// The single settings-write path. Every toggle in the app funnels through here
+// so one failure story ("Failed to save setting") covers them all.
+export async function persistSettings(payload) {
   try {
     S.settings = await api.put("/settings", payload);
   } catch (_e) {
@@ -745,7 +747,7 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
 
   const variantRow = (v = "") => `
     <div class="variant-row">
-      <input type="text" class="variant-input" value="${esc(v)}" placeholder="e.g., a mix of">
+      <input type="text" class="variant-input" value="${escAttr(v)}" placeholder="e.g., a mix of">
       <button class="btn btn-xs btn-danger" onclick="removeVariantRow(this)">×</button>
     </div>`;
 
@@ -773,7 +775,7 @@ export function showAddPhraseGroupModal(editId = null, group = null) {
 
     <div id="phrase-regex-panel" style="display:${kind === "regex" ? "block" : "none"}">
       <input type="text" id="phrase-regex-input" class="variant-input phrase-regex-input" spellcheck="false"
-        value="${esc(pattern)}" placeholder="e.g., the air (is|was) (thick|heavy|charged)"
+        value="${escAttr(pattern)}" placeholder="e.g., the air (is|was) (thick|heavy|charged)"
         oninput="onPhraseRegexInput()">
       <div id="phrase-regex-error" class="phrase-regex-error"></div>
       <div class="phrase-regex-hint">

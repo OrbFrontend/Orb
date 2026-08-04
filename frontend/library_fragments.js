@@ -178,22 +178,8 @@ export function renderInteractiveFragments() {
     .map((f) => {
       const enabled = boolFlag(f.enabled);
       const toggleId = `interactive-frag-toggle-${f.id}`;
-      const userBadge =
-        f.field_type === "feedback"
-          ? ` <span class="frag-type-badge" title="Feedback fragment">F</span>`
-          : f.field_type === "direction_note"
-            ? ` <span class="frag-type-badge" title="Direction-note fragment">D</span>`
-            : "";
-      // Feedback and direction-note fragments are gated by their own feature switch;
-      // grey them out (and explain why on hover) when that switch is off.
-      const feedbackDisabled = f.field_type === "feedback" && !S.feedbackEnabled;
-      const directionNoteDisabled = f.field_type === "direction_note" && !S.directionNotesRecord;
-      const featureDisabled = feedbackDisabled || directionNoteDisabled;
-      const itemTitle = feedbackDisabled
-        ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
-        : directionNoteDisabled
-          ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
-          : f.description;
+      const userBadge = _interactiveTypeBadge(f);
+      const { disabled: featureDisabled, title: itemTitle } = _featureGate(f);
       return `
     <div class="fragment-item${featureDisabled ? " frag-feature-disabled" : ""}" draggable="true" data-id="${escAttr(f.id)}" title="${escAttr(itemTitle)}" onclick="showInteractiveFragmentModal('${escHandlerArg(f.id)}')">
       <div class="frag-drag-handle" onclick="event.stopPropagation()">⋮⋮</div>
@@ -508,6 +494,20 @@ function _interactiveTypeBadge(f) {
       : "";
 }
 
+// Feedback and direction-note fragments are gated by their own feature switch.
+// Both fragment lists grey them out and explain why on hover, so the gate and
+// its user-facing copy live here once. `title` falls back to the description.
+function _featureGate(f) {
+  const feedbackOff = f.field_type === "feedback" && !S.feedbackEnabled;
+  const noteOff = f.field_type === "direction_note" && !S.directionNotesRecord;
+  const title = feedbackOff
+    ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
+    : noteOff
+      ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
+      : f.description || "";
+  return { disabled: feedbackOff || noteOff, title };
+}
+
 function _cardMoodSidepanelHtml() {
   const frags = S.cardMoodFragments || [];
   if (!frags.length) return "";
@@ -520,15 +520,8 @@ function _cardInteractiveSidepanelHtml() {
   if (!frags.length) return "";
   const items = frags
     .map((f) => {
-      const feedbackDisabled = f.field_type === "feedback" && !S.feedbackEnabled;
-      const directionNoteDisabled = f.field_type === "direction_note" && !S.directionNotesRecord;
-      const featureDisabled = feedbackDisabled || directionNoteDisabled;
-      const itemTitle = feedbackDisabled
-        ? "Editor Feedback feature is disabled — enable it in Agents panel to use this fragment"
-        : directionNoteDisabled
-          ? "Direction Notes recording is off -- turn on Writing in the Agents panel to use this fragment"
-          : f.description || "";
-      return `<span${featureDisabled ? ' class="frag-feature-disabled"' : ""} title="${escAttr(itemTitle)}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
+      const { disabled, title } = _featureGate(f);
+      return `<span${disabled ? ' class="frag-feature-disabled"' : ""} title="${escAttr(title)}">${esc(f.label)}${_interactiveTypeBadge(f)}</span>`;
     })
     .join("");
   return `<div class="frag-divider">From character</div><div class="frag-card-list">${items}</div>`;
@@ -622,26 +615,30 @@ function _wireCardFragModal(type, isEdit, fragId) {
   });
 }
 
-export function showCardMoodFragmentModal(fragId = null) {
-  const f = fragId ? _cardFragPending.mood.find((x) => x.id === fragId) : null;
+// The two card-fragment sub-modals differ only in their kind label, form body,
+// and blank record; the chrome (delete/cancel/save row) and wiring are shared.
+function _showCardFragModal(type, kind, fragId, blank, formHtml) {
+  const f = fragId ? _cardFragPending[type].find((x) => x.id === fragId) : null;
   const isEdit = !!f;
-  const d = f || { id: "", label: "", description: "", prompt_text: "", negative_prompt: "" };
   showSubModal(`
-    <h2>${isEdit ? "Edit" : "New"} Character Mood Fragment</h2>
-    ${_moodFragFormHtml(d, isEdit)}
+    <h2>${isEdit ? "Edit" : "New"} Character ${kind} Fragment</h2>
+    ${formHtml(f || blank, isEdit)}
     <div class="modal-actions">
       ${isEdit ? `<button class="btn btn-danger btn-sm" id="card-frag-delete">Delete</button>` : ""}
       <div style="flex:1"></div>
       <button class="btn" id="card-frag-cancel">Cancel</button>
       <button class="btn btn-accent" id="card-frag-save">${isEdit ? "Save" : "Add"}</button>
     </div>`);
-  _wireCardFragModal("mood", isEdit, fragId);
+  _wireCardFragModal(type, isEdit, fragId);
+}
+
+export function showCardMoodFragmentModal(fragId = null) {
+  const blank = { id: "", label: "", description: "", prompt_text: "", negative_prompt: "" };
+  _showCardFragModal("mood", "Mood", fragId, blank, _moodFragFormHtml);
 }
 
 export function showCardInteractiveFragmentModal(fragId = null) {
-  const f = fragId ? _cardFragPending.interactive.find((x) => x.id === fragId) : null;
-  const isEdit = !!f;
-  const d = f || {
+  const blank = {
     id: "",
     label: "",
     description: "",
@@ -650,14 +647,5 @@ export function showCardInteractiveFragmentModal(fragId = null) {
     injection_label: "",
     direction_note_timing: "post_turn",
   };
-  showSubModal(`
-    <h2>${isEdit ? "Edit" : "New"} Character Interactive Fragment</h2>
-    ${_interactiveFragFormHtml(d, isEdit)}
-    <div class="modal-actions">
-      ${isEdit ? `<button class="btn btn-danger btn-sm" id="card-frag-delete">Delete</button>` : ""}
-      <div style="flex:1"></div>
-      <button class="btn" id="card-frag-cancel">Cancel</button>
-      <button class="btn btn-accent" id="card-frag-save">${isEdit ? "Save" : "Add"}</button>
-    </div>`);
-  _wireCardFragModal("interactive", isEdit, fragId);
+  _showCardFragModal("interactive", "Interactive", fragId, blank, _interactiveFragFormHtml);
 }

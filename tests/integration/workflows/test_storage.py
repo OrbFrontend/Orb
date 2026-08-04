@@ -84,55 +84,34 @@ async def test_insert_workflow_attachment_row_happy_path_persists_all_fields(cli
     assert json.loads(row["generation_metadata"]) == {"steps": 4, "guidance": 7.5}
 
 
-async def test_insert_workflow_attachment_row_rejects_missing_workflow_id(client):
-    cid, mid = await _seed_message(client)
-    with pytest.raises(ValueError, match="workflow_id"):
-        await insert_workflow_attachment_row(
-            mid,
-            {"filename": "x.png", "mime": "image/png", "data": b"X", "workflow_id": ""},
-        )
-
-
-async def test_insert_workflow_attachment_row_rejects_both_data_and_path(client):
-    cid, mid = await _seed_message(client)
-    with pytest.raises(ValueError, match="exactly one"):
-        await insert_workflow_attachment_row(
-            mid,
-            {
-                "filename": "x.png",
-                "mime": "image/png",
-                "data": b"X",
-                "path": "/tmp/x",
-                "workflow_id": "wf",
-            },
-        )
-
-
-async def test_insert_workflow_attachment_row_rejects_neither_data_nor_path(client):
-    cid, mid = await _seed_message(client)
-    with pytest.raises(ValueError, match="exactly one"):
-        await insert_workflow_attachment_row(
-            mid,
-            {"filename": "x.png", "mime": "image/png", "workflow_id": "wf"},
-        )
-
-
-async def test_insert_workflow_attachment_row_rejects_non_bytes_data(client):
-    cid, mid = await _seed_message(client)
-    with pytest.raises(ValueError, match="data must be bytes"):
-        await insert_workflow_attachment_row(
-            mid,
-            {"filename": "x.png", "mime": "image/png", "data": "not-bytes", "workflow_id": "wf"},
-        )
-
-
-async def test_insert_workflow_attachment_row_rejects_empty_bytes(client):
-    cid, mid = await _seed_message(client)
-    with pytest.raises(ValueError, match="empty"):
-        await insert_workflow_attachment_row(
-            mid,
-            {"filename": "x.png", "mime": "image/png", "data": b"", "workflow_id": "wf"},
-        )
+@pytest.mark.parametrize(
+    ("att", "match"),
+    [
+        ({"filename": "x.png", "mime": "image/png", "data": b"X", "workflow_id": ""}, "workflow_id"),
+        (
+            {"filename": "x.png", "mime": "image/png", "data": b"X", "path": "/tmp/x", "workflow_id": "wf"},
+            "exactly one",
+        ),
+        ({"filename": "x.png", "mime": "image/png", "workflow_id": "wf"}, "exactly one"),
+        ({"filename": "x.png", "mime": "image/png", "data": "not-bytes", "workflow_id": "wf"}, "data must be bytes"),
+        ({"filename": "x.png", "mime": "image/png", "data": b"", "workflow_id": "wf"}, "empty"),
+        # Path-shape attachments outside the staging root are refused before any
+        # open()/stat(), so a workflow cannot disclose arbitrary files.
+        ({"filename": "passwd", "mime": "text/plain", "path": "/etc/passwd", "workflow_id": "wf"}, "staging root"),
+    ],
+    ids=[
+        "missing_workflow_id",
+        "both_data_and_path",
+        "neither_data_nor_path",
+        "non_bytes_data",
+        "empty_bytes",
+        "path_outside_staging_root",
+    ],
+)
+async def test_insert_workflow_attachment_row_rejects(client, att, match):
+    _cid, mid = await _seed_message(client)
+    with pytest.raises(ValueError, match=match):
+        await insert_workflow_attachment_row(mid, att)
 
 
 async def test_insert_workflow_attachment_row_rejects_empty_path_file(client):
@@ -154,17 +133,6 @@ async def test_insert_workflow_attachment_row_rejects_missing_message(client):  
         await insert_workflow_attachment_row(
             999999,
             {"filename": "x.png", "mime": "image/png", "data": b"X", "workflow_id": "wf"},
-        )
-
-
-async def test_insert_workflow_attachment_row_rejects_path_outside_staging_root(client):
-    """A path-shape attachment pointing outside the staging root is refused
-    before any open()/stat(), so a workflow cannot disclose arbitrary files."""
-    cid, mid = await _seed_message(client)
-    with pytest.raises(ValueError, match="staging root"):
-        await insert_workflow_attachment_row(
-            mid,
-            {"filename": "passwd", "mime": "text/plain", "path": "/etc/passwd", "workflow_id": "wf"},
         )
 
 

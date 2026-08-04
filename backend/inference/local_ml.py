@@ -21,11 +21,12 @@ import asyncio
 import atexit
 import math
 import os
-import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from ..core.text_segmentation import remove_quoted_spans, split_sentences
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -409,13 +410,6 @@ async def aclassify(feature: str, text: str) -> str:
 # for text with no sentence breaks at all.
 _POV_MAX_CHARS = 800
 _POV_SENTENCES = 3
-# Dialogue is dropped before the narration is read. An RP reply usually ends in
-# speech, and speech is first-person by nature ("I'll go," she said) -- feeding it
-# to a POV classifier is the single most likely way to read a third-person scene as
-# first. Straight and curly quotes both; asterisk-wrapped action is narration and
-# stays.
-_POV_DIALOGUE_RE = re.compile(r"[\"“”«»][^\"“”«»]*[\"“”«»]")
-_POV_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 def pov_input(text: str) -> str:
@@ -427,8 +421,8 @@ def pov_input(text: str) -> str:
     caller reads that as "ambiguous" and walks back to the previous message, which
     is the right answer for a turn that shows no narration.
     """
-    narration = _POV_DIALOGUE_RE.sub(" ", text or "")
-    sentences = [s for s in _POV_SENTENCE_SPLIT_RE.split(narration.strip()) if s.strip()]
+    narration = remove_quoted_spans(text or "")
+    sentences = split_sentences(narration)
     return " ".join(sentences[-_POV_SENTENCES:]).strip()[-_POV_MAX_CHARS:]
 
 
@@ -533,7 +527,7 @@ if __name__ == "__main__":
     shaped = pov_input(reply)
     assert "I will go" not in shaped, shaped  # dialogue is not narration
     assert shaped.endswith("Rain hit the glass."), shaped  # tail-anchored
-    assert len(_POV_SENTENCE_SPLIT_RE.split(shaped)) <= _POV_SENTENCES, shaped
+    assert len(split_sentences(shaped)) <= _POV_SENTENCES, shaped
     assert pov_input('"All of it." "Every word."') == ""  # all dialogue -> caller walks back
     assert pov_input("") == "" and pov_input("   ") == ""
     assert pov_input("no terminal punctuation here") == "no terminal punctuation here"

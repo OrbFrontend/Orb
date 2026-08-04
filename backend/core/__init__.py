@@ -24,6 +24,12 @@ from .locks import (
     workflow_state_lock,
 )
 from .macros import Macros, has_inline_macros, resolve_inline, resolve_stored_random
+from .text_segmentation import (
+    ends_with_sentence_terminator,
+    find_quote_spans,
+    remove_quoted_spans,
+    split_sentences,
+)
 from .utils import (
     build_multimodal_content,
     estimate_tokens,
@@ -47,6 +53,11 @@ __all__ = [
     "has_inline_macros",
     "resolve_inline",
     "resolve_stored_random",
+    # text_segmentation — canonical non-workflow prose policy
+    "ends_with_sentence_terminator",
+    "find_quote_spans",
+    "remove_quoted_spans",
+    "split_sentences",
     # utils — token/log/multimodal helpers
     "build_multimodal_content",
     "estimate_tokens",

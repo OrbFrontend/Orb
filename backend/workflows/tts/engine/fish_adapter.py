@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 class FishSpeechAdapter(TTSAdapter):
     """TTS adapter for Fish Speech's native API server."""
 
+    _supports_streaming = True
+
     async def synthesize(
         self,
         chunks: list[SpeakableChunk],
@@ -113,18 +115,6 @@ class FishSpeechAdapter(TTSAdapter):
         # Fallback
         return [{"id": "default", "name": "Default", "gender": "unknown"}]
 
-    async def list_models(self, api_url: str = "", api_key: str | None = None, **kwargs) -> list[dict]:
-        """Fish Speech doesn't have a model list endpoint."""
-        return []
-
     @property
     def backend_name(self) -> str:
         return "Fish Speech"
-
-    @property
-    def supports_streaming(self) -> bool:
-        return True
-
-    @property
-    def supports_emotion_tags(self) -> bool:
-        return False

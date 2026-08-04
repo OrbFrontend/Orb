@@ -29,18 +29,12 @@ from backend.database import (
 )
 from backend.workflows.attachment_cache import record_access
 
-from ._fixtures import make_workflow, register_for_test
+from ._fixtures import registered_artifact_workflow
 
 
 @pytest.fixture(autouse=True)
 def _register_wf_workflow():
-    wf = make_workflow(
-        "wf",
-        produces_artifacts=True,
-        regenerate=lambda ctx, body: [],
-        reroll_gen=lambda ctx, params, seed: b"",
-    )
-    with register_for_test(wf):
+    with registered_artifact_workflow():
         yield
 
 

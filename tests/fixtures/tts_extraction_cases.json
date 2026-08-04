@@ -1,0 +1,21 @@
+[
+  {"name": "straight", "text": "She said \"Hello.\"", "blocks": ["Hello."]},
+  {"name": "curly apostrophe", "text": "‘I don’t know,’ she said.", "blocks": ["I don’t know,"]},
+  {"name": "nested directional", "text": "“She called it ‘odd’ yesterday.”", "blocks": ["She called it ‘odd’ yesterday."]},
+  {"name": "guillemets", "text": "«Arrête!» Then.", "blocks": ["Arrête!"]},
+  {"name": "cjk corner quotes", "text": "「止まれ！」彼は叫んだ。", "blocks": ["止まれ！"]},
+  {"name": "german low quotes", "text": "„Bleib hier!“", "blocks": ["Bleib hier!"]},
+  {"name": "escaped straight quote", "text": "\"Use a \\\"quoted\\\" word.\"", "blocks": ["Use a \\\"quoted\\\" word."]},
+  {"name": "measurements", "text": "The frame is 12\" by 8\" wide.", "blocks": []},
+  {"name": "unmatched opener", "text": "He said “Stop. Then left.", "blocks": []},
+  {"name": "parenthetical thought", "text": "\"One.\" (\"not spoken\") \"Two.\"", "blocks": ["One.", "Two."]},
+  {"name": "parentheses inside speech", "text": "\"Keep (this) spoken.\"", "blocks": ["Keep (this) spoken."]},
+  {"name": "quoted emphasis", "text": "\"I *really* mean it.\"", "blocks": ["I *really* mean it."]},
+  {"name": "action beats", "text": "*she sighs* \"Fine.\" *she nods* \"Go.\"", "blocks": ["Fine.", "Go."]},
+  {"name": "em dash", "text": "—Hello there.—", "blocks": ["Hello there."]},
+  {"name": "mixed quote and em dash", "text": "—First.— Then \"Second.\"", "blocks": ["First.", "Second."]},
+  {"name": "multiline normalized", "text": "\"First line\nsecond line.\"", "blocks": ["First line second line."]},
+  {"name": "all hard breaks normalized", "text": "\"A\u000bB\u000cC\u001cD\u001dE\u001eF\u0085G\u2028H\u2029I\"", "blocks": ["A B C D E F G H I"]},
+  {"name": "empty quote", "text": "\"   \" then \"Real.\"", "blocks": ["Real."]},
+  {"name": "markdown bold is not a beat", "text": "**bold narration** \"Spoken.\"", "blocks": ["Spoken."]}
+]

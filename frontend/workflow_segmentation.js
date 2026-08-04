@@ -6,73 +6,82 @@
 // (`wo<strong>rd</strong>`) keeps one `data-seg`, so one visual word is always
 // one unit.
 
+import {
+  isHardLineBreak,
+  isSentenceWhitespace,
+  splitTightSentenceChunks,
+  tokenEndsSentence,
+} from "./text_segmentation.js";
+
 function _isWs(c) {
-  return c === " " || c === "\t" || c === "\n" || c === "\r" || c === "\f" || c === "\v";
-}
-
-function _isTerminator(c) {
-  return c === "." || c === "!" || c === "?";
-}
-
-function _isCloser(c) {
-  return c === '"' || c === "'" || c === ")" || c === "]" || c === "\u201d" || c === "\u2019";
-}
-
-// A token ends a sentence when its last non-closer character is a terminator,
-// so `"Hello."` and `(done!)` both count.
-function _endsSentence(text, start, end) {
-  let j = end - 1;
-  while (j >= start && _isCloser(text[j])) j--;
-  return j >= start && _isTerminator(text[j]);
+  return isSentenceWhitespace(c) || isHardLineBreak(c);
 }
 
 // Pure tokenizer over one text run. `carry` threads state across runs so a word
 // or sentence can span the inline-element boundaries `formatProse` introduces.
-// `midWord`: the previous run ended mid-word (non-whitespace, no separating
-// space), so the next run's first token continues it. `pendingTerminator`: a
-// terminator is awaiting whitespace confirmation, because the closing quote of
-// `"Hello."` ends one text node while the confirming space begins the next.
-// `breakPending`: a confirmed sentence boundary, applied before the next word.
-// `opts.lineBreakBefore` forces it for a `<br>`, which `formatProse` emits for
-// every newline.
+// `pendingWord` retains the prior visual word until the next one arrives, so
+// the shared policy can resolve abbreviations with look-ahead. `breakPending`
+// is a hard boundary from a line break or tight Unicode punctuation.
 export function tokenizeRun(text, carry, opts) {
-  let { wordIndex, sentIndex, midWord, pendingTerminator, breakPending } = carry;
+  let { wordIndex, sentIndex, midWord, breakPending } = carry;
+  let pendingWord = carry.pendingWord || "";
+  let separated = Boolean(carry.separated);
   if (opts?.lineBreakBefore) {
     midWord = false;
-    pendingTerminator = false;
+    pendingWord = "";
+    separated = true;
     breakPending = true;
   }
   const words = [];
   const n = text.length;
   let i = 0;
-  let firstToken = true;
   while (i < n) {
     const wsStart = i;
     while (i < n && _isWs(text[i])) i++;
     const hadWs = i > wsStart;
     if (hadWs) {
       midWord = false;
-      if (pendingTerminator) {
+      separated = true;
+      if ([...text.slice(wsStart, i)].some(isHardLineBreak)) {
         breakPending = true;
-        pendingTerminator = false;
+        pendingWord = "";
       }
     }
     if (i >= n) break;
     const start = i;
     while (i < n && !_isWs(text[i])) i++;
     const end = i;
-    const continues = midWord && firstToken && !hadWs;
-    if (!continues) {
-      if (breakPending && wordIndex >= 0) sentIndex += 1;
-      breakPending = false;
-      wordIndex += 1;
+    const raw = text.slice(start, end);
+    const chunks = splitTightSentenceChunks(raw);
+    let offset = start;
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      const chunk = chunks[chunkIndex];
+      const chunkStart = offset;
+      const chunkEnd = chunkStart + chunk.length;
+      const continues = midWord && chunkIndex === 0 && !hadWs;
+      if (continues) {
+        pendingWord += chunk;
+      } else {
+        const endsPrevious = separated && pendingWord && tokenEndsSentence(pendingWord, chunk);
+        if ((breakPending || endsPrevious) && wordIndex >= 0) sentIndex += 1;
+        breakPending = false;
+        separated = false;
+        wordIndex += 1;
+        pendingWord = chunk;
+      }
+      words.push({ start: chunkStart, end: chunkEnd, wordIndex, sentIndex });
+      offset = chunkEnd;
+      if (chunkIndex + 1 < chunks.length) {
+        midWord = false;
+        pendingWord = "";
+        separated = true;
+        breakPending = true;
+      } else {
+        midWord = end === n;
+      }
     }
-    words.push({ start, end, wordIndex, sentIndex });
-    pendingTerminator = _endsSentence(text, start, end);
-    midWord = end === n;
-    firstToken = false;
   }
-  return { words, carry: { wordIndex, sentIndex, midWord, pendingTerminator, breakPending } };
+  return { words, carry: { wordIndex, sentIndex, midWord, pendingWord, separated, breakPending } };
 }
 
 function _wrapTextNode(node, words) {
@@ -121,7 +130,14 @@ export function segmentBody(bodyEl) {
     items.push({ node, lineBreakBefore: breakBefore });
     breakBefore = false;
   }
-  let carry = { wordIndex: -1, sentIndex: 0, midWord: false, pendingTerminator: false, breakPending: false };
+  let carry = {
+    wordIndex: -1,
+    sentIndex: 0,
+    midWord: false,
+    pendingWord: "",
+    separated: false,
+    breakPending: false,
+  };
   for (const item of items) {
     const res = tokenizeRun(item.node.data, carry, { lineBreakBefore: item.lineBreakBefore });
     carry = res.carry;

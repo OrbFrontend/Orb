@@ -204,6 +204,37 @@ def _parse_chat_logprobs(choice: Mapping[str, Any]) -> list[dict]:
     return text_completion.normalize_prob_records(logprobs.get("content"))
 
 
+def _text_message(content_parts: list[str], reasoning_parts: list[str]) -> dict:
+    """Assemble the free-decoded half of a ``done`` message from its deltas.
+
+    Both transports build the same shape: content and reasoning are included
+    only when non-empty, so a pass can test presence rather than emptiness.
+    Tool calls and ``finish_reason`` are transport-specific and layered on by
+    the caller.
+    """
+    message: dict = {}
+    content = "".join(content_parts)
+    if content:
+        message["content"] = content
+    reasoning = "".join(reasoning_parts)
+    if reasoning:
+        message["reasoning_content"] = reasoning
+    return message
+
+
+def _done(label: str, message: dict, usage: dict | None) -> dict:
+    """Log the assembled completion and return the terminal ``done`` event."""
+    logger.info(
+        "LLM complete%s: assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
+        label,
+        list(message.keys()),
+        "tool_calls" in message,
+        len(message.get("content", "") or "") if message.get("content") else "null",
+        usage,
+    )
+    return {"type": "done", "message": message, "usage": usage}
+
+
 async def _read_error_body(resp: httpx.Response, url: str) -> str:
     """Read and log an HTTP error response's body for upstream detail.
 
@@ -596,18 +627,14 @@ class LLMClient:
             break
 
         # Assemble the final message dict (mirrors the non-streaming message format)
-        message: dict = {}
-        content = "".join(content_parts)
         if forced_name is not None and not tool_calls_acc:
             # Structured forced call: the constrained content IS the arguments
             # JSON; re-synthesize the tool-call shape the pipeline expects. A
             # provider that answered with real tool_calls anyway wins below.
-            message = text_completion.forced_tool_message(forced_name, content)
-        elif content:
-            message["content"] = content
-        reasoning = "".join(reasoning_parts)
-        if reasoning:
-            message["reasoning_content"] = reasoning
+            message = text_completion.forced_tool_message(forced_name, "".join(content_parts))
+            message.update(_text_message([], reasoning_parts))
+        else:
+            message = _text_message(content_parts, reasoning_parts)
         if tool_calls_acc:
             message["tool_calls"] = [
                 {
@@ -623,14 +650,7 @@ class LLMClient:
         if finish_reason:
             message["finish_reason"] = finish_reason
 
-        logger.info(
-            "LLM complete: assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
-            list(message.keys()),
-            "tool_calls" in message,
-            len(message.get("content", "") or "") if message.get("content") else "null",
-            usage,
-        )
-        yield {"type": "done", "message": message, "usage": usage}
+        yield _done("", message, usage)
 
     async def _iter_sse_payloads(self, resp) -> AsyncIterator[str]:
         """Yield each SSE ``data:`` payload string, racing reads against abort.
@@ -870,12 +890,7 @@ class LLMClient:
                 rprefill = ""
             stop = bool(data.get("stop"))
             if stop:
-                usage = text_completion.synthesize_usage(data)
-                # llama.cpp flags a token-budget cutoff as stopped_limit (older
-                # builds) / stop_type == "limit" (newer). Mirrors the chat
-                # transport's finish_reason so consumers (doc-mode cut-off
-                # detection) see one contract across transports.
-                finish_reason = "length" if (data.get("stopped_limit") or data.get("stop_type") == "limit") else "stop"
+                usage, finish_reason = text_completion.terminal_state(data)
             delta = data.get("content") or ""
             if delta:
                 if forced_name is not None:
@@ -904,24 +919,11 @@ class LLMClient:
             for kind, text in splitter.flush():
                 (reasoning_parts if kind == "reasoning" else content_parts).append(text)
                 yield {"type": kind, "delta": text}
-            message = {}
-            content = "".join(content_parts)
-            if content:
-                message["content"] = content
-            reasoning = "".join(reasoning_parts)
-            if reasoning:
-                message["reasoning_content"] = reasoning
+            message = _text_message(content_parts, reasoning_parts)
         if finish_reason:
             message["finish_reason"] = finish_reason
 
-        logger.info(
-            "LLM complete (text): assembled keys=%s, has_tool_calls=%s, content_len=%s, usage=%s",
-            list(message.keys()),
-            "tool_calls" in message,
-            len(message.get("content", "") or "") if message.get("content") else "null",
-            usage,
-        )
-        yield {"type": "done", "message": message, "usage": usage}
+        yield _done(" (text)", message, usage)
 
     async def complete_raw(self, prompt: str, model: str, **params) -> AsyncIterator[dict]:
         """Stream a raw text completion from a bare *prompt* string (no chat template).
@@ -970,9 +972,7 @@ class LLMClient:
         async for data in self._stream_completion(f"{self._server_root()}/completion", body):
             stop = bool(data.get("stop"))
             if stop:
-                usage = text_completion.synthesize_usage(data)
-                # Same cutoff detection as _complete_text — see the note there.
-                finish_reason = "length" if (data.get("stopped_limit") or data.get("stop_type") == "limit") else "stop"
+                usage, finish_reason = text_completion.terminal_state(data)
             delta = data.get("content") or ""
             if delta:
                 content_parts.append(delta)

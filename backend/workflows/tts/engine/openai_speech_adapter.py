@@ -61,6 +61,8 @@ def _is_openai(api_url: str) -> bool:
 class OpenAISpeechAdapter(TTSAdapter):
     """OpenAI-compatible TTS adapter using /v1/audio/speech."""
 
+    _supports_streaming = True
+
     async def synthesize(
         self,
         chunks: list[SpeakableChunk],
@@ -178,14 +180,6 @@ class OpenAISpeechAdapter(TTSAdapter):
     @property
     def backend_name(self) -> str:
         return "OpenAI-Compatible TTS"
-
-    @property
-    def supports_streaming(self) -> bool:
-        return True
-
-    @property
-    def supports_emotion_tags(self) -> bool:
-        return False
 
 
 def _format_to_mime(fmt: str) -> str:

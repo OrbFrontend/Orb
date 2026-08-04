@@ -21,6 +21,9 @@ _API_BASE = "https://api.elevenlabs.io"
 class ElevenLabsAdapter(TTSAdapter):
     """TTS adapter using the ElevenLabs cloud API."""
 
+    _supports_streaming = True
+    _supports_emotion_tags = True
+
     async def synthesize(
         self,
         chunks: list[SpeakableChunk],
@@ -103,11 +106,3 @@ class ElevenLabsAdapter(TTSAdapter):
     @property
     def backend_name(self) -> str:
         return "ElevenLabs"
-
-    @property
-    def supports_streaming(self) -> bool:
-        return True
-
-    @property
-    def supports_emotion_tags(self) -> bool:
-        return True

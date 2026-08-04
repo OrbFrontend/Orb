@@ -119,10 +119,24 @@ async def forced_tool_call(
         # (image_gen's analyze + compose). A provider that rejects response_format
         # json_schema (DeepSeek) can't be forced promptlessly and must keep tools
         # in the body; sending the identical blob on both calls -- order fixed
-        # regardless of which is forced, only tool_choice differs -- lets them
-        # reuse each other's cached conversation prefix. Standalone tools stay out
-        # of enabled_schemas; the caller names them here rather than leaking them
-        # into the pipeline's tool set.
+        # regardless of which is forced, only tool_choice differs -- is what lets
+        # them reuse each other's cached prefix *where the backend renders the
+        # whole array*. Standalone tools stay out of enabled_schemas; the caller
+        # names them here rather than leaking them into the pipeline's tool set.
+        #
+        # Measured caveat (2026-08-04, docs/architecture/kv-cache.md Invariant 3):
+        # honoring a forced tool_choice and rendering the whole array are
+        # INDEPENDENT properties, and several backends do the first by doing the
+        # opposite of the second -- they serialize only the forced tool. On
+        # Gemma-4-26B @ Ionstream `offer_tools` + forced(analyze_scene) renders
+        # byte-identically to shipping [analyze_scene] alone; DeepSeek v4-pro is
+        # the same plus a ~7-token forcing directive. There the two calls share
+        # only the conversation body, never the blob, so this array buys nothing.
+        # It is kept because it costs nothing to send and does pay off on
+        # backends that render the array whole (Gemma-4-31B @ CoreWeave, OpenAI),
+        # and the loss where it doesn't is bounded to the blob -- a few hundred
+        # tokens per image, not a prefix bust. Do not infer from a working forced
+        # call that the sibling reuse is happening.
         tools = [TOOLS[n]["schema"] for n in offer_tools]
         if schema not in tools:
             tools.append(schema)

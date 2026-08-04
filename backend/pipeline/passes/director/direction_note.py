@@ -143,8 +143,9 @@ async def direction_note_step(
 
         resp: dict = {}
         try:
-            async for event in base.complete(
+            async for event in base.complete_into(
                 client,
+                resp,
                 label="direction_note",
                 trailing=trailing,
                 tool_choice=RECORD_DIRECTION_NOTE_CHOICE,
@@ -152,10 +153,7 @@ async def direction_note_step(
                 **hyperparams,
                 **reasoning_cfg(reasoning_on, reasoning_prefill),
             ):
-                if event["type"] == "reasoning":
-                    yield {"type": "reasoning", "delta": event["delta"]}
-                elif event["type"] == "done":
-                    resp = event["message"]
+                yield event
         except Exception:
             # A failed call records nothing for its group but must neither drop the groups
             # already recorded nor propagate: the post-turn placement runs just before the

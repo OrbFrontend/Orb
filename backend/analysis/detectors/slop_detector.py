@@ -46,12 +46,6 @@ _EXACT_MATCH_MAX_LEN = 3
 _DEFAULT_THRESHOLD = 0.4
 _WINDOW_PADDING = 2
 
-# A sentence-ending mark (optionally a closing quote) followed by either
-# whitespace or a capital letter — the latter catches the no-space boundaries
-# ("clear.The") that the sentence splitter leaves intact. Used to reject regex
-# matches that bridge two sentences.
-_SENTENCE_BOUNDARY = re.compile(r'[.!?]["”’\'*_)\]]*(\s|[A-Z])')
-
 
 @dataclass(slots=True)
 class ClicheHit:
@@ -146,16 +140,14 @@ def _compile_phrase_bank(phrase_bank: list[PhraseGroup]) -> list[tuple]:
 def _match_regex_group(rx: re.Pattern, sentence: str) -> ClicheHit | None:
     """Search one sentence with a compiled regex; return the matched text as a hit.
 
-    Matching is already scoped to a single sentence, but a greedy pattern can
-    still bridge two sentences if the splitter under-split at an abbreviation or
-    ellipsis. Any such match is rejected so the reported phrase never spans a
-    sentence boundary.
+    Matching is scoped by the canonical sentence scanner before this function,
+    so a greedy expression cannot cross a real sentence boundary.
     """
     m = rx.search(sentence)
     if not m:
         return None
     matched = m.group(0).strip()
-    if not matched or _SENTENCE_BOUNDARY.search(matched):
+    if not matched:
         return None
     return ClicheHit(phrase=matched, score=1.0)
 

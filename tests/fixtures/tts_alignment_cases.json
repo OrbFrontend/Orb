@@ -1,0 +1,10 @@
+[
+  {"text": "hello world", "keys": ["hello", "world"]},
+  {"text": "Hi, FRIEND!", "keys": ["hi", "friend"]},
+  {"text": "-- ... !!!", "keys": []},
+  {"text": "你好 hi", "keys": ["hi"]},
+  {"text": "éA café42", "keys": ["a", "caf42"]},
+  {"text": "don't rock_n_roll", "keys": ["dont", "rocknroll"]},
+  {"text": "１２ fullwidth", "keys": ["fullwidth"]},
+  {"text": "one\u001ctwo\u001dthree\u001efour", "keys": ["one", "two", "three", "four"]}
+]

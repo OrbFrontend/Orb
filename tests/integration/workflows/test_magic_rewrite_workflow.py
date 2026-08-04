@@ -1,15 +1,15 @@
-"""End-to-end coverage for magic_rewrite's workflow integration.
+"""Shared workflow-integration contract for regenerate and magic rewrite.
 
-magic_rewrite runs the full pipeline and persists a new sibling, so post-pipeline
-hooks fire exactly as on a normal turn: the draft can be replaced, an artifact
-attached, and per-message state written -- all on the new sibling, with the
-original reply and its attachments left intact. The user's direction reaches the
-director (and writer) as the current-turn message.
+Both routes run the full pipeline and persist a new sibling, so post-pipeline
+effects must land on that sibling while the original remains intact. Magic
+rewrite additionally forwards the user's direction to the model.
 """
 
 from __future__ import annotations
 
 import json
+
+import pytest
 
 from backend.database import (
     get_conversation_logs,
@@ -90,7 +90,14 @@ async def _seed_reply(client, llm_mock) -> tuple[str, int]:
     return cid, original["id"]
 
 
-async def test_magic_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_mock):
+@pytest.mark.parametrize(
+    ("action", "payload"),
+    [
+        ("regenerate", {}),
+        ("magic_rewrite", {"direction": _DIRECTION}),
+    ],
+)
+async def test_message_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_mock, action, payload):
     cid, original_id = await _seed_reply(client, llm_mock)
     original = await get_message_by_id(original_id)
     assert original is not None
@@ -100,8 +107,8 @@ async def test_magic_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_moc
         logs_before = len(await get_conversation_logs(cid))
         start = len(llm_mock.captured)
         resp = await client.post(
-            f"/api/conversations/{cid}/messages/{original_id}/magic_rewrite",
-            json={"direction": _DIRECTION},
+            f"/api/conversations/{cid}/messages/{original_id}/{action}",
+            json=payload,
         )
         assert resp.status_code == 200
         _ = resp.text
@@ -128,6 +135,7 @@ async def test_magic_rewrite_runs_post_pipeline_on_a_new_sibling(client, llm_moc
     assert len(atts) == 1
     assert await get_workflow_message_state(sibling["id"], _WID) == {"touched": True}
 
-    # The turn logged exactly once, and the direction reached the model.
+    # The turn logged exactly once; magic rewrite additionally forwards its direction.
     assert len(logs_after) == logs_before + 1
-    assert _DIRECTION in json.dumps(captured, default=str)
+    if action == "magic_rewrite":
+        assert _DIRECTION in json.dumps(captured, default=str)

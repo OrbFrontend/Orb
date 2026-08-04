@@ -160,10 +160,9 @@ def _normalize_quotes(text: str) -> str:
     return text.translate(_QUOTE_MAP)
 
 
-# Boundary markers the audit report's sentence splitter eats off a sentence end
-# (closing quotes, emphasis * / _). A search copied from the report is therefore
-# often missing a trailing marker the draft still has, or carrying a now-dangling
-# leading quote. Straight ' is excluded so contractions/possessives survive.
+# Boundary markers the audit report deliberately omits from snippets. A search
+# copied from the report can therefore differ from the marked-up draft. Straight
+# ' is excluded so contractions/possessives survive.
 _OUTER_MARKERS = '*_"“”‘’'
 
 
@@ -194,10 +193,8 @@ def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
             errors.append(err)
             continue
 
-        # The audit report's sentence splitter strips trailing boundary markers
-        # (closing quote, emphasis *) and can leave a dangling opening quote, so
-        # a search copied from the report often has one marker too few or too
-        # many versus the draft. Match on the marker-stripped core and replace
+        # The audit report strips outer boundary markers, while a model may add
+        # them back inconsistently. Match on the marker-stripped core and replace
         # the core, leaving the draft's own surrounding markers in place — this
         # keeps quotes/emphasis balanced whether the draft has an extra trailing
         # marker (…octave.*) or the search a spurious leading quote ("Do not…).

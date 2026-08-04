@@ -9,6 +9,8 @@ say "dancing", not "a dance of".
 
 from __future__ import annotations
 
+import pytest
+
 from backend.analysis import format_report, run_audit
 from backend.analysis.detectors.slop_detector import detect_cliches
 
@@ -18,32 +20,33 @@ from backend.analysis.detectors.slop_detector import detect_cliches
 
 
 class TestMatchedPhrase:
-    def test_single_word_non_first_variant(self):
-        """Single-word variant that is not first in the group stores that word."""
-        phrase_bank = [["a dance of", "dancing"]]
-        text = "She lets out a short laugh, her eyes dancing with amusement."
+    @pytest.mark.parametrize(
+        ("phrase_bank", "text", "phrase"),
+        [
+            # Single-word variant that is not first in the group.
+            ([["a dance of", "dancing"]], "She lets out a short laugh, her eyes dancing with amusement.", "dancing"),
+            # The first variant itself matches.
+            ([["a dance of", "dancing"]], "It was a dance of shadows and light.", "a dance of"),
+            # 2-token non-first variant.
+            ([["heart racing", "pulse quickening"]], "Her pulse quickening, she reached for the door.", "pulse quickening"),
+            # A literal group in dict form behaves like the legacy list form.
+            (
+                [{"kind": "literal", "variants": ["a mix of", "a mixture of"]}],
+                "It was a mixture of styles.",
+                "a mixture of",
+            ),
+        ],
+        ids=[
+            "single_word_non_first_variant",
+            "first_variant_matched",
+            "two_token_non_first_variant",
+            "literal_dict_shape",
+        ],
+    )
+    def test_phrase_reflects_the_matched_variant(self, phrase_bank, text, phrase):
         result = detect_cliches(text, phrase_bank)
-
         assert result.flagged_count == 1
-        assert result.flagged_sentences[0].cliches[0].phrase == "dancing"
-
-    def test_first_variant_matched(self):
-        """When the first variant itself matches, phrase equals that variant."""
-        phrase_bank = [["a dance of", "dancing"]]
-        text = "It was a dance of shadows and light."
-        result = detect_cliches(text, phrase_bank)
-
-        assert result.flagged_count == 1
-        assert result.flagged_sentences[0].cliches[0].phrase == "a dance of"
-
-    def test_two_token_non_first_variant(self):
-        """2-token non-first variant is stored correctly."""
-        phrase_bank = [["heart racing", "pulse quickening"]]
-        text = "Her pulse quickening, she reached for the door."
-        result = detect_cliches(text, phrase_bank)
-
-        assert result.flagged_count == 1
-        assert result.flagged_sentences[0].cliches[0].phrase == "pulse quickening"
+        assert result.flagged_sentences[0].cliches[0].phrase == phrase
 
     def test_long_phrase_non_first_variant(self):
         """4+ token non-first variant (trigram path) is stored correctly."""
@@ -137,15 +140,6 @@ class TestRegexGroups:
         # The valid literal group still fires.
         assert result.flagged_count == 1
         assert result.flagged_sentences[0].cliches[0].phrase == "a mix of"
-
-    def test_literal_dict_shape_still_matches(self):
-        """A literal group expressed as a dict behaves like the legacy list form."""
-        phrase_bank = [{"kind": "literal", "variants": ["a mix of", "a mixture of"]}]
-        text = "It was a mixture of styles."
-        result = detect_cliches(text, phrase_bank)
-
-        assert result.flagged_count == 1
-        assert result.flagged_sentences[0].cliches[0].phrase == "a mixture of"
 
     def test_regex_report_shows_matched_text(self):
         phrase_bank = [{"kind": "regex", "pattern": r"the air (is|was) (thick|heavy)"}]

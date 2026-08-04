@@ -7,6 +7,8 @@ shape produced when neither extension exists.
 
 from __future__ import annotations
 
+import pytest
+
 from backend.inference import build_prefix, format_message_with_attachments
 
 _BASE_KWARGS = dict(
@@ -158,61 +160,38 @@ def test_format_workflow_root_with_annotation_appends_to_text():
     assert out["content"] == "spoken line\n\n[audio: 4 second clip]"
 
 
-def test_format_workflow_root_without_annotation_contributes_nothing():
+@pytest.mark.parametrize(
+    ("content", "parent_id", "annotation", "expected"),
+    [
+        ("silent", None, None, "silent"),
+        ("draft", None, "   \n  ", "draft"),
+        ("draft", 17, "should-not-appear", "draft"),
+        ("", None, "voice line", "voice line"),
+    ],
+    ids=[
+        "root_without_annotation",
+        "whitespace_annotation_ignored",
+        "sibling_variant_ignored_even_with_annotation",
+        "annotation_with_empty_message_text",
+    ],
+)
+def test_format_workflow_annotation_prefix(content, parent_id, annotation, expected):
+    """Only a ROOT row's non-blank annotation reaches the prefix; bytes never do."""
     msg = {
         "role": "assistant",
-        "content": "silent",
+        "content": content,
         "user_attachments": [],
         "workflow_attachments": [
             {
                 "workflow_id": "tts",
-                "parent_attachment_id": None,
-                "annotation": None,
+                "parent_attachment_id": parent_id,
+                "annotation": annotation,
                 "mime_type": "audio/mpeg",
                 "data_b64": "QQ==",
             },
         ],
     }
-    out = format_message_with_attachments(msg, macros=None)
-    assert out == {"role": "assistant", "content": "silent"}
-
-
-def test_format_workflow_root_with_whitespace_annotation_ignored():
-    msg = {
-        "role": "assistant",
-        "content": "draft",
-        "user_attachments": [],
-        "workflow_attachments": [
-            {
-                "workflow_id": "tts",
-                "parent_attachment_id": None,
-                "annotation": "   \n  ",
-                "mime_type": "audio/mpeg",
-                "data_b64": "QQ==",
-            },
-        ],
-    }
-    out = format_message_with_attachments(msg, macros=None)
-    assert out == {"role": "assistant", "content": "draft"}
-
-
-def test_format_workflow_sibling_variant_ignored_even_with_annotation():
-    msg = {
-        "role": "assistant",
-        "content": "draft",
-        "user_attachments": [],
-        "workflow_attachments": [
-            {
-                "workflow_id": "tts",
-                "parent_attachment_id": 17,
-                "annotation": "should-not-appear",
-                "mime_type": "audio/mpeg",
-                "data_b64": "QQ==",
-            },
-        ],
-    }
-    out = format_message_with_attachments(msg, macros=None)
-    assert out == {"role": "assistant", "content": "draft"}
+    assert format_message_with_attachments(msg, macros=None) == {"role": "assistant", "content": expected}
 
 
 def test_format_mixed_user_image_and_workflow_annotation():
@@ -253,22 +232,3 @@ def test_format_attachment_with_only_user_list_treated_as_user():
     out = format_message_with_attachments(msg, macros=None)
     assert isinstance(out["content"], list)
     assert out["content"][1]["type"] == "image_url"
-
-
-def test_format_workflow_annotation_with_empty_message_text():
-    msg = {
-        "role": "assistant",
-        "content": "",
-        "user_attachments": [],
-        "workflow_attachments": [
-            {
-                "workflow_id": "tts",
-                "parent_attachment_id": None,
-                "annotation": "voice line",
-                "mime_type": "audio/mpeg",
-                "data_b64": "QQ==",
-            },
-        ],
-    }
-    out = format_message_with_attachments(msg, macros=None)
-    assert out == {"role": "assistant", "content": "voice line"}

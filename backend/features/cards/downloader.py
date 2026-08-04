@@ -72,6 +72,34 @@ async def download_card(source: str, full_path: str) -> dict:
     return card_dict
 
 
+async def _fetch(
+    url: str,
+    *,
+    what: str,
+    params: dict | None = None,
+    timeout: float = 30,
+    headers: dict | None = None,
+) -> httpx.Response:
+    """GET *url*, mapping any transport or status failure to HTTP 502.
+
+    The single outbound seam for every source's browse/randomize/download call.
+    *what* is the human phrase for the operation ("Botbooru search failed",
+    "Failed to download card"); it is both logged and returned as the
+    client-facing detail, so each source keeps its own wording without
+    repeating the request block. Body decoding stays with the caller — sources
+    want ``.json()`` or ``.content`` and differ on how a malformed body maps to
+    a status.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            return resp
+    except httpx.HTTPError as e:
+        logger.exception("%s", what)
+        raise HTTPException(status_code=502, detail=f"{what}: {e}") from e
+
+
 def _parse_png_card(content: bytes, source_label: str) -> tuple[dict, str, str, str]:
     """Parse downloaded PNG card bytes through the same tavern_cards pipeline as file import.
 
@@ -139,14 +167,7 @@ async def _chub_search(q: str, page: int) -> dict:
         "venus": "true",
     }
     url = "https://api.chub.ai/search"
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPError as e:
-        logger.exception("CharacterHub search failed")
-        raise HTTPException(status_code=502, detail=f"CharacterHub search failed: {e}") from e
+    data = (await _fetch(url, what="CharacterHub search failed", params=params, timeout=15)).json()
 
     nodes = data.get("nodes") or data.get("data", {}).get("nodes") or []
     results = []
@@ -227,14 +248,7 @@ async def _download_characterhub_card(full_path: str):
             detail=f"Invalid CharacterHub full_path (expected creator/name): {full_path}",
         )
     url = f"{_CHUB_AVATARS_BASE}/{full_path}/chara_card_v2.png"
-    try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            content = resp.content
-    except httpx.HTTPError as e:
-        logger.exception("Failed to download CharacterHub card PNG")
-        raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
+    content = (await _fetch(url, what="Failed to download card")).content
 
     card_dict, avatar_b64, avatar_mime, card_id = _parse_png_card(content, "CharacterHub")
     # The embedded card's expression pack is null; the detail API has it. Merge
@@ -334,14 +348,7 @@ async def _browse_chararc(q: str, page: int) -> dict:
     page = max(1, int(page))
     params = {"query": q or "", "page": page, "count": _CHARARC_PAGE_SIZE}
     url = f"{_CHARARC_API}/v3/search/query"
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPError as e:
-        logger.exception("Character Archive search failed")
-        raise HTTPException(status_code=502, detail=f"Character Archive search failed: {e}") from e
+    data = (await _fetch(url, what="Character Archive search failed", params=params, timeout=20)).json()
 
     items = data.get("result") or []
     results = [r for r in (_chararc_to_result(i) for i in items if isinstance(i, dict)) if r]
@@ -384,14 +391,7 @@ async def _download_chararc_card(token: str):
         raise HTTPException(status_code=400, detail=f"Invalid card path: {token}")
 
     url = f"{_CHARARC_API}/v1/{token}"
-    try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            definition = resp.json()
-    except httpx.HTTPError as e:
-        logger.exception("Failed to download Character Archive definition")
-        raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
+    definition = (await _fetch(url, what="Failed to download card")).json()
 
     if not isinstance(definition, dict):
         raise HTTPException(status_code=400, detail="Unexpected card definition format")
@@ -466,53 +466,37 @@ def _botbooru_to_result(post: dict) -> dict:
     }
 
 
-async def _browse_botbooru(q: str, page: int) -> dict:
-    """Run a Botbooru browse query and normalize the response shape."""
-    page = max(1, int(page))
-    offset = (page - 1) * _BOTBOORU_PAGE_SIZE
-    params = {"sort": "downloads", "limit": _BOTBOORU_PAGE_SIZE, "offset": offset}
+async def _botbooru_posts(params: dict, q: str, *, what: str) -> tuple[list[dict], int, int]:
+    """Run one Botbooru ``/posts/`` query. Returns ``(results, fetched, total)``.
+
+    ``fetched`` counts the raw posts, not the normalized results, so a
+    malformed entry still advances the caller's paging arithmetic.
+    """
     if q:
         params["q"] = q
-    url = f"{_BOTBOORU_BASE}/posts/"
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPError as e:
-        logger.exception("Botbooru search failed")
-        raise HTTPException(status_code=502, detail=f"Botbooru search failed: {e}") from e
-
+    data = (await _fetch(f"{_BOTBOORU_BASE}/posts/", what=what, params=params, timeout=20)).json()
     posts = data.get("posts") or []
-    results = [_botbooru_to_result(p) for p in posts if isinstance(p, dict)]
-    total = data.get("total") or 0
-    has_more = offset + len(posts) < total
-    return {"results": results, "has_more": has_more}
+    return [_botbooru_to_result(p) for p in posts if isinstance(p, dict)], len(posts), int(data.get("total") or 0)
+
+
+async def _browse_botbooru(q: str, page: int) -> dict:
+    """Run a Botbooru browse query and normalize the response shape."""
+    offset = (max(1, int(page)) - 1) * _BOTBOORU_PAGE_SIZE
+    results, fetched, total = await _botbooru_posts(
+        {"sort": "downloads", "limit": _BOTBOORU_PAGE_SIZE, "offset": offset}, q, what="Botbooru search failed"
+    )
+    return {"results": results, "has_more": offset + fetched < total}
 
 
 async def _randomize_botbooru(q: str) -> dict:
     """Surface a random batch of cards from Botbooru.
 
     Botbooru has a native server-side random sort, so a single query-filtered
-    request gives a fresh selection each call.
+    request gives a fresh selection each call. Randomized results are a one-shot
+    batch; paging "Load More" would silently switch back to ranked order, so
+    don't advertise more.
     """
-    params = {"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}
-    if q:
-        params["q"] = q
-    url = f"{_BOTBOORU_BASE}/posts/"
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPError as e:
-        logger.exception("Botbooru randomize failed")
-        raise HTTPException(status_code=502, detail=f"Botbooru randomize failed: {e}") from e
-
-    posts = data.get("posts") or []
-    results = [_botbooru_to_result(p) for p in posts if isinstance(p, dict)]
-    # Randomized results are a one-shot batch; paging "Load More" would silently
-    # switch back to ranked order, so don't advertise more.
+    results, _, _ = await _botbooru_posts({"sort": "random", "limit": _BOTBOORU_PAGE_SIZE}, q, what="Botbooru randomize failed")
     return {"results": results, "has_more": False}
 
 
@@ -529,14 +513,7 @@ async def _download_botbooru_card(full_path: str):
         raise HTTPException(status_code=400, detail=f"Invalid Botbooru post id: {full_path}")
 
     url = f"{_BOTBOORU_BASE}/download/png/{full_path}"
-    try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            content = resp.content
-    except httpx.HTTPError as e:
-        logger.exception("Failed to download Botbooru card PNG")
-        raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
+    content = (await _fetch(url, what="Failed to download card")).content
 
     return _parse_png_card(content, "Botbooru")
 
@@ -595,14 +572,7 @@ async def _wyvern_search(q: str, page: int) -> dict:
     if q:
         params["q"] = q
     url = f"{_WYVERN_BASE}/exploreSearch/characters"
-    try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPError as e:
-        logger.exception("Wyvern search failed")
-        raise HTTPException(status_code=502, detail=f"Wyvern search failed: {e}") from e
+    data = (await _fetch(url, what="Wyvern search failed", params=params, timeout=20)).json()
     if not isinstance(data, dict):
         raise HTTPException(status_code=502, detail="Unexpected Wyvern search response")
     return data
@@ -737,14 +707,7 @@ async def _download_wyvern_card(full_path: str):
         raise HTTPException(status_code=400, detail=f"Invalid Wyvern character id: {full_path}")
 
     url = f"{_WYVERN_BASE}/characters/{char_id}"
-    try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            obj = resp.json()
-    except httpx.HTTPError as e:
-        logger.exception("Failed to download Wyvern character")
-        raise HTTPException(status_code=502, detail=f"Failed to download card: {e}") from e
+    obj = (await _fetch(url, what="Failed to download card")).json()
 
     if not isinstance(obj, dict):
         raise HTTPException(status_code=400, detail="Unexpected Wyvern character format")

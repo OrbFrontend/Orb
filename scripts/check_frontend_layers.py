@@ -38,6 +38,7 @@ LAYERS = {
     "sse.js": 0,
     "validate.js": 0,
     "scroll_follow.js": 0,
+    "text_segmentation.js": 0,
     # L1 state + shared pure helpers.
     "state.js": 1,
     "workflow_registry.js": 1,

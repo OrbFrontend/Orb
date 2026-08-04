@@ -10,6 +10,8 @@ Organised into:
 
 from __future__ import annotations
 
+import pytest
+
 from backend.analysis.detectors.anti_echo import detect_anti_echo
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -61,55 +63,47 @@ class TestTruePositives:
 
 
 class TestFalsePositives:
-    def test_bare_stopword_question_not_flagged(self):
-        """ "You?" copies a word but it's a stopword — no content, no flag."""
-        result = detect_anti_echo('"You?" she says.', '"I think you should leave."')
-        assert result.flagged_echoes == []
-
-    def test_wh_word_question_not_flagged(self):
-        result = detect_anti_echo('"What?" he blinks.', '"What time is it?"')
-        assert result.flagged_echoes == []
-
-    def test_incidental_shared_noun_in_long_question(self):
-        """A long question that merely reuses one of the user's nouns is below
-        the coverage threshold and must not trigger."""
-        result = detect_anti_echo(
-            '"Should we restock the store room together later?" she wonders.',
-            '"I went to the store yesterday."',
-        )
-        assert result.flagged_echoes == []
-
-    def test_statement_echo_not_flagged(self):
-        """Anti-echo is question-gated: a declarative parrot has no '?'."""
-        result = detect_anti_echo('"No money," he echoes, nodding.', '"I have no money."')
-        assert result.flagged_echoes == []
-
-    def test_original_question_not_flagged(self):
-        """A question that shares no contiguous run with the user is fine."""
-        result = detect_anti_echo('"Where are you going?" he asks.', '"I got some ice cream."')
-        assert result.flagged_echoes == []
-
-    def test_ooc_directive_words_not_in_pool(self):
-        """Words the user puts in an [OOC: ...] aside are instructions, not
-        in-character speech — the assistant reusing them is compliance. The
-        screenshot case: "use" leaked only from "Use the phrase ..."."""
-        result = detect_anti_echo(
-            '"Do you use shells?" she asks.',
-            '"I don\'t have money." [OOC: Use the phrase "a mix of"]',
-        )
-        assert result.flagged_echoes == []
-
-    def test_user_narration_not_in_pool(self):
-        """The pool is the user's dialogue only; words in their narration
-        (outside quotes) must not seed an echo flag."""
-        result = detect_anti_echo('"Broke?" he asks.', 'I trudge in, broke and tired. "Hey there."')
-        assert result.flagged_echoes == []
-
-    def test_message_with_no_dialogue_is_noop(self):
-        """A user message that is all narration (no quotes) has no dialogue to
-        compare against, so nothing can be flagged as an echo of it."""
-        result = detect_anti_echo('"Ice cream?" he blinks.', "I got some ice cream.")
-        assert result.flagged_echoes == []
+    @pytest.mark.parametrize(
+        ("reply", "user"),
+        [
+            # A copied word that is a stopword carries no content.
+            ('"You?" she says.', '"I think you should leave."'),
+            ('"What?" he blinks.', '"What time is it?"'),
+            # A long question merely reusing one of the user's nouns is below
+            # the coverage threshold.
+            (
+                '"Should we restock the store room together later?" she wonders.',
+                '"I went to the store yesterday."',
+            ),
+            # Question-gated: a declarative parrot has no '?'.
+            ('"No money," he echoes, nodding.', '"I have no money."'),
+            # Shares no contiguous run with the user.
+            ('"Where are you going?" he asks.', '"I got some ice cream."'),
+            # Words in an [OOC: ...] aside are instructions, not in-character
+            # speech — reusing them is compliance. "use" leaked only from
+            # "Use the phrase ...".
+            (
+                '"Do you use shells?" she asks.',
+                '"I don\'t have money." [OOC: Use the phrase "a mix of"]',
+            ),
+            # The pool is the user's dialogue only; their narration can't seed a flag.
+            ('"Broke?" he asks.', 'I trudge in, broke and tired. "Hey there."'),
+            # An all-narration user message has no dialogue to echo.
+            ('"Ice cream?" he blinks.', "I got some ice cream."),
+        ],
+        ids=[
+            "bare_stopword_question",
+            "wh_word_question",
+            "incidental_shared_noun_in_long_question",
+            "statement_echo",
+            "original_question",
+            "ooc_directive_words_not_in_pool",
+            "user_narration_not_in_pool",
+            "message_with_no_dialogue",
+        ],
+    )
+    def test_not_flagged(self, reply, user):
+        assert detect_anti_echo(reply, user).flagged_echoes == []
 
     def test_run_does_not_bridge_two_utterances(self):
         """Each spoken span is its own run, so "ice cream" can't be assembled

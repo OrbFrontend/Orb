@@ -5,31 +5,32 @@ from typing import cast
 from ..connection import _build_set_clause, get_db
 from ..models import EndpointRow, ModelConfigRow
 
+# The EndpointRow projection. Spelled once so every read of the table returns the
+# same columns — `SELECT *` would leak future columns into the row contract.
+_ENDPOINT_COLS = "id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy"
+
+
+async def _endpoint_on(db, endpoint_id: int) -> EndpointRow | None:
+    """Read one endpoint over an open connection; None when it does not exist."""
+    rows = list(await db.execute_fetchall(f"SELECT {_ENDPOINT_COLS} FROM endpoints WHERE id = ?", (endpoint_id,)))  # nosec B608
+    return cast(EndpointRow, dict(rows[0])) if rows else None
+
 
 async def get_endpoints() -> list[EndpointRow]:
     async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints ORDER BY id ASC"
-            )
-        )
+        rows = list(await db.execute_fetchall(f"SELECT {_ENDPOINT_COLS} FROM endpoints ORDER BY id ASC"))  # nosec B608
         return [cast(EndpointRow, dict(r)) for r in rows]
 
 
 async def get_endpoint(endpoint_id: int) -> EndpointRow | None:
     async with get_db() as db:
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints WHERE id = ?",
-                (endpoint_id,),
-            )
-        )
-        return cast(EndpointRow, dict(rows[0])) if rows else None
+        return await _endpoint_on(db, endpoint_id)
 
 
 async def create_endpoint(url: str, api_key: str = "") -> EndpointRow:
     async with get_db() as db:
         cur = await db.execute("INSERT INTO endpoints (url, api_key) VALUES (?, ?)", (url, api_key))
+        assert cur.lastrowid is not None
         endpoint_id = cur.lastrowid
         cur_w = await db.execute(
             "INSERT INTO model_configs (endpoint_id, model_name, system_prompt, temperature, min_p, top_k, top_p, repetition_penalty, max_tokens, role) VALUES (?, 'default', '', 0.8, 0.0, 40, 0.95, 1.0, 4096, 'writer')",
@@ -44,13 +45,9 @@ async def create_endpoint(url: str, api_key: str = "") -> EndpointRow:
             (cur_w.lastrowid, cur_a.lastrowid, endpoint_id),
         )
         await db.commit()
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints WHERE id = ?",
-                (endpoint_id,),
-            )
-        )
-        return cast(EndpointRow, dict(rows[0]))
+        created = await _endpoint_on(db, endpoint_id)
+        assert created is not None
+        return created
 
 
 async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
@@ -71,13 +68,7 @@ async def update_endpoint(endpoint_id: int, data: dict) -> EndpointRow | None:
                 vals,
             )
             await db.commit()
-        rows = list(
-            await db.execute_fetchall(
-                "SELECT id, url, api_key, active_model_config_id, agent_active_model_config_id, completion_mode, proxy FROM endpoints WHERE id = ?",
-                (endpoint_id,),
-            )
-        )
-        return cast(EndpointRow, dict(rows[0])) if rows else None
+        return await _endpoint_on(db, endpoint_id)
 
 
 async def delete_endpoint(endpoint_id: int) -> bool:

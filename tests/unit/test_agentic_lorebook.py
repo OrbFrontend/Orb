@@ -24,6 +24,7 @@ from backend.features.lorebook import (
 from backend.inference import (
     SELECT_LOREBOOK_CHOICE,
     TOOLS,
+    CachedBase,
     build_direct_scene_tool,
     build_lorebook_select_prompt,
 )
@@ -449,6 +450,7 @@ class _FakeSelectBase:
     """Stands in for ``CachedBase``: serves one canned ``select_lorebook`` completion."""
 
     prefix: list = []
+    complete_into = CachedBase.complete_into
 
     def __init__(self, args: dict):
         self._args = args

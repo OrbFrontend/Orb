@@ -28,7 +28,10 @@ from ...analysis import (
     report_to_dict,
     run_audit,
 )
-from ...analysis.text.text_segmentation import SENT_SPLIT
+from ...analysis.text.text_segmentation import (
+    ends_with_sentence_terminator,
+    sentence_boundary_ends,
+)
 from ...core import ChatMessage, extract_hyperparams
 from ...inference import TOOLS, LLMClient, parse_tool_calls, reasoning_cfg
 from .continuation import _MACRO_RE, build_generation_messages
@@ -52,11 +55,6 @@ DOC_AUDIT_TYPES = (
 # may send more; the server owns the cap). Keeps the opener/template windows
 # spanning the context→draft boundary without scanning a whole novel per run.
 DOC_AUDIT_CONTEXT_CHARS = 8000
-
-# A draft that ends on a sentence terminator, tolerating the same trailing
-# closing markers (quotes, emphasis, brackets) as the analysis layer's
-# SENT_SPLIT, is complete — anchored variant of that boundary definition.
-_COMPLETE_END_RE = re.compile(r"[.!?…][\"”’'*_)\]]*\s*$")
 
 # llama.cpp-style chat-template control tokens (<|im_start|>, <|eot_id|>, …).
 # In a Raw-mode document these live on their own scaffold lines; a line
@@ -84,19 +82,19 @@ def trim_incomplete_tail(draft: str) -> tuple[str, str]:
 
     Returns ``(draft_core, tail_fragment)`` with ``draft_core + tail_fragment
     == draft``, so a patched core can reattach the tail verbatim. Uses the
-    analysis layer's sentence-boundary definition (``SENT_SPLIT``) rather than
+    analysis layer's sentence-boundary scanner rather than
     a second regex. A draft with no complete sentence returns ``("", draft)``.
     """
     if not draft.strip():
         return "", draft
-    if _COMPLETE_END_RE.search(draft):
+    if ends_with_sentence_terminator(draft):
         return draft, ""
     last = None
-    for m in SENT_SPLIT.finditer(draft):
-        last = m
+    for end in sentence_boundary_ends(draft):
+        last = end
     if last is None:
         return "", draft
-    return draft[: last.end()], draft[last.end() :]
+    return draft[:last], draft[last:]
 
 
 def clean_context(context: str, assisted: bool) -> str:

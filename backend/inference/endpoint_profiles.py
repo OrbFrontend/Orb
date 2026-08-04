@@ -215,6 +215,12 @@ def honors_forced_tool_choice(endpoint_url: str, model: str = "", params: Mappin
     Callers that assembled a multi-tool array only as a cache optimization
     should ship just the forced tool when this returns ``False``: an unforced
     array turns every rival schema into a coin flip.
+
+    ``True`` says the *choice* survives to the wire. It says nothing about what
+    the server then renders into the prompt — several backends honor forcing by
+    serializing only the forced tool and dropping the rest of the array (see
+    docs/architecture/kv-cache.md, Invariant 3). So a ``True`` here does not mean
+    a shared multi-tool array is producing a shared prefix.
     """
     if (endpoint_url, model) in _FORCED_CHOICE_IGNORED:
         return False

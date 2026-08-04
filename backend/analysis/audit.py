@@ -250,11 +250,8 @@ def run_audit(
 # Format into text report
 
 
-# Outer markers the sentence splitter can leave dangling on a reported snippet:
-# emphasis (* _) and quotes. The splitter eats a closing marker off a sentence
-# end but keeps the opening one, so a quoted line surfaces as `"…done.` — an
-# unbalanced snippet the rewrite model then copies verbatim into its search
-# string. Stripping outer markers gives the model the underlying text to match.
+# Outer markers are omitted from reported snippets so the rewrite model searches
+# for the prose core rather than depending on a particular quote/emphasis style.
 # Straight ' is excluded so contractions/possessives survive.
 _OUTER_MARKERS = '*_"“”‘’'
 

@@ -143,19 +143,17 @@ def _is_inline_emphasis(spans: list[tuple[str, int, int]], i: int, para: str) ->
 # rewrite — it just carries them through unchanged so they reappear in the output as
 # the author wrote them:
 #   - ```code``` fences — any ``*`` or quote inside is literal;
-#   - runs of 3+ asterisks (``***`` / ``****`` scene rules, and ``***bold***``
-#     markdown) — not single-``*`` RP action markup. The single-``*`` parser can't
-#     represent them; left in the prose stream the inner ``*…*`` is misread as an
-#     emphasis span with a stray ``**`` fragment beside it, which both skews
-#     classification and survives the rewrite mangled. Carving them out instead
-#     keeps them intact (a ``***`` the author typed is still there afterwards).
+#   - runs of 2+ asterisks/underscores (Markdown bold/bold-italic and scene
+#     rules) — not single-marker RP action markup. Carving them out keeps them
+#     intact instead of letting a rewrite strip or reinterpret their markers.
 # Protected spans are handled here, above the paragraph split, because a fence can
 # itself contain the blank lines that split would otherwise break it on.
 
 _PROTECTED = re.compile(
     r"```.*?```"  # fenced code (may span lines)
-    r"|\*{3,}[^\n]*?\*{3,}"  # ***bold*** / ****word**** paired run (one line)
-    r"|\*{3,}",  # lone *** / **** (e.g. a scene divider)
+    r"|\*{2,}[^\n]*?\*{2,}"  # **bold** / ***bold-italic*** (one line)
+    r"|_{2,}[^\n]*?_{2,}"  # __bold__ / ___bold-italic___ (one line)
+    r"|[\*_]{3,}",  # lone scene divider
     re.DOTALL,
 )
 
@@ -178,7 +176,7 @@ def _split_protected_segments(text: str) -> list[tuple[bool, str]]:
 def _map_prose(text: str, fn: Callable[[str], str]) -> str:
     """Apply *fn* to each non-protected chunk of *text*, passing protected runs
     through verbatim. The rewrite goes through this so it can never reach inside a
-    code block or a 3+-asterisk run."""
+    code block or a multi-marker Markdown run."""
     return "".join(chunk if prot else fn(chunk) for prot, chunk in _split_protected_segments(text))
 
 
@@ -194,7 +192,7 @@ def _strip_protected(text: str) -> str:
 def classify_axes(text: str) -> AxisStyle:
     """Classify *text* on the dialogue and narration axes by coverage fraction.
 
-    Protected runs (fenced code, 3+-asterisk markdown) are dropped first: their
+    Protected runs (fenced code, multi-marker Markdown) are dropped first: their
     contents are literal, so a ``*`` or quote inside one must not register as RP
     markup."""
     text = _strip_protected(text)
@@ -484,7 +482,7 @@ def normalize_to_baseline(
     if target.dialogue == Dialogue.UNKNOWN and target.narration == Narration.UNKNOWN:
         return draft, FormatDriftReport(None, target, False, "baseline unstable")
 
-    # Protected runs (fenced code, 3+-asterisk markdown) are excluded from the
+    # Protected runs (fenced code, multi-marker Markdown) are excluded from the
     # classification and carried through the rewrite verbatim, so a stray
     # ``***``/``****`` neither corrupts the read nor gets dropped — it reappears in
     # the output exactly as the author typed it.

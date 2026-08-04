@@ -22,7 +22,7 @@ import {
   resumeChannel,
   setWorkflowPhase,
 } from "/static/workflow_api.js";
-import { extractBlocks } from "./extract.js";
+import { alignmentKey, extractBlocks } from "./extract.js";
 import { startKaraoke } from "./karaoke.js";
 
 const WORKFLOW_ID = "tts";
@@ -242,8 +242,6 @@ function blockWordIndicesFor(msgId) {
   return _alignmentFor(msgId).wordIndices;
 }
 
-const _norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
-
 // Align extracted block substrings against the rendered word units. Each block
 // is anchored independently and the cursor only advances past a block that
 // fully matched, so a block that fails to align leaves its own words unclaimed
@@ -263,11 +261,11 @@ function computeBlockMap(msg) {
   // mid-finalize); report not-ready so the caller does not memoize the empty map.
   if (!segs.length) return { map, wordIndices, ready: false };
   const blocks = extractBlocks(msg.content || "");
-  const words = segs.map((s) => ({ wordIndex: s.wordIndex, t: _norm(s.word) }));
+  const words = segs.map((s) => ({ wordIndex: s.wordIndex, t: alignmentKey(s.word) }));
   const limit = Math.min(blocks.length, clipCount);
   let cursor = 0;
   for (let bi = 0; bi < limit; bi++) {
-    const tokens = blocks[bi].split(/\s+/).map(_norm).filter(Boolean);
+    const tokens = blocks[bi].split(/\s+/).map(alignmentKey).filter(Boolean);
     if (!tokens.length) continue;
     const at = _findRun(words, tokens, cursor);
     if (at < 0) continue;

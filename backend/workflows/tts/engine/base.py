@@ -84,6 +84,9 @@ class TTSAdapter(ABC):
     and translates SpeakableChunks into audio.
     """
 
+    _supports_streaming = False
+    _supports_emotion_tags = False
+
     @abstractmethod
     async def synthesize(
         self,
@@ -133,12 +136,12 @@ class TTSAdapter(ABC):
     @property
     def supports_streaming(self) -> bool:
         """Whether this backend supports chunk-by-chunk streaming."""
-        return False
+        return self._supports_streaming
 
     @property
     def supports_emotion_tags(self) -> bool:
         """Whether this backend supports inline emotion tags like [laugh]."""
-        return False
+        return self._supports_emotion_tags
 
     def _chunks_to_text(self, chunks: list[SpeakableChunk]) -> str:
         """Merge chunks into plain text with natural pauses.

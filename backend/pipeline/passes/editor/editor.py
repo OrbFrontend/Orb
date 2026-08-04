@@ -560,8 +560,9 @@ async def _run_edit_loop(
                 )
 
                 try:
-                    async for event in base.complete(
+                    async for event in base.complete_into(
                         client,
+                        resp,
                         label="editor",
                         trailing=trailing,
                         tool_choice=_pick_tool_choice(length_guard_triggered, report, audit_enabled),
@@ -569,10 +570,7 @@ async def _run_edit_loop(
                         **hyperparams,
                         **reasoning_params,
                     ):
-                        if event["type"] == "reasoning":
-                            yield {"type": "reasoning", "delta": event["delta"]}
-                        elif event["type"] == "done":
-                            resp = event["message"]
+                        yield event
                 except Exception as llm_err:
                     logger.error(
                         "Editor iteration %d: client.complete() raised %s: %s",

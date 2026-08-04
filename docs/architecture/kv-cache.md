@@ -61,7 +61,7 @@ Within a single turn, Orb makes 2–4+ LLM calls. Here's what each one looks lik
 + lorebook depth block            ← `constant` + `at_depth` entries (SillyTavern's @ Depth)
 ```
 
-`tool_choice="none"`. The model writes prose.
+`tool_choice="none"`. The model writes prose. On most backends this also deletes the tool schemas from the rendered prompt, which is why the writer rarely shares a prefix with the director — see Invariant 3.
 
 ### Editor pass (1–3 calls, only if needed)
 
@@ -96,11 +96,55 @@ The chat history is built once per turn. Each pass receives the same list. Attac
 
 Inference servers serialise the tool schema list into the cached prefix (where in the chat template depends on the server, but it's always *inside* the cached region). So the tool list has to be byte-identical across passes — including passes that won't call any tool. Every pass sends the same schemas; passes that aren't allowed to call them set `tool_choice="none"`.
 
+That is the part Orb controls. Whether it produces an identical *prefix* is the server's call — and usually it doesn't.
+
+#### `tool_choice` rewrites the prompt
+
+Measured 2026-08-04. Same messages every call, only the tool params varied, reading `prompt_tokens` back.
+
+| `tool_choice` | DeepSeek v4-pro | Gemma-4-26B (Ionstream) | Gemma-4-31B (CoreWeave) | GPT-4.1-mini |
+|---|---|---|---|---|
+| omitted / `auto` | all 6 | all 6 | all 6 | all 6 |
+| `required` | all 6 | all 6 | all 6 | all 6 |
+| `"none"` | **nothing** | **nothing** | **nothing** | all 6 |
+| forced *X* | **only X** | **only X** | all 6 | all 6 |
+
+Where the table says "nothing", the token count equalled a request with no `tools` field *exactly*: 6339 on DeepSeek, 6723 on both Gemmas. Not close — equal.
+
+So a chat-mode turn renders three different prompts. The director's carries one forced schema, the writer's carries none, the editor's carries a different forced schema. `CachedBase` is doing its job. The prefix diverges anyway.
+
+**One cache, not one per schema set.** Warm a prefix with no `tools` field, then resend the same messages with all six schemas and `tool_choice="none"`: 99–100% hit. Schemas are only text in the prompt. `tool_choice` decides whether that text exists; it never enters the cache key.
+
+**Think in lanes, not turns.** Each distinct rendering is its own cache lineage — a *lane*. A pass reuses **its own** previous call, across turns; it does not reuse its siblings within a turn. So this is a cold-start cost paid once per lane, not a recurring per-turn tax.
+
+Cold start, every lane empty, messages held identical across passes, counting freshly-prefilled prompt tokens:
+
+| turn shape | DeepSeek v4-pro | Gemma-4-26B (Ionstream) |
+|---|---|---|
+| shipped (forced → `none` → forced) | 13 722 | 7 614 |
+| all passes `auto` | 7 276 | 7 368 |
+| no `tools` on any pass | 6 479 | 6 732 |
+
+The conversation was ~6 300 tokens. Once those lanes are warm, the same three passes cost **760** (DeepSeek) and **673** (Ionstream) on a ~6 900-token conversation — both figures reproduced to the token across two runs. The shipped shape is expensive to start, not expensive to run.
+
+One measured asymmetry explains why the warm numbers are that good. A `none` call does not inherit from an `auto` call on DeepSeek — 0%, reproduced at 2 s, 15 s and 45 s gaps, so not commit latency. But a forced call *does* inherit from a `none` call, at 90%. Orb's pipeline never sends `auto`: director and editor force, the writer sends `none`. So the passes do share the conversation body, and only the schema block at the tail is re-prefilled.
+
+**Lanes multiply with workflows.** Image generation adds two more — `analyze_scene` and `compose_image_prompt`, each forced, each rendering its own schema. With all three passes on and scene analysis enabled a conversation carries five warm prefixes instead of one. Measured across `send message → gen image → gen message → gen image → regen image`: 18 606 fresh tokens on DeepSeek, 17 514 on Ionstream — of which the first two calls, both cold, are 13 018 and 13 549. Everything after the cold start ran warm, and the image regen cost 141 tokens on DeepSeek, 44 on Ionstream.
+
+**Interleaved image calls do cost the Director.** Running the same two turns with the image steps removed, the Director's turn-2 call drops from 733 to 222 fresh tokens on DeepSeek and from 615 to 232 on Ionstream; the writer and editor are unchanged to within a token. So an image generation between turns costs the next Director roughly 380–510 tokens — it matches at the boundary the image lane established rather than extending its own previous call. Both arms reproduced exactly across two runs on DeepSeek. A full three-pass turn therefore costs 760 (DeepSeek) / 673 (Ionstream) on its own, or 1 269 / 1 054 with an image generation in between. More lanes means more cold starts, more prefixes competing for residency, and this one bounded per-turn tax on the Director — not a bigger bill per call.
+
+`OFFER_TOOLS` does not buy what its comment in `workflows/_forced_call.py` claims. The idea is that shipping the identical two-tool blob on both calls lets them share a prefix *including* the blob. On backends that narrow the render to the forced tool they share only the conversation body: forcing `compose_image_prompt` after `analyze_scene` reuses 6 016 of 6 722 tokens on DeepSeek and 6 400 of 6 880 on Ionstream, both below the tools-free body length. The loss is bounded to the blob — a few hundred tokens per image — so the array is worth keeping for providers where it does work, but §9's "they reuse one another" is true only of the conversation, not the schemas.
+
+**Both obvious repairs fail.** Giving the writer `tool_choice="auto"` restores the shared prefix and breaks the writer — 9 of 9 calls answered with a `direct_scene` tool call instead of prose. `structured_tool_calls` (below) is the only shape where every pass provably renders alike, but DeepSeek rejects its prerequisite: strict `response_format: json_schema` returns 400.
+
+So `"none"` stays. It is load-bearing, not incidental. What changes is the expectation — a shared `CachedBase` does not imply a shared prefix, and the cost is a per-endpoint fact to measure rather than assume. Text mode sidesteps all of it (see the end of this section).
+
 **Structured-output endpoints send no schemas at all -- on every pass.** Where an endpoint profile sets `structured_tool_calls` (`backend/inference/endpoint_profiles.py`), a forced pass constrains output with a strict `response_format` schema instead of a forced `tool_choice`, and `_complete_chat` then omits `tools` from the body for *every* pass on that endpoint -- along with the accompanying `tool_choice` (the writer's `"none"` included: with no tools in the body there is nothing to choose from). What matters for this invariant is that the list is identical across passes, not that it is non-empty, so an endpoint-wide omission satisfies it the same way an endpoint-wide blob does -- and it caches better, because the prefix is system + history only. Omitting the blob only on the forced passes would break the invariant: the writer would render a prefix with tools while the director and editor rendered one without. The blob is still assembled and still threaded through `CachedBase.tools` and the KV tracker's local accounting; it is the source of the `response_format` schema, it just never reaches the wire. Correctness depends on this too, not only caching -- a model that can still see `tools` may answer with a native tool call, which bypasses the schema entirely and, on some models, comes back with the argument keys rewritten.
 
 This has two consequences worth knowing about:
 
-- **Schemas for tools a pass can't use are still sent.** If `direct_scene`, `editor_apply_patch`, and length guard are all on, every pass — including the director, which can only call `direct_scene` — ships schemas for `direct_scene`, `editor_apply_patch`, **and** `editor_rewrite`.
+- **Schemas for tools a pass can't use are still sent.** If `direct_scene`, `editor_apply_patch`, and length guard are all on, every pass — including the director, which can only call `direct_scene` — ships schemas for `direct_scene`, `editor_apply_patch`, **and** `editor_rewrite`. Sent, not necessarily rendered: what the server does with them depends on that pass's `tool_choice`, per the table above.
+- **Schema order is load-bearing.** The same six schemas in reverse order cost 12.5% of the cached prefix on Ionstream and 28% on GPT-4.1-mini. `enabled_schemas()` iterates `TOOLS` in registry order, and that stability is the reason it caches — it is not incidental dict ordering.
 - **Dynamic schemas are built once per turn, not once per pass.** `direct_scene`, `give_feedback`, and `record_direction_note` are all assembled at runtime from the user's enabled interactive fragments, which inject custom string/array properties into each function's parameters. Each schema is built one time per turn from the current fragment set and then threaded through every pass. Their shapes depend only on the fragment configuration, never on per-turn state — so the same fragment set produces the same schema bytes turn after turn.
 - **The post-writer feedback step is not a cache exception.** `give_feedback` produces the out-of-character note shown to the player. It rides the shared per-turn tools blob exactly like `direct_scene` (built once from the enabled `feedback`-type fragments, threaded to every pass), so the feedback step reuses the same frozen cached base as the director/writer/editor and merely forces `tool_choice=give_feedback`. It used to swap the tools blob onto a copy of the base, making one deliberate cache miss — that is gone. The step must also extend the stack on the *message* side: it replays the writer's exact user message and the reply as a real `assistant` turn (mirroring the editor), so it continues the warm writer/editor prefix. Appending a single fresh user message after `base.prefix` instead — the original feedback shape — forks the stack and collapses the provider's prefix-cache hit to just the system+tools block, even though the prefix bytes are identical; servers reuse a prefix you *continue from*, not one you fork off. (It also leaves a clean turn continuation for the next turn's director to extend, so a forked feedback call busts the following director too.)
 - **The direction-note step is the same shape.** `record_direction_note` persists the Director's running notes (see [Direction Notes](../features/direction-notes.md)); its post-turn placement rides the shared blob and replays the writer exchange exactly like the feedback step, so it is not a cache exception either. The before-writer placement appends only its request to the shared prefix, since there is no written reply to replay yet.
@@ -222,6 +266,8 @@ Orb logs cache behaviour for each LLM call in two views:
 
 The split exists because where a chat template renders the tools list (inside the system block, before the final user turn, or somewhere else) determines whether a tools diff actually breaks the wire-level cache. The tracker can't inspect the template, so collapsing the two signals into one "estimated %" would lie. Two split numbers plus provider truth lets a human read what's going on without false precision.
 
+There is a third thing the tracker cannot see: which schemas the server actually rendered. Orb records the blob it sent, and on most backends that is not what reached the prompt (Invariant 3). The tell is a turn where `msgs_overlap` reads near 100% and the provider `cached` reads near 0 — same signature as the reasoning fork in §9, arriving from tool rendering instead. To tell the two apart, check whether the passes differ in `tool_choice` or in reasoning mode.
+
 The tracker also remembers the previous turn's snapshot per conversation, so the first call of a new turn is compared against the same-label call from the previous turn rather than reported as a baseline.
 
 ---
@@ -270,6 +316,9 @@ it is a *whole-prefix* miss, not a tail miss: templates render the tool
 declarations ahead of the conversation (llama.cpp's Gemma 4 template emits them
 inside the first system turn), so a different tools array diverges at the front
 and `compose` re-prefills the entire conversation rather than resuming after it.
+That position is per-backend, not universal — some render the block near the end,
+where the same divergence costs a flat few hundred tokens instead. Invariant 3 has
+the measurements; this is the general case, not a prompter quirk.
 Shipping one tool rules out the wrong tool; a provider that ignores `tool_choice`
 is still free to answer with no tool call at all, which degrades to empty args as
 before. The trade buys a composed prompt at all — the previous behavior was a
@@ -286,7 +335,7 @@ setting stable is the only portable cache rule.
 ## 10. TL;DR
 
 - Treat the prompt like a stack: bottom is sacred (system + history + tool schemas), top is freely mutable.
-- Same tool schemas everywhere, even when a pass can't use them. Dynamic schemas (`direct_scene`, `give_feedback`, `record_direction_note`) are built once per turn from configuration, not per pass. The post-writer feedback and direction-note steps share the base too — neither is a cache exception.
+- Same tool schemas everywhere, even when a pass can't use them — but don't read that as one shared prefix. Most servers render schemas according to each pass's `tool_choice`, so director, writer and editor land on three different prompts; `"none"` renders nothing at all. Measured numbers in Invariant 3. Dynamic schemas (`direct_scene`, `give_feedback`, `record_direction_note`) are built once per turn from configuration, not per pass. The post-writer feedback and direction-note steps share the base too — neither is a cache exception.
 - Director output rides on the trailing user message, not the system prompt.
 - The editor extends the writer's stack, not the bare prefix — that's where most editor-pass savings come from.
 - Across turns, the new prefix is "old prefix + one (user, assistant) pair," so cache flows naturally turn-over-turn.
