@@ -20,6 +20,12 @@ export const REASONING_PASSES = [
 
 const REASONING_BOTTOM_THRESHOLD = 20;
 
+// Rebuild the inspector body without losing the reasoning box's scroll pin.
+// Module-scoped because both inspector renderers below replace the same
+// subtree and must preserve it identically.
+const withReasoningScroll = (mutate) =>
+  preserveScroll(() => document.getElementById("reasoning-box"), REASONING_BOTTOM_THRESHOLD, mutate);
+
 // A reasoning box follows new text only while it is pinned to the bottom.
 // preserveScroll reads the pin state right before mutating the DOM (wheel,
 // touch, keyboard, and scrollbar dragging all just move scrollTop, so there's
@@ -526,9 +532,6 @@ function _renderDirectorPanel({ activeIds, latency, toolCalls, injection, feedba
 }
 
 function _renderInspectorMain() {
-  const withReasoningScroll = (mutate) =>
-    preserveScroll(() => document.getElementById("reasoning-box"), REASONING_BOTTOM_THRESHOLD, mutate);
-
   if (S.isStreaming && S.lastDirectorData === null) {
     // Reserve slots in the canonical (after-stream) order so blocks fill in
     // place rather than reordering when director data lands. Activation is
