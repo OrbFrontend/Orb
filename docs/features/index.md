@@ -49,7 +49,13 @@ Content, data management, and platform features.
 | [Character Expressions](character-expressions.md) | Swap the avatar to match the mood of a reply |
 | [Homepage Stats](homepage-stats.md) | Usage dashboard on the home screen |
 | [Mobile Compatibility](mobile.md) | UI built for mobile devices |
-| [Integrated TTS](tts.md) | Text-to-speech with multiple provider backends |
-| [Image Generation](image-generation.md) | Make images from assistant replies, on ComfyUI or a cloud API |
-| [Cloud Image Setup](cloud-image-setup.md) | Render images by pasting an API key — no GPU, no model download |
 | [Text Completion Mode](text-completion.md) | Faster, more reliable llama.cpp native transport |
+
+## Multimedia
+
+Pictures and speech built from a reply.
+
+| Feature | Summary |
+|---|---|
+| [Image Generation](../multimedia/image-generation.md) | Make images from assistant replies, on ComfyUI or a cloud API |
+| [Integrated TTS](../multimedia/tts.md) | Text-to-speech with multiple provider backends |

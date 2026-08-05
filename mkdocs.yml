@@ -96,9 +96,13 @@ nav:
           - Character Expressions: features/character-expressions.md
           - Homepage Stats: features/homepage-stats.md
           - Mobile Compatibility: features/mobile.md
-          - Integrated TTS: features/tts.md
-          - ComfyUI Setup: features/comfyui-setup.md
-          - Cloud Image Setup: features/cloud-image-setup.md
-          - Image Generation: features/image-generation.md
           - Text Completion Mode: features/text-completion.md
+  - Multimedia:
+      - multimedia/index.md
+      - Images:
+          - ComfyUI Setup: multimedia/comfyui-setup.md
+          - Cloud Image Setup: multimedia/cloud-image-setup.md
+          - Image Generation: multimedia/image-generation.md
+          - Reference Image Setup: multimedia/reference-images.md
+      - Text-to-Speech: multimedia/tts.md
   - Contributing: contributing.md

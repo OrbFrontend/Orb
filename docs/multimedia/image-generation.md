@@ -534,7 +534,7 @@ details** under the image and read the **Camera** row: *picker*, *classifier* or
 **Auto** needs a small local model. Without it, **Auto** falls back to
 third-person and the picker says `Auto (classifier off)`.
 
-1. Install the machine-learning extras. See [Character Expressions](character-expressions.md).
+1. Install the machine-learning extras. See [Character Expressions](../features/character-expressions.md).
 2. Open **Settings** and find **Local ML**.
 3. Select **Download** on **Image POV**. The model is about 20 MB.
 4. Leave the toggle on.

@@ -22,7 +22,12 @@ Orb solves it with an **agentic middleware layer** that intercepts each user mes
 
 -   **[Features](features/index.md)**
 
-    Writer direction, anti-slop, length guard, magic rewrite, TTS, and more.
+    Writer direction, anti-slop, length guard, magic rewrite, and more.
+
+-   **[Multimedia](multimedia/index.md)**
+
+    Visualize any reply on ComfyUI or a cloud API, and give your characters a
+    voice.
 
 -   **[Contributing](contributing.md)**
 

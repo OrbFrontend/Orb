@@ -136,6 +136,9 @@ Workflow: [Krea2_Default.png](../assets/Krea2_Default.png)
 
 There are other ways to run Krea 2 with lower VRAM but won't go into that here.
 
+To edit an existing picture instead of drawing a new one — keeping a character's
+face across images — see [Reference Image Setup](reference-images.md).
+
 ## Make ComfyUI reachable from Orb
 
 Orb talks to ComfyUI from your browser, so the server must accept requests from Orb's origin.
@@ -159,5 +162,5 @@ Orb talks to ComfyUI from your browser, so the server must accept requests from 
 ## Next step
 
 Your ComfyUI server is ready. Head to
-[Image Generation](image-generation.md#connect-orb-to-comfyui) to enter the URL,
+[Image Generation](image-generation.md#external-comfyui) to enter the URL,
 pick a checkpoint per style, and test the connection.
