@@ -28,11 +28,10 @@ logger = logging.getLogger(__name__)
 def build_writer_content(
     lorebook_block: str,
     inj_block: str,
-    enabled_tools: Mapping[str, bool],
+    tools_sent: bool,
     effective_msg: str,
     attachments: Sequence[Mapping[str, Any]] | None,
     length_guard: LengthGuard | None,
-    text_mode: bool = False,
     depth_block: str = "",
 ) -> str | list[ContentPart]:
     """Build the writer's user-message content (string or multimodal list).
@@ -40,8 +39,12 @@ def build_writer_content(
     Built once and threaded into both the writer pass and the editor, which
     replays it verbatim to extend the writer's KV-cached prefix. The length-guard
     nudge (preventive arm) fires only in enforce mode; a non-None *length_guard*
-    already means the feature is enabled. In *text_mode* the no-tools nudge is
-    dropped — no tool harness is rendered, so the instruction is meaningless.
+    already means the feature is enabled.
+
+    *tools_sent* gates the no-tools nudge. It is the strongest provider-neutral
+    signal Orb owns: a server may still narrow the supplied array based on
+    ``tool_choice``. The lane resolves it from the frozen schema tuple and the
+    call's actual transport shape.
 
     *depth_block* (``at_depth`` lorebook entries) goes last, *after* the user
     message — the ``@ Depth`` position, which is the whole point of the
@@ -52,7 +55,7 @@ def build_writer_content(
         tail += "___\n\n" + lorebook_block + "\n\n"
     if inj_block:
         tail += "___\n\n" + inj_block + "\n\n"
-    if enabled_tools and not text_mode:
+    if tools_sent:
         tail += "**Do not use tool or function calls this turn.**\n\n"
     tail += writer_nudge(length_guard)
     tail += "___\n\n" + effective_msg + "\n\n"
@@ -119,14 +122,23 @@ async def writer_stage(
     ``content``→``token`` and ``reasoning``→``reasoning`` events, and accumulates
     the writer's wall time into ``state.latency``.
     """
+    # Probe only the message shape that chooses the transport. The final text
+    # cannot affect that choice; images in the frozen history or current
+    # attachments can. ModelLane then combines it with the actual frozen tools
+    # tuple, so an all-false enablement map cannot masquerade as schemas.
+    transport_probe: ChatMessage = {
+        "role": "user",
+        "content": build_multimodal_content("", attachments),
+    }
+    tools_sent = cfg.writer_lane.sends_tool_schemas([transport_probe])
+
     state.writer_content = build_writer_content(
         state.writer_lorebook_block,
         state.inj_block,
-        cfg.writer_enabled_tools,
+        tools_sent,
         state.effective_msg,
         attachments,
         cfg.length_guard,
-        cfg.writer_text_mode,
         depth_block=depth_block,
     )
     writer_t0 = time.monotonic()

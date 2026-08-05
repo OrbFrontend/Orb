@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..core import ContentPart, Macros
+from ..core import ChatMessage, ContentPart, Macros
 from ..features.lorebook import (
     AGENTIC_LOREBOOK_SCAN_DEPTH,
     LOREBOOK_SCAN_DEPTH,
@@ -46,6 +46,19 @@ class ModelLane:
     client: LLMClient
     base: CachedBase
 
+    def sends_tool_schemas(self, trailing: Sequence[ChatMessage], *, tools_in_prompt: bool = True) -> bool:
+        """Whether a call extending this lane sends its frozen schema tuple.
+
+        The base owns schema presence; the client owns transport/profile policy.
+        Keeping the conjunction here gives every pass the same answer and leaves
+        room for call-dependent transports such as text mode's multimodal chat
+        fallback without duplicating that knowledge in pipeline configuration.
+        """
+        if not self.base.tools:
+            return False
+        messages = [*self.base.prefix, *trailing]
+        return self.client.sends_tool_schemas(messages, self.base.model, tools_in_prompt=tools_in_prompt)
+
 
 @dataclass(slots=True)
 class _PipelineConfig:
@@ -64,11 +77,6 @@ class _PipelineConfig:
     audit_enabled: bool
     length_guard: LengthGuard | None
     do_edit: bool
-    writer_enabled_tools: Mapping[str, bool]
-    # True when the writer endpoint is in text-completion mode: suppress the
-    # no-tools nudge (meaningless without a rendered tool harness). The shared
-    # tool blob is untouched — director/editor keep their schemas.
-    writer_text_mode: bool
     # The two call surfaces for the turn. ``writer_lane`` runs the writer pass;
     # ``agent_lane`` runs director + editor. In single-model mode they are the
     # same object by construction (see :class:`ModelLane`).

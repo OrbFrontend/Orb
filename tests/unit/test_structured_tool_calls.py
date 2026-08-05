@@ -95,6 +95,11 @@ FORCED = {"type": "function", "function": {"name": "direct_scene"}}
 
 ARGS_JSON = '{"history-summary": "so far", "moods": ["eerie"]}'
 
+_IMAGE_CONTENT = [
+    {"type": "text", "text": "hi"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,eA=="}},
+]
+
 
 class _FakeStream:
     status_code = 200
@@ -137,11 +142,11 @@ def _content_lines(text: str) -> list[str]:
     ]
 
 
-async def _run(client: LLMClient, lines, **kwargs):
+async def _run(client: LLMClient, lines, *, messages=None, **kwargs):
     fake = _FakeAsyncClient(lines)
     events = []
     with patch.object(llm_mod.httpx, "AsyncClient", lambda *a, **k: fake):
-        async for ev in client.complete([], "TEE/glm-5.2:thinking", **kwargs):
+        async for ev in client.complete(messages if messages is not None else [], "TEE/glm-5.2:thinking", **kwargs):
             events.append(ev)
     assert len(fake.bodies) == 1
     return fake.bodies[0], events
@@ -278,3 +283,34 @@ async def test_unparseable_content_degrades_to_empty_args():
     _, events = await _run(client, _content_lines("not json at all"), tools=[DIRECT_SCENE], tool_choice=FORCED)
     calls = parse_tool_calls(events[-1]["message"])
     assert calls == [{"name": "direct_scene", "arguments": {}}]
+
+
+# ── sends_tool_schemas: the wire-level predicate used by model lanes ──────────
+
+
+async def test_sends_tool_schemas_agrees_with_the_wire():
+    """The predicate must match what `_complete_chat` puts in the body.
+
+    Derived independently, so pin them together: a drift means the writer's
+    prompt guard disagrees with the schema-delivery behavior Orb controls.
+    """
+    for url in ("https://nano-gpt.com/api/v1", "http://localhost:5000/v1"):
+        client = LLMClient(url)
+        body, _ = await _run(client, _content_lines("hi"), tools=[DIRECT_SCENE], tool_choice="none")
+        assert client.sends_tool_schemas([], "TEE/glm-5.2:thinking") is ("tools" in body), url
+
+
+async def test_sends_tool_schemas_tracks_text_modes_multimodal_chat_branch():
+    messages = [{"role": "user", "content": _IMAGE_CONTENT}]
+    client = LLMClient("http://localhost:5000/v1", completion_mode="text")
+    assert not client.sends_tool_schemas([], "TEE/glm-5.2:thinking")
+    assert client.sends_tool_schemas(messages, "TEE/glm-5.2:thinking")
+
+    body, _ = await _run(
+        client,
+        _content_lines("hi"),
+        messages=messages,
+        tools=[DIRECT_SCENE],
+        tool_choice="none",
+    )
+    assert "tools" in body

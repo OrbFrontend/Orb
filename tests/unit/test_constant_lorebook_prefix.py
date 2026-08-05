@@ -146,7 +146,7 @@ def test_at_depth_entry_never_reaches_the_keyword_block():
 
 def test_depth_block_sits_after_the_user_message_in_the_writer_tail():
     # Depth 0: last thing the model reads before generating.
-    content = build_writer_content("", "", {}, "I attack", None, None, depth_block="**Lorebook (Depth)**\n\nDice: 7")
+    content = build_writer_content("", "", False, "I attack", None, None, depth_block="**Lorebook (Depth)**\n\nDice: 7")
     assert content == "___\n\nI attack\n\n___\n\n**Lorebook (Depth)**\n\nDice: 7\n\n"
 
 

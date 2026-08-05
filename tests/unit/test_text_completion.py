@@ -621,19 +621,30 @@ async def test_chat_transport_drops_grammar():
 
 async def test_complete_text_apply_template_error_falls_back_to_chat():
     client = _text_client()
+    captured = {}
 
     async def boom(root, msgs, chat_template_kwargs=None):
         raise httpx.ConnectError("nope")
 
     async def fake_chat(messages, model, tools=None, tool_choice=None, **params):
+        captured["tools"] = tools
+        captured["tool_choice"] = tool_choice
+        captured["params"] = params
         yield {"type": "content", "delta": "CHAT"}
         yield {"type": "done", "message": {"content": "CHAT"}, "usage": None}
 
     client._apply_template = boom  # type: ignore[method-assign]
     client._complete_chat = fake_chat  # type: ignore[method-assign]
 
-    events = await _drain(client.complete(messages=[{"role": "user", "content": "hi"}], model="m"))
+    tools = [{"type": "function", "function": {"name": "rate", "parameters": {"type": "object"}}}]
+    choice = {"type": "function", "function": {"name": "rate"}}
+    events = await _drain(
+        client.complete(messages=[{"role": "user", "content": "hi"}], model="m", tools=tools, tool_choice=choice)
+    )
     assert events[-1]["message"]["content"] == "CHAT"
+    assert captured["tools"] == tools  # still sources the response_format schema
+    assert captured["tool_choice"] == choice
+    assert captured["params"]["tools_in_prompt"] is False
 
 
 async def test_image_call_routes_through_chat_transport():

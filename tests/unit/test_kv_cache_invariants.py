@@ -125,6 +125,10 @@ class CapturingClient:
         # Empty → the editor returns no tool call and the loop stops.
         self._editor_queue: list[dict] = []
 
+    def sends_tool_schemas(self, messages, model: str, *, tools_in_prompt: bool = True) -> bool:
+        """Mirror an ordinary chat endpoint for the case these invariants model."""
+        return tools_in_prompt
+
     def enqueue_editor_patch(self, search: str, replace: str) -> None:
         """Queue an ``editor_apply_patch`` call removing one banned span, so the
         re-audit's issue count strictly drops and the ReAct loop advances."""

@@ -22,7 +22,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from backend.inference import AbortToken
+from backend.inference import AbortToken, LLMClient
 
 _EDITOR_FUNCTION_NAMES = {"editor_apply_patch", "editor_rewrite"}
 _DIRECTOR_FUNCTION_NAMES = {"direct_scene"}
@@ -456,6 +456,16 @@ class _EndpointBound:
 
     def __getattr__(self, name: str):
         return getattr(self._fake, name)
+
+    def sends_tool_schemas(self, messages, model: str, *, tools_in_prompt: bool = True) -> bool:
+        """Use the real transport predicate with this wrapper's endpoint.
+
+        One shared fake may stand in for multiple endpoints, so the endpoint
+        cannot live on ``FakeLLMClient`` itself. Delegating the policy to a real
+        client avoids copying production profile rules into the test double.
+        """
+        client = LLMClient(self._base_url, completion_mode=self._fake.completion_mode)
+        return client.sends_tool_schemas(messages, model, tools_in_prompt=tools_in_prompt)
 
     def complete(self, *args, **kwargs):
         return self._fake.complete(*args, _endpoint=self._base_url, **kwargs)

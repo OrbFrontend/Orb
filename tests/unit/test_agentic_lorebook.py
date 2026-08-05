@@ -348,7 +348,7 @@ class TestConstantsOnlyTrailing:
         block = lt.writer_block(["Const"])
         assert block == ""
         # An empty block must not leave a stray ___ separator in the writer content.
-        content = build_writer_content(block, "", {}, "hi", None, None)
+        content = build_writer_content(block, "", False, "hi", None, None)
         assert content == "___\n\nhi\n\n"
 
 

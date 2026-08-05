@@ -321,6 +321,46 @@ class LLMClient:
         b = self.base_url
         return b[:-3] if b.endswith("/v1") else b
 
+    def _uses_text_transport(self, messages: Sequence[Mapping[str, Any]]) -> bool:
+        """Return the transport branch :meth:`complete` will initially use."""
+        return self.completion_mode == "text" and not text_completion.has_image_parts(messages)
+
+    def _chat_tool_policy(self, model: str, *, tools_in_prompt: bool) -> tuple[bool, bool]:
+        """Return ``(structured, sends_schemas)`` for one chat call.
+
+        Both request construction and the pipeline-facing predicate consume this
+        answer, so a future endpoint policy cannot change one side without the
+        other. ``structured`` stays separate because forced calls still need the
+        supplied tuple as the source of their ``response_format`` schema even
+        when ``sends_schemas`` is false.
+        """
+        structured = endpoint_profiles.supports_structured_tool_calls(self.base_url, model)
+        return structured, tools_in_prompt and not structured
+
+    def sends_tool_schemas(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        model: str,
+        *,
+        tools_in_prompt: bool = True,
+    ) -> bool:
+        """Whether this call shape sends a ``tools`` field on the wire.
+
+        This deliberately describes Orb's request, not the provider's rendered
+        prompt: chat templates may narrow or omit a supplied schema array based
+        on ``tool_choice``. Text transport never sends schemas; an image-bearing
+        text-mode call takes the chat branch and is answered accordingly.
+
+        The caller still owns whether its tools tuple is empty. Keeping that
+        separate lets :class:`~backend.pipeline.state.ModelLane` combine the
+        frozen cache base with this transport policy without teaching the
+        client about pipeline state.
+        """
+        if self._uses_text_transport(messages):
+            return False
+        _, sends_schemas = self._chat_tool_policy(model, tools_in_prompt=tools_in_prompt)
+        return sends_schemas
+
     async def complete(
         self,
         messages: Sequence[Mapping[str, Any]],
@@ -355,7 +395,7 @@ class LLMClient:
         """
         # Transport choice and chat-only param scrubbing happen once, outside the
         # retry loop; each attempt re-opens a fresh stream from the same inputs.
-        if self.completion_mode == "text" and not text_completion.has_image_parts(messages):
+        if self._uses_text_transport(messages):
             transport = self._complete_text
         else:
             # Chat transport: prefill (no render step) and raw GBNF grammar are
@@ -451,7 +491,7 @@ class LLMClient:
         # narrows the schema exactly as it narrows the text-mode grammar.
         tools_in_prompt = params.pop("tools_in_prompt", True)
         schema_override = params.pop("json_schema", None)
-        structured = endpoint_profiles.supports_structured_tool_calls(self.base_url, model)
+        structured, sends_schemas = self._chat_tool_policy(model, tools_in_prompt=tools_in_prompt)
         forced_name: str | None = None
         if isinstance(tool_choice, dict) and (not tools_in_prompt or structured):
             name = (tool_choice.get("function") or {}).get("name")
@@ -485,7 +525,7 @@ class LLMClient:
         # schema built above. If that derivation fails the call goes out with
         # neither tools nor tool_choice and degrades to the parse_tool_calls
         # recovery chain, which is the same posture as any unforced pass.
-        if not tools_in_prompt or structured:
+        if not sends_schemas:
             tools = None
             tool_choice = None
 
@@ -799,9 +839,10 @@ class LLMClient:
         # leaks it into an OpenAI-compat body either.
         rprefill = params.pop("reasoning_prefill", "") or ""
         schema_override = params.pop("json_schema", None)
-        # No-op here (tools are never rendered into the text-mode prompt), but
-        # forwarded to the chat fallback below so the flag's contract survives.
-        tools_in_prompt = params.pop("tools_in_prompt", True)
+        # No-op here: tools are never rendered into a text-mode prompt. If
+        # /apply-template fails, the chat fallback below explicitly preserves
+        # that invariant by withholding them there too.
+        params.pop("tools_in_prompt", None)
         server_root = self._server_root()
         reasoning_on = text_completion.reasoning_enabled(params)
         # render_prompt appends *prefill* as a trailing open assistant turn (F9)
@@ -816,9 +857,7 @@ class LLMClient:
             prompt = await self.render_prompt(messages, prefill=prefill, reasoning=reasoning_on)
         except httpx.HTTPError as e:
             logger.warning("text mode: /apply-template failed (%r); falling back to chat transport", e)
-            async for event in self._complete_chat(
-                messages, model, tools, tool_choice, tools_in_prompt=tools_in_prompt, **params
-            ):
+            async for event in self._complete_chat(messages, model, tools, tool_choice, tools_in_prompt=False, **params):
                 yield event
             return
 
