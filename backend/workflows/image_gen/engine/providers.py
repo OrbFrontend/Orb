@@ -433,8 +433,16 @@ def get_preset(provider_id: str) -> ProviderPreset | None:
 # also what keeps a credential from ever riding along, since none is named.
 # `reference_models` empty means "every model on this provider takes one"; non-empty
 # is the allowlist the panel matches the chosen model against.
+#
+# The whole dimension contract rides along -- `sizes` for a menu provider, the
+# min/max/step grid for a `width_height` one -- because the panel's resolution menu
+# is otherwise a guess at what `size_for`/`pixels_for` will accept, and a guess there
+# offers sizes that are silently snapped to something else at render time.
+# `reference_drives_size` for the same reason: it is the one capability that decides
+# whether that menu applies *at all*, and only the panel can say so before the bill.
 _CATALOGUE_FIELDS = (
     "id label base_url default_model dimension_mode aspect_ratios sizes docs_url verified gaps reference_models "
+    "min_dimension max_dimension dimension_step reference_drives_size "
     "supports_negative_prompt supports_seed supports_quality supports_references"
 ).split()
 

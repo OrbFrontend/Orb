@@ -50,7 +50,10 @@
    One collapsed row per style, so the list stays short as styles are added. */
 .ig-styles{display:grid;gap:6px}
 .ig-style,.ig-conn{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-elevated)}
-.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:12px;list-style:none}
+/* overflow:hidden is the last-resort guard, not a layout mechanism: nothing in a
+   summary shrinks below its content any more, so a pathological name clips at the
+   row edge instead of widening the 600px modal into a sideways scroll. */
+.image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary{display:flex;align-items:center;gap:8px;padding:8px 10px;overflow:hidden;cursor:pointer;font-size:12px;list-style:none}
 .image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary::-webkit-details-marker{display:none}
 .image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary::before{content:"▸";color:var(--text-muted);font-size:10px}
 .image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)[open]>summary::before{content:"▾"}
@@ -58,11 +61,12 @@
 .image-gen-settings :is(.ig-style,.ig-conn,.ig-advanced)>summary:hover{color:var(--text-primary)}
 /* Connection, model and prompt format sit right after the name rather than at the far
    edge of a wide row: all four read as one identity ("Krea-Alt · xAI (Grok) ·
-   grok-imagine-image · Prose"), and all four change what the image looks like. A long
-   name ellipsizes into them rather than pushing the shorter, less guessable labels
-   out of the row. The model is the one that shrinks first: it is the longest string
-   here and the only one two rows can share while everything else differs. */
-.ig-style-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--text-primary)}
+   grok-imagine-image · Prose"), and all four change what the image looks like.
+   The name never shrinks. It is what the user typed and what they scan the list for,
+   and "Krea-A…" next to "Krea-E…" identifies nothing. Every bit of pressure goes to
+   the model instead: it is the longest string here, the one two rows can share while
+   everything else differs, and it is spelled out in full one click into the row. */
+.ig-style-name{flex:none;white-space:nowrap;font-weight:500;color:var(--text-primary)}
 .ig-style-conn{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:1px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-secondary)}
 .ig-style-model{min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--text-muted)}
 .ig-style-model:empty{display:none}

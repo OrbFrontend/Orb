@@ -8,7 +8,9 @@ import { test } from "node:test";
 
 import {
   addableProviders,
+  CLOUD_SIZES,
   COMFY_CONNECTION,
+  COMFY_SIZES,
   connectionList,
   isLoopbackUrl,
   modelTakesReferences,
@@ -18,6 +20,8 @@ import {
   privacyDisclosure,
   promptFormatLabel,
   PROMPT_FORMATS,
+  sizeChoices,
+  sizeIsExact,
   styleConnectionId,
 } from "../../frontend/workflows/image_gen/policy.js";
 
@@ -396,4 +400,66 @@ test("reference support can be a provider fact with a model-shaped hole", () => 
   // A provider with no reference support at all never takes them.
   assert.equal(modelTakesReferences({ supports_references: false, reference_models: [] }, "kontext"), false);
   assert.equal(modelTakesReferences(null, "kontext"), false);
+});
+
+// ── resolution ───────────────────────────────────────────────────────────────
+// The picker's job is to offer only what the target will actually render. Anything
+// else is a label that lies at the moment the user is choosing what to pay for --
+// the backend does snap it, but it says so afterwards, on an image already billed.
+
+test("a provider that names its own sizes is offered exactly those", () => {
+  // OpenAI names them in its own rejection: "Supported sizes are 1024x1024,
+  // 1024x1536, 1536x1024, and auto." Orb's wider menu was snapped to these anyway.
+  const openai = { dimension_mode: "size", sizes: ["1024x1024", "1024x1536", "1536x1024"] };
+  assert.deepEqual(sizeChoices(openai, false), openai.sizes);
+  assert.equal(sizeIsExact(openai, false, "1024x1536"), true);
+  assert.equal(sizeIsExact(openai, false, "1024x1820"), false);
+});
+
+test("a size provider that declares no menu keeps the full list", () => {
+  // NanoGPT and OpenRouter deliberately publish none: each model has its own
+  // vocabulary, and snapping to a menu the next model does not share is a worse
+  // answer than the one the provider itself picks.
+  for (const preset of [{ dimension_mode: "size" }, { dimension_mode: "size", sizes: [] }]) {
+    assert.deepEqual(sizeChoices(preset, false), CLOUD_SIZES);
+    assert.equal(sizeIsExact(preset, false, "1024x1820"), true);
+  }
+});
+
+test("a pixel-grid provider is offered only what lands on its grid", () => {
+  // Together 400s on a non-multiple of 16 and tops out at 1792, so the two 16:9-ish
+  // rows are not sizes it can render -- they are scaled down and re-snapped.
+  const together = { dimension_mode: "width_height", min_dimension: 64, max_dimension: 1792, dimension_step: 16 };
+  const offered = sizeChoices(together, false);
+  assert.deepEqual(offered, ["1024x1024", "1024x1536", "1536x1024"]);
+  assert.equal(offered.includes("1820x1024"), false);
+  assert.equal(sizeIsExact(together, false, "1820x1024"), false);
+  // Off the grid rather than out of bounds -- 1000 is under the ceiling and still
+  // not a multiple of 16.
+  assert.equal(sizeIsExact(together, false, "1000x1000"), false);
+  assert.equal(sizeIsExact(together, false, "1024x1024"), true);
+});
+
+test("an aspect-ratio provider takes any pair, since only the ratio is ever sent", () => {
+  const xai = { dimension_mode: "aspect_ratio", aspect_ratios: ["1:1", "16:9"] };
+  assert.deepEqual(sizeChoices(xai, false), CLOUD_SIZES);
+  assert.equal(sizeIsExact(xai, false, "1024x1820"), true);
+});
+
+test("an unknown provider is not narrowed by a preset Orb does not have", () => {
+  assert.deepEqual(sizeChoices(null, false), CLOUD_SIZES);
+  assert.equal(sizeIsExact(null, false, "832x1216"), true);
+});
+
+test("ComfyUI gets its own menu, and every option is a size a latent can hold", () => {
+  assert.deepEqual(sizeChoices(null, true), COMFY_SIZES);
+  // A latent is the request divided by eight, so an odd edge is silently truncated
+  // by the sampler -- which is why 1820 sits in the cloud list and not this one.
+  for (const value of COMFY_SIZES) {
+    for (const edge of value.split("x").map(Number)) assert.equal(edge % 64, 0, value);
+  }
+  assert.equal(COMFY_SIZES.some((value) => CLOUD_SIZES.includes(value)), true);
+  // Nothing is off-menu for ComfyUI: the backend clamps to 64..4096 and otherwise
+  // renders what it is handed, so a size stored from elsewhere is kept as-is.
+  assert.equal(sizeIsExact(null, true, "704x1408"), true);
 });

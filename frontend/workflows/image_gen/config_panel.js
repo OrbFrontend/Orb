@@ -1,5 +1,21 @@
-import { api, closeModal, esc, escAttr, registerAction, showModal, toast } from "/static/workflow_api.js";
-import { initCharacterProfile, populateProfile, resetCharacterProfile, saveProfile } from "./character_profile.js";
+import {
+  api,
+  closeModal,
+  esc,
+  escAttr,
+  getActiveConvId,
+  registerAction,
+  setModalCloseGuard,
+  showModal,
+  toast,
+} from "/static/workflow_api.js";
+import {
+  initCharacterProfile,
+  populateProfile,
+  profileIsDirty,
+  resetCharacterProfile,
+  saveProfile,
+} from "./character_profile.js";
 import {
   classTypes,
   graphFromApiJson,
@@ -24,6 +40,8 @@ import {
   pendingDisclosures,
   povChoices,
   promptFormatLabel,
+  sizeChoices,
+  sizeIsExact,
   styleConnectionId,
 } from "./policy.js";
 
@@ -39,13 +57,10 @@ const MAX_USER_GRAPHS = 32;
 const DEFAULT_EDGE = 1024;
 const styleSize = (style) => [Number(style?.width) || DEFAULT_EDGE, Number(style?.height) || DEFAULT_EDGE];
 
-const CLOUD_SIZES = [
-  [1024, 1024, "Square — 1024x1024"],
-  [1024, 1536, "Portrait — 1024x1536"],
-  [1536, 1024, "Landscape — 1536x1024"],
-  [1024, 1820, "Tall — 1024x1820"],
-  [1820, 1024, "Wide — 1820x1024"],
-];
+// Nicer names for two of the pairs `CLOUD_SIZES` is built from; anything else,
+// including everything derived from a provider's own vocabulary, falls back to
+// plain orientation.
+const SIZE_LABELS = { "1024x1820": "Tall", "1820x1024": "Wide" };
 const CLOUD_QUALITIES = [
   ["", "Provider default"],
   ["low", "Low"],
@@ -225,11 +240,24 @@ function styleModelField(style, connectionId) {
   });
 }
 
-const resolutionField = (style) =>
-  `<label>Resolution<select ${styleField("size")}>${optionList(
-    CLOUD_SIZES.map(([w, h, label]) => [`${w}x${h}`, label]),
-    styleSize(style).join("x"),
-  )}</select></label>`;
+function sizeOption(value) {
+  const [w, h] = value.split("x").map(Number);
+  const shape = SIZE_LABELS[value] || (w === h ? "Square" : w < h ? "Portrait" : "Landscape");
+  return [value, `${shape} — ${value}`];
+}
+
+function resolutionField(style, { preset = null, comfy = false } = {}) {
+  const current = styleSize(style).join("x");
+  const choices = sizeChoices(preset, comfy);
+  const pairs = choices.map(sizeOption);
+  // The rule the checkpoint and workflow pickers already follow: a stored value the
+  // menu does not contain is kept and named, never dropped for whatever sorts first.
+  // Without this the select renders with nothing selected, the browser picks row one,
+  // and `capturedSize` reads that back as the user's answer.
+  if (!choices.includes(current))
+    pairs.unshift([current, `${current} (${sizeIsExact(preset, comfy, current) ? "custom" : "not offered"})`]);
+  return `<label>Resolution<select ${styleField("size")}>${optionList(pairs, current)}</select></label>`;
+}
 
 function graphTakesSize(workflowId) {
   const slots = draft.graphs.find((g) => g.id === workflowId)?.slots;
@@ -280,7 +308,7 @@ function backendFields(style, connection) {
   return `<div class="ig-grid">
       <label>Checkpoint${checkpointField(style.checkpoint || "")}</label>
       <label>Workflow${workflowField(style.workflow || "")}</label>
-      ${graphTakesSize(style.workflow) ? resolutionField(style) : ""}
+      ${graphTakesSize(style.workflow) ? resolutionField(style, { comfy: true }) : ""}
     </div>
     ${comfyReferenceFields(style)}`;
 }
@@ -301,14 +329,25 @@ function cloudStyleFields(style, connection) {
           style.model || preset?.default_model || "This model",
         )} does not accept reference images — choose a model that does, or set Reference images to Off.</div>`
       : "";
+  // An image-to-image model takes its output size from what it was handed, so the
+  // control above stops applying the moment a reference is on. Said here rather than
+  // left for the render note: this one is knowable before the render is paid for.
+  const referenceSizeNote =
+    preset?.reference_drives_size && source && modelTakesReferences(preset, style.model)
+      ? `<div class="image-gen-note">${esc(connection.label)} sizes a reference render from the reference image, so Resolution does not apply while these are on.</div>`
+      : "";
   return `<div class="ig-grid">
       <label>Model${styleModelField(style, connection.id)}</label>
-      ${resolutionField(style)}
+      ${resolutionField(style, { preset })}
       ${quality}
       ${references}
     </div>
-    ${referenceModelNote}
-    <div class="image-gen-note ig-style-backend">Aspect ratio is chosen automatically from the resolution. The API key for ${esc(connection.label)} lives on its connection.
+    ${referenceModelNote}${referenceSizeNote}
+    <div class="image-gen-note ig-style-backend">${
+      // True of one dimension mode only. Every other provider is sent the pixels
+      // themselves, so saying this there described a conversion that never happens.
+      preset?.dimension_mode === "aspect_ratio" ? "Aspect ratio is chosen automatically from the resolution. " : ""
+    }The API key for ${esc(connection.label)} lives on its connection.
       <button type="button" class="ig-link" data-wf-action="image_gen:connOpen" data-conn-id="${escAttr(connection.id)}">Edit connection</button></div>`;
 }
 
@@ -332,9 +371,14 @@ function styleBody(style, index, connection) {
       <button class="btn btn-sm ig-danger" data-wf-action="image_gen:styleRemove" data-style-index="${index}">Remove style</button>`;
 }
 
+// What this style will actually render on, in the same slot for both backends --
+// two ComfyUI styles differing only by graph are otherwise identical rows, which is
+// exactly the case a list long enough to collapse is for.
 function styleTargetBadge(style, connection) {
-  if (connection?.source !== "cloud") return "";
-  return style.model || connection.preset?.default_model || "";
+  if (connection?.source === "cloud") return style.model || connection.preset?.default_model || "";
+  // Never the bare graph id: a missing workflow reads as `user_m3f2x` here while the
+  // row's own picker already says "(not found)" in words.
+  return style.checkpoint || draft.graphs.find((g) => g.id === style.workflow)?.label || "";
 }
 
 function styleSummary(style, connection) {
@@ -399,9 +443,41 @@ function captureStyles() {
   });
 }
 
+// Which control inside the styles list has the caret, as something that survives the
+// list being rebuilt. A model probe resolving mid-sentence must not cost the user
+// their place: `captureStyles` already keeps what they typed, but the element they
+// typed it into is about to be replaced by an equal one.
+function focusedStyleField() {
+  const el = document.activeElement;
+  const row = el?.closest?.("[data-style-index]");
+  if (!row || !document.querySelector(".ig-styles")?.contains(row)) return null;
+  const selector =
+    el.dataset.igRefSource != null
+      ? `[data-ig-ref-source="${el.dataset.igRefSource}"]`
+      : el.dataset.igField
+        ? `[data-ig-field="${el.dataset.igField}"]`
+        : "";
+  if (!selector) return null;
+  const caret = typeof el.selectionStart === "number" ? [el.selectionStart, el.selectionEnd] : null;
+  return { selector: `[data-style-index="${row.dataset.styleIndex}"] ${selector}`, caret };
+}
+
+function restoreStyleFocus(focused) {
+  if (!focused) return;
+  const el = document.querySelector(focused.selector);
+  if (!el) return;
+  // The element was already on screen a moment ago -- restoring the caret must not
+  // also scroll the modal to it.
+  el.focus({ preventScroll: true });
+  if (focused.caret && typeof el.setSelectionRange === "function") el.setSelectionRange(...focused.caret);
+}
+
 function renderStyles(expandId = "") {
   const host = document.querySelector(".ig-styles");
-  if (host) host.innerHTML = styleRows(expandId);
+  if (!host) return;
+  const focused = focusedStyleField();
+  host.innerHTML = styleRows(expandId);
+  restoreStyleFocus(focused);
 }
 
 function addStyle() {
@@ -433,8 +509,19 @@ function removeStyle(index) {
     toast("Keep at least one style", "error");
     return;
   }
-  draft.styles.splice(index, 1);
-  renderStyles();
+  // Read before the splice: it resolves DOM row indices against `draft.styles`, and
+  // every index past `index` is about to mean a different style.
+  const open = openStyleIds();
+  const [removed] = draft.styles.splice(index, 1);
+  // Removing the style the card's picker points at is the one thing in here that can
+  // move it. The backend already repairs the dangling pointer by falling back to the
+  // first style; this is the same answer said out loud, at the only moment it is
+  // explainable -- otherwise the picker just reads differently next time it is opened.
+  if (removed?.id === draft.default_style) {
+    draft.default_style = draft.styles[0].id;
+    toast(`${draft.styles[0].label || draft.styles[0].id} is now the default style`);
+  }
+  renderStyles(open);
 }
 
 const STRUCTURAL_STYLE_FIELDS = ["model", "reference_sources", "workflow"];
@@ -453,7 +540,9 @@ function rebuildStyleRow(row) {
   const body = row?.querySelector(".ig-style-body");
   if (!style || !body) return null;
   const connection = findConnection(connections, styleConnectionId(style, cfg));
+  const focused = focusedStyleField();
   body.innerHTML = styleBody(style, index, connection);
+  restoreStyleFocus(focused);
   refreshStyleSummary(row);
   return connection;
 }
@@ -737,9 +826,15 @@ function configForConnection(id) {
 }
 
 function applyModels(id, names) {
+  const models = modelPickerState(names).models;
+  const previous = modelsByConnection[id];
+  // A probe answering what the panel already holds changes no field on screen, and
+  // rebuilding the list for it is pure cost -- one modal open fires one probe per
+  // keyed connection, and every one of them lands while the user is reading.
+  if (previous && previous.length === models.length && previous.every((name, i) => name === models[i])) return;
   const openStyles = openStyleIds();
   captureForm();
-  modelsByConnection[id] = modelPickerState(names).models;
+  modelsByConnection[id] = models;
   rebuildConnections();
   renderStyles(openStyles);
 }
@@ -793,6 +888,11 @@ function openSettings(expandStyleId = "") {
     graphs: (Array.isArray(ext.user_graphs) ? ext.user_graphs : []).map((g) => ({ ...g })),
     comfy: { api_url: ext.api_url || "", api_key: ext.api_key || "" },
     connections: Object.fromEntries(Object.entries(cloud.providers || {}).map(([id, entry]) => [id, { ...entry }])),
+    // Carried, never edited. The style picker on the card owns this field, and every
+    // save from in here writes the whole config back -- so the panel has to hand the
+    // picker's answer through untouched or saving settings would silently re-point it.
+    // Only removing the style it names can move it, and that path says so out loud.
+    default_style: cfg.default_style || "",
   };
   rebuildConnections();
   showModal(`<h2>Image Generation</h2><div class="image-gen-settings">
@@ -809,10 +909,17 @@ function openSettings(expandStyleId = "") {
         <div id="ig-conn-add-row" class="image-gen-row">${addRowHtml()}</div>
       </div>
     </details>
-    <section class="ig-section">
+    ${
+      // Omitted outright with no conversation open: `populateProfile` returns early
+      // there, so the section could only ever be a heading over an apology for
+      // itself, in a modal reached from the tools card as often as from a chat.
+      getActiveConvId()
+        ? `<section class="ig-section">
       <div class="ig-heading">This Character Only</div>
-      <div id="ig-profile" class="image-gen-note">Open a conversation to edit its character-specific prompt.</div>
-    </section>
+      <div id="ig-profile" class="image-gen-note">Loading this character's prompt…</div>
+    </section>`
+        : ""
+    }
     <section class="ig-section">
       <div class="ig-heading">Generation</div>
       <div class="ig-grid">
@@ -830,7 +937,10 @@ function openSettings(expandStyleId = "") {
         <div id="ig-graph-picker"></div>
       </div>
     </details>
-  </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" data-wf-action="image_gen:save">Save</button></div>`);
+  </div><div class="modal-actions"><button class="btn" data-wf-action="image_gen:settingsClose">Close</button><button class="btn btn-accent" id="ig-save" data-wf-action="image_gen:save">Save</button></div>`);
+  // After showModal, which clears any guard the previous modal left behind.
+  baseline = JSON.stringify(readConfig());
+  setModalCloseGuard(() => !isDirty() || window.confirm(DISCARD_MESSAGE));
   populateProfile();
   loadModels(COMFY_CONNECTION);
   const linked = new Set(draft.styles.map((style) => styleConnectionId(style, cfg)));
@@ -840,16 +950,47 @@ function openSettings(expandStyleId = "") {
   }
 }
 
+const DISCARD_MESSAGE = "Discard your unsaved image generation settings?";
+
+// The config as it stood when the modal opened. Everything in here is a draft until
+// Save, and all three ways out of a modal throw that draft away -- including the
+// overlay click, which is one slip of the mouse next to a list of API keys and style
+// prompts. `readConfig` is the comparison because it is exactly what Save sends.
+let baseline = "";
+
+function isDirty() {
+  if (baseline === "") return false;
+  return JSON.stringify(readConfig()) !== baseline || profileIsDirty();
+}
+
+const MIN_TIMEOUT = 10;
+const MAX_TIMEOUT = 900;
+
+// The input declares the same bounds, but nothing enforces them: it is not inside a
+// form, so no constraint validation ever runs on it. Clamping beats the old
+// `|| DEFAULT` because 5 becomes the nearest thing the user can have rather than
+// silently becoming 180 -- three minutes away from what they typed.
+function readTimeout() {
+  const value = Number(document.getElementById("ig-timeout")?.value);
+  if (!Number.isFinite(value) || value <= 0) return 180;
+  return Math.min(MAX_TIMEOUT, Math.max(MIN_TIMEOUT, Math.round(value)));
+}
+
 function readConfig() {
   captureForm();
   const ext = cfg.external_comfy || {};
+  const styles = draft.styles;
   return {
     source: cfg.source || "external_comfy",
-    default_style: cfg.default_style || draft.styles[0]?.id || "realistic",
+    // A style removed in here takes the pointer with it, so the dangling case is
+    // resolved on the way out rather than left for the normalizer to repair silently.
+    default_style: styles.some((s) => s.id === draft.default_style)
+      ? draft.default_style
+      : styles[0]?.id || cfg.default_style || "realistic",
     pov_mode: cfg.pov_mode || "auto",
     scene_analysis: document.getElementById("ig-scene-analysis")?.checked === true,
     prompter_reasoning: document.getElementById("ig-prompter-reasoning")?.checked === true,
-    timeout_seconds: Number(document.getElementById("ig-timeout")?.value) || 180,
+    timeout_seconds: readTimeout(),
     styles: draft.styles,
     external_comfy: {
       ...ext,
@@ -990,7 +1131,13 @@ function addPendingGraph() {
 
 async function saveSettings() {
   const next = readConfig();
-  if (!confirmRemotePrivacy(next)) return;
+  if (!confirmRemotePrivacy(next)) {
+    toast("Nothing was saved — the connection needs approval before it can render", "error");
+    return;
+  }
+  const button = document.getElementById("ig-save");
+  if (button?.disabled) return;
+  if (button) button.disabled = true;
   try {
     const res = await api.put(`/workflows/${WORKFLOW_ID}/config`, { config: next });
     const stored = res?.config || next;
@@ -1003,11 +1150,17 @@ async function saveSettings() {
         : "Image generation settings saved",
       droppedGraphs > 0 ? "error" : undefined,
     );
+    // The draft is the stored config now, so the guard has nothing left to protect --
+    // without this it compares against the baseline taken at open and asks the user
+    // to confirm discarding what was just saved.
+    setModalCloseGuard(null);
     closeModal();
     refreshCardReadiness();
     refreshCardStyles();
   } catch {
     toast("Could not save image generation settings", "error");
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 

@@ -17,14 +17,24 @@ document.addEventListener("keydown", (e) => {
 });
 
 export function showModal(html) {
+  // A guard belongs to the modal that set it, and this call replaces that modal.
+  _modalCloseGuard = null;
   $("modal-root").innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">
        <div class="modal">${html}</div>
      </div>`;
 }
 
 let _modalCloseCallback = null;
+// Asked before the modal goes away; returning false keeps it open. All three exits
+// -- the Close button, the overlay click above and the Escape handler -- funnel
+// through closeModal, so this is the one place a modal holding an unsaved draft can
+// intercept them, rather than three places it has to remember. Cleared on both open
+// and close, so a guard can never outlive the DOM it was guarding.
+let _modalCloseGuard = null;
 
 export function closeModal() {
+  if (_modalCloseGuard && _modalCloseGuard() === false) return;
+  _modalCloseGuard = null;
   $("modal-root").innerHTML = "";
   const cb = _modalCloseCallback;
   _modalCloseCallback = null;
@@ -33,6 +43,10 @@ export function closeModal() {
 
 export function setModalCloseCallback(cb) {
   _modalCloseCallback = cb;
+}
+
+export function setModalCloseGuard(fn) {
+  _modalCloseGuard = fn;
 }
 
 export function switchTab(tab, contentId) {

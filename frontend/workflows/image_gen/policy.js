@@ -152,6 +152,62 @@ export function effectiveReferenceSources(style, { graphs = [], source = "" } = 
   return stored.slice(0, source === "cloud" ? 1 : graphReferenceSlots(graphs, style?.workflow).length);
 }
 
+// ── resolution ───────────────────────────────────────────────────────────────
+// The fallback menu, offered to a cloud provider that publishes no size vocabulary
+// of its own. Its two 16:9-ish rows are why it is not shared with ComfyUI: 1820 is
+// not a multiple of 8, and a latent is the request divided by eight.
+export const CLOUD_SIZES = ["1024x1024", "1024x1536", "1536x1024", "1024x1820", "1820x1024"];
+// Multiples of 64, the grid the checkpoints Orb can drive are trained on -- SD 1.5
+// at 512, SDXL at 1024 and its native portrait/landscape pair. A ComfyUI style is
+// not limited to these: the backend takes any edge from 64 to 4096, which is why an
+// off-menu size already stored is kept rather than snapped to one of these.
+export const COMFY_SIZES = ["512x512", "768x768", "1024x1024", "832x1216", "1216x832", "1024x1536", "1536x1024"];
+
+// Every edge on the provider's own pixel grid. `width_height` is the only mode that
+// has one, and it is a hard contract rather than a rounding preference -- Together
+// 400s on a non-multiple of 16.
+function fitsGrid(preset, value) {
+  const step = preset.dimension_step || 1;
+  const low = preset.min_dimension || step;
+  const high = preset.max_dimension || 0;
+  return value
+    .split("x")
+    .map(Number)
+    .every((edge) => edge >= low && (!high || edge <= high) && edge % step === 0);
+}
+
+/** Whether this exact pair reaches the renderer intact.
+ *
+ * A menu provider snaps to its own list and a `width_height` one to its grid, both
+ * server-side and both disclosed only after the render is paid for. ComfyUI, an
+ * `aspect_ratio` provider (where nothing but the ratio is ever sent) and a `size`
+ * provider that declares no menu all take what they are given.
+ */
+export function sizeIsExact(preset, comfy, value) {
+  if (comfy) return true;
+  const declared = preset?.sizes || [];
+  if (declared.length) return declared.includes(value);
+  if (preset?.dimension_mode === "width_height") return fitsGrid(preset, value);
+  return true;
+}
+
+/** What the resolution picker may offer for this target.
+ *
+ * A provider that names its own sizes gets exactly those: offering it anything else
+ * is offering a row that renders as something its label does not say -- which is the
+ * whole failure `size_for`'s disclosure exists to report afterwards, by which point
+ * the bill has landed. The declared list is used verbatim rather than intersected
+ * with `CLOUD_SIZES`, so a provider whose menu shares nothing with Orb's is still
+ * fully offered instead of reduced to nothing.
+ */
+export function sizeChoices(preset, comfy) {
+  if (comfy) return COMFY_SIZES;
+  const declared = Array.isArray(preset?.sizes) ? preset.sizes : [];
+  if (declared.length) return declared;
+  if (preset?.dimension_mode === "width_height") return CLOUD_SIZES.filter((value) => fitsGrid(preset, value));
+  return CLOUD_SIZES;
+}
+
 export function modelTakesReferences(preset, model) {
   if (!preset?.supports_references) return false;
   const allowed = Array.isArray(preset.reference_models) ? preset.reference_models : [];

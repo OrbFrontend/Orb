@@ -80,6 +80,20 @@ def test_the_catalogue_projects_the_table_and_carries_no_credential():
     assert next(row for row in catalogue if row["id"] == "custom")["needs_base_url"] is True
 
 
+def test_the_catalogue_carries_the_whole_dimension_contract():
+    """The panel's resolution menu is built from these four, so dropping one from the
+    allowlist does not fail here -- it silently goes back to offering sizes that
+    `size_for`/`pixels_for` snap to something else, disclosed only after the render is
+    billed. Asserted per row, since a default of 0 or () reads the same as absent on
+    the wire and only the presence of the key can be checked."""
+    for row in provider_catalogue():
+        for field in ("sizes", "dimension_mode", "min_dimension", "max_dimension", "dimension_step"):
+            assert field in row, f"{row['id']} is missing {field}"
+        # Not a menu question but the same one: it decides whether the menu applies at
+        # all, and only the panel can say so before the user pays for the answer.
+        assert "reference_drives_size" in row, row["id"]
+
+
 # ── the allowlist ────────────────────────────────────────────────────────────
 
 

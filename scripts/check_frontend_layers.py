@@ -127,6 +127,7 @@ FROZEN_ABI = {
     "toast",
     "showModal",
     "closeModal",
+    "setModalCloseGuard",
     "sseEvents",
     "streamPost",
     # audio
@@ -259,11 +260,15 @@ def main() -> int:
     if missing:
         errors.append(f"[abi] workflow_api.js is MISSING frozen exports (rename/removal breaks plugins): {sorted(missing)}")
     if added:
-        errors.append(f"[abi] workflow_api.js has NEW exports not in FROZEN_ABI — add them there (additive-only): {sorted(added)}")
+        errors.append(
+            f"[abi] workflow_api.js has NEW exports not in FROZEN_ABI — add them there (additive-only): {sorted(added)}"
+        )
 
     # Report.
-    print(f"frontend layer check: {len(top_files)} modules, inline on*={inline} (max {MAX_INLINE_ON}), "
-          f"underscore imports={us} (max {MAX_UNDERSCORE_IMPORTS}), ABI exports={len(exports)}")
+    print(
+        f"frontend layer check: {len(top_files)} modules, inline on*={inline} (max {MAX_INLINE_ON}), "
+        f"underscore imports={us} (max {MAX_UNDERSCORE_IMPORTS}), ABI exports={len(exports)}"
+    )
     if errors:
         print("\nFRONTEND LAYER CHECK FAILED:")
         for e in errors:

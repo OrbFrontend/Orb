@@ -6,6 +6,10 @@ export const MAX_REFERENCE_IMAGE_BYTES = 10_000_000;
 export const REFERENCE_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp"];
 
 let referenceImage = { reference_image_b64: "", reference_mime: "" };
+// What the fields held when the modal loaded them, so the panel's unsaved-changes
+// guard can speak for this section too -- it saves on the same button as the config
+// but through a different route, and is invisible to a diff of the config alone.
+let loadedProfile = null;
 
 export function initCharacterProfile() {
   registerAction(WORKFLOW_ID, "referenceFile", (el) => pickReferenceImage(el));
@@ -16,6 +20,20 @@ export function initCharacterProfile() {
 
 export function resetCharacterProfile() {
   referenceImage = { reference_image_b64: "", reference_mime: "" };
+  loadedProfile = null;
+}
+
+function currentProfile() {
+  return {
+    appearance_prompt: document.getElementById("ig-appearance")?.value || "",
+    negative_prompt: document.getElementById("ig-profile-negative")?.value || "",
+    ...referenceImage,
+  };
+}
+
+export function profileIsDirty() {
+  if (!loadedProfile || !document.getElementById("ig-appearance")) return false;
+  return JSON.stringify(currentProfile()) !== JSON.stringify(loadedProfile);
 }
 
 function referenceImageHtml() {
@@ -88,6 +106,7 @@ export async function populateProfile() {
           <div id="ig-reference-host">${referenceImageHtml()}</div>
         </div>
       </div>`;
+    loadedProfile = currentProfile();
   } catch {
     el.textContent = "Could not load character appearance.";
   }
@@ -98,11 +117,7 @@ export async function saveProfile() {
   if (!appearanceEl || !getActiveConvId()) return;
   const res = await api.post(convUrl(getActiveConvId(), "workflows", WORKFLOW_ID, "trigger"), {
     action: "set_profile",
-    profile: {
-      appearance_prompt: appearanceEl.value || "",
-      negative_prompt: document.getElementById("ig-profile-negative")?.value || "",
-      ...referenceImage,
-    },
+    profile: currentProfile(),
   });
   if (res?.warning) {
     toast(res.warning, "error");

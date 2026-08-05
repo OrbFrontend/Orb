@@ -778,7 +778,7 @@ The three array registrars are idempotent on `workflowId` (re-registration repla
 
 `frontend/workflow_api.js` is **THE plugin surface**. Everything a workflow is allowed to touch is re-exported (or wrapped) here, so a plugin never reaches into `state.js` / `chat.js` / `audio_player.js` / etc. directly.
 
-**Stability policy — additive only.** New exports may be added; an existing export **never changes name or signature**. That single rule is the extensibility contract. `WORKFLOW_API_VERSION` (currently `1`) bumps only when surface is added (still additive). The stage-0 ABI snapshot check (`scripts/check_frontend_layers.py`) diffs this file's exports against a frozen list, so an accidental rename/removal fails CI. Canonical names throughout — no aliases (`setWorkflowPhase` is `setWorkflowPhase`, one name per operation).
+**Stability policy — additive only.** New exports may be added; an existing export **never changes name or signature**. That single rule is the extensibility contract. `WORKFLOW_API_VERSION` (currently `2`) bumps only when surface is added (still additive). The stage-0 ABI snapshot check (`scripts/check_frontend_layers.py`) diffs this file's exports against a frozen list, so an accidental rename/removal fails CI. Canonical names throughout — no aliases (`setWorkflowPhase` is `setWorkflowPhase`, one name per operation).
 
 **ABI reference.** Tier `frozen` = payload/signature is contract; `stable` = additive-only like the rest.
 
@@ -800,6 +800,7 @@ The three array registrars are idempotent on `workflowId` (re-registration repla
 | `esc` / `escAttr` | `(s) => string` | HTML / attribute escaping. | stable |
 | `toast` | `(msg, isError?)` | Transient notification. | stable |
 | `showModal` / `closeModal` | `(html)` / `()` | Framework modal. | stable |
+| `setModalCloseGuard` | `(() => bool)` | Asked before the current modal closes — return `false` to keep it open (unsaved-draft prompt). Covers all three exits: Close, overlay click, Escape. Cleared automatically whenever a modal opens or closes, so set it *after* `showModal`. | stable |
 | `playAudio` | `({channel, segments, loop?, volume?, stopOn?})` | Play on a shared audio channel. | stable |
 | `stopChannel`/`stopAll`/`pauseChannel`/`resumeChannel`/`seekChannel`/`setChannelVolume`/`setChannelRepeat`/`replayChannel` | channel controls | See sec. 15.3. | stable |
 | `channelState` | `(channel) => state\|null` | Live channel state (sec. 15.4). | stable |
