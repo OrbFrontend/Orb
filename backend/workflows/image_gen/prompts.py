@@ -94,7 +94,7 @@ _SHOT_PROSE_THIRD = (
 _SCENE_FORMAT_TAIL = (
     "Order the scene by visual importance. Give each character's pose and action first. Then give their build, current "
     "clothing, hair, and other visible traits. Keep one character's facts together. Then describe the interaction and "
-    "spatial relationships, followed by the setting (place/time), lighting, and framing. "
+    "spatial relationships, followed by the setting (place/time), lighting, and framing (height, angle, distance from viewer). "
     "Use as much detail as the visible constraints need, but state each fact once and omit filler. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
@@ -135,7 +135,7 @@ _SCENE_FORMAT_STRUCTURED_HEAD = (
 
 _SCENE_FORMAT_STRUCTURED_TAIL = (
     "Render it in the requested prompt format and keep its order: pose and action, visible traits and current clothing, "
-    "interaction and spatial relationships, then setting, lighting, and framing. Keep one character's facts together. "
+    "interaction and spatial relationships, then setting, lighting, and framing (height, angle, distance from viewer). Keep one character's facts together. "
     "Use as much detail as the visible constraints need, but state each fact once and omit filler. Be extremely meticulous and as lengthy as needed. "
     "Use the word 'own' when a character acts on their own body or belongings. Use explicit quantities such as 'one' or "
     "'two' when they disambiguate limbs, hands, objects, or contacts. Always use possessive adjectives. "
