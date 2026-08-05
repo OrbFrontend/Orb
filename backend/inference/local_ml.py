@@ -34,9 +34,20 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 @dataclass(frozen=True)
 class ModelSpec:
     repo_id: str
-    filename: str
+    filename: str  # path *inside the HF repo* — upstream's layout, not ours
     size_mb: int
     revision: str  # pinned commit sha — a repo re-point can't swap the weights under us
+
+    @property
+    def local_name(self) -> str:
+        """On-disk name under data/models/, always flat.
+
+        Upstream repos disagree about where a GGUF lives — root, ``gguf/``,
+        ``GGUF/`` — and mirroring that gave us a tree whose two case-variant
+        directories are ONE directory on macOS/Windows. Basenames must stay
+        unique across MODELS (test_local_ml asserts it).
+        """
+        return os.path.basename(self.filename)
 
 
 MODELS: dict[str, ModelSpec] = {
@@ -153,10 +164,15 @@ def resolve_path(feature: str) -> str:
         if env and os.path.exists(env):  # stale override must not hide a downloaded model
             return env
     spec = MODELS[feature]
-    in_data = os.path.join(model_dir(), spec.filename)
-    if os.path.exists(in_data):
-        return in_data
-    return os.path.join(_ROOT, spec.filename)  # legacy: manual drop at repo root
+    for candidate in (
+        os.path.join(model_dir(), spec.local_name),  # flat — what download() writes
+        os.path.join(model_dir(), spec.filename),  # legacy: hf's mirror of the repo layout
+        os.path.join(_ROOT, spec.local_name),  # legacy: manual drop at repo root
+        os.path.join(_ROOT, spec.filename),  # legacy: mirrored drop at repo root
+    ):
+        if os.path.exists(candidate):
+            return candidate
+    return os.path.join(model_dir(), spec.local_name)  # absent: name the flat path in errors
 
 
 def _import_llama():
@@ -200,15 +216,25 @@ def prune_stale(root: str | None = None) -> None:
     Runs after every download so bumping a model (e.g. v2 typeahead) doesn't leave
     the old weights eating disk. Only touches .gguf files — hf's .cache bookkeeping
     and manual drops of other extensions are left alone.
+
+    Claim is by *basename*, not full path: comparing paths meant a model sitting in
+    a legacy mirrored subdir read as unclaimed and got deleted the moment any other
+    feature downloaded — and on a case-insensitive filesystem, where ``GGUF/`` and
+    ``gguf/`` are one directory, that fired on a model we had just fetched.
     """
     root = root or model_dir()
-    keep = {os.path.normpath(os.path.join(root, s.filename)) for s in MODELS.values()}
-    for dirpath, _dirs, files in os.walk(root):
+    keep = {s.local_name for s in MODELS.values()}
+    walked: list[str] = []
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d != ".cache"]  # hf's bookkeeping is its own business
         for name in files:
-            if name.endswith(".gguf"):
-                p = os.path.normpath(os.path.join(dirpath, name))
-                if p not in keep:
-                    os.remove(p)
+            if name.endswith(".gguf") and name not in keep:
+                os.remove(os.path.join(dirpath, name))
+        if dirpath != root:
+            walked.append(dirpath)
+    for d in reversed(walked):  # deepest first, so the emptied-out gguf//GGUF/ mirrors collapse
+        if not os.listdir(d):
+            os.rmdir(d)
 
 
 def download(feature: str) -> None:
@@ -216,7 +242,10 @@ def download(feature: str) -> None:
     from huggingface_hub import hf_hub_download  # noqa: PLC0415 — deferred
 
     spec = MODELS[feature]
-    hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, revision=spec.revision, local_dir=model_dir())
+    got = hf_hub_download(repo_id=spec.repo_id, filename=spec.filename, revision=spec.revision, local_dir=model_dir())
+    flat = os.path.join(model_dir(), spec.local_name)
+    if os.path.normpath(got) != os.path.normpath(flat):
+        os.replace(got, flat)  # hf mirrors the repo's own gguf//GGUF/ nesting; we don't keep it
     prune_stale()  # after fetch: new file lands before old ones go, so a failed download keeps the old model
 
 
@@ -537,15 +566,21 @@ if __name__ == "__main__":
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:
-        keep = os.path.join(d, MODELS["autocomplete"].filename)
-        os.makedirs(os.path.dirname(keep), exist_ok=True)
+        keep = os.path.join(d, MODELS["autocomplete"].local_name)
         open(keep, "w").close()
+        mirrored = os.path.join(d, MODELS["pov_classifier"].filename)  # legacy gguf/ nesting
+        os.makedirs(os.path.dirname(mirrored), exist_ok=True)
+        open(mirrored, "w").close()
         stale = os.path.join(d, "old-granite-Q8_0.gguf")
         open(stale, "w").close()
         notes = os.path.join(d, "readme.txt")  # non-gguf must survive
         open(notes, "w").close()
+        cached = os.path.join(d, ".cache", "huggingface", "download")
+        os.makedirs(cached)
         prune_stale(d)
         assert os.path.exists(keep), "current spec's gguf must be kept"
+        assert os.path.exists(mirrored), "a claimed gguf in a legacy subdir must survive"
         assert not os.path.exists(stale), "unclaimed gguf must be removed"
         assert os.path.exists(notes), "non-gguf must be left alone"
+        assert os.path.isdir(cached), "hf's .cache must be left alone, empty or not"
     print("prune_stale OK")
