@@ -70,7 +70,6 @@ nav:
       - KV Cache Reuse: architecture/kv-cache.md
       - SSE Turn Stream: architecture/sse-stream.md
       - Secondary Workflows: architecture/secondary-workflow.md
-      - Image Prompter Plan: architecture/image-gen-prompter-plan.md
   - Features:
       - Overview: features/index.md
       - Direction:
