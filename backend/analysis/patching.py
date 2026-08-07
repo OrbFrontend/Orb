@@ -1,22 +1,31 @@
 """
-patching.py — Pure audit-report filtering and search/replace patch application.
+patching.py — Pure audit-report filtering and id-anchored patch application.
 
 Extracted from ``pipeline.passes.editor.editor`` so non-pipeline consumers
 (the Document-mode auditor in ``features/documents``) can reuse them without
 importing a peer slice: pipeline→analysis and features→analysis are both legal
-downward edges. The editor re-imports these names, so its public surface is
-unchanged.
+downward edges.
+
+Patches are anchored on the numbered findings :mod:`analysis.targets` builds,
+not on a ``search`` string copied out of the draft. Application is a splice of
+offsets the audit itself recorded, so the whole near-miss fallback ladder that
+the string path needed (marker stripping, quote normalisation, LLM escape
+artifacts) is gone along with the "Multiple matches" rejection that made a
+duplicated sentence unfixable.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import fields
+from typing import Any
 
 from .audit import AuditReport
 from .detectors.opening_monotony import FlaggedOpener, MonotonyResult
 from .detectors.slop_detector import DetectionResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
+from .targets import Target
 from .text.text_segmentation import split_narration_sentences
 
 logger = logging.getLogger(__name__)
@@ -128,118 +137,94 @@ def filter_audit_report_to_text(report: AuditReport, target_text: str) -> AuditR
     )
 
 
-# ── Quote normalisation & patching ────────────────────────────────────────────
-
-_QUOTE_MAP = str.maketrans(
-    {
-        "“": '"',
-        "”": '"',
-        "‘": "'",
-        "’": "'",
-        "–": "-",
-        "—": "-",
-    }
-)
-
-# Non-standard escape sequences some LLMs emit literally in their JSON output.
-# Standard JSON escapes (\n, \t, etc.) are already decoded by json.loads;
-# these are the ones that slip through as literal two-character sequences.
-_LLM_ESCAPE_MAP = [
-    ("\\'", "'"),
-    ('\\"', '"'),
-]
+# ── ID-anchored patch application ─────────────────────────────────────────────
 
 
-def _unescape_llm_artifacts(text: str) -> str:
-    for esc, ch in _LLM_ESCAPE_MAP:
-        text = text.replace(esc, ch)
-    return text
+def _coerce_id(raw: object) -> int | None:
+    """A finding id from whatever the model's JSON put in the field.
+
+    The schema says integer and the forced-decoding grammar holds it to that,
+    but the chat-transport recovery chain can hand back a `"2"` or a `2.0`;
+    those name a finding just as clearly. A bool is an ``int`` in Python and is
+    never an id, so it is rejected rather than read as 0/1.
+    """
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, float):
+        return int(raw) if raw.is_integer() else None
+    if isinstance(raw, str):
+        try:
+            return int(raw.strip())
+        except ValueError:
+            return None
+    return None
 
 
-def _normalize_quotes(text: str) -> str:
-    return text.translate(_QUOTE_MAP)
+def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[Any]) -> tuple[str, list[str]]:
+    """Apply ``{"id": N, "replace": "…"}`` patches by splicing recorded offsets.
 
+    *targets* must be the list that produced the report the model answered —
+    ids are renumbered on every re-audit, so a stale list silently edits the
+    wrong sentences.
 
-# Boundary markers the audit report deliberately omits from snippets. A search
-# copied from the report can therefore differ from the marked-up draft. Straight
-# ' is excluded so contractions/possessives survive.
-_OUTER_MARKERS = '*_"“”‘’'
-
-
-def _strip_outer_markers(text: str) -> str:
-    """Strip leading/trailing emphasis (*, _) and quote markers, plus the
-    whitespace just inside them.  Internal markers are left untouched."""
-    return text.strip().strip(_OUTER_MARKERS).strip()
-
-
-def apply_patches(draft: str, patches: list[dict]) -> tuple[str, list[str]]:
-    """Apply search/replace patches to *draft*. Returns ``(updated_draft, error_messages)``."""
+    Errors are written in the report's own id vocabulary because they are fed
+    back to the model verbatim as the tool result. The only failure modes left
+    are a malformed patch and a no-op replacement; nothing here can fail to
+    *find* its anchor. Exactly one error is emitted per patch that does not
+    apply, so callers can count applications as ``len(patches) - len(errors)``.
+    Returns ``(updated_draft, error_messages)``.
+    """
     errors: list[str] = []
-    logger.debug("Applying %d patches to draft (%d chars)", len(patches), len(draft))
+    by_id = {t.tid: t for t in targets}
+    id_range = f"1-{len(targets)}" if targets else "(none — the report has no numbered findings)"
+    resolved: list[tuple[Target, str]] = []
+    seen_ids: set[int] = set()
+    logger.debug("Applying %d id-patches to draft (%d chars, %d targets)", len(patches), len(draft), len(targets))
 
     for i, p in enumerate(patches):
-        # A malformed tool call can place a non-dict where the schema expects a
-        # {search, replace} object; skip it rather than crash on .get().
+        # A malformed tool call can place a non-dict where the schema expects an
+        # {id, replace} object; report it rather than crash on .get().
         if not isinstance(p, dict):
-            logger.debug("Patch %d: non-dict element (%s), skipping", i, type(p).__name__)
+            errors.append(f"Error: patch {i} is not an object with `id` and `replace`.")
             continue
-        search = _unescape_llm_artifacts(p.get("search", ""))
-        replace = _unescape_llm_artifacts(p.get("replace", ""))
-        if not search:
-            logger.debug("Patch %d: empty search string, skipping", i)
+        raw_id = p.get("id")
+        pid = _coerce_id(raw_id)
+        if pid is None:
+            errors.append(f"Error: patch {i} has a non-integer id ({raw_id!r}). Valid ids: {id_range}.")
             continue
-        if search == replace:
-            err = f"Error: Patch {i} is a no-op (search === replace). You must provide different replacement text."
-            errors.append(err)
+        target = by_id.get(pid)
+        if target is None:
+            errors.append(f"Error: no finding with id {pid} in the report. Valid ids: {id_range}.")
             continue
+        if pid in seen_ids:
+            errors.append(f"Error: id {pid} was patched more than once. Emit exactly one patch per finding.")
+            continue
+        seen_ids.add(pid)
+        replace = p.get("replace")
+        if replace is None:
+            errors.append(f"Error: the patch for id {pid} has no `replace` text.")
+            continue
+        # An id can be recovered from a stringy or float JSON value because every
+        # such form names one finding unambiguously. Replacement prose cannot:
+        # coercing a number or a nested object with str() would splice `['a', 'b']`
+        # into the draft, the one input class here that would neither error nor
+        # produce a correct edit.
+        if not isinstance(replace, str):
+            errors.append(f"Error: the patch for id {pid} has a non-text `replace` ({type(replace).__name__}). Send a string.")
+            continue
+        if replace == target.span:
+            errors.append(f"Error: the patch for id {pid} is a no-op — `replace` repeats the flagged text unchanged.")
+            continue
+        resolved.append((target, replace))
 
-        # The audit report strips outer boundary markers, while a model may add
-        # them back inconsistently. Match on the marker-stripped core and replace
-        # the core, leaving the draft's own surrounding markers in place — this
-        # keeps quotes/emphasis balanced whether the draft has an extra trailing
-        # marker (…octave.*) or the search a spurious leading quote ("Do not…).
-        # Falls through when the core is ambiguous (markers were load-bearing for
-        # uniqueness) so the exact strategies below can target the marked span.
-        core_search = _strip_outer_markers(search)
-        core_replace = _strip_outer_markers(replace)
-        if core_search and core_search != core_replace and (core_search != search or core_replace != replace):
-            if draft.count(core_search) == 1:
-                draft = draft.replace(core_search, core_replace, 1)
-                logger.debug("Patch %d OK (marker-core): %r → %r", i, core_search[:60], core_replace[:60])
-                continue
-
-        count = draft.count(search)
-
-        # Fallback: try with normalised quotes when exact match fails
-        if count == 0:
-            norm_search = _normalize_quotes(search)
-            norm_draft = _normalize_quotes(draft)
-            norm_count = norm_draft.count(norm_search)
-            if norm_count == 1:
-                pos = norm_draft.index(norm_search)
-                original_substr = draft[pos : pos + len(norm_search)]
-                if len(original_substr) == len(norm_search):
-                    draft = draft[:pos] + replace + draft[pos + len(original_substr) :]
-                    logger.debug(
-                        "Patch %d OK (quote-normalized): %r → %r",
-                        i,
-                        search[:60],
-                        replace[:60],
-                    )
-                    continue
-            elif norm_count > 1:
-                errors.append(
-                    f"Error: Multiple matches ({norm_count}) for {search[:80]!r} (after quote normalization). Use more context."
-                )
-                continue
-
-            errors.append(f"Error: {search[:80]!r} not found in draft.")
-
-        elif count > 1:
-            errors.append(f"Error: Multiple matches ({count}) for {search[:80]!r}. Use more context.")
-        else:
-            draft = draft.replace(search, replace, 1)
-            logger.debug("Patch %d OK: %r → %r", i, search[:60], replace[:60])
+    # Splice back-to-front so the offsets ahead of each edit stay valid. Targets
+    # never overlap (build_targets merges regions that do), so this is exact.
+    out = draft
+    for target, replace in sorted(resolved, key=lambda r: r[0].start, reverse=True):
+        out = out[: target.start] + replace + out[target.end :]
+        logger.debug("Patch id %d OK: %r → %r", target.tid, target.span[:60], replace[:60])
 
     logger.debug("Patch application done: %d errors out of %d patches", len(errors), len(patches))
-    return draft, errors
+    return out, errors

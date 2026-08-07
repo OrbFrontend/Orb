@@ -54,6 +54,9 @@
   overflow-wrap: anywhere;
 }
 .doc-audit-item b { color: var(--text-primary); }
+/* The patch id(s) the model addresses this finding by — same numbers the
+   numbered audit report carries. */
+.doc-audit-id { font-variant-numeric: tabular-nums; opacity: 0.7; }
 .doc-audit-snippet { display: block; padding-left: 8px; }
 .doc-audit-actions { display: flex; gap: 6px; margin-top: 8px; }
 .doc-audit-hint { font-size: 10px; color: var(--text-muted); margin-top: 4px; font-style: italic; }

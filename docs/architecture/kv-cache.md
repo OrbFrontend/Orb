@@ -69,12 +69,14 @@ Within a single turn, Orb makes 2–4+ LLM calls. Here's what each one looks lik
   system + history                ← cached prefix (same as writer's)
 + writer's exact user message     ← reuses the writer's trailing pancake
 + assistant: <writer's draft>     ← the prose the writer just produced
-+ "[OOC: you are the editor...] Apply patches to fix: ..."
++ "[OOC: you are the editor...] Apply patches to fix: <numbered audit report>"
 ```
 
 `tool_choice` is forced to `editor_apply_patch` or `editor_rewrite`.
 
 The editor's prompt **extends** the writer's prompt: the writer's trailing user message is reused verbatim. So the editor's cached prefix isn't just system + history; it's all of that **plus the writer's pancake plus the writer's draft**. That's the bulk of where the editor's savings come from.
+
+Findings in the report are numbered, and `editor_apply_patch` takes `{id, replace}` — the model never re-prints draft text. The valid id set changes every turn, so it is stated in prose and validated server-side; expressing it as a per-turn `schema_overrides` entry would bust the shared prefix every turn for every pass, which is exactly what Invariant 3 forbids.
 
 ---
 
@@ -211,7 +213,7 @@ The model streams: "Steel rings as the blade leaves its sheath..."
 msgs = prefix + [
     {"role": "user",      "content": "<lorebook>\n<inj_block>\nI draw my sword."},  # same as writer's
     {"role": "assistant", "content": "Steel rings as the blade leaves its sheath..."},  # writer's draft
-    {"role": "user",      "content": "[OOC: you are the editor...] Apply patches to fix: <audit report>"},
+    {"role": "user",      "content": "[OOC: you are the editor...] Apply patches to fix: <numbered audit report>"},
 ]
 client.complete(messages=msgs, tools=ALL_SCHEMAS, tool_choice={editor_apply_patch})
 ```

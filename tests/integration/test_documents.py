@@ -366,7 +366,7 @@ async def test_patch_applies_patches(client, llm_mock):
     await _seed_phrase(client)
     did = (await client.post("/api/documents", json={})).json()["id"]
     flagged = f"She felt {_BANNED} at once."
-    _enqueue_patch_call(llm_mock, [{"search": flagged, "replace": "A chill traced her back."}])
+    _enqueue_patch_call(llm_mock, [{"id": 1, "replace": "A chill traced her back."}])
 
     r = await client.post(f"/api/documents/{did}/patch", json={"draft": flagged, "context": "Earlier prose."})
     assert r.status_code == 200
@@ -392,7 +392,8 @@ async def test_patch_surfaces_apply_errors(client, llm_mock):
     await _seed_phrase(client)
     did = (await client.post("/api/documents", json={})).json()["id"]
     draft = f"She felt {_BANNED} at once."
-    _enqueue_patch_call(llm_mock, [{"search": "not present in the draft", "replace": "x"}])
+    # id 2 does not exist: the single banned sentence is the only finding.
+    _enqueue_patch_call(llm_mock, [{"id": 2, "replace": "x"}])
 
     body = (await client.post(f"/api/documents/{did}/patch", json={"draft": draft})).json()
     assert body["patched_draft"] == draft
@@ -415,7 +416,7 @@ async def test_patch_text_mode_raw_extends_prompt_with_json_schema(client, llm_m
     did = (await client.post("/api/documents", json={})).json()["id"]
     flagged = f"She felt {_BANNED} at once."
     ctx = "Earlier prose precedes the run. "
-    llm_mock.enqueue_raw(json.dumps({"patches": [{"search": flagged, "replace": "A chill traced her back."}]}))
+    llm_mock.enqueue_raw(json.dumps({"patches": [{"id": 1, "replace": "A chill traced her back."}]}))
 
     body = (await client.post(f"/api/documents/{did}/patch", json={"draft": flagged, "context": ctx})).json()
     assert body["patched_draft"] == "A chill traced her back."

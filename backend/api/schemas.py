@@ -399,7 +399,9 @@ class DocumentAuditRequest(BaseModel):
 
 class AuditReportPayload(BaseModel):
     # Serialized AuditReport (analysis.report_to_dict): one `sections` entry per
-    # scanner with findings, keyed by its AUDIT_TYPES name.
+    # scanner with findings, keyed by its AUDIT_TYPES name. Every entry also
+    # carries `ids` — the numbered findings /patch addresses, empty when the
+    # finding has no patchable span (structural repetition).
     total_issues: int
     is_clean: bool
     sections: dict[str, Any]
@@ -421,6 +423,8 @@ class DocumentPatchResponse(BaseModel):
     patch_count: int
     errors: list[str] = []
     report_after: AuditReportPayload
+    # "no_complete_sentence" / "clean" as above, plus "no_addressable_findings"
+    # when the report has issues but none resolved to a patchable span.
     skipped: str | None = None
 
 

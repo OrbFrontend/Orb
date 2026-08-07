@@ -129,9 +129,14 @@ class CapturingClient:
         """Mirror an ordinary chat endpoint for the case these invariants model."""
         return tools_in_prompt
 
-    def enqueue_editor_patch(self, search: str, replace: str) -> None:
+    def enqueue_editor_patch(self, tid: int, replace: str) -> None:
         """Queue an ``editor_apply_patch`` call removing one banned span, so the
-        re-audit's issue count strictly drops and the ReAct loop advances."""
+        re-audit's issue count strictly drops and the ReAct loop advances.
+
+        *tid* is a finding id from the report that iteration will be shown. Ids
+        are rebuilt per audit, so a fixed sentence drops out and the ones after
+        it shift down — which is why the drivers below queue the same id each
+        time rather than a stable per-sentence one."""
         self._editor_queue.append(
             {
                 "role": "assistant",
@@ -142,7 +147,7 @@ class CapturingClient:
                         "type": "function",
                         "function": {
                             "name": "editor_apply_patch",
-                            "arguments": json.dumps({"patches": [{"search": search, "replace": replace}]}),
+                            "arguments": json.dumps({"patches": [{"id": tid, "replace": replace}]}),
                         },
                     }
                 ],
@@ -765,8 +770,9 @@ async def test_editor_react_iterations_preserve_cached_bottom(reasoning_on):
     phrase_bank = [["shiver ran down her spine"]]
 
     client = CapturingClient("editor-model")
+    # Each iteration fixes the first remaining finding, so it is always id 1.
     for lead in ("The", "Later the", "Again the"):
-        client.enqueue_editor_patch(f"{lead} shiver ran down her spine.", f"{lead} hall stayed silent.")
+        client.enqueue_editor_patch(1, f"{lead} hall stayed silent.")
 
     settings = {"model_name": "editor-model", "editor_audit_toggles": None}
     base = CachedBase(

@@ -21,7 +21,7 @@ async def test_phrase_repetition_detected_through_contextual_audit():
     """A distinctive phrase echoed across three messages must be flagged."""
     draft = "She met the shadowed red eyes across the crowded table without a word."
 
-    report, text = await _run_contextual_audit(
+    report, targets = await _run_contextual_audit(
         draft=draft,
         phrase_bank=[],
         previous_assistant_msgs=[_PREV1, _PREV2],
@@ -29,8 +29,9 @@ async def test_phrase_repetition_detected_through_contextual_audit():
     assert report.phrase_result is not None, "phrase_result should be set when previous messages are provided"
     phrases = [p.phrase for p in report.phrase_result.flagged_phrases]
     assert "shadowed red eyes" in phrases, f"Expected 'shadowed red eyes' to be flagged, got {phrases}"
-    # The report must include the draft sentence so the editor can patch it.
-    assert draft in text
+    # The finding must resolve to an addressable target, or the editor has no id
+    # to patch and falls through to a whole-draft rewrite.
+    assert [t.span for t in targets] == [draft]
 
 
 async def test_phrase_repetition_no_false_positive_when_draft_is_distinct():
