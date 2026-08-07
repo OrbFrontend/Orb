@@ -118,6 +118,7 @@ function statusText(r) {
   const parts = [];
   if (r.patchedCount != null) parts.push(`Patched ${r.patchedCount}`);
   if (r.skipped === "no_complete_sentence") parts.push("No complete sentence to audit");
+  else if (r.skipped === "no_addressable_findings") parts.push("Nothing patchable — rewrite by hand");
   else if (r.report) {
     parts.push(
       r.report.total_issues === 0 ? "Clean" : `${r.report.total_issues} issue${r.report.total_issues === 1 ? "" : "s"}`,
@@ -129,12 +130,17 @@ function statusText(r) {
 
 const _snippets = (list) => (list || []).map((s) => `<span class="doc-audit-snippet">• ${esc(s)}</span>`).join("");
 
+// The finding numbers /patch hands the model (report_to_dict `ids`). Showing
+// them here is what makes the panel and the patch call describe the same thing;
+// an entry with no ids has no patchable span and /patch will leave it alone.
+const _ids = (list) => ((list || []).length ? `<span class="doc-audit-id">[${(list || []).join(", ")}]</span> ` : "");
+
 function sectionItemsHtml(key, items) {
   if (key === "banned_phrases") {
     return items
       .map(
         (it) =>
-          `<div class="doc-audit-item"><b>“${esc(it.phrase)}”</b><span class="doc-audit-snippet">${esc(it.sentence)}</span></div>`,
+          `<div class="doc-audit-item">${_ids(it.ids)}<b>“${esc(it.phrase)}”</b><span class="doc-audit-snippet">${esc(it.sentence)}</span></div>`,
       )
       .join("");
   }
@@ -142,12 +148,13 @@ function sectionItemsHtml(key, items) {
     const label = key === "repetitive_openers" ? "opener" : "template";
     return items
       .map(
-        (it) => `<div class="doc-audit-item"><b>“${esc(it[label])}”</b> ×${it.count}${_snippets(it.sentences)}</div>`,
+        (it) =>
+          `<div class="doc-audit-item">${_ids(it.ids)}<b>“${esc(it[label])}”</b> ×${it.count}${_snippets(it.sentences)}</div>`,
       )
       .join("");
   }
   // contrastive_negation
-  return items.map((it) => `<div class="doc-audit-item">${esc(it.sentence)}</div>`).join("");
+  return items.map((it) => `<div class="doc-audit-item">${_ids(it.ids)}${esc(it.sentence)}</div>`).join("");
 }
 
 export function renderDocAuditResults() {
@@ -303,6 +310,9 @@ export async function runPatch() {
     r.report = res.report_after;
     r.patchedCount = res.patch_count;
     r.errors = res.errors || [];
+    // Carried so the status line can say why nothing was patched; it also
+    // disables the button for the two skips that would just repeat themselves.
+    r.skipped = res.skipped;
     r.status = "done";
     if (r.errors.length) toast(`${r.errors.length} patch(es) did not apply`, true);
   } catch (e) {

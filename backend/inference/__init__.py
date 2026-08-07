@@ -28,13 +28,13 @@ from .endpoint_profiles import (
 from .kv_tracker import _KVCacheTracker
 from .lorebook import compute_constant_lorebook_block, compute_depth_lorebook_block
 from .prompt_builder import (
+    EDITOR_RENUMBER_NOTICE,
     build_direction_note_prompt,
     build_director_scene_step_prompt,
     build_director_tool_prompt,
     build_editor_prompt,
     build_feedback_prompt,
     build_lorebook_select_prompt,
-    build_patch_target_prompt,
     build_prefix,
     build_style_injection,
     compute_style_injection_block,
@@ -89,11 +89,11 @@ __all__ = [
     # prompt_builder
     "build_director_scene_step_prompt",
     "build_director_tool_prompt",
+    "EDITOR_RENUMBER_NOTICE",
     "build_editor_prompt",
     "build_feedback_prompt",
     "build_lorebook_select_prompt",
     "build_direction_note_prompt",
-    "build_patch_target_prompt",
     "build_prefix",
     "build_style_injection",
     "compute_style_injection_block",

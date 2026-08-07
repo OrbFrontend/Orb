@@ -300,7 +300,7 @@ The pinned author import surface. Importing from anywhere else inside `backend` 
 
 ### 6.1 LLM + prompt + audit helpers (re-exports)
 
-`LLMClient`, `parse_tool_calls`, `reasoning_cfg`, `Macros`, `format_report`, `run_audit`, `build_prefix`, `compute_lorebook_injection_block`, `compute_style_injection_block`, `format_message_with_attachments`, `STANDALONE_TOOLS`, `TOOLS`, `enabled_schemas`.
+`LLMClient`, `parse_tool_calls`, `reasoning_cfg`, `Macros`, `format_report`, `build_targets`, `format_numbered_report`, `run_audit`, `build_prefix`, `compute_lorebook_injection_block`, `compute_style_injection_block`, `format_message_with_attachments`, `STANDALONE_TOOLS`, `TOOLS`, `enabled_schemas`.
 
 ### 6.2 Read-only core DB helpers (re-exports)
 

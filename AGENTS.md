@@ -13,6 +13,7 @@ Orb is an **agentic AI roleplay/writing frontend**: Python/FastAPI backend, vani
 Pipeline passes: **Director** (optional, pre-writer) → **Writer** (streams output) → **Editor** (optional, post-writer auditor/rewriter).
 
 - **Cross-pass KV caching:** All passes share one byte-identical prefix (same system prompt, history, tool schemas). Read [docs/architecture/kv-cache.md](docs/architecture/kv-cache.md) before touching prompt assembly, pass ordering, or tool schemas.
+- **Editor patching:** `editor_apply_patch` anchors on a numbered finding id, not a `search` string — `analysis/targets.py` resolves the audit into addressable offsets.
 - **Secondary workflows:** Pluggable hooks (pre/post pipeline, on-demand). Full reference: [docs/architecture/secondary-workflow.md](docs/architecture/secondary-workflow.md).
 - **SSE wire contract:** [docs/architecture/sse-stream.md](docs/architecture/sse-stream.md).
 
@@ -36,7 +37,7 @@ Dependency order (top to bottom — each layer may only import layers below it):
 | `core/` | Dependency-free kernel: `domain_types`, `llm_types`, `macros`, `locks`, `text_segmentation`, `utils` |
 | `database/` | aiosqlite foundation: schema, migrations, queries, models (TypedDicts) |
 | `inference/` | LLM transport + prompt/tool assembly (`client`, `cached_call`, `prompt_builder`, `tool_registry`) |
-| `analysis/` | Pure prose-quality detection: `audit.py` + detectors; shared by editor + workflows |
+| `analysis/` | Pure prose-quality detection: `audit.py` + detectors, `targets.py` (findings → id-addressable draft offsets), `patching.py`; shared by editor + workflows |
 | `workflows/` | Plugin registry + shipped workflows (TTS, image generation, format_consistency) |
 | `pipeline/` | Director→Writer→Editor turn engine (`entrypoints`, `orchestrator`, `context`, `config`, `persistence`, `passes/`) |
 | `features/` | Self-contained slices: `cards`, `lorebook`, `summarization`, `presets`, `documents` |

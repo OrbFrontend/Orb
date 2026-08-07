@@ -177,11 +177,21 @@ REASONING_GUIDANCE = " Avoid overthinking."
 
 # Sent when only audit issues are flagged (banned phrases, repetitive
 # openers/templates) — no length guard.  Directs the model to patch only.
+#
+# The findings in the accompanying report are numbered (analysis.targets), and a
+# patch names one by its id rather than re-printing the sentence as a `search`
+# string. In text mode the tool schema is never rendered into the prompt, so
+# these lines plus the numbered report are the whole contract the model sees.
+# The valid id set is deliberately stated in prose, not as a per-turn schema
+# override: ids change every turn, and the schema rides the shared cached prefix
+# (docs/architecture/kv-cache.md, Invariant 3). Out-of-range ids are rejected
+# server-side by apply_id_patches instead.
 EDITOR_PATCH_INSTRUCTIONS = (
     "Use `editor_apply_patch` to apply a patch to fix ALL flagged issues.\n\n"
     "PATCHING RULES:\n"
-    "- The `search` field must be copied EXACTLY from the draft text above, including all punctuation and quotes if they exist.\n"
-    "- `search` and `replace` values must be different.\n"
+    "- Each finding in the report below is numbered. The `id` field must be the number of the finding you are fixing.\n"
+    "- Emit one patch per finding — do not skip any, and do not patch the same id twice.\n"
+    "- `replace` is the new text for that sentence. Do not copy the old sentence into it.\n"
     "- For banned phrases: completely rewrite the sentence to eliminate the banned phrase. Make a creative and bold effort; do not just substitute with similar, related words.\n"
     "- For repetitive openers: rewrite and replace flagged sentences so they no longer begin with the same opening words. Vary the sentence structure.\n"
     "- For repetitive templates: restructure flagged sentences so they no longer follow the same POS pattern. Change clause order, combine sentences, or vary syntax.\n"
@@ -204,6 +214,16 @@ EDITOR_REWRITE_INSTRUCTIONS = (
 # The model already receives the full audit report and length-guard
 # instruction with concrete word/paragraph limits.
 EDITOR_BOTH_INSTRUCTIONS = "Call `editor_rewrite` to address both concerns in a single rewrite. Address all audit issues while also respecting length constraints."
+
+# Prepended to the tool-result text on the structured-replay path, where the
+# model's previous call is replayed verbatim beside a freshly numbered report.
+# Ids are rebuilt from scratch on every re-audit (the draft moved, so the old
+# offsets are meaningless), and the structured replay is the one place the model
+# can see both numberings at once — so the rule has to be stated, not inferred.
+EDITOR_RENUMBER_NOTICE = (
+    "The draft has changed and the findings below have been renumbered. Ignore the ids from your previous "
+    "call and patch only the ids listed in this report."
+)
 
 STRUCTURAL_REWRITE_INSTRUCTIONS = (
     "STRUCTURAL REPETITION: This response follows the same paragraph layout as recent "
@@ -428,10 +448,21 @@ def build_editor_prompt(
     length_guard_instruction: str,
     structural_rewrite: bool = False,
     reasoning_on: bool = False,
+    patchable: bool = True,
 ) -> str:
+    """Assemble the editor's request message.
+
+    *patchable* says whether the findings resolved to numbered targets. They
+    normally do; when they do not — structural repetition has no span, and a
+    finding the detectors segmented differently from the draft cannot be
+    located — there is nothing to address by id, so the request falls through
+    to the rewrite path rather than shipping a report the model cannot act on.
+    Callers must render *report_text* to match: the numbered report only when
+    this ends up on the patch branch, the sectioned one otherwise.
+    """
     preamble = EDITOR_PREAMBLE + (REASONING_GUIDANCE if reasoning_on else "")
     parts = [preamble]
-    rewrite_triggered = length_guard_triggered or structural_rewrite
+    rewrite_triggered = length_guard_triggered or structural_rewrite or (has_audit_issues and not patchable)
 
     if rewrite_triggered:
         parts.append(EDITOR_REWRITE_INSTRUCTIONS)
@@ -449,24 +480,6 @@ def build_editor_prompt(
 
     # Close the [OOC: aside opened in EDITOR_PREAMBLE; the whole instruction is the aside.
     return "\n\n".join(parts) + "]"
-
-
-def build_patch_target_prompt(span: str, why: str) -> str:
-    """Per-finding editor request for the text-mode prefill path.
-
-    One flagged sentence per call; the ``search`` string is prefilled
-    transport-side, so the model only writes the replacement. Self-contained
-    (names the sentence and the issue) so the chat-transport fallback still
-    yields a usable patch.
-    """
-    return (
-        EDITOR_PREAMBLE
-        + f"\n\nFlagged issue: {why}."
-        + f"\n\nFlagged sentence:\n{span}"
-        + "\n\nCall `editor_apply_patch` with exactly one patch whose `search` is that sentence, "
-        "copied EXACTLY from the draft. Rewrite it boldly to fix the issue — do not just swap in "
-        "similar words. Keep the surrounding narrative flow; an empty `replace` deletes the sentence.]"
-    )
 
 
 # ── Style injection block

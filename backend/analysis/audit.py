@@ -262,9 +262,14 @@ def _strip_markers(s: str) -> str:
     return s.strip().strip(_OUTER_MARKERS).strip()
 
 
+# Both renderings — sectioned here, numbered in ``targets.format_numbered_report``
+# — say the same thing when there is nothing to say.
+CLEAN_REPORT = "*** WRITING AUDIT REPORT ***\n\nAll checks passed — no issues found.\n\n*** END OF REPORT ***"
+
+
 def format_report(report: AuditReport) -> str:
     if report.is_clean:
-        return "*** WRITING AUDIT REPORT ***\n\nAll checks passed — no issues found.\n\n*** END OF REPORT ***"
+        return CLEAN_REPORT
 
     sections: list[str] = ["*** WRITING AUDIT REPORT ***\n"]
 
@@ -345,7 +350,7 @@ def format_report(report: AuditReport) -> str:
     return "\n\n".join(sections)
 
 
-def report_to_dict(report: AuditReport) -> dict:
+def report_to_dict(report: AuditReport, draft: str = "") -> dict:
     """JSON-shape *report* for API consumers — :func:`format_report`'s structural
     twin for machine consumption.
 
@@ -354,13 +359,29 @@ def report_to_dict(report: AuditReport) -> dict:
     plus the ``total_issues`` / ``is_clean`` rollups. Snippets are
     marker-stripped exactly like the text report so both surfaces show the
     same strings.
+
+    Pass *draft* — the text the report was produced from — to attach the patch
+    ids each entry maps to, so a UI shows the same numbers the model addressed.
+    An entry can carry several ids (a duplicated sentence has one per copy) or
+    none (structural repetition has no span, and a finding the detectors
+    segmented differently from the draft is not addressable at all). Without a
+    draft the ``ids`` key is omitted rather than guessed.
     """
+    # Imported here rather than at module scope: targets.py reads the report
+    # shape this module defines, so a top-level import would cycle.
+    from .targets import build_targets, target_ids_for
+
+    targets = build_targets(report, draft) if draft else []
+
+    def ids(snippet: str) -> dict[str, list[int]]:
+        return {"ids": target_ids_for(targets, snippet)} if draft else {}
+
     sections: dict[str, list[dict]] = {}
 
     cr = report.cliche_result
     if cr.flagged_count > 0:
         sections["banned_phrases"] = [
-            {"phrase": _strip_markers(hit.phrase), "sentence": _strip_markers(fs.sentence)}
+            {"phrase": _strip_markers(hit.phrase), "sentence": _strip_markers(fs.sentence), **ids(fs.sentence)}
             for fs in cr.flagged_sentences
             for hit in fs.cliches
         ]
@@ -372,6 +393,9 @@ def report_to_dict(report: AuditReport) -> dict:
                 "opener": _strip_markers(fo.opener),
                 "count": fo.max_run,
                 "sentences": [_strip_markers(s) for s in fo.sentences[:4]],
+                # sentences[0] is the anchor the rest are compared against, so it
+                # is never a target — the ids cover the flagged remainder only.
+                **({"ids": [i for s in fo.sentences[1:] for i in target_ids_for(targets, s)]} if draft else {}),
             }
             for fo in mr.flagged_openers
         ]
@@ -383,6 +407,7 @@ def report_to_dict(report: AuditReport) -> dict:
                 "template": _strip_markers(ft.template),
                 "count": ft.count,
                 "sentences": [_strip_markers(s) for s in ft.sentences[:4]],
+                **({"ids": [i for s in ft.sentences[1:] for i in target_ids_for(targets, s)]} if draft else {}),
             }
             for ft in tr.flagged_templates
         ]
@@ -392,6 +417,7 @@ def report_to_dict(report: AuditReport) -> dict:
             {
                 "sentence": _strip_markers(nb.get("sentence", "")),
                 "parallel": bool(nb.get("is_parallel", False)),
+                **ids(nb.get("sentence", "")),
             }
             for nb in report.not_but_result
         ]
@@ -402,6 +428,7 @@ def report_to_dict(report: AuditReport) -> dict:
                 "phrase": _strip_markers(fp.phrase),
                 "count": fp.count,
                 "sentence": _strip_markers(fp.example_sentences[-1]) if fp.example_sentences else "",
+                **ids(fp.example_sentences[-1] if fp.example_sentences else ""),
             }
             for fp in report.phrase_result.flagged_phrases
         ]
@@ -412,12 +439,14 @@ def report_to_dict(report: AuditReport) -> dict:
             {
                 "message_count": len(sr.messages),
                 "skeleton": [_strip_markers(part) for part in (sr.shared_skeleton or [])],
+                # No span to patch — this finding is only ever fixed by a rewrite.
+                **({"ids": []} if draft else {}),
             }
         ]
 
     if report.echo_result and report.echo_result.flagged_echoes:
         sections["anti_echo"] = [
-            {"echo": _strip_markers(fe.echo), "matched": _strip_markers(fe.matched_phrase)}
+            {"echo": _strip_markers(fe.echo), "matched": _strip_markers(fe.matched_phrase), **ids(fe.echo)}
             for fe in report.echo_result.flagged_echoes
         ]
 

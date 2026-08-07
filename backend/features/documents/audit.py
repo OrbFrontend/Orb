@@ -3,8 +3,10 @@
 The doc-mode twin of the chat editor's audit step (``pipeline/passes/editor``):
 the same pure-prose scanners run over a generated run ("draft") with the
 preceding document text as cross-boundary context, and findings can be fixed by
-a single forced search/replace-JSON call that byte-extends the generation
-prompt (KV-cache-friendly — see ``patch_document``). Stateless like the rest of
+a single forced patch-JSON call that byte-extends the generation prompt
+(KV-cache-friendly — see ``patch_document``). Patches address findings by the
+id the numbered report gives them (``analysis.targets``), never by a ``search``
+string, so a patch can only ever land inside the draft. Stateless like the rest of
 the slice — the client POSTs draft + context after a generation ends (EOS or
 Stop), and patches apply only to the draft, never to user prose.
 
@@ -22,9 +24,11 @@ from typing import TYPE_CHECKING, Any
 
 from ...analysis import (
     AuditReport,
-    apply_patches,
+    Target,
+    apply_id_patches,
+    build_targets,
     filter_audit_report_to_text,
-    format_report,
+    format_numbered_report,
     report_to_dict,
     run_audit,
 )
@@ -64,13 +68,19 @@ _TEMPLATE_TOKEN_RE = re.compile(r"<\|[^<>]*\|>")
 # The patch contract, transport-neutral: text mode never renders the tool
 # schema and chat mode forces via response_format (no tools in the prompt), so
 # this description is the only shape the model ever sees.
+#
+# Findings are addressed by the id the numbered report gives them rather than by
+# a `search` string copied out of the continuation. That is also what keeps the
+# "patch only the continuation" rule structural instead of advisory: every id
+# resolves to an offset inside the draft core, so the earlier document text is
+# unreachable by construction.
 _PATCH_JSON_INSTRUCTION = (
     "The audited text needs fixes. Respond with a JSON object of the form "
-    '{"patches": [{"search": "...", "replace": "..."}]} — one search/replace pair per issue. '
-    "Each `search` must be copied EXACTLY from the newly generated continuation above — never from "
-    "the earlier document text. Rewrite each flagged span boldly to fix its issue while keeping the "
-    "surrounding narrative flow, preserving the author's voice, tense, and intent; an empty `replace` "
-    "deletes the span. Patch only the continuation."
+    '{"patches": [{"id": 1, "replace": "..."}]} — one patch per numbered finding. '
+    "Each `id` is the number shown in [brackets] beside the finding in the report above. "
+    "Rewrite each flagged span boldly to fix its issue while keeping the surrounding narrative "
+    "flow, preserving the author's voice, tense, and intent; an empty `replace` deletes the span. "
+    "Do not copy the old sentence into `replace`."
 )
 
 
@@ -155,8 +165,8 @@ def build_patch_prompt_raw(base: str, draft_core: str, report_text: str) -> str:
 def build_patch_messages(context: str, draft_core: str, report_text: str, *, assisted: bool) -> list[ChatMessage]:
     """The patch conversation for the CHAT-transport shapes: the generation
     messages replayed verbatim (byte parity — see ``build_generation_messages``),
-    the draft closed as the model's own turn (so ``search`` strings target it),
-    and the fix request as a pure suffix. Text mode never uses this — it
+    the draft closed as the model's own turn (so the numbered findings read as
+    edits to its own text), and the fix request as a pure suffix. Text mode never uses this — it
     byte-extends the rendered generation prompt instead (see ``patch_document``),
     because a closed assistant turn can render differently from the open
     generation prompt the draft actually followed (e.g. Qwen's injected
@@ -170,10 +180,11 @@ def build_patch_messages(context: str, draft_core: str, report_text: str, *, ass
 
 
 def _extract_patches(resp: dict) -> list:
-    """Patches from either forced-call response shape: a ``tool_calls``
-    message (message transports — grammar and response_format paths both
-    re-synthesize ``forced_tool_message``) or the grammar-constrained JSON
-    content of a raw ``/completion``. Unparseable content → ``[]``."""
+    """``{id, replace}`` patches from either forced-call response shape: a
+    ``tool_calls`` message (message transports — grammar and response_format
+    paths both re-synthesize ``forced_tool_message``) or the
+    grammar-constrained JSON content of a raw ``/completion``. Unparseable
+    content → ``[]``."""
     patches = [
         p
         for call in parse_tool_calls(resp)
@@ -219,7 +230,9 @@ async def audit_document(
     ctx = clean_context(context, assisted)
     # run_audit is CPU-bound; offload it like the editor pass does.
     report = await asyncio.to_thread(_audit_sync, core, ctx, phrase_bank, toggles)
-    return {"report": report_to_dict(report), "skipped": None, "tail_excluded": bool(tail.strip())}
+    # Numbered against the draft core, so the panel shows the same ids /patch
+    # will hand the model.
+    return {"report": report_to_dict(report, core), "skipped": None, "tail_excluded": bool(tail.strip())}
 
 
 async def patch_document(
@@ -264,14 +277,27 @@ async def patch_document(
             "patched_draft": draft,
             "patch_count": 0,
             "errors": [],
-            "report_after": report_to_dict(report),
+            "report_after": report_to_dict(report, core),
             "skipped": "clean",
+        }
+
+    targets: list[Target] = build_targets(report, core)
+    if not targets:
+        # Findings the detectors could not resolve to an offset in the core.
+        # Chat mode falls through to a whole-draft rewrite here; doc mode has no
+        # rewrite tool, so there is simply nothing addressable to ask for.
+        return {
+            "patched_draft": draft,
+            "patch_count": 0,
+            "errors": [],
+            "report_after": report_to_dict(report, core),
+            "skipped": "no_addressable_findings",
         }
 
     # The patch PROMPT rides the raw, uncapped context (byte parity with the
     # generation prompt is what keeps the KV prefix warm); only the scanners
     # see the cleaned/capped ctx above.
-    report_text = format_report(report)
+    report_text = format_numbered_report(targets)
     params = extract_hyperparams(settings, defaults={"temperature": 0.25, "max_tokens": 8192})
     schema = TOOLS["editor_apply_patch"]["schema"]
     if client.completion_mode == "text":
@@ -309,13 +335,15 @@ async def patch_document(
             resp = event["message"]
 
     patches = _extract_patches(resp)
-    patched_core, errors = apply_patches(core, patches)
-    attempted = len([p for p in patches if isinstance(p, dict) and p.get("search")])
+    patched_core, errors = apply_id_patches(core, targets, patches)
+    # apply_id_patches emits exactly one error per patch that did not apply, so
+    # the remainder is the number that did. Counting only the well-formed inputs
+    # instead would subtract the errors raised *by* the malformed ones twice.
     report_after = await asyncio.to_thread(_audit_sync, patched_core, ctx, phrase_bank, toggles)
     return {
         "patched_draft": patched_core + tail,
-        "patch_count": max(0, attempted - len(errors)),
+        "patch_count": max(0, len(patches) - len(errors)),
         "errors": errors,
-        "report_after": report_to_dict(report_after),
+        "report_after": report_to_dict(report_after, patched_core),
         "skipped": None,
     }

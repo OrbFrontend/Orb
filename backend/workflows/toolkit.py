@@ -11,7 +11,9 @@ read-modify-write on that storage, the forced-call helper,
 the tool-overlay helper, the ``local_ml`` scaffold (for workflows that
 run a small in-process classifier alongside their LLM calls), and the
 editor audit helpers (for workflows scoring their own outputs against
-the same audit logic the editor runs).
+the same audit logic the editor runs) in both renderings — ``format_report``
+for the sectioned text report and ``build_targets``/``format_numbered_report``
+for the id-addressable one the editor patches against.
 
 Workflows do not import orchestration symbols, the transactional DB
 helpers (``add_message``, etc.), director-state
@@ -27,6 +29,8 @@ from typing import Any
 
 from ..analysis import (
     FormatDriftReport,
+    build_targets,
+    format_numbered_report,
     format_report,
     normalize_to_baseline,
     run_audit,
@@ -94,6 +98,8 @@ __all__ = [
     "enabled_schemas",
     "forced_tool_call",
     "format_message_with_attachments",
+    "build_targets",
+    "format_numbered_report",
     "format_report",
     "get_character_avatar",
     "get_character_card",

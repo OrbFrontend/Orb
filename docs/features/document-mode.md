@@ -38,7 +38,7 @@ The monkey woke. He▮
 
 ## Output Auditor
 
-After each run the Output Auditor scans the new text with the chat editor's prose scanners (banned phrases, repetitive openers/templates, contrastive negation) and can fix findings with one forced search/replace-JSON patch call — automatically when **Auto-patch** is on.
+After each run the Output Auditor scans the new text with the chat editor's prose scanners (banned phrases, repetitive openers/templates, contrastive negation) and can fix findings with one forced JSON patch call that addresses each finding by its number — automatically when **Auto-patch** is on.
 
 The patch call is KV-cache-friendly by construction: it **byte-extends the generation prompt** instead of building a fresh conversation, so llama.cpp reuses the document's warm prefix for the patch and the next Generate stays warm too (`cache_prompt` prefix matching). Per shape:
 

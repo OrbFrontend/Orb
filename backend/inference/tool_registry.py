@@ -217,7 +217,11 @@ EDITOR_APPLY_PATCH_TOOL = {
     "type": "function",
     "function": {
         "name": "editor_apply_patch",
-        "description": "Apply one or more exact text replacements to the draft. Each 'search' must exactly match current draft text (case-sensitive, including punctuation). Returns an updated Audit Report.",
+        "description": (
+            "Apply one or more replacements to the draft. Each patch names a numbered finding from the "
+            "Writing Audit Report by its id and supplies the replacement text for that sentence. "
+            "Returns an updated Audit Report."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -226,18 +230,18 @@ EDITOR_APPLY_PATCH_TOOL = {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "search": {
-                                "type": "string",
-                                "description": "Exact text to find in the draft.",
+                            "id": {
+                                "type": "integer",
+                                "description": "The number of the finding being fixed, as shown in [brackets] in the report.",
                             },
                             "replace": {
                                 "type": "string",
-                                "description": "Replacement text.",
+                                "description": "Replacement text for that sentence.",
                             },
                         },
-                        "required": ["search", "replace"],
+                        "required": ["id", "replace"],
                     },
-                    "description": "Ordered list of search/replace pairs.",
+                    "description": "One patch per numbered finding.",
                 }
             },
             "required": ["patches"],

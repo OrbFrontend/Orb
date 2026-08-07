@@ -15,12 +15,12 @@ Requires a llama.cpp server (or something that speaks the same `/apply-template`
 
 - **Cheaper prompt caching.** Chat mode has to serialize Orb's tool schemas into every prompt so the model knows what it can call. Text mode never puts tool schemas in the prompt at all — forced calls are constrained by a grammar instead — so the cached prefix is just the system prompt and chat history. That's a smaller, more stable prefix, which means more cache hits.
 - **Grammar-constrained decoding.** When Orb forces a tool call, text mode compiles that tool's JSON schema into a grammar the model is decoding under, so it's structurally impossible for the model to produce broken JSON, a wrong field name, or an extra field. This all but eliminates the "model returned malformed tool call" error class.
-- **Prefill.** Orb can hand the model a partial response and have it only generate the rest, instead of regenerating text it already knows. See the Editor example below.
+- **Prefill.** Orb can hand the model a partial response and have it only generate the rest, instead of regenerating text it already knows. Reasoning prefill and Document mode's assisted generation both ride this.
 
 ## Where it shows up
 
 **Director** — each Scene Direction step now constrains the grammar to just the field being decided that step, so the model physically can't fill in fields it wasn't asked about yet (previously it just tended to anyway, despite being told not to, and Orb filtered the extras out after the fact).
 
-**Editor** — the anti-slop/anti-repetition audit already knows the exact flagged sentence for each finding. Rather than one big call where the model re-prints every flagged sentence back as a `search` string (and sometimes gets it slightly wrong, breaking the patch), text mode issues one forced `editor_apply_patch` call per finding, prefilled up through `"replace": "`. The model only generates the replacement text, grammar-locked to a valid JSON string ending in the exact closing bytes. No re-typed search strings, no wasted tokens, no stale-search errors.
+**Editor** — the forced `editor_apply_patch` call is grammar-locked to the tool's parameter schema, so the model physically cannot emit a malformed patch. Because a patch names its finding by id rather than by re-printing the flagged sentence, the generated JSON is a handful of integers plus the replacement prose — nothing the model could get subtly wrong. Text mode ran a per-finding prefill path for this before the id method landed; it is gone, and both transports now take the same single call.
 
-Both fall back to their classic, unforced-grammar behavior on chat-mode endpoints.
+The director falls back to its classic, unforced-grammar behavior on chat-mode endpoints.
