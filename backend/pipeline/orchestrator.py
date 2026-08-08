@@ -14,12 +14,19 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
-from typing import Any
+from typing import Any, TypeVar
 
 from ..core import ChatMessage, Macros
 from ..database.models import PhraseGroup
 from ..inference import LLMClient, _KVCacheTracker
 from .config import _resolve_pipeline_config, _split_interactive_fragments
+from .failures import (
+    STAGE_DIRECTOR,
+    STAGE_EDITOR,
+    STAGE_WORKFLOWS,
+    STAGE_WRITER,
+    mark_stage,
+)
 from .passes.director import direction_note_step, director_stage
 from .passes.editor import editor_stage
 from .passes.writer import writer_stage
@@ -29,8 +36,34 @@ from .workflow_bridge import _PostPipelineResult, _run_post_pipeline
 
 logger = logging.getLogger(__name__)
 
+_Ev = TypeVar("_Ev")
+
 
 # ── Core pipeline ─────────────────────────────────────────────────────────────
+
+
+async def _staged(stage: str, gen: AsyncIterator[_Ev]) -> AsyncIterator[_Ev]:
+    """Pass *gen*'s events through, labelling anything that escapes it with *stage*.
+
+    The sequence below is the only code that knows which pass is running, and a
+    failure is classified two layers up in ``entrypoints._run_turn_handler``. So
+    the label rides the exception (see ``failures.mark_stage``).
+
+    Worth the wrapper because the alternative was a frontend guess keyed on the
+    last phase event, and the phases do not line up with the passes: nothing moves
+    the frontend off ``"directing"`` until the writer's first token, so every
+    writer *rejection* -- which by definition arrives before any token -- used to
+    be reported against the director.
+
+    ``except Exception`` deliberately excludes ``GeneratorExit`` and
+    ``CancelledError``: a stop is not a failed stage and must stay untouched.
+    """
+    try:
+        async for ev in gen:
+            yield ev
+    except Exception as e:
+        mark_stage(e, stage)
+        raise
 
 
 def _make_result(state: TurnState, staged: list[dict] | None = None, staged_state: dict | None = None) -> dict:
@@ -138,17 +171,20 @@ async def _run_pipeline(
     )
 
     # --- Director pass (+ rewrite, style injection, agentic-lorebook block) ---
-    async for ev in director_stage(
-        cfg,
-        state,
-        settings=settings,
-        director=director,
-        mood_fragments=mood_fragments,
-        writer_fragments=writer_fragments,
-        attachments=attachments,
-        kv_tracker=kv_tracker,
-        lorebook=lorebook,
-        macros=macros,
+    async for ev in _staged(
+        STAGE_DIRECTOR,
+        director_stage(
+            cfg,
+            state,
+            settings=settings,
+            director=director,
+            mood_fragments=mood_fragments,
+            writer_fragments=writer_fragments,
+            attachments=attachments,
+            kv_tracker=kv_tracker,
+            lorebook=lorebook,
+            macros=macros,
+        ),
     ):
         yield ev
 
@@ -162,32 +198,38 @@ async def _run_pipeline(
     if direction_note_recording_active(settings, pre_writer_notes, agent_on=cfg.agent_on) and cfg.enabled_tools.get(
         "direct_scene"
     ):
-        async for ev in _consume_direction_note_step(
-            direction_note_step(
-                cfg.agent_lane.client,
-                cfg.agent_lane.base,
-                settings=settings,
-                direction_note_fragments=pre_writer_notes,
-                active_notes=director.get("direction_notes") or [],
-                placement="pre_writer",
-                inj_block=state.scene_direction,
-                kv_tracker=kv_tracker,
-                reasoning_on=cfg.director_reasoning_on,
-                reasoning_prefill=cfg.director_reasoning_prefill,
+        async for ev in _staged(
+            STAGE_DIRECTOR,
+            _consume_direction_note_step(
+                direction_note_step(
+                    cfg.agent_lane.client,
+                    cfg.agent_lane.base,
+                    settings=settings,
+                    direction_note_fragments=pre_writer_notes,
+                    active_notes=director.get("direction_notes") or [],
+                    placement="pre_writer",
+                    inj_block=state.scene_direction,
+                    kv_tracker=kv_tracker,
+                    reasoning_on=cfg.director_reasoning_on,
+                    reasoning_prefill=cfg.director_reasoning_prefill,
+                ),
+                state,
+                "director",
             ),
-            state,
-            "director",
         ):
             yield ev
 
     # --- Writer pass ---
-    async for ev in writer_stage(
-        cfg,
-        state,
-        settings=settings,
-        attachments=attachments,
-        kv_tracker=kv_tracker,
-        depth_block=lorebook.depth_block,
+    async for ev in _staged(
+        STAGE_WRITER,
+        writer_stage(
+            cfg,
+            state,
+            settings=settings,
+            attachments=attachments,
+            kv_tracker=kv_tracker,
+            depth_block=lorebook.depth_block,
+        ),
     ):
         yield ev
 
@@ -198,14 +240,17 @@ async def _run_pipeline(
         return
 
     # --- Editor pass (edit loop + post-writer feedback step) ---
-    async for ev in editor_stage(
-        cfg,
-        state,
-        settings=settings,
-        phrase_bank=phrase_bank,
-        feedback_fragments=feedback_fragments,
-        editor_audit_msgs=editor_audit_msgs,
-        kv_tracker=kv_tracker,
+    async for ev in _staged(
+        STAGE_EDITOR,
+        editor_stage(
+            cfg,
+            state,
+            settings=settings,
+            phrase_bank=phrase_bank,
+            feedback_fragments=feedback_fragments,
+            editor_audit_msgs=editor_audit_msgs,
+            kv_tracker=kv_tracker,
+        ),
     ):
         yield ev
 
@@ -213,21 +258,24 @@ async def _run_pipeline(
     # director_output is a plain dict (PostCtx expects a read-only mapping).
     director_output = state.as_director_output()
     post: _PostPipelineResult | None = None
-    async for ev in _run_post_pipeline(
-        draft=state.resp_text,
-        conversation_id=conversation_id,
-        character_id=character_id,
-        card=card,
-        history=history,
-        effective_msg=state.effective_msg,
-        director_output=director_output,
-        settings=settings,
-        prefix=prefix,
-        enabled_tools=cfg.enabled_tools,
-        turn_scratch=turn_scratch,
-        client=client,
-        kv_tracker=kv_tracker,
-        schema_overrides=schema_overrides,
+    async for ev in _staged(
+        STAGE_WORKFLOWS,
+        _run_post_pipeline(
+            draft=state.resp_text,
+            conversation_id=conversation_id,
+            character_id=character_id,
+            card=card,
+            history=history,
+            effective_msg=state.effective_msg,
+            director_output=director_output,
+            settings=settings,
+            prefix=prefix,
+            enabled_tools=cfg.enabled_tools,
+            turn_scratch=turn_scratch,
+            client=client,
+            kv_tracker=kv_tracker,
+            schema_overrides=schema_overrides,
+        ),
     ):
         if isinstance(ev, _PostPipelineResult):
             post = ev
@@ -246,22 +294,25 @@ async def _run_pipeline(
         and state.resp_text.strip()
         and not client.is_aborted
     ):
-        async for ev in _consume_direction_note_step(
-            direction_note_step(
-                cfg.agent_lane.client,
-                cfg.agent_lane.base,
-                settings=settings,
-                direction_note_fragments=post_turn_notes,
-                active_notes=director.get("direction_notes") or [],
-                placement="post_turn",
-                reply_text=state.resp_text,
-                writer_user_msg=state.writer_content,
-                kv_tracker=kv_tracker,
-                reasoning_on=cfg.editor_reasoning_on,
-                reasoning_prefill=cfg.editor_reasoning_prefill,
+        async for ev in _staged(
+            STAGE_EDITOR,
+            _consume_direction_note_step(
+                direction_note_step(
+                    cfg.agent_lane.client,
+                    cfg.agent_lane.base,
+                    settings=settings,
+                    direction_note_fragments=post_turn_notes,
+                    active_notes=director.get("direction_notes") or [],
+                    placement="post_turn",
+                    reply_text=state.resp_text,
+                    writer_user_msg=state.writer_content,
+                    kv_tracker=kv_tracker,
+                    reasoning_on=cfg.editor_reasoning_on,
+                    reasoning_prefill=cfg.editor_reasoning_prefill,
+                ),
+                state,
+                "editor",
             ),
-            state,
-            "editor",
         ):
             yield ev
 

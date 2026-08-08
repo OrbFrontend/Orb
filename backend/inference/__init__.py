@@ -25,6 +25,7 @@ from .endpoint_profiles import (
     note_forced_tool_choice_ignored,
     profile_for,
 )
+from .errors import LLMCallError, provider_sentence, redact
 from .kv_tracker import _KVCacheTracker
 from .lorebook import compute_constant_lorebook_block, compute_depth_lorebook_block
 from .prompt_builder import (
@@ -72,6 +73,10 @@ __all__ = [
     "separate_agent_lane_configured",
     # retry
     "RetryPolicy",
+    # errors — the provider's own words, kept
+    "LLMCallError",
+    "provider_sentence",
+    "redact",
     # endpoint_profiles — provider adapter
     "ModelProfile",
     "honors_forced_tool_choice",

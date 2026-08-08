@@ -18,6 +18,7 @@
 @import "css/status-bar.css"; /* generation status bar */
 @import "css/modals.css"; /* modal shell, tabs, character + persona + phrase-bank modals */
 @import "css/forms.css"; /* buttons, form fields, toggles, toast, tab-lock banner */
+@import "css/notifications.css"; /* toast stack + failed-turn card (after forms.css: .toast.error must out-specify the theme !important blocks) */
 @import "css/character-browser.css"; /* character library browser modal (grid/list) */
 @import "css/combobox.css"; /* settings hybrid-input combobox */
 @import "css/lorebooks.css"; /* worlds sidebar + lorebook drawer/editor */

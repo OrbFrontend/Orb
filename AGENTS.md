@@ -64,13 +64,17 @@ features/<name>/
 | `backend/pipeline/entrypoints.py` | 5 public `handle_*` functions — top of the turn lifecycle |
 | `backend/pipeline/orchestrator.py` | `_run_pipeline()`: director→writer→editor coordination |
 | `backend/pipeline/state.py` | `TurnState`, `ModelLane`, `_PipelineConfig`, `LorebookTurn` |
+| `backend/pipeline/failures.py` | `describe_failure(exc)` → the `error` event's payload; the only place a failure is classified (status class, never provider vocabulary) |
 | `backend/inference/tool_registry.py` | All tool schemas + `TOOLS`/`PRE_WRITER_TOOLS`/`POST_WRITER_TOOLS` |
+| `backend/inference/errors.py` | `LLMCallError(httpx.HTTPStatusError)` + `provider_sentence`/`redact` — keeps the provider's own words instead of `raise_for_status()`'s canned line. **Must** stay an `HTTPStatusError` or `RetryPolicy` silently stops retrying |
 | `backend/core/text_segmentation.py` | Canonical non-workflow backend sentence/quote policy; sentences never contain line breaks |
 | `backend/database/models.py` | TypedDict row contracts (the model layer) |
 | `backend/database/schema.py` | `CREATE TABLES` — source of truth for columns |
 | `backend/database/preset_schema.py` | Preset policy: `DOMAIN_ROOTS`, `SECRET_COLUMNS`, etc. |
 | `frontend/state.js` | Global `S` object — every key declared here; pub/sub bus |
-| `frontend/chat.js` | Barrel re-exporting `chat_core/stream/messages/inspector/workflow/conversations` |
+| `frontend/chat.js` | Barrel re-exporting `chat_core/stream/messages/inspector/workflow/conversations/error` |
+| `frontend/chat_error.js` | The failed-turn card: `S.turnError` → persistent card with Retry / Details / Copy, painted from `renderMessages()` |
+| `frontend/notify.js` | The toast stack — one element and one timer per entry; errors are sticky. `utils.js` re-exports `toast` from here |
 | `frontend/sse.js` | THE SSE parser (`sseEvents`, `streamPost`) — only one in the app |
 | `frontend/text_segmentation.js` | Canonical non-workflow frontend sentence policy; line breaks are standalone stream units |
 | `frontend/workflow_api.js` | Plugin facade ABI v2 — the only import for `frontend/workflows/**` |

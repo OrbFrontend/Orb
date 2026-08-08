@@ -18,6 +18,7 @@ import {
   setMessages,
   updateContextCounter,
 } from "./chat_core.js";
+import { renderTurnError } from "./chat_error.js";
 import {
   _advanceReasoningPass,
   _relightWorkflowPipelinePass,
@@ -48,6 +49,7 @@ import {
   esc,
   formatProse,
   formatProseWithDiff,
+  notifyError,
   pinStreamingMessage,
   resolvePlaceholders,
   scrollToBottom,
@@ -72,6 +74,21 @@ const PHASE_LABELS = {
   generating: "Generating response…",
   refining: "Refining response…",
 };
+
+// The compact form of the same phase, for a failure card's meta line: the
+// frontend already knows which pass was running when the error arrived, so
+// attributing the failure costs zero backend plumbing.
+// Fallback only. The pipeline now names the pass that raised (backend
+// `failures.mark_stage`), and this map cannot: nothing moves the phase off
+// "directing" until the writer's first token, so every writer *rejection* — which
+// by definition arrives before any token — lands here as "director pass". Used
+// when the payload has no stage: a FastAPI error before the generator started, or
+// a connection lost client-side.
+const PHASE_STAGES = { pending: "", directing: "director pass", generating: "writer pass", refining: "editor pass" };
+
+function phaseStage() {
+  return PHASE_STAGES[S.generationPhase] || "";
+}
 
 export function setGenerationPhase(phase) {
   if (!phase) {
@@ -332,6 +349,10 @@ export async function afterStream() {
     const ct = $("chat-messages");
     if (ct.querySelectorAll(".message[data-msg-id]").length < S.messages.length) {
       renderMessages();
+    } else {
+      // This fast path skips renderMessages, and with it the failure card's
+      // paint. Ask for it directly rather than repainting the whole list.
+      renderTurnError(ct);
     }
   } else {
     renderMessages();
@@ -419,6 +440,39 @@ function swapStreamingDraft(text, onRewrite) {
   const original = resolvePlaceholders(S.editorDraftBaseline);
   S.pendingRefineDiff = { original, ops: sentenceDiff(original, resolvePlaceholders(text)) };
   onRewrite(text);
+}
+
+// The human half of an error body that is *not* a describe_failure payload — a
+// FastAPI dependency 4xx/5xx answering before the SSE generator ever starts.
+// Same well-known keys the backend's provider_sentence walks, in the same order.
+function foreignSentence(o) {
+  const first = (v) => {
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) return v.map(first).filter(Boolean).join("; ");
+    if (v && typeof v === "object") return first(v.msg ?? v.message ?? v.detail);
+    return "";
+  };
+  return first(o.detail) || first(o.error?.message) || first(o.error) || first(o.message) || "";
+}
+
+// The `error`/`warning` data channel carries either a JSON object (the pipeline's
+// describe_failure payload) or a bare string from a legacy emitter. Only the
+// string branch is un-escaped: json.dumps already encoded the newlines *inside*
+// the JSON, so running unescapeSSE over it would corrupt the payload — the exact
+// trap sse.js documents for the document `probs` channel.
+function parseFailure(data) {
+  const raw = String(data ?? "");
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      if (typeof parsed.headline === "string" && parsed.headline) {
+        return { sentence: "", kind: "internal", ...parsed };
+      }
+      // A foreign body: keep all of it for Details, quote the readable part.
+      return { headline: "", sentence: foreignSentence(parsed), kind: "internal", body: raw };
+    }
+  } catch (_) {}
+  return { headline: unescapeSSE(raw), sentence: "", kind: "internal" };
 }
 
 function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
@@ -609,7 +663,28 @@ function handleSSEEvent(event, data, _container, msgDiv, onToken, onRewrite) {
       break;
     }
     case "error":
-      toast(`Error: ${data}`, true);
+      // Terminal. Into state, not a toast: a failed turn has to leave a trace
+      // the user can still read (and copy) a minute later. The card is painted
+      // by renderTurnError() from renderMessages(), which afterStream() runs.
+      {
+        const f = parseFailure(data);
+        S.turnError = {
+          ...f,
+          headline: f.headline || "Generation failed.",
+          convId: S.activeConvId,
+          // The backend knows which pass raised; the phase map only guesses.
+          stage: f.stage || phaseStage(),
+          at: Date.now(),
+        };
+      }
+      break;
+    case "warning":
+      // Non-terminal: a workflow hook failed but the turn continues, so this is
+      // a sticky toast rather than the card (which means "this turn failed").
+      {
+        const w = parseFailure(data);
+        notifyError(w.headline || "A workflow step failed.", { sentence: w.sentence });
+      }
       break;
     case "workflow_attachments_rejected": {
       // Stash for the post-stream renderMessages paint. Do NOT call
@@ -672,6 +747,7 @@ export async function runStreamRequest(
   setStreaming(true);
   setGenerationPhase("pending");
   $("send-btn").disabled = true;
+  S.turnError = null; // this attempt supersedes the last failure
 
   if (cutoffMsgId != null) {
     const idx = S.messages.findIndex((m) => m.id === cutoffMsgId);
@@ -690,7 +766,23 @@ export async function runStreamRequest(
   S.abortController = new AbortController();
   try {
     const resp = await streamPost(path, body, S.abortController.signal);
-    await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
+    // A 500 raised before the generator starts returns a JSON body with no
+    // blank line in it, so sseEvents yields zero frames and the loop exits
+    // clean — the one path that used to fail with no signal whatsoever.
+    if (!resp.ok) {
+      const raw = await resp.text().catch(() => "");
+      const f = parseFailure(raw);
+      S.turnError = {
+        ...f,
+        status: resp.status,
+        convId: S.activeConvId,
+        stage: f.stage || phaseStage(),
+        at: Date.now(),
+      };
+      if (!S.turnError.headline) S.turnError.headline = `Orb returned HTTP ${resp.status}.`;
+    } else {
+      await processSSEStream(resp, ct, msgDiv, S.abortController.signal);
+    }
   } catch (e) {
     if (e.name === "AbortError") {
       S.wasAborted = true;
@@ -699,7 +791,14 @@ export async function runStreamRequest(
       // an unread connection. Abort it (fetch + POST /stop) so it doesn't run
       // headless; its fallback persistence keeps whatever streamed so far.
       console.error("Stream failed client-side:", e);
-      toast(`Error: ${e.message}`, true);
+      S.turnError = {
+        headline: "Lost connection to Orb.",
+        sentence: e.message,
+        kind: "transport",
+        convId: S.activeConvId,
+        stage: phaseStage(),
+        at: Date.now(),
+      };
       stopGeneration();
     }
   }

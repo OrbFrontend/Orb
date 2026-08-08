@@ -94,6 +94,12 @@ export const S = {
   contextSize: null,
   pendingRefineDiff: null, // {original, ops} set on writer_rewrite, cleared on next stream
   editorDraftBaseline: null, // writer's pre-editor text; diff anchor across draft_update/writer_rewrite, reset on next stream
+  // The last generation failure, or null. Painted as a persistent card at the tail
+  // of the chat by chat_error.js instead of a toast that fades in three seconds.
+  // `convId` is load-bearing: the card renders only when it matches S.activeConvId,
+  // so switching conversations can't leave a stale failure hanging under someone
+  // else's chat. Cleared on the next stream start and on dismiss.
+  turnError: null, // {convId, at, headline, sentence, status, host, model, body, kind, stage}
 
   // ── Reasoning rail & Inspector · owner: chat_inspector.js
   directorState: null,

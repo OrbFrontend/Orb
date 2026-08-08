@@ -30,6 +30,7 @@ from .context import (
     _prepare_turn,
     _TurnSetup,
 )
+from .failures import describe_failure
 from .orchestrator import _run_pipeline
 from .passes.director import progressive
 from .passes.editor.editor import AUDIT_BASELINE_WINDOW
@@ -54,7 +55,9 @@ async def _run_turn_handler(
 
     Loads the pipeline context, guards the missing-conversation case, and
     converts any pipeline exception into the terminal SSE error event — one
-    place defines the error wire contract for every handler.
+    place defines the error wire contract for every handler. The payload is
+    ``describe_failure``'s dict, so the provider's own sentence survives to the
+    browser instead of being replaced by a constant (see failures.py).
     """
     try:
         ctx = await _load_pipeline_context(conversation_id, abort_token=abort_token)
@@ -63,9 +66,9 @@ async def _run_turn_handler(
             return
         async for event in body(ctx):
             yield event
-    except Exception:
+    except Exception as e:
         logger.exception("%s error", log_label)
-        yield {"event": "error", "data": "Generation failed; see server logs"}
+        yield {"event": "error", "data": describe_failure(e)}
 
 
 async def _load_direction_notes(ctx: PipelineContext, conversation_id: str, path: Sequence[Mapping[str, Any]]) -> None:

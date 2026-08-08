@@ -98,9 +98,12 @@ export function unescapeSSE(data) {
 // The streaming sibling of `api._req`: fires a POST and returns the raw Response
 // so the caller can read `resp.body` through `sseEvents`. Bypasses the `api`
 // helper deliberately — `api._req` would consume the body with `.json()`.
-// Non-ok handling is left to the caller: chat streams always return 200 (errors
-// arrive in-band as an `error` event), while document/summarize check
-// `resp.ok` and read the short error body themselves.
+// Non-ok handling is left to the caller, and every caller now does it: chat
+// streams normally return 200 with errors in-band as an `error` event, but a
+// failure raised *before* the generator starts (a dependency 500) answers with a
+// plain JSON body containing no frame separator — zero SSE events, a clean loop
+// exit, and no signal at all unless `resp.ok` is checked. `runStreamRequest`,
+// document and summarize all check it and read the short error body themselves.
 export function streamPost(path, body, signal) {
   return fetch(`/api${path}`, {
     method: "POST",

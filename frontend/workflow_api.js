@@ -41,7 +41,7 @@ import { closeModal, setModalCloseGuard, showModal } from "./modal.js";
 import { sseEvents, streamPost } from "./sse.js";
 import { effectiveWorkflowEnabled, S, subscribe } from "./state.js";
 import { broadcastWorkflowMutation } from "./tabLock.js";
-import { convUrl, esc, escAttr, toast } from "./utils.js";
+import { convUrl, esc, escAttr, notifyError, toast } from "./utils.js";
 import {
   registerClickHandler,
   registerTextEffect,
@@ -74,6 +74,7 @@ export {
   esc,
   escAttr,
   messageSegments,
+  notifyError,
   onChannel,
   pauseChannel,
   playAudio,
