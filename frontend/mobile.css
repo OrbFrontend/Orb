@@ -190,6 +190,21 @@ body {
     width: 100%;
     z-index: 120;
   }
+
+  /* A two-line provider sentence in a 420px-wide lozenge runs off a phone
+     screen. Pin both edges and let the stack be as wide as the viewport allows. */
+  .toast-stack {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-width: none;
+    align-items: stretch;
+  }
+
+  /* No .turn-error override: the card is width:100%/max-width:95% like .message,
+     which has no mobile override either, so it already tracks the column here.
+     The old `margin: 12px 8px` existed to widen a card that was shrinking to
+     fit-content — a symptom that is fixed at the source in notifications.css. */
 }
 
 /* ── Tablet modal/layout tightening ── */

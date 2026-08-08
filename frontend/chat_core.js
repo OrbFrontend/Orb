@@ -4,6 +4,7 @@
 // conversations) build on. Split out of chat.js; the public surface is
 // re-exported from chat.js.
 import { api } from "./api.js";
+import { renderTurnError } from "./chat_error.js";
 import {
   _refreshWorkflowViewportObserver,
   _renderWorkflowArtifacts,
@@ -410,6 +411,9 @@ export function renderMessages(forceBottom = false) {
         if (badgeEl) ct.appendChild(badgeEl);
         // Keep streaming box visible while editing; only hide if explicitly flagged
         if (streamingEl && !S.hideStreamingBox && !S.hideUntilBaked) ct.appendChild(streamingEl);
+        // After the last message and after the streaming bubble: a partial draft
+        // that did persist reads above the failure that cut it short.
+        renderTurnError(ct);
       },
       { forceBottom },
     );

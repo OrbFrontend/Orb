@@ -34,6 +34,7 @@ export {
   stashCardFragments,
 } from "./chat_conversations.js";
 export { renderMessages } from "./chat_core.js";
+export { clearTurnError, renderTurnError } from "./chat_error.js";
 
 export {
   clearRefineDiff,

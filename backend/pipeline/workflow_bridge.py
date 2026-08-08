@@ -7,9 +7,10 @@ attachment artifacts, per-message state), and rejects malformed or
 underscore-prefixed events so one bad hook can neither crash a turn nor
 impersonate an internal event.
 
-Depends only downward (``workflows``, ``inference``, ``core``); imports no
-pipeline sibling, so both the pre-pipeline setup path and the post-pipeline
-orchestrator path can safely import it.
+Depends only downward (``workflows``, ``inference``, ``core``) plus one leaf
+pipeline sibling, ``failures``, which itself imports no pipeline module — so both
+the pre-pipeline setup path and the post-pipeline orchestrator path can still
+safely import it.
 """
 
 from __future__ import annotations
@@ -36,6 +37,8 @@ from ..workflows import (
     public_event_error,
 )
 from ..workflows.enablement import effective_workflow_enabled
+from ..workflows.errors import WorkflowUserFacingError
+from .failures import describe_failure
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,27 @@ def _public_hook_event(ev: object, *, hook_type: str, workflow_id: str) -> dict 
         )
         return None
     return cast(dict, ev)
+
+
+def _hook_warning(exc: Exception, workflow_id: str) -> dict | None:
+    """A non-terminal ``warning`` event for a hook failure the user can act on.
+
+    The turn legitimately continues -- a post-pipeline render that the provider
+    rejected does not invalidate the prose -- so the exception stays swallowed.
+    What stops is the *hiding*: a ``WorkflowUserFacingError`` names something the
+    user chose or configured, and vanishing into the log is the failure mode
+    ``workflows/errors.py`` exists to prevent. Anything else is a defect, and a
+    defect is log-only per the same doctrine.
+
+    ``warning``, not ``error``: sse-stream.md documents ``error`` as the single
+    *terminal* channel, and a mid-stream one would break that contract.
+    """
+    if not isinstance(exc, WorkflowUserFacingError):
+        return None
+    payload = describe_failure(exc)
+    payload["headline"] = f"Workflow {workflow_id} failed."
+    payload["workflow_id"] = workflow_id
+    return {"event": "warning", "data": payload}
 
 
 @dataclass(slots=True)
@@ -202,8 +226,11 @@ async def _run_post_pipeline(
                     )
                     if public_event is not None:
                         yield public_event
-            except Exception:
+            except Exception as e:
                 logger.exception("post_pipeline hook %r failed", sub.workflow_id)
+                warning = _hook_warning(e, sub.workflow_id)
+                if warning is not None:
+                    yield warning
 
     yield _PostPipelineResult(draft, staged_attachments, staged_message_state)
 
@@ -402,5 +429,8 @@ async def _iterate_pre_pipeline_hooks(
                     )
                     if public_event is not None:
                         yield public_event
-            except Exception:
+            except Exception as e:
                 logger.exception("pre_pipeline hook %r failed", sub.workflow_id)
+                warning = _hook_warning(e, sub.workflow_id)
+                if warning is not None:
+                    yield warning

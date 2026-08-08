@@ -40,14 +40,10 @@ export function boolFlag(value) {
   return value === true || value === 1;
 }
 
-export function toast(msg, isError = false) {
-  const el = $("toast");
-  if (!el) return;
-  el.textContent = msg;
-  el.className = `toast${isError ? " toast-error" : ""}`;
-  el.classList.remove("hidden");
-  setTimeout(() => el.classList.add("hidden"), 3000);
-}
+// The toast stack lives in notify.js; re-exported here so the 192 existing
+// `import { toast } from "./utils.js"` call sites (and the frozen plugin ABI)
+// keep working unchanged.
+export { notifyError, toast } from "./notify.js";
 
 // The chat area's follow controller. Constructed once by chat_messages.js's
 // initAutoscroll() (the element doesn't exist yet at module-eval time); this is

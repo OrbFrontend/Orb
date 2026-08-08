@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from . import endpoint_profiles, text_completion
+from .errors import llm_call_error
 from .gemma_tool_format import parse_gemma_tool_calls
 from .retry import RetryPolicy
 
@@ -595,7 +596,17 @@ class LLMClient:
                             if fix is not None:
                                 logger.warning("LLM recovery: %s", fix)
                                 continue  # leave async-with cleanly, then retry
-                        resp.raise_for_status()
+
+                        # Concern 3: keep the body. raise_for_status() would
+                        # replace the provider's own sentence with httpx's canned
+                        # status line, and it is the only part the user can act on.
+                        raise llm_call_error(
+                            response=resp,
+                            body=err_text,
+                            url=self._url(),
+                            model=model,
+                            api_key=self.api_key,
+                        )
                     async for payload in self._iter_sse_payloads(resp):
                         try:
                             chunk = json.loads(payload)
@@ -784,7 +795,13 @@ class LLMClient:
         """POST *body* to llama.cpp ``/completion`` and yield each parsed SSE chunk.
 
         Races reads against abort via the shared :meth:`_iter_sse_payloads`.
-        The single HTTP seam of the text transport (patched wholesale in tests).
+        The single HTTP seam of the text transport (patched wholesale in tests,
+        which is why the signature stays exactly ``(url, body)``).
+
+        A rejection is raised as :class:`LLMCallError` with no model attributed:
+        llama.cpp's native ``/completion`` serves whichever model the server
+        loaded and the body never names one, so there is nothing honest to put
+        there.
         """
         # read=None for the same reason as the chat transport: llama.cpp is
         # silent for the whole prefill, which legitimately exceeds any flat
@@ -792,8 +809,8 @@ class LLMClient:
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, read=None), proxy=self.proxy) as client:
             async with client.stream("POST", url, json=body, headers=self._headers()) as resp:
                 if resp.status_code >= 400:
-                    await _read_error_body(resp, url)
-                    resp.raise_for_status()
+                    err_text = await _read_error_body(resp, url)
+                    raise llm_call_error(response=resp, body=err_text, url=url, model="", api_key=self.api_key)
                 async for payload in self._iter_sse_payloads(resp):
                     try:
                         yield json.loads(payload)

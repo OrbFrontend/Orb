@@ -65,9 +65,11 @@ A typical `/send` turn with reasoning on (Director + Writer), an Editor pass, an
 | 9 | `feedback` | BE→FE | `{ "values": {...} }` | *Optional.* User-facing notes; display-only, re-renders the inspector. |
 | 10 | `direction_notes` | BE→FE | `{ "notes": [...] }` | *Optional.* The Director's persistent notes recorded this turn; display-only, re-renders the inspector's Direction Notes block. |
 | 11 | `phase_status`, `tts_autoplay`, … | BE→FE | varies | Secondary-workflow passthrough (see §6). |
-| 12 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
+| 12 | `warning` | BE→FE | `{ "headline": "…", "sentence": "…", "kind": "workflow", "workflow_id": "…" }` | *Optional, non-terminal.* A secondary-workflow hook raised a `WorkflowUserFacingError`; the turn continues. FE shows a sticky error toast. |
+| 13 | `error` | BE→FE | a JSON object (see §7), or a bare string from a legacy emitter | **Terminal.** FE stores it in `S.turnError` and paints the failure card. |
+| 14 | `done` | BE→FE | *(none)* | Terminal. Stream closes; FE runs `afterStream()`. |
 
-The only event whose `data` is **not** JSON is `token` — it's a raw text delta, with newlines escaped to `\n` and un-escaped on arrival.
+The only event whose `data` is **not** JSON is `token` — it's a raw text delta, with newlines escaped to `\n` and un-escaped on arrival. (`error` is the one dual-shape channel: JSON from the pipeline handlers, a bare string from the pre-pipeline guards listed in §7.)
 
 ---
 
@@ -109,7 +111,9 @@ To prevent collisions, the orchestrator drops any hook attempt to emit a reserve
 - **Stop.** Clicking Stop sends `POST …/stop`, which fires the conversation's `abort_token`. The backend breaks its LLM loop and closes the upstream connection cleanly — no task cancellation needed.
 - **Disconnect.** If the user closes the tab without clicking Stop, a background watcher polling `request.is_disconnected()` trips the same `abort_token` as a backstop.
 - **Partial persistence.** Whether the turn finishes, aborts, or errors, `_consume_pipeline`'s `finally` runs exactly once — persisting whatever prose streamed so far, so an interrupted turn is never lost.
-- **Errors** arrive as a single `error` event whose `data` is a human-readable string; the frontend toasts it. There is exactly one error channel — no separate mid-stream HTTP status.
+- **Errors** arrive as a single **terminal** `error` event. Its `data` is **a JSON object, or a bare string from a legacy emitter** — the frontend tries `JSON.parse` and falls back to treating the whole payload as the headline. The object is `pipeline/failures.py`'s `describe_failure(exc)`: `{headline, sentence, kind}` always, plus `status`/`host`/`model`/`body` when the failure was attributable to a provider call. `headline` is what Orb can assert from the status class alone; `sentence` is the provider's own words, credential-redacted and capped; `body` is the full raw response for the Details pane. `kind` is `provider` | `transport` | `workflow` | `internal`, where `internal` marks a defect (no `body`, and `sentence` is the exception repr). The bare-string emitters that stay as-is: `documents.py`, `conversations.py`, `deps.py`'s concurrency guard, `entrypoints.py`'s missing-conversation guard, and the on-demand routes in `workflows.py`.
+  A **JSON `error` payload must not be run through the frontend's `unescapeSSE`** — `json.dumps` already escaped the newlines *inside* the JSON, so un-escaping would corrupt it (the same trap `sse.js` documents for the document `probs` channel).
+- **Warnings** are the non-terminal sibling: a workflow hook whose `WorkflowUserFacingError` the pipeline legitimately swallows still emits `warning` with the same payload shape and `kind: "workflow"`. `error` stays the single terminal channel; a mid-stream `error` would break that.
 - **Concurrency.** A per-conversation lock (`_conversation_stream_locks`) allows only one active stream per conversation. A second concurrent `/send` gets an immediate `error` ("Another generation is already running") rather than racing.
 
 ---

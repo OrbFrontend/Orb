@@ -43,6 +43,7 @@ LAYERS = {
     "state.js": 1,
     "workflow_registry.js": 1,
     "utils.js": 1,
+    "notify.js": 1,
     # L2 services.
     "tabLock.js": 2,
     "audio_schedule.js": 2,
@@ -65,6 +66,7 @@ LAYERS = {
     # the audit's target, enforced loosely here via the layer rule only).
     "chat.js": 5,
     "chat_core.js": 5,
+    "chat_error.js": 5,
     "chat_stream.js": 5,
     "chat_messages.js": 5,
     "chat_inspector.js": 5,
@@ -125,6 +127,7 @@ FROZEN_ABI = {
     "esc",
     "escAttr",
     "toast",
+    "notifyError",
     "showModal",
     "closeModal",
     "setModalCloseGuard",
