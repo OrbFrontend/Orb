@@ -29,6 +29,7 @@ from ...core.text_segmentation import (
 )
 
 __all__ = [
+    "HARD_LINE_BREAK_RE",
     "PARA_SPLIT",
     "SENT_SPLIT",
     "OPEN_QUOTES",
@@ -37,6 +38,7 @@ __all__ = [
     "EMPHASIS_RE",
     "split_paragraphs",
     "split_sentences",
+    "split_sentence_units",
     "sentence_boundary_ends",
     "ends_with_sentence_terminator",
     "split_segment_sentences",

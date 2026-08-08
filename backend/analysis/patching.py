@@ -25,6 +25,7 @@ from .audit import AuditReport
 from .detectors.opening_monotony import FlaggedOpener, MonotonyResult
 from .detectors.slop_detector import DetectionResult
 from .detectors.template_repetition import FlaggedTemplate, TemplateResult
+from .healing import heal_replacement
 from .targets import Target
 from .text.text_segmentation import split_narration_sentences
 
@@ -162,6 +163,17 @@ def _coerce_id(raw: object) -> int | None:
     return None
 
 
+def _no_op_error(tid: int) -> str:
+    """The one no-op message, raised both on the raw `replace` and on the healed one.
+
+    A replacement can arrive equal to the flagged text, or become equal to it
+    once the context it copied is trimmed off (``Bad. C.`` over ``Bad.``). Both
+    edit nothing, so both must read the same to the model and cost the same one
+    error to the ``len(patches) - len(errors)`` count.
+    """
+    return f"Error: the patch for id {tid} is a no-op — `replace` repeats the flagged text unchanged."
+
+
 def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[Any]) -> tuple[str, list[str]]:
     """Apply ``{"id": N, "replace": "…"}`` patches by splicing recorded offsets.
 
@@ -169,12 +181,19 @@ def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[An
     ids are renumbered on every re-audit, so a stale list silently edits the
     wrong sentences.
 
+    Every replacement is run through :func:`analysis.healing.heal_replacement`
+    before it lands, which drops sentences the model copied out of the draft on
+    either side of its target — the mis-aim that otherwise prints a sentence
+    twice. A replacement that is *only* such copies heals to nothing and is
+    rejected rather than deleting the flagged span on a guess.
+
     Errors are written in the report's own id vocabulary because they are fed
-    back to the model verbatim as the tool result. The only failure modes left
-    are a malformed patch and a no-op replacement; nothing here can fail to
-    *find* its anchor. Exactly one error is emitted per patch that does not
-    apply, so callers can count applications as ``len(patches) - len(errors)``.
-    Returns ``(updated_draft, error_messages)``.
+    back to the model verbatim as the tool result. The failure modes are a
+    malformed patch, a no-op replacement (before *or* after healing), and one
+    that heals away entirely; nothing here can fail to *find* its anchor.
+    Exactly one error is emitted per patch that does not apply, so callers can
+    count applications as ``len(patches) - len(errors)``. Returns
+    ``(updated_draft, error_messages)``.
     """
     errors: list[str] = []
     by_id = {t.tid: t for t in targets}
@@ -215,16 +234,31 @@ def apply_id_patches(draft: str, targets: Sequence[Target], patches: Sequence[An
             errors.append(f"Error: the patch for id {pid} has a non-text `replace` ({type(replace).__name__}). Send a string.")
             continue
         if replace == target.span:
-            errors.append(f"Error: the patch for id {pid} is a no-op — `replace` repeats the flagged text unchanged.")
+            errors.append(_no_op_error(pid))
             continue
         resolved.append((target, replace))
 
     # Splice back-to-front so the offsets ahead of each edit stay valid. Targets
     # never overlap (build_targets merges regions that do), so this is exact.
+    # Healing reads `out`, not `draft`: back-to-front means everything after the
+    # span is already in its final form, which is exactly the text a replacement
+    # must not duplicate.
     out = draft
+    heal_errors: list[str] = []
     for target, replace in sorted(resolved, key=lambda r: r[0].start, reverse=True):
-        out = out[: target.start] + replace + out[target.end :]
-        logger.debug("Patch id %d OK: %r → %r", target.tid, target.span[:60], replace[:60])
+        healed = heal_replacement(out, target.start, target.end, replace)
+        for note in healed.notes:
+            logger.info("Patch id %d healed: %s", target.tid, note)
+        if healed.rejection is not None:
+            heal_errors.append(f"Error: the patch for id {target.tid} {healed.rejection}.")
+            continue
+        if healed.replace == out[healed.start : healed.end]:
+            heal_errors.append(_no_op_error(target.tid))
+            continue
+        out = out[: healed.start] + healed.replace + out[healed.end :]
+        logger.debug("Patch id %d OK: %r → %r", target.tid, target.span[:60], healed.replace[:60])
 
+    # Reversed so the heal rejections read in document order like the report did.
+    errors.extend(reversed(heal_errors))
     logger.debug("Patch application done: %d errors out of %d patches", len(errors), len(patches))
     return out, errors

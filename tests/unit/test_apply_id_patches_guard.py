@@ -48,8 +48,10 @@ def test_patch_order_does_not_matter(targets):
 
 
 def test_empty_replace_deletes_the_span(targets):
+    # The span never included its separator, so a bare splice would strand one.
+    # Healing closes the seam — see tests/unit/test_patch_healing.py.
     out, errors = apply_id_patches(DRAFT, targets, [{"id": 1, "replace": ""}])
-    assert out == " Beta two. Gamma three."
+    assert out == "Beta two. Gamma three."
     assert errors == []
 
 
