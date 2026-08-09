@@ -1,9 +1,11 @@
 """Healing for patches that restate the draft around their target span.
 
-Models mis-aim ``editor_apply_patch`` in two recurring ways — rewriting the
-sentence *before* the flagged one, or handing back the flagged sentence plus the
-one *after* it. Both splice into visible duplication, so the replacement is
-trimmed of any sentence that already exists next to the span.
+Models mis-aim ``editor_apply_patch`` in three recurring ways — rewriting the
+sentence *before* the flagged one, handing back the flagged sentence plus the
+one *after* it, or restating the lead-in of the flagged sentence's own line
+(spans stop at block boundaries, so a flagged dialogue tag leaves the dialogue
+in the draft). All three splice into visible duplication, so the replacement is
+trimmed of any run of words that already exists against that end of the span.
 
 The trims are exact-after-normalisation on purpose; the "leaves alone" tests
 below are the half of the contract that stops healing from eating real prose.
@@ -24,7 +26,7 @@ def _patch(draft: str, span: str, replace: str, *, start: int | None = None) -> 
     return apply_id_patches(draft, [target], [{"id": 1, "replace": replace}])
 
 
-# ── The two reported mis-aims ─────────────────────────────────────────────────
+# ── The three reported mis-aims ───────────────────────────────────────────────
 
 
 def test_replacement_restating_the_previous_sentence_is_rejected():
@@ -46,6 +48,38 @@ def test_replacement_swallowing_the_next_sentence_is_trimmed():
     assert errors == []
 
 
+def test_replacement_restating_the_dialogue_it_was_not_given_is_trimmed():
+    # The reported case. Only the tag was flagged, so only the tag was cut out —
+    # the dialogue the model echoed back in front of it is still in the draft.
+    draft = '"I am not... flaky," I choke out, my voice small and thin.'
+    out, errors = _patch(
+        draft,
+        "I choke out, my voice small and thin.",
+        '"I am not... flaky," I gasp, the words strained and thin.',
+    )
+    assert out == '"I am not... flaky," I gasp, the words strained and thin.'
+    assert errors == []
+
+
+def test_partial_overlap_is_trimmed_on_the_tail_side_too():
+    # The mirror image: the replacement runs on into the clause that follows the
+    # span, which stops mid-sentence for the same block-boundary reason.
+    draft = "She stared at the door, waiting for it to open."
+    out, errors = _patch(draft, "She stared at the door,", "She watched the door, waiting for it")
+    assert out == "She watched the door, waiting for it to open."
+    assert errors == []
+
+
+def test_a_whole_line_restatement_leaves_the_flagged_text_unchanged():
+    # Echoing the line back verbatim heals down to the flagged tag itself, which
+    # edits nothing — one error, not a silently applied patch.
+    draft = '"I am not... flaky," I choke out, my voice small and thin.'
+    span = "I choke out, my voice small and thin."
+    out, errors = _patch(draft, span, draft)
+    assert out == draft
+    assert errors == ["Error: the patch for id 1 is a no-op — `replace` repeats the flagged text unchanged."]
+
+
 # ── Shape of the trim ─────────────────────────────────────────────────────────
 
 
@@ -57,7 +91,7 @@ def test_both_ends_are_trimmed_in_one_patch():
 
 
 def test_longest_overlap_wins_over_the_nearest_one():
-    # Testing one sentence at a time would compare "Keep B." against "Keep A.",
+    # Testing the shortest overlap first would compare "B." against "Keep",
     # miss, and leave both copies in the draft.
     draft = "Bad line. Keep A. Keep B."
     out, _ = _patch(draft, "Bad line.", "Good line. Keep A. Keep B.")
@@ -84,7 +118,7 @@ def test_outer_whitespace_on_a_replacement_is_stripped():
 
 def test_dangling_emphasis_marker_does_not_hide_the_repeat():
     # The target span excludes the `*` wrapping it, so the draft to the left ends
-    # in a marker fragment. It must not read as a sentence between the two copies.
+    # in a marker fragment. It must not read as a word between the two copies.
     draft = '"I\'m bored." *She murmured.*'
     out, errors = _patch(draft, "She murmured.", '"I\'m bored."')
     assert out == draft
@@ -113,6 +147,24 @@ def test_differing_terminator_is_a_different_sentence():
     draft = "Bad line. The wind howled."
     out, _ = _patch(draft, "Bad line.", "Good line. The wind howled!")
     assert out == "Good line. The wind howled! The wind howled."
+
+
+def test_an_overlap_that_is_not_end_aligned_is_not_trimmed():
+    # "the door" is shared, but it sits inside the replacement rather than
+    # against the span's edge, so trimming it could not rejoin into one line.
+    draft = "He hated the door. It stayed shut."
+    out, errors = _patch(draft, "He hated the door.", "The door mocked him.")
+    assert out == "The door mocked him. It stayed shut."
+    assert errors == []
+
+
+def test_the_trim_never_cuts_inside_a_word():
+    # A shared prefix of a longer word is not a copy of anything: comparison is
+    # whole words, so "dog" against "dogged" is a miss, not a three-char trim.
+    draft = "She whistled for the dog dogged by the rain."
+    out, errors = _patch(draft, "dogged by the rain.", "dogged along beside her.")
+    assert out == "She whistled for the dog dogged along beside her."
+    assert errors == []
 
 
 def test_a_clean_replacement_is_untouched():

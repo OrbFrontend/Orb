@@ -2,8 +2,8 @@
 
 :func:`analysis.patching.apply_id_patches` splices the model's ``replace`` text
 over the exact offsets the audit recorded, so a patch is only as good as the
-model's aim. Two mis-aims recur across providers, and both turn into visible
-duplication the moment the splice lands:
+model's aim. Three mis-aims recur across providers, and all three turn into
+visible duplication the moment the splice lands:
 
 * **Restating the sentence before.** ``"I'm bored." She murmured.`` with the
   dialogue tag flagged comes back as ``"I'm bored."`` — the model meant to drop
@@ -13,19 +13,36 @@ duplication the moment the splice lands:
   sound was the wind.`` with the first sentence flagged comes back as ``The air
   was crisp. The only sound was the wind.`` — the tail copies text that is still
   sitting in the draft, so the splice prints it twice.
+* **Restating the lead-in of the flagged sentence's own line.** Most spans stop
+  at a block boundary rather than a sentence boundary: flagging the dialogue tag
+  in ``"I am not... flaky," I choke out, my voice small and thin.`` targets the
+  narration alone. The model answers with the whole line — ``"I am not...
+  flaky," I gasp, the words strained and thin.`` — and the splice prints the
+  dialogue twice, because only the tag was ever cut out.
 
-Both are one defect: the replacement carries sentences that duplicate draft text
+All three are one defect: the replacement carries text that duplicates the draft
 *outside* the target span. That text was never in scope, it is already in the
 draft, and a copy of it is therefore never new prose — so it can always be
-dropped. Healing trims those sentences off either end of the replacement and
+dropped. Healing trims the duplicated run off either end of the replacement and
 closes the whitespace a trim (or a deliberate deletion) strands.
 
-**The comparison is whole-sentence and exact after normalisation — never fuzzy.**
-Genuinely similar neighbours score high on any similarity ratio ("He nodded." /
-"She nodded." is 0.95 by ``difflib``), and trimming one of those would delete
-prose the model wrote on purpose. Exact-after-normalisation cannot make that
-mistake: the only thing it can remove is text that already exists, unchanged,
-next door.
+**Trimming an end-aligned copy cannot change what the model wrote.** Split the
+draft as ``P + L`` before the span and ``T + S`` after it; a replacement that
+restates its context is ``L + M + T``, and splicing it verbatim yields
+``P L·L M T·T S`` — each copied run printed twice. Splicing the trimmed ``M``
+yields ``P L M T S``: the model's own line, read once. That identity is what
+licenses the trim, and it holds only while the overlap is exact and anchored to
+the ends. An overlap found loose in the middle would not rejoin, and a merely
+*similar* neighbour would be prose the model wrote on purpose — "He nodded." and
+"She nodded." score 0.95 on any similarity ratio, so nothing here is fuzzy: only
+an unchanged, adjacent copy can be removed.
+
+**The unit of comparison is the word, not the sentence.** The third mis-aim
+above stops mid-sentence — the copy ends exactly where the flagged span begins,
+which is a clause boundary far more often than a sentence boundary. Case and
+whitespace are normalised away; punctuation and emphasis markers stay
+significant, since ``The wind howled.`` and ``The wind howled!`` are different
+text and only an unchanged copy may be trimmed.
 
 **Healing never deletes on the model's behalf.** A replacement that is *entirely*
 restated context contributes no new prose at all, so the patch is rejected as a
@@ -37,10 +54,11 @@ silent data loss as the hazard this whole path is designed against.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .text.text_segmentation import HARD_LINE_BREAK_RE, PARA_SPLIT, split_sentence_units
+from .text.text_segmentation import HARD_LINE_BREAK_RE, PARA_SPLIT
 
 __all__ = ["HealedPatch", "heal_replacement"]
 
@@ -60,55 +78,50 @@ class HealedPatch:
     rejection: str | None = None
 
 
-# ── Sentence comparison ───────────────────────────────────────────────────────
+# ── Word comparison ───────────────────────────────────────────────────────────
 
 
-def _key(sentence: str) -> str:
-    """Comparison key for "this is the same sentence".
+_WORD_RE = re.compile(r"\S+")
 
-    Case and whitespace only. Punctuation and emphasis markers stay significant:
-    ``The wind howled.`` and ``The wind howled!`` are different sentences, and
-    the whole guard against over-trimming is that only an unchanged copy matches.
+
+def _word_spans(text: str) -> list[tuple[int, int]]:
+    """Offsets of each whitespace-delimited word within *text*.
+
+    Trimming works on offsets rather than on the word strings because rejoining
+    them would flatten the separators: a replacement spanning two paragraphs
+    would come back on one line. Slicing between two spans keeps whatever the
+    model wrote in between, byte for byte.
     """
-    return " ".join(sentence.split()).casefold()
+    return [match.span() for match in _WORD_RE.finditer(text)]
+
+
+def _key(word: str) -> str:
+    """Comparison key for "this is the same word".
+
+    Case only — whitespace cannot survive the tokenizer. Punctuation and
+    emphasis markers stay significant: ``howled.`` and ``howled!`` are different
+    words, and the whole guard against over-trimming is that only an unchanged
+    copy matches.
+    """
+    return word.casefold()
 
 
 def _neighbour_keys(text: str) -> list[str]:
     """Comparison keys for the draft on one side of the span, nearest last/first.
 
-    Punctuation-only units are dropped. A target span excludes the emphasis
+    Punctuation-only words are dropped. A target span excludes the emphasis
     markers wrapping it (``audit._strip_markers``), so the draft left behind can
-    end in a dangling ``*`` — as its own unit that fragment would sit between the
-    replacement and the sentence it actually duplicates, and hide the repeat.
+    end in a dangling ``*`` — as its own word that fragment would sit between the
+    replacement and the text it actually duplicates, and hide the repeat.
     """
-    return [_key(unit) for unit in split_sentence_units(text) if any(ch.isalnum() for ch in unit)]
-
-
-def _unit_spans(text: str) -> list[tuple[int, int]]:
-    """Offsets of each sentence unit within *text*.
-
-    Trimming works on offsets rather than on the unit strings because
-    ``split_sentence_units`` drops the separators: rejoining its output would
-    flatten a replacement that spans two paragraphs onto one line. Units are
-    source-contiguous and in order (splitting only strips their edges), so a
-    forward scan locates each one exactly.
-    """
-    spans: list[tuple[int, int]] = []
-    cursor = 0
-    for unit in split_sentence_units(text):
-        idx = text.find(unit, cursor)
-        if idx < 0:  # unreachable while units stay source-contiguous; degrade to "no trim"
-            return []
-        spans.append((idx, idx + len(unit)))
-        cursor = idx + len(unit)
-    return spans
+    return [_key(word) for word in _WORD_RE.findall(text) if any(ch.isalnum() for ch in word)]
 
 
 def _tail_repeat(keys: Sequence[str], following: Sequence[str]) -> int:
-    """How many trailing sentences of the replacement repeat the draft ahead of it.
+    """How many trailing words of the replacement repeat the draft ahead of it.
 
     Longest overlap first: a replacement ending ``[A, B]`` in front of a draft
-    starting ``[A, B, C]`` repeats *two* sentences, and testing k=1 first would
+    starting ``[A, B, C]`` repeats *two* words, and testing k=1 first would
     compare ``B`` against ``A``, miss, and leave both duplicated.
     """
     for k in range(min(len(keys), len(following)), 0, -1):
@@ -118,7 +131,7 @@ def _tail_repeat(keys: Sequence[str], following: Sequence[str]) -> int:
 
 
 def _head_repeat(keys: Sequence[str], preceding: Sequence[str]) -> int:
-    """How many leading sentences of the replacement repeat the draft behind it."""
+    """How many leading words of the replacement repeat the draft behind it."""
     for k in range(min(len(keys), len(preceding)), 0, -1):
         if list(keys[:k]) == list(preceding[-k:]):
             return k
@@ -177,7 +190,7 @@ def heal_replacement(draft: str, start: int, end: int, replace: str) -> HealedPa
     prefix and no trailing period) when nothing new survives the repair.
     """
     text = replace.strip()
-    spans = _unit_spans(text)
+    spans = _word_spans(text)
     keys = [_key(text[s:e]) for s, e in spans]
     notes: list[str] = []
     lo, hi = 0, len(spans)
@@ -185,11 +198,13 @@ def heal_replacement(draft: str, start: int, end: int, replace: str) -> HealedPa
     trailing = _tail_repeat(keys, _neighbour_keys(draft[end:]))
     if trailing:
         hi -= trailing
-        notes.append(f"trimmed {trailing} trailing sentence(s) copied from the draft after the span")
+        notes.append(f"trimmed {trailing} trailing word(s) copied from the draft after the span")
+    # Measured against what the tail trim left, so a replacement that is *all*
+    # restated context is not counted twice and still heals down to nothing.
     leading = _head_repeat(keys[lo:hi], _neighbour_keys(draft[:start]))
     if leading:
         lo += leading
-        notes.append(f"trimmed {leading} leading sentence(s) copied from the draft before the span")
+        notes.append(f"trimmed {leading} leading word(s) copied from the draft before the span")
     if lo or hi < len(spans):
         text = text[spans[lo][0] : spans[hi - 1][1]].strip() if lo < hi else ""
 
